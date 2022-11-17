@@ -3,7 +3,6 @@ Created on 23 Apr 2022
 
 @author: francois
 '''
-import config
 import os
 from subprocess import Popen, PIPE
 from configparser import ConfigParser
@@ -41,8 +40,4 @@ def launch_cmdExt(cmd):
     exitCode = cmdDownload.returncode
     return stdout, stderror, exitCode
 
-tmpFolder = config.tmpFolder
-basicsInfos = config_loader(config.basicInfosFile,"basic")
-software = config_loader(config.basicInfosFile,"software")
-
-os.chdir(basicsInfos["pwd"])
+tmpFolder = "/tmp"

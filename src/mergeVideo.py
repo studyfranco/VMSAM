@@ -6,12 +6,9 @@ Created on 24 Apr 2022
 This software need libchromaprint-tools,ffmpeg,mediainfo
 '''
 
-import tools
 import argparse
-from video import video,get_ID_best_quality_video,get_common_audios_language,get_worse_quality_audio_param,get_shortest_audio_durations
-from os import path,remove
+from os import path,remove,chdir
 from time import strftime,gmtime
-from audioCorrelation import correlate,test_calcul_can_be
 
 numberCut = 10
 
@@ -195,7 +192,7 @@ def mergeVideo(files,outFolder,inFolder=None):
         for file in files:
             videosObj.append(video(inFolder,file))
             
-    mergeRules = tools.config_loader(tools.config.basicInfosFile,"mergerules")
+    mergeRules = tools.config_loader(args.config,"mergerules")
     audioRules = decript_merge_rules(mergeRules['audio'])
     videoRules = decript_merge_rules(mergeRules['video'])
     
@@ -236,12 +233,26 @@ def mergeVideo(files,outFolder,inFolder=None):
         print(f"{baseVideoObj.fileName} {delays}")
 
 if __name__ == '__main__':
-    #mergeVideo(["/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Grancrest Senki/Saison 1/Grancrest Senki - S01E01 – Pacte.mkv","/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Grancrest Senki/Saison 1/[Erai-raws] Grancrest Senki - 01 [1080p][Multiple Subtitle].mkv"],"/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Grancrest Senki/Saison 1")
-    #mergeVideo(["/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Code Geass [tvdb-79525]/Saison 2/[TheFantastics] Code Geass - Lelouch of the Rebellion - S02E05 - Knight of Round.mkv","/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Code Geass [tvdb-79525]/Saison 2/[DragsterPS] Code Geass - Lelouch of the Rebellion S02E05 [1080p] [Multi-Audio] [Multi-Subs] [9888A1D6].mkv"],"/run/user/1000/gvfs/smb-share:server=serv-franco,share=data/Plex/a ranger/Code Geass [tvdb-79525]/Saison 2")
     parser = argparse.ArgumentParser(description='This script process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f","--file", metavar='file', type=str, required=True, help="File(s) you want annalyse separate with commat")
-    parser.add_argument("--folder", metavar='folder', type=str, default=None, help="Folder who contain fastq to annalyse")
+    parser.add_argument("-f", "--file", metavar='file', type=str,
+                       required=True, help="File(s) you want merge separate with commat")
+    parser.add_argument("--folder", metavar='folder', type=str,
+                       default=None, help="If All files are in the same folder, in this option give the path of the folder who contain files to merge and don't write it for all files")
     parser.add_argument("-c","--core", metavar='core', type=int, default=1, help="number of core the software can use")
-    parser.add_argument("-o","--out", metavar='outdir', type=str, default=".", help="Folder where send files")
+    parser.add_argument("-o","--out", metavar='outdir', type=str, default=".", help="Folder where send new files")
+    parser.add_argument("--tmp", metavar='tmpdir', type=str,
+                        default="/tmp", help="Folder where send temporar files")
+    parser.add_argument("--config", metavar='configFile', type=str,
+                        default="config.ini", help="Path to the config file, by default use the config in the software folder")
+    parser.add_argument("--pwd", metavar='pwd', type=str,
+                        default=".", help="Path to the software, put it if you use the folder from another folder")
     args = parser.parse_args()
+    
+    software = tools.config_loader(args.config, "software")
+    chdir(args.pwd)
+    import tools
+    from video import video, get_ID_best_quality_video, get_common_audios_language, get_worse_quality_audio_param, get_shortest_audio_durations
+    from audioCorrelation import correlate, test_calcul_can_be
+    tools.tmpFolder = args.tmp
+    
     mergeVideo(args.file.split(","), args.out, args.folder)
