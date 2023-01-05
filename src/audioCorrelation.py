@@ -130,3 +130,148 @@ def test_calcul_can_be(filename):
     except Exception as e:
         print(e)
         return False
+
+'''
+4 Jan 2023
+Based on https://github.com/rpuntaie/syncstart/blob/main/syncstart.py
+'''
+import matplotlib
+matplotlib.use('TkAgg')
+from matplotlib import pyplot as plt
+import numpy as np
+from scipy import fft
+from scipy.io import wavfile
+from os import path,remove
+
+ax = None
+normalize = False
+denoise = False
+lowpass = 0
+
+ffmpeglow = [tools.software["ffmpeg"], "-y", "-hwaccel", "-threads", str(tools.core_to_use), "-i", '"{}"', "-af", f"'lowpass=f={lowpass}'", '"{}"']
+
+def get_files_metrics(outfile):
+    r,s = wavfile.read(outfile)
+    if len(s.shape)>1: #stereo
+        s = s[:,0]
+    return r,s
+
+def generate_norm_cmd(in_file,out_file):
+    return [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", in_file, "-filter_complex",
+            "[0:0]loudnorm=i=-23.0:lra=7.0:tp=-2.0:offset=4.45:linear=true:print_format=json[norm0]",
+            "-map_metadata", "0", "-map_metadata:s:a:0", "0:s:a:0", "-map_chapters", "0", "-c:v", "copy", "-map", "[norm0]",
+            "-c:a:0", "pcm_s16le", "-c:s", "copy", out_file]
+
+def read_normalized(in1,in2):
+    from video import ffmpeg_pool
+    base_namme_in1 = path.splitext(path.basename(in1))[0]
+    out_in1 = path.join(tools.tmpFolder,base_namme_in1+".wav")
+    job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", in1, "-c:a", "pcm_s16le", "-map", "0:a", out_in1],) )
+    
+    base_namme_in2 = path.splitext(path.basename(in2))[0]
+    out_in2 = path.join(tools.tmpFolder,base_namme_in2+".wav")
+    job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", in2, "-c:a", "pcm_s16le", "-map", "0:a", out_in2],) )
+    
+    job_in1.get()
+    r1,s1 = get_files_metrics(out_in1)
+    job_in2.get()
+    r2,s2 = get_files_metrics(out_in2)
+    if r1 != r2:
+        out_in1_norm = path.join(tools.tmpFolder,base_namme_in1+"_norm.wav")
+        job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(out_in1,out_in1_norm),) )
+        out_in2_norm = path.join(tools.tmpFolder,base_namme_in2+"_norm.wav")
+        job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(out_in2,out_in2_norm),) )
+            
+        job_in1.get()
+        r1,s1 = get_files_metrics(out_in1_norm)
+        remove(out_in1)
+        job_in2.get()
+        r2,s2 = get_files_metrics(out_in2_norm)
+        remove(out_in2)
+        if r1 != r2:
+            out_in1_norm_denoise = path.join(tools.tmpFolder,base_namme_in1+"_norm_denoise.wav")
+            job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
+            out_in2_norm_denoise = path.join(tools.tmpFolder,base_namme_in2+"_norm_denoise.wav")
+            job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in2_norm, "-af", "'afftdn=nf=-25'", out_in2_norm_denoise],) )
+            
+            job_in1.get()
+            r1,s1 = get_files_metrics(out_in1_norm_denoise)
+            remove(out_in1_norm)
+            remove(out_in1_norm_denoise)
+            job_in2.get()
+            r2,s2 = get_files_metrics(out_in2_norm_denoise)
+            remove(out_in2_norm)
+            remove(out_in2_norm_denoise)
+        else:
+            remove(out_in1_norm)
+            remove(out_in2_norm)
+    else:
+        remove(out_in1)
+        remove(out_in2)
+
+    assert r1 == r2, "not same sample rate"
+    fs = r1
+    return fs,s1,s2
+
+def corrabs(s1,s2):
+    ls1 = len(s1)
+    ls2 = len(s2)
+    padsize = ls1+ls2+1
+    padsize = 2**(int(np.log(padsize)/np.log(2))+1)
+    s1pad = np.zeros(padsize)
+    s1pad[:ls1] = s1
+    s2pad = np.zeros(padsize)
+    s2pad[:ls2] = s2
+    corr = fft.ifft(fft.fft(s1pad)*np.conj(fft.fft(s2pad)))
+    ca = np.absolute(corr)
+    xmax = np.argmax(ca)
+    return ls1,ls2,padsize,xmax,ca
+
+"""
+Visualisation
+"""
+def fig1(title=None):
+    fig = plt.figure(1)
+    plt.margins(0, 0.1)
+    plt.grid(True, color='0.7', linestyle='-', which='major', axis='both')
+    plt.grid(True, color='0.9', linestyle='-', which='minor', axis='both')
+    plt.title(title or 'Signal')
+    plt.xlabel('Time [seconds]')
+    plt.ylabel('Amplitude')
+    axs = fig.get_axes()
+    global ax
+    ax = axs[0]
+
+def show1(fs, s, color=None, title=None, v=None):
+    if not color: fig1(title)
+    if ax and v: ax.axvline(x=v,color='green')
+    plt.plot(np.arange(len(s))/fs, s, color or 'black')
+    if not color: plt.show()
+
+def show2(fs,s1,s2,title=None):
+    fig1(title)
+    show1(fs,s1,'blue')
+    show1(fs,s2,'red')
+    plt.show()
+
+def second_correlation(in1,in2):
+    fs,s1,s2 = read_normalized(in1,in2)
+    ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
+    # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
+    sync_text = """
+    ==============================================================================
+    %s needs 'ffmpeg -ss %s' cut to get in sync
+    ==============================================================================
+    """
+    if xmax > padsize // 2:
+        # if show: show2(fs,s1,s2[padsize-xmax:],title='1st=blue;2nd=red=cut(%s;%s)'%(in1,in2))
+        file,offset = in2,(padsize-xmax)/fs
+    else:
+        # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
+        file,offset = in1,xmax/fs
+    print(sync_text%(file,offset))
+    return file,offset
+
+'''
+End Copy
+'''

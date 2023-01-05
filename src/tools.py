@@ -22,6 +22,12 @@ def config_loader(file, section):
  
     return infos
 
+def remove_element_without_bug(list_set, element):
+    try:
+        list_set.remove(element)
+    except:
+        pass
+
 ''' Files functions '''
 def file_exists(f):
     try:
@@ -38,6 +44,17 @@ def launch_cmdExt(cmd):
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     stdout, stderror = cmdDownload.communicate()
     exitCode = cmdDownload.returncode
+    if exitCode != 0:
+        raise Exception(str(stderror))
     return stdout, stderror, exitCode
 
+def make_dirs(d):
+    try:
+        os.makedirs(d)
+        return True
+    except:
+        return False
+
 tmpFolder = "/tmp"
+software = {}
+core_to_use = 1

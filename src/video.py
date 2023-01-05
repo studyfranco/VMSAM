@@ -4,9 +4,11 @@ Created on 23 Apr 2022
 @author: francois
 '''
 
-from os import path
+from os import path,remove
 import tools
 import json
+
+ffmpeg_pool = None
 
 class video():
     '''
@@ -28,6 +30,10 @@ class video():
         self.audios = None
         self.video = None
         self.subtitles = None
+        self.video_quality = None
+        self.tmpFiles = {}
+        self.ffmpeg_progress = []
+        self.delays = {}
     
     def get_mediadata(self):
         stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mediainfo"], "--Output=JSON", self.filePath])
@@ -57,10 +63,21 @@ class video():
                 audioWithoutLanguage.append(data)
         if len(self.audios) == 0 and len(audioWithoutLanguage) == 1:
             self.audios["ja"] = [audioWithoutLanguage[0]]
+            
+    def get_fps(self):
+        if 'FrameRate' in self.video:
+            return float(self.video['FrameRate'])
+        else:
+            return None
     
     def extract_audio_in_part(self,language,exportParam,cutTime=None):
+        global ffmpeg_pool
         nameFilesExtract = []
-        baseCommand = [tools.software["ffmpeg"], "-nostdin", "-i", self.filePath, "-vn", "-acodec", exportParam["Format"].lower().replace('-',''), "-ab", exportParam["BitRate"], "-ar", exportParam['SamplingRate']]
+        if 'audio' in self.tmpFiles:
+            self.remove_tmp_files(type_file="audio")
+        self.tmpFiles['audio'] = nameFilesExtract
+
+        baseCommand = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", self.filePath, "-vn", "-acodec", exportParam["Format"].lower().replace('-',''), "-ab", exportParam["BitRate"], "-ar", exportParam['SamplingRate']]
         if exportParam['Channels'] == "2":
             baseCommand.extend(["-ac", exportParam['Channels']])
         if cutTime == None:
@@ -71,36 +88,96 @@ class video():
                 nameFilesExtractCut.append(nameOutFile)
                 cmd = baseCommand.copy()
                 cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), nameOutFile])
-                stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
-                #print("{}\n{}\n{}\n".format(stdout, stderror, exitCode))
-                #print(" ".join(cmd))
+                self.ffmpeg_progress.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (cmd,)))
         else:
-            cutNumber = 0
-            for cut in cutTime:
+            for audio in self.audios[language]:
                 nameFilesExtractCut = []
                 nameFilesExtract.append(nameFilesExtractCut)
-                for audio in self.audios[language]:
+                cutNumber = 0
+                for cut in cutTime:
                     nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
                     nameFilesExtractCut.append(nameOutFile)
                     cmd = baseCommand.copy()
                     cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), "-ss", cut[0], "-t", cut[1] , nameOutFile])
-                    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
-                cutNumber += 1
+                    self.ffmpeg_progress.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (cmd,)))
+                    cutNumber += 1
+            
+    def remove_tmp_files(self,type_file=None):
+        if type == None:
+            for key,list_tmp in self.tmpFiles:
+                for files in list_tmp:
+                    for file in files:
+                        remove(file)
+            self.tmpFiles = {}
+        else:
+            for files in self.tmpFiles[type_file]:
+                for file in files:
+                    remove(file)
                 
-        return nameFilesExtract
+    def wait_end_ffmpeg_progress(self):
+        while len(self.ffmpeg_progress) > 0:
+            ffmpeg_job = self.ffmpeg_progress.pop(0)
+            ffmpeg_job.get()
 
-# Une amelioration serait de faire des RULES paramétrable. A y réfléchir.
-def get_ID_best_quality_video(videosObj,rules):
-    bestVideo = 0
-    for i in range(1,len(videosObj)):
-        if test_if_the_best_by_rules_video_entry(videosObj[bestVideo].video,videosObj[i].video,rules):
-            bestVideo = i
-    return bestVideo
+def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
+    import re
+    from statistics import mean
+    ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
+           "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
+           "-lavfi", "libvmaf=n_threads={}:log_fmt=json".format(tools.core_to_use),
+           "-threads", str(tools.core_to_use), "-f", "null", "-"]
+    
+    framerate_video_obj_1 = video_obj_1.get_fps()
+    framerate_video_obj_2 = video_obj_2.get_fps()
+    if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
+        ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
+        if framerate_video_obj_1 > framerate_video_obj_2:
+            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_2,framerate_video_obj_2,tools.core_to_use)
+        else:
+            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_1,framerate_video_obj_1,tools.core_to_use)
+
+    ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
+    ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath
+    ffmpeg_VMAF_2_vs_1[12] = video_obj_1.filePath
+    out_1_vs_2 = []
+    out_2_vs_1 = []
+    values_1_vs_2 = []
+    values_2_vs_1 = []
+    begin_pos_1_vs_2 = [2,8]
+    begin_pos_2_vs_1 = [8,2]
+    for begins in begins_video:
+        for x,y in zip(begin_pos_1_vs_2,begins):
+            ffmpeg_VMAF_1_vs_2[x] = y
+        job_1_vs_2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_1_vs_2,))
+        
+        for x,y in zip(begin_pos_2_vs_1,begins):
+            ffmpeg_VMAF_2_vs_1[x] = y
+        job_2_vs_1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_2_vs_1,))
+        
+        while len(out_1_vs_2) > 0:
+            values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+            
+        while len(out_2_vs_1) > 0:
+            values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+
+        out_1_vs_2.append(job_1_vs_2.get())
+        out_2_vs_1.append(job_2_vs_1.get())
+    
+    while len(out_1_vs_2) > 0:
+        values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+            
+    while len(out_2_vs_1) > 0:
+        values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+    
+    if mean(values_1_vs_2) >= mean(values_2_vs_1):
+        return "1"
+    else:
+        return "2"
 
 def get_common_audios_language(videosObj):
     commonLanguages = set(videosObj[0].audios.keys())
     for videoObj in videosObj:
-        commonLanguages.union(videoObj.audios.keys())
+        commonLanguages = commonLanguages.intersection(videoObj.audios.keys())
     return commonLanguages
 
 def get_worse_quality_audio_param(videosObj,language,rules):
