@@ -258,18 +258,18 @@ def second_correlation(in1,in2):
     fs,s1,s2 = read_normalized(in1,in2)
     ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
     # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
-    sync_text = """
-    ==============================================================================
-    %s needs 'ffmpeg -ss %s' cut to get in sync
-    ==============================================================================
-    """
+    #sync_text = """
+    #==============================================================================
+    #%s needs 'ffmpeg -ss %s' cut to get in sync
+    #==============================================================================
+    #"""
     if xmax > padsize // 2:
         # if show: show2(fs,s1,s2[padsize-xmax:],title='1st=blue;2nd=red=cut(%s;%s)'%(in1,in2))
         file,offset = in2,(padsize-xmax)/fs
     else:
         # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
         file,offset = in1,xmax/fs
-    print(sync_text%(file,offset))
+    #print(sync_text%(file,offset))
     return file,offset
 
 '''

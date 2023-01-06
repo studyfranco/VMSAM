@@ -343,9 +343,60 @@ class compare_video(Thread):
         
         if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video, strftime('%H:%M:%S',gmtime(time_by_test))) == 1:
             self.video_obj_with_best_quality = self.video_obj_1
+            self.video_obj_2.delays[self.language] += (delay*-1) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_with_best_quality = self.video_obj_2
-        
+            self.video_obj_1.delays[self.language] += delay # Delay you need to give to mkvmerge to be good.
+
+def was_they_not_already_compared(video_obj_1,video_obj_2,already_compared):
+    name_in_list = [video_obj_1.filePath,video_obj_2.filePath]
+    sorted(name_in_list)
+    return name_in_list[0] not in already_compared or (name_in_list[0] in already_compared and name_in_list[1] not in already_compared[name_in_list[0]])
+
+def can_always_compare_it(video_obj,compare_objs,new_compare_objs,already_compared):
+    for other_video_obj in compare_objs:
+        if was_they_not_already_compared(video_obj,other_video_obj,already_compared):
+            return True
+    for other_video_obj in new_compare_objs:
+        if was_they_not_already_compared(video_obj,other_video_obj,already_compared):
+            return True
+    return False
+
+def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
+    for i in range(0,len(new_compare_objs),1):
+        if was_they_not_already_compared(video_obj,new_compare_objs[i],already_compared):
+            return new_compare_objs.pop(i)
+    return None
+
+"""
+    Theorically the video I will remove have no connexion between other files.
+"""
+def remove_not_compatible_audio(video_obj_path_file,already_compared):
+    other_videos_path_file = []
+    if video_obj_path_file in already_compared:
+        for other_video_path_file, is_the_best_video in already_compared[video_obj_path_file].items():
+            if is_the_best_video != None:
+                if is_the_best_video:
+                    other_videos_path_file.append(other_video_path_file)
+                else:
+                    raise Exception(f"You know what ? In remove_not_compatible_audio we don't wait a result 'False' here. What happen with {video_obj_path_file} and {other_video_path_file} ?")
+        del already_compared[video_obj_path_file]
+    
+    for other_video_path_file, dict_with_results in already_compared.items():
+        if video_obj_path_file in dict_with_results:
+            if dict_with_results[video_obj_path_file] == None:
+                del dict_with_results[video_obj_path_file]
+            elif dict_with_results[video_obj_path_file]:
+                raise Exception(f"You know what ? In remove_not_compatible_audio we don't wait a result 'True' here. What happen with {video_obj_path_file} and {other_video_path_file} ?")
+            else:
+                other_videos_path_file.append(other_video_path_file)
+                del dict_with_results[video_obj_path_file]
+    
+    for other_video_path_file in other_videos_path_file:
+        other_videos_path_file.extend(remove_not_compatible_audio(other_video_path_file,already_compared))
+    
+    return other_videos_path_file
+
 def get_delay_and_best_video(videosObj,language,audioRules):
     worseAudioQualityWillUse = video.get_worse_quality_audio_param(videosObj,language,audioRules)
     minAudioTimeInSec = video.get_shortest_audio_durations(videosObj,language)
@@ -367,6 +418,7 @@ def get_delay_and_best_video(videosObj,language,audioRules):
         beginInSec += lenghtTime
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=cutTime)
+        videoObj.delays[language] = 0
         
     dict_file_path_obj = {}
     for videoObj in videosObj:
@@ -374,8 +426,6 @@ def get_delay_and_best_video(videosObj,language,audioRules):
 
     compareObjs = videosObj.copy()
     already_compared = {}
-    already_compared_with_result = set()
-    already_compared_without_result = set()
     list_not_compatible_video = []
     while len(compareObjs) > 1:
         if len(compareObjs)%2 != 0:
@@ -384,14 +434,39 @@ def get_delay_and_best_video(videosObj,language,audioRules):
             new_compare_objs = []
         list_in_compare_video = []
         for i in range(0,len(compareObjs),2):
-            nameInList = [compareObjs[i].filePath,compareObjs[i+1].filePath]
-            sorted(nameInList)
-            if nameInList[0] not in already_compared or (nameInList[0] in already_compared and nameInList[1] not in already_compared[nameInList[0]]):
+            if was_they_not_already_compared(compareObjs[i],compareObjs[i+1],already_compared):
                 list_in_compare_video.append(compare_video(compareObjs[i],compareObjs[i+1],beginInSecOriginal,worseAudioQualityWillUse,language,lenghtTime,lenghtTimePrepare))
                 list_in_compare_video[-1].start()
+            elif len(new_compare_objs) != 0 and len(compareObjs) > 2:
+                if can_always_compare_it(compareObjs[i],compareObjs,new_compare_objs,already_compared):
+                    compare_new_obj = get_waiter_to_compare(compareObjs[i],new_compare_objs,already_compared)
+                    if compare_new_obj != None:
+                        list_in_compare_video.append(compare_video(compareObjs[i],compare_new_obj,beginInSecOriginal,worseAudioQualityWillUse,language,lenghtTime,lenghtTimePrepare))
+                        list_in_compare_video[-1].start()
+                    else:
+                        new_compare_objs.append(compareObjs[i])
+                else:
+                    list_not_compatible_video.append(compareObjs[i])
+                    list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i].filePath,already_compared))
+                if can_always_compare_it(compareObjs[i+1],compareObjs,new_compare_objs,already_compared):
+                    compare_new_obj = get_waiter_to_compare(compareObjs[i+1],new_compare_objs,already_compared)
+                    if compare_new_obj != None:
+                        list_in_compare_video.append(compare_video(compareObjs[i+1],compare_new_obj,beginInSecOriginal,worseAudioQualityWillUse,language,lenghtTime,lenghtTimePrepare))
+                        list_in_compare_video[-1].start()
+                    else:
+                        new_compare_objs.append(compareObjs[i+1])
+                else:
+                    list_not_compatible_video.append(compareObjs[i+1])
+                    list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
             else:
-                new_compare_objs.append(compareObjs[i])
-                new_compare_objs.append(compareObjs[i+1])
+                """
+                    TODO:
+                        I want check the file with the best number of match file and remove the files with the less connected. Normally the two list can't be connected.
+                """
+                from sys import stderr
+                stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random")
+                list_not_compatible_video.append(compareObjs[i+1])
+                list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
         
         compareObjs = new_compare_objs
         for compare_video_obj in list_in_compare_video:
@@ -399,28 +474,68 @@ def get_delay_and_best_video(videosObj,language,audioRules):
             sorted(nameInList)
             compare_video_obj.join()
             if compare_video_obj.video_obj_with_best_quality != None:
-                valueObtain = compare_video_obj.video_obj_with_best_quality.filePath==nameInList[0]
+                is_the_best_video = compare_video_obj.video_obj_with_best_quality.filePath==nameInList[0]
                 compareObjs.append(compare_video_obj.video_obj_with_best_quality)
-                already_compared_with_result.add(compare_video_obj.video_obj_1.filePath)
-                already_compared_with_result.add(compare_video_obj.video_obj_2.filePath)
-                tools.remove_element_without_bug(already_compared_without_result,compare_video_obj.video_obj_1.filePath)
-                tools.remove_element_without_bug(already_compared_without_result,compare_video_obj.video_obj_2.filePath)
             else:
-                valueObtain = None
+                is_the_best_video = None
                 compareObjs.append(compare_video_obj.video_obj_1)
                 compareObjs.append(compare_video_obj.video_obj_2)
-                already_compared_without_result.add(compare_video_obj.video_obj_1.filePath)
-                already_compared_without_result.add(compare_video_obj.video_obj_2.filePath)
             if nameInList[0] in already_compared:
-                already_compared[nameInList[0]][nameInList[1]] = valueObtain
+                already_compared[nameInList[0]][nameInList[1]] = is_the_best_video
             else:
-                already_compared[nameInList[0]] = {nameInList[1]: valueObtain}
+                already_compared[nameInList[0]] = {nameInList[1]: is_the_best_video}
             
         shuffle(compareObjs)
-        
+    if len(list_not_compatible_video):
+        from sys import stderr
+        stderr.write(f"{list_not_compatible_video} not compatible with the others videos")
+        for not_compatible_video in list_not_compatible_video:
+            del dict_file_path_obj[not_compatible_video]
+        if len(dict_file_path_obj) == 1:
+            raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
+    return already_compared, dict_file_path_obj
+
+def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay):
+    video_obj = dict_file_path_obj[video_path_file]
+    delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
+    if delay_to_put != 0:
+        merge_cmd.extend(["--sync", f"-1:{delay_to_put}"])
+    merge_cmd.extend(["-D", video_obj.filePath])
     
+    print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
-def mergeVideo(files,outFolder,inFolder=None):
+    if video_path_file in dict_list_video_win:
+        for other_video_path_file in dict_list_video_win[video_path_file]:
+            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay)
+
+def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay):
+    set_bad_video = set()
+    dict_list_video_win = {}
+    for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
+        for other_video_path_file, is_the_best_video in  dict_with_results.items():
+            if is_the_best_video:
+                set_bad_video.add(other_video_path_file)
+                if video_path_file in dict_list_video_win:
+                    dict_list_video_win[video_path_file].append(other_video_path_file)
+                else:
+                    dict_list_video_win[video_path_file] = [other_video_path_file]
+            else:
+                set_bad_video.add(video_path_file)
+                if other_video_path_file in dict_list_video_win:
+                    dict_list_video_win[other_video_path_file].append(video_path_file)
+                else:
+                    dict_list_video_win[other_video_path_file] = [video_path_file]
+    
+    print(f'The best video path is {dict_file_path_obj.keys() - set_bad_video}')
+    best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
+    merge_cmd = [tools.software["mkvmerge"], "-o", path.join(out_folder,f"{best_video.fileBaseName}_merged.mkv"), best_video.filePath ]
+    for other_video_path_file in dict_list_video_win[best_video.filePath]:
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
+    
+    print(" ".join(merge_cmd))
+    tools.launch_cmdExt(merge_cmd)
+    
+def mergeVideo(files,out_folder,inFolder=None):
     videosObj = []
     name_file = {}
     if inFolder == None:
@@ -453,11 +568,16 @@ def mergeVideo(files,outFolder,inFolder=None):
     if len(commonLanguages) == 0:
         raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
     commonLanguages = list(commonLanguages)
-    = get_delay_and_best_video(videosObj,commonLanguages.pop(),audioRules)
+    common_language_use_for_generate_delay = commonLanguages.pop()
+    dict_with_video_quality_logic,dict_file_path_obj = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules)
     for language in commonLanguages:
+        """
+        TODO:
+            This part will use for a new audio correlation. They will only be use to cross validate the correlation and detect some big errors.
+        """
         pass
     
-    print(f"{baseVideoObj.fileName} {delays}")
+    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -490,3 +610,5 @@ if __name__ == '__main__':
     video.ffmpeg_pool = Pool(processes=1)
     
     mergeVideo(set(args.file.split(",")), args.out, args.folder)
+    
+    tools.remove_dir(tools.tmpFolder)

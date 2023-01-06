@@ -4,6 +4,8 @@ Created on 23 Apr 2022
 @author: francois
 '''
 import os
+import shutil
+import sys
 from subprocess import Popen, PIPE
 from configparser import ConfigParser
 
@@ -22,12 +24,6 @@ def config_loader(file, section):
  
     return infos
 
-def remove_element_without_bug(list_set, element):
-    try:
-        list_set.remove(element)
-    except:
-        pass
-
 ''' Files functions '''
 def file_exists(f):
     try:
@@ -38,6 +34,19 @@ def file_exists(f):
     
 def file_remove(path,file):
     os.remove(os.path.join(path,file))
+    
+def remove_element_without_bug(list_set, element):
+    try:
+        list_set.remove(element)
+    except:
+        pass
+    
+def remove_dir(dir_path,printError=True):
+    try:
+        shutil.rmtree(dir_path)
+    except OSError as e:
+        if printError:
+            sys.stderr.write("Error: %s : %s\n" % (dir_path, e.strerror))
 
 ''' Popen functions '''
 def launch_cmdExt(cmd):
