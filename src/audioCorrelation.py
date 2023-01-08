@@ -148,7 +148,7 @@ normalize = False
 denoise = False
 lowpass = 0
 
-ffmpeglow = [tools.software["ffmpeg"], "-y", "-hwaccel", "-threads", str(tools.core_to_use), "-i", '"{}"', "-af", f"'lowpass=f={lowpass}'", '"{}"']
+#ffmpeglow = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", '"{}"', "-af", f"'lowpass=f={lowpass}'", '"{}"']
 
 def get_files_metrics(outfile):
     r,s = wavfile.read(outfile)

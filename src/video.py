@@ -62,11 +62,17 @@ class video():
             elif data['@type'] == 'Audio':
                 audioWithoutLanguage.append(data)
         if len(self.audios) == 0 and len(audioWithoutLanguage) == 1:
-            self.audios["ja"] = [audioWithoutLanguage[0]]
+            self.audios[tools.default_language_for_undetermine] = [audioWithoutLanguage[0]]
             
     def get_fps(self):
         if 'FrameRate' in self.video:
             return float(self.video['FrameRate'])
+        else:
+            return None
+        
+    def get_video_duration(self):
+        if 'FrameCount' in self.video:
+            return float((float(self.video['FrameCount'])/self.video['FrameRate']))
         else:
             return None
     
@@ -201,6 +207,14 @@ def get_shortest_audio_durations(videosObj,language):
         for audio in videoObj.audios[language]:
             if float(audio['Duration']) < shorter:
                 shorter = float(audio['Duration'])
+    return shorter
+
+def get_shortest_video_durations(videosObj):
+    shorter = 1000000000000000000000000000000000
+    for videoObj in videosObj:
+        video_duration = videoObj.get_video_duration()
+        if video_duration < shorter:
+            shorter = video_duration
     return shorter
 
 def get_birate_key(data):

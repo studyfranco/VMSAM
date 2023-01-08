@@ -8,6 +8,7 @@ This software need libchromaprint-tools,ffmpeg,mediainfo
 
 import argparse
 import sys
+import traceback
 from datetime import datetime
 from multiprocessing import Pool
 from os import path,remove,chdir
@@ -535,7 +536,77 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     print(" ".join(merge_cmd))
     tools.launch_cmdExt(merge_cmd)
     
-def mergeVideo(files,out_folder,inFolder=None):
+def simple_merge_video(videosObj,audioRules,out_folder):
+    global numberCut
+    min_video_duration_in_sec = video.get_shortest_video_durations(videosObj)
+    if min_video_duration_in_sec > 540:
+        begin_in_second = 120
+        lenght_time = int((min_video_duration_in_sec-240)/numberCut)
+    elif min_video_duration_in_sec > 60:
+        begin_in_second = 30
+        lenght_time = int((min_video_duration_in_sec-45)/numberCut)
+    elif min_video_duration_in_sec > 5:
+        begin_in_second = 0
+        lenght_time = int(min_video_duration_in_sec-2/numberCut)
+
+    if percent_time_by_test_video_quality_from_cut >= 100:
+        time_by_test = lenght_time
+    else:
+        time_by_test = int(lenght_time*percent_time_by_test_video_quality_from_cut/100)+1
+    
+    begins_video = []
+    for i in range(0,numberCut):
+        begins_video.append([strftime('%H:%M:%S',gmtime(begin_in_second)),strftime('%H:%M:%S',gmtime(begin_in_second))])
+        begin_in_second += lenght_time
+    
+    dict_file_path_obj = {}
+    for videoObj in videosObj:
+        dict_file_path_obj[videoObj.filePath] = videoObj
+
+    compareObjs = videosObj.copy()
+    dict_with_video_quality_logic = {}
+    while len(compareObjs) > 1:
+        if len(compareObjs)%2 != 0:
+            new_compare_objs = [compareObjs.pop()]
+        else:
+            new_compare_objs = []
+        for i in range(0,len(compareObjs),2):
+            nameInList = [compareObjs[i],compareObjs[i+1]]
+            sorted(nameInList)
+            if video.get_best_quality_video(dict_file_path_obj[nameInList[0]], dict_file_path_obj[nameInList[1]], begins_video, strftime('%H:%M:%S',gmtime(time_by_test))) == 1:
+                is_the_best_video = True
+                dict_file_path_obj[nameInList[0]]
+            else:
+                is_the_best_video = False
+                dict_file_path_obj[nameInList[1]]
+            if nameInList[0] in dict_with_video_quality_logic:
+                dict_with_video_quality_logic[nameInList[0]][nameInList[1]] = is_the_best_video
+            else:
+                dict_with_video_quality_logic[nameInList[0]] = {nameInList[1]: is_the_best_video}
+        compareObjs = new_compare_objs
+    
+    for videoObj in videosObj:
+        videoObj.delays["und"] = 0
+        
+    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und")
+    
+def sync_merge_video(videosObj,audioRules,out_folder):
+    commonLanguages = video.get_common_audios_language(videosObj)
+    if len(commonLanguages) == 0:
+        raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
+    commonLanguages = list(commonLanguages)
+    common_language_use_for_generate_delay = commonLanguages.pop()
+    dict_with_video_quality_logic,dict_file_path_obj = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules)
+    for language in commonLanguages:
+        """
+        TODO:
+            This part will use for a new audio correlation. They will only be use to cross validate the correlation and detect some big errors.
+        """
+        pass
+    
+    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay)
+    
+def merge_videos(files,out_folder,merge_sync,inFolder=None):
     videosObj = []
     name_file = {}
     if inFolder == None:
@@ -562,23 +633,13 @@ def mergeVideo(files,out_folder,inFolder=None):
     for videoObj in videosObj:
         videoObj.get_mediadata()
         if isinstance(videoObj.video, list):
-            raise Exception(f"Multiple video in the same file {videoObj.filePath}, I can't compare it")
-
-    commonLanguages = video.get_common_audios_language(videosObj)
-    if len(commonLanguages) == 0:
-        raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
-    commonLanguages = list(commonLanguages)
-    common_language_use_for_generate_delay = commonLanguages.pop()
-    dict_with_video_quality_logic,dict_file_path_obj = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules)
-    for language in commonLanguages:
-        """
-        TODO:
-            This part will use for a new audio correlation. They will only be use to cross validate the correlation and detect some big errors.
-        """
-        pass
+            raise Exception(f"Multiple video in the same file {videoObj.filePath}, I can't compare and merge they")
     
-    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay)
-
+    if merge_sync:
+        sync_merge_video(videosObj,audioRules,out_folder)
+    else:
+        simple_merge_video(videosObj,audioRules,out_folder)
+    
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("-f", "--file", metavar='file', type=str,
@@ -590,17 +651,18 @@ if __name__ == '__main__':
     parser.add_argument("--tmp", metavar='tmpdir', type=str,
                         default="/tmp", help="Folder where send temporar files")
     parser.add_argument("--config", metavar='configFile', type=str,
-                        default="config.ini", help="Path to the config file, by default use the config in the software folder")
+                        default="config.ini", help="Path to the config file, by default use the config in the software folder. This config is for configure the path to your softwares")
+    parser.add_argument("--param", metavar='param', type=str,
+                       default=None, help="Give the path to a special file for your merge.")
     parser.add_argument("--pwd", metavar='pwd', type=str,
                         default=".", help="Path to the software, put it if you use the folder from another folder")
+    parser.add_argument("--noSync", dest='noSync', default=False, action='store_true', help="If you don't want research a audio sync between files")
+    parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
     args = parser.parse_args()
     
     chdir(args.pwd)
     import tools
-    tools.software = tools.config_loader(args.config, "software")
     tools.tmpFolder = path.join(args.tmp,"VMSAM_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
-    if (not tools.make_dirs(tools.tmpFolder)):
-        raise Exception("Impossible to create the temporar dir")
     import video
     from audioCorrelation import correlate, test_calcul_can_be, second_correlation
     if args.core > 1:
@@ -609,6 +671,14 @@ if __name__ == '__main__':
         tools.core_to_use = args.core
     video.ffmpeg_pool = Pool(processes=1)
     
-    mergeVideo(set(args.file.split(",")), args.out, args.folder)
-    
-    tools.remove_dir(tools.tmpFolder)
+    try:
+        tools.software = tools.config_loader(args.config, "software")
+        if (not tools.make_dirs(tools.tmpFolder)):
+            raise Exception("Impossible to create the temporar dir")
+        merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
+        tools.remove_dir(tools.tmpFolder)
+    except:
+        tools.remove_dir(tools.tmpFolder)
+        traceback.print_exc()
+        exit(1)
+    exit(0)
