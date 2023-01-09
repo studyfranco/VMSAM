@@ -42,27 +42,28 @@ class video():
         self.mediadata = json.loads(stdout.decode("UTF-8"))
         self.audios = {}
         self.subtitles = {}
-        audioWithoutLanguage = []
         for data in self.mediadata['media']['track']:
             if data['@type'] == 'Video':
                 if self.video != None:
                     raise Exception(self.filePath+" multiple video in same file")
                 self.video = data
-            elif 'Language' in data:
-                if data['@type'] == 'Audio':
-                    if data['Language'] in self.audios:
-                        self.audios[data['Language']].append(data)
-                    else:
-                        self.audios[data['Language']] = [data]
-                elif data['@type'] == 'Text':
+            elif data['@type'] == 'Audio':
+                if 'Language' in data:
+                    language = data['Language']
+                else:
+                    language = "und"
+                if language in self.audios:
+                    self.audios[language].append(data)
+                else:
+                    self.audios[language] = [data]
+            elif data['@type'] == 'Text':
+                if 'Language' in data:
                     if data['Language'] in self.subtitles:
                         self.subtitles[data['Language']].append(data)
                     else:
                         self.subtitles[data['Language']] = [data]
-            elif data['@type'] == 'Audio':
-                audioWithoutLanguage.append(data)
-        if len(self.audios) == 0 and len(audioWithoutLanguage) == 1:
-            self.audios[tools.default_language_for_undetermine] = [audioWithoutLanguage[0]]
+        if "und" in self.audios and len(self.audios) == 1:
+            self.audios[tools.default_language_for_undetermine] = self.audios["und"]
             
     def get_fps(self):
         if 'FrameRate' in self.video:
@@ -72,7 +73,7 @@ class video():
         
     def get_video_duration(self):
         if 'FrameCount' in self.video:
-            return float((float(self.video['FrameCount'])/self.video['FrameRate']))
+            return float((float(self.video['FrameCount'])/float(self.video['FrameRate'])))
         else:
             return None
     

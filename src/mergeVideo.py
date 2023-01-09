@@ -420,6 +420,9 @@ def get_delay_and_best_video(videosObj,language,audioRules):
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=cutTime)
         videoObj.delays[language] = 0
+        for language,audios in videoObj.audios.items():
+            for audio in audios:
+                audio["keep"] = True
         
     dict_file_path_obj = {}
     for videoObj in videosObj:
@@ -496,9 +499,21 @@ def get_delay_and_best_video(videosObj,language,audioRules):
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
     return already_compared, dict_file_path_obj
 
+def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list):
+    track_to_remove = set()
+    for language,audios in video_audio_track_list.items():
+        for audio in audios:
+            if (not audio["keep"]):
+                track_to_remove.add(audio["StreamOrder"])
+            elif language == "und" and special_params["change_all_und"]:
+                merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
+    if len(track_to_remove):
+        merge_cmd.extend(["-a"],"!"+",".join(track_to_remove))
+
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios)
     if delay_to_put != 0:
         merge_cmd.extend(["--sync", f"-1:{delay_to_put}"])
     merge_cmd.extend(["-D", video_obj.filePath])
@@ -529,7 +544,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     print(f'The best video path is {dict_file_path_obj.keys() - set_bad_video}')
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
-    merge_cmd = [tools.software["mkvmerge"], "-o", path.join(out_folder,f"{best_video.fileBaseName}_merged.mkv"), best_video.filePath ]
+    merge_cmd = [tools.software["mkvmerge"], "-o", path.join(out_folder,f"{best_video.fileBaseName}_merged.mkv")]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios)
+    if special_params["change_all_und"] and 'Language' not in best_video.video:
+        merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
+    merge_cmd.append(best_video.filePath)
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
         generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     
@@ -571,7 +590,7 @@ def simple_merge_video(videosObj,audioRules,out_folder):
         else:
             new_compare_objs = []
         for i in range(0,len(compareObjs),2):
-            nameInList = [compareObjs[i],compareObjs[i+1]]
+            nameInList = [compareObjs[i].filePath,compareObjs[i+1].filePath]
             sorted(nameInList)
             if video.get_best_quality_video(dict_file_path_obj[nameInList[0]], dict_file_path_obj[nameInList[1]], begins_video, strftime('%H:%M:%S',gmtime(time_by_test))) == 1:
                 is_the_best_video = True
@@ -587,11 +606,18 @@ def simple_merge_video(videosObj,audioRules,out_folder):
     
     for videoObj in videosObj:
         videoObj.delays["und"] = 0
+        for language,audios in videoObj.audios.items():
+            for audio in audios:
+                audio["keep"] = True
         
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und")
     
 def sync_merge_video(videosObj,audioRules,out_folder):
     commonLanguages = video.get_common_audios_language(videosObj)
+    try:
+        commonLanguages.remove("und")
+    except:
+        pass
     if len(commonLanguages) == 0:
         raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
     commonLanguages = list(commonLanguages)
@@ -675,6 +701,13 @@ if __name__ == '__main__':
         tools.software = tools.config_loader(args.config, "software")
         if (not tools.make_dirs(tools.tmpFolder)):
             raise Exception("Impossible to create the temporar dir")
+        if args.param != None:
+            import json
+            with open(args.param) as param_file:
+                special_params = json.load(param_file)
+            tools.default_language_for_undetermine = special_params["default_language_und"]
+        else:
+            special_params = {"change_all_und":False}
         merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)
     except:

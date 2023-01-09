@@ -1,0 +1,5 @@
+{
+	"default_language_und":"ja",
+	"change_all_und":true,
+	"always_keep_audio_format":["flac","dts"]
+}
