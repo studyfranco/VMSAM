@@ -40,7 +40,7 @@ def calculate_fingerprints(filename,length=0):
 # returns correlation between lists
 def correlation(listx, listy):
     if len(listx) == 0 or len(listy) == 0:
-        # Error checking in main program should prevent us from ever being
+        # Error checking in infinite_wrapper program should prevent us from ever being
         # able to get here.
         raise Exception('Empty lists cannot be correlated.')
     if len(listx) > len(listy):
@@ -65,7 +65,7 @@ def cross_correlation(listx, listy, offset):
         listy = listy[offset:]
         listx = listx[:len(listy)]
     if min(len(listx), len(listy)) < min_overlap:
-        # Error checking in main program should prevent us from ever being
+        # Error checking in infinite_wrapper program should prevent us from ever being
         # able to get here.
         return 
     #raise Exception('Overlap too small: %i' % min(len(listx), len(listy)))
@@ -74,7 +74,7 @@ def cross_correlation(listx, listy, offset):
 # cross correlate listx and listy with offsets from -span to span
 def compare(listx, listy, span, step):
     if span > min(len(listx), len(listy)):
-        # Error checking in main program should prevent us from ever being
+        # Error checking in infinite_wrapper program should prevent us from ever being
         # able to get here.
         raise Exception('span >= sample size: %i >= %i\n'
                         % (span, min(len(listx), len(listy)))
@@ -133,7 +133,7 @@ def test_calcul_can_be(filename):
 
 '''
 4 Jan 2023
-Based on https://github.com/rpuntaie/syncstart/blob/main/syncstart.py
+Based on https://github.com/rpuntaie/syncstart/blob/infinite_wrapper/syncstart.py
 '''
 import matplotlib
 matplotlib.use('TkAgg')

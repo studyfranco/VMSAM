@@ -34,12 +34,23 @@ def file_exists(f):
     
 def file_remove(path,file):
     os.remove(os.path.join(path,file))
-    
-def remove_element_without_bug(list_set, element):
+
+def make_dirs(d):
     try:
-        list_set.remove(element)
+        os.makedirs(d,exist_ok=True)
+        return os.path.isdir(d)
     except:
-        pass
+        return False
+    
+def move_dir(Dir,Folder,raise_exception=True):
+    try:
+        shutil.move(Dir,Folder)
+        return True,None
+    except Exception as e:
+        if raise_exception:
+            raise e
+        else:
+            return False,e
     
 def remove_dir(dir_path,printError=True):
     try:
@@ -57,12 +68,11 @@ def launch_cmdExt(cmd):
         raise Exception(str(stderror))
     return stdout, stderror, exitCode
 
-def make_dirs(d):
+def remove_element_without_bug(list_set, element):
     try:
-        os.makedirs(d)
-        return True
+        list_set.remove(element)
     except:
-        return False
+        pass
 
 tmpFolder = "/tmp"
 software = {}
