@@ -12,6 +12,7 @@ import shutil
 from re import match,search,MULTILINE
 from subprocess import Popen, PIPE
 from sys import stderr
+from time import sleep
 
 def launch_cmdExt(cmd):
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
@@ -102,15 +103,20 @@ if __name__ == '__main__':
     parser.add_argument("--pwd", metavar='pwd', type=str,
                         default=".", help="Path to the merge software")
     parser.add_argument("-c","--core", metavar='core', type=int, default=1, help="number of core the merge software can use")
+    parser.add_argument("-w","--wait", metavar='wait', type=int, default=300, help="Time in second between folder check")
     args = parser.parse_args()
-    if (not os.access('args.out', os.W_OK)):
+    if (not os.access(args.out, os.W_OK)):
         raise Exception(f"{args.out} not writable")
-    if (not os.access('args.error', os.W_OK)):
+    if (not os.access(args.error, os.W_OK)):
         raise Exception(f"{args.error} not writable")
-    if (not os.access('args.folder', os.W_OK)):
+    if (not os.access(args.folder, os.W_OK)):
         raise Exception(f"{args.folder} not writable")
     base_cmd_use_to_process = ["python3", "mergeVideo.py", "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
     while True:
-        for name_folder in [ name_folder for name_folder in os.listdir(args.folder) if os.path.isdir(os.path.join(args.folder, name_folder)) ]:
-            process_files_in_folder(name_folder,args.folder,args.out,args.error)
+        folder_to_clean = [ name_folder for name_folder in os.listdir(args.folder) if os.path.isdir(os.path.join(args.folder, name_folder)) ]
+        if len(folder_to_clean):
+            for name_folder in folder_to_clean:
+                process_files_in_folder(name_folder,args.folder,args.out,args.error)
+        else:
+            sleep(args.wait)
             
