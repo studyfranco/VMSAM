@@ -96,20 +96,23 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         timeTake = strftime('%H:%M:%S',gmtime(maxTime))
     else:
         timeTake = "00:00:10"
+        maxTime = 10
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
         videoObj.wait_end_ffmpeg_progress()
-        if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0])):
+        if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
             audioParam["Format"] = "AAC"
             audioParam['Channels'] = "2"
             if int(audioParam["BitRate"]) > 256000:
                 audioParam["BitRate"] = "256000"
             videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
             videoObj.wait_end_ffmpeg_progress()
-            if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0])):
+            if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
                 audioParam["Format"] = "MP3"
-            else:
-                raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
+                videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
+                videoObj.wait_end_ffmpeg_progress()
+                if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
+                    raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
     global numberCut
@@ -469,6 +472,7 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                 """
                 from sys import stderr
                 stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random")
+                stderr.write("\n")
                 list_not_compatible_video.append(compareObjs[i+1])
                 list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
         
@@ -492,9 +496,10 @@ def get_delay_and_best_video(videosObj,language,audioRules):
         shuffle(compareObjs)
     if len(list_not_compatible_video):
         from sys import stderr
-        stderr.write(f"{list_not_compatible_video} not compatible with the others videos")
+        stderr.write(f"{[path for path in list_not_compatible_video]} not compatible with the others videos")
+        stderr.write("\n")
         for not_compatible_video in list_not_compatible_video:
-            del dict_file_path_obj[not_compatible_video]
+            del dict_file_path_obj[not_compatible_video.filePath]
         if len(dict_file_path_obj) == 1:
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
     return already_compared, dict_file_path_obj

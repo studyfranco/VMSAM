@@ -26,6 +26,8 @@ def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_na
         generate_error_folder(folder_path_for_error)
         with open(os.path.join(folder_path,"log.error"),"w") as log:
             log.write(stderror.decode("utf-8"))
+        stderr.write(stderror.decode("utf-8"))
+        stderr.write("\n")
         with open(os.path.join(folder_path,"log.out"),"w") as log:
             log.write(stdout.decode("utf-8"))
         move_dir(folder_path,folder_path_for_error)
@@ -53,6 +55,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
                 raise Exception("")
         except:
             stderr.write(f'{folder} is not a good name for a folder')
+            stderr.write("\n")
             generate_error_folder(folder_path_for_error)
             move_dir(folder_path,folder_path_for_error)
         else:
@@ -61,6 +64,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
     else:
         if (not make_dirs(out_folder)):
             stderr.write(f"Impossible to create {out_folder}")
+            stderr.write("\n")
             generate_error_folder(folder_path_for_error)
             move_dir(folder_path,folder_path_for_error)
         else:
@@ -80,7 +84,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
                     generate_error_folder(os.path.join(folder_path_for_error,folder+"_not_process_files"))
                     shutil.move(os.path.join(folder_path, file),os.path.join(folder_path_for_error,folder+"_not_process_files"))
                     
-            if len(list_files_to_process) > 2:
+            if len(list_files_to_process) > 1:
                 cmd_use_to_process.extend(["-f", ",".join(list_files_to_process)])
                 if match(r'\S*\s*\[merge\]\s*.*',folder) != None:
                     cmd_use_to_process.append("--noSync")
@@ -88,7 +92,10 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
                 else:
                     process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder)
             else:
+                with open(os.path.join(folder_path,"log.error"),"w") as log:
+                    log.write(f"No goods files in {folder_path}")
                 stderr.write(f"No goods files in {folder_path}")
+                stderr.write("\n")
                 generate_error_folder(folder_path_for_error)
                 move_dir(folder_path,folder_path_for_error)
 
@@ -104,6 +111,7 @@ if __name__ == '__main__':
                         default=".", help="Path to the merge software")
     parser.add_argument("-c","--core", metavar='core', type=int, default=1, help="number of core the merge software can use")
     parser.add_argument("-w","--wait", metavar='wait', type=int, default=300, help="Time in second between folder check")
+    parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
     args = parser.parse_args()
     if (not os.access(args.out, os.W_OK)):
         raise Exception(f"{args.out} not writable")
@@ -111,7 +119,7 @@ if __name__ == '__main__':
         raise Exception(f"{args.error} not writable")
     if (not os.access(args.folder, os.W_OK)):
         raise Exception(f"{args.folder} not writable")
-    base_cmd_use_to_process = ["python3", "mergeVideo.py", "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
+    base_cmd_use_to_process = ["python3", os.path.join(args.pwd,"mergeVideo.py"), "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
     while True:
         folder_to_clean = [ name_folder for name_folder in os.listdir(args.folder) if os.path.isdir(os.path.join(args.folder, name_folder)) ]
         if len(folder_to_clean):

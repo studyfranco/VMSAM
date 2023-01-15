@@ -197,7 +197,7 @@ def get_worse_quality_audio_param(videosObj,language,rules):
                 worseAudio[1] = j
     if len(videosObj) > worseAudio[0]+1:
         for i in range(worseAudio[0]+1,len(videosObj)):
-            for j in range(0,len(videosObj[worseAudio[0]].audios[language])):
+            for j in range(0,len(videosObj[i].audios[language])):
                 if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[i].audios[language][j],rules)):
                     worseAudio = [i,j]
     return videosObj[worseAudio[0]].audios[language][worseAudio[1]].copy()

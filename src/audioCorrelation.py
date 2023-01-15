@@ -28,7 +28,7 @@ min_overlap = 30
 
 # calculate fingerprint
 # Generate file.mp3.fpcalc by "fpcalc -raw -length 500 file.mp3"
-def calculate_fingerprints(filename,length=0):
+def calculate_fingerprints(filename,length=1):
     fpcalc_out = str(subprocess.check_output([tools.software["fpcalc"], '-raw', '-length', str(length), filename])).strip().replace('\\n', '').replace("'", "") # '-length', str(sample_time),
 
     fingerprint_index = fpcalc_out.find('FINGERPRINT=') + 12
@@ -123,12 +123,13 @@ def correlate(source, target, lengthFile):
 End Copy
 '''
 
-def test_calcul_can_be(filename):
+def test_calcul_can_be(filename,length):
     try:
-        calculate_fingerprints(filename)
+        calculate_fingerprints(filename,length)
         return True
-    except Exception as e:
-        print(e)
+    except:
+        import traceback
+        traceback.print_exc()
         return False
 
 '''
