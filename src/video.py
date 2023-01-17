@@ -28,6 +28,7 @@ class video():
             raise Exception(self.filePath+" not exist")
         self.mediadata = None
         self.audios = None
+        self.commentary = None
         self.video = None
         self.subtitles = None
         self.video_quality = None
@@ -42,6 +43,7 @@ class video():
         self.mediadata = json.loads(stdout.decode("UTF-8"))
         self.audios = {}
         self.subtitles = {}
+        self.commentary = {}
         for data in self.mediadata['media']['track']:
             if data['@type'] == 'Video':
                 if self.video != None:
@@ -52,10 +54,16 @@ class video():
                     language = data['Language']
                 else:
                     language = "und"
-                if language in self.audios:
-                    self.audios[language].append(data)
+                if ('Title' in data and 'Commentary' == data['Title']):
+                    if language in self.commentary:
+                        self.commentary[language].append(data)
+                    else:
+                        self.commentary[language] = [data]
                 else:
-                    self.audios[language] = [data]
+                    if language in self.audios:
+                        self.audios[language].append(data)
+                    else:
+                        self.audios[language] = [data]
             elif data['@type'] == 'Text':
                 if 'Language' in data:
                     if data['Language'] in self.subtitles:
