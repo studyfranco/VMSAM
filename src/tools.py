@@ -65,6 +65,7 @@ def launch_cmdExt(cmd):
     stdout, stderror = cmdDownload.communicate()
     exitCode = cmdDownload.returncode
     if exitCode != 0:
+        sys.stderr.write(" ".join(cmd))
         raise Exception(str(stderror))
     return stdout, stderror, exitCode
 
