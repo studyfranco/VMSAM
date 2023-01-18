@@ -458,7 +458,7 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                     else:
                         new_compare_objs.append(compareObjs[i])
                 else:
-                    list_not_compatible_video.append(compareObjs[i])
+                    list_not_compatible_video.append(compareObjs[i].filePath)
                     list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i].filePath,already_compared))
                 if can_always_compare_it(compareObjs[i+1],compareObjs,new_compare_objs,already_compared):
                     compare_new_obj = get_waiter_to_compare(compareObjs[i+1],new_compare_objs,already_compared)
@@ -470,7 +470,7 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                 elif compare_new_obj != None and was_they_not_already_compared(compareObjs[i+1],compare_new_obj,already_compared):
                     new_compare_objs.append(compareObjs[i+1])
                 else:
-                    list_not_compatible_video.append(compareObjs[i+1])
+                    list_not_compatible_video.append(compareObjs[i+1].filePath)
                     list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
             else:
                 """
@@ -480,9 +480,9 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                 from sys import stderr
                 stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random")
                 stderr.write("\n")
-                list_not_compatible_video.append(compareObjs[i+1])
+                list_not_compatible_video.append(compareObjs[i+1].filePath)
                 list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
-                print(f"{already_compared}, {dict_file_path_obj}")
+                stderr.write(f"{already_compared},\n {dict_file_path_obj} \n")
         
         compareObjs = new_compare_objs
         for compare_video_obj in list_in_compare_video:
@@ -504,11 +504,11 @@ def get_delay_and_best_video(videosObj,language,audioRules):
         shuffle(compareObjs)
     if len(list_not_compatible_video):
         from sys import stderr
-        stderr.write(f"{[videoObj.filePath for videoObj in list_not_compatible_video]} not compatible with the others videos")
+        stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
         stderr.write("\n")
         for not_compatible_video in list_not_compatible_video:
-            if not_compatible_video.filePath in dict_file_path_obj:
-                del dict_file_path_obj[not_compatible_video.filePath]
+            if not_compatible_video in dict_file_path_obj:
+                del dict_file_path_obj[not_compatible_video]
         if len(dict_file_path_obj) < 2:
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
     return already_compared, dict_file_path_obj
@@ -585,7 +585,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
-    merge_cmd = [tools.software["mkvmerge"], "-o", ]
+    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
