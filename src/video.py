@@ -9,6 +9,7 @@ import tools
 import json
 
 ffmpeg_pool = None
+path_to_livmaf_model = "" #Nothing if it use the default
 
 class video():
     '''
@@ -71,6 +72,7 @@ class video():
                     else:
                         self.subtitles[data['Language']] = [data]
         if "und" in self.audios and len(self.audios) == 1:
+            # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
             
     def get_fps(self):
@@ -139,7 +141,7 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     from statistics import mean
     ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
            "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
-           "-lavfi", "libvmaf=n_threads={}:log_fmt=json".format(tools.core_to_use),
+           "-lavfi", "libvmaf=n_threads={}:log_fmt=json".format(tools.core_to_use)+path_to_livmaf_model,
            "-threads", str(tools.core_to_use), "-f", "null", "-"]
     
     framerate_video_obj_1 = video_obj_1.get_fps()
@@ -147,9 +149,9 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
         ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
         if framerate_video_obj_1 > framerate_video_obj_2:
-            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_2,framerate_video_obj_2,tools.core_to_use)
+            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_2,framerate_video_obj_2,tools.core_to_use)+path_to_livmaf_model
         else:
-            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_1,framerate_video_obj_1,tools.core_to_use)
+            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_1,framerate_video_obj_1,tools.core_to_use)+path_to_livmaf_model
 
     ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
     ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath

@@ -65,8 +65,7 @@ def launch_cmdExt(cmd):
     stdout, stderror = cmdDownload.communicate()
     exitCode = cmdDownload.returncode
     if exitCode != 0:
-        sys.stderr.write(" ".join(cmd))
-        raise Exception(str(stderror))
+        raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8")))
     return stdout, stderror, exitCode
 
 def remove_element_without_bug(list_set, element):

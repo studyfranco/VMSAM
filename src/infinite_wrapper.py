@@ -39,7 +39,7 @@ def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_na
                 shutil.move(os.path.join(folder_path, file),os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
         with open(os.path.join(args.error,"log.error"),"a") as log:
             log.write("\n"+"#"*20+"\n"+folder_path+"\n"+"#"*20+"\n")
-            log.write(stderror.decode("utf-8"))
+            log.write(stderror.decode("utf-8")+"\n")
         shutil.rmtree(folder_path)
     
 def generate_error_folder(folder_path_for_error):

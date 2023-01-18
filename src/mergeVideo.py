@@ -444,7 +444,12 @@ def get_delay_and_best_video(videosObj,language,audioRules):
             if was_they_not_already_compared(compareObjs[i],compareObjs[i+1],already_compared):
                 list_in_compare_video.append(compare_video(compareObjs[i],compareObjs[i+1],beginInSecOriginal,worseAudioQualityWillUse,language,lenghtTime,lenghtTimePrepare))
                 list_in_compare_video[-1].start()
-            elif len(new_compare_objs) != 0 and len(compareObjs) > 2:
+            elif len(new_compare_objs):
+                """
+                    TODO:
+                        I want check the file with the best number of match file and remove the files with the less connected. Normally the two list can't be connected.
+                """
+                compare_new_obj = None
                 if can_always_compare_it(compareObjs[i],compareObjs,new_compare_objs,already_compared):
                     compare_new_obj = get_waiter_to_compare(compareObjs[i],new_compare_objs,already_compared)
                     if compare_new_obj != None:
@@ -462,6 +467,8 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                         list_in_compare_video[-1].start()
                     else:
                         new_compare_objs.append(compareObjs[i+1])
+                elif compare_new_obj != None and was_they_not_already_compared(compareObjs[i+1],compare_new_obj,already_compared):
+                    new_compare_objs.append(compareObjs[i+1])
                 else:
                     list_not_compatible_video.append(compareObjs[i+1])
                     list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
@@ -506,7 +513,13 @@ def get_delay_and_best_video(videosObj,language,audioRules):
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
     return already_compared, dict_file_path_obj
 
-def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list):
+def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list,video_commentary_track_list):
+    if len(video_audio_track_list) == 2 and "und" in video_audio_track_list and tools.default_language_for_undetermine != "und":
+        # This step is linked by the fact if you have und audio they are orginialy convert in another language
+        # This was convert in a language, but the object is the same and can be compared
+        if video_audio_track_list[tools.default_language_for_undetermine] == video_audio_track_list['und']:
+            del video_audio_track_list[tools.default_language_for_undetermine]
+        
     track_to_remove = set()
     for language,audios in video_audio_track_list.items():
         for audio in audios:
@@ -514,13 +527,26 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 track_to_remove.add(audio["StreamOrder"])
             elif language == "und" and special_params["change_all_und"]:
                 merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
+                if tools.default_language_for_undetermine == special_params["original_language"]:
+                    merge_cmd.extend(["--original-flag", audio["StreamOrder"]])
+            elif language == special_params["original_language"]:
+                merge_cmd.extend(["--original-flag", audio["StreamOrder"]])
+    for language,audios in video_commentary_track_list.items():
+        for audio in audios:
+            #if (not audio["keep"]):
+            #    track_to_remove.add(audio["StreamOrder"])
+            #else:
+            if language == "und" and special_params["change_all_und"]:
+                merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
+            merge_cmd.extend(["--commentary-flag", audio["StreamOrder"], "--forced-display-flag", audio["StreamOrder"]+":0", "--default-track-flag", audio["StreamOrder"]+":0"])
+
     if len(track_to_remove):
         merge_cmd.extend(["-a"],"!"+",".join(track_to_remove))
 
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios)
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary)
     if delay_to_put != 0:
         merge_cmd.extend(["--sync", f"-1:{delay_to_put}"])
     merge_cmd.extend(["-D", video_obj.filePath])
@@ -549,10 +575,18 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 else:
                     dict_list_video_win[other_video_path_file] = [video_path_file]
     
-    print(f'The best video path is {dict_file_path_obj.keys() - set_bad_video}')
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
-    merge_cmd = [tools.software["mkvmerge"], "-o", path.join(out_folder,f"{best_video.fileBaseName}_merged.mkv")]
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios)
+    print(f'The best video path is {best_video.filePath}')
+    out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
+    if path.exists(out_path_file_name+'.mkv'):
+        i = 1
+        while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
+            i =+ 1
+        out_path_file_name += f'_({str(i)}).mkv'
+    else:
+        out_path_file_name += '.mkv'
+    merge_cmd = [tools.software["mkvmerge"], "-o", ]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
@@ -713,8 +747,10 @@ if __name__ == '__main__':
             with open(args.param) as param_file:
                 special_params = json.load(param_file)
             tools.default_language_for_undetermine = special_params["default_language_und"]
+            if "model_path" in special_params and special_params['model_path'] != "" and special_params['model_path'] != None:
+                video.path_to_livmaf_model = ":model_path="+special_params['model_path']
         else:
-            special_params = {"change_all_und":False}
+            special_params = {"change_all_und":False, "original_language":""}
         merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)
     except:
