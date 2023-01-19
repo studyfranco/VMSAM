@@ -482,7 +482,6 @@ def get_delay_and_best_video(videosObj,language,audioRules):
                 stderr.write("\n")
                 list_not_compatible_video.append(compareObjs[i+1].filePath)
                 list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
-                stderr.write(f"{already_compared},\n {dict_file_path_obj} \n")
         
         compareObjs = new_compare_objs
         for compare_video_obj in list_in_compare_video:

@@ -33,10 +33,10 @@ def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_na
         move_dir(folder_path,folder_path_for_error)
     else:
         if search(r'\[.+\] not compatible with the others videos',stderror.decode("utf-8"), MULTILINE) != None:
-            list_files_not_compatible_to_move = search(r'\[(.+)\] not compatible with the others videos',stderror.decode("utf-8"), MULTILINE).group(1).split(",")
+            list_files_not_compatible_to_move = search(r'\[(.+)\] not compatible with the others videos',stderror.decode("utf-8"), MULTILINE).group(1).split(", ")
             generate_error_folder(os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
             for file in list_files_not_compatible_to_move:
-                shutil.move(os.path.join(folder_path, file),os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
+                shutil.move(file[1:-1],os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
         with open(os.path.join(args.error,"log.error"),"a") as log:
             log.write("\n"+"#"*20+"\n"+folder_path+"\n"+"#"*20+"\n")
             log.write(stderror.decode("utf-8")+"\n")
@@ -61,6 +61,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
         else:
             for name_folder in [ name for name in os.listdir(folder_path) if os.path.isdir(os.path.join(folder_path, name)) ]:
                 process_files_in_folder(name_folder,folder_path,os.path.join(out_folder,name_folder_clean),os.path.join(folder_path_for_error,folder))
+                shutil.rmtree(folder_path)
     else:
         if (not make_dirs(out_folder)):
             stderr.write(f"Impossible to create {out_folder}")
