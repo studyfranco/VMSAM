@@ -80,6 +80,12 @@ class video():
             return float(self.video['FrameRate'])
         else:
             return None
+    
+    def get_scale(self):
+        if 'Width' in self.video and 'Height' in self.video:
+            return [int(self.video['Width']), int(self.video['Height'])]
+        else:
+            return None
         
     def get_video_duration(self):
         if 'FrameCount' in self.video:
@@ -146,12 +152,22 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     
     framerate_video_obj_1 = video_obj_1.get_fps()
     framerate_video_obj_2 = video_obj_2.get_fps()
+    scale_video_obj_1 = video_obj_1.get_scale()
+    scale_video_obj_2 = video_obj_2.get_scale()
+    filter_modifications = []
     if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
-        ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
         if framerate_video_obj_1 > framerate_video_obj_2:
-            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_2,framerate_video_obj_2,tools.core_to_use)+path_to_livmaf_model
+            filter_modifications.append(f'fps=fps={framerate_video_obj_2}')
         else:
-            ffmpeg_VMAF_1_vs_2[14] = "[0:v]fps=fps={}[0];[1:v]fps=fps={}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(framerate_video_obj_1,framerate_video_obj_1,tools.core_to_use)+path_to_livmaf_model
+            filter_modifications.append(f'fps=fps={framerate_video_obj_1}')
+    if scale_video_obj_1 != None and scale_video_obj_2 != None and (scale_video_obj_1[0] != scale_video_obj_2[0] or scale_video_obj_1[1] != scale_video_obj_2[1]):
+        if (scale_video_obj_1[0]*scale_video_obj_1[1]) > (scale_video_obj_2[0]*scale_video_obj_2[1]):
+            filter_modifications.append(f'scale={scale_video_obj_1[0]}:{scale_video_obj_1[1]}')
+        else:
+            filter_modifications.append(f'scale={scale_video_obj_2[0]}:{scale_video_obj_2[1]}')
+    if len(filter_modifications):
+        ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
+        ffmpeg_VMAF_1_vs_2[14] = "[0:v]{}[0];[1:v]{}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(", ".join(filter_modifications),", ".join(filter_modifications),tools.core_to_use)+path_to_livmaf_model
 
     ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
     ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath
