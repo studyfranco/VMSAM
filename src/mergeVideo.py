@@ -634,10 +634,10 @@ def simple_merge_video(videosObj,audioRules,out_folder):
             sorted(nameInList)
             if video.get_best_quality_video(dict_file_path_obj[nameInList[0]], dict_file_path_obj[nameInList[1]], begins_video, strftime('%H:%M:%S',gmtime(time_by_test))) == 1:
                 is_the_best_video = True
-                dict_file_path_obj[nameInList[0]]
+                new_compare_objs.append(dict_file_path_obj[nameInList[0]])
             else:
                 is_the_best_video = False
-                dict_file_path_obj[nameInList[1]]
+                new_compare_objs.append(dict_file_path_obj[nameInList[1]])
             if nameInList[0] in dict_with_video_quality_logic:
                 dict_with_video_quality_logic[nameInList[0]][nameInList[1]] = is_the_best_video
             else:
