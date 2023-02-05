@@ -2,5 +2,8 @@
 	"original_language":"ja",
 	"default_language_und":"ja",
 	"change_all_und":true,
-	"always_keep_audio_format":["flac","dts"]
+	"remove_commentary":false,
+	"always_keep_audio_format":["flac","dts"],
+	"forced_best_video":"",
+	"forced_best_video_contain":false
 }

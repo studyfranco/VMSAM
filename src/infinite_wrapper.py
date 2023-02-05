@@ -51,9 +51,9 @@ def generate_error_folder(folder_path_for_error):
     
 def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_error):
     folder_path = os.path.join(original_folder,folder)
-    if match(r'\S+\s*\[grouping\]\s*.*',folder) != None:
+    if match(r'\S+.*\s*\[grouping\]\s*.*',folder) != None:
         try:
-            name_folder_clean = " ".join([search(r'(\S+)\s*\[grouping\]\s*(.*)',folder).group(1),search(r'(\S+)\s*\[grouping\]\s*(.*)',folder).group(2)])
+            name_folder_clean = " ".join([search(r'(\S+.*)\s*\[grouping\]\s*(.*)',folder).group(1),search(r'(\S+)\s*\[grouping\]\s*(.*)',folder).group(2)])
             if len(name_folder_clean) == 0:
                 raise Exception("")
         except:
@@ -90,7 +90,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
                     
             if len(list_files_to_process) > 1:
                 cmd_use_to_process.extend(["-f", ",".join(list_files_to_process)])
-                if match(r'\S*\s*\[merge\]\s*.*',folder) != None:
+                if match(r'\S*.*\s*\[merge\]\s*.*',folder) != None:
                     cmd_use_to_process.append("--noSync")
                     process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder)
                 else:

@@ -5,11 +5,15 @@ Created on 23 Apr 2022
 '''
 
 from os import path,remove
+from sys import stderr
+from time import strftime,gmtime
 import tools
 import json
 
 ffmpeg_pool = None
 path_to_livmaf_model = "" #Nothing if it use the default
+number_cut = 5
+percent_time_by_test_video_quality_from_cut = 25
 
 class video():
     '''
@@ -48,8 +52,9 @@ class video():
         for data in self.mediadata['media']['track']:
             if data['@type'] == 'Video':
                 if self.video != None:
-                    raise Exception(self.filePath+" multiple video in same file")
-                self.video = data
+                    raise Exception(f"Multiple video in the same file {self.filePath}, I can't compare and merge they")
+                else:
+                    self.video = data
             elif data['@type'] == 'Audio':
                 if 'Language' in data:
                     language = data['Language']
@@ -74,6 +79,14 @@ class video():
         if "und" in self.audios and len(self.audios) == 1:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
+            
+    def get_best_video(self,data_video_1,data_video_2):
+        stderr.write("!"*40+"\n")
+        stderr.write(f'Multiple video in the same file {self.filePath}, I will compare the {data_video_1["StreamOrder"]} et {data_video_2["StreamOrder"]} track\n')
+        stderr.write("If your video are not sync, the result can be random.\n")
+        stderr.write("!"*40+"\n")
+        
+        
             
     def get_fps(self):
         if 'FrameRate' in self.video:
@@ -142,13 +155,93 @@ class video():
             ffmpeg_job = self.ffmpeg_progress.pop(0)
             ffmpeg_job.get()
 
+"""
+Preparation function
+"""
+def generate_begin_and_length_by_segment(min_video_duration_in_sec):
+    if min_video_duration_in_sec > 540:
+        begin_in_second = 120
+        length_time = int((min_video_duration_in_sec-240)/number_cut)
+    elif min_video_duration_in_sec > 60:
+        begin_in_second = 30
+        length_time = int((min_video_duration_in_sec-45)/number_cut)
+    elif min_video_duration_in_sec > 5:
+        begin_in_second = 0
+        length_time = int(min_video_duration_in_sec-2/number_cut)
+
+    return float(begin_in_second),length_time
+
+def generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted):
+    list_cut_begin_length = []
+    for i in range(0,number_cut):
+        time_second_begin, time_milisecond_begin = str(begin_in_second).split(".")
+        list_cut_begin_length.append([strftime('%H:%M:%S',gmtime(int(time_second_begin)))+"."+time_milisecond_begin,length_time_converted])
+        begin_in_second += length_time
+    
+    return list_cut_begin_length
+    
+def generate_cut_to_compare_video_quality(begin_in_second_video_1,begin_in_second_video_2,length_time):
+    begins_video_for_compare_quality = []
+    for i in range(0,number_cut):
+        time_second_begin_video_1, time_milisecond_begin_video_1 = str(begin_in_second_video_1).split(".")
+        time_second_begin_video_2, time_milisecond_begin_video_2 = str(begin_in_second_video_2).split(".")
+        begins_video_for_compare_quality.append([strftime('%H:%M:%S',gmtime(int(time_second_begin_video_1)))+"."+time_milisecond_begin_video_1,strftime('%H:%M:%S',gmtime(int(time_second_begin_video_2)))+"."+time_milisecond_begin_video_2])
+        begin_in_second_video_1 += length_time
+        begin_in_second_video_2 += length_time
+        
+    return begins_video_for_compare_quality
+
+def generate_time_compare_video_quality(length_time):
+    if percent_time_by_test_video_quality_from_cut >= 100:
+        time_by_test_best_quality = length_time
+    else:
+        time_by_test_best_quality = int(length_time*percent_time_by_test_video_quality_from_cut/100)+1
+    
+    return time_by_test_best_quality
+
+def get_begin_time_with_millisecond(delay,beginInSecBeforeDelay):
+    begining_in_second = int(beginInSecBeforeDelay)
+    delayUseNegative = delay < 0
+    delayUseSec = int(abs(delay)/1000)
+    delayUseMillisecond = abs(delay)%1000
+    if delayUseNegative:
+        if delayUseSec > beginInSecBeforeDelay or (delayUseSec == beginInSecBeforeDelay and delayUseMillisecond > 0):
+            raise Exception("Need to be update for negative delay and negative Time")
+        else:
+            begining_in_second -= delayUseSec
+            if delayUseMillisecond > 0:
+                begining_in_second -= 1
+                delayUseMillisecond = 1000-delayUseMillisecond
+                if delayUseMillisecond < 10:
+                    begining_in_millisecond = "."+"0"*2
+                elif delayUseMillisecond < 100:
+                    begining_in_millisecond = "."+"0"*1
+                else:
+                    begining_in_millisecond = "."
+                begining_in_millisecond += str(delayUseMillisecond)
+            else:
+                begining_in_millisecond = ""
+    else:
+        begining_in_second += delayUseSec
+        if delayUseMillisecond > 0:
+            if delayUseMillisecond < 10:
+                begining_in_millisecond = "."+"0"*2
+            elif delayUseMillisecond < 100:
+                begining_in_millisecond = "."+"0"*1
+            else:
+                begining_in_millisecond = "."
+            begining_in_millisecond += str(delayUseMillisecond)
+        else:
+            begining_in_millisecond = ""
+    return begining_in_second, begining_in_millisecond
+
 def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
     import re
     from statistics import mean
     ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
            "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
-           "-lavfi", "libvmaf=n_threads={}:log_fmt=json".format(tools.core_to_use)+path_to_livmaf_model,
-           "-threads", str(tools.core_to_use), "-f", "null", "-"]
+           "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
+           "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
     
     framerate_video_obj_1 = video_obj_1.get_fps()
     framerate_video_obj_2 = video_obj_2.get_fps()
@@ -167,7 +260,7 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
             filter_modifications.append(f'scale={scale_video_obj_2[0]}:{scale_video_obj_2[1]}')
     if len(filter_modifications):
         ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
-        ffmpeg_VMAF_1_vs_2[14] = "[0:v]{}[0];[1:v]{}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(", ".join(filter_modifications),", ".join(filter_modifications),tools.core_to_use)+path_to_livmaf_model
+        ffmpeg_VMAF_1_vs_2[14] = "[0:{}]{}[0];[1:{}]{}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],", ".join(filter_modifications),video_obj_2.video['StreamOrder'],", ".join(filter_modifications),tools.core_to_use)+path_to_livmaf_model
 
     ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
     ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath
@@ -206,6 +299,66 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
         return "1"
     else:
         return "2"
+    
+def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_test, calculated_delay):
+    import re
+    from statistics import mean
+    ffmpeg_PSNR = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
+       "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
+       "-lavfi", "[0:{}][1:{}]psnr".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder']),
+       "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
+    
+    framerate_video_obj_1 = video_obj_1.get_fps()
+    framerate_video_obj_2 = video_obj_2.get_fps()
+    scale_video_obj_1 = video_obj_1.get_scale()
+    scale_video_obj_2 = video_obj_2.get_scale()
+    filter_modifications = []
+    if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
+        if framerate_video_obj_1 > framerate_video_obj_2:
+            filter_modifications.append(f'fps=fps={framerate_video_obj_2}')
+            frame_rate_use = framerate_video_obj_2
+        else:
+            filter_modifications.append(f'fps=fps={framerate_video_obj_1}')
+            frame_rate_use = framerate_video_obj_1
+    elif framerate_video_obj_1 != None:
+        frame_rate_use = framerate_video_obj_1
+    elif framerate_video_obj_2 != None:
+        frame_rate_use = framerate_video_obj_2
+    else:
+        raise Exception(f"{video_obj_1.filePath} and {video_obj_2.filePath} have no framerate infos")
+    if scale_video_obj_1 != None and scale_video_obj_2 != None and (scale_video_obj_1[0] != scale_video_obj_2[0] or scale_video_obj_1[1] != scale_video_obj_2[1]):
+        if (scale_video_obj_1[0]*scale_video_obj_1[1]) > (scale_video_obj_2[0]*scale_video_obj_2[1]):
+            filter_modifications.append(f'scale={scale_video_obj_1[0]}:{scale_video_obj_1[1]}')
+        else:
+            filter_modifications.append(f'scale={scale_video_obj_2[0]}:{scale_video_obj_2[1]}')
+    if len(filter_modifications):
+        ffmpeg_PSNR[13] = "-filter_complex"
+        ffmpeg_PSNR[14] = "[0:{}]{}[0];[1:{}]{}[1]; [0][1]psnr".format(video_obj_1.video['StreamOrder'],", ".join(filter_modifications),video_obj_2.video['StreamOrder'],", ".join(filter_modifications))
+    
+    time_by_frame = 1.0/float(frame_rate_use)
+    begin_in_sec_frame_adjusted = (float(int(begin_in_sec/time_by_frame))*time_by_frame)
+    length_time_frame_adjusted = (float(int(length_time/time_by_frame))*time_by_frame)
+    
+    best_value_psnr = -1
+    good_frame = -2
+    for i in range(-2,3):
+        jobs_psnr = []
+        for begins in generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+i)*time_by_frame),length_time_frame_adjusted):
+            ffmpeg_PSNR[2] = begins[0]
+            ffmpeg_PSNR[8] = begins[1]
+            jobs_psnr.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_PSNR,)))
+        
+        list_result_average_psnr = []
+        for job_psnr in jobs_psnr:
+            result = job_psnr.get()
+            list_result_average_psnr.append(float(re.search(r'.*\[Parsed_psnr.*\].+average:(\d+.\d+).*',result[1].decode("utf-8"), re.MULTILINE).group(1)))
+        
+        if mean(list_result_average_psnr) >= best_value_psnr:
+            good_frame = i
+            best_value_psnr = mean(list_result_average_psnr)
+    
+    calculated_delay = (float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame) - begin_in_sec_frame_adjusted
+    return calculated_delay*1000,generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame),length_time_frame_adjusted)
 
 def get_common_audios_language(videosObj):
     commonLanguages = set(videosObj[0].audios.keys())
