@@ -369,6 +369,10 @@ def prepare_get_delay(videosObj,language,audioRules):
     
     return begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length
 
+def print_forced_video(forced_best_video):
+    if tools.dev:
+        print(f"The forced video is {forced_best_video}")
+
 def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
     if len(list_not_compatible_video):
         from sys import stderr
@@ -484,7 +488,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
         if launched_compare.video_obj_with_best_quality != None:
             already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = True
         else:
-            already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = None
+            list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
         launched_compare = prepared_compare
     
     videosObj.append(dict_file_path_obj[forced_best_video])
@@ -610,6 +614,7 @@ def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced
                     dict_with_video_quality_logic[nameInList[0]] = {nameInList[1]: is_the_best_video}
             compareObjs = new_compare_objs
     else:
+        print_forced_video(forced_best_video)
         dict_with_video_quality_logic = {forced_best_video:{}}
         for file_path in dict_file_path_obj:
             if forced_best_video != file_path:
@@ -639,6 +644,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     if forced_best_video == None:
         dict_with_video_quality_logic = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules,dict_file_path_obj)
     else:
+        print_forced_video(forced_best_video)
         dict_with_video_quality_logic = get_delay(videosObj,common_language_use_for_generate_delay,audioRules,dict_file_path_obj,forced_best_video)
     for language in commonLanguages:
         """
@@ -722,6 +728,8 @@ if __name__ == '__main__':
     else:
         tools.core_to_use = args.core
     video.ffmpeg_pool = Pool(processes=2)
+    
+    tools.dev = args.dev
     
     try:
         tools.software = tools.config_loader(args.config, "software")

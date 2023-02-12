@@ -367,19 +367,25 @@ def get_common_audios_language(videosObj):
     return commonLanguages
 
 def get_worse_quality_audio_param(videosObj,language,rules):
-    worseAudio = [0,0]
-    while language not in videosObj[worseAudio[0]].audios and len(videosObj) > worseAudio[0]:
-        worseAudio[0]+=1
-    if len(videosObj[worseAudio[0]].audios[language]) > 1:
-        for j in range(1,len(videosObj[worseAudio[0]].audios[language])):
-            if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[worseAudio[0]].audios[language][j],rules)):
-                worseAudio[1] = j
-    if len(videosObj) > worseAudio[0]+1:
-        for i in range(worseAudio[0]+1,len(videosObj)):
-            for j in range(0,len(videosObj[i].audios[language])):
-                if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[i].audios[language][j],rules)):
-                    worseAudio = [i,j]
-    return videosObj[worseAudio[0]].audios[language][worseAudio[1]].copy()
+    try:
+        worseAudio = [0,0]
+        while language not in videosObj[worseAudio[0]].audios and len(videosObj) > worseAudio[0]:
+            worseAudio[0]+=1
+        if len(videosObj[worseAudio[0]].audios[language]) > 1:
+            for j in range(1,len(videosObj[worseAudio[0]].audios[language])):
+                if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[worseAudio[0]].audios[language][j],rules)):
+                    worseAudio[1] = j
+        if len(videosObj) > worseAudio[0]+1:
+            for i in range(worseAudio[0]+1,len(videosObj)):
+                for j in range(0,len(videosObj[i].audios[language])):
+                    if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[i].audios[language][j],rules)):
+                        worseAudio = [i,j]
+        return videosObj[worseAudio[0]].audios[language][worseAudio[1]].copy()
+    except:
+        return {'Format':"MP3",
+                'Channels':"2",
+                'BitRate':"128000",
+                'SamplingRate':"44100"}
 
 def get_shortest_audio_durations(videosObj,language):
     shorter = 1000000000000000000000000000000000
@@ -415,7 +421,7 @@ def test_if_the_best_by_rules_audio_entry(base,challenger,rules):
     if base['Format'] == challenger['Format']:
         return base['BitRate'] < challenger['BitRate']
     else:
-        return test_if_the_best_by_rules(base['Format'],base['BitRate'],challenger['Format'],challenger['BitRate'],rules)
+        return test_if_the_best_by_rules(base['Format'],get_birate_key(base),challenger['Format'],get_birate_key(base),rules)
     
 def test_if_the_best_by_rules(formatFileBase,bitrateFileBase,formatFileChallenger,bitrateFileChallenger,rules,inEgualityKeepChallenger=False):
     testResul = test_if_it_better_by_rules(formatFileBase.lower(),bitrateFileBase,formatFileChallenger.lower(),bitrateFileChallenger,rules)

@@ -124,6 +124,8 @@ if __name__ == '__main__':
     if (not os.access(args.folder, os.W_OK)):
         raise Exception(f"{args.folder} not writable")
     base_cmd_use_to_process = ["python3", os.path.join(args.pwd,"mergeVideo.py"), "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
+    if args.dev:
+        base_cmd_use_to_process.append("--dev")
     while True:
         folder_to_clean = [ name_folder for name_folder in os.listdir(args.folder) if os.path.isdir(os.path.join(args.folder, name_folder)) ]
         if len(folder_to_clean):
