@@ -380,6 +380,9 @@ def get_worse_quality_audio_param(videosObj,language,rules):
                 for j in range(0,len(videosObj[i].audios[language])):
                     if (not test_if_the_best_by_rules_audio_entry(videosObj[worseAudio[0]].audios[language][worseAudio[1]],videosObj[i].audios[language][j],rules)):
                         worseAudio = [i,j]
+        
+        if 'BitRate' not in videosObj[worseAudio[0]].audios[language][worseAudio[1]]:
+            videosObj[worseAudio[0]].audios[language][worseAudio[1]]['BitRate'] = videosObj[worseAudio[0]].audios[language][worseAudio[1]]['BitRate_Nominal']
         return videosObj[worseAudio[0]].audios[language][worseAudio[1]].copy()
     except:
         return {'Format':"MP3",
