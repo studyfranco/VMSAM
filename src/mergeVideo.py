@@ -506,7 +506,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     if launched_compare.video_obj_with_best_quality != None:
         already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = True
     else:
-        already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = None
+        list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
     
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
