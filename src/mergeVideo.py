@@ -214,7 +214,15 @@ class compare_video(Thread):
                 ignore_audio_couple.add(key_audio)
         
         if len(delay_detected) != 1:
-            raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+            delayUse = None
+            if len(delay_Fidelity_Values) == 1 and len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) == 125:
+                delayUse = self.adjuster_chroma_bugged(list(set_delay),set())
+                ignore_audio_couple = set()
+            elif len(delay_detected) == 2 and abs(list(delay_detected)[0]-list(delay_detected)[1]) == 125:
+                delayUse = self.adjuster_chroma_bugged(list(delay_detected),set())
+                ignore_audio_couple = set()
+            if delayUse == None:
+                raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
         else:
             delayUse = list(delay_detected)[0]
         
@@ -258,7 +266,21 @@ class compare_video(Thread):
                 return delayUse,ignore_audio_couple
             else:
                 raise Exception(f"Not able to find delay with the method 1 and in test 4 for {self.video_obj_1} and {self.video_obj_2}")
-        
+    
+    def adjuster_chroma_bugged(self,list_delay,ignore_audio_couple):
+        if list_delay[0] > list_delay[1]:
+            delay_first_method_lower_result = list_delay[1]
+        else:
+            delay_first_method_lower_result = list_delay[0]
+        self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
+        delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
+    
+        calculated_delay = delay_first_method_lower_result+round(delay_second_method*1000)
+        if calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
+            return calculated_delay
+        else:
+            return None
+    
     def recreate_files_for_delay_adjuster(self,delay_use):
         list_cut_begin_length = video.generate_cut_with_begin_length(self.begin_in_second+(delay_use/1000),self.lenghtTime,self.lenghtTimePrepare)
         self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=list_cut_begin_length)
