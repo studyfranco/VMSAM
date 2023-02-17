@@ -224,6 +224,8 @@ class compare_video(Thread):
                 ignore_audio_couple = set()
             if delayUse == None:
                 raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+            else:
+                self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
         else:
             delayUse = list(delay_detected)[0]
         
