@@ -171,6 +171,7 @@ class compare_video(Thread):
                 self.video_obj_with_best_quality = self.video_obj_1
                 self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
+            traceback.print_exc()
             sys.stderr.write(str(e)+"\n")
         
     def test_if_constant_good_delay(self):
