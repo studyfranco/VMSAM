@@ -4,6 +4,7 @@
 	"change_all_und":true,
 	"remove_commentary":false,
 	"always_keep_audio_format":["flac","dts"],
+	"number_cut":5,
 	"forced_best_video":"",
 	"forced_best_video_contain":false
 }

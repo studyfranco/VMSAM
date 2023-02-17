@@ -199,13 +199,22 @@ class compare_video(Thread):
                 set_delay.add(delay_fidelity[2])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
+            elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
+                number_values_not_good = 0
+                for delay_fidelity in delay_fidelity_list:
+                    if delay_fidelity != delay_fidelity_list[0][2]:
+                        number_values_not_good += 1
+                    if (number_values_not_good/video.number_cut) > 0.25:
+                        ignore_audio_couple.add(key_audio)
+                    else:
+                        delay_detected.update(delay_fidelity_list[0][2])
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
                 ignore_audio_couple.add(key_audio)
         
         if len(delay_detected) != 1:
-            raise Exception(f"Multiple delay found with the method 1 and in test 1 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+            raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
         else:
             delayUse = list(delay_detected)[0]
         
@@ -752,6 +761,7 @@ if __name__ == '__main__':
             tools.default_language_for_undetermine = special_params["default_language_und"]
             if "model_path" in special_params and special_params['model_path'] != "" and special_params['model_path'] != None:
                 video.path_to_livmaf_model = ":model_path="+special_params['model_path']
+            video.number_cut = special_params["number_cut"]
         else:
             special_params = {"change_all_und":False, "original_language":"", "remove_commentary":False, "forced_best_video":"", "forced_best_video_contain":False}
         merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
