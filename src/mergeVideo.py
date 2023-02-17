@@ -205,7 +205,7 @@ class compare_video(Thread):
                 ignore_audio_couple.add(key_audio)
         
         if len(delay_detected) != 1:
-            raise Exception(f"Multiple delay found with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+            raise Exception(f"Multiple delay found with the method 1 and in test 1 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
         else:
             delayUse = list(delay_detected)[0]
         
@@ -219,8 +219,11 @@ class compare_video(Thread):
                 set_delay.add(delay_fidelity[2])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
+            elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
+                sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                delay_detected.add(delay_fidelity_list[0][2])
             else:
-                raise Exception(f"Multiple delay found with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                raise Exception(f"Multiple delay found with the method 1 and in test 2 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                     
         if len(delay_detected) == 1 and 0 in delay_detected:
             return delayUse,ignore_audio_couple
@@ -236,13 +239,16 @@ class compare_video(Thread):
                     set_delay.add(delay_fidelity[2])
                 if len(set_delay) == 1:
                     delay_detected.update(set_delay)
+                elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
+                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                    delay_detected.add(delay_fidelity_list[0][2])
                 else:
-                    raise Exception(f"Multiple delay found with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                    raise Exception(f"Multiple delay found with the method 1 and in test 3 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                         
             if len(delay_detected) == 1 and 0 in delay_detected:
                 return delayUse,ignore_audio_couple
             else:
-                raise Exception(f"Not able to find delay for {self.video_obj_1} and {self.video_obj_2}")
+                raise Exception(f"Not able to find delay with the method 1 and in test 4 for {self.video_obj_1} and {self.video_obj_2}")
         
     def recreate_files_for_delay_adjuster(self,delay_use):
         list_cut_begin_length = video.generate_cut_with_begin_length(self.begin_in_second+(delay_use/1000),self.lenghtTime,self.lenghtTimePrepare)
@@ -259,11 +265,15 @@ class compare_video(Thread):
                 set_delay.add(delay[1])
             if variance(set_delay) < max_delay_variance_second_method:
                 delay_detected.update(set_delay)
+            elif (delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
+                sys.stderr.write(f"Variance delay in the second test is to big with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
+                delay_detected.add(delay_list[0][1])
+                delay_detected.add(delay_list[-1][1])
             else:
-                raise Exception(f"Variance delay in the second test is to big with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                raise Exception(f"Variance delay in the second test is to big with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
         
         if variance(delay_detected) > max_delay_variance_second_method:
-            raise Exception(f"Multiple delay found with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
+            raise Exception(f"Multiple delay found with the method 2 and in test 1 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
