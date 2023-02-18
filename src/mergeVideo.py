@@ -644,7 +644,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             i = 0
             while only_UID_warning and i < len(lined_error):
                 if re.match('^Warning:.*', lined_error[i]) != None:
-                    if re.match("^Warning:+*Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
+                    if re.match("^Warning:.+Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
                         only_UID_warning = False
                 i += 1
             if (not only_UID_warning):
