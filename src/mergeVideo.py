@@ -208,7 +208,7 @@ class compare_video(Thread):
                     if (number_values_not_good/video.number_cut) > 0.25:
                         ignore_audio_couple.add(key_audio)
                     else:
-                        delay_detected.update(delay_fidelity_list[0][2])
+                        delay_detected.add(delay_fidelity_list[0][2])
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
@@ -240,10 +240,17 @@ class compare_video(Thread):
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
             elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
-                sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                 delay_detected.add(delay_fidelity_list[0][2])
             else:
-                raise Exception(f"Multiple delay found with the method 1 and in test 2 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                delay_adjusted = None
+                if len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) == 125:
+                    delay_adjusted = self.adjuster_chroma_bugged(list(set([delayUse + delay_fidelity[2] for delay_fidelity in delay_fidelity_list])),ignore_audio_couple)
+                if delay_adjusted == None:
+                    raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                else:
+                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+                    delay_detected.add(delay_adjusted)
                     
         if len(delay_detected) == 1 and 0 in delay_detected:
             return delayUse,ignore_audio_couple
@@ -260,10 +267,10 @@ class compare_video(Thread):
                 if len(set_delay) == 1:
                     delay_detected.update(set_delay)
                 elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
-                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                     delay_detected.add(delay_fidelity_list[0][2])
                 else:
-                    raise Exception(f"Multiple delay found with the method 1 and in test 3 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                    raise Exception(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                         
             if len(delay_detected) == 1 and 0 in delay_detected:
                 return delayUse,ignore_audio_couple
