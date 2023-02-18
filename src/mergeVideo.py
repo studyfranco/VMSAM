@@ -634,7 +634,25 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     
     print(" ".join(merge_cmd))
-    tools.launch_cmdExt(merge_cmd)
+    try:
+        tools.launch_cmdExt(merge_cmd)
+    except Exception as e:
+        import re
+        lined_error = str(e).splitlines()
+        if re.match('Return code: 1', lined_error[-1]) != None:
+            only_UID_warning = True
+            i = 0
+            while only_UID_warning and i < len(lined_error):
+                if re.match('^Warning:.*', lined_error[i]) != None:
+                    if re.match("^Warning:+*Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
+                        only_UID_warning = False
+                i += 1
+            if (not only_UID_warning):
+                raise e
+            else:
+                sys.stderr.write(str(e))
+        else:
+            raise e
     
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
