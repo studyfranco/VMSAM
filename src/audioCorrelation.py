@@ -165,30 +165,22 @@ def generate_norm_cmd(in_file,out_file):
 
 def read_normalized(in1,in2):
     from video import ffmpeg_pool
-    base_namme_in1 = path.splitext(path.basename(in1))[0]
-    out_in1 = path.join(tools.tmpFolder,base_namme_in1+".wav")
-    job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", in1, "-c:a", "pcm_s16le", "-map", "0:a", out_in1],) )
-    
-    base_namme_in2 = path.splitext(path.basename(in2))[0]
-    out_in2 = path.join(tools.tmpFolder,base_namme_in2+".wav")
-    job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", in2, "-c:a", "pcm_s16le", "-map", "0:a", out_in2],) )
-    
-    job_in1.get()
-    r1,s1 = get_files_metrics(out_in1)
-    job_in2.get()
-    r2,s2 = get_files_metrics(out_in2)
+
+    r1,s1 = get_files_metrics(in1)
+    r2,s2 = get_files_metrics(in2)
     if r1 != r2:
+        base_namme_in1 = path.splitext(path.basename(in1))[0]
+        base_namme_in2 = path.splitext(path.basename(in2))[0]
+        
         out_in1_norm = path.join(tools.tmpFolder,base_namme_in1+"_norm.wav")
-        job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(out_in1,out_in1_norm),) )
+        job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in1,out_in1_norm),) )
         out_in2_norm = path.join(tools.tmpFolder,base_namme_in2+"_norm.wav")
-        job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(out_in2,out_in2_norm),) )
+        job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in2,out_in2_norm),) )
             
         job_in1.get()
         r1,s1 = get_files_metrics(out_in1_norm)
-        remove(out_in1)
         job_in2.get()
         r2,s2 = get_files_metrics(out_in2_norm)
-        remove(out_in2)
         if r1 != r2:
             out_in1_norm_denoise = path.join(tools.tmpFolder,base_namme_in1+"_norm_denoise.wav")
             job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
@@ -206,9 +198,6 @@ def read_normalized(in1,in2):
         else:
             remove(out_in1_norm)
             remove(out_in2_norm)
-    else:
-        remove(out_in1)
-        remove(out_in2)
 
     assert r1 == r2, "not same sample rate"
     fs = r1

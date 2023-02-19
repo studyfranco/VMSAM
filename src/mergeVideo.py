@@ -99,18 +99,7 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
         videoObj.wait_end_ffmpeg_progress()
         if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
-            audioParam["Format"] = "AAC"
-            audioParam['Channels'] = "2"
-            if int(audioParam["BitRate"]) > 256000:
-                audioParam["BitRate"] = "256000"
-            videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
-            videoObj.wait_end_ffmpeg_progress()
-            if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
-                audioParam["Format"] = "MP3"
-                videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
-                videoObj.wait_end_ffmpeg_progress()
-                if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
-                    raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
+            raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
     delay_Fidelity_Values = {}
@@ -209,6 +198,14 @@ class compare_video(Thread):
                         ignore_audio_couple.add(key_audio)
                     else:
                         delay_detected.add(delay_fidelity_list[0][2])
+            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) == 125:
+                to_ignore = set(delay_Fidelity_Values.keys())
+                to_ignore.remove(key_audio)
+                delay_found = self.adjuster_chroma_bugged(list(set_delay),to_ignore)
+                if delay_found == None:
+                    ignore_audio_couple.add(key_audio)
+                else:
+                    delay_detected.add(delay_fidelity_list[0][1])
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
@@ -216,16 +213,15 @@ class compare_video(Thread):
         
         if len(delay_detected) != 1:
             delayUse = None
-            if len(delay_Fidelity_Values) == 1 and len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) == 125:
-                delayUse = self.adjuster_chroma_bugged(list(set_delay),set())
-                ignore_audio_couple = set()
-            elif len(delay_detected) == 2 and abs(list(delay_detected)[0]-list(delay_detected)[1]) == 125:
-                delayUse = self.adjuster_chroma_bugged(list(delay_detected),set())
-                ignore_audio_couple = set()
+            if len(delay_detected) == 2 and abs(list(delay_detected)[0]-list(delay_detected)[1]) == 125:
+                delayUse = self.adjuster_chroma_bugged(list(delay_detected),ignore_audio_couple)
             if delayUse == None:
                 raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
             else:
                 self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+        elif 'delay_found' in locals() and delay_found != None:
+            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+            delayUse = delay_found
         else:
             delayUse = list(delay_detected)[0]
         
@@ -283,7 +279,10 @@ class compare_video(Thread):
         else:
             delay_first_method_lower_result = list_delay[0]
         self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
-        delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
+        try:
+            delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
+        except:
+            return None
     
         calculated_delay = delay_first_method_lower_result+round(delay_second_method*1000)
         if calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
@@ -306,15 +305,15 @@ class compare_video(Thread):
                 set_delay.add(delay[1])
             if variance(set_delay) < max_delay_variance_second_method:
                 delay_detected.update(set_delay)
-            elif (delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
-                sys.stderr.write(f"Variance delay in the second test is to big with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
+            elif abs(delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
+                sys.stderr.write(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
                 delay_detected.add(delay_list[0][1])
                 delay_detected.add(delay_list[-1][1])
             else:
-                raise Exception(f"Variance delay in the second test is to big with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
+                raise Exception(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
         
         if variance(delay_detected) > max_delay_variance_second_method:
-            raise Exception(f"Multiple delay found with the method 2 and in test 1 for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
+            raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
@@ -399,17 +398,23 @@ def remove_not_compatible_audio(video_obj_path_file,already_compared):
     
     return other_videos_path_file
 
-def prepare_get_delay(videosObj,language,audioRules):
-    worseAudioQualityWillUse = video.get_worse_quality_audio_param(videosObj,language,audioRules)
-    min_video_duration_in_sec = video.get_shortest_audio_durations(videosObj,language)
-    get_good_parameters_to_get_fidelity(videosObj,language,worseAudioQualityWillUse,min_video_duration_in_sec)
+def prepare_get_delay(videos_obj,language,audioRules):
+    audio_parameter_to_use_for_comparison = {'Format':"WAV",
+                                             'codec':"pcm_s16le",
+                                             'Channels':"2"}
+    min_channel = video.get_less_channel_number(videos_obj,language)
+    if min_channel == "1":
+        audio_parameter_to_use_for_comparison['Channels'] = min_channel
+
+    min_video_duration_in_sec = video.get_shortest_audio_durations(videos_obj,language)
+    get_good_parameters_to_get_fidelity(videos_obj,language,audio_parameter_to_use_for_comparison,min_video_duration_in_sec)
     
     begin_in_second,length_time = video.generate_begin_and_length_by_segment(min_video_duration_in_sec)
     length_time_converted = strftime('%H:%M:%S',gmtime(length_time))
     list_cut_begin_length = video.generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted)
     
-    for videoObj in videosObj:
-        videoObj.extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=list_cut_begin_length)
+    for videoObj in videos_obj:
+        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
         videoObj.delays[language] = 0
         for language,audios in videoObj.audios.items():
             for audio in audios:
@@ -418,7 +423,7 @@ def prepare_get_delay(videosObj,language,audioRules):
             for audio in audios:
                 audio["keep"] = (not special_params["remove_commentary"])
     
-    return begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length
+    return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
 def print_forced_video(forced_best_video):
     if tools.dev:
@@ -621,7 +626,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if path.exists(out_path_file_name+'.mkv'):
         i = 1
         while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
-            i =+ 1
+            i += 1
         out_path_file_name += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'

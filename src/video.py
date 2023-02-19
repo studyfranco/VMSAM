@@ -113,8 +113,19 @@ class video():
             self.remove_tmp_files(type_file="audio")
         self.tmpFiles['audio'] = nameFilesExtract
 
-        baseCommand = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", self.filePath, "-vn", "-acodec", exportParam["Format"].lower().replace('-',''), "-ab", exportParam["BitRate"], "-ar", exportParam['SamplingRate']]
-        if exportParam['Channels'] == "2":
+        baseCommand = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", self.filePath, "-vn"]
+        if exportParam['Format'] == 'WAV':
+            if 'codec' in exportParam:
+                baseCommand.extend(["-c:a", exportParam['codec']])
+        elif 'codec' in exportParam:
+            baseCommand.extend(["-acodec", exportParam['codec']])
+        else:
+            baseCommand.extend(["-acodec", exportParam['Format'].lower().replace('-','')])
+        if 'BitRate' in exportParam:
+            baseCommand.extend(["-ab", exportParam['BitRate']])
+        if 'SamplingRate' in exportParam:
+            baseCommand.extend(["-ar", exportParam['SamplingRate']])
+        if 'Channels' in exportParam:
             baseCommand.extend(["-ac", exportParam['Channels']])
         if cutTime == None:
             nameFilesExtractCut = []
@@ -389,6 +400,26 @@ def get_worse_quality_audio_param(videosObj,language,rules):
                 'Channels':"2",
                 'BitRate':"128000",
                 'SamplingRate':"44100"}
+
+def get_less_channel_number(videos_obj,language):
+    try:
+        less_channel_number = [0,0]
+        while language not in videos_obj[less_channel_number[0]].audios and len(videos_obj) > less_channel_number[0]:
+            less_channel_number[0]+=1
+        
+        if len(videos_obj[less_channel_number[0]].audios[language]) > 1:
+            for j in range(1,len(videos_obj[less_channel_number[0]].audios[language])):
+                if int(videos_obj[less_channel_number[0]].audios[language][less_channel_number[1]]['Channels']) > int(videos_obj[less_channel_number[0]].audios[language][j]['Channels']):
+                    less_channel_number[1] = j
+        if len(videos_obj) > less_channel_number[0]+1:
+            for i in range(less_channel_number[0]+1,len(videos_obj)):
+                for j in range(0,len(videos_obj[i].audios[language])):
+                    if int(videos_obj[less_channel_number[0]].audios[language][less_channel_number[1]]['Channels']) > int(videos_obj[i].audios[language][j]['Channels']):
+                        less_channel_number = [i,j]
+
+        return videos_obj[less_channel_number[0]].audios[language][less_channel_number[1]]['Channels']
+    except:
+        return "2"
 
 def get_shortest_audio_durations(videosObj,language):
     shorter = 1000000000000000000000000000000000
