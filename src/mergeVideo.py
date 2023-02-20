@@ -303,7 +303,7 @@ class compare_video(Thread):
             set_delay = set()
             for delay in delay_list:
                 set_delay.add(delay[1])
-            if variance(set_delay) < max_delay_variance_second_method:
+            if len(set_delay) == 1 or variance(set_delay) < max_delay_variance_second_method:
                 delay_detected.update(set_delay)
             elif abs(delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
                 sys.stderr.write(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
@@ -312,7 +312,7 @@ class compare_video(Thread):
             else:
                 raise Exception(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
         
-        if variance(delay_detected) > max_delay_variance_second_method:
+        if len(delay_detected) != 1 and variance(delay_detected) > max_delay_variance_second_method:
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
