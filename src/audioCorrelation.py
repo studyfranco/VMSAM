@@ -247,6 +247,11 @@ def show2(fs,s1,s2,title=None):
 def second_correlation(in1,in2):
     fs,s1,s2 = read_normalized(in1,in2)
     ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
+    ls1 = None
+    ls2 = None
+    ca = None
+    s1 = None
+    s2 = None
     # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
     #sync_text = """
     #==============================================================================
@@ -260,6 +265,9 @@ def second_correlation(in1,in2):
         # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
         file,offset = in1,xmax/fs
     #print(sync_text%(file,offset))
+    padsize = None
+    xmax = None
+    fs = None
     return file,offset
 
 '''

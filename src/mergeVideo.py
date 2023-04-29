@@ -112,6 +112,8 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
                 delay_Fidelity_Values[f"{i}-{j}"] = delay_between_two_audio
                 for h in range(0,video.number_cut):
                     delay_between_two_audio.append(correlate(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h],lenghtTime))
+    import gc
+    gc.collect()
     return delay_Fidelity_Values
 
 def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()):
@@ -630,13 +632,13 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
-    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name]
+    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name, "--split", f"parts-frames:-{best_video.video['FrameCount']}"]
+    for other_video_path_file in dict_list_video_win[best_video.filePath]:
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
-    for other_video_path_file in dict_list_video_win[best_video.filePath]:
-        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     
     print(" ".join(merge_cmd))
     try:
