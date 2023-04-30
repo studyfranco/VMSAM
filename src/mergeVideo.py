@@ -632,7 +632,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
-    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name, "--split", f"parts-frames:-{best_video.video['FrameCount']}"]
+    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name]
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
         generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary)
