@@ -164,28 +164,29 @@ def generate_norm_cmd(in_file,out_file):
             "-c:a:0", "pcm_s16le", "-c:s", "copy", out_file]
 
 def read_normalized(in1,in2):
-    from video import ffmpeg_pool
+    from video import ffmpeg_pool_audio_convert,wait_end_big_job
 
     r1,s1 = get_files_metrics(in1)
     r2,s2 = get_files_metrics(in2)
     if r1 != r2:
         base_namme_in1 = path.splitext(path.basename(in1))[0]
         base_namme_in2 = path.splitext(path.basename(in2))[0]
-        
+        wait_end_big_job()
         out_in1_norm = path.join(tools.tmpFolder,base_namme_in1+"_norm.wav")
-        job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in1,out_in1_norm),) )
+        job_in1 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in1,out_in1_norm),) )
         out_in2_norm = path.join(tools.tmpFolder,base_namme_in2+"_norm.wav")
-        job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in2,out_in2_norm),) )
+        job_in2 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (generate_norm_cmd(in2,out_in2_norm),) )
             
         job_in1.get()
         r1,s1 = get_files_metrics(out_in1_norm)
         job_in2.get()
         r2,s2 = get_files_metrics(out_in2_norm)
         if r1 != r2:
+            wait_end_big_job()
             out_in1_norm_denoise = path.join(tools.tmpFolder,base_namme_in1+"_norm_denoise.wav")
-            job_in1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
+            job_in1 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
             out_in2_norm_denoise = path.join(tools.tmpFolder,base_namme_in2+"_norm_denoise.wav")
-            job_in2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in2_norm, "-af", "'afftdn=nf=-25'", out_in2_norm_denoise],) )
+            job_in2 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in2_norm, "-af", "'afftdn=nf=-25'", out_in2_norm_denoise],) )
             
             job_in1.get()
             r1,s1 = get_files_metrics(out_in1_norm_denoise)

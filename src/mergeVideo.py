@@ -97,14 +97,14 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         maxTime = 10
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
-        videoObj.wait_end_ffmpeg_progress()
+        videoObj.wait_end_ffmpeg_progress_audio()
         if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
             raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
     delay_Fidelity_Values = {}
-    video_obj_1.wait_end_ffmpeg_progress()
-    video_obj_2.wait_end_ffmpeg_progress()
+    video_obj_1.wait_end_ffmpeg_progress_audio()
+    video_obj_2.wait_end_ffmpeg_progress_audio()
     for i in range(0,len(video_obj_1.tmpFiles['audio'])):
         for j in range(0,len(video_obj_2.tmpFiles['audio'])):
             if f"{i}-{j}" not in ignore_audio_couple:
@@ -118,8 +118,8 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
 
 def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()):
     delay_Values = {}
-    video_obj_1.wait_end_ffmpeg_progress()
-    video_obj_2.wait_end_ffmpeg_progress()
+    video_obj_1.wait_end_ffmpeg_progress_audio()
+    video_obj_2.wait_end_ffmpeg_progress_audio()
     for i in range(0,len(video_obj_1.tmpFiles['audio'])):
         for j in range(0,len(video_obj_2.tmpFiles['audio'])):
             if f"{i}-{j}" not in ignore_audio_couple:
@@ -151,6 +151,7 @@ class compare_video(Thread):
         self.time_by_test_best_quality_converted = time_by_test_best_quality_converted
         self.video_obj_with_best_quality = None
         self.process_to_get_best_video = process_to_get_best_video
+        self.uncompatibleaudiofind = set()
 
     def run(self):
         try:
@@ -159,6 +160,7 @@ class compare_video(Thread):
                 self.get_best_video(delay)
             else: # You must have the video you want process in video_obj_1
                 self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+                self.video_obj_2.remove_tmp_files(type_file="audio")
                 self.video_obj_with_best_quality = self.video_obj_1
                 self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
@@ -213,6 +215,10 @@ class compare_video(Thread):
                 # We need to ask to the user to pass them if they want.
                 ignore_audio_couple.add(key_audio)
         
+        '''
+            TODO:
+                Detect if the audio is always not compatible. Set it not compatible in it. (And not convert it all the time)
+        '''
         if len(delay_detected) != 1:
             delayUse = None
             if len(delay_detected) == 2 and abs(list(delay_detected)[0]-list(delay_detected)[1]) == 125:
@@ -317,11 +323,15 @@ class compare_video(Thread):
         if len(delay_detected) != 1 and variance(delay_detected) > max_delay_variance_second_method:
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
+            '''
+                TODO:
+                    protect the memory to overload
+            '''
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
-            self.video_obj_1.wait_end_ffmpeg_progress()
-            self.video_obj_2.wait_end_ffmpeg_progress()
+            self.video_obj_1.wait_end_ffmpeg_progress_audio()
+            self.video_obj_2.wait_end_ffmpeg_progress_audio()
             for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
                 for j in range(0,len(self.video_obj_2.tmpFiles['audio'])):
                     if f"{i}-{j}" not in ignore_audio_couple:
@@ -344,10 +354,12 @@ class compare_video(Thread):
 
         if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == 1:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+            self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
             self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+            self.video_obj_1.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_2
             self.video_obj_1.delays[self.language] += delay # Delay you need to give to mkvmerge to be good.
 
@@ -416,11 +428,12 @@ def prepare_get_delay(videos_obj,language,audioRules):
     list_cut_begin_length = video.generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted)
     
     for videoObj in videos_obj:
-        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
-        videoObj.delays[language] = 0
         for language_obj,audios in videoObj.audios.items():
             for audio in audios:
                 audio["keep"] = True
+                audio["compatible"] = True
+        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
+        videoObj.delays[language] = 0
         for language_obj,audios in videoObj.commentary.items():
             for audio in audios:
                 audio["keep"] = (not special_params["remove_commentary"])
@@ -625,21 +638,24 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
     print(f'The best video path is {best_video.filePath}')
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
+    out_path_file_name_split = path.join(out_folder,f"{best_video.fileBaseName}_merged_split")
     if path.exists(out_path_file_name+'.mkv'):
         i = 1
         while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
             i += 1
         out_path_file_name += f'_({str(i)}).mkv'
+        out_path_file_name_split += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
+        out_path_file_name_split += '.mkv'
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name]
-    for other_video_path_file in dict_list_video_win[best_video.filePath]:
-        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
-    
+    for other_video_path_file in dict_list_video_win[best_video.filePath]:
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
+
     print(" ".join(merge_cmd))
     try:
         tools.launch_cmdExt(merge_cmd)
@@ -660,6 +676,9 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 sys.stderr.write(str(e))
         else:
             raise e
+    
+    tools.launch_cmdExt([tools.software["mkvmerge"], "-i", out_path_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
+                         "-c", "copy" "-t", best_video.video['Duration'], out_path_file_name_split])
     
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
@@ -802,8 +821,9 @@ if __name__ == '__main__':
     if args.core > 1:
         tools.core_to_use = args.core-1
     else:
-        tools.core_to_use = args.core
-    video.ffmpeg_pool = Pool(processes=2)
+        tools.core_to_use = 1
+    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+    video.ffmpeg_pool_big_job = Pool(processes=1)
     
     tools.dev = args.dev
     
@@ -819,6 +839,7 @@ if __name__ == '__main__':
             if "model_path" in special_params and special_params['model_path'] != "" and special_params['model_path'] != None:
                 video.path_to_livmaf_model = ":model_path="+special_params['model_path']
             video.number_cut = special_params["number_cut"]
+            cut_file_to_get_delay_second_method = special_params["second_cut_lenght"]
         else:
             special_params = {"change_all_und":False, "original_language":"", "remove_commentary":False, "forced_best_video":"", "forced_best_video_contain":False}
         merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)

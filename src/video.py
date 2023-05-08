@@ -6,11 +6,13 @@ Created on 23 Apr 2022
 
 from os import path,remove
 from sys import stderr
-from time import strftime,gmtime
+from threading import RLock
+from time import strftime,gmtime,sleep
 import tools
 import json
 
-ffmpeg_pool = None
+ffmpeg_pool_audio_convert = None
+ffmpeg_pool_big_job = None
 path_to_livmaf_model = "" #Nothing if it use the default
 number_cut = 5
 percent_time_by_test_video_quality_from_cut = 25
@@ -38,7 +40,7 @@ class video():
         self.subtitles = None
         self.video_quality = None
         self.tmpFiles = {}
-        self.ffmpeg_progress = []
+        self.ffmpeg_progress_audio = []
         self.delays = {}
     
     def get_mediadata(self):
@@ -107,7 +109,8 @@ class video():
             return None
     
     def extract_audio_in_part(self,language,exportParam,cutTime=None):
-        global ffmpeg_pool
+        global ffmpeg_pool_audio_convert
+        self.wait_end_ffmpeg_progress_audio()
         nameFilesExtract = []
         if 'audio' in self.tmpFiles:
             self.remove_tmp_files(type_file="audio")
@@ -127,27 +130,35 @@ class video():
             baseCommand.extend(["-ar", exportParam['SamplingRate']])
         if 'Channels' in exportParam:
             baseCommand.extend(["-ac", exportParam['Channels']])
+        audio_pos_file = 0
+        wait_end_big_job()
         if cutTime == None:
-            nameFilesExtractCut = []
-            nameFilesExtract.append(nameFilesExtractCut)
             for audio in self.audios[language]:
-                nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+".1"+"."+exportParam['Format'].lower().replace('-',''))
-                nameFilesExtractCut.append(nameOutFile)
-                cmd = baseCommand.copy()
-                cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), nameOutFile])
-                self.ffmpeg_progress.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (cmd,)))
-        else:
-            for audio in self.audios[language]:
-                nameFilesExtractCut = []
-                nameFilesExtract.append(nameFilesExtractCut)
-                cutNumber = 0
-                for cut in cutTime:
-                    nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
+                if audio["compatible"]:
+                    nameFilesExtractCut = []
+                    nameFilesExtract.append(nameFilesExtractCut)
+                    audio["audio_pos_file"] = audio_pos_file
+                    audio_pos_file += 1
+                    nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+".1"+"."+exportParam['Format'].lower().replace('-',''))
                     nameFilesExtractCut.append(nameOutFile)
                     cmd = baseCommand.copy()
-                    cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), "-ss", cut[0], "-t", cut[1] , nameOutFile])
-                    self.ffmpeg_progress.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (cmd,)))
-                    cutNumber += 1
+                    cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), nameOutFile])
+                    self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
+        else:
+            for audio in self.audios[language]:
+                if audio["compatible"]:
+                    nameFilesExtractCut = []
+                    nameFilesExtract.append(nameFilesExtractCut)
+                    audio["audio_pos_file"] = audio_pos_file
+                    audio_pos_file += 1
+                    cutNumber = 0
+                    for cut in cutTime:
+                        nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
+                        nameFilesExtractCut.append(nameOutFile)
+                        cmd = baseCommand.copy()
+                        cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), "-ss", cut[0], "-t", cut[1] , nameOutFile])
+                        self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
+                        cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
         if type == None:
@@ -160,11 +171,13 @@ class video():
             for files in self.tmpFiles[type_file]:
                 for file in files:
                     remove(file)
+            self.tmpFiles[type_file] = []
                 
-    def wait_end_ffmpeg_progress(self):
-        while len(self.ffmpeg_progress) > 0:
-            ffmpeg_job = self.ffmpeg_progress.pop(0)
+    def wait_end_ffmpeg_progress_audio(self):
+        while len(self.ffmpeg_progress_audio) > 0:
+            ffmpeg_job = self.ffmpeg_progress_audio.pop(0)
             ffmpeg_job.get()
+        self.ffmpeg_progress_audio = []
 
 """
 Preparation function
@@ -246,6 +259,18 @@ def get_begin_time_with_millisecond(delay,beginInSecBeforeDelay):
             begining_in_millisecond = ""
     return begining_in_second, begining_in_millisecond
 
+big_job_in_porgress = RLock()
+def wait_end_big_job():
+    global big_job_in_porgress
+    while big_job_in_porgress.locked():
+        sleep(1)
+
+def big_job_waiter():
+    global ffmpeg_pool_audio_convert
+    for i in range(0,tools.core_to_use-1):
+        ffmpeg_pool_audio_convert.apply_async(sleep, (30,))
+    ffmpeg_pool_audio_convert.apply_async(sleep, (0.00000000001,)).get()
+
 def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
     import re
     from statistics import mean
@@ -282,23 +307,26 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     values_2_vs_1 = []
     begin_pos_1_vs_2 = [2,8]
     begin_pos_2_vs_1 = [8,2]
-    for begins in begins_video:
-        for x,y in zip(begin_pos_1_vs_2,begins):
-            ffmpeg_VMAF_1_vs_2[x] = y
-        job_1_vs_2 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_1_vs_2,))
-        
-        for x,y in zip(begin_pos_2_vs_1,begins):
-            ffmpeg_VMAF_2_vs_1[x] = y
-        job_2_vs_1 = ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_2_vs_1,))
-        
-        while len(out_1_vs_2) > 0:
-            values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+    global big_job_in_porgress
+    with big_job_in_porgress:
+        big_job_waiter()
+        for begins in begins_video:
+            for x,y in zip(begin_pos_1_vs_2,begins):
+                ffmpeg_VMAF_1_vs_2[x] = y
+            job_1_vs_2 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_1_vs_2,))
             
-        while len(out_2_vs_1) > 0:
-            values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
-
-        out_1_vs_2.append(job_1_vs_2.get())
-        out_2_vs_1.append(job_2_vs_1.get())
+            for x,y in zip(begin_pos_2_vs_1,begins):
+                ffmpeg_VMAF_2_vs_1[x] = y
+            job_2_vs_1 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_2_vs_1,))
+            
+            while len(out_1_vs_2) > 0:
+                values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+                
+            while len(out_2_vs_1) > 0:
+                values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+    
+            out_1_vs_2.append(job_1_vs_2.get())
+            out_2_vs_1.append(job_2_vs_1.get())
     
     while len(out_1_vs_2) > 0:
         values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
@@ -352,21 +380,28 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
     
     best_value_psnr = -1
     good_frame = -2
-    for i in range(-2,3):
-        jobs_psnr = []
-        for begins in generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+i)*time_by_frame),length_time_frame_adjusted):
-            ffmpeg_PSNR[2] = begins[0]
-            ffmpeg_PSNR[8] = begins[1]
-            jobs_psnr.append(ffmpeg_pool.apply_async(tools.launch_cmdExt, (ffmpeg_PSNR,)))
-        
-        list_result_average_psnr = []
-        for job_psnr in jobs_psnr:
-            result = job_psnr.get()
-            list_result_average_psnr.append(float(re.search(r'.*\[Parsed_psnr.*\].+average:(\d+.\d+).*',result[1].decode("utf-8"), re.MULTILINE).group(1)))
-        
-        if mean(list_result_average_psnr) >= best_value_psnr:
-            good_frame = i
-            best_value_psnr = mean(list_result_average_psnr)
+    global big_job_in_porgress
+    with big_job_in_porgress:
+        big_job_waiter()
+        for i in range(-2,3):
+            jobs_psnr = []
+            for begins in generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+i)*time_by_frame),length_time_frame_adjusted):
+                ffmpeg_PSNR[2] = begins[0]
+                ffmpeg_PSNR[8] = begins[1]
+                jobs_psnr.append(ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_PSNR,)))
+            
+            '''
+                TODO:
+                    Create thread for process all time.
+            '''
+            list_result_average_psnr = []
+            for job_psnr in jobs_psnr:
+                result = job_psnr.get()
+                list_result_average_psnr.append(float(re.search(r'.*\[Parsed_psnr.*\].+average:(\d+.\d+).*',result[1].decode("utf-8"), re.MULTILINE).group(1)))
+            
+            if mean(list_result_average_psnr) >= best_value_psnr:
+                good_frame = i
+                best_value_psnr = mean(list_result_average_psnr)
     
     calculated_delay = (float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame) - begin_in_sec_frame_adjusted
     return calculated_delay*1000,generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame),length_time_frame_adjusted)
