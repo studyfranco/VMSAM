@@ -68,6 +68,7 @@ class video():
                     else:
                         self.commentary[language] = [data]
                 else:
+                    data["compatible"] = True
                     if language in self.audios:
                         self.audios[language].append(data)
                     else:
