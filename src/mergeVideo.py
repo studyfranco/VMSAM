@@ -431,7 +431,6 @@ def prepare_get_delay(videos_obj,language,audioRules):
         for language_obj,audios in videoObj.audios.items():
             for audio in audios:
                 audio["keep"] = True
-                audio["compatible"] = True
         videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
         videoObj.delays[language] = 0
         for language_obj,audios in videoObj.commentary.items():
