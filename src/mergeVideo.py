@@ -677,7 +677,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             raise e
     
     tools.launch_cmdExt([tools.software["ffmpeg"], "-threads", str(tools.core_to_use), "-i", out_path_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
-                         "-c", "copy" "-t", best_video.video['Duration'], out_path_file_name_split])
+                         "-c", "copy", "-t", best_video.video['Duration'], out_path_file_name_split])
     
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
