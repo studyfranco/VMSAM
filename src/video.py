@@ -262,8 +262,9 @@ def get_begin_time_with_millisecond(delay,beginInSecBeforeDelay):
 big_job_in_porgress = RLock()
 def wait_end_big_job():
     global big_job_in_porgress
-    while big_job_in_porgress.locked():
-        sleep(1)
+    #while big_job_in_porgress.locked():
+    big_job_in_porgress.acquire()
+    big_job_in_porgress.release()
 
 def big_job_waiter():
     global ffmpeg_pool_audio_convert
