@@ -279,7 +279,7 @@ class compare_video(Thread):
             if len(delay_detected) == 1 and 0 in delay_detected:
                 return delayUse,ignore_audio_couple
             else:
-                raise Exception(f"Not able to find delay with the method 1 and in test 4 for {self.video_obj_1} and {self.video_obj_2}")
+                raise Exception(f"Not able to find delay with the method 1 and in test 4 we find {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
     
     def adjuster_chroma_bugged(self,list_delay,ignore_audio_couple):
         if list_delay[0] > list_delay[1]:
@@ -699,7 +699,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         else:
             raise e
     
-    out_path_tmp_file_name_split = out_path_file_name_split = path.join(out_folder,f"{best_video.fileBaseName}_merged_split.mkv")
+    out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
     tools.launch_cmdExt([tools.software["ffmpeg"], "-threads", str(tools.core_to_use), "-i", out_path_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
                          "-c", "copy", "-t", best_video.video['Duration'], out_path_tmp_file_name_split])
 
