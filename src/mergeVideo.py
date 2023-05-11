@@ -254,7 +254,7 @@ class compare_video(Thread):
                     raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                 else:
                     self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
-                    delay_detected.add(delay_adjusted)
+                    delay_detected.add(delay_adjusted-delayUse)
                     
         if len(delay_detected) == 1 and 0 in delay_detected:
             return delayUse,ignore_audio_couple
@@ -660,17 +660,15 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
     print(f'The best video path is {best_video.filePath}')
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
-    out_path_file_name_split = path.join(out_folder,f"{best_video.fileBaseName}_merged_split")
     if path.exists(out_path_file_name+'.mkv'):
         i = 1
         while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
             i += 1
         out_path_file_name += f'_({str(i)}).mkv'
-        out_path_file_name_split += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
-        out_path_file_name_split += '.mkv'
-    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_file_name]
+    out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
+    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
@@ -700,10 +698,10 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             raise e
     
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
-    tools.launch_cmdExt([tools.software["ffmpeg"], "-threads", str(tools.core_to_use), "-i", out_path_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
+    tools.launch_cmdExt([tools.software["ffmpeg"], "-threads", str(tools.core_to_use), "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
                          "-c", "copy", "-t", best_video.video['Duration'], out_path_tmp_file_name_split])
 
-    tools.launch_cmdExt([tools.software["mkvmerge"], "-o", out_path_file_name_split, "-A", "-S", out_path_file_name,
+    tools.launch_cmdExt([tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
                          "--no-chapters", "--no-global-tags", "-M", "-B", "-D", out_path_tmp_file_name_split])
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
