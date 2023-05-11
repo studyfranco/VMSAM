@@ -51,6 +51,7 @@ class video():
         self.audios = {}
         self.subtitles = {}
         self.commentary = {}
+        self.audiodesc = {}
         for data in self.mediadata['media']['track']:
             if data['@type'] == 'Video':
                 if self.video != None:
@@ -62,11 +63,16 @@ class video():
                     language = data['Language']
                 else:
                     language = "und"
-                if ('Title' in data and 'Commentary' == data['Title']):
+                if ('Title' in data and 'commentary' in data['Title'].lower()):
                     if language in self.commentary:
                         self.commentary[language].append(data)
                     else:
                         self.commentary[language] = [data]
+                elif ('Title' in data and ('audio description' in data['Title'].lower() or 'audiodescription' in data['Title'].lower()) ):
+                    if language in self.commentary:
+                        self.audiodesc[language].append(data)
+                    else:
+                        self.audiodesc[language] = [data]
                 else:
                     data["compatible"] = True
                     if language in self.audios:
@@ -79,6 +85,8 @@ class video():
                         self.subtitles[data['Language']].append(data)
                     else:
                         self.subtitles[data['Language']] = [data]
+        if len(self.audios) == 0:
+            raise Exception(f"No audio usable to compare the file {self.filePath}")
         if "und" in self.audios and len(self.audios) == 1:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
