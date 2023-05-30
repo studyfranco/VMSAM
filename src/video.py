@@ -148,10 +148,10 @@ class video():
                     nameFilesExtract.append(nameFilesExtractCut)
                     audio["audio_pos_file"] = audio_pos_file
                     audio_pos_file += 1
-                    nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+".1"+"."+exportParam['Format'].lower().replace('-',''))
+                    nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+".1"+"."+exportParam['Format'].lower().replace('-',''))
                     nameFilesExtractCut.append(nameOutFile)
                     cmd = baseCommand.copy()
-                    cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), nameOutFile])
+                    cmd.extend(["-map", "0:"+str(audio['StreamOrder']), nameOutFile])
                     self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
         else:
             for audio in self.audios[language]:
@@ -162,10 +162,10 @@ class video():
                     audio_pos_file += 1
                     cutNumber = 0
                     for cut in cutTime:
-                        nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio["ID"])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
+                        nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
                         nameFilesExtractCut.append(nameOutFile)
                         cmd = baseCommand.copy()
-                        cmd.extend(["-map", "0:"+str(int(audio["ID"])-1), "-ss", cut[0], "-t", cut[1] , nameOutFile])
+                        cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
                         self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
                         cutNumber += 1
             
