@@ -698,8 +698,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             raise e
     
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
-    tools.launch_cmdExt([tools.software["ffmpeg"], "-threads", str(tools.core_to_use), "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
-                         "-c", "copy", "-t", best_video.video['Duration'], out_path_tmp_file_name_split])
+    tools.launch_cmdExt([tools.software["ffmpeg"], "-fix_sub_duration", "-err_detect", "crccheck", "-err_detect", "bitstream",
+                         "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use), "-vn",
+                         "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
+                         "-c", "copy", "-c:s", "ass", "-t", best_video.video['Duration'], out_path_tmp_file_name_split])
+    
+    tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
+                         "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
+                         "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
 
     tools.launch_cmdExt([tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
                          "--no-chapters", "--no-global-tags", "-M", "-B", "-D", out_path_tmp_file_name_split])
