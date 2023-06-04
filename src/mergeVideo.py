@@ -7,6 +7,7 @@ This software need libchromaprint-tools,ffmpeg,mediainfo
 '''
 
 import argparse
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -19,6 +20,7 @@ from threading import Thread
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
+sub_type_not_encodable = ["hdmv_pgs_subtitle"]
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -571,6 +573,16 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
+def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list):
+    for language,subs in video_sub_track_list.items():
+        for sub in subs:
+            merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
+            if "Title" in sub:
+                if re.match(r".* *\[{0,1}forced\]{0,1} *.*", sub["Title"].lower()):
+                    merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
+                elif re.match(r".* *\[{0,1}sdh\]{0,1} *.*", sub["Title"].lower()):
+                    merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
+
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio):
     merge_cmd.extend(["--forced-display-flag", audio["StreamOrder"]+":0", "--default-track-flag", audio["StreamOrder"]+":0"])
 
@@ -629,6 +641,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc)
+    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles)
     if delay_to_put != 0:
         merge_cmd.extend(["--sync", f"-1:{int(delay_to_put)}"])
     merge_cmd.extend(["-D", video_obj.filePath])
@@ -670,6 +683,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc)
+    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,best_video.subtitles)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
@@ -698,10 +712,25 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             raise e
     
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
-    tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                         "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use), "-vn",
-                         "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
-                         "-c", "copy", "-c:s", "ass", "-t", best_video.video['Duration'], out_path_tmp_file_name_split])
+    
+    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
+    out_video_metadata.get_mediadata()
+    convert_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
+                     "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use), "-vn",
+                     "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
+                     "-c", "copy", "-c:s", "ass"]
+    
+    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", out_path_tmp_file_name])
+    data_sub_codec = json.loads(stdout.decode("UTF-8"))
+    dic_index_data_sub_codec = {}
+    for data in data_sub_codec["streams"]:
+        dic_index_data_sub_codec[data["index"]] = data
+    for language,subs in out_video_metadata.subtitles.items():
+        for sub in subs:
+            if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] in sub_type_not_encodable:
+                convert_cmd.extend(f"-c:s:{int(sub['@typeorder'])-1}", "copy")
+    convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
+    tools.launch_cmdExt(convert_cmd)
     
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),

@@ -9,6 +9,7 @@ from sys import stderr
 from threading import RLock
 from time import strftime,gmtime,sleep
 import tools
+import re
 import json
 
 ffmpeg_pool_audio_convert = None
@@ -34,6 +35,7 @@ class video():
         if (not tools.file_exists(self.filePath)):
             raise Exception(self.filePath+" not exist")
         self.mediadata = None
+        self.mkvmergedata = None
         self.audios = None
         self.commentary = None
         self.video = None
@@ -48,27 +50,41 @@ class video():
         if exitCode != 0:
             raise Exception("Error with {} during the mediadata: {}".format(self.filePath,stderror.decode("UTF-8")))
         self.mediadata = json.loads(stdout.decode("UTF-8"))
+        stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mkvmerge"],"-i", "-F", "json", self.filePath])
+        if exitCode != 0:
+            raise Exception("Error with {} during the mkvmerge metadata: {}".format(self.filePath,stderror.decode("UTF-8")))
+        self.mkvmergedata = json.loads(stdout.decode("UTF-8"))
+        properties_track = {}
+        for track in self.mkvmergedata['tracks']:
+            if str(track['id']) in properties_track:
+                raise Exception(f"{self.filePath} have tracks with the same ids")
+            properties_track[str(track['id'])] = track['properties']
         self.audios = {}
         self.subtitles = {}
         self.commentary = {}
         self.audiodesc = {}
         for data in self.mediadata['media']['track']:
+            if 'StreamOrder' in data:
+                try:
+                    data['properties'] = properties_track[data['StreamOrder']]
+                except:
+                    raise Exception(f"{self.filePath} have problematic track id")
             if data['@type'] == 'Video':
                 if self.video != None:
                     raise Exception(f"Multiple video in the same file {self.filePath}, I can't compare and merge they")
                 else:
                     self.video = data
-            elif data['@type'] == 'Audio':
+            elif data['@type'] == 'Audio': 
                 if 'Language' in data:
                     language = data['Language']
                 else:
                     language = "und"
-                if ('Title' in data and 'commentary' in data['Title'].lower()):
+                if ('Title' in data and 'commentary' in data['Title'].lower()) or ("flag_commentary" in data['properties'] and data['properties']["flag_commentary"]):
                     if language in self.commentary:
                         self.commentary[language].append(data)
                     else:
                         self.commentary[language] = [data]
-                elif ('Title' in data and ('audio description' in data['Title'].lower() or 'audiodescription' in data['Title'].lower()) ):
+                elif ('Title' in data and re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
                     if language in self.commentary:
                         self.audiodesc[language].append(data)
                     else:
