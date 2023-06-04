@@ -713,7 +713,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
     
-    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
+    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name))
     out_video_metadata.get_mediadata()
     convert_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                      "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use), "-vn",
