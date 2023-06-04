@@ -728,7 +728,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for language,subs in out_video_metadata.subtitles.items():
         for sub in subs:
             if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] in sub_type_not_encodable:
-                convert_cmd.extend(f"-c:s:{int(sub['@typeorder'])-1}", "copy")
+                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
     tools.launch_cmdExt(convert_cmd)
     
