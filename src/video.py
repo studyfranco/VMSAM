@@ -44,6 +44,9 @@ class video():
         self.tmpFiles = {}
         self.ffmpeg_progress_audio = []
         self.delays = {}
+        self.lastCutAsDefault = False
+        self.delayFirstMethodAbort = {}
+        self.shiftCuts = None
     
     def get_mediadata(self):
         stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mediainfo"], "--Output=JSON", self.filePath])
@@ -133,57 +136,59 @@ class video():
         else:
             return None
     
-    def extract_audio_in_part(self,language,exportParam,cutTime=None):
-        global ffmpeg_pool_audio_convert
-        self.wait_end_ffmpeg_progress_audio()
-        nameFilesExtract = []
-        if 'audio' in self.tmpFiles:
-            self.remove_tmp_files(type_file="audio")
-        self.tmpFiles['audio'] = nameFilesExtract
-
-        baseCommand = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", self.filePath, "-vn"]
-        if exportParam['Format'] == 'WAV':
-            if 'codec' in exportParam:
-                baseCommand.extend(["-c:a", exportParam['codec']])
-        elif 'codec' in exportParam:
-            baseCommand.extend(["-acodec", exportParam['codec']])
-        else:
-            baseCommand.extend(["-acodec", exportParam['Format'].lower().replace('-','')])
-        if 'BitRate' in exportParam:
-            baseCommand.extend(["-ab", exportParam['BitRate']])
-        if 'SamplingRate' in exportParam:
-            baseCommand.extend(["-ar", exportParam['SamplingRate']])
-        if 'Channels' in exportParam:
-            baseCommand.extend(["-ac", exportParam['Channels']])
-        audio_pos_file = 0
-        wait_end_big_job()
-        if cutTime == None:
-            for audio in self.audios[language]:
-                if audio["compatible"]:
-                    nameFilesExtractCut = []
-                    nameFilesExtract.append(nameFilesExtractCut)
-                    audio["audio_pos_file"] = audio_pos_file
-                    audio_pos_file += 1
-                    nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+".1"+"."+exportParam['Format'].lower().replace('-',''))
-                    nameFilesExtractCut.append(nameOutFile)
-                    cmd = baseCommand.copy()
-                    cmd.extend(["-map", "0:"+str(audio['StreamOrder']), nameOutFile])
-                    self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
-        else:
-            for audio in self.audios[language]:
-                if audio["compatible"]:
-                    nameFilesExtractCut = []
-                    nameFilesExtract.append(nameFilesExtractCut)
-                    audio["audio_pos_file"] = audio_pos_file
-                    audio_pos_file += 1
-                    cutNumber = 0
-                    for cut in cutTime:
-                        nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
+    def extract_audio_in_part(self,language,exportParam,cutTime=None,asDefault=False):
+        if (not self.lastCutAsDefault) or (not asDefault):
+            self.lastCutAsDefault = asDefault
+            global ffmpeg_pool_audio_convert
+            self.wait_end_ffmpeg_progress_audio()
+            nameFilesExtract = []
+            if 'audio' in self.tmpFiles:
+                self.remove_tmp_files(type_file="audio")
+            self.tmpFiles['audio'] = nameFilesExtract
+    
+            baseCommand = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", self.filePath, "-vn"]
+            if exportParam['Format'] == 'WAV':
+                if 'codec' in exportParam:
+                    baseCommand.extend(["-c:a", exportParam['codec']])
+            elif 'codec' in exportParam:
+                baseCommand.extend(["-acodec", exportParam['codec']])
+            else:
+                baseCommand.extend(["-acodec", exportParam['Format'].lower().replace('-','')])
+            if 'BitRate' in exportParam:
+                baseCommand.extend(["-ab", exportParam['BitRate']])
+            if 'SamplingRate' in exportParam:
+                baseCommand.extend(["-ar", exportParam['SamplingRate']])
+            if 'Channels' in exportParam:
+                baseCommand.extend(["-ac", exportParam['Channels']])
+            audio_pos_file = 0
+            wait_end_big_job()
+            if cutTime == None:
+                for audio in self.audios[language]:
+                    if audio["compatible"]:
+                        nameFilesExtractCut = []
+                        nameFilesExtract.append(nameFilesExtractCut)
+                        audio["audio_pos_file"] = audio_pos_file
+                        audio_pos_file += 1
+                        nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+".1"+"."+exportParam['Format'].lower().replace('-',''))
                         nameFilesExtractCut.append(nameOutFile)
                         cmd = baseCommand.copy()
-                        cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
+                        cmd.extend(["-map", "0:"+str(audio['StreamOrder']), nameOutFile])
                         self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
-                        cutNumber += 1
+            else:
+                for audio in self.audios[language]:
+                    if audio["compatible"]:
+                        nameFilesExtractCut = []
+                        nameFilesExtract.append(nameFilesExtractCut)
+                        audio["audio_pos_file"] = audio_pos_file
+                        audio_pos_file += 1
+                        cutNumber = 0
+                        for cut in cutTime:
+                            nameOutFile = path.join(tools.tmpFolder,self.fileBaseName+"."+str(audio['StreamOrder'])+"."+str(cutNumber)+"."+exportParam['Format'].lower().replace('-',''))
+                            nameFilesExtractCut.append(nameOutFile)
+                            cmd = baseCommand.copy()
+                            cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
+                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
+                            cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
         if type == None:
