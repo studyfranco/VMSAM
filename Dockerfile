@@ -7,6 +7,7 @@ ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v2.3.1.tar
 
 RUN set -x \
  && echo "deb http://www.deb-multimedia.org testing main non-free" >> /etc/apt/sources.list.d/multimedia.list \
+ && echo "deb http://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
  && echo "deb http://deb.debian.org/debian/ stable main contrib non-free" >> /etc/apt/sources.list.d/stable.list \
  && apt update -oAcquire::AllowInsecureRepositories=true \
  && DEBIAN_FRONTEND=noninteractive apt install -y --allow-unauthenticated deb-multimedia-keyring tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib --no-install-recommends \
