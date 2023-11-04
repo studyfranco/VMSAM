@@ -106,7 +106,7 @@ class video():
                         self.subtitles[data['Language']] = [data]
         if len(self.audios) == 0:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
-        if "und" in self.audios and len(self.audios) == 1:
+        if "und" in self.audios and tools.default_language_for_undetermine not in self.audios:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
             
