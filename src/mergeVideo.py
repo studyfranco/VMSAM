@@ -657,7 +657,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 merge_cmd.extend(["--visual-impaired-flag", audio["StreamOrder"]])
 
     if len(track_to_remove):
-        merge_cmd.extend(["-a"],"!"+",".join(track_to_remove))
+        merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
 
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay):
     video_obj = dict_file_path_obj[video_path_file]
