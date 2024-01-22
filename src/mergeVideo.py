@@ -20,7 +20,7 @@ from threading import Thread
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
-sub_type_not_encodable = ["hdmv_pgs_subtitle","VobSub","vobsub"]
+sub_type_not_encodable = ["hdmv_pgs_subtitle","dvd_subtitle"]
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -751,8 +751,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         for sub in subs:
             if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] in sub_type_not_encodable:
                 convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
-            else:
-                print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
+            #else:
+            #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
     tools.launch_cmdExt(convert_cmd)
     
