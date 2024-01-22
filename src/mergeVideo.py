@@ -20,7 +20,7 @@ from threading import Thread
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
-sub_type_not_encodable = ["hdmv_pgs_subtitle"]
+sub_type_not_encodable = ["hdmv_pgs_subtitle","VobSub","vobsub"]
 
 def decript_merge_rules(stringRules):
     rules = {}
