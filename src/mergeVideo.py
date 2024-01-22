@@ -230,6 +230,8 @@ class compare_video(Thread):
                 self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
                 self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
                 raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+            else:
+                sys.stderr.write(f"This is  delay {delayUse}, calculated by second method for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} \n")
         elif 'delay_found' in locals() and delay_found != None:
             delayUse = delay_found
         else:
@@ -263,6 +265,8 @@ class compare_video(Thread):
                     
         if len(delay_detected) == 1 and 0 in delay_detected:
             return delayUse,ignore_audio_couple
+        elif len(delay_detected) == 0:
+            raise Exception("We don't have any delay. Why this happen ?")
         else:
             delayUse += list(delay_detected)[0]
             self.recreate_files_for_delay_adjuster(delayUse)
@@ -299,21 +303,24 @@ class compare_video(Thread):
         else:
             delay_first_method_lower_result = list_delay[0]
             delay_first_method_bigger_result = list_delay[1]
-        self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
+        #self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
+        mean_between_delay = (list_delay[0]+list_delay[1])/2
+        self.recreate_files_for_delay_adjuster(mean_between_delay)
         try:
-            delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
+            #delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
+            delay_second_method = self.second_delay_test(mean_between_delay,ignore_audio_couple)
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
         except Exception as e:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             sys.stderr.write(str(e)+"\n")
             return None
     
-        calculated_delay = delay_first_method_lower_result+round(delay_second_method*1000)
-        if abs(calculated_delay) < 0.125:
+        calculated_delay = mean_between_delay+round(delay_second_method*1000) #delay_first_method+round(delay_second_method*1000)
+        if abs(delay_second_method) < 0.125:
             # calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
             return calculated_delay
         else:
-            sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} \n")
+            sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             return None
         
     def get_delays_dict(self,delay_Fidelity_Values,delayUse=0):
@@ -365,12 +372,10 @@ class compare_video(Thread):
             
             import gc
             gc.collect()
-            delay_detected = set()
+            delay_detected = []
             for key_audio, delay_list in delay_Values.items():
-                set_delay = set()
                 for delay in delay_list:
-                    set_delay.add(delay[1])
-                delay_detected.update(set_delay)
+                    delay_detected.append(delay[1])
             return mean(delay_detected)
             
     def get_best_video(self,delay):
