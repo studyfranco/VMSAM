@@ -304,7 +304,7 @@ class compare_video(Thread):
             delay_first_method_lower_result = list_delay[0]
             delay_first_method_bigger_result = list_delay[1]
         #self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
-        mean_between_delay = (list_delay[0]+list_delay[1])/2
+        mean_between_delay = round((list_delay[0]+list_delay[1])/2)
         self.recreate_files_for_delay_adjuster(mean_between_delay)
         try:
             #delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
