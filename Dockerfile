@@ -24,7 +24,9 @@ RUN set -x \
  && wget --no-check-certificate $defaultlibvmaf -O /libvmaf/libvmaf.tar.gz \
  && tar -xzf /libvmaf/libvmaf.tar.gz -C /libvmaf/ \
  && mv /libvmaf/$pathtomodelfromdownload/* /usr/share/model/ \
- && rm -r /libvmaf
+ && rm -r /libvmaf \
+ && DEBIAN_FRONTEND=noninteractive apt purge -y wget \
+ && rm -rf /var/log/*
 
 COPY init.sh /
 COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh /home/vmsam/
