@@ -312,12 +312,13 @@ class compare_video(Thread):
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
         except Exception as e:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
-            sys.stderr.write(str(e)+"\n")
+            sys.stderr.write("We get an error during adjuster_chroma_bugged:\n"+str(e)+"\n")
             return None
     
         calculated_delay = mean_between_delay+round(delay_second_method*1000) #delay_first_method+round(delay_second_method*1000)
         if abs(delay_second_method) < 0.125:
             # calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
+            sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             return calculated_delay
         else:
             sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
