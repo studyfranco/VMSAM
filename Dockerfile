@@ -1,23 +1,17 @@
-from debian:testing-slim
+FROM ghcr.io/studyfranco/docker-baseimages-debian:testing
 
 LABEL maintainer="studyfranco@gmail.com"
 
-ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v2.3.1.tar.gz" \
-    pathtomodelfromdownload="vmaf-2.3.1/model"
+ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz" \
+    pathtomodelfromdownload="vmaf-3.0.0/model"
 
 RUN set -x \
- && echo "deb http://www.deb-multimedia.org testing main non-free" >> /etc/apt/sources.list.d/multimedia.list \
- && echo "deb http://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
- && echo "deb http://deb.debian.org/debian/ stable main contrib non-free" >> /etc/apt/sources.list.d/stable.list \
- && apt update -oAcquire::AllowInsecureRepositories=true \
- && DEBIAN_FRONTEND=noninteractive apt install -y --allow-unauthenticated deb-multimedia-keyring tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib --no-install-recommends \
- && rm -rf /var/lib/apt/lists/* \
+ && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
+ && apt update \
+ && DEBIAN_FRONTEND=noninteractive apt install -y tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib --no-install-recommends \
  && useradd -ms /bin/bash vmsam \
  && gosu nobody true \
- && mkdir -p /config/input \
- && mkdir -p /config/error \
- && mkdir -p /config/output \
- && mkdir -p /config/models \
+ && mkdir -p /config \
  && chown -R vmsam:vmsam /config \
  && mkdir -p /usr/share/model \
  && mkdir -p /libvmaf \
@@ -26,7 +20,10 @@ RUN set -x \
  && mv /libvmaf/$pathtomodelfromdownload/* /usr/share/model/ \
  && rm -r /libvmaf \
  && DEBIAN_FRONTEND=noninteractive apt purge -y wget \
- && rm -rf /var/log/*
+ && apt dist-upgrade -y \
+ && apt autopurge -yy \
+ && apt clean autoclean -y \
+ && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
 COPY init.sh /
 COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh /home/vmsam/

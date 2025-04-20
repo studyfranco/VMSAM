@@ -79,3 +79,5 @@ software = {}
 core_to_use = 1
 default_language_for_undetermine = 'und'
 dev = False
+special_params = {}
+mergeRules = None

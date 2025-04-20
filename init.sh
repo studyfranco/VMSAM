@@ -40,5 +40,10 @@ else
     usermod -u "$PUID" "$USER"
 fi
 
+mkdir -p /config/input
+mkdir -p /config/error
+mkdir -p /config/output
+mkdir -p /config/models
+
 chown -R "$PUID":"$PGID" /config /home/vmsam
 exec gosu "$USER" "/home/vmsam/run.sh"

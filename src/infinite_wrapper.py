@@ -37,6 +37,11 @@ def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_na
             generate_error_folder(os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
             for file in list_files_not_compatible_to_move:
                 shutil.move(file[1:-1],os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
+        if search(r'\[.+\] not have the language \[.+\]',stderror.decode("utf-8"), MULTILINE) != None:
+            list_files_not_compatible_to_move = search(r'\[(.+)\] not have the language \[.+\]',stderror.decode("utf-8"), MULTILINE).group(1).split(", ")
+            generate_error_folder(os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
+            for file in list_files_not_compatible_to_move:
+                shutil.move(file[1:-1],os.path.join(folder_path_for_error,folder_name+"_not_compatible_files"))
         with open(os.path.join(args.error,"log.error"),"a") as log:
             log.write("\n"+"#"*20+"\n"+folder_path+"\n"+"#"*20+"\n")
             log.write(stderror.decode("utf-8")+"\n")
@@ -123,7 +128,7 @@ if __name__ == '__main__':
         raise Exception(f"{args.error} not writable")
     if (not os.access(args.folder, os.W_OK)):
         raise Exception(f"{args.folder} not writable")
-    base_cmd_use_to_process = ["python3", os.path.join(args.pwd,"mergeVideo.py"), "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
+    base_cmd_use_to_process = ["python3", os.path.join(args.pwd,"main.py"), "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
     if args.dev:
         base_cmd_use_to_process.append("--dev")
     while True:

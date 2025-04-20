@@ -6,17 +6,19 @@ Created on 24 Apr 2022
 This software need libchromaprint-tools,ffmpeg,mediainfo
 '''
 
-import argparse
 import re
 import sys
 import traceback
-from datetime import datetime
-from multiprocessing import Pool
-from os import path,chdir
+from os import path
 from random import shuffle
 from statistics import variance,mean
 from time import strftime,gmtime
 from threading import Thread
+import tools
+from tools import special_params
+import video
+from audioCorrelation import correlate, test_calcul_can_be, second_correlation
+import json
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -601,21 +603,28 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
-def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list):
+def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added):
+    track_to_remove = set()
     for language,subs in video_sub_track_list.items():
         for sub in subs:
-            merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
-            if "Title" in sub:
-                if re.match(r".* *\[{0,1}forced\]{0,1} *.*", sub["Title"].lower()):
-                    merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
-                elif re.match(r".* *\[{0,1}sdh\]{0,1} *.*", sub["Title"].lower()):
-                    merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
+            if (('keep' in sub and sub['keep']) or 'keep' not in sub) and sub['MD5'] not in md5_sub_already_added:
+                md5_sub_already_added.add(sub['MD5'])
+                merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
+                if "Title" in sub:
+                    if re.match(r".* *\[{0,1}forced\]{0,1} *.*", sub["Title"].lower()):
+                        merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
+                    elif re.match(r".* *\[{0,1}sdh\]{0,1} *.*", sub["Title"].lower()):
+                        merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
+            else:
+                track_to_remove.add(sub["StreamOrder"])
+    if len(track_to_remove):
+        merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
 
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio):
     merge_cmd.extend(["--forced-display-flag", audio["StreamOrder"]+":0", "--default-track-flag", audio["StreamOrder"]+":0"])
 
 default_audio = True
-def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list,video_commentary_track_list,video_audio_desc_track_list):
+def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list,video_commentary_track_list,video_audio_desc_track_list,md5_audio_already_added):
     global default_audio
     if len(video_audio_track_list) == 2 and "und" in video_audio_track_list and tools.default_language_for_undetermine != "und":
         # This step is linked by the fact if you have und audio they are orginialy convert in another language
@@ -626,9 +635,10 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     track_to_remove = set()
     for language,audios in video_audio_track_list.items():
         for audio in audios:
-            if (not audio["keep"]):
+            if (not audio["keep"] or audio["MD5"] in md5_audio_already_added):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                md5_audio_already_added.add(audio["MD5"])
                 original_audio = False
                 if language == "und" and special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
@@ -645,18 +655,20 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
     for language,audios in video_commentary_track_list.items():
         for audio in audios:
-            if (not audio["keep"]):
+            if (not audio["keep"] or audio["MD5"] in md5_audio_already_added):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                md5_audio_already_added.add(audio["MD5"])
                 if language == "und" and special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
                 generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
                 merge_cmd.extend(["--commentary-flag", audio["StreamOrder"]])
     for language,audios in video_audio_desc_track_list.items():
         for audio in audios:
-            if False:#(not audio["keep"])
+            if (audio["MD5"] in md5_audio_already_added):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                md5_audio_already_added.add(audio["MD5"])
                 if language == "und" and special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
                 generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
@@ -665,11 +677,11 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     if len(track_to_remove):
         merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
 
-def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay):
+def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc)
-    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles)
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles,md5_sub_already_added)
     if delay_to_put != 0:
         merge_cmd.extend(["--sync", f"-1:{int(delay_to_put)}"])
     merge_cmd.extend(["-D", video_obj.filePath])
@@ -678,7 +690,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     
     if video_path_file in dict_list_video_win:
         for other_video_path_file in dict_list_video_win[video_path_file]:
-            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay)
+            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay):
     set_bad_video = set()
@@ -710,13 +722,15 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += '.mkv'
     out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name]
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc)
-    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,best_video.subtitles)
+    md5_audio_already_added = set()
+    md5_sub_already_added = set()
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,best_video.subtitles,md5_sub_already_added)
     if special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
-        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay)
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
     print(" ".join(merge_cmd))
     try:
@@ -757,6 +771,10 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         for sub in subs:
             if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] in sub_type_not_encodable:
                 convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+            elif dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] == 'srt':
+                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
+            elif dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] == 'UTF-8':
+                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
             #else:
             #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
@@ -822,7 +840,31 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     except:
         pass
     if len(commonLanguages) == 0:
-        raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
+        audio_counts = {}
+        for videoObj in videosObj:
+            for language in videoObj.audios.keys():
+                if language not in audio_counts:
+                    audio_counts[language] = 0
+                audio_counts[language] += 1
+
+        most_frequent_language = max(audio_counts, key=audio_counts.get)
+        if audio_counts[most_frequent_language] == 1:
+            raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
+        else:
+            commonLanguages.add(most_frequent_language)
+            from sys import stderr
+            i = 0
+            list_video_not_compatible = []
+            list_video_not_compatible_name = []
+            for videoObj in videosObj:
+                if most_frequent_language not in videoObj.audios:
+                    list_video_not_compatible.append(i)
+                    list_video_not_compatible_name.append(videoObj.filePath)
+                i += 1
+            for i in list_video_not_compatible:
+                del videosObj[i]
+            stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
+    
     commonLanguages = list(commonLanguages)
     common_language_use_for_generate_delay = commonLanguages.pop()
     if forced_best_video == None:
@@ -860,11 +902,11 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
                 name_file[videosObj[-1].fileBaseName] = 0
     name_file = None
     
-    mergeRules = tools.config_loader(args.config,"mergerules")
-    audioRules = decript_merge_rules(mergeRules['audio'])
+    audioRules = decript_merge_rules(tools.mergeRules['audio'])
     
     dict_file_path_obj = {}
     forced_best_video = None
+    md5_threads = []
     for videoObj in videosObj:
         process_mediadata_thread = Thread(target=videoObj.get_mediadata)
         process_mediadata_thread.start()
@@ -876,65 +918,14 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
             elif videoObj.fileName  == special_params["forced_best_video"] or videoObj.filePath == special_params["forced_best_video"]:
                 forced_best_video = videoObj.filePath
         process_mediadata_thread.join()
+        process_md5_thread = Thread(target=videoObj.get_md5)
+        process_md5_thread.start()
+        md5_threads.append(process_md5_thread)
+        
+    for process_md5_thread in md5_threads:
+        process_md5_thread.join()
     
     if merge_sync:
         sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
     else:
         simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
-    
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='This script process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("-f", "--file", metavar='file', type=str,
-                       required=True, help="File(s) you want merge separate with commat")
-    parser.add_argument("--folder", metavar='folder', type=str,
-                       default=None, help="If All files are in the same folder, in this option give the path of the folder who contain files to merge and don't write it for all files")
-    parser.add_argument("-c","--core", metavar='core', type=int, default=1, help="number of core the software can use")
-    parser.add_argument("-o","--out", metavar='outdir', type=str, default=".", help="Folder where send new files")
-    parser.add_argument("--tmp", metavar='tmpdir', type=str,
-                        default="/tmp", help="Folder where send temporar files")
-    parser.add_argument("--config", metavar='configFile', type=str,
-                        default="config.ini", help="Path to the config file, by default use the config in the software folder. This config is for configure the path to your softwares")
-    parser.add_argument("--param", metavar='param', type=str,
-                       default=None, help="Give the path to a special file for your merge.")
-    parser.add_argument("--pwd", metavar='pwd', type=str,
-                        default=".", help="Path to the software, put it if you use the folder from another folder")
-    parser.add_argument("--noSync", dest='noSync', default=False, action='store_true', help="If you don't want research a audio sync between files")
-    parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
-    args = parser.parse_args()
-    
-    chdir(args.pwd)
-    import tools
-    tools.tmpFolder = path.join(args.tmp,"VMSAM_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
-    import video
-    from audioCorrelation import correlate, test_calcul_can_be, second_correlation
-    if args.core > 1:
-        tools.core_to_use = args.core-1
-    else:
-        tools.core_to_use = 1
-    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-    video.ffmpeg_pool_big_job = Pool(processes=1)
-    
-    tools.dev = args.dev
-    
-    try:
-        tools.software = tools.config_loader(args.config, "software")
-        if (not tools.make_dirs(tools.tmpFolder)):
-            raise Exception("Impossible to create the temporar dir")
-        if args.param != None:
-            import json
-            with open(args.param) as param_file:
-                special_params = json.load(param_file)
-            tools.default_language_for_undetermine = special_params["default_language_und"]
-            if "model_path" in special_params and special_params['model_path'] != "" and special_params['model_path'] != None:
-                video.path_to_livmaf_model = ":model_path="+special_params['model_path']
-            video.number_cut = special_params["number_cut"]
-            cut_file_to_get_delay_second_method = special_params["second_cut_lenght"]
-        else:
-            special_params = {"change_all_und":False, "original_language":"", "remove_commentary":False, "forced_best_video":"", "forced_best_video_contain":False}
-        merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
-        tools.remove_dir(tools.tmpFolder)
-    except:
-        tools.remove_dir(tools.tmpFolder)
-        traceback.print_exc()
-        exit(1)
-    exit(0)
