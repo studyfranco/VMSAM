@@ -8,6 +8,7 @@ ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar
 RUN set -x \
  && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
  && apt update \
+ && apt dist-upgrade -y \
  && DEBIAN_FRONTEND=noninteractive apt install -y tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib --no-install-recommends \
  && useradd -ms /bin/bash vmsam \
  && gosu nobody true \
@@ -20,7 +21,6 @@ RUN set -x \
  && mv /libvmaf/$pathtomodelfromdownload/* /usr/share/model/ \
  && rm -r /libvmaf \
  && DEBIAN_FRONTEND=noninteractive apt purge -y wget \
- && apt dist-upgrade -y \
  && apt autopurge -yy \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
