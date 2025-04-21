@@ -15,7 +15,6 @@ from statistics import variance,mean
 from time import strftime,gmtime
 from threading import Thread
 import tools
-from tools import special_params
 import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
@@ -184,7 +183,7 @@ class compare_video(Thread):
                 raise Exception(f"Delay found between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} is unexpected between the two methods")
         except Exception as e:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
-            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             raise e
         
     def first_delay_test(self):
@@ -209,11 +208,16 @@ class compare_video(Thread):
             elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
                 to_ignore = set(delay_Fidelity_Values.keys())
                 to_ignore.remove(key_audio)
+                set_delay_clone = list(set_delay.copy())
                 delay_found = self.adjuster_chroma_bugged(list(set_delay),to_ignore)
                 if delay_found == None:
                     ignore_audio_couple.add(key_audio)
                 else:
-                    delay_detected.add(delay_fidelity_list[0][2])
+                    #delay_detected.add(delay_fidelity_list[0][2])
+                    if set_delay_clone[1] > set_delay_clone[0]:
+                        delay_detected.add(set_delay_clone[0]+67) # 125/2
+                    else:
+                        delay_detected.add(set_delay_clone[1]+67)
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
@@ -253,10 +257,34 @@ class compare_video(Thread):
                 sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                 delay_detected.add(delay_fidelity_list[0][2])
             else:
-                delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
-                self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
-                self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
-                raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                number_of_change = 0
+                previous_delay = delay_fidelity_list[0][2]
+                previous_delay_iteration = 0
+                majoritar_value = delay_fidelity_list[0][2]
+                majoritar_value_number_iteration = 0
+                for delay_data in delay_fidelity_list:
+                    if delay_data[2] != previous_delay:
+                        number_of_change += 1
+                        if majoritar_value_number_iteration < previous_delay_iteration:
+                            majoritar_value = previous_delay
+                            majoritar_value_number_iteration = previous_delay_iteration
+                        previous_delay = delay_data[2]
+                        previous_delay_iteration = 1
+                    else:
+                        previous_delay_iteration += 1
+                
+                if majoritar_value_number_iteration < previous_delay_iteration:
+                    majoritar_value = previous_delay
+                    majoritar_value_number_iteration = previous_delay_iteration
+                
+                if len(set_delay) > 2 or number_of_change > 1:
+                    delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
+                    self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
+                    self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
+                    raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                else:
+                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have the problem, this is maybe a bug.\n")
+                    delay_detected.add(majoritar_value)
                 """delay_adjusted = None
                 if len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
                     delay_adjusted = self.adjuster_chroma_bugged(list(set([delayUse + delay_fidelity[2] for delay_fidelity in delay_fidelity_list])),ignore_audio_couple)
@@ -415,6 +443,51 @@ def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
             return new_compare_objs.pop(i)
     return None
 
+class get_cut_time(Thread):
+    '''
+    classdocs
+    '''
+
+
+    def __init__(self, main_video_obj,video_obj_to_cut,begin_in_second,audioParam,language,lenghtTime,lenghtTimePrepare,list_cut_begin_length,time_by_test_best_quality_converted):
+        '''
+        Constructor
+        '''
+        Thread.__init__(self)
+        self.main_video_obj = main_video_obj
+        self.video_obj_to_cut = video_obj_to_cut
+        self.begin_in_second = begin_in_second
+        self.audioParam = audioParam
+        self.language = language
+        self.lenghtTime = lenghtTime
+        self.lenghtTimePrepare = lenghtTimePrepare
+        self.list_cut_begin_length = list_cut_begin_length
+        self.time_by_test_best_quality_converted = time_by_test_best_quality_converted
+
+    def run(self):
+        try:
+            delay = self.get_first_delay_and_gap()
+            if self.process_to_get_best_video:
+                self.get_best_video(delay)
+            else: # You must have the video you want process in video_obj_1
+                self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
+                self.video_obj_2.remove_tmp_files(type_file="audio")
+                self.video_obj_with_best_quality = self.video_obj_1
+                self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
+        except Exception as e:
+            traceback.print_exc()
+            sys.stderr.write(str(e)+"\n")
+    
+    def get_first_delay_and_gap(self):
+        delay_Fidelity_Values = get_delay_fidelity(self.main_video_obj,self.video_obj_to_cut,self.lenghtTime)
+        # Il va falloir verifier que nous avons bien les mêmes delays entre les différents audios
+        keys_audio = list(delay_Fidelity_Values.keys())
+        values_of_delay = delay_Fidelity_Values[keys_audio[0]]
+        for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
+            for i in range(len(values_of_delay)):
+                if values_of_delay[i] != delay_fidelity_list[i]:
+                    raise Exception(f"{delay_Fidelity_Values} Impossible to find a way to cut {self.video_obj_to_cut.filePath} who have differents audio not compatible with {self.main_video_obj.filePath}")
+
 """
     Theorically the video I will remove have no connexion between other files.
 """
@@ -467,7 +540,7 @@ def prepare_get_delay(videos_obj,language,audioRules):
         videoObj.delays[language] = 0
         for language_obj,audios in videoObj.commentary.items():
             for audio in audios:
-                audio["keep"] = (not special_params["remove_commentary"])
+                audio["keep"] = (not tools.special_params["remove_commentary"])
     
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
@@ -485,6 +558,18 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
                 del dict_file_path_obj[not_compatible_video]
         if len(dict_file_path_obj) < 2:
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
+
+def find_a_cut_for_not_compatible(list_not_compatible_video,dict_file_path_obj,main_video,videosObj,language,audioRules):
+    if video.number_cut < 15:
+        video.number_cut = 15
+    elif (video.number_cut % 2) == 0:
+        video.number_cut += 1
+    
+    begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
+    dict_file_path_obj[main_video].extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=list_cut_begin_length)
+    for not_compatible_video in list_not_compatible_video:
+        if not_compatible_video in dict_file_path_obj:
+            dict_file_path_obj[not_compatible_video].extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=list_cut_begin_length)
     
 def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
     begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
@@ -640,12 +725,12 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
             else:
                 md5_audio_already_added.add(audio["MD5"])
                 original_audio = False
-                if language == "und" and special_params["change_all_und"]:
+                if language == "und" and tools.special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
-                    if tools.default_language_for_undetermine == special_params["original_language"]:
+                    if tools.default_language_for_undetermine == tools.special_params["original_language"]:
                         merge_cmd.extend(["--original-flag", audio["StreamOrder"]])
                         original_audio = True
-                elif language == special_params["original_language"]:
+                elif language == tools.special_params["original_language"]:
                     merge_cmd.extend(["--original-flag", audio["StreamOrder"]])
                     original_audio = True
                 if default_audio and original_audio:
@@ -659,7 +744,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 md5_audio_already_added.add(audio["MD5"])
-                if language == "und" and special_params["change_all_und"]:
+                if language == "und" and tools.special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
                 generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
                 merge_cmd.extend(["--commentary-flag", audio["StreamOrder"]])
@@ -669,7 +754,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 md5_audio_already_added.add(audio["MD5"])
-                if language == "und" and special_params["change_all_und"]:
+                if language == "und" and tools.special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
                 generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
                 merge_cmd.extend(["--visual-impaired-flag", audio["StreamOrder"]])
@@ -726,7 +811,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     md5_sub_already_added = set()
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
     generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,best_video.subtitles,md5_sub_already_added)
-    if special_params["change_all_und"] and 'Language' not in best_video.video:
+    if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
         merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     merge_cmd.append(best_video.filePath)
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
@@ -829,7 +914,7 @@ def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced
                 audio["keep"] = True
         for language,audios in videoObj.commentary.items():
             for audio in audios:
-                audio["keep"] = (not special_params["remove_commentary"])
+                audio["keep"] = (not tools.special_params["remove_commentary"])
         
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und")
     
@@ -911,14 +996,14 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
         process_mediadata_thread = Thread(target=videoObj.get_mediadata)
         process_mediadata_thread.start()
         dict_file_path_obj[videoObj.filePath] = videoObj
-        if special_params["forced_best_video"] != "":
-            if special_params["forced_best_video_contain"]:
-                if special_params["forced_best_video"] in videoObj.fileName:
+        if tools.special_params["forced_best_video"] != "":
+            if tools.special_params["forced_best_video_contain"]:
+                if tools.special_params["forced_best_video"] in videoObj.fileName:
                     forced_best_video = videoObj.filePath
-            elif videoObj.fileName  == special_params["forced_best_video"] or videoObj.filePath == special_params["forced_best_video"]:
+            elif videoObj.fileName  == tools.special_params["forced_best_video"] or videoObj.filePath == tools.special_params["forced_best_video"]:
                 forced_best_video = videoObj.filePath
         process_mediadata_thread.join()
-        process_md5_thread = Thread(target=videoObj.get_md5)
+        process_md5_thread = Thread(target=videoObj.calculate_md5_streams)
         process_md5_thread.start()
         md5_threads.append(process_md5_thread)
         

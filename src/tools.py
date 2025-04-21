@@ -68,6 +68,12 @@ def launch_cmdExt(cmd):
         raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
     return stdout, stderror, exitCode
 
+def launch_cmdExt_no_test(cmd):
+    cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+    stdout, stderror = cmdDownload.communicate()
+    exitCode = cmdDownload.returncode
+    return stdout, stderror, exitCode
+
 def remove_element_without_bug(list_set, element):
     try:
         list_set.remove(element)

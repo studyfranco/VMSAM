@@ -67,6 +67,8 @@ class video():
         self.commentary = {}
         self.audiodesc = {}
         for data in self.mediadata['media']['track']:
+            data['MD5'] = ''
+            data["keep"] = True
             if 'StreamOrder' in data:
                 try:
                     data['properties'] = properties_track[data['StreamOrder']]
@@ -100,7 +102,6 @@ class video():
                         self.audios[language] = [data]
             elif data['@type'] == 'Text':
                 if 'Language' in data:
-                    data["keep"] = True
                     language = data['Language'].split("-")[0]
                     if language in self.subtitles:
                         self.subtitles[language].append(data)
@@ -215,12 +216,25 @@ class video():
         if self.mediadata == None:
             self.get_mediadata()
         task_audio = {}
-        for language, data in self.audios:
+        for language, data in self.audios.items():
             task_audio[language] = []
             for audio in data:
                 task_audio[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"])))
+                
+        task_commentary = {}
+        for language, data in self.commentary.items():
+            task_commentary[language] = []
+            for audio in data:
+                task_commentary[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"])))
+
+        task_audio_desc = {}
+        for language, data in self.audiodesc.items():
+            task_audio_desc[language] = []
+            for audio in data:
+                task_audio_desc[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"])))
+
         task_subtitle = {}
-        for language, data in self.subtitles:
+        for language, data in self.subtitles.items():
             task_subtitle[language] = []
             for subtitle in data:
                 task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"])))
@@ -234,12 +248,33 @@ class video():
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
+
+        for language, data in task_commentary.items():
+            for audio in data:
+                i=0
+                result = audio.get()
+                if result[1] != None:
+                    self.commentary[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+                
+        for language, data in task_audio_desc.items():
+            for audio in data:
+                i=0
+                result = audio.get()
+                if result[1] != None:
+                    self.audiodesc[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+
         for language, data in task_subtitle.items():
             i=0
             for subtitle in data:
                 result = subtitle.get()
                 if result[1] != None:
-                    self.subtitles[language][result[0]]['MD5'] = result[1]
+                    self.subtitles[language][i]['MD5'] = result[1]
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1

@@ -4,8 +4,6 @@ from multiprocessing import Pool
 from os import path,chdir
 import traceback
 import tools
-import video
-import mergeVideo
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -29,19 +27,20 @@ if __name__ == '__main__':
     
     chdir(args.pwd)
     tools.tmpFolder = path.join(args.tmp,"VMSAM_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
-    if args.core > 1:
-        tools.core_to_use = args.core-1
-    else:
-        tools.core_to_use = 1
-    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-    video.ffmpeg_pool_big_job = Pool(processes=1)
-    
     tools.dev = args.dev
     
     try:
         tools.software = tools.config_loader(args.config, "software")
         if (not tools.make_dirs(tools.tmpFolder)):
             raise Exception("Impossible to create the temporar dir")
+
+        if args.core > 1:
+            tools.core_to_use = args.core-1
+        else:
+            tools.core_to_use = 1
+
+        import mergeVideo
+        import video
         if args.param != None:
             import json
             with open(args.param) as param_file:
@@ -55,6 +54,10 @@ if __name__ == '__main__':
             tools.special_params = {"change_all_und":False, "original_language":"", "remove_commentary":False, "forced_best_video":"", "forced_best_video_contain":False}
         
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
+        
+        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+        video.ffmpeg_pool_big_job = Pool(processes=1)
+
         mergeVideo.merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)
     except:

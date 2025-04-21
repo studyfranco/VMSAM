@@ -29,8 +29,16 @@ min_overlap = 30
 # calculate fingerprint
 # Generate file.mp3.fpcalc by "fpcalc -raw -length 500 file.mp3"
 def calculate_fingerprints(filename,length=1):
-    fpcalc_out = str(subprocess.check_output([tools.software["fpcalc"], '-raw', '-length', str(length), filename])).strip().replace('\\n', '').replace("'", "") # '-length', str(sample_time),
-
+    cmd = [tools.software["fpcalc"], '-raw', '-length', str(length), filename]
+    stdout, stderror, exitCode = tools.launch_cmdExt_no_test(cmd)
+    if exitCode != 0:
+        from re import search,MULTILINE
+        if exitCode == 3 and search(r'.*ERROR. Error decoding audio frame .End of file.',stderror.decode("utf-8"), MULTILINE) != None:
+            pass
+        else:
+            raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
+    
+    fpcalc_out = stdout.decode("utf-8").strip().replace('\\n', '').replace("'", "")
     fingerprint_index = fpcalc_out.find('FINGERPRINT=') + 12
     # convert fingerprint to list of integers
     fingerprints = list(map(int, fpcalc_out[fingerprint_index:].split(',')))
