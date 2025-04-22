@@ -692,8 +692,9 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
     track_to_remove = set()
     for language,subs in video_sub_track_list.items():
         for sub in subs:
-            if (('keep' in sub and sub['keep']) or 'keep' not in sub) and sub['MD5'] not in md5_sub_already_added:
-                md5_sub_already_added.add(sub['MD5'])
+            if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
+                if sub['MD5'] != '':
+                    md5_sub_already_added.add(sub['MD5'])
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
                 if "Title" in sub:
                     if re.match(r".* *\[{0,1}forced\]{0,1} *.*", sub["Title"].lower()):
@@ -720,7 +721,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     track_to_remove = set()
     for language,audios in video_audio_track_list.items():
         for audio in audios:
-            if (not audio["keep"] or audio["MD5"] in md5_audio_already_added):
+            if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 md5_audio_already_added.add(audio["MD5"])
@@ -740,7 +741,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio)
     for language,audios in video_commentary_track_list.items():
         for audio in audios:
-            if (not audio["keep"] or audio["MD5"] in md5_audio_already_added):
+            if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 md5_audio_already_added.add(audio["MD5"])
