@@ -79,6 +79,15 @@ def remove_element_without_bug(list_set, element):
         list_set.remove(element)
     except:
         pass
+    
+def extract_ffmpeg_type_dict(filePath):
+    import json
+    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", filePath])
+    data_sub_codec = json.loads(stdout.decode("UTF-8"))
+    dic_index_data_sub_codec = {}
+    for data in data_sub_codec["streams"]:
+        dic_index_data_sub_codec[data["index"]] = data
+    return dic_index_data_sub_codec
 
 tmpFolder = "/tmp"
 software = {}
@@ -87,3 +96,5 @@ default_language_for_undetermine = 'und'
 dev = False
 special_params = {}
 mergeRules = None
+sub_type_not_encodable = ["hdmv_pgs_subtitle","dvd_subtitle"]
+sub_type_near_srt = ["srt","utf-8","utf-16","utf-16le","utf-16be","utf-32","utf-32le","utf-32be","vtt","webvtt"]

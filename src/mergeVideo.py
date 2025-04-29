@@ -21,7 +21,6 @@ import json
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
-sub_type_not_encodable = ["hdmv_pgs_subtitle","dvd_subtitle"]
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -798,14 +797,6 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
     print(f'The best video path is {best_video.filePath}')
-    out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
-    if path.exists(out_path_file_name+'.mkv'):
-        i = 1
-        while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
-            i += 1
-        out_path_file_name += f'_({str(i)}).mkv'
-    else:
-        out_path_file_name += '.mkv'
     out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name]
     md5_audio_already_added = set()
@@ -848,30 +839,43 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                      "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
                      "-c", "copy", "-c:s", "ass"]
     
-    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", out_path_tmp_file_name])
-    data_sub_codec = json.loads(stdout.decode("UTF-8"))
-    dic_index_data_sub_codec = {}
-    for data in data_sub_codec["streams"]:
-        dic_index_data_sub_codec[data["index"]] = data
+    dic_index_data_sub_codec = tools.extract_ffmpeg_type_dict(out_path_tmp_file_name)
     for language,subs in out_video_metadata.subtitles.items():
         for sub in subs:
-            if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] in sub_type_not_encodable:
-                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
-            elif dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] == 'srt':
-                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
-            elif dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] == 'UTF-8':
-                convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
-            #else:
-            #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
+            if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] != None:
+                codec = dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"].lower()
+                if codec in tools.sub_type_not_encodable:
+                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+                elif codec in tools.sub_type_near_srt:
+                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
+                #else:
+                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
     tools.launch_cmdExt(convert_cmd)
     
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
+    
+    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
+    out_video_metadata.get_mediadata()
+    out_video_metadata.video = best_video.video
+    out_video_metadata.calculate_md5_streams_split()
 
-    tools.launch_cmdExt([tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
-                         "--no-chapters", "--no-global-tags", "-M", "-B", "-D", out_path_tmp_file_name_split])
+    out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
+    if path.exists(out_path_file_name+'.mkv'):
+        i = 1
+        while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
+            i += 1
+        out_path_file_name += f'_({str(i)}).mkv'
+    else:
+        out_path_file_name += '.mkv'
+    final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
+                         "--no-chapters", "--no-global-tags", "-M", "-B"]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set())
+    generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set())
+    final_insert.extend(["-D", out_path_tmp_file_name_split])
+    tools.launch_cmdExt(final_insert)
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:

@@ -279,6 +279,83 @@ class video():
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
 
+    def calculate_md5_streams_split(self):
+        if self.mediadata == None:
+            self.get_mediadata()
+        
+        length_video = float(self.video['Duration'])
+        task_audio = {}
+        for language, data in self.audios.items():
+            task_audio[language] = []
+            for audio in data:
+                task_audio[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"],10,length_video,float(audio['Duration']))))
+                
+        task_commentary = {}
+        for language, data in self.commentary.items():
+            task_commentary[language] = []
+            for audio in data:
+                task_commentary[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"],10,length_video,float(audio['Duration']))))
+
+        task_audio_desc = {}
+        for language, data in self.audiodesc.items():
+            task_audio_desc[language] = []
+            for audio in data:
+                task_audio_desc[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,audio["StreamOrder"],10,length_video,float(audio['Duration']))))
+
+        dic_index_data_sub_codec = tools.extract_ffmpeg_type_dict(self.filePath)
+        task_subtitle = {}
+        for language, data in self.subtitles.items():
+            task_subtitle[language] = []
+            for subtitle in data:
+                if dic_index_data_sub_codec[int(subtitle["StreamOrder"])]["codec_name"] != None:
+                    codec = dic_index_data_sub_codec[int(subtitle["StreamOrder"])]["codec_name"].lower()
+                    if codec in tools.sub_type_not_encodable:
+                        task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
+                    else:
+                        task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(subtitle_text_md5,(self.filePath,subtitle["StreamOrder"])))
+                else:
+                    task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
+        
+        for language, data in task_audio.items():
+            for audio in data:
+                i=0
+                result = audio.get()
+                if result[1] != None:
+                    self.audios[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+
+        for language, data in task_commentary.items():
+            for audio in data:
+                i=0
+                result = audio.get()
+                if result[1] != None:
+                    self.commentary[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+                
+        for language, data in task_audio_desc.items():
+            for audio in data:
+                i=0
+                result = audio.get()
+                if result[1] != None:
+                    self.audiodesc[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+
+        for language, data in task_subtitle.items():
+            i=0
+            for subtitle in data:
+                result = subtitle.get()
+                if result[1] != None:
+                    self.subtitles[language][i]['MD5'] = result[1]
+                else:
+                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                i += 1
+
 """
 Preparation function
 """
@@ -629,13 +706,46 @@ def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChalleng
     else:
         return 2
 
-def md5_calculator(filePath,streamID):
+def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=None):
     cmd = [
     tools.software["ffmpeg"], "-v", "error", "-i", filePath,
-    "-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
-    ]
+    "-ss", str(start_time)]
+
+    if end_time != None:
+        if duration_stream != None:
+            if duration_stream > end_time:
+                cmd.extend(["-t", str(end_time-start_time)])
+            else:
+                cmd.extend(["-t", str(duration_stream-start_time)])
+        else:
+            cmd.extend(["-t", str(end_time-start_time)])
+
+    cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
+    ])
     stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
     if exitCode == 0:
         md5 = stdout.decode("utf-8").strip().split("=")[-1]
         return (streamID, md5)
     return (streamID, None)
+
+def subtitle_text_md5(filePath,streamID):
+    import hashlib
+    cmd = [
+        tools.software["ffmpeg"], "-v", "error", "-i", filePath,
+        "-map", f"0:{streamID}",
+         "-c:s", "srt",
+        "-f", "srt", "pipe:1"
+    ]
+    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    if exitCode == 0:
+        lines = stdout.decode('utf-8', errors='ignore').splitlines()
+        text_lines = [line for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
+        filtered_text = "\n".join(text_lines).encode('utf-8')
+        md5 = hashlib.md5(filtered_text).hexdigest()
+        if (not text_lines):
+            stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
+            return (streamID, None)
+        else:
+            return (streamID, md5)
+    else:
+        return (streamID, None)
