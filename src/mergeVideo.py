@@ -762,6 +762,18 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     if len(track_to_remove):
         merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
 
+def generate_merge_command_common_md5(video_obj,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added):
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles,md5_sub_already_added)
+    if delay_to_put != 0:
+        merge_cmd.extend(["--sync", f"-1:{int(delay_to_put)}"])
+    merge_cmd.extend(["-D", video_obj.filePath])
+    
+    print(f'\t{video_obj.filePath} will add with a delay of {int(delay_to_put)}')
+    
+    for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added)
+
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
@@ -773,6 +785,9 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     
     print(f'\t{video_obj.filePath} will add with a delay of {int(delay_to_put)}')
     
+    for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added)
+    
     if video_path_file in dict_list_video_win:
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
@@ -781,7 +796,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
-        for other_video_path_file, is_the_best_video in  dict_with_results.items():
+        for other_video_path_file, is_the_best_video in dict_with_results.items():
             if is_the_best_video:
                 set_bad_video.add(other_video_path_file)
                 if video_path_file in dict_list_video_win:
@@ -957,6 +972,26 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     
     commonLanguages = list(commonLanguages)
     common_language_use_for_generate_delay = commonLanguages.pop()
+    
+    MD5AudioVideo = {}
+    listVideoToNotCalculateOffset = []
+    for videoObj in videosObj:
+        MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
+        if MD5merged in MD5AudioVideo:
+            if forced_best_video == videoObj.filePath:
+                videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
+                listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
+                MD5AudioVideo[MD5merged] = videoObj
+            else:
+                MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
+                listVideoToNotCalculateOffset.append(videoObj)
+        else:
+            MD5AudioVideo[MD5merged] = videoObj
+    
+    for videoObj in listVideoToNotCalculateOffset:
+        videosObj.remove(videoObj)
+        del dict_file_path_obj[videoObj.filePath]
+    
     if forced_best_video == None:
         dict_with_video_quality_logic = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules,dict_file_path_obj)
     else:

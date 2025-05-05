@@ -47,6 +47,7 @@ class video():
         self.lastCutAsDefault = False
         self.delayFirstMethodAbort = {}
         self.shiftCuts = None
+        self.sameAudioMD5UseForCalculation = []
     
     def get_mediadata(self):
         stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mediainfo"], "--Output=JSON", self.filePath])
@@ -240,8 +241,8 @@ class video():
                 task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"])))
         
         for language, data in task_audio.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.audios[language][i]['MD5'] = result[1]
@@ -250,8 +251,8 @@ class video():
                 i += 1
 
         for language, data in task_commentary.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.commentary[language][i]['MD5'] = result[1]
@@ -260,8 +261,8 @@ class video():
                 i += 1
                 
         for language, data in task_audio_desc.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.audiodesc[language][i]['MD5'] = result[1]
@@ -317,8 +318,8 @@ class video():
                     task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
         
         for language, data in task_audio.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.audios[language][i]['MD5'] = result[1]
@@ -327,8 +328,8 @@ class video():
                 i += 1
 
         for language, data in task_commentary.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.commentary[language][i]['MD5'] = result[1]
@@ -337,8 +338,8 @@ class video():
                 i += 1
                 
         for language, data in task_audio_desc.items():
+            i=0
             for audio in data:
-                i=0
                 result = audio.get()
                 if result[1] != None:
                     self.audiodesc[language][i]['MD5'] = result[1]
@@ -730,6 +731,7 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
 
 def subtitle_text_md5(filePath,streamID):
     import hashlib
+    import re
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-i", filePath,
         "-map", f"0:{streamID}",
