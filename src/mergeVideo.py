@@ -862,7 +862,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 if codec in tools.sub_type_not_encodable:
                     convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
                 elif codec in tools.sub_type_near_srt:
-                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
+                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
                 #else:
                 #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
@@ -888,6 +888,25 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
                          "--no-chapters", "--no-global-tags", "-M", "-B"]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set())
+    
+    sub_same_md5 = {}
+    for language,subs in out_video_metadata.subtitles.items():
+        for sub in subs:
+            if sub['MD5'] in sub_same_md5:
+                sub_same_md5[sub['MD5']].append(sub)
+            else:
+                sub_same_md5[sub['MD5']] = [sub]
+    for sub_md5,subs in sub_same_md5.items():
+        if len(subs) > 1:
+            have_srt_sub = False
+            for sub in subs:
+                if sub['Format'].lower() == 'utf-8' and (not have_srt_sub):
+                    have_srt_sub = True
+                else:
+                    sub['keep'] = False
+            if (not have_srt_sub):
+                subs[1]['keep'] = True
+                
     generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set())
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     tools.launch_cmdExt(final_insert)
