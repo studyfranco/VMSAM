@@ -732,8 +732,11 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
 def subtitle_text_md5(filePath,streamID):
     number_of_style = count_font_lines_in_ass(filePath, streamID)
     if number_of_style == None or number_of_style > 1:
-        return md5_calculator(filePath,streamID)
-    
+        return subtitle_text_ass_md5(filePath,streamID)
+    else:
+        return subtitle_text_srt_md5(filePath,streamID)
+
+def subtitle_text_srt_md5(filePath,streamID):
     import hashlib
     import re
     cmd = [
@@ -757,6 +760,7 @@ def subtitle_text_md5(filePath,streamID):
         return (streamID, None)
 
 def count_font_lines_in_ass(filePath, streamID):
+    import re
     cmd = [
         "ffmpeg",
         "-v", "error",
@@ -768,13 +772,36 @@ def count_font_lines_in_ass(filePath, streamID):
     ]
     
     stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
-    if exitCode != 0:
-        stderr.write(f"Error extracting ASS from {filePath}, stream {streamID}\n")
+    if exitCode == 0:
+        lines = stdout.decode('utf-8', errors='ignore').splitlines()
+
+        style_pattern = re.compile(r'^Style:.+', re.IGNORECASE)
+        count = sum(1 for line in lines if style_pattern.match(line))
+
+        return count
+    else:
+        stderr.write(f"Error extracting ASS from {filePath}, stream {streamID}, with error {stderror.decode('utf-8', errors='ignore')} \n")
         return None
 
-    lines = stdout.decode('utf-8', errors='ignore').splitlines()
-
-    style_pattern = re.compile(r'^Style:.+', re.IGNORECASE)
-    count = sum(1 for line in lines if style_pattern.match(line))
-
-    return count
+def subtitle_text_ass_md5(filePath,streamID):
+    import hashlib
+    import re
+    cmd = [
+        tools.software["ffmpeg"], "-v", "error", "-i", filePath,
+        "-map", f"0:{streamID}",
+         "-c:s", "ass",
+        "-f", "ass", "pipe:1"
+    ]
+    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    if exitCode == 0:
+        lines = stdout.decode('utf-8', errors='ignore').splitlines()
+        text_lines = [re.sub(r'^[^,\n]+,\d[^,\n]+,[^,\n]+,', '', line) for line in lines if line.strip()]
+        filtered_text = "\n".join(text_lines).encode('utf-8')
+        md5 = hashlib.md5(filtered_text).hexdigest()
+        if (not text_lines):
+            stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
+            return (streamID, None)
+        else:
+            return (streamID, md5)
+    else:
+        return (streamID, None)
