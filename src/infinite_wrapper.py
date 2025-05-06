@@ -77,7 +77,7 @@ def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_er
             generate_error_folder(folder_path_for_error)
             move_dir(folder_path,folder_path_for_error)
         else:
-            global cmd_use_to_process
+            global base_cmd_use_to_process
             cmd_use_to_process = base_cmd_use_to_process.copy()
             cmd_use_to_process.extend(["-o", out_folder])
             list_files_to_process = []
