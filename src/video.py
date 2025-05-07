@@ -742,7 +742,7 @@ def subtitle_text_srt_md5(filePath,streamID):
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-i", filePath,
         "-map", f"0:{streamID}",
-         "-c:s", "srt",
+         "-c:s", "srt", "-sub_charenc", "UTF-8",
         "-f", "srt", "pipe:1"
     ]
     stdout, stderror, exitCode = tools.launch_cmdExt(cmd)

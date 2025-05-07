@@ -164,6 +164,7 @@ class compare_video(Thread):
                 self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
                 self.video_obj_2.remove_tmp_files(type_file="audio")
                 self.video_obj_with_best_quality = self.video_obj_1
+                delay = self.adjust_delay_to_frame(delay)
                 self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
             traceback.print_exc()
@@ -415,12 +416,37 @@ class compare_video(Thread):
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
+            delay = self.adjust_delay_to_frame(delay)
             self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_1.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_2
+            delay = self.adjust_delay_to_frame(delay)
             self.video_obj_1.delays[self.language] += delay # Delay you need to give to mkvmerge to be good.
+            
+    def adjust_delay_to_frame(self,delay):
+        if self.video_obj_with_best_quality.video["FrameRate_Mode"] == "CFR":
+            framerate = float(self.video_obj_with_best_quality.video["FrameRate"])
+            number_frame = round(float(delay)/framerate)
+            distance_frame = float(delay)%framerate
+            if abs(distance_frame) < framerate/2.0:
+                return round(number_frame*framerate)
+            elif number_frame > 0:
+                return round(float(number_frame+1)*framerate)
+            elif number_frame < 0:
+                return round(float(number_frame-1)*framerate)
+            elif distance_frame > 0:
+                return round(float(number_frame+1)*framerate)
+            elif distance_frame < 0:
+                return round(float(number_frame-1)*framerate)
+            else:
+                return delay
+            
+        else:
+            ''' TODO:
+                ADD VFR calculation if found'''
+            return delay
 
 def was_they_not_already_compared(video_obj_1,video_obj_2,already_compared):
     name_in_list = [video_obj_1.filePath,video_obj_2.filePath]
