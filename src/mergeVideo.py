@@ -713,6 +713,14 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
+def keep_best_audio(list_audio_metadata,audioRules):
+    '''
+    Todo:
+        Integrate https://github.com/Sg4Dylan/FLAD/tree/main
+    '''
+    pass
+    
+
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added):
     track_to_remove = set()
     for language,subs in video_sub_track_list.items():
@@ -818,7 +826,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
-def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay):
+def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
@@ -913,6 +921,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += '.mkv'
     final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
                          "--no-chapters", "--no-global-tags", "-M", "-B"]
+    
+    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set())
     
     sub_same_md5 = {}
@@ -981,7 +991,7 @@ def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_commentary"])
         
-    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und")
+    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und",audioRules)
     
 def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     commonLanguages = video.get_common_audios_language(videosObj)
@@ -1049,7 +1059,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
         """
         pass
     
-    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay)
+    generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules)
     
 def merge_videos(files,out_folder,merge_sync,inFolder=None):
     videosObj = []

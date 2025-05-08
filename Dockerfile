@@ -9,7 +9,7 @@ RUN set -x \
  && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
  && apt update \
  && apt dist-upgrade -y \
- && DEBIAN_FRONTEND=noninteractive apt install -y tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib --no-install-recommends \
+ && DEBIAN_FRONTEND=noninteractive apt install -y tar wget gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix python3 python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy --no-install-recommends \
  && useradd -ms /bin/bash vmsam \
  && gosu nobody true \
  && mkdir -p /config \

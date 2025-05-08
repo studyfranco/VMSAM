@@ -285,6 +285,8 @@ class video():
             self.get_mediadata()
         
         length_video = float(self.video['Duration'])
+        if length_video > 20:
+            length_video = length_video-10.0
         task_audio = {}
         for language, data in self.audios.items():
             task_audio[language] = []
