@@ -63,6 +63,7 @@ class video():
             if str(track['id']) in properties_track:
                 raise Exception(f"{self.filePath} have tracks with the same ids")
             properties_track[str(track['id'])] = track['properties']
+        ffprobe_data = tools.extract_ffmpeg_type_dict_all(self.filePath)
         self.audios = {}
         self.subtitles = {}
         self.commentary = {}
@@ -73,6 +74,7 @@ class video():
             if 'StreamOrder' in data:
                 try:
                     data['properties'] = properties_track[data['StreamOrder']]
+                    data['ffprobe'] = ffprobe_data[int(data['StreamOrder'])]
                 except:
                     raise Exception(f"{self.filePath} have problematic track id")
             if data['@type'] == 'Video':
@@ -660,6 +662,9 @@ def get_birate_key(data):
         return 'BitRate_Nominal'
     else:
         raise Exception(f"No video bitrate {data}")
+    
+def get_bitrate(data):
+    return data[get_birate_key(data)]
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:

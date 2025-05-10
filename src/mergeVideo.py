@@ -47,11 +47,11 @@ def decript_merge_rules(stringRules):
                     for subValue in value:
                         if subValue not in rules[sup[0]] or (isinstance(rules[sup[0]][subValue], float) and rules[sup[0]][subValue] > 1 and rules[sup[0]][subValue] < sup[1]):
                             rules[sup[0]][subValue] = sup[1]
-                            rules[subValue][sup[0]] = 1.0/sup[1]
+                            rules[subValue][sup[0]] = False
                 elif isinstance(sup[1], bool):
                     for subValue in value:
-                        rules[sup[0]][subValue] = sup[1]
-                        rules[subValue][sup[0]] = (not sup[1])
+                        rules[sup[0]][subValue] = True
+                        rules[subValue][sup[0]] = False
                     
                 if isinstance(multValue, bool):
                     sup[1] = multValue
@@ -718,8 +718,40 @@ def keep_best_audio(list_audio_metadata,audioRules):
     Todo:
         Integrate https://github.com/Sg4Dylan/FLAD/tree/main
     '''
-    pass
-    
+    for i,audio_1 in enumerate(list_audio_metadata):
+        for j,audio_2 in enumerate(list_audio_metadata):
+            if audio_1['Format'].lower() == audio_2['Format'].lower():
+                try:
+                    if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) > int(video.get_bitrate(audio_2)):
+                        audio_2['keep'] = False
+                    elif int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1)):
+                        audio_1['keep'] = False
+                except Exception as e:
+                    sys.stderr.write(str(e))
+            else:
+                if audio_1['Format'].lower() in audioRules:
+                    if audio_2['Format'].lower() in audioRules[audio_1['Format'].lower()]:
+                        try:
+                            if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']):
+                                if isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], bool):
+                                    if audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
+                                        audio_2['keep'] = False
+                                elif isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], float):
+                                    if int(video.get_bitrate(audio_1)) > int(video.get_bitrate(audio_2))*audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
+                                        audio_2['keep'] = False
+                        except Exception as e:
+                            sys.stderr.write(str(e))
+                        
+                        try:
+                            if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']):
+                                if isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], bool):
+                                    if audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
+                                        audio_1['keep'] = False
+                                elif isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], float):
+                                    if int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1))*audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
+                                        audio_1['keep'] = False
+                        except Exception as e:
+                            sys.stderr.write(str(e))
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added):
     track_to_remove = set()

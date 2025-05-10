@@ -89,6 +89,15 @@ def extract_ffmpeg_type_dict(filePath):
         dic_index_data_sub_codec[data["index"]] = data
     return dic_index_data_sub_codec
 
+def extract_ffmpeg_type_dict_all(filePath):
+    import json
+    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-show_streams", "-of", "json", filePath])
+    data_sub_codec = json.loads(stdout.decode("UTF-8"))
+    dic_index_data_sub_codec = {}
+    for data in data_sub_codec["streams"]:
+        dic_index_data_sub_codec[data["index"]] = data
+    return dic_index_data_sub_codec
+
 tmpFolder = "/tmp"
 software = {}
 core_to_use = 1
