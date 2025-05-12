@@ -831,7 +831,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
         merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
 
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")]
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
     generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
     cmd_tag_adding.extend(["-D", video_obj.filePath])
@@ -851,7 +851,7 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")]
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
     generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
     cmd_tag_adding.extend(["-D", video_obj.filePath])
@@ -899,7 +899,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'number_files_add' : 0,
                        'chapter_cmd' : []}
     
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv")]
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
     generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,best_video.subtitles,md5_sub_already_added)
     if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
@@ -922,7 +922,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd.extend(["-map", "0", "-map_metadata", "0"])
     for i in range(1,ffmpeg_cmd_dict['number_files_add']+1):
         merge_cmd.extend(["-map", f"{i}:a?", "-map", f"{i}:s?","-map_metadata", f"{i}"])
-    merge_cmd.extend(["-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
+    merge_cmd.extend(["-copy_unknown", "-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
     print(" ".join(merge_cmd))
     try:
         tools.launch_cmdExt(merge_cmd)
