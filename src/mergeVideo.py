@@ -841,7 +841,7 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
         ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
     ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
     ffmpeg_cmd_dict['number_files_add'] += 1
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", video_obj.filePath])
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
@@ -861,7 +861,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
     ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
     ffmpeg_cmd_dict['number_files_add'] += 1
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", video_obj.filePath])
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
@@ -907,7 +907,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     cmd_tag_adding.append(best_video.filePath)
     tools.launch_cmdExt(cmd_tag_adding)
     ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv")])
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", best_video.filePath])
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", best_video.filePath])
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
@@ -919,10 +919,10 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                      "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use)]
     merge_cmd.extend(ffmpeg_cmd_dict['files_with_offset'])
-    merge_cmd.extend(["-map", "0", "-map_metadata", "0", "-map_chapters", "0"])
+    merge_cmd.extend(["-map", "0", "-map_metadata", "0"])
     for i in range(1,ffmpeg_cmd_dict['number_files_add']+1):
-        merge_cmd.extend(["-map", f"{i}:a?", "-map", f"{i}:s?","-map_metadata", f"{i}", "-map_chapters", f"{i}"])
-    merge_cmd.extend(["-copy_unknown", "-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
+        merge_cmd.extend(["-map", f"{i}:a?", "-map", f"{i}:s?","-map_metadata", f"{i}"])
+    merge_cmd.extend(["-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
     print(" ".join(merge_cmd))
     try:
         tools.launch_cmdExt(merge_cmd)
