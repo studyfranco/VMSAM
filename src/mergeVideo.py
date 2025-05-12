@@ -18,6 +18,7 @@ import tools
 import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
+from decimal import *
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -165,7 +166,7 @@ class compare_video(Thread):
                 self.video_obj_2.remove_tmp_files(type_file="audio")
                 self.video_obj_with_best_quality = self.video_obj_1
                 delay = self.adjust_delay_to_frame(delay)
-                self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
+                self.video_obj_2.delays[self.language] += (delay*-Decimal(1.0)) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
             traceback.print_exc()
             sys.stderr.write(str(e)+"\n")
@@ -427,19 +428,20 @@ class compare_video(Thread):
             
     def adjust_delay_to_frame(self,delay):
         if self.video_obj_with_best_quality.video["FrameRate_Mode"] == "CFR":
-            framerate = float(self.video_obj_with_best_quality.video["FrameRate"])
-            number_frame = round(float(delay)/framerate)
-            distance_frame = float(delay)%framerate
-            if abs(distance_frame) < framerate/2.0:
-                return round(number_frame*framerate)
+            getcontext().prec = 10
+            framerate = Decimal(self.video_obj_with_best_quality.video["FrameRate"])
+            number_frame = round(Decimal(delay)/framerate)
+            distance_frame = Decimal(delay)%framerate
+            if abs(distance_frame) < framerate/Decimal(2.0):
+                return Decimal(number_frame)*framerate
             elif number_frame > 0:
-                return round(float(number_frame+1)*framerate)
+                return Decimal(number_frame+1)*framerate
             elif number_frame < 0:
-                return round(float(number_frame-1)*framerate)
+                return Decimal(number_frame-1)*framerate
             elif distance_frame > 0:
-                return round(float(number_frame+1)*framerate)
+                return Decimal(number_frame+1)*framerate
             elif distance_frame < 0:
-                return round(float(number_frame-1)*framerate)
+                return Decimal(number_frame-1)*framerate
             else:
                 return delay
             
@@ -828,35 +830,47 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     if len(track_to_remove):
         merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
 
-def generate_merge_command_common_md5(video_obj,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added):
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles,md5_sub_already_added)
+def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
+    cmd_tag_adding.extend(["-D", video_obj.filePath])
+    tools.launch_cmdExt(cmd_tag_adding)
     if delay_to_put != 0:
-        merge_cmd.extend(["--sync", f"-1:{int(delay_to_put)}"])
-    merge_cmd.extend(["-D", video_obj.filePath])
+        ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+        ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
+    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
+    ffmpeg_cmd_dict['number_files_add'] += 1
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", video_obj.filePath])
     
-    print(f'\t{video_obj.filePath} will add with a delay of {int(delay_to_put)}')
+    print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
 
-def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
+def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_obj.subtitles,md5_sub_already_added)
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
+    cmd_tag_adding.extend(["-D", video_obj.filePath])
+    tools.launch_cmdExt(cmd_tag_adding)
     if delay_to_put != 0:
-        merge_cmd.extend(["--sync", f"-1:{int(delay_to_put)}"])
-    merge_cmd.extend(["-D", video_obj.filePath])
+        ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+        ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
+    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
+    ffmpeg_cmd_dict['number_files_add'] += 1
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", video_obj.filePath])
     
-    print(f'\t{video_obj.filePath} will add with a delay of {int(delay_to_put)}')
+    print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,merge_cmd,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
     
     if video_path_file in dict_list_video_win:
         for other_video_path_file in dict_list_video_win[video_path_file]:
-            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
+            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
     set_bad_video = set()
@@ -878,18 +892,37 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
     print(f'The best video path is {best_video.filePath}')
-    out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
-    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name]
     md5_audio_already_added = set()
     md5_sub_already_added = set()
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,best_video.subtitles,md5_sub_already_added)
+    
+    ffmpeg_cmd_dict = {'files_with_offset' : [],
+                       'number_files_add' : 0,
+                       'chapter_cmd' : []}
+    
+    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv")]
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
+    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,best_video.subtitles,md5_sub_already_added)
     if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
-        merge_cmd.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
-    merge_cmd.append(best_video.filePath)
+        cmd_tag_adding.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
+    cmd_tag_adding.append(best_video.filePath)
+    tools.launch_cmdExt(cmd_tag_adding)
+    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv")])
+    ffmpeg_cmd_dict['chapter_cmd'].extend(["--no-global-tags", "-A", "-S", "-D", best_video.filePath])
+    
+    for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
+        generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+    
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
-        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,merge_cmd,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
+    out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
+    merge_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
+                     "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use)]
+    merge_cmd.extend(ffmpeg_cmd_dict['files_with_offset'])
+    merge_cmd.extend(["-map", "0", "-map_metadata", "0", "-map_chapters", "0"])
+    for i in range(1,ffmpeg_cmd_dict['number_files_add']+1):
+        merge_cmd.extend(["-map", f"{i}:a?", "-map", f"{i}:s?","-map_metadata", f"{i}", "-map_chapters", f"{i}"])
+    merge_cmd.extend(["-copy_unknown", "-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
     print(" ".join(merge_cmd))
     try:
         tools.launch_cmdExt(merge_cmd)
@@ -977,6 +1010,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 
     generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set())
     final_insert.extend(["-D", out_path_tmp_file_name_split])
+    final_insert.extend(ffmpeg_cmd_dict['chapter_cmd'])
     tools.launch_cmdExt(final_insert)
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
