@@ -917,7 +917,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
 
     out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
     merge_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                     "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use)]
+                     "-err_detect", "buffer", "-fflags", "+genpts+igndts", "-threads", str(tools.core_to_use)]
     merge_cmd.extend(ffmpeg_cmd_dict['files_with_offset'])
     merge_cmd.extend(["-map", "0", "-map_metadata", "0"])
     for i in range(1,ffmpeg_cmd_dict['number_files_add']+1):
