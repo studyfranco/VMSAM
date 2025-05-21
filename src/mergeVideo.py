@@ -764,9 +764,11 @@ def keep_best_audio(list_audio_metadata,audioRules):
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added):
     track_to_remove = set()
+    number_track_sub = 0
     for language,subs in video_sub_track_list.items():
         for sub in subs:
             if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
+                number_track_sub += 1
                 if sub['MD5'] != '':
                     md5_sub_already_added.add(sub['MD5'])
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
@@ -779,6 +781,7 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                 track_to_remove.add(sub["StreamOrder"])
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
+    return number_track_sub
 
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio):
     merge_cmd.extend(["--forced-display-flag", audio["StreamOrder"]+":0", "--default-track-flag", audio["StreamOrder"]+":0"])
@@ -786,6 +789,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_
 default_audio = True
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list,video_commentary_track_list,video_audio_desc_track_list,md5_audio_already_added):
     global default_audio
+    number_track_audio = 0
     if len(video_audio_track_list) == 2 and "und" in video_audio_track_list and tools.default_language_for_undetermine != "und":
         # This step is linked by the fact if you have und audio they are orginialy convert in another language
         # This was convert in a language, but the object is the same and can be compared
@@ -798,6 +802,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
             if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                number_track_audio =+ 1
                 md5_audio_already_added.add(audio["MD5"])
                 original_audio = False
                 if language == "und" and tools.special_params["change_all_und"]:
@@ -818,6 +823,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
             if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                number_track_audio =+ 1
                 md5_audio_already_added.add(audio["MD5"])
                 if language == "und" and tools.special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
@@ -828,6 +834,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
             if (audio["MD5"] in md5_audio_already_added):
                 track_to_remove.add(audio["StreamOrder"])
             else:
+                number_track_audio =+ 1
                 md5_audio_already_added.add(audio["MD5"])
                 if language == "und" and tools.special_params["change_all_und"]:
                     merge_cmd.extend(["--language", audio["StreamOrder"]+":"+tools.default_language_for_undetermine])
@@ -836,18 +843,22 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
 
     if len(track_to_remove):
         merge_cmd.extend(["-a","!"+",".join(track_to_remove)])
+    return number_track_audio
 
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
     cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
+    number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    number_track_sub = generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
     cmd_tag_adding.extend(["-D", video_obj.filePath])
-    tools.launch_cmdExt(cmd_tag_adding)
+
+    if number_track_audio or number_track_sub:
+        tools.launch_cmdExt(cmd_tag_adding)
+        if delay_to_put != 0:
+            ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+        ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
+        ffmpeg_cmd_dict['number_files_add'] += 1
     if delay_to_put != 0:
-        ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
         ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
-    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
-    ffmpeg_cmd_dict['number_files_add'] += 1
     ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
@@ -859,15 +870,18 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
     cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
+    number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
+    number_track_sub = generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
     cmd_tag_adding.extend(["-D", video_obj.filePath])
-    tools.launch_cmdExt(cmd_tag_adding)
+    
+    if number_track_audio or number_track_sub:
+        tools.launch_cmdExt(cmd_tag_adding)
+        if delay_to_put != 0:
+            ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+        ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
+        ffmpeg_cmd_dict['number_files_add'] += 1
     if delay_to_put != 0:
-        ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
         ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
-    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
-    ffmpeg_cmd_dict['number_files_add'] += 1
     ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
