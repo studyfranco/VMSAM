@@ -1046,8 +1046,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     for language,audios in out_video_metadata.audios.items():
         for audio in audios:
-            if audio["Format"] == "FLAC":
-                convert_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "9"])
+            if audio["Format"].lower() == "flac":
+                convert_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
                 if "BitDepth" in audio:
                     if audio["BitDepth"] == "16":
                         convert_cmd.extend(["-sample_fmt", "s16"])
@@ -1055,6 +1055,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                         convert_cmd.extend(["-sample_fmt", "s32"])
     
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
+    print(" ".join(convert_cmd))
     tools.launch_cmdExt(convert_cmd)
     
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
