@@ -1043,6 +1043,16 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
                 #else:
                 #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
+    
+    for language,audio in out_video_metadata.audios.items():
+        if audio["Format"] == "FLAC":
+            convert_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "9"])
+            if "BitDepth" in audio:
+                if audio["BitDepth"] == "16":
+                    convert_cmd.extend(["-sample_fmt", "s16"])
+                else:
+                    convert_cmd.extend(["-sample_fmt", "s32"])
+    
     convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
     tools.launch_cmdExt(convert_cmd)
     
