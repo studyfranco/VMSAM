@@ -949,7 +949,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put != 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
-    base_cmd.extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"),
+    base_cmd.extend(["-i", video_obj.filePath,
                      "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                      "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
     
