@@ -903,8 +903,8 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     
     return number_track_audio
 
-def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
-    number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+    number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     else:
@@ -915,12 +915,12 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
+def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+    number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     else:
@@ -931,11 +931,11 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     
     if video_path_file in dict_list_video_win:
         for other_video_path_file in dict_list_video_win[video_path_file]:
-            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
+            generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
@@ -955,7 +955,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
                     base_cmd.extend(["-sample_fmt", "s32"])
         return 1
 
-def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
+def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
                     "-threads", str(tools.core_to_use), "-vn"]
@@ -981,9 +981,9 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                         base_cmd.extend([f"-c:s:0", "copy"])
                 elif codec in tools.sub_type_near_srt:
                     if '@typeorder' in sub:
-                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
+                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
                     else:
-                        base_cmd.extend([f"-c:s:0", "srt", "-sub_charenc", "UTF-8"])
+                        base_cmd.extend([f"-c:s:0", "srt"])
                 #else:
                 #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
             else:
@@ -1008,7 +1008,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
-        base_cmd.extend(["-t", video_obj.video['Duration'], tmp_file_audio])
+        base_cmd.extend(["-t", duration_best_video, tmp_file_audio])
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
@@ -1044,13 +1044,13 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'merge_cmd' : [],
                        'metadata_cmd' : []}
     
-    generate_new_file(best_video,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+    generate_new_file(best_video,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
     
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
-        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
+        generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
 
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name_split]
