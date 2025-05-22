@@ -904,20 +904,8 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     return number_track_audio
 
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
-    number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    number_track_sub = generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
-    cmd_tag_adding.extend(["-D", video_obj.filePath])
-
-    if number_track_audio or number_track_sub:
-        tools.launch_cmdExt(cmd_tag_adding)
-        if delay_to_put != 0:
-            ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
-        ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
-        ffmpeg_cmd_dict['number_files_add'] += 1
-    if delay_to_put != 0:
-        ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
+    generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+    ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
@@ -927,20 +915,8 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added):
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
-    number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,video_obj.audios,video_obj.commentary,video_obj.audiodesc,md5_audio_already_added)
-    number_track_sub = generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,video_obj.subtitles,md5_sub_already_added)
-    cmd_tag_adding.extend(["-D", video_obj.filePath])
-    
-    if number_track_audio or number_track_sub:
-        tools.launch_cmdExt(cmd_tag_adding)
-        if delay_to_put != 0:
-            ffmpeg_cmd_dict['files_with_offset'].extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
-        ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")])
-        ffmpeg_cmd_dict['number_files_add'] += 1
-    if delay_to_put != 0:
-        ffmpeg_cmd_dict['chapter_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
+    generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
+    ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     
     print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
     
@@ -950,6 +926,68 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     if video_path_file in dict_list_video_win:
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
+
+def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove):
+    if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
+        audio_track_to_remove.append(audio)
+    else:
+        md5_audio_already_added.add(audio["MD5"])
+        if audio["Format"].lower() == "flac":
+            base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
+            if "BitDepth" in audio:
+                if audio["BitDepth"] == "16":
+                    base_cmd.extend(["-sample_fmt", "s16"])
+                else:
+                    base_cmd.extend(["-sample_fmt", "s32"])
+
+def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added):
+    base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
+                    "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
+                    "-threads", str(tools.core_to_use), "-vn"]
+    if delay_to_put != 0:
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+    base_cmd.extend(["-i", path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv"),
+                     "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+                     "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
+    
+    sub_track_to_remove = []
+    for language,subs in video_obj.subtitles.items():
+        for sub in subs:
+            if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
+                if sub['MD5'] != '':
+                    md5_sub_already_added.add(sub['MD5'])
+                codec = sub["Format"].lower()
+                if codec in tools.sub_type_not_encodable:
+                    base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+                elif codec in tools.sub_type_near_srt:
+                    base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
+                #else:
+                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
+            else:
+                sub_track_to_remove.append(sub)
+    
+    audio_track_to_remove = []
+    for language,audios in video_obj.audios.items():
+        for audio in audios:
+            generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+    for language,audios in video_obj.commentary.items():
+        for audio in audios:
+            generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+    for language,audios in video_obj.audiodesc.items():
+        for audio in audios:
+            generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+    
+    for audio in audio_track_to_remove:
+        base_cmd.extend(["-map", f"-0:{audio["StreamOrder"]}"])
+        
+    for sub in sub_track_to_remove:
+        base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
+
+    tmp_file_audio_sub = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
+    base_cmd.extend(["-t", video_obj.video['Duration'], tmp_file_audio_sub])
+
+    ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
+    ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio_sub])
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
     set_bad_video = set()
@@ -976,17 +1014,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     ffmpeg_cmd_dict = {'files_with_offset' : [],
                        'number_files_add' : 0,
-                       'chapter_cmd' : []}
+                       'convert_process' : [],
+                       'merge_cmd' : [],
+                       'metadata_cmd' : []}
     
-    cmd_tag_adding = [tools.software["mkvmerge"], "-o", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv"), "--no-global-tags", "--no-chapters", "-M", "-B"]
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(cmd_tag_adding,best_video.audios,best_video.commentary,best_video.audiodesc,md5_audio_already_added)
-    generate_merge_command_insert_ID_sub_track_set_not_default(cmd_tag_adding,best_video.subtitles,md5_sub_already_added)
-    if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
-        cmd_tag_adding.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
-    cmd_tag_adding.append(best_video.filePath)
-    tools.launch_cmdExt(cmd_tag_adding)
-    ffmpeg_cmd_dict['files_with_offset'].extend(["-i", path.join(tools.tmpFolder,f"{best_video.fileBaseName}_tmp.mkv")])
-    ffmpeg_cmd_dict['chapter_cmd'].extend(["-A", "-S", "-D", best_video.filePath])
+    generate_new_file(best_video,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added)
@@ -994,15 +1026,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
         generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added)
 
-    out_path_tmp_file_name = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_tmp.mkv")
-    merge_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts", "-threads", str(tools.core_to_use)]
-    merge_cmd.extend(ffmpeg_cmd_dict['files_with_offset'])
-    merge_cmd.extend(["-map", "0", "-map_metadata", "0"])
-    for i in range(1,ffmpeg_cmd_dict['number_files_add']+1):
-        merge_cmd.extend(["-map", f"{i}:a?", "-map", f"{i}:s?","-map_metadata", f"{i}"])
-    merge_cmd.extend(["-copy_unknown", "-movflags", "use_metadata_tags", "-c", "copy", out_path_tmp_file_name])
-    print(" ".join(merge_cmd))
+    out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
+    merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name_split]
+    merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
+    for convert_process in ffmpeg_cmd_dict['convert_process']:
+        convert_process.get()
     try:
         tools.launch_cmdExt(merge_cmd)
     except Exception as e:
@@ -1022,42 +1050,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 sys.stderr.write(str(e))
         else:
             raise e
-    
-    out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
-    
-    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name))
-    out_video_metadata.get_mediadata()
-    convert_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                     "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use), "-vn",
-                     "-i", out_path_tmp_file_name, "-map", "0", "-copy_unknown", "-movflags", "use_metadata_tags", "-map_metadata", "0",
-                     "-c", "copy", "-c:s", "ass"]
-    
-    dic_index_data_sub_codec = tools.extract_ffmpeg_type_dict(out_path_tmp_file_name)
-    for language,subs in out_video_metadata.subtitles.items():
-        for sub in subs:
-            if dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"] != None:
-                codec = dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"].lower()
-                if codec in tools.sub_type_not_encodable:
-                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
-                elif codec in tools.sub_type_near_srt:
-                    convert_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
-                #else:
-                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
-    
-    for language,audios in out_video_metadata.audios.items():
-        for audio in audios:
-            if audio["Format"].lower() == "flac":
-                convert_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
-                if "BitDepth" in audio:
-                    if audio["BitDepth"] == "16":
-                        convert_cmd.extend(["-sample_fmt", "s16"])
-                    else:
-                        convert_cmd.extend(["-sample_fmt", "s32"])
-    
-    convert_cmd.extend(["-t", best_video.video['Duration'], out_path_tmp_file_name_split])
-    print(" ".join(convert_cmd))
-    tools.launch_cmdExt(convert_cmd)
-    
+
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
@@ -1075,8 +1068,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         out_path_file_name += f'_({str(i)}).mkv'
     else:
         out_path_file_name += '.mkv'
-    final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name, "-A", "-S", out_path_tmp_file_name,
-                         "--no-chapters", "--no-global-tags", "-M", "-B"]
+    
+    final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name]
+    if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
+        final_insert.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
+    final_insert.extend(["-A", "-S", "--no-chapters", best_video.filePath])
     
     list_track_order=[]
     global default_audio
@@ -1118,9 +1114,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set(),list_track_order)
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     final_insert.extend(ffmpeg_cmd_dict['chapter_cmd'])
-    out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name))
-    out_video_metadata.get_mediadata()
-    final_insert.extend(["--track-order", f"0:{out_video_metadata.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
+    final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):

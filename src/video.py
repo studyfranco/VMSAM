@@ -37,6 +37,7 @@ class video():
         self.mediadata = None
         self.mkvmergedata = None
         self.audios = None
+        self.audiodesc = None
         self.commentary = None
         self.video = None
         self.subtitles = None
@@ -93,7 +94,7 @@ class video():
                     else:
                         self.commentary[language] = [data]
                 elif ('Title' in data and re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
-                    if language in self.commentary:
+                    if language in self.audiodesc:
                         self.audiodesc[language].append(data)
                     else:
                         self.audiodesc[language] = [data]
@@ -747,7 +748,7 @@ def subtitle_text_srt_md5(filePath,streamID):
     import hashlib
     import re
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-threads", str(tools.core_to_use), "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
@@ -770,7 +771,7 @@ def count_font_lines_in_ass(filePath, streamID):
     import re
     cmd = [
         "ffmpeg",
-        "-v", "error",
+        "-v", "error", "-threads", str(tools.core_to_use),
         "-i", filePath,
         "-map", f"0:{streamID}",
         "-c:s", "ass",
@@ -794,7 +795,7 @@ def subtitle_text_ass_md5(filePath,streamID):
     import hashlib
     import re
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-threads", str(tools.core_to_use), "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "ass",
         "-f", "ass", "pipe:1"
