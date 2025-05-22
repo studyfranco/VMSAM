@@ -933,7 +933,10 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
     else:
         md5_audio_already_added.add(audio["MD5"])
         if audio["Format"].lower() == "flac":
-            base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
+            if '@typeorder' in audio:
+                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
+            else:
+                base_cmd.extend([f"-c:a:0", "flac", "-compression_level", "12"])
             if "BitDepth" in audio:
                 if audio["BitDepth"] == "16":
                     base_cmd.extend(["-sample_fmt", "s16"])
@@ -958,9 +961,15 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     md5_sub_already_added.add(sub['MD5'])
                 codec = sub["Format"].lower()
                 if codec in tools.sub_type_not_encodable:
-                    base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+                    if '@typeorder' in sub:
+                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+                    else:
+                        base_cmd.extend([f"-c:s:0", "copy"])
                 elif codec in tools.sub_type_near_srt:
-                    base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
+                    if '@typeorder' in sub:
+                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt", "-sub_charenc", "UTF-8"])
+                    else:
+                        base_cmd.extend([f"-c:s:0", "srt", "-sub_charenc", "UTF-8"])
                 #else:
                 #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
             else:
