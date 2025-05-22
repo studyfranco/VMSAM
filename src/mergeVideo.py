@@ -1139,7 +1139,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 
     generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set(),list_track_order)
     final_insert.extend(["-D", out_path_tmp_file_name_split])
-    final_insert.extend(ffmpeg_cmd_dict['chapter_cmd'])
+    final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
      
