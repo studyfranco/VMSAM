@@ -1219,7 +1219,10 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                 i += 1
             for i in list_video_not_compatible:
                 del videosObj[i]
+            for i in list_video_not_compatible_name:
+                del dict_file_path_obj[i]
             stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
+            stderr.write("\n")
     
     commonLanguages = list(commonLanguages)
     common_language_use_for_generate_delay = commonLanguages.pop()
