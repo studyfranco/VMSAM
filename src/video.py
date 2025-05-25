@@ -5,22 +5,146 @@ Created on 23 Apr 2022
 '''
 
 from os import path,remove
-import os # Required for os.path.exists, os.remove
+import os # For os.path.exists, os.remove in detect_upscale
 from sys import stderr
-import sys # Required for sys.stderr
+import sys # For sys.stderr in detect_upscale
 from threading import RLock
 from time import strftime,gmtime,sleep
 import tools
 import re
 import json
-from decimal import Decimal # Required for get_bitrate if not already imported, but seems to be used elsewhere
-
+# from decimal import Decimal # Not strictly needed for detect_upscale, but often used in this file.
 
 ffmpeg_pool_audio_convert = None
 ffmpeg_pool_big_job = None
 path_to_livmaf_model = "" #Nothing if it use the default
 number_cut = 5
 percent_time_by_test_video_quality_from_cut = 25
+
+# --- Upscale Detection Function ---
+def detect_upscale(video_obj, segment_begin, segment_duration):
+    """
+    Detects if a video segment is likely upscaled by comparing it with a
+    downscaled-then-upscaled version using SSIM.
+    """
+    if not video_obj.video or 'Width' not in video_obj.video or 'Height' not in video_obj.video:
+        sys.stderr.write("DETECT_UPSCALE: Video object missing dimension attributes.\n")
+        return False, (video_obj.video.get('Height') if video_obj.video else 0)
+
+    try:
+        W_orig = int(video_obj.video['Width'])
+        H_orig = int(video_obj.video['Height'])
+        if W_orig <=0 or H_orig <=0: 
+            sys.stderr.write(f"DETECT_UPSCALE: Invalid original dimensions W_orig={W_orig}, H_orig={H_orig}.\n")
+            return False, H_orig
+    except ValueError:
+        sys.stderr.write("DETECT_UPSCALE: Could not parse original dimensions.\n")
+        return False, (video_obj.video.get('Height') if video_obj.video else 0)
+
+    test_heights = [720, 540, 480, 360]
+    detected_native_height = H_orig
+    is_likely_upscaled = False
+    SSIM_THRESHOLD = 0.985
+    ffmpeg_path = tools.software["ffmpeg"]
+    
+    video_stream_map = f"0:{video_obj.video['StreamOrder']}"
+    
+    safe_segment_begin = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_begin))
+    safe_segment_duration = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_duration))
+    
+    all_temp_files_for_function = []
+
+    for h_test in test_heights:
+        if H_orig <= h_test:
+            continue
+
+        w_test = (int(W_orig * h_test / H_orig) // 2) * 2
+        if w_test <= 0:
+            sys.stderr.write(f"DETECT_UPSCALE: Calculated w_test={w_test} is invalid for h_test={h_test}.\n")
+            continue
+
+        base_name_for_temp = f"{video_obj.fileBaseName}_upscaletest_s{safe_segment_begin}_d{safe_segment_duration}_h{h_test}"
+        orig_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_orig.mkv")
+        rescaled_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_rescaled.mkv")
+        ssim_log_filename = f"{base_name_for_temp}_ssim.log" 
+        ssim_log_path_full = path.join(tools.tmpFolder, ssim_log_filename) 
+        
+        current_iter_temp_files = [orig_segment_path, rescaled_segment_path, ssim_log_path_full]
+        all_temp_files_for_function.extend(current_iter_temp_files)
+
+        try:
+            cmd_orig = [
+                ffmpeg_path, '-y', '-nostdin',
+                '-i', video_obj.filePath,
+                '-ss', str(segment_begin), 
+                '-t', str(segment_duration),
+                '-map', video_stream_map,
+                '-c', 'copy', 
+                '-threads', '1', 
+                '-an', '-sn', 
+                orig_segment_path
+            ]
+            tools.launch_cmdExt(cmd_orig)
+
+            vf_filter = f"scale={w_test}:{h_test},scale={W_orig}:{H_orig}:flags=bicubic"
+            cmd_rescale = [
+                ffmpeg_path, '-y', '-nostdin',
+                '-i', orig_segment_path, 
+                '-vf', vf_filter,
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', 
+                '-threads', '1',
+                '-an', '-sn', 
+                rescaled_segment_path
+            ]
+            tools.launch_cmdExt(cmd_rescale)
+
+            cmd_ssim = [
+                ffmpeg_path, '-threads', '1', '-nostdin',
+                '-i', orig_segment_path,
+                '-i', rescaled_segment_path,
+                '-lavfi', f"[0:v][1:v]ssim=stats_file={ssim_log_filename}", 
+                '-f', 'null', '-'
+            ]
+            _stdout_ssim, stderr_ssim, _exit_code_ssim = tools.launch_cmdExt(cmd_ssim, cwd=tools.tmpFolder)
+
+            ssim_all_score = None
+            if os.path.exists(ssim_log_path_full):
+                with open(ssim_log_path_full, 'r') as f_log:
+                    log_content = f_log.read()
+                match = re.search(r"All:([\d\.]+)", log_content) 
+                if match:
+                    ssim_all_score = float(match.group(1))
+            
+            if ssim_all_score is None and stderr_ssim: 
+                stderr_content = stderr_ssim.decode("utf-8", errors='ignore')
+                match_stderr = re.search(r"SSIM Y:.*? All:([\d\.]+)", stderr_content)
+                if match_stderr:
+                    ssim_all_score = float(match_stderr.group(1))
+
+            if ssim_all_score is not None:
+                sys.stderr.write(f"DETECT_UPSCALE: Test H_orig={H_orig}, h_test={h_test}, SSIM: {ssim_all_score}\n")
+                if ssim_all_score >= SSIM_THRESHOLD:
+                    is_likely_upscaled = True
+                    detected_native_height = h_test
+                    break 
+            else:
+                sys.stderr.write(f"DETECT_UPSCALE: Failed to parse SSIM score for h_test={h_test}.\n")
+
+        except Exception as e:
+            sys.stderr.write(f"DETECT_UPSCALE: Error during upscale detection for {video_obj.filePath} at {h_test}p: {e}\n")
+        finally:
+            for f_path in current_iter_temp_files:
+                if os.path.exists(f_path):
+                    try: os.remove(f_path)
+                    except OSError as e_rm: sys.stderr.write(f"DETECT_UPSCALE: Error removing temp file {f_path}: {e_rm}\n")
+    
+    for f_path_final in all_temp_files_for_function: 
+         if os.path.exists(f_path_final):
+            try: os.remove(f_path_final)
+            except OSError: pass
+
+    return is_likely_upscaled, detected_native_height
+# --- End Upscale Detection Function ---
 
 class video():
     '''
@@ -464,12 +588,15 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     from statistics import mean
 
     # Upscale detection first
-    segment_begin_v1 = begins_video[0][0]
-    segment_begin_v2 = begins_video[0][1]
-    # time_by_test is the segment_duration for upscale detection
+    # begins_video is a list of pairs: [['HH:MM:SS.mmm', 'HH:MM:SS.mmm'], ...]
+    # segment_begin_v1/v2 should be strings. time_by_test is also a string 'HH:MM:SS' or float/int.
+    # detect_upscale expects segment_begin and segment_duration as strings.
+    segment_begin_v1_str = str(begins_video[0][0])
+    segment_begin_v2_str = str(begins_video[0][1])
+    time_by_test_str = str(time_by_test) # Ensure time_by_test is string for detect_upscale
     
-    is_upscaled_1, native_height_1 = detect_upscale(video_obj_1, segment_begin_v1, time_by_test)
-    is_upscaled_2, native_height_2 = detect_upscale(video_obj_2, segment_begin_v2, time_by_test)
+    is_upscaled_1, native_height_1 = detect_upscale(video_obj_1, segment_begin_v1_str, time_by_test_str)
+    is_upscaled_2, native_height_2 = detect_upscale(video_obj_2, segment_begin_v2_str, time_by_test_str)
 
     if is_upscaled_1 and not is_upscaled_2:
         return "2"  # video_obj_2 is preferred (not upscaled)
@@ -482,16 +609,22 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
             return "2"  # video_obj_2 preferred (upscaled from higher res)
         else:
             # Both upscaled from same native height, proceed to VMAF
+            sys.stderr.write(f"DETECT_UPSCALE: Both videos appear upscaled from same native height {native_height_1} or original. Proceeding to VMAF.\n")
             pass
     else:
         # Neither detected as upscaled, proceed to VMAF
+        sys.stderr.write(f"DETECT_UPSCALE: Neither video detected as upscaled (or detection failed). Proceeding to VMAF.\n")
         pass
 
     # VMAF comparison logic (existing code)
-    ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
-           "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
-           "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
-           "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
+    # Ensure time_by_test is suitable for ffmpeg -t (can be seconds or HH:MM:SS)
+    # The original code uses strftime for time_by_test_best_quality_converted, which is passed as time_by_test here.
+    # So, time_by_test should be 'HH:MM:SS' string.
+    ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], 
+                           "-ss", segment_begin_v1_str, "-t", time_by_test_str, "-i", video_obj_1.filePath, 
+                           "-ss", segment_begin_v2_str, "-t", time_by_test_str, "-i", video_obj_2.filePath,
+                           "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
+                           "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
     
     framerate_video_obj_1 = video_obj_1.get_fps()
     framerate_video_obj_2 = video_obj_2.get_fps()
@@ -796,92 +929,6 @@ def subtitle_text_srt_md5(filePath,streamID):
             return (streamID, md5)
     else:
         return (streamID, None)
-
-    def calculate_rational_score(self):
-        # Initialize scores to default "worst" values
-        resolution_score = 0
-        video_bitrate_score = 0
-        video_duration_score = 0
-        audio_channels_score = 0
-        audio_bitrate_score = 0
-        
-        # Define default codec preference list
-        audio_codec_preference_default = ['flac', 'truehd', 'dts-hd ma', 'pcm', 'dts', 'ac3', 'opus', 'aac', 'mp3']
-        
-        # Try to get codec preference list from config
-        audio_codec_preference_list_str = tools.mergeRules.get('audio_codec_priority')
-        if audio_codec_preference_list_str and isinstance(audio_codec_preference_list_str, str) and audio_codec_preference_list_str.strip():
-            audio_codec_preference_list = [codec.strip().lower() for codec in audio_codec_preference_list_str.split(',')]
-        else:
-            audio_codec_preference_list = audio_codec_preference_default
-            
-        # For codec, higher number is worse. Max value if not found or no audio.
-        audio_codec_preference_score = len(audio_codec_preference_list) + 1
-
-        # 1. Video Resolution
-        if self.video and 'Width' in self.video and 'Height' in self.video:
-            try:
-                width = int(self.video['Width'])
-                height = int(self.video['Height'])
-                resolution_score = width * height
-            except ValueError:
-                pass # Keep default 0
-
-        # 2. Video Bitrate
-        if self.video:
-            try:
-                video_bitrate_score = int(get_bitrate(self.video))
-            except (TypeError, ValueError, KeyError): # Handles if get_bitrate returns non-int or key missing
-                pass # Keep default 0
-        
-        # 3. Video Duration
-        try:
-            duration = self.get_video_duration()
-            if duration is not None:
-                video_duration_score = float(duration)
-        except (TypeError, ValueError):
-            pass # Keep default 0
-
-        # 4-6. Primary Audio Track properties
-        primary_audio_track = None
-        if self.mediadata is None: # Ensure mediadata is loaded
-            self.get_mediadata()
-
-        selected_lang = tools.special_params.get("original_language")
-        if selected_lang and selected_lang in self.audios and self.audios[selected_lang]:
-            primary_audio_track = self.audios[selected_lang][0]
-        elif self.audios: # if self.audios is not empty
-            # Iterate through available languages to find the first one with tracks
-            for lang_key in self.audios.keys():
-                if self.audios[lang_key]: # Check if the list of tracks for this lang is not empty
-                    primary_audio_track = self.audios[lang_key][0]
-                    break
-        
-        if primary_audio_track:
-            # 4. Primary Audio Track Channels
-            if 'Channels' in primary_audio_track:
-                try:
-                    audio_channels_score = int(primary_audio_track['Channels'])
-                except ValueError:
-                    pass # Keep default 0
-
-            # 5. Primary Audio Track Bitrate
-            try:
-                audio_bitrate_score = int(get_bitrate(primary_audio_track))
-            except (TypeError, ValueError, KeyError): # Handles if get_bitrate returns non-int or key missing
-                pass # Keep default 0
-
-            # 6. Primary Audio Track Codec
-            if 'Format' in primary_audio_track:
-                track_codec = primary_audio_track['Format'].lower()
-                if track_codec in audio_codec_preference_list:
-                    audio_codec_preference_score = audio_codec_preference_list.index(track_codec)
-                else:
-                    # Worse than any in the list
-                    audio_codec_preference_score = len(audio_codec_preference_list) 
-        
-        return (resolution_score, video_bitrate_score, video_duration_score, 
-                audio_channels_score, audio_bitrate_score, audio_codec_preference_score)
 
 def count_font_lines_in_ass(filePath, streamID):
     import re

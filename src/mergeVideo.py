@@ -16,10 +16,10 @@ from time import strftime,gmtime
 from threading import Thread
 import tools
 import video
+from src import chimeric_processor # Added for chimeric processing
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 from decimal import *
-import math # Added for math.round
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -414,33 +414,12 @@ class compare_video(Thread):
     def get_best_video(self,delay):
         delay,begins_video_for_compare_quality = video.get_good_frame(self.video_obj_1, self.video_obj_2, self.begin_in_second, self.lenghtTime, self.time_by_test_best_quality_converted, (delay/1000))
 
-        score1 = self.video_obj_1.calculate_rational_score()
-        score2 = self.video_obj_2.calculate_rational_score()
-
-        rational_winner = 0 # 0 for tie, 1 for video_obj_1, 2 for video_obj_2
-        # Compare first 5 elements (higher is better)
-        for i in range(5):
-            if score1[i] > score2[i]:
-                rational_winner = 1
-                break
-            if score1[i] < score2[i]:
-                rational_winner = 2
-                break
-        
-        if rational_winner == 0: # If still tied, compare audio codec preference (lower is better)
-            if score1[5] < score2[5]:
-                rational_winner = 1
-            elif score1[5] > score2[5]:
-                rational_winner = 2
-
-        # Main decision logic
-        if rational_winner == 1 or \
-           (rational_winner == 0 and video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == '1'):
+        if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == 1:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
             delay = self.adjust_delay_to_frame(delay)
-            self.video_obj_2.delays[self.language] += (delay*-Decimal(1.0)) # Delay you need to give to mkvmerge to be good.
+            self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_1.remove_tmp_files(type_file="audio")
@@ -959,90 +938,36 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config(base_cmd, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put_ms, duration_best_video_str):
+def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
-        
-        needs_padding = False
-        padding_duration_seconds = 0.0
-        
-        if duration_best_video_str and delay_to_put_ms is not None: # Ensure params are available
-            try:
-                offset_seconds = float(delay_to_put_ms / Decimal(1000))
-                best_video_duration_seconds = float(duration_best_video_str)
-                current_audio_duration_seconds = float(audio['Duration'])
-                current_audio_effective_end_time = offset_seconds + current_audio_duration_seconds
-                
-                if current_audio_effective_end_time < best_video_duration_seconds:
-                    padding_duration_seconds = best_video_duration_seconds - current_audio_effective_end_time
-                    if padding_duration_seconds > 0.001:
-                        needs_padding = True
-            except (ValueError, TypeError, KeyError) as e:
-                sys.stderr.write(f"Error calculating padding for {audio.get('StreamOrder', 'N/A')}: {e}\n")
-                # Continue without padding if there's an error in calculation
-        
-        stream_specifier_codec = f":a:{int(audio['@typeorder'])-1}" if '@typeorder' in audio else ":a:0"
-
-        if needs_padding:
-            base_cmd.extend([f"-af{stream_specifier_codec}", f"apad=pad_dur={padding_duration_seconds}"])
-            if audio["Format"].lower() == "flac":
-                base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12"])
-                if "BitDepth" in audio:
-                    if audio["BitDepth"] == "16":
-                        base_cmd.extend(["-sample_fmt", "s16"])
-                    else:
-                        base_cmd.extend(["-sample_fmt", "s32"])
-                else: # Default to s16 if BitDepth is missing for FLAC
-                    base_cmd.extend(["-sample_fmt", "s16"])
-            else: # Not FLAC, re-encode to FLAC with padding
-                base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12", "-sample_fmt", "s16"])
-        elif audio["Format"].lower() == "flac": # No padding, but original is FLAC, apply FLAC options
-            base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12"])
+        if audio["Format"].lower() == "flac":
+            if '@typeorder' in audio:
+                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
+            else:
+                base_cmd.extend([f"-c:a:0", "flac", "-compression_level", "12"])
             if "BitDepth" in audio:
                 if audio["BitDepth"] == "16":
                     base_cmd.extend(["-sample_fmt", "s16"])
                 else:
                     base_cmd.extend(["-sample_fmt", "s32"])
-            else: # Default to s16 if BitDepth is missing for FLAC
-                 base_cmd.extend(["-sample_fmt", "s16"])
-        # If not padding and not FLAC, it will be handled by global '-c copy' or other specific rules.
         return 1
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
-    # delay_to_put is Decimal in milliseconds. duration_best_video is string "seconds.milliseconds"
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
-                    "-threads", str(tools.core_to_use), "-vn"] # -vn must be early
-    
-    # Input file and its offset processing must come before output options and mappings
-    # Create a preliminary command list for input processing
-    input_cmd_part = []
+                    "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put != 0:
-        input_cmd_part.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
-    input_cmd_part.extend(["-i", video_obj.filePath])
-
-    # Global output options that might be overridden by stream-specific ones later
-    output_options_part = ["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
-                           "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"]
-    
-    # Combine parts: ffmpeg base, input processing, then global output options
-    # Stream specific options will be added by generate_new_file_audio_config
-    base_cmd.extend(input_cmd_part)
-    # Audio config (potentially adding filters and codec changes) must be defined *before* output_options_part if those options are to take effect
-    # However, ffmpeg command structure usually is: ffmpeg [global_opts] [input_opts] -i input [output_opts] output
-    # Stream specific options like -c:a:0, -af:a:0 are output options.
-    # So, the current structure of appending to base_cmd in generate_new_file_audio_config should be okay,
-    # as long as base_cmd is then extended with output_options_part *after* audio processing is determined.
-    # This means generate_new_file_audio_config should modify a part of command that is later inserted.
-    # For now, let's stick to current append model and test. If issues, restructure base_cmd assembly.
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+    base_cmd.extend(["-i", video_obj.filePath,
+                     "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+                     "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
     
     number_track = 0
     sub_track_to_remove = []
-    # Collect subtitle processing commands
-    subtitle_codec_cmds = []
     for language,subs in video_obj.subtitles.items():
         for sub in subs:
             if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
@@ -1050,51 +975,43 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 if sub['MD5'] != '':
                     md5_sub_already_added.add(sub['MD5'])
                 codec = sub["Format"].lower()
-                stream_specifier_sub = f":s:{int(sub['@typeorder'])-1}" if '@typeorder' in sub else ":s:0" # Assuming @typeorder for subs too
                 if codec in tools.sub_type_not_encodable:
-                    subtitle_codec_cmds.extend([f"-c{stream_specifier_sub}", "copy"])
+                    if '@typeorder' in sub:
+                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
+                    else:
+                        base_cmd.extend([f"-c:s:0", "copy"])
                 elif codec in tools.sub_type_near_srt:
-                     subtitle_codec_cmds.extend([f"-c{stream_specifier_sub}", "srt"])
-                # else, it will be converted to ass by global -c:s ass
+                    if '@typeorder' in sub:
+                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
+                    else:
+                        base_cmd.extend([f"-c:s:0", "srt"])
+                #else:
+                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
             else:
                 sub_track_to_remove.append(sub)
     
-    # Collect audio processing commands (including padding/re-encoding)
-    audio_processing_cmds = []
     audio_track_to_remove = []
     for language,audios in video_obj.audios.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
     for language,audios in video_obj.commentary.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
     for language,audios in video_obj.audiodesc.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
-
-    # Now assemble the full command
-    # base_cmd already has ffmpeg, global error flags, -vn
-    # then add input processing
-    base_cmd.extend(input_cmd_part)
-    # then add global output options
-    base_cmd.extend(output_options_part)
-    # then add specific subtitle codec commands
-    base_cmd.extend(subtitle_codec_cmds)
-    # then add specific audio processing commands (filters, codecs)
-    base_cmd.extend(audio_processing_cmds)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
     
     if number_track:
-        # Add track removal maps
         for audio in audio_track_to_remove:
             base_cmd.extend(["-map", f"-0:{audio["StreamOrder"]}"])
+            
         for sub in sub_track_to_remove:
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
-        base_cmd.extend(["-t", duration_best_video, tmp_file_audio]) # Output path must be last before options for it
-        
-        current_ffmpeg_cmd = base_cmd # Create a copy if base_cmd is reused or modified later for other files
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (current_ffmpeg_cmd,)))
+        base_cmd.extend(["-t", duration_best_video, tmp_file_audio])
+
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
     
     return number_track
@@ -1169,54 +1086,6 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
     out_video_metadata.calculate_md5_streams_split()
-    
-    # --- Subtitle Deduplication and Preference Logic (Retained) ---
-    sub_same_md5 = {}
-    # Populate sub_same_md5 correctly first
-    for lang_key, subs_list_for_lang in out_video_metadata.subtitles.items():
-        for sub_item in subs_list_for_lang:
-            if sub_item['MD5'] in sub_same_md5:
-                sub_same_md5[sub_item['MD5']].append(sub_item)
-            else:
-                sub_same_md5[sub_item['MD5']] = [sub_item]
-
-    keep_sub = {'ass':[],'srt':[]} # Stores references to tracks to keep for not_keep_ass_converted_in_srt
-    for sub_md5, list_of_subs_with_same_md5 in sub_same_md5.items():
-        if not list_of_subs_with_same_md5:
-            continue
-        
-        codec = "unknown" 
-        if 'ffprobe' in list_of_subs_with_same_md5[0] and 'codec_name' in list_of_subs_with_same_md5[0]['ffprobe']:
-             codec = list_of_subs_with_same_md5[0]['ffprobe']["codec_name"].lower()
-        
-        if len(list_of_subs_with_same_md5) > 1: # Multiple tracks with the same MD5
-            have_srt_sub = False
-            for s_track in list_of_subs_with_same_md5: 
-                if s_track['Format'].lower() in tools.sub_type_near_srt and not have_srt_sub:
-                    have_srt_sub = True
-                    keep_sub["srt"].append(s_track)
-                    s_track['keep'] = True 
-                else:
-                    s_track['keep'] = False 
-            if not have_srt_sub: # No SRT found among duplicates, keep the first one (could be ASS, PGS etc.)
-                list_of_subs_with_same_md5[0]['keep'] = True
-                if codec not in tools.sub_type_not_encodable and codec not in tools.sub_type_near_srt : 
-                    keep_sub["ass"].append(list_of_subs_with_same_md5[0])
-        else: # Only one sub with this MD5
-            s_track = list_of_subs_with_same_md5[0]
-            s_track['keep'] = True # Keep it by default (subject to SRT vs ASS conversion check)
-            if s_track['Format'].lower() in tools.sub_type_near_srt:
-                keep_sub["srt"].append(s_track)
-            elif codec not in tools.sub_type_not_encodable: 
-                keep_sub["ass"].append(s_track)
-    
-    if len(keep_sub["srt"]) and len(keep_sub["ass"]):
-        not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
-    
-    # --- Blank Subtitle Generation Logic (Removed) ---
-    # The complex loop iterating all_subtitle_languages, checking durations, 
-    # and generating blank SRTs has been removed.
-    # generate_chimeric_video is now responsible for ensuring full-duration subs.
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
@@ -1232,42 +1101,49 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         final_insert.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     final_insert.extend(["-A", "-S", "--no-chapters", best_video.filePath])
     
-    list_track_order=[] 
+    list_track_order=[]
     global default_audio
     default_audio = True
-    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules) 
+    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
     
-    md5_audio_already_added_for_final = set()
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,md5_audio_already_added_for_final,list_track_order)
+    sub_same_md5 = {}
+    keep_sub = {'ass':[],'srt':[]}
+    for language,subs in out_video_metadata.subtitles.items():
+        for sub in subs:
+            if sub['MD5'] in sub_same_md5:
+                sub_same_md5[sub['MD5']].append(sub)
+            else:
+                sub_same_md5[sub['MD5']] = [sub]
+    for sub_md5,subs in sub_same_md5.items():
+        codec = sub['ffprobe']["codec_name"].lower()
+        if len(subs) > 1:
+            have_srt_sub = False
+            for sub in subs:
+                if sub['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
+                    have_srt_sub = True
+                    keep_sub["srt"].append(sub)
+                else:
+                    sub['keep'] = False
+            if (not have_srt_sub):
+                subs[0]['keep'] = True
+                if codec not in tools.sub_type_not_encodable:
+                    keep_sub["ass"].append(sub)
+        else:
+            if sub['Format'].lower() in tools.sub_type_near_srt:
+                keep_sub["srt"].append(sub)
+            elif codec not in tools.sub_type_not_encodable:
+                keep_sub["ass"].append(sub)
     
-    md5_sub_already_added_for_final = set() # Use a new set for subtitles for this final merge stage
-    generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,md5_sub_already_added_for_final,list_track_order)
-    
-    # Removed: Loop for blank_sub_files_to_add, as this is handled earlier.
-
-    final_insert.extend(["-D", out_path_tmp_file_name_split]) 
-    final_insert.extend(ffmpeg_cmd_dict['metadata_cmd']) 
-    
-    # Final track order: best video first, then audio, then subtitles (including blanks implicitly at end of subtitle group)
-    if list_track_order: # Ensure list_track_order is not empty
-        final_insert.extend(["--track-order", f"0:{best_video.video['StreamOrder']},1:"+",1:".join(list_track_order)])
-    else: # Fallback if no audio/subs were explicitly ordered (e.g. only video track)
-        final_insert.extend(["--track-order", f"0:{best_video.video['StreamOrder']}"])
-        
+    if len(keep_sub["srt"]) and len(keep_sub["ass"]):
+        not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
+                
+    generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set(),list_track_order)
+    final_insert.extend(["-D", out_path_tmp_file_name_split])
+    final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
+    final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
-
-def seconds_to_srt_timeformat(seconds_float):
-    hours = int(seconds_float // 3600)
-    seconds_float %= 3600
-    minutes = int(seconds_float // 60)
-    seconds_float %= 60
-    seconds = int(seconds_float)
-    milliseconds = int(round((seconds_float - seconds) * 1000))
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
-
-import os # For os.remove in cleanup
-import math # For math.floor, math.ceil if needed, or just general math.
-
+     
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
         min_video_duration_in_sec = video.get_shortest_video_durations(videosObj)
@@ -1367,170 +1243,113 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
         else:
             MD5AudioVideo[MD5merged] = videoObj
     
-    original_video_obj_count = len(videosObj)
-    for videoObj_to_remove in listVideoToNotCalculateOffset: # Iterate over a copy
-        if videoObj_to_remove in videosObj: # Check if still in list before removing
-            videosObj.remove(videoObj_to_remove)
-        if videoObj_to_remove.filePath in dict_file_path_obj:
-            del dict_file_path_obj[videoObj_to_remove.filePath]
+    for videoObj in listVideoToNotCalculateOffset:
+        videosObj.remove(videoObj)
+        del dict_file_path_obj[videoObj.filePath]
     
-    # Ensure dict_file_path_obj is consistent with videosObj after removals
-    current_file_paths_in_videosObj = {v.filePath for v in videosObj}
-    for path_key in list(dict_file_path_obj.keys()): # Iterate over a copy of keys
-        if path_key not in current_file_paths_in_videosObj:
-            del dict_file_path_obj[path_key]
-
-    if not videosObj: # All videos were duplicates based on MD5 audio for sync language
-        sys.stderr.write("Error: No unique videos left after MD5 audio check for sync language. Cannot proceed.\n")
-        if original_video_obj_count > 0 and listVideoToNotCalculateOffset: # This means all videos were duplicates of the first unique one
-             # Re-add the first unique video (representative) to proceed if needed, or handle error.
-             # For now, error out if empty.
-             return
-
-    dict_with_video_quality_logic = {}
     if forced_best_video == None:
-        if not videosObj: # Should be caught above, but double check.
-             sys.stderr.write("Error: videosObj is empty before calling get_delay_and_best_video.\n")
-             return
         dict_with_video_quality_logic = get_delay_and_best_video(videosObj,common_language_use_for_generate_delay,audioRules,dict_file_path_obj)
     else:
         print_forced_video(forced_best_video)
-        if forced_best_video not in dict_file_path_obj:
-            sys.stderr.write(f"Error: Forced best video {forced_best_video} not found in available video objects. Cannot proceed.\n")
-            # This could happen if the forced best video was among the MD5 duplicates removed.
-            # Need to ensure forced_best_video is retained if it was part of an MD5 duplicate set and was the chosen one.
-            # The MD5 logic might need adjustment to always keep 'forced_best_video' if it's set.
-            # For now, assuming it's an error if not found.
-            return
         dict_with_video_quality_logic = get_delay(videosObj,common_language_use_for_generate_delay,audioRules,dict_file_path_obj,forced_best_video)
-
-    # --- V_abs_best Identification ---
-    set_bad_video_paths = set()
-    for video_path_file_iter, dict_with_results_iter in dict_with_video_quality_logic.items():
-        for other_video_path_file_iter, is_the_best_video_iter in dict_with_results_iter.items():
-            if is_the_best_video_iter:
-                set_bad_video_paths.add(other_video_path_file_iter)
-            elif is_the_best_video_iter is False: # Explicitly False, None means not compared or error
-                set_bad_video_paths.add(video_path_file_iter)
-            # If is_the_best_video_iter is None, it means they were incompatible or not compared.
-            # This logic might need to handle None from already_compared if that's possible.
-            # Current get_delay_and_best_video returns already_compared which has None for incompatible.
-            # If None means "other video is not worse", then current logic is okay.
-            # If None means "this comparison was problematic", those videos might need removal or special handling.
-            # Assuming for now that None values in dict_with_video_quality_logic mean those pairs are not considered for "best".
-
-    V_abs_best = None
-    possible_best_paths = list(set(dict_file_path_obj.keys()) - set_bad_video_paths)
-    if not possible_best_paths:
-        if len(dict_file_path_obj) == 1:
-            V_abs_best = list(dict_file_path_obj.values())[0]
-        elif not dict_file_path_obj:
-             sys.stderr.write("ERROR: No videos available to determine V_abs_best.\n")
-             return
-        else: # Multiple videos, all marked bad or no clear winner
-            sys.stderr.write("ERROR: No best video found after initial comparisons, or all videos marked as bad.\n")
-            # Fallback: If forced_best_video is set and still in dict_file_path_obj, use it.
-            if forced_best_video and forced_best_video in dict_file_path_obj:
-                V_abs_best = dict_file_path_obj[forced_best_video]
-                sys.stderr.write(f"Warning: Using forced best video {V_abs_best.filePath} as V_abs_best due to lack of clear winner.\n")
-            else: # Truly no idea what is best.
-                 return # Cannot proceed.
-    elif len(possible_best_paths) > 1:
-        sys.stderr.write(f"Warning: Multiple best videos identified: {possible_best_paths}. Using the first one: {possible_best_paths[0]}\n")
-        V_abs_best = dict_file_path_obj[possible_best_paths[0]]
-    else: # Exactly one best path
-        V_abs_best = dict_file_path_obj[possible_best_paths[0]]
-
-    if V_abs_best is None :
-        sys.stderr.write("Critical Error: V_abs_best could not be determined. Aborting sync_merge_video.\n")
-        return
-
-    print(f"Absolute best video identified as: {V_abs_best.filePath}")
-
-    # --- Chimeric Video Generation ---
-    audio_params_for_wav = {'Format':"WAV", 'codec':"pcm_s16le", 'Channels': "2"} # Defaulting to 2 channels for intermediate WAVs
-    
-    updated_dict_file_path_obj = {V_abs_best.filePath: V_abs_best}
-    paths_to_remove_post_chimeric = []
-    # Map original paths to their new chimeric paths if successful
-    original_to_chimeric_map = {} 
-
-    for original_video_path, video_obj_to_conform in list(dict_file_path_obj.items()):
-        if video_obj_to_conform.filePath == V_abs_best.filePath:
-            continue
-
-        # Calculate length_time_initial_segment_chunk_duration for this pair
-        min_duration_for_pair_s = video.get_shortest_audio_durations([V_abs_best, video_obj_to_conform], common_language_use_for_generate_delay)
-        if min_duration_for_pair_s == 0: # One video has no audio for this lang, or zero duration
-            sys.stderr.write(f"Warning: Cannot determine audio duration for pair ({V_abs_best.filePath}, {video_obj_to_conform.filePath}) in lang {common_language_use_for_generate_delay}. Skipping chimeric.\n")
-            paths_to_remove_post_chimeric.append(original_video_path)
-            continue
-            
-        _unused_begin_s, length_time_for_pair_chunk_s = video.generate_begin_and_length_by_segment(min_duration_for_pair_s)
-        if length_time_for_pair_chunk_s <=0 :
-            sys.stderr.write(f"Warning: Calculated zero or negative chunk duration for pair ({V_abs_best.filePath}, {video_obj_to_conform.filePath}). Skipping chimeric.\n")
-            paths_to_remove_post_chimeric.append(original_video_path)
-            continue
-
-        print(f"Conforming {video_obj_to_conform.filePath} to {V_abs_best.filePath}...")
-        chimeric_mkv_path = generate_chimeric_video(
-            V_abs_best, video_obj_to_conform, 
-            common_language_use_for_generate_delay, 
-            audio_params_for_wav, # For segment-wise correlation in generate_chimeric_video
-            length_time_for_pair_chunk_s, # For initial offset calculation within generate_chimeric_video
-            tools.tmpFolder, tools.tmpFolder # Chimeric files created in tmpFolder
-        )
-
-        if chimeric_mkv_path is None:
-            print(f"Failed to generate chimeric video for {video_obj_to_conform.filePath}.")
-            paths_to_remove_post_chimeric.append(original_video_path)
-        else:
-            print(f"Generated chimeric video: {chimeric_mkv_path}")
-            chimeric_video = video.video(tools.tmpFolder, path.basename(chimeric_mkv_path))
-            chimeric_video.get_mediadata()
-            chimeric_video.calculate_md5_streams_split() # Important for generate_launch_merge_command
-            chimeric_video.delays[common_language_use_for_generate_delay] = Decimal(0) # Conformed
-            updated_dict_file_path_obj[chimeric_video.filePath] = chimeric_video
-            original_to_chimeric_map[original_video_path] = chimeric_video.filePath
-            # The original video_obj_to_conform (and its temp files) can be cleaned up if no longer needed
-            # For now, it's just removed from the list for final merge.
-            # If original_video_path != chimeric_mkv_path, means a new file was created.
-            # The original can be marked for deletion from disk later if desired.
-            if original_video_path in dict_file_path_obj: # Should always be true here
-                 if original_video_path != chimeric_video.filePath: # If new file created, old one is no longer primary
-                     paths_to_remove_post_chimeric.append(original_video_path)
-
-
-    dict_file_path_obj = updated_dict_file_path_obj
-
-    for path_to_remove in paths_to_remove_post_chimeric:
-        if path_to_remove in dict_file_path_obj:
-            del dict_file_path_obj[path_to_remove]
-        # Also remove from original_to_chimeric_map if it was a key, though it's used to build the new dict.
-        # This ensures only successfully conformed or original best video is in dict_file_path_obj
-
-    # Rebuild dict_with_video_quality_logic for generate_launch_merge_command
-    # It now reflects V_abs_best vs successfully created (and kept) chimeric videos.
-    # All chimeric videos are "worse" than V_abs_best in terms of being the reference.
-    new_dict_with_video_quality_logic = {}
-    if V_abs_best.filePath in dict_file_path_obj: # V_abs_best should always be here
-        new_dict_with_video_quality_logic[V_abs_best.filePath] = {}
-        for video_fpath_key in dict_file_path_obj.keys():
-            if video_fpath_key != V_abs_best.filePath:
-                new_dict_with_video_quality_logic[V_abs_best.filePath][video_fpath_key] = True # True means V_abs_best is "better" (the reference)
-
-    dict_with_video_quality_logic = new_dict_with_video_quality_logic
-    
-    # At this point, dict_file_path_obj contains V_abs_best and any successfully created chimeric videos.
-    # All objects in dict_file_path_obj should have delays relative to V_abs_best (0 for chimeras and V_abs_best itself).
-
-    for language in commonLanguages: # Other common languages, if any.
-        # This loop was for cross-validation, which is not part of chimeric generation directly.
-        # If needed, delays for other languages in chimeric videos would also be 0 relative to V_abs_best's version of that lang.
+    for language in commonLanguages:
+        """
+        TODO:
+            This part will use for a new audio correlation. They will only be use to cross validate the correlation and detect some big errors.
+        """
         pass
+
+    # --- Chimeric Processing Step ---
+    if tools.special_params.get("chimeric_process_enabled", "false").lower() == "true":
+        sys.stderr.write("INFO: Chimeric processing is enabled.\n")
+        list_for_incompatible_chimera = [] # To be populated by chimeric_processor.process
+
+        # Calculate a representative length_time for the initial coarse offset detection in chimeric_processor
+        all_video_durations = [float(v.video['Duration']) for v in dict_file_path_obj.values() if v.video and 'Duration' in v.video and v.video['Duration']]
+        min_overall_duration_s = min(all_video_durations) if all_video_durations else 300.0 # Default to 5 mins
+        _unused_begin_s_overall, length_time_overall_param = video.generate_begin_and_length_by_segment(min_overall_duration_s)
+
+        audio_params_for_wav_param = {'Format':"WAV", 'codec':"pcm_s16le", 'Channels': "2"}
+        audio_params_for_final_encode_param = {'codec': 'flac', 'params': ['-compression_level', '12']}
+
+        # current_dict_file_path_obj is dict_file_path_obj before this call
+        # already_compared_dict is dict_with_video_quality_logic from initial comparisons
+        updated_dict_file_path_obj_from_chimera = chimeric_processor.process(
+            list_for_incompatible_chimera, # Populated by process
+            dict_with_video_quality_logic, # Used to find V_abs_best
+            dict_file_path_obj,            # Current videos
+            common_language_use_for_generate_delay,
+            length_time_overall_param,     # For initial coarse offset
+            audio_params_for_wav_param,    # For correlation audio segments
+            tools.tmpFolder,
+            audio_params_for_final_encode_param # For final audio encoding in chimeric MKV
+        )
+        
+        # Update dict_file_path_obj with results from chimeric processing
+        dict_file_path_obj = updated_dict_file_path_obj_from_chimera
+
+        # list_not_compatible_video might already exist from get_delay_and_best_video if some videos were incompatible there.
+        # We need to make sure it's initialized if not already.
+        if 'list_not_compatible_video' not in locals() and 'list_not_compatible_video' not in globals():
+             list_not_compatible_video = [] # Initialize if it wasn't created before (e.g. if forced_best_video path was taken)
+        
+        # Add videos that failed chimeric process to the list of videos to be removed
+        # The chimeric_processor.process function populates list_for_incompatible_chimera with original paths.
+        for failed_original_path in list_for_incompatible_chimera:
+            if failed_original_path not in list_not_compatible_video:
+                 list_not_compatible_video.append(failed_original_path)
+        
+        # After chimeric processing, V_abs_best (identified within chimeric_processor.process) is the reference.
+        # All other successfully processed videos in dict_file_path_obj are conformed to it (delay=0).
+        # Rebuild dict_with_video_quality_logic to reflect this for generate_launch_merge_command.
+        
+        # Find V_abs_best again from the potentially updated dict_file_path_obj keys if its path changed (it shouldn't)
+        # Or, more robustly, ensure V_abs_best determined by chimeric_processor is used.
+        # For now, assume V_abs_best's path is stable and it's the first key if only one "best" found by it.
+        # The chimeric_processor.process should ideally return V_abs_best_obj as well, or its path.
+        # For now, we find it from the returned dict_file_path_obj assuming it contains V_abs_best and conformed files.
+        
+        # This V_abs_best identification logic here is a simplified assumption.
+        # The one in chimeric_processor.process is more robust.
+        # We need to ensure generate_launch_merge_command gets the correct reference.
+        # The simplest is that dict_file_path_obj now contains V_abs_best and conformed videos.
+        # And dict_with_video_quality_logic should reflect V_abs_best as the top.
+        
+        # V_abs_best_path_after_chimera = None
+        # if dict_file_path_obj: # Check if not empty
+        #    # This assumes V_abs_best is still identifiable or is the 'main' reference.
+        #    # The actual V_abs_best path might be complex to re-identify if its original path was removed.
+        #    # However, chimeric_processor starts its updated_dict with V_abs_best.
+        #    V_abs_best_path_after_chimera = list(dict_file_path_obj.keys())[0] # Risky assumption
+        # A better way: find the video object that is NOT in tools.tmpFolder (original V_abs_best)
+        
+        v_abs_best_ref_path = None
+        for vid_path, vid_obj_iter in dict_file_path_obj.items():
+            if tools.tmpFolder not in vid_obj_iter.fileFolder: # The original V_abs_best won't be in tmpFolder
+                v_abs_best_ref_path = vid_path
+                break
+        
+        if v_abs_best_ref_path:
+            new_dict_with_video_quality_logic = {v_abs_best_ref_path: {}}
+            for video_fpath_key in dict_file_path_obj.keys():
+                if video_fpath_key != v_abs_best_ref_path:
+                    new_dict_with_video_quality_logic[v_abs_best_ref_path][video_fpath_key] = True 
+            dict_with_video_quality_logic = new_dict_with_video_quality_logic
+        else:
+            sys.stderr.write("ERROR: V_abs_best path could not be re-identified after chimeric processing. Merge may fail or be incorrect.\n")
+            # If V_abs_best was itself a chimeric (e.g. if only two files), this logic fails.
+            # The design implies V_abs_best is an original file.
+
+        # remove_not_compatible_video was called earlier in get_delay_and_best_video.
+        # Call it again if list_not_compatible_video has new entries from chimeric process.
+        if list_for_incompatible_chimera: # If chimeric process added new incompatibles
+             remove_not_compatible_video(list_for_incompatible_chimera, dict_file_path_obj)
+
+    else:
+        sys.stderr.write("INFO: Chimeric processing is disabled.\n")
     
     if not dict_file_path_obj:
-        sys.stderr.write("No videos remaining after chimeric processing. Aborting.\n")
+        sys.stderr.write("No videos remaining after all processing. Aborting merge.\n")
         return
 
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules)
@@ -1585,575 +1404,3 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
         sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
     else:
         simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
-
-# Helper function for formatting time to HH:MM:SS.mmm
-def format_time_ffmpeg(time_s): # Already exists from previous step
-    ms = int((time_s - int(time_s)) * 1000)
-    return f"{strftime('%H:%M:%S', gmtime(int(time_s)))}.{ms:03d}"
-
-# Helper function for cleaning up temporary files (generic now)
-def cleanup_temp_files(file_list):
-    for f_path in file_list:
-        if os.path.exists(f_path):
-            try:
-                os.remove(f_path)
-            except OSError as e:
-                sys.stderr.write(f"Error removing temp file {f_path}: {e}\n")
-
-# Renamed from cleanup_video_obj_temp_audio for clarity, as it's for segment files now primarily
-def cleanup_video_obj_temp_audio(video_objs_list):
-    for video_obj in video_objs_list:
-        if video_obj and 'audio' in video_obj.tmpFiles and video_obj.tmpFiles['audio']:
-            try:
-                video_obj.remove_tmp_files(type_file="audio") # This cleans temp files managed by extract_audio_in_part
-            except Exception as e:
-                sys.stderr.write(f"Error cleaning up video_obj internal temp audio for {video_obj.filePath}: {e}\n")
-
-# Note: audio_param_for_extraction is for the main segment loop (WAV for correlation)
-# For initial offset, generate_chimeric_video will use WAV params internally for get_delay_fidelity
-def generate_chimeric_video(main_video_obj, other_video_obj, sync_language, audio_param_for_extraction, length_time_initial_segment_chunk_duration, tools_tmpFolder, out_folder_for_chimeric_file):
-    # --- Initial Offset Calculation ---
-    initial_offset_ms = None
-    # Define audio params for initial offset calculation (must be WAV for get_delay_fidelity)
-    initial_offset_audio_params = {'Format': "WAV", 'codec': "pcm_s16le", 'Channels': "2"} # Default to 2 channels for initial check
-    # Adjust channels if necessary based on source videos for robustness, or ensure get_less_channel_number handles it.
-    # For simplicity, using "2" as per existing prepare_get_delay, assuming get_less_channel_number would be called by a higher-level orchestrator if needed.
-
-    # Determine a suitable duration for initial segments for offset calculation
-    # length_time_initial_segment_chunk_duration is the duration of each small chunk for get_delay_fidelity
-    # We need a total segment that's video.number_cut * this chunk duration.
-    # Let's use a fixed number of cuts for initial offset or make it dependent on video.number_cut.
-    # Using video.number_cut for consistency with how first_delay_test works.
-    
-    # Min duration between the two for determining segment lengths for initial offset
-    # This logic should ideally be outside or passed in if it needs full video list context.
-    # For now, calculate based on the pair.
-    min_duration_pair_s = min(float(main_video_obj.video['Duration']), float(other_video_obj.video['Duration']))
-    
-    # begin_s_for_initial_offset is the start of the overall segment from which chunks are taken. Typically 0 or near 0.
-    # length_time_for_chunk_calc is the duration of each chunk used by get_delay_fidelity.
-    # This should be length_time_initial_segment_chunk_duration
-    begin_s_for_initial_offset, _ = video.generate_begin_and_length_by_segment(min_duration_pair_s) # Use the chunk duration passed
-                                                                                                     # No, this recalculates chunk_duration. We need to use the passed one.
-                                                                                                     # Let's assume begin_s_for_initial_offset can be fixed (e.g. 0 or small value)
-                                                                                                     # and length_time_initial_segment_chunk_duration is the chunk size.
-    
-    # Simplified: Use a fixed beginning (e.g. 0s or a small offset like 5s) for initial extraction.
-    # The actual begin_in_second for generate_cut_with_begin_length for get_delay_fidelity
-    # This is complex as generate_begin_and_length_by_segment determines both begin and chunk length
-    # Let's assume length_time_initial_segment_chunk_duration is the chunk length (float, seconds)
-    # And we'll use a fixed number of cuts (e.g., video.number_cut) starting from a small offset.
-    
-    initial_extraction_begin_offset_s = 5.0 # Start a bit into the video to avoid intros/blank screens
-    if min_duration_pair_s < (initial_extraction_begin_offset_s + video.number_cut * length_time_initial_segment_chunk_duration):
-        initial_extraction_begin_offset_s = 0.0 # Fallback to 0 if video too short for this offset
-    
-    if min_duration_pair_s < video.number_cut * length_time_initial_segment_chunk_duration:
-         sys.stderr.write(f"Warning: Videos too short for full initial offset segment calculation. Pair: {main_video_obj.filePath}, {other_video_obj.filePath}\n")
-         # Potentially adjust number_cut or chunk_duration if too short, or rely on get_delay_fidelity handling it.
-         # For now, proceed, get_delay_fidelity might fail or give fewer points.
-
-
-    initial_main_cuts = video.generate_cut_with_begin_length(initial_extraction_begin_offset_s, length_time_initial_segment_chunk_duration, format_time_ffmpeg(length_time_initial_segment_chunk_duration))
-    initial_other_cuts = video.generate_cut_with_begin_length(initial_extraction_begin_offset_s, length_time_initial_segment_chunk_duration, format_time_ffmpeg(length_time_initial_segment_chunk_duration))
-
-    main_video_obj.extract_audio_in_part(sync_language, initial_offset_audio_params, cutTime=initial_main_cuts, asDefault=True)
-    other_video_obj.extract_audio_in_part(sync_language, initial_offset_audio_params, cutTime=initial_other_cuts, asDefault=True)
-    
-    delay_Fidelity_Values = get_delay_fidelity(main_video_obj, other_video_obj, length_time_initial_segment_chunk_duration) # Pass chunk duration
-    
-    stable_delays_ms = []
-    if not delay_Fidelity_Values:
-        sys.stderr.write(f"Initial offset calculation: get_delay_fidelity returned no results for {main_video_obj.filePath} and {other_video_obj.filePath}.\n")
-        cleanup_video_obj_temp_audio([main_video_obj, other_video_obj])
-        return None
-
-    for key_audio_pair, delay_fidelity_list_for_pair in delay_Fidelity_Values.items():
-        if not delay_fidelity_list_for_pair: continue
-        # Check for consistent delay within this pair's segments
-        first_offset_val = delay_fidelity_list_for_pair[0][2] 
-        if all(abs(df[2] - first_offset_val) < 10 for df in delay_fidelity_list_for_pair): # Allow small tolerance
-            stable_delays_ms.append(first_offset_val)
-        else: # Inconsistent segment delays for this audio track pair
-            sys.stderr.write(f"Initial offset: Inconsistent delays for audio pair {key_audio_pair} between {main_video_obj.filePath} and {other_video_obj.filePath}. Delays: {[df[2] for df in delay_fidelity_list_for_pair]}\n")
-            # This might be an error condition depending on strictness. For now, we collect all stable delays.
-
-    if not stable_delays_ms:
-        sys.stderr.write(f"Initial offset calculation: No stable delays found for any audio track pair between {main_video_obj.filePath} and {other_video_obj.filePath}.\n")
-        cleanup_video_obj_temp_audio([main_video_obj, other_video_obj])
-        return None
-    
-    # Check consistency *across* different audio track pairs if multiple exist (e.g. main_audio0-other_audio0 vs main_audio1-other_audio1)
-    # For now, using the first stable delay found. If multiple audio pairs yielded stable but different offsets, this might be an issue.
-    initial_offset_ms = Decimal(str(stable_delays_ms[0])) 
-    if len(set(stable_delays_ms)) > 1: # More than one distinct stable delay found
-        # Check if they are very close. If not, it's problematic.
-        if max(stable_delays_ms) - min(stable_delays_ms) > 50: # Example: 50ms tolerance for different audio pairs
-             sys.stderr.write(f"Warning: Multiple different stable initial offsets found: {stable_delays_ms}. Using first: {initial_offset_ms}ms.\n")
-        else: # All stable delays are close, average them or use first.
-            initial_offset_ms = Decimal(str(round(sum(stable_delays_ms) / len(stable_delays_ms)))) # Average close delays
-            sys.stdout.write(f"Info: Averaged close initial offsets to: {initial_offset_ms}ms.\n")
-
-
-    sys.stdout.write(f"Initial offset calculated for {other_video_obj.filePath} relative to {main_video_obj.filePath}: {initial_offset_ms} ms\n")
-    
-    # Cleanup audio files used for initial offset calculation before main loop uses extract_audio_in_part
-    cleanup_video_obj_temp_audio([main_video_obj, other_video_obj])
-
-
-    FIDELITY_THRESHOLD = 0.80
-    SEGMENT_DURATION_S = 60.0
-    INCOMPATIBILITY_THRESHOLD_PERCENT = 50.0
-    OFFSET_CONSISTENCY_WINDOW_S = 0.5
-
-    # Ensure `tools_tmpFolder` is available (passed as argument)
-
-    segment_assembly_plan = []
-    current_main_time_s = 0.0
-    # initial_offset_ms is now calculated above
-    current_other_offset_s = float(initial_offset_ms / Decimal(1000))
-
-    try:
-        main_total_duration_s = float(main_video_obj.video['Duration'])
-        other_total_duration_s = float(other_video_obj.video['Duration'])
-    except (KeyError, ValueError, TypeError) as e:
-        sys.stderr.write(f"Error getting video durations: {e}\n")
-        # No specific cleanup here as initial offset files already cleaned
-        return None
-
-    total_bad_segments_duration_s = 0.0
-    total_processed_duration_s = 0.0
-
-    # --- Segment processing loop (largely as before) ---
-    while current_main_time_s < main_total_duration_s:
-        actual_segment_duration_s = min(SEGMENT_DURATION_S, main_total_duration_s - current_main_time_s)
-        if actual_segment_duration_s < 1.0: break
-        main_segment_start_str = format_time_ffmpeg(current_main_time_s)
-        main_segment_duration_str = format_time_ffmpeg(actual_segment_duration_s)
-        main_cut_time = [[main_segment_start_str, main_segment_duration_str]]
-        try:
-            # For the main loop, use the audio_param_for_extraction passed in (which is for correlation)
-            main_video_obj.extract_audio_in_part(sync_language, audio_param_for_extraction, cutTime=main_cut_time, asDefault=True)
-            if not main_video_obj.tmpFiles.get('audio') or not main_video_obj.tmpFiles['audio'][0]: raise Exception("Main audio seg path not found.")
-            main_audio_segment_path = main_video_obj.tmpFiles['audio'][0][0]
-        except Exception as e:
-            sys.stderr.write(f"Err extracting main audio {main_segment_start_str}: {e}\n")
-            segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'main_extract_fail'})
-            total_bad_segments_duration_s += actual_segment_duration_s
-            total_processed_duration_s += actual_segment_duration_s; current_main_time_s += actual_segment_duration_s; continue
-        other_segment_start_abs_s = current_main_time_s - current_other_offset_s
-        if (other_segment_start_abs_s + actual_segment_duration_s < 0) or (other_segment_start_abs_s >= other_total_duration_s):
-            segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'other_out_of_bounds'})
-            total_bad_segments_duration_s += actual_segment_duration_s
-        else:
-            other_segment_start_clipped_s = max(0.0, other_segment_start_abs_s)
-            other_segment_duration_clipped_s = min(actual_segment_duration_s, other_total_duration_s - other_segment_start_clipped_s)
-            if other_segment_duration_clipped_s < 1.0:
-                segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'other_clip_too_short'})
-                total_bad_segments_duration_s += actual_segment_duration_s
-            else:
-                other_segment_start_str = format_time_ffmpeg(other_segment_start_clipped_s); other_segment_duration_str = format_time_ffmpeg(other_segment_duration_clipped_s)
-                other_cut_time = [[other_segment_start_str, other_segment_duration_str]]
-                try:
-                    other_video_obj.extract_audio_in_part(sync_language, audio_param_for_extraction, cutTime=other_cut_time, asDefault=True)
-                    if not other_video_obj.tmpFiles.get('audio') or not other_video_obj.tmpFiles['audio'][0]: raise Exception("Other audio seg path not found.")
-                    other_audio_segment_path = other_video_obj.tmpFiles['audio'][0][0]
-                    fidelity, _, _ = correlate(main_audio_segment_path, other_audio_segment_path, other_segment_duration_clipped_s)
-                    _shifted_file, precise_offset_s_fft_raw = second_correlation(main_audio_segment_path, other_audio_segment_path)
-                    precise_offset_s_fft = -precise_offset_s_fft_raw if _shifted_file == main_audio_segment_path else precise_offset_s_fft_raw
-                    new_potential_other_offset_s = current_other_offset_s - precise_offset_s_fft
-                    offset_drift_s = abs(new_potential_other_offset_s - current_other_offset_s)
-                    if fidelity >= FIDELITY_THRESHOLD and offset_drift_s <= OFFSET_CONSISTENCY_WINDOW_S:
-                        current_other_offset_s = new_potential_other_offset_s
-                        segment_assembly_plan.append({'type': 'good', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'other_start_abs_s': other_segment_start_abs_s, 'other_duration_clipped_s': other_segment_duration_clipped_s, 'final_offset_s': current_other_offset_s, 'segment_sync_offset_s': precise_offset_s_fft, 'fidelity': fidelity})
-                    else:
-                        reason = 'low_fidelity' if fidelity < FIDELITY_THRESHOLD else 'offset_jump'
-                        segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': reason, 'fidelity': fidelity, 'offset_drift_s': offset_drift_s})
-                        total_bad_segments_duration_s += actual_segment_duration_s
-                except Exception as e:
-                    sys.stderr.write(f"Err correlating for main time {main_segment_start_str}: {e}\n")
-                    segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'correlation_fail'})
-                    total_bad_segments_duration_s += actual_segment_duration_s
-        total_processed_duration_s += actual_segment_duration_s
-        current_main_time_s += actual_segment_duration_s
-    
-    cleanup_video_obj_temp_audio([main_video_obj, other_video_obj]) # Cleanup audio files from extract_audio_in_part
-
-    if not segment_assembly_plan or (main_total_duration_s > 0 and (total_bad_segments_duration_s / main_total_duration_s * 100.0) > INCOMPATIBILITY_THRESHOLD_PERCENT):
-        sys.stderr.write(f"Chimeric generation failed or incompatibility threshold exceeded. Bad segments: {total_bad_segments_duration_s / main_total_duration_s * 100.0:.2f}%\n")
-        return None
-
-    # --- FFmpeg Assembly Logic ---
-    audio_segment_files = []
-    subtitle_segment_files = {} # lang: [paths]
-    files_to_cleanup = []
-    
-    # Sanitize base name for chimeric file
-    safe_other_basename = re.sub(r'[^\w\.-]', '_', other_video_obj.fileBaseName)
-    chimeric_mkv_path = path.join(out_folder_for_chimeric_file, f"{safe_other_basename}_chimeric_{sync_language}.mkv")
-
-    # Determine primary audio stream order for the sync_language (used for extraction)
-    main_primary_audio_stream_order = main_video_obj.audios[sync_language][0]['StreamOrder'] if sync_language in main_video_obj.audios and main_video_obj.audios[sync_language] else None
-    other_primary_audio_stream_order = other_video_obj.audios[sync_language][0]['StreamOrder'] if sync_language in other_video_obj.audios and other_video_obj.audios[sync_language] else None
-    if not main_primary_audio_stream_order or not other_primary_audio_stream_order:
-        sys.stderr.write(f"Primary audio stream for language {sync_language} not found in one or both videos.\n")
-        # No specific cleanup here as initial offset files already cleaned, and segment loop files cleaned by its own cleanup_video_obj_temp_audio
-        return None 
-
-    all_subtitle_langs = list(set(main_video_obj.subtitles.keys()) | set(other_video_obj.subtitles.keys()))
-
-    for idx, segment_info in enumerate(segment_assembly_plan):
-        seg_main_start_s = segment_info['main_start_s']
-        seg_duration_s = segment_info['duration_s']
-        temp_audio_segment_path = path.join(tools_tmpFolder, f"ch_audio_seg_{idx}.wav")
-        files_to_cleanup.append(temp_audio_segment_path)
-
-        source_obj_audio = other_video_obj if segment_info['type'] == 'good' else main_video_obj
-        audio_ss = segment_info['other_start_abs_s'] if segment_info['type'] == 'good' else seg_main_start_s
-        audio_t = segment_info['other_duration_clipped_s'] if segment_info['type'] == 'good' else seg_duration_s
-        audio_stream_order_to_extract = other_primary_audio_stream_order if segment_info['type'] == 'good' else main_primary_audio_stream_order
-        
-        # Ensure audio_ss is not negative if it comes from other_start_abs_s
-        audio_ss = max(0.0, audio_ss)
-
-        if not extract_audio_segment(source_obj_audio.filePath, audio_stream_order_to_extract, format_time_ffmpeg(audio_ss), format_time_ffmpeg(audio_t), temp_audio_segment_path):
-            sys.stderr.write(f"Failed to extract audio segment {idx}, aborting chimeric assembly.\n")
-            cleanup_temp_files(files_to_cleanup)
-            return None
-        audio_segment_files.append(temp_audio_segment_path)
-
-        for sub_lang in all_subtitle_langs:
-            temp_sub_segment_path = path.join(tools_tmpFolder, f"ch_sub_seg_{sub_lang}_{idx}.srt")
-            files_to_cleanup.append(temp_sub_segment_path)
-            subtitle_segment_files.setdefault(sub_lang, []).append(temp_sub_segment_path)
-            
-            extracted_successfully = False
-            source_obj_subs = other_video_obj if segment_info['type'] == 'good' else main_video_obj
-            subs_ss = segment_info['other_start_abs_s'] if segment_info['type'] == 'good' else seg_main_start_s
-            subs_t = segment_info['other_duration_clipped_s'] if segment_info['type'] == 'good' else seg_duration_s
-            subs_ss = max(0.0, subs_ss) # Ensure positive start time
-
-            if sub_lang in source_obj_subs.subtitles and source_obj_subs.subtitles[sub_lang]:
-                # Prioritize 'keep=True' subs if any, otherwise take first available.
-                chosen_sub_track_info = None
-                kept_subs = [st for st in source_obj_subs.subtitles[sub_lang] if st.get('keep', True)]
-                if kept_subs:
-                    chosen_sub_track_info = kept_subs[0] # Take the first 'kept' sub
-                elif source_obj_subs.subtitles[sub_lang]: # Fallback to first sub if no 'kept' ones
-                    chosen_sub_track_info = source_obj_subs.subtitles[sub_lang][0]
-
-                if chosen_sub_track_info:
-                    extracted_successfully = extract_specific_subtitle_stream_segment(source_obj_subs.filePath, chosen_sub_track_info['StreamOrder'], subs_ss, subs_t, temp_sub_segment_path)
-            
-            if not extracted_successfully:
-                generate_blank_sub_segment(subs_t, temp_sub_segment_path) # Use clipped/actual duration for blank
-
-    # Create Concat Files
-    audio_concat_list_path = path.join(tools_tmpFolder, "ch_audio_concat.txt")
-    with open(audio_concat_list_path, 'w', encoding='utf-8') as f:
-        for p in audio_segment_files: f.write(f"file '{path.basename(p)}'\n") # relative path for ffmpeg concat
-    files_to_cleanup.append(audio_concat_list_path)
-
-    subtitle_concat_list_paths = {}
-    for lang, file_list in subtitle_segment_files.items():
-        sub_concat_path = path.join(tools_tmpFolder, f"ch_sub_{lang}_concat.txt")
-        with open(sub_concat_path, 'w', encoding='utf-8') as f:
-            for p in file_list: f.write(f"file '{path.basename(p)}'\n") # relative path
-        subtitle_concat_list_paths[lang] = sub_concat_path
-        files_to_cleanup.append(sub_concat_path)
-
-    # FFmpeg Command Assembly
-    ffmpeg_cmd = [tools.software['ffmpeg'], '-y', '-nostdin']
-    ffmpeg_cmd.extend(['-i', other_video_obj.filePath]) # Input 0: Video from other_video_obj
-    ffmpeg_cmd.extend(['-f', 'concat', '-safe', '0', '-i', audio_concat_list_path]) # Input 1: Concatenated Audio
-    
-    input_idx_counter = 2 # Starts at 2 because 0 is video, 1 is audio
-    subtitle_maps_metadata = []
-    for lang in all_subtitle_langs: # Ensure consistent order for mapping
-        if lang in subtitle_concat_list_paths:
-            ffmpeg_cmd.extend(['-f', 'concat', '-safe', '0', '-i', subtitle_concat_list_paths[lang]])
-            subtitle_maps_metadata.append(({'map_idx': input_idx_counter, 'lang': lang}))
-            input_idx_counter += 1
-    
-    ffmpeg_cmd.extend(['-map', '0:v:0', '-map', '1:a:0'])
-    for i, sub_map_info in enumerate(subtitle_maps_metadata):
-        ffmpeg_cmd.extend(['-map', f"{sub_map_info['map_idx']}:s:0"])
-        ffmpeg_cmd.extend([f"-metadata:s:s:{i}", f"language={sub_map_info['lang']}"]) # s:{i} is output subtitle stream index
-
-    ffmpeg_cmd.extend(['-c:v', 'copy', '-c:a', 'flac', '-c:s', 'ass']) # Encode audio to FLAC, subs to ASS
-    ffmpeg_cmd.extend(['-shortest', chimeric_mkv_path]) # Use -shortest to ensure output duration matches video
-
-    final_return_path = None
-    try:
-        sys.stdout.write(f"Executing FFmpeg command for chimeric video: {' '.join(ffmpeg_cmd)}\n")
-        _, stderr_ffmpeg, exit_code_ffmpeg = tools.launch_cmdExt(ffmpeg_cmd, cwd=tools_tmpFolder) # Run in tmpFolder for relative paths
-        if exit_code_ffmpeg == 0:
-            sys.stdout.write(f"Chimeric MKV generated: {chimeric_mkv_path}\n")
-            final_return_path = chimeric_mkv_path
-        else:
-            sys.stderr.write(f"Error generating chimeric MKV: {stderr_ffmpeg.decode('utf-8', errors='ignore')}\n")
-    except Exception as e:
-        sys.stderr.write(f"Exception during FFmpeg execution for chimeric video: {e}\n")
-    finally:
-        cleanup_temp_files(files_to_cleanup)
-        
-    return final_return_path
-
-def extract_audio_segment(video_obj_path, audio_track_stream_order, start_time_str, duration_str, output_wav_path):
-    """Extracts a specific audio track segment to output_wav_path as WAV PCM S16LE."""
-    try:
-        ffmpeg_cmd = [
-            tools.software['ffmpeg'], '-y',
-            '-i', video_obj_path,
-            '-ss', start_time_str,
-            '-t', duration_str,
-            '-map', f"0:{audio_track_stream_order}",
-            '-vn', '-acodec', 'pcm_s16le', '-ar', '48000', '-ac', '2',
-            output_wav_path
-        ]
-        stdout, stderr_str, exit_code = tools.launch_cmdExt(ffmpeg_cmd)
-        if exit_code != 0:
-            sys.stderr.write(f"Error extracting audio segment {output_wav_path}: {stderr_str.decode('utf-8', errors='ignore')}\n")
-            return False
-        return True
-    except Exception as e:
-        sys.stderr.write(f"Exception extracting audio segment {output_wav_path}: {e}\n")
-        return False
-
-def generate_blank_sub_segment(duration_s, output_srt_path):
-    """Creates a blank SRT file of duration_s at output_srt_path."""
-    try:
-        formatted_duration = video.seconds_to_srt_timeformat(duration_s) # Assuming video.seconds_to_srt_timeformat
-        blank_srt_content = f"1\n00:00:00,000 --> {formatted_duration}\n\n"
-        with open(output_srt_path, 'w', encoding='utf-8') as f:
-            f.write(blank_srt_content)
-        return True
-    except Exception as e:
-        sys.stderr.write(f"Error generating blank subtitle {output_srt_path}: {e}\n")
-        return False
-
-def extract_specific_subtitle_stream_segment(video_file_path, stream_order_id, start_s_float, duration_s_float, output_srt_path):
-    """Extracts a specific subtitle stream segment as SRT."""
-    try:
-        # Ensure start_s and duration_s are formatted correctly for ffmpeg if they are floats
-        start_s_str = format_time_ffmpeg(start_s_float)
-        duration_s_str = format_time_ffmpeg(duration_s_float)
-
-        ffmpeg_cmd = [
-            tools.software['ffmpeg'], '-y',
-            '-i', video_file_path,
-            '-ss', start_s_str,
-            '-t', duration_s_str,
-            '-map', f"0:{stream_order_id}",
-            '-c:s', 'srt',
-            output_srt_path
-        ]
-        stdout, stderr_str, exit_code = tools.launch_cmdExt(ffmpeg_cmd)
-        if exit_code != 0:
-            # It's common for subtitle extraction to fail if no subs in range, not always a fatal error for the process.
-            # Consider logging this as info/warning rather than error if that's acceptable.
-            # For now, treating as a failure to extract that specific segment.
-            # sys.stderr.write(f"Warning/Error extracting subtitle segment {output_srt_path}: {stderr_str.decode('utf-8', errors='ignore')}\n")
-            return False
-        return True
-    except Exception as e:
-        sys.stderr.write(f"Exception extracting subtitle segment {output_srt_path}: {e}\n")
-        return False
-
-def generate_chimeric_video(main_video_obj, other_video_obj, initial_offset_ms, sync_language, audio_param_for_extraction, tools_tmpFolder, out_folder_for_chimeric_file):
-    FIDELITY_THRESHOLD = 0.80
-    SEGMENT_DURATION_S = 60.0
-    INCOMPATIBILITY_THRESHOLD_PERCENT = 50.0
-    OFFSET_CONSISTENCY_WINDOW_S = 0.5
-
-    # Ensure `tools_tmpFolder` is available (passed as argument)
-
-    segment_assembly_plan = []
-    current_main_time_s = 0.0
-    if not isinstance(initial_offset_ms, Decimal):
-        initial_offset_ms = Decimal(str(initial_offset_ms))
-    current_other_offset_s = float(initial_offset_ms / Decimal(1000))
-
-    try:
-        main_total_duration_s = float(main_video_obj.video['Duration'])
-        other_total_duration_s = float(other_video_obj.video['Duration'])
-    except (KeyError, ValueError, TypeError) as e:
-        sys.stderr.write(f"Error getting video durations: {e}\n")
-        cleanup_video_obj_temp_audio([main_video_obj, other_video_obj]) # Cleanup before early exit
-        return None
-
-    total_bad_segments_duration_s = 0.0
-    total_processed_duration_s = 0.0
-
-    # --- Segment processing loop (largely as before) ---
-    while current_main_time_s < main_total_duration_s:
-        actual_segment_duration_s = min(SEGMENT_DURATION_S, main_total_duration_s - current_main_time_s)
-        if actual_segment_duration_s < 1.0: break
-        main_segment_start_str = format_time_ffmpeg(current_main_time_s)
-        main_segment_duration_str = format_time_ffmpeg(actual_segment_duration_s)
-        main_cut_time = [[main_segment_start_str, main_segment_duration_str]]
-        try:
-            main_video_obj.extract_audio_in_part(sync_language, audio_param_for_extraction, cutTime=main_cut_time, asDefault=True)
-            if not main_video_obj.tmpFiles.get('audio') or not main_video_obj.tmpFiles['audio'][0]: raise Exception("Main audio seg path not found.")
-            main_audio_segment_path = main_video_obj.tmpFiles['audio'][0][0]
-        except Exception as e:
-            sys.stderr.write(f"Err extracting main audio {main_segment_start_str}: {e}\n")
-            segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'main_extract_fail'})
-            total_bad_segments_duration_s += actual_segment_duration_s
-            total_processed_duration_s += actual_segment_duration_s; current_main_time_s += actual_segment_duration_s; continue
-        other_segment_start_abs_s = current_main_time_s - current_other_offset_s
-        if (other_segment_start_abs_s + actual_segment_duration_s < 0) or (other_segment_start_abs_s >= other_total_duration_s):
-            segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'other_out_of_bounds'})
-            total_bad_segments_duration_s += actual_segment_duration_s
-        else:
-            other_segment_start_clipped_s = max(0.0, other_segment_start_abs_s)
-            other_segment_duration_clipped_s = min(actual_segment_duration_s, other_total_duration_s - other_segment_start_clipped_s)
-            if other_segment_duration_clipped_s < 1.0:
-                segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'other_clip_too_short'})
-                total_bad_segments_duration_s += actual_segment_duration_s
-            else:
-                other_segment_start_str = format_time_ffmpeg(other_segment_start_clipped_s); other_segment_duration_str = format_time_ffmpeg(other_segment_duration_clipped_s)
-                other_cut_time = [[other_segment_start_str, other_segment_duration_str]]
-                try:
-                    other_video_obj.extract_audio_in_part(sync_language, audio_param_for_extraction, cutTime=other_cut_time, asDefault=True)
-                    if not other_video_obj.tmpFiles.get('audio') or not other_video_obj.tmpFiles['audio'][0]: raise Exception("Other audio seg path not found.")
-                    other_audio_segment_path = other_video_obj.tmpFiles['audio'][0][0]
-                    fidelity, _, _ = correlate(main_audio_segment_path, other_audio_segment_path, other_segment_duration_clipped_s)
-                    _shifted_file, precise_offset_s_fft_raw = second_correlation(main_audio_segment_path, other_audio_segment_path)
-                    precise_offset_s_fft = -precise_offset_s_fft_raw if _shifted_file == main_audio_segment_path else precise_offset_s_fft_raw
-                    new_potential_other_offset_s = current_other_offset_s - precise_offset_s_fft
-                    offset_drift_s = abs(new_potential_other_offset_s - current_other_offset_s)
-                    if fidelity >= FIDELITY_THRESHOLD and offset_drift_s <= OFFSET_CONSISTENCY_WINDOW_S:
-                        current_other_offset_s = new_potential_other_offset_s
-                        segment_assembly_plan.append({'type': 'good', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'other_start_abs_s': other_segment_start_abs_s, 'other_duration_clipped_s': other_segment_duration_clipped_s, 'final_offset_s': current_other_offset_s, 'segment_sync_offset_s': precise_offset_s_fft, 'fidelity': fidelity})
-                    else:
-                        reason = 'low_fidelity' if fidelity < FIDELITY_THRESHOLD else 'offset_jump'
-                        segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': reason, 'fidelity': fidelity, 'offset_drift_s': offset_drift_s})
-                        total_bad_segments_duration_s += actual_segment_duration_s
-                except Exception as e:
-                    sys.stderr.write(f"Err correlating for main time {main_segment_start_str}: {e}\n")
-                    segment_assembly_plan.append({'type': 'bad', 'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s, 'reason': 'correlation_fail'})
-                    total_bad_segments_duration_s += actual_segment_duration_s
-        total_processed_duration_s += actual_segment_duration_s
-        current_main_time_s += actual_segment_duration_s
-    
-    cleanup_video_obj_temp_audio([main_video_obj, other_video_obj]) # Cleanup audio files from extract_audio_in_part
-
-    if not segment_assembly_plan or (main_total_duration_s > 0 and (total_bad_segments_duration_s / main_total_duration_s * 100.0) > INCOMPATIBILITY_THRESHOLD_PERCENT):
-        sys.stderr.write(f"Chimeric generation failed or incompatibility threshold exceeded. Bad segments: {total_bad_segments_duration_s / main_total_duration_s * 100.0:.2f}%\n")
-        return None
-
-    # --- FFmpeg Assembly Logic ---
-    audio_segment_files = []
-    subtitle_segment_files = {} # lang: [paths]
-    files_to_cleanup = []
-    
-    # Sanitize base name for chimeric file
-    safe_other_basename = re.sub(r'[^\w\.-]', '_', other_video_obj.fileBaseName)
-    chimeric_mkv_path = path.join(out_folder_for_chimeric_file, f"{safe_other_basename}_chimeric_{sync_language}.mkv")
-
-    # Determine primary audio stream order for the sync_language (used for extraction)
-    main_primary_audio_stream_order = main_video_obj.audios[sync_language][0]['StreamOrder'] if sync_language in main_video_obj.audios and main_video_obj.audios[sync_language] else None
-    other_primary_audio_stream_order = other_video_obj.audios[sync_language][0]['StreamOrder'] if sync_language in other_video_obj.audios and other_video_obj.audios[sync_language] else None
-    if not main_primary_audio_stream_order or not other_primary_audio_stream_order:
-        sys.stderr.write(f"Primary audio stream for language {sync_language} not found in one or both videos.\n")
-        return None # Cannot proceed without audio streams to sync with
-
-    all_subtitle_langs = list(set(main_video_obj.subtitles.keys()) | set(other_video_obj.subtitles.keys()))
-
-    for idx, segment_info in enumerate(segment_assembly_plan):
-        seg_main_start_s = segment_info['main_start_s']
-        seg_duration_s = segment_info['duration_s']
-        temp_audio_segment_path = path.join(tools_tmpFolder, f"ch_audio_seg_{idx}.wav")
-        files_to_cleanup.append(temp_audio_segment_path)
-
-        source_obj_audio = other_video_obj if segment_info['type'] == 'good' else main_video_obj
-        audio_ss = segment_info['other_start_abs_s'] if segment_info['type'] == 'good' else seg_main_start_s
-        audio_t = segment_info['other_duration_clipped_s'] if segment_info['type'] == 'good' else seg_duration_s
-        audio_stream_order_to_extract = other_primary_audio_stream_order if segment_info['type'] == 'good' else main_primary_audio_stream_order
-        
-        # Ensure audio_ss is not negative if it comes from other_start_abs_s
-        audio_ss = max(0.0, audio_ss)
-
-        if not extract_audio_segment(source_obj_audio.filePath, audio_stream_order_to_extract, format_time_ffmpeg(audio_ss), format_time_ffmpeg(audio_t), temp_audio_segment_path):
-            sys.stderr.write(f"Failed to extract audio segment {idx}, aborting chimeric assembly.\n")
-            cleanup_temp_files(files_to_cleanup)
-            return None
-        audio_segment_files.append(temp_audio_segment_path)
-
-        for sub_lang in all_subtitle_langs:
-            temp_sub_segment_path = path.join(tools_tmpFolder, f"ch_sub_seg_{sub_lang}_{idx}.srt")
-            files_to_cleanup.append(temp_sub_segment_path)
-            subtitle_segment_files.setdefault(sub_lang, []).append(temp_sub_segment_path)
-            
-            extracted_successfully = False
-            source_obj_subs = other_video_obj if segment_info['type'] == 'good' else main_video_obj
-            subs_ss = segment_info['other_start_abs_s'] if segment_info['type'] == 'good' else seg_main_start_s
-            subs_t = segment_info['other_duration_clipped_s'] if segment_info['type'] == 'good' else seg_duration_s
-            subs_ss = max(0.0, subs_ss) # Ensure positive start time
-
-            if sub_lang in source_obj_subs.subtitles and source_obj_subs.subtitles[sub_lang]:
-                # Prioritize 'keep=True' subs if any, otherwise take first available.
-                chosen_sub_track_info = None
-                kept_subs = [st for st in source_obj_subs.subtitles[sub_lang] if st.get('keep', True)]
-                if kept_subs:
-                    chosen_sub_track_info = kept_subs[0] # Take the first 'kept' sub
-                elif source_obj_subs.subtitles[sub_lang]: # Fallback to first sub if no 'kept' ones
-                    chosen_sub_track_info = source_obj_subs.subtitles[sub_lang][0]
-
-                if chosen_sub_track_info:
-                    extracted_successfully = extract_specific_subtitle_stream_segment(source_obj_subs.filePath, chosen_sub_track_info['StreamOrder'], subs_ss, subs_t, temp_sub_segment_path)
-            
-            if not extracted_successfully:
-                generate_blank_sub_segment(subs_t, temp_sub_segment_path) # Use clipped/actual duration for blank
-
-    # Create Concat Files
-    audio_concat_list_path = path.join(tools_tmpFolder, "ch_audio_concat.txt")
-    with open(audio_concat_list_path, 'w', encoding='utf-8') as f:
-        for p in audio_segment_files: f.write(f"file '{path.basename(p)}'\n") # relative path for ffmpeg concat
-    files_to_cleanup.append(audio_concat_list_path)
-
-    subtitle_concat_list_paths = {}
-    for lang, file_list in subtitle_segment_files.items():
-        sub_concat_path = path.join(tools_tmpFolder, f"ch_sub_{lang}_concat.txt")
-        with open(sub_concat_path, 'w', encoding='utf-8') as f:
-            for p in file_list: f.write(f"file '{path.basename(p)}'\n") # relative path
-        subtitle_concat_list_paths[lang] = sub_concat_path
-        files_to_cleanup.append(sub_concat_path)
-
-    # FFmpeg Command Assembly
-    ffmpeg_cmd = [tools.software['ffmpeg'], '-y', '-nostdin']
-    ffmpeg_cmd.extend(['-i', other_video_obj.filePath]) # Input 0: Video from other_video_obj
-    ffmpeg_cmd.extend(['-f', 'concat', '-safe', '0', '-i', audio_concat_list_path]) # Input 1: Concatenated Audio
-    
-    input_idx_counter = 2 # Starts at 2 because 0 is video, 1 is audio
-    subtitle_maps_metadata = []
-    for lang in all_subtitle_langs: # Ensure consistent order for mapping
-        if lang in subtitle_concat_list_paths:
-            ffmpeg_cmd.extend(['-f', 'concat', '-safe', '0', '-i', subtitle_concat_list_paths[lang]])
-            subtitle_maps_metadata.append(({'map_idx': input_idx_counter, 'lang': lang}))
-            input_idx_counter += 1
-    
-    ffmpeg_cmd.extend(['-map', '0:v:0', '-map', '1:a:0'])
-    for i, sub_map_info in enumerate(subtitle_maps_metadata):
-        ffmpeg_cmd.extend(['-map', f"{sub_map_info['map_idx']}:s:0"])
-        ffmpeg_cmd.extend([f"-metadata:s:s:{i}", f"language={sub_map_info['lang']}"]) # s:{i} is output subtitle stream index
-
-    ffmpeg_cmd.extend(['-c:v', 'copy', '-c:a', 'flac', '-c:s', 'ass']) # Encode audio to FLAC, subs to ASS
-    ffmpeg_cmd.extend(['-shortest', chimeric_mkv_path]) # Use -shortest to ensure output duration matches video
-
-    final_return_path = None
-    try:
-        sys.stdout.write(f"Executing FFmpeg command for chimeric video: {' '.join(ffmpeg_cmd)}\n")
-        _, stderr_ffmpeg, exit_code_ffmpeg = tools.launch_cmdExt(ffmpeg_cmd, cwd=tools_tmpFolder) # Run in tmpFolder for relative paths
-        if exit_code_ffmpeg == 0:
-            sys.stdout.write(f"Chimeric MKV generated: {chimeric_mkv_path}\n")
-            final_return_path = chimeric_mkv_path
-        else:
-            sys.stderr.write(f"Error generating chimeric MKV: {stderr_ffmpeg.decode('utf-8', errors='ignore')}\n")
-    except Exception as e:
-        sys.stderr.write(f"Exception during FFmpeg execution for chimeric video: {e}\n")
-    finally:
-        cleanup_temp_files(files_to_cleanup)
-        
-    return final_return_path
