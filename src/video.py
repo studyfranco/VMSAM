@@ -767,6 +767,92 @@ def subtitle_text_srt_md5(filePath,streamID):
     else:
         return (streamID, None)
 
+    def calculate_rational_score(self):
+        # Initialize scores to default "worst" values
+        resolution_score = 0
+        video_bitrate_score = 0
+        video_duration_score = 0
+        audio_channels_score = 0
+        audio_bitrate_score = 0
+        
+        # Define default codec preference list
+        audio_codec_preference_default = ['flac', 'truehd', 'dts-hd ma', 'pcm', 'dts', 'ac3', 'opus', 'aac', 'mp3']
+        
+        # Try to get codec preference list from config
+        audio_codec_preference_list_str = tools.mergeRules.get('audio_codec_priority')
+        if audio_codec_preference_list_str and isinstance(audio_codec_preference_list_str, str) and audio_codec_preference_list_str.strip():
+            audio_codec_preference_list = [codec.strip().lower() for codec in audio_codec_preference_list_str.split(',')]
+        else:
+            audio_codec_preference_list = audio_codec_preference_default
+            
+        # For codec, higher number is worse. Max value if not found or no audio.
+        audio_codec_preference_score = len(audio_codec_preference_list) + 1
+
+        # 1. Video Resolution
+        if self.video and 'Width' in self.video and 'Height' in self.video:
+            try:
+                width = int(self.video['Width'])
+                height = int(self.video['Height'])
+                resolution_score = width * height
+            except ValueError:
+                pass # Keep default 0
+
+        # 2. Video Bitrate
+        if self.video:
+            try:
+                video_bitrate_score = int(get_bitrate(self.video))
+            except (TypeError, ValueError, KeyError): # Handles if get_bitrate returns non-int or key missing
+                pass # Keep default 0
+        
+        # 3. Video Duration
+        try:
+            duration = self.get_video_duration()
+            if duration is not None:
+                video_duration_score = float(duration)
+        except (TypeError, ValueError):
+            pass # Keep default 0
+
+        # 4-6. Primary Audio Track properties
+        primary_audio_track = None
+        if self.mediadata is None: # Ensure mediadata is loaded
+            self.get_mediadata()
+
+        selected_lang = tools.special_params.get("original_language")
+        if selected_lang and selected_lang in self.audios and self.audios[selected_lang]:
+            primary_audio_track = self.audios[selected_lang][0]
+        elif self.audios: # if self.audios is not empty
+            # Iterate through available languages to find the first one with tracks
+            for lang_key in self.audios.keys():
+                if self.audios[lang_key]: # Check if the list of tracks for this lang is not empty
+                    primary_audio_track = self.audios[lang_key][0]
+                    break
+        
+        if primary_audio_track:
+            # 4. Primary Audio Track Channels
+            if 'Channels' in primary_audio_track:
+                try:
+                    audio_channels_score = int(primary_audio_track['Channels'])
+                except ValueError:
+                    pass # Keep default 0
+
+            # 5. Primary Audio Track Bitrate
+            try:
+                audio_bitrate_score = int(get_bitrate(primary_audio_track))
+            except (TypeError, ValueError, KeyError): # Handles if get_bitrate returns non-int or key missing
+                pass # Keep default 0
+
+            # 6. Primary Audio Track Codec
+            if 'Format' in primary_audio_track:
+                track_codec = primary_audio_track['Format'].lower()
+                if track_codec in audio_codec_preference_list:
+                    audio_codec_preference_score = audio_codec_preference_list.index(track_codec)
+                else:
+                    # Worse than any in the list
+                    audio_codec_preference_score = len(audio_codec_preference_list) 
+        
+        return (resolution_score, video_bitrate_score, video_duration_score, 
+                audio_channels_score, audio_bitrate_score, audio_codec_preference_score)
+
 def count_font_lines_in_ass(filePath, streamID):
     import re
     cmd = [

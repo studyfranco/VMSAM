@@ -19,6 +19,7 @@ import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 from decimal import *
+import math # Added for math.round
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -413,12 +414,33 @@ class compare_video(Thread):
     def get_best_video(self,delay):
         delay,begins_video_for_compare_quality = video.get_good_frame(self.video_obj_1, self.video_obj_2, self.begin_in_second, self.lenghtTime, self.time_by_test_best_quality_converted, (delay/1000))
 
-        if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == 1:
+        score1 = self.video_obj_1.calculate_rational_score()
+        score2 = self.video_obj_2.calculate_rational_score()
+
+        rational_winner = 0 # 0 for tie, 1 for video_obj_1, 2 for video_obj_2
+        # Compare first 5 elements (higher is better)
+        for i in range(5):
+            if score1[i] > score2[i]:
+                rational_winner = 1
+                break
+            if score1[i] < score2[i]:
+                rational_winner = 2
+                break
+        
+        if rational_winner == 0: # If still tied, compare audio codec preference (lower is better)
+            if score1[5] < score2[5]:
+                rational_winner = 1
+            elif score1[5] > score2[5]:
+                rational_winner = 2
+
+        # Main decision logic
+        if rational_winner == 1 or \
+           (rational_winner == 0 and video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == '1'):
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
             delay = self.adjust_delay_to_frame(delay)
-            self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
+            self.video_obj_2.delays[self.language] += (delay*-Decimal(1.0)) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_1.remove_tmp_files(type_file="audio")
@@ -937,36 +959,90 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove):
+def generate_new_file_audio_config(base_cmd, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put_ms, duration_best_video_str):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
-        if audio["Format"].lower() == "flac":
-            if '@typeorder' in audio:
-                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
-            else:
-                base_cmd.extend([f"-c:a:0", "flac", "-compression_level", "12"])
+        
+        needs_padding = False
+        padding_duration_seconds = 0.0
+        
+        if duration_best_video_str and delay_to_put_ms is not None: # Ensure params are available
+            try:
+                offset_seconds = float(delay_to_put_ms / Decimal(1000))
+                best_video_duration_seconds = float(duration_best_video_str)
+                current_audio_duration_seconds = float(audio['Duration'])
+                current_audio_effective_end_time = offset_seconds + current_audio_duration_seconds
+                
+                if current_audio_effective_end_time < best_video_duration_seconds:
+                    padding_duration_seconds = best_video_duration_seconds - current_audio_effective_end_time
+                    if padding_duration_seconds > 0.001:
+                        needs_padding = True
+            except (ValueError, TypeError, KeyError) as e:
+                sys.stderr.write(f"Error calculating padding for {audio.get('StreamOrder', 'N/A')}: {e}\n")
+                # Continue without padding if there's an error in calculation
+        
+        stream_specifier_codec = f":a:{int(audio['@typeorder'])-1}" if '@typeorder' in audio else ":a:0"
+
+        if needs_padding:
+            base_cmd.extend([f"-af{stream_specifier_codec}", f"apad=pad_dur={padding_duration_seconds}"])
+            if audio["Format"].lower() == "flac":
+                base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12"])
+                if "BitDepth" in audio:
+                    if audio["BitDepth"] == "16":
+                        base_cmd.extend(["-sample_fmt", "s16"])
+                    else:
+                        base_cmd.extend(["-sample_fmt", "s32"])
+                else: # Default to s16 if BitDepth is missing for FLAC
+                    base_cmd.extend(["-sample_fmt", "s16"])
+            else: # Not FLAC, re-encode to FLAC with padding
+                base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12", "-sample_fmt", "s16"])
+        elif audio["Format"].lower() == "flac": # No padding, but original is FLAC, apply FLAC options
+            base_cmd.extend([f"-c{stream_specifier_codec}", "flac", "-compression_level", "12"])
             if "BitDepth" in audio:
                 if audio["BitDepth"] == "16":
                     base_cmd.extend(["-sample_fmt", "s16"])
                 else:
                     base_cmd.extend(["-sample_fmt", "s32"])
+            else: # Default to s16 if BitDepth is missing for FLAC
+                 base_cmd.extend(["-sample_fmt", "s16"])
+        # If not padding and not FLAC, it will be handled by global '-c copy' or other specific rules.
         return 1
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+    # delay_to_put is Decimal in milliseconds. duration_best_video is string "seconds.milliseconds"
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
-                    "-threads", str(tools.core_to_use), "-vn"]
+                    "-threads", str(tools.core_to_use), "-vn"] # -vn must be early
+    
+    # Input file and its offset processing must come before output options and mappings
+    # Create a preliminary command list for input processing
+    input_cmd_part = []
     if delay_to_put != 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
-    base_cmd.extend(["-i", video_obj.filePath,
-                     "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
+        input_cmd_part.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+    input_cmd_part.extend(["-i", video_obj.filePath])
+
+    # Global output options that might be overridden by stream-specific ones later
+    output_options_part = ["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+                           "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"]
+    
+    # Combine parts: ffmpeg base, input processing, then global output options
+    # Stream specific options will be added by generate_new_file_audio_config
+    base_cmd.extend(input_cmd_part)
+    # Audio config (potentially adding filters and codec changes) must be defined *before* output_options_part if those options are to take effect
+    # However, ffmpeg command structure usually is: ffmpeg [global_opts] [input_opts] -i input [output_opts] output
+    # Stream specific options like -c:a:0, -af:a:0 are output options.
+    # So, the current structure of appending to base_cmd in generate_new_file_audio_config should be okay,
+    # as long as base_cmd is then extended with output_options_part *after* audio processing is determined.
+    # This means generate_new_file_audio_config should modify a part of command that is later inserted.
+    # For now, let's stick to current append model and test. If issues, restructure base_cmd assembly.
     
     number_track = 0
     sub_track_to_remove = []
+    # Collect subtitle processing commands
+    subtitle_codec_cmds = []
     for language,subs in video_obj.subtitles.items():
         for sub in subs:
             if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
@@ -974,43 +1050,51 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 if sub['MD5'] != '':
                     md5_sub_already_added.add(sub['MD5'])
                 codec = sub["Format"].lower()
+                stream_specifier_sub = f":s:{int(sub['@typeorder'])-1}" if '@typeorder' in sub else ":s:0" # Assuming @typeorder for subs too
                 if codec in tools.sub_type_not_encodable:
-                    if '@typeorder' in sub:
-                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
-                    else:
-                        base_cmd.extend([f"-c:s:0", "copy"])
+                    subtitle_codec_cmds.extend([f"-c{stream_specifier_sub}", "copy"])
                 elif codec in tools.sub_type_near_srt:
-                    if '@typeorder' in sub:
-                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
-                    else:
-                        base_cmd.extend([f"-c:s:0", "srt"])
-                #else:
-                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
+                     subtitle_codec_cmds.extend([f"-c{stream_specifier_sub}", "srt"])
+                # else, it will be converted to ass by global -c:s ass
             else:
                 sub_track_to_remove.append(sub)
     
+    # Collect audio processing commands (including padding/re-encoding)
+    audio_processing_cmds = []
     audio_track_to_remove = []
     for language,audios in video_obj.audios.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
     for language,audios in video_obj.commentary.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
     for language,audios in video_obj.audiodesc.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(audio_processing_cmds, audio, md5_audio_already_added, audio_track_to_remove, delay_to_put, duration_best_video)
+
+    # Now assemble the full command
+    # base_cmd already has ffmpeg, global error flags, -vn
+    # then add input processing
+    base_cmd.extend(input_cmd_part)
+    # then add global output options
+    base_cmd.extend(output_options_part)
+    # then add specific subtitle codec commands
+    base_cmd.extend(subtitle_codec_cmds)
+    # then add specific audio processing commands (filters, codecs)
+    base_cmd.extend(audio_processing_cmds)
     
     if number_track:
+        # Add track removal maps
         for audio in audio_track_to_remove:
             base_cmd.extend(["-map", f"-0:{audio["StreamOrder"]}"])
-            
         for sub in sub_track_to_remove:
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
-        base_cmd.extend(["-t", duration_best_video, tmp_file_audio])
-
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
+        base_cmd.extend(["-t", duration_best_video, tmp_file_audio]) # Output path must be last before options for it
+        
+        current_ffmpeg_cmd = base_cmd # Create a copy if base_cmd is reused or modified later for other files
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (current_ffmpeg_cmd,)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
     
     return number_track
@@ -1086,6 +1170,93 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_video_metadata.video = best_video.video
     out_video_metadata.calculate_md5_streams_split()
 
+    best_video_duration_sec = float(best_video.video['Duration'])
+    blank_sub_files_to_add = []
+    
+    # Corrected existing logic for sub_same_md5 before new blank sub logic
+    sub_same_md5 = {}
+    # Populate sub_same_md5 correctly first
+    for lang_key, subs_list_for_lang in out_video_metadata.subtitles.items():
+        for sub_item in subs_list_for_lang:
+            if sub_item['MD5'] in sub_same_md5:
+                sub_same_md5[sub_item['MD5']].append(sub_item)
+            else:
+                sub_same_md5[sub_item['MD5']] = [sub_item]
+
+    keep_sub = {'ass':[],'srt':[]}
+    for sub_md5, list_of_subs_with_same_md5 in sub_same_md5.items():
+        # Bug fix: Use the first item of the list for codec check, as all in list_of_subs_with_same_md5 share MD5
+        # and presumably relevant properties like codec for this decision.
+        # Ensure list_of_subs_with_same_md5 is not empty before accessing subs[0]
+        if not list_of_subs_with_same_md5:
+            continue
+        # Corrected: use list_of_subs_with_same_md5[0] instead of undefined 'sub' from an outer scope
+        # Also, ensure 'ffprobe' and 'codec_name' exist to prevent KeyError
+        codec = "unknown" # Default codec if not found
+        if 'ffprobe' in list_of_subs_with_same_md5[0] and 'codec_name' in list_of_subs_with_same_md5[0]['ffprobe']:
+             codec = list_of_subs_with_same_md5[0]['ffprobe']["codec_name"].lower()
+        
+        if len(list_of_subs_with_same_md5) > 1:
+            have_srt_sub = False
+            for s_track in list_of_subs_with_same_md5: # s_track is the correct item from the list
+                if s_track['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
+                    have_srt_sub = True
+                    keep_sub["srt"].append(s_track)
+                    s_track['keep'] = True # Explicitly keep this one
+                else:
+                    s_track['keep'] = False # Mark others with same MD5 as not kept
+            if (not have_srt_sub): # If no SRT, keep the first ASS (or other format)
+                list_of_subs_with_same_md5[0]['keep'] = True
+                if codec not in tools.sub_type_not_encodable and codec not in tools.sub_type_near_srt : # Check if it's ASS-like
+                    keep_sub["ass"].append(list_of_subs_with_same_md5[0])
+        else: # Only one sub with this MD5
+            s_track = list_of_subs_with_same_md5[0]
+            s_track['keep'] = True # Keep it by default, subject to further filtering
+            if s_track['Format'].lower() in tools.sub_type_near_srt:
+                keep_sub["srt"].append(s_track)
+            elif codec not in tools.sub_type_not_encodable: # ASS-like
+                keep_sub["ass"].append(s_track)
+    
+    if len(keep_sub["srt"]) and len(keep_sub["ass"]):
+        not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
+
+    # New blank subtitle logic
+    all_subtitle_languages = set(out_video_metadata.subtitles.keys())
+    for language in all_subtitle_languages:
+        candidate_subs = [s for s in out_video_metadata.subtitles.get(language, []) if s.get('keep', True)]
+        chosen_sub_track = None
+
+        if candidate_subs:
+            candidate_subs.sort(key=lambda s: float(s.get('Duration', 0)), reverse=True)
+            longest_candidate = candidate_subs[0]
+            if float(longest_candidate.get('Duration', 0)) >= best_video_duration_sec * 0.90:
+                chosen_sub_track = longest_candidate
+                # Mark all other subs for this language as keep=False
+                for s_item in out_video_metadata.subtitles.get(language, []):
+                    if s_item != chosen_sub_track:
+                        s_item['keep'] = False
+                chosen_sub_track['keep'] = True # Ensure the chosen one is marked to be kept
+            else: # Longest is too short
+                 # Ensure all original subs for this language are marked not to be kept before adding blank
+                for s_item in out_video_metadata.subtitles.get(language, []):
+                    s_item['keep'] = False
+        
+        if not chosen_sub_track: # No candidates or longest is too short, create blank sub
+            # Ensure all original subs for this language are marked not to be kept
+            for s_item in out_video_metadata.subtitles.get(language, []):
+                s_item['keep'] = False
+
+            srt_duration_str = seconds_to_srt_timeformat(best_video_duration_sec)
+            blank_srt_content = f"1\n00:00:00,000 --> {srt_duration_str}\n\n"
+            blank_srt_path = path.join(tools.tmpFolder, f"blank_{language}.srt")
+            try:
+                with open(blank_srt_path, 'w', encoding='utf-8') as f:
+                    f.write(blank_srt_content)
+                blank_sub_files_to_add.append({'path': blank_srt_path, 'lang': language})
+            except IOError as e:
+                sys.stderr.write(f"Error writing blank SRT file for language {language}: {e}\n")
+
+
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
         i = 1
@@ -1100,49 +1271,50 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         final_insert.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
     final_insert.extend(["-A", "-S", "--no-chapters", best_video.filePath])
     
-    list_track_order=[]
+    list_track_order=[] # This will collect all audio and subtitle track orders
     global default_audio
     default_audio = True
-    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
+    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules) # This modifies 'keep' flags in out_video_metadata.audios
     
-    sub_same_md5 = {}
-    keep_sub = {'ass':[],'srt':[]}
-    for language,subs in out_video_metadata.subtitles.items():
-        for sub in subs:
-            if sub['MD5'] in sub_same_md5:
-                sub_same_md5[sub['MD5']].append(sub)
-            else:
-                sub_same_md5[sub['MD5']] = [sub]
-    for sub_md5,subs in sub_same_md5.items():
-        codec = sub['ffprobe']["codec_name"].lower()
-        if len(subs) > 1:
-            have_srt_sub = False
-            for sub in subs:
-                if sub['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
-                    have_srt_sub = True
-                    keep_sub["srt"].append(sub)
-                else:
-                    sub['keep'] = False
-            if (not have_srt_sub):
-                subs[0]['keep'] = True
-                if codec not in tools.sub_type_not_encodable:
-                    keep_sub["ass"].append(sub)
-        else:
-            if sub['Format'].lower() in tools.sub_type_near_srt:
-                keep_sub["srt"].append(sub)
-            elif codec not in tools.sub_type_not_encodable:
-                keep_sub["ass"].append(sub)
+    # Process audio tracks from the merged temp file
+    md5_audio_already_added_for_final = set()
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,md5_audio_already_added_for_final,list_track_order)
     
-    if len(keep_sub["srt"]) and len(keep_sub["ass"]):
-        not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
-                
-    generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set(),list_track_order)
-    final_insert.extend(["-D", out_path_tmp_file_name_split])
-    final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
-    final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
+    # Process original subtitle tracks from the merged temp file that are still marked 'keep=True'
+    md5_sub_already_added_for_final = set()
+    generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,md5_sub_already_added_for_final,list_track_order)
+    
+    # Add blank subtitle files if any were generated
+    for item in blank_sub_files_to_add:
+        # For blank subs, explicitly set flags to not be default/forced, and map language
+        # The track ID for mkvmerge here will be 0 as it's a new source file
+        final_insert.extend(["--language", f"0:{item['lang']}", 
+                             "--default-track-flag", "0:0", 
+                             "--forced-display-flag", "0:0", item['path']])
+        # Note: list_track_order for blank subs would need mkvmerge to report their final track IDs,
+        # or a placeholder strategy if strict ordering including them is paramount.
+        # For now, they are added without explicit ordering in list_track_order here.
+
+    final_insert.extend(["-D", out_path_tmp_file_name_split]) # Add other tracks from the temp merged file (those not handled by specific audio/sub logic above)
+    final_insert.extend(ffmpeg_cmd_dict['metadata_cmd']) # Add metadata commands from original sources
+    
+    # Final track order: best video first, then audio, then subtitles (including blanks implicitly at end of subtitle group)
+    if list_track_order: # Ensure list_track_order is not empty
+        final_insert.extend(["--track-order", f"0:{best_video.video['StreamOrder']},1:"+",1:".join(list_track_order)])
+    else: # Fallback if no audio/subs were explicitly ordered (e.g. only video track)
+        final_insert.extend(["--track-order", f"0:{best_video.video['StreamOrder']}"])
+        
     tools.launch_cmdExt(final_insert)
-     
+
+def seconds_to_srt_timeformat(seconds_float):
+    hours = int(seconds_float // 3600)
+    seconds_float %= 3600
+    minutes = int(seconds_float // 60)
+    seconds_float %= 60
+    seconds = int(seconds_float)
+    milliseconds = int(round((seconds_float - seconds) * 1000))
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
         min_video_duration_in_sec = video.get_shortest_video_durations(videosObj)
