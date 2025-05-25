@@ -5,12 +5,16 @@ Created on 23 Apr 2022
 '''
 
 from os import path,remove
+import os # Required for os.path.exists, os.remove
 from sys import stderr
+import sys # Required for sys.stderr
 from threading import RLock
 from time import strftime,gmtime,sleep
 import tools
 import re
 import json
+from decimal import Decimal # Required for get_bitrate if not already imported, but seems to be used elsewhere
+
 
 ffmpeg_pool_audio_convert = None
 ffmpeg_pool_big_job = None
@@ -458,6 +462,32 @@ def big_job_waiter():
 def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
     import re
     from statistics import mean
+
+    # Upscale detection first
+    segment_begin_v1 = begins_video[0][0]
+    segment_begin_v2 = begins_video[0][1]
+    # time_by_test is the segment_duration for upscale detection
+    
+    is_upscaled_1, native_height_1 = detect_upscale(video_obj_1, segment_begin_v1, time_by_test)
+    is_upscaled_2, native_height_2 = detect_upscale(video_obj_2, segment_begin_v2, time_by_test)
+
+    if is_upscaled_1 and not is_upscaled_2:
+        return "2"  # video_obj_2 is preferred (not upscaled)
+    elif not is_upscaled_1 and is_upscaled_2:
+        return "1"  # video_obj_1 is preferred (not upscaled)
+    elif is_upscaled_1 and is_upscaled_2:
+        if native_height_1 > native_height_2:
+            return "1"  # video_obj_1 preferred (upscaled from higher res)
+        elif native_height_2 > native_height_1:
+            return "2"  # video_obj_2 preferred (upscaled from higher res)
+        else:
+            # Both upscaled from same native height, proceed to VMAF
+            pass
+    else:
+        # Neither detected as upscaled, proceed to VMAF
+        pass
+
+    # VMAF comparison logic (existing code)
     ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
            "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
            "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
