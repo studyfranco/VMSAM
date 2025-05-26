@@ -177,6 +177,7 @@ class video():
         self.delayFirstMethodAbort = {}
         self.shiftCuts = None
         self.sameAudioMD5UseForCalculation = []
+        self.chimeric_files = None
     
     def get_mediadata(self):
         stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mediainfo"], "--Output=JSON", self.filePath])

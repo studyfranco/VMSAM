@@ -133,6 +133,127 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
                     delay_between_two_audio.append(second_correlation(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
     return delay_Values
 
+def check_if_chimeric_tracks_needed(out_video_metadata_obj, V_abs_best_obj):
+    """
+    Checks if any audio or subtitle tracks from chimeric files are needed (i.e., languages not present in the main merged file).
+    """
+    needed_tracks_by_file = []
+    if not V_abs_best_obj.chimeric_files: # Handles None or empty list
+        return needed_tracks_by_file
+
+    existing_audio_languages = set(out_video_metadata_obj.audios.keys())
+    existing_subtitle_languages = set(out_video_metadata_obj.subtitles.keys())
+
+    for chimeric_vid_obj in V_abs_best_obj.chimeric_files:
+        if not chimeric_vid_obj: # Skip if a chimeric_vid_obj is None for some reason
+            continue
+        tracks_from_this_chimeric = []
+        # Check audio tracks
+        for lang, track_list in chimeric_vid_obj.audios.items():
+            if lang not in existing_audio_languages:
+                for track_info in track_list:
+                    tracks_from_this_chimeric.append(track_info)
+        
+        # Check subtitle tracks
+        for lang, track_list in chimeric_vid_obj.subtitles.items():
+            if lang not in existing_subtitle_languages:
+                for track_info in track_list:
+                    tracks_from_this_chimeric.append(track_info)
+        
+        if tracks_from_this_chimeric:
+            needed_tracks_by_file.append((chimeric_vid_obj, tracks_from_this_chimeric))
+            # Add newly found languages to existing sets to prevent adding them again from other chimeric files if they offer the same new language
+            for track in tracks_from_this_chimeric:
+                if track['@type'] == 'Audio':
+                    existing_audio_languages.add(track.get('Language', 'und'))
+                elif track['@type'] == 'Text':
+                    existing_subtitle_languages.add(track.get('Language', 'und'))
+
+    return needed_tracks_by_file
+
+def augment_merge_file_with_tracks(original_temp_merge_path, needed_tracks_info_list, tools_temp_folder, V_abs_best_basename):
+    """
+    Augments the original_temp_merge_path with tracks specified in needed_tracks_info_list.
+    Returns the path to the new augmented MKV file.
+    """
+    augmented_mkv_path = path.join(tools_temp_folder, f"{V_abs_best_basename}_merged_step2.mkv")
+    
+    mkvmerge_cmd = [tools.software['mkvmerge'], '-o', augmented_mkv_path]
+    mkvmerge_cmd.extend(['--global-tags', '', '--no-chapters']) # Start with no global tags or chapters from prior files
+
+    # Add original_temp_merge_path as the first input group
+    mkvmerge_cmd.extend(['(', original_temp_merge_path, ')'])
+
+    for chimeric_vid_obj, tracks_to_add_list in needed_tracks_info_list:
+        mkvmerge_cmd.append('(')
+        mkvmerge_cmd.append(chimeric_vid_obj.filePath)
+
+        audio_stream_orders_to_map = []
+        subtitle_stream_orders_to_map = []
+        track_details_for_setting_flags = {} # key: stream_order_str, value: track_info_dict
+
+        for track_info_dict in tracks_to_add_list:
+            stream_order_str = str(track_info_dict['StreamOrder'])
+            track_details_for_setting_flags[stream_order_str] = track_info_dict
+            if track_info_dict['@type'] == 'Audio':
+                audio_stream_orders_to_map.append(stream_order_str)
+            elif track_info_dict['@type'] == 'Text':
+                subtitle_stream_orders_to_map.append(stream_order_str)
+
+        if not audio_stream_orders_to_map and not subtitle_stream_orders_to_map:
+            mkvmerge_cmd.append(')')
+            continue # Skip if no tracks are actually selected from this chimeric file
+
+        mkvmerge_cmd.append('--no-video')
+
+        if audio_stream_orders_to_map:
+            mkvmerge_cmd.extend(['--audio-tracks', ','.join(audio_stream_orders_to_map)])
+        else:
+            mkvmerge_cmd.append('--no-audio')
+
+        if subtitle_stream_orders_to_map:
+            mkvmerge_cmd.extend(['--subtitle-tracks', ','.join(subtitle_stream_orders_to_map)])
+        else:
+            mkvmerge_cmd.append('--no-subtitles')
+        
+        # Iterate through all tracks intended to be mapped from this source
+        all_mapped_stream_orders = audio_stream_orders_to_map + subtitle_stream_orders_to_map
+        for stream_order_str in all_mapped_stream_orders:
+            track_lang = track_details_for_setting_flags[stream_order_str].get('Language', 'und')
+            # Mkvmerge input file track selection is 0-indexed based on the order of tracks *selected* from that input,
+            # not their original StreamOrder. However, mkvmerge allows specifying by original TID (Track ID)
+            # which corresponds to StreamOrder. The format is `TID:new_TID` or just `TID`.
+            # For setting flags, it's `TID:value` or `type:TID:value`.
+            # When tracks are selected with --audio-tracks TID1,TID2, etc., their output order is fixed.
+            # We need to refer to them by their original TIDs for setting flags.
+            # The problem is that --language TID:lang assumes TID is the *output* track ID.
+            # This gets complex. A simpler way is to map specific tracks and then rely on their relative order for subsequent flag settings,
+            # or set flags for *all* tracks of a certain type from an input.
+            # Let's try setting flags using the original track ID (StreamOrder) from the input file.
+            # The format for --language is <TID>:<lang> or <type>:<TID>:<lang>
+            # where TID is the track ID *in the input file*.
+            
+            # Corrected approach: mkvmerge options like --language, --track-name, --default-track-flag
+            # take the *input track ID* (which is our StreamOrder) when used with a single input file context.
+            # When multiple input files are used, track IDs can be prefixed with `file_idx:` (e.g., `1:TID`).
+            # Within parenthesis, the file is treated as a single input, so `TID` should suffice.
+            # The `0:` prefix was incorrect as it implies the first selected track from the input, not the file index.
+            # The correct way is to just use the stream_order_str, as mkvmerge applies it to the current input file in parenthesis
+            # when specific tracks are selected using --audio-tracks or --subtitle-tracks with their TIDs.
+            
+            mkvmerge_cmd.extend(['--language', f"{stream_order_str}:{track_lang}"])
+            mkvmerge_cmd.extend(['--default-track-flag', f"{stream_order_str}:0"])
+            mkvmerge_cmd.extend(['--forced-display-flag', f"{stream_order_str}:0"])
+            if track_details_for_setting_flags[stream_order_str].get('Title'):
+                 mkvmerge_cmd.extend(['--track-name', f"{stream_order_str}:{track_details_for_setting_flags[stream_order_str]['Title']}"])
+
+        mkvmerge_cmd.extend(['--no-attachments', '--no-global-tags', '--no-chapters'])
+        mkvmerge_cmd.append(')')
+
+    sys.stderr.write(f"MERGEVIDEO_AUGMENT: Executing mkvmerge command: {' '.join(mkvmerge_cmd)}\n")
+    tools.launch_cmdExt(mkvmerge_cmd)
+    return augmented_mkv_path
+
 class compare_video(Thread):
     '''
     classdocs
@@ -1086,6 +1207,29 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
     out_video_metadata.calculate_md5_streams_split()
+
+    # --- Chimeric Tracks Integration ---
+    needed_chimeric_tracks = check_if_chimeric_tracks_needed(out_video_metadata, best_video)
+    if needed_chimeric_tracks:
+        sys.stderr.write(f"MERGEVIDEO: Found {len(needed_chimeric_tracks)} chimeric files with needed tracks.\n")
+        current_tmp_merge_file_path = out_path_tmp_file_name_split
+        augmented_file_path = augment_merge_file_with_tracks(
+            current_tmp_merge_file_path, 
+            needed_chimeric_tracks, 
+            tools.tmpFolder, 
+            best_video.fileBaseName
+        )
+        out_path_tmp_file_name_split = augmented_file_path
+        
+        # Re-initialize and load metadata for the new augmented file
+        sys.stderr.write(f"MERGEVIDEO: Reloading metadata from augmented file: {out_path_tmp_file_name_split}\n")
+        out_video_metadata = video.video(tools.tmpFolder, path.basename(out_path_tmp_file_name_split))
+        out_video_metadata.get_mediadata()
+        out_video_metadata.video = best_video.video # Preserve original best video stream reference
+        out_video_metadata.calculate_md5_streams_split()
+    else:
+        sys.stderr.write("MERGEVIDEO: No needed chimeric tracks found or V_abs_best.chimeric_files is empty.\n")
+    # --- End Chimeric Tracks Integration ---
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):

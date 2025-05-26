@@ -305,6 +305,9 @@ def process(list_not_compatible_video_input_output, already_compared_dict,
         return current_dict_file_path_obj
     sys.stderr.write(f"CHIMERIC_PROCESSOR: V_abs_best identified as {V_abs_best.filePath}\n")
 
+    if V_abs_best.chimeric_files is None:
+        V_abs_best.chimeric_files = []
+
     updated_dict_file_path_obj = {V_abs_best.filePath: V_abs_best}
     common_subtitle_languages = list(set(V_abs_best.subtitles.keys())) # Start with V_abs_best's subs
 
@@ -324,6 +327,9 @@ def process(list_not_compatible_video_input_output, already_compared_dict,
                 chimeric_video_obj.get_mediadata(); chimeric_video_obj.calculate_md5_streams_split()
                 chimeric_video_obj.delays[common_sync_language] = Decimal(0)
                 updated_dict_file_path_obj[chimeric_mkv_path] = chimeric_video_obj
+                if V_abs_best.chimeric_files is None: # Defensive check, should have been initialized in video.py
+                    V_abs_best.chimeric_files = []
+                V_abs_best.chimeric_files.append(chimeric_video_obj)
             else:
                 sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to assemble chimeric MKV for {original_path}.\n")
                 list_not_compatible_video_input_output.append(original_path)
