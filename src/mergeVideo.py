@@ -16,7 +16,7 @@ from time import strftime,gmtime
 from threading import Thread
 import tools
 import video
-from src import chimeric_processor # Added for chimeric processing
+import chimeric_processor # Added for chimeric processing
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 from decimal import *
@@ -132,127 +132,6 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
                 for h in range(0,video.number_cut):
                     delay_between_two_audio.append(second_correlation(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
     return delay_Values
-
-def check_if_chimeric_tracks_needed(out_video_metadata_obj, V_abs_best_obj):
-    """
-    Checks if any audio or subtitle tracks from chimeric files are needed (i.e., languages not present in the main merged file).
-    """
-    needed_tracks_by_file = []
-    if not V_abs_best_obj.chimeric_files: # Handles None or empty list
-        return needed_tracks_by_file
-
-    existing_audio_languages = set(out_video_metadata_obj.audios.keys())
-    existing_subtitle_languages = set(out_video_metadata_obj.subtitles.keys())
-
-    for chimeric_vid_obj in V_abs_best_obj.chimeric_files:
-        if not chimeric_vid_obj: # Skip if a chimeric_vid_obj is None for some reason
-            continue
-        tracks_from_this_chimeric = []
-        # Check audio tracks
-        for lang, track_list in chimeric_vid_obj.audios.items():
-            if lang not in existing_audio_languages:
-                for track_info in track_list:
-                    tracks_from_this_chimeric.append(track_info)
-        
-        # Check subtitle tracks
-        for lang, track_list in chimeric_vid_obj.subtitles.items():
-            if lang not in existing_subtitle_languages:
-                for track_info in track_list:
-                    tracks_from_this_chimeric.append(track_info)
-        
-        if tracks_from_this_chimeric:
-            needed_tracks_by_file.append((chimeric_vid_obj, tracks_from_this_chimeric))
-            # Add newly found languages to existing sets to prevent adding them again from other chimeric files if they offer the same new language
-            for track in tracks_from_this_chimeric:
-                if track['@type'] == 'Audio':
-                    existing_audio_languages.add(track.get('Language', 'und'))
-                elif track['@type'] == 'Text':
-                    existing_subtitle_languages.add(track.get('Language', 'und'))
-
-    return needed_tracks_by_file
-
-def augment_merge_file_with_tracks(original_temp_merge_path, needed_tracks_info_list, tools_temp_folder, V_abs_best_basename):
-    """
-    Augments the original_temp_merge_path with tracks specified in needed_tracks_info_list.
-    Returns the path to the new augmented MKV file.
-    """
-    augmented_mkv_path = path.join(tools_temp_folder, f"{V_abs_best_basename}_merged_step2.mkv")
-    
-    mkvmerge_cmd = [tools.software['mkvmerge'], '-o', augmented_mkv_path]
-    mkvmerge_cmd.extend(['--global-tags', '', '--no-chapters']) # Start with no global tags or chapters from prior files
-
-    # Add original_temp_merge_path as the first input group
-    mkvmerge_cmd.extend(['(', original_temp_merge_path, ')'])
-
-    for chimeric_vid_obj, tracks_to_add_list in needed_tracks_info_list:
-        mkvmerge_cmd.append('(')
-        mkvmerge_cmd.append(chimeric_vid_obj.filePath)
-
-        audio_stream_orders_to_map = []
-        subtitle_stream_orders_to_map = []
-        track_details_for_setting_flags = {} # key: stream_order_str, value: track_info_dict
-
-        for track_info_dict in tracks_to_add_list:
-            stream_order_str = str(track_info_dict['StreamOrder'])
-            track_details_for_setting_flags[stream_order_str] = track_info_dict
-            if track_info_dict['@type'] == 'Audio':
-                audio_stream_orders_to_map.append(stream_order_str)
-            elif track_info_dict['@type'] == 'Text':
-                subtitle_stream_orders_to_map.append(stream_order_str)
-
-        if not audio_stream_orders_to_map and not subtitle_stream_orders_to_map:
-            mkvmerge_cmd.append(')')
-            continue # Skip if no tracks are actually selected from this chimeric file
-
-        mkvmerge_cmd.append('--no-video')
-
-        if audio_stream_orders_to_map:
-            mkvmerge_cmd.extend(['--audio-tracks', ','.join(audio_stream_orders_to_map)])
-        else:
-            mkvmerge_cmd.append('--no-audio')
-
-        if subtitle_stream_orders_to_map:
-            mkvmerge_cmd.extend(['--subtitle-tracks', ','.join(subtitle_stream_orders_to_map)])
-        else:
-            mkvmerge_cmd.append('--no-subtitles')
-        
-        # Iterate through all tracks intended to be mapped from this source
-        all_mapped_stream_orders = audio_stream_orders_to_map + subtitle_stream_orders_to_map
-        for stream_order_str in all_mapped_stream_orders:
-            track_lang = track_details_for_setting_flags[stream_order_str].get('Language', 'und')
-            # Mkvmerge input file track selection is 0-indexed based on the order of tracks *selected* from that input,
-            # not their original StreamOrder. However, mkvmerge allows specifying by original TID (Track ID)
-            # which corresponds to StreamOrder. The format is `TID:new_TID` or just `TID`.
-            # For setting flags, it's `TID:value` or `type:TID:value`.
-            # When tracks are selected with --audio-tracks TID1,TID2, etc., their output order is fixed.
-            # We need to refer to them by their original TIDs for setting flags.
-            # The problem is that --language TID:lang assumes TID is the *output* track ID.
-            # This gets complex. A simpler way is to map specific tracks and then rely on their relative order for subsequent flag settings,
-            # or set flags for *all* tracks of a certain type from an input.
-            # Let's try setting flags using the original track ID (StreamOrder) from the input file.
-            # The format for --language is <TID>:<lang> or <type>:<TID>:<lang>
-            # where TID is the track ID *in the input file*.
-            
-            # Corrected approach: mkvmerge options like --language, --track-name, --default-track-flag
-            # take the *input track ID* (which is our StreamOrder) when used with a single input file context.
-            # When multiple input files are used, track IDs can be prefixed with `file_idx:` (e.g., `1:TID`).
-            # Within parenthesis, the file is treated as a single input, so `TID` should suffice.
-            # The `0:` prefix was incorrect as it implies the first selected track from the input, not the file index.
-            # The correct way is to just use the stream_order_str, as mkvmerge applies it to the current input file in parenthesis
-            # when specific tracks are selected using --audio-tracks or --subtitle-tracks with their TIDs.
-            
-            mkvmerge_cmd.extend(['--language', f"{stream_order_str}:{track_lang}"])
-            mkvmerge_cmd.extend(['--default-track-flag', f"{stream_order_str}:0"])
-            mkvmerge_cmd.extend(['--forced-display-flag', f"{stream_order_str}:0"])
-            if track_details_for_setting_flags[stream_order_str].get('Title'):
-                 mkvmerge_cmd.extend(['--track-name', f"{stream_order_str}:{track_details_for_setting_flags[stream_order_str]['Title']}"])
-
-        mkvmerge_cmd.extend(['--no-attachments', '--no-global-tags', '--no-chapters'])
-        mkvmerge_cmd.append(')')
-
-    sys.stderr.write(f"MERGEVIDEO_AUGMENT: Executing mkvmerge command: {' '.join(mkvmerge_cmd)}\n")
-    tools.launch_cmdExt(mkvmerge_cmd)
-    return augmented_mkv_path
 
 class compare_video(Thread):
     '''
@@ -592,51 +471,6 @@ def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
             return new_compare_objs.pop(i)
     return None
 
-class get_cut_time(Thread):
-    '''
-    classdocs
-    '''
-
-
-    def __init__(self, main_video_obj,video_obj_to_cut,begin_in_second,audioParam,language,lenghtTime,lenghtTimePrepare,list_cut_begin_length,time_by_test_best_quality_converted):
-        '''
-        Constructor
-        '''
-        Thread.__init__(self)
-        self.main_video_obj = main_video_obj
-        self.video_obj_to_cut = video_obj_to_cut
-        self.begin_in_second = begin_in_second
-        self.audioParam = audioParam
-        self.language = language
-        self.lenghtTime = lenghtTime
-        self.lenghtTimePrepare = lenghtTimePrepare
-        self.list_cut_begin_length = list_cut_begin_length
-        self.time_by_test_best_quality_converted = time_by_test_best_quality_converted
-
-    def run(self):
-        try:
-            delay = self.get_first_delay_and_gap()
-            if self.process_to_get_best_video:
-                self.get_best_video(delay)
-            else: # You must have the video you want process in video_obj_1
-                self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
-                self.video_obj_2.remove_tmp_files(type_file="audio")
-                self.video_obj_with_best_quality = self.video_obj_1
-                self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
-        except Exception as e:
-            traceback.print_exc()
-            sys.stderr.write(str(e)+"\n")
-    
-    def get_first_delay_and_gap(self):
-        delay_Fidelity_Values = get_delay_fidelity(self.main_video_obj,self.video_obj_to_cut,self.lenghtTime)
-        # Il va falloir verifier que nous avons bien les mêmes delays entre les différents audios
-        keys_audio = list(delay_Fidelity_Values.keys())
-        values_of_delay = delay_Fidelity_Values[keys_audio[0]]
-        for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
-            for i in range(len(values_of_delay)):
-                if values_of_delay[i] != delay_fidelity_list[i]:
-                    raise Exception(f"{delay_Fidelity_Values} Impossible to find a way to cut {self.video_obj_to_cut.filePath} who have differents audio not compatible with {self.main_video_obj.filePath}")
-
 """
     Theorically the video I will remove have no connexion between other files.
 """
@@ -805,6 +639,7 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
             
         shuffle(compareObjs)
     
+    chimeric_processor.process(list_not_compatible_video, already_compared,dict_file_path_obj, language,length_time_converted)
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
@@ -834,6 +669,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     else:
         list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
     
+    chimeric_processor.process(list_not_compatible_video, already_compared,dict_file_path_obj, language,length_time_converted)
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
@@ -1205,31 +1041,12 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
     out_video_metadata.get_mediadata()
+
+    if best_video.chimeric_files != None and len(best_video.chimeric_files):
+        out_video_metadata,out_path_tmp_file_name_split = integrate_chimerics_files(out_video_metadata,out_path_tmp_file_name_split,best_video)
+
     out_video_metadata.video = best_video.video
     out_video_metadata.calculate_md5_streams_split()
-
-    # --- Chimeric Tracks Integration ---
-    needed_chimeric_tracks = check_if_chimeric_tracks_needed(out_video_metadata, best_video)
-    if needed_chimeric_tracks:
-        sys.stderr.write(f"MERGEVIDEO: Found {len(needed_chimeric_tracks)} chimeric files with needed tracks.\n")
-        current_tmp_merge_file_path = out_path_tmp_file_name_split
-        augmented_file_path = augment_merge_file_with_tracks(
-            current_tmp_merge_file_path, 
-            needed_chimeric_tracks, 
-            tools.tmpFolder, 
-            best_video.fileBaseName
-        )
-        out_path_tmp_file_name_split = augmented_file_path
-        
-        # Re-initialize and load metadata for the new augmented file
-        sys.stderr.write(f"MERGEVIDEO: Reloading metadata from augmented file: {out_path_tmp_file_name_split}\n")
-        out_video_metadata = video.video(tools.tmpFolder, path.basename(out_path_tmp_file_name_split))
-        out_video_metadata.get_mediadata()
-        out_video_metadata.video = best_video.video # Preserve original best video stream reference
-        out_video_metadata.calculate_md5_streams_split()
-    else:
-        sys.stderr.write("MERGEVIDEO: No needed chimeric tracks found or V_abs_best.chimeric_files is empty.\n")
-    # --- End Chimeric Tracks Integration ---
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
@@ -1402,99 +1219,6 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
             This part will use for a new audio correlation. They will only be use to cross validate the correlation and detect some big errors.
         """
         pass
-
-    # --- Chimeric Processing Step ---
-    if tools.special_params.get("chimeric_process_enabled", "false").lower() == "true":
-        sys.stderr.write("INFO: Chimeric processing is enabled.\n")
-        list_for_incompatible_chimera = [] # To be populated by chimeric_processor.process
-
-        # Calculate a representative length_time for the initial coarse offset detection in chimeric_processor
-        all_video_durations = [float(v.video['Duration']) for v in dict_file_path_obj.values() if v.video and 'Duration' in v.video and v.video['Duration']]
-        min_overall_duration_s = min(all_video_durations) if all_video_durations else 300.0 # Default to 5 mins
-        _unused_begin_s_overall, length_time_overall_param = video.generate_begin_and_length_by_segment(min_overall_duration_s)
-
-        audio_params_for_wav_param = {'Format':"WAV", 'codec':"pcm_s16le", 'Channels': "2"}
-        audio_params_for_final_encode_param = {'codec': 'flac', 'params': ['-compression_level', '12']}
-
-        # current_dict_file_path_obj is dict_file_path_obj before this call
-        # already_compared_dict is dict_with_video_quality_logic from initial comparisons
-        updated_dict_file_path_obj_from_chimera = chimeric_processor.process(
-            list_for_incompatible_chimera, # Populated by process
-            dict_with_video_quality_logic, # Used to find V_abs_best
-            dict_file_path_obj,            # Current videos
-            common_language_use_for_generate_delay,
-            length_time_overall_param,     # For initial coarse offset
-            audio_params_for_wav_param,    # For correlation audio segments
-            tools.tmpFolder,
-            audio_params_for_final_encode_param # For final audio encoding in chimeric MKV
-        )
-        
-        # Update dict_file_path_obj with results from chimeric processing
-        dict_file_path_obj = updated_dict_file_path_obj_from_chimera
-
-        # list_not_compatible_video might already exist from get_delay_and_best_video if some videos were incompatible there.
-        # We need to make sure it's initialized if not already.
-        if 'list_not_compatible_video' not in locals() and 'list_not_compatible_video' not in globals():
-             list_not_compatible_video = [] # Initialize if it wasn't created before (e.g. if forced_best_video path was taken)
-        
-        # Add videos that failed chimeric process to the list of videos to be removed
-        # The chimeric_processor.process function populates list_for_incompatible_chimera with original paths.
-        for failed_original_path in list_for_incompatible_chimera:
-            if failed_original_path not in list_not_compatible_video:
-                 list_not_compatible_video.append(failed_original_path)
-        
-        # After chimeric processing, V_abs_best (identified within chimeric_processor.process) is the reference.
-        # All other successfully processed videos in dict_file_path_obj are conformed to it (delay=0).
-        # Rebuild dict_with_video_quality_logic to reflect this for generate_launch_merge_command.
-        
-        # Find V_abs_best again from the potentially updated dict_file_path_obj keys if its path changed (it shouldn't)
-        # Or, more robustly, ensure V_abs_best determined by chimeric_processor is used.
-        # For now, assume V_abs_best's path is stable and it's the first key if only one "best" found by it.
-        # The chimeric_processor.process should ideally return V_abs_best_obj as well, or its path.
-        # For now, we find it from the returned dict_file_path_obj assuming it contains V_abs_best and conformed files.
-        
-        # This V_abs_best identification logic here is a simplified assumption.
-        # The one in chimeric_processor.process is more robust.
-        # We need to ensure generate_launch_merge_command gets the correct reference.
-        # The simplest is that dict_file_path_obj now contains V_abs_best and conformed videos.
-        # And dict_with_video_quality_logic should reflect V_abs_best as the top.
-        
-        # V_abs_best_path_after_chimera = None
-        # if dict_file_path_obj: # Check if not empty
-        #    # This assumes V_abs_best is still identifiable or is the 'main' reference.
-        #    # The actual V_abs_best path might be complex to re-identify if its original path was removed.
-        #    # However, chimeric_processor starts its updated_dict with V_abs_best.
-        #    V_abs_best_path_after_chimera = list(dict_file_path_obj.keys())[0] # Risky assumption
-        # A better way: find the video object that is NOT in tools.tmpFolder (original V_abs_best)
-        
-        v_abs_best_ref_path = None
-        for vid_path, vid_obj_iter in dict_file_path_obj.items():
-            if tools.tmpFolder not in vid_obj_iter.fileFolder: # The original V_abs_best won't be in tmpFolder
-                v_abs_best_ref_path = vid_path
-                break
-        
-        if v_abs_best_ref_path:
-            new_dict_with_video_quality_logic = {v_abs_best_ref_path: {}}
-            for video_fpath_key in dict_file_path_obj.keys():
-                if video_fpath_key != v_abs_best_ref_path:
-                    new_dict_with_video_quality_logic[v_abs_best_ref_path][video_fpath_key] = True 
-            dict_with_video_quality_logic = new_dict_with_video_quality_logic
-        else:
-            sys.stderr.write("ERROR: V_abs_best path could not be re-identified after chimeric processing. Merge may fail or be incorrect.\n")
-            # If V_abs_best was itself a chimeric (e.g. if only two files), this logic fails.
-            # The design implies V_abs_best is an original file.
-
-        # remove_not_compatible_video was called earlier in get_delay_and_best_video.
-        # Call it again if list_not_compatible_video has new entries from chimeric process.
-        if list_for_incompatible_chimera: # If chimeric process added new incompatibles
-             remove_not_compatible_video(list_for_incompatible_chimera, dict_file_path_obj)
-
-    else:
-        sys.stderr.write("INFO: Chimeric processing is disabled.\n")
-    
-    if not dict_file_path_obj:
-        sys.stderr.write("No videos remaining after all processing. Aborting merge.\n")
-        return
 
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules)
     

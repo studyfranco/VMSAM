@@ -21,131 +21,6 @@ path_to_livmaf_model = "" #Nothing if it use the default
 number_cut = 5
 percent_time_by_test_video_quality_from_cut = 25
 
-# --- Upscale Detection Function ---
-def detect_upscale(video_obj, segment_begin, segment_duration):
-    """
-    Detects if a video segment is likely upscaled by comparing it with a
-    downscaled-then-upscaled version using SSIM.
-    """
-    if not video_obj.video or 'Width' not in video_obj.video or 'Height' not in video_obj.video:
-        sys.stderr.write("DETECT_UPSCALE: Video object missing dimension attributes.\n")
-        return False, (video_obj.video.get('Height') if video_obj.video else 0)
-
-    try:
-        W_orig = int(video_obj.video['Width'])
-        H_orig = int(video_obj.video['Height'])
-        if W_orig <=0 or H_orig <=0: 
-            sys.stderr.write(f"DETECT_UPSCALE: Invalid original dimensions W_orig={W_orig}, H_orig={H_orig}.\n")
-            return False, H_orig
-    except ValueError:
-        sys.stderr.write("DETECT_UPSCALE: Could not parse original dimensions.\n")
-        return False, (video_obj.video.get('Height') if video_obj.video else 0)
-
-    test_heights = [720, 540, 480, 360]
-    detected_native_height = H_orig
-    is_likely_upscaled = False
-    SSIM_THRESHOLD = 0.985
-    ffmpeg_path = tools.software["ffmpeg"]
-    
-    video_stream_map = f"0:{video_obj.video['StreamOrder']}"
-    
-    safe_segment_begin = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_begin))
-    safe_segment_duration = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_duration))
-    
-    all_temp_files_for_function = []
-
-    for h_test in test_heights:
-        if H_orig <= h_test:
-            continue
-
-        w_test = (int(W_orig * h_test / H_orig) // 2) * 2
-        if w_test <= 0:
-            sys.stderr.write(f"DETECT_UPSCALE: Calculated w_test={w_test} is invalid for h_test={h_test}.\n")
-            continue
-
-        base_name_for_temp = f"{video_obj.fileBaseName}_upscaletest_s{safe_segment_begin}_d{safe_segment_duration}_h{h_test}"
-        orig_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_orig.mkv")
-        rescaled_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_rescaled.mkv")
-        ssim_log_filename = f"{base_name_for_temp}_ssim.log" 
-        ssim_log_path_full = path.join(tools.tmpFolder, ssim_log_filename) 
-        
-        current_iter_temp_files = [orig_segment_path, rescaled_segment_path, ssim_log_path_full]
-        all_temp_files_for_function.extend(current_iter_temp_files)
-
-        try:
-            cmd_orig = [
-                ffmpeg_path, '-y', '-nostdin',
-                '-i', video_obj.filePath,
-                '-ss', str(segment_begin), 
-                '-t', str(segment_duration),
-                '-map', video_stream_map,
-                '-c', 'copy', 
-                '-threads', '1', 
-                '-an', '-sn', 
-                orig_segment_path
-            ]
-            tools.launch_cmdExt(cmd_orig)
-
-            vf_filter = f"scale={w_test}:{h_test},scale={W_orig}:{H_orig}:flags=bicubic"
-            cmd_rescale = [
-                ffmpeg_path, '-y', '-nostdin',
-                '-i', orig_segment_path, 
-                '-vf', vf_filter,
-                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', 
-                '-threads', '1',
-                '-an', '-sn', 
-                rescaled_segment_path
-            ]
-            tools.launch_cmdExt(cmd_rescale)
-
-            cmd_ssim = [
-                ffmpeg_path, '-threads', '1', '-nostdin',
-                '-i', orig_segment_path,
-                '-i', rescaled_segment_path,
-                '-lavfi', f"[0:v][1:v]ssim=stats_file={ssim_log_filename}", 
-                '-f', 'null', '-'
-            ]
-            _stdout_ssim, stderr_ssim, _exit_code_ssim = tools.launch_cmdExt(cmd_ssim, cwd=tools.tmpFolder)
-
-            ssim_all_score = None
-            if os.path.exists(ssim_log_path_full):
-                with open(ssim_log_path_full, 'r') as f_log:
-                    log_content = f_log.read()
-                match = re.search(r"All:([\d\.]+)", log_content) 
-                if match:
-                    ssim_all_score = float(match.group(1))
-            
-            if ssim_all_score is None and stderr_ssim: 
-                stderr_content = stderr_ssim.decode("utf-8", errors='ignore')
-                match_stderr = re.search(r"SSIM Y:.*? All:([\d\.]+)", stderr_content)
-                if match_stderr:
-                    ssim_all_score = float(match_stderr.group(1))
-
-            if ssim_all_score is not None:
-                sys.stderr.write(f"DETECT_UPSCALE: Test H_orig={H_orig}, h_test={h_test}, SSIM: {ssim_all_score}\n")
-                if ssim_all_score >= SSIM_THRESHOLD:
-                    is_likely_upscaled = True
-                    detected_native_height = h_test
-                    break 
-            else:
-                sys.stderr.write(f"DETECT_UPSCALE: Failed to parse SSIM score for h_test={h_test}.\n")
-
-        except Exception as e:
-            sys.stderr.write(f"DETECT_UPSCALE: Error during upscale detection for {video_obj.filePath} at {h_test}p: {e}\n")
-        finally:
-            for f_path in current_iter_temp_files:
-                if os.path.exists(f_path):
-                    try: os.remove(f_path)
-                    except OSError as e_rm: sys.stderr.write(f"DETECT_UPSCALE: Error removing temp file {f_path}: {e_rm}\n")
-    
-    for f_path_final in all_temp_files_for_function: 
-         if os.path.exists(f_path_final):
-            try: os.remove(f_path_final)
-            except OSError: pass
-
-    return is_likely_upscaled, detected_native_height
-# --- End Upscale Detection Function ---
-
 class video():
     '''
     classdocs
@@ -583,6 +458,131 @@ def big_job_waiter():
     for i in range(0,tools.core_to_use-1):
         ffmpeg_pool_audio_convert.apply_async(sleep, (30,))
     ffmpeg_pool_audio_convert.apply_async(sleep, (0.00000000001,)).get()
+
+# --- Upscale Detection Function ---
+def detect_upscale(video_obj, segment_begin, segment_duration):
+    """
+    Detects if a video segment is likely upscaled by comparing it with a
+    downscaled-then-upscaled version using SSIM.
+    """
+    if not video_obj.video or 'Width' not in video_obj.video or 'Height' not in video_obj.video:
+        sys.stderr.write("DETECT_UPSCALE: Video object missing dimension attributes.\n")
+        return False, (video_obj.video.get('Height') if video_obj.video else 0)
+
+    try:
+        W_orig = int(video_obj.video['Width'])
+        H_orig = int(video_obj.video['Height'])
+        if W_orig <=0 or H_orig <=0: 
+            sys.stderr.write(f"DETECT_UPSCALE: Invalid original dimensions W_orig={W_orig}, H_orig={H_orig}.\n")
+            return False, H_orig
+    except ValueError:
+        sys.stderr.write("DETECT_UPSCALE: Could not parse original dimensions.\n")
+        return False, (video_obj.video.get('Height') if video_obj.video else 0)
+
+    test_heights = [720, 540, 480, 360]
+    detected_native_height = H_orig
+    is_likely_upscaled = False
+    SSIM_THRESHOLD = 0.985
+    ffmpeg_path = tools.software["ffmpeg"]
+    
+    video_stream_map = f"0:{video_obj.video['StreamOrder']}"
+    
+    safe_segment_begin = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_begin))
+    safe_segment_duration = re.sub(r'[^0-9a-zA-Z]', '_', str(segment_duration))
+    
+    all_temp_files_for_function = []
+
+    for h_test in test_heights:
+        if H_orig <= h_test:
+            continue
+
+        w_test = (int(W_orig * h_test / H_orig) // 2) * 2
+        if w_test <= 0:
+            sys.stderr.write(f"DETECT_UPSCALE: Calculated w_test={w_test} is invalid for h_test={h_test}.\n")
+            continue
+
+        base_name_for_temp = f"{video_obj.fileBaseName}_upscaletest_s{safe_segment_begin}_d{safe_segment_duration}_h{h_test}"
+        orig_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_orig.mkv")
+        rescaled_segment_path = path.join(tools.tmpFolder, f"{base_name_for_temp}_rescaled.mkv")
+        ssim_log_filename = f"{base_name_for_temp}_ssim.log" 
+        ssim_log_path_full = path.join(tools.tmpFolder, ssim_log_filename) 
+        
+        current_iter_temp_files = [orig_segment_path, rescaled_segment_path, ssim_log_path_full]
+        all_temp_files_for_function.extend(current_iter_temp_files)
+
+        try:
+            cmd_orig = [
+                ffmpeg_path, '-y', '-nostdin',
+                '-i', video_obj.filePath,
+                '-ss', str(segment_begin), 
+                '-t', str(segment_duration),
+                '-map', video_stream_map,
+                '-c', 'copy', 
+                '-threads', '1', 
+                '-an', '-sn', 
+                orig_segment_path
+            ]
+            tools.launch_cmdExt(cmd_orig)
+
+            vf_filter = f"scale={w_test}:{h_test},scale={W_orig}:{H_orig}:flags=bicubic"
+            cmd_rescale = [
+                ffmpeg_path, '-y', '-nostdin',
+                '-i', orig_segment_path, 
+                '-vf', vf_filter,
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', 
+                '-threads', '1',
+                '-an', '-sn', 
+                rescaled_segment_path
+            ]
+            tools.launch_cmdExt(cmd_rescale)
+
+            cmd_ssim = [
+                ffmpeg_path, '-threads', '1', '-nostdin',
+                '-i', orig_segment_path,
+                '-i', rescaled_segment_path,
+                '-lavfi', f"[0:v][1:v]ssim=stats_file={ssim_log_filename}", 
+                '-f', 'null', '-'
+            ]
+            _stdout_ssim, stderr_ssim, _exit_code_ssim = tools.launch_cmdExt(cmd_ssim, cwd=tools.tmpFolder)
+
+            ssim_all_score = None
+            if os.path.exists(ssim_log_path_full):
+                with open(ssim_log_path_full, 'r') as f_log:
+                    log_content = f_log.read()
+                match = re.search(r"All:([\d\.]+)", log_content) 
+                if match:
+                    ssim_all_score = float(match.group(1))
+            
+            if ssim_all_score is None and stderr_ssim: 
+                stderr_content = stderr_ssim.decode("utf-8", errors='ignore')
+                match_stderr = re.search(r"SSIM Y:.*? All:([\d\.]+)", stderr_content)
+                if match_stderr:
+                    ssim_all_score = float(match_stderr.group(1))
+
+            if ssim_all_score is not None:
+                sys.stderr.write(f"DETECT_UPSCALE: Test H_orig={H_orig}, h_test={h_test}, SSIM: {ssim_all_score}\n")
+                if ssim_all_score >= SSIM_THRESHOLD:
+                    is_likely_upscaled = True
+                    detected_native_height = h_test
+                    break 
+            else:
+                sys.stderr.write(f"DETECT_UPSCALE: Failed to parse SSIM score for h_test={h_test}.\n")
+
+        except Exception as e:
+            sys.stderr.write(f"DETECT_UPSCALE: Error during upscale detection for {video_obj.filePath} at {h_test}p: {e}\n")
+        finally:
+            for f_path in current_iter_temp_files:
+                if os.path.exists(f_path):
+                    try: os.remove(f_path)
+                    except OSError as e_rm: sys.stderr.write(f"DETECT_UPSCALE: Error removing temp file {f_path}: {e_rm}\n")
+    
+    for f_path_final in all_temp_files_for_function: 
+         if os.path.exists(f_path_final):
+            try: os.remove(f_path_final)
+            except OSError: pass
+
+    return is_likely_upscaled, detected_native_height
+# --- End Upscale Detection Function ---
 
 def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
     import re
