@@ -10,6 +10,7 @@ import tools as tools_module
 import video as video_module
 import audioCorrelation # For correlate, get_delay_fidelity, second_correlation
 import re # For path sanitization in _assemble_chimeric_mkv
+from threading import Thread # Added for ChimericFileProcessorThread
 
 # --- Local Helper Functions for Subtitle Handling ---
 def _generate_blank_sub_segment(duration_s, output_srt_path):
@@ -277,65 +278,517 @@ def _assemble_chimeric_mkv(other_video_obj_original_path_or_object, segment_asse
     finally: cleanup_temp_files(local_temp_files)
     return final_mkv_generated_path
 
-def process(list_not_compatible_video, already_compared,dict_file_path_obj, language,length_time_converted): # Added audio_params_for_final_encode
-    if len(list_not_compatible_video) == 0:
-        # If all files are ok, no chimeric process have to be do
-        return
-    sys.stderr.write("CHIMERIC_PROCESSOR: Chimeric processing started.\n")
-    set_bad_video = set()
-    dict_list_video_win = {}
-    for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
-        for other_video_path_file, is_the_best_video in dict_with_results.items():
-            if is_the_best_video:
-                set_bad_video.add(other_video_path_file)
-                if video_path_file in dict_list_video_win:
-                    dict_list_video_win[video_path_file].append(other_video_path_file)
-                else:
-                    dict_list_video_win[video_path_file] = [other_video_path_file]
-            else:
-                set_bad_video.add(video_path_file)
-                if other_video_path_file in dict_list_video_win:
-                    dict_list_video_win[other_video_path_file].append(video_path_file)
-                else:
-                    dict_list_video_win[other_video_path_file] = [video_path_file]
-    
-    best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
 
-    if not V_abs_best:
-        sys.stderr.write("CHIMERIC_PROCESSOR: CRITICAL ERROR - V_abs_best could not be identified.\n")
-        for video_path in current_dict_file_path_obj.keys(): list_not_compatible_video_input_output.append(video_path)
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+# At module level:
+# from threading import Thread # This is already at the top of the file.
+# ... other imports ...
+
+def _cleanup_local_temp_files(files_list): # Defined helper (moved from _assemble_chimeric_mkv for broader use if needed)
+    for f_path in files_list:
+        if os.path.exists(f_path):
+            try: os.remove(f_path)
+            except OSError as e: sys.stderr.write(f"CHIMERIC_PROCESSOR: Error removing temp file {f_path}: {e}\n")
+
+# Make sure this function is defined before ChimericFileProcessorThread if it's called directly,
+# or ensure it's correctly defined at module level.
+
+def _assemble_chimeric_mkv_from_plan(video_to_conform_obj, # For video stream
+                                     segment_assembly_plan, 
+                                     best_video_obj, # Reference, though plan dictates sources
+                                     sync_language, # For naming output file primarily
+                                     all_subtitle_langs, # List of language codes to assemble for
+                                     audio_final_encode_params, 
+                                     tmp_folder, 
+                                     out_folder_for_chimeric_file):
+    sys.stderr.write(f"CHIMERIC_PROCESSOR: Assembling MKV from plan for {video_to_conform_obj.filePath}\n")
+    
+    local_temp_files = []
+    audio_segment_files_for_concat = []
+    # Initialize subtitle_segment_files_for_concat for all languages in the plan
+    # This ensures that even if a language has only blank subs, its concat list is created.
+    subtitle_segment_files_for_concat = {lang: [] for lang in all_subtitle_langs}
+
+    try:
+        for idx, segment_info in enumerate(segment_assembly_plan):
+            segment_duration_s = segment_info['duration_s']
+            
+            # Audio Segment
+            # Make temp audio file name unique using video names and segment index
+            temp_audio_segment_path = os.path.join(tmp_folder, 
+                f"plan_audio_{os.path.basename(segment_info['audio_source_object_path']).replace('.','_')}_{idx}.wav")
+            local_temp_files.append(temp_audio_segment_path)
+
+            if not _extract_audio_segment_for_correlation(
+                segment_info['audio_source_object_path'], 
+                segment_info['audio_source_stream_order'], 
+                tools_module.format_time_ffmpeg_dot(segment_info['audio_source_start_s']), 
+                tools_module.format_time_ffmpeg_dot(segment_duration_s), # Duration of the segment
+                temp_audio_segment_path
+            ):
+                sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to extract audio segment {idx} from {segment_info['audio_source_object_path']}\n")
+                _cleanup_local_temp_files(local_temp_files)
+                return None
+            audio_segment_files_for_concat.append(temp_audio_segment_path)
+
+            # Subtitle Segments
+            for sub_segment_detail in segment_info['subtitle_segments_info']:
+                lang = sub_segment_detail['lang']
+                # Make temp sub file name unique
+                sub_source_basename = os.path.basename(sub_segment_detail.get('sub_source_object_path', 'blank_sub')).replace('.', '_')
+                temp_sub_segment_path = os.path.join(tmp_folder, 
+                    f"plan_sub_{sub_source_basename}_{lang}_{idx}.srt")
+                local_temp_files.append(temp_sub_segment_path)
+
+                if sub_segment_detail['sub_generate_blank']:
+                    if not _generate_blank_sub_segment(sub_segment_detail['sub_source_duration_s'], temp_sub_segment_path):
+                        sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to generate blank sub for lang {lang}, seg {idx}\n")
+                        _cleanup_local_temp_files(local_temp_files)
+                        return None
+                else:
+                    if not _extract_specific_subtitle_stream_segment(
+                        sub_segment_detail['sub_source_object_path'],
+                        sub_segment_detail['sub_source_stream_order'],
+                        sub_segment_detail['sub_source_start_s'],
+                        sub_segment_detail['sub_source_duration_s'],
+                        temp_sub_segment_path
+                    ):
+                        # If extraction fails, generate blank as fallback
+                        sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to extract sub lang {lang}, seg {idx}. Generating blank instead.\n")
+                        if not _generate_blank_sub_segment(sub_segment_detail['sub_source_duration_s'], temp_sub_segment_path):
+                            _cleanup_local_temp_files(local_temp_files)
+                            return None
+                
+                if lang not in subtitle_segment_files_for_concat: # Should have been initialized
+                     subtitle_segment_files_for_concat[lang] = []
+                subtitle_segment_files_for_concat[lang].append(temp_sub_segment_path)
+        
+        # Create Concat List Files
+        audio_concat_list_path = os.path.join(tmp_folder, f"plan_audio_concat_{video_to_conform_obj.fileBaseName}.txt")
+        with open(audio_concat_list_path, 'w', encoding='utf-8') as f:
+            for p in audio_segment_files_for_concat: f.write(f"file '{os.path.basename(p)}'\n")
+        local_temp_files.append(audio_concat_list_path)
+
+        subtitle_concat_paths_map = {}
+        sorted_langs_for_ffmpeg = sorted(list(all_subtitle_langs)) # For deterministic ffmpeg map order
+
+        for lang in sorted_langs_for_ffmpeg:
+            if lang in subtitle_segment_files_for_concat and subtitle_segment_files_for_concat[lang]:
+                sub_concat_path = os.path.join(tmp_folder, f"plan_sub_{lang}_concat_{video_to_conform_obj.fileBaseName}.txt")
+                with open(sub_concat_path, 'w', encoding='utf-8') as f:
+                    for p in subtitle_segment_files_for_concat[lang]: f.write(f"file '{os.path.basename(p)}'\n")
+                subtitle_concat_paths_map[lang] = sub_concat_path
+                local_temp_files.append(sub_concat_path)
+            else: # Ensure all languages are considered even if they end up being all blank segments
+                sys.stderr.write(f"CHIMERIC_PROCESSOR: No subtitle segments generated for language {lang} for {video_to_conform_obj.fileBaseName}. It might result in an empty track or no track.\n")
+
+
+        # Construct FFmpeg Command
+        safe_basename = re.sub(r'[^\w.-]', '_', video_to_conform_obj.fileBaseName) # Sanitize for output filename
+        chimeric_mkv_path = os.path.join(out_folder_for_chimeric_file, f"{safe_basename}_chimeric_plan_{sync_language}.mkv")
+
+        ffmpeg_cmd = [tools_module.software['ffmpeg'], '-y', '-nostdin',
+                      '-i', video_to_conform_obj.filePath, # Input 0: Original video for video stream
+                      '-f', 'concat', '-safe', '0', '-i', audio_concat_list_path] # Input 1: Concatenated audio
+
+        input_idx_counter = 2 # Starts from 2 (0 is video, 1 is audio)
+        subtitle_map_commands = []
+        output_subtitle_stream_idx = 0
+
+        # Video stream from original video_to_conform_obj
+        # Ensure 'video' key and 'StreamOrder' exist
+        if not video_to_conform_obj.video or 'StreamOrder' not in video_to_conform_obj.video:
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Video stream information missing for {video_to_conform_obj.filePath}\n")
+            _cleanup_local_temp_files(local_temp_files)
+            return None
+        video_stream_order = video_to_conform_obj.video['StreamOrder']
+        
+        ffmpeg_cmd.extend(['-map', f"0:{video_stream_order}"]) # Map video from Input 0
+        ffmpeg_cmd.extend(['-map', '1:a:0']) # Map audio from Input 1
+        ffmpeg_cmd.extend(['-metadata:s:a:0', f"language={sync_language}"]) # Set language for the main audio track
+
+        for lang in sorted_langs_for_ffmpeg:
+            if lang in subtitle_concat_paths_map:
+                ffmpeg_cmd.extend(['-f', 'concat', '-safe', '0', '-i', subtitle_concat_paths_map[lang]])
+                subtitle_map_commands.extend(['-map', f"{input_idx_counter}:s:0"])
+                subtitle_map_commands.extend([f"-metadata:s:s:{output_subtitle_stream_idx}", f"language={lang}"])
+                input_idx_counter += 1
+                output_subtitle_stream_idx += 1
+        
+        ffmpeg_cmd.extend(subtitle_map_commands)
+        
+        ffmpeg_cmd.extend(['-c:v', 'copy'])
+        ffmpeg_cmd.extend(['-c:a', audio_final_encode_params.get('codec', 'flac')])
+        if audio_final_encode_params.get('params'):
+            ffmpeg_cmd.extend(audio_final_encode_params['params'])
+        
+        if output_subtitle_stream_idx > 0 : # Only add subtitle codec if there are subtitles
+            ffmpeg_cmd.extend(['-c:s', 'ass'])
+
+        ffmpeg_cmd.extend(['-shortest', chimeric_mkv_path])
+
+        sys.stdout.write(f"CHIMERIC_PROCESSOR: Assembling Chimeric MKV (from plan): {' '.join(ffmpeg_cmd)}\n")
+        _stdout_ff, stderr_ff, exit_code_ff = tools_module.launch_cmdExt(ffmpeg_cmd, cwd=tmp_folder)
+
+        if exit_code_ff == 0:
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Successfully generated chimeric MKV (from plan): {chimeric_mkv_path}\n")
+            return chimeric_mkv_path
+        else:
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Error generating chimeric MKV (from plan): {stderr_ff.decode('utf-8', errors='ignore')}\n")
+            _cleanup_local_temp_files(local_temp_files) # Also cleanup if ffmpeg fails
+            return None
+
+    except Exception as e:
+        sys.stderr.write(f"CHIMERIC_PROCESSOR: Exception in _assemble_chimeric_mkv_from_plan for {video_to_conform_obj.filePath}: {e}\n{traceback.format_exc()}\n")
+        _cleanup_local_temp_files(local_temp_files)
+        return None
+    finally:
+        # Ensure cleanup happens, though specific failures above might have already cleaned.
+        # This is a catch-all.
+        _cleanup_local_temp_files(local_temp_files)
+
+class ChimericFileProcessorThread(Thread):
+
+class ChimericFileProcessorThread(Thread):
+    def __init__(self, best_video_obj, video_to_conform_obj, sync_lang, 
+                 segment_proc_duration_s, all_vids_dict, audio_wav_prms, 
+                 tmp_fldr, audio_final_enc_prms, all_sub_langs_available_list,
+                 out_folder_for_chimeric_file, length_time_initial_offset_calc_param): # Added length_time_initial_offset_calc_param
+        Thread.__init__(self)
+        self.best_video_obj = best_video_obj
+        self.video_to_conform_obj = video_to_conform_obj
+        self.sync_lang = sync_lang
+        self.segment_proc_duration_s = segment_proc_duration_s # This is SEGMENT_DURATION_S from the plan
+        self.all_vids_dict = all_vids_dict
+        self.audio_wav_prms = audio_wav_prms # These are audio_params_for_wav in process()
+        self.tmp_fldr = tmp_fldr
+        self.audio_final_enc_prms = audio_final_enc_prms
+        self.all_sub_langs_available_list = all_sub_langs_available_list
+        self.out_folder_for_chimeric_file = out_folder_for_chimeric_file
+        self.length_time_initial_offset_calc = length_time_initial_offset_calc_param # Stored
+        self.result = None
+        self.original_video_path = video_to_conform_obj.filePath 
+        self.temp_files_to_cleanup = []
+
+    def run(self):
+        sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Started.\n")
+        try:
+            # --- a. Initial Coarse Offset Calculation ---
+            initial_offset_audio_params = {'Format': "WAV", 'codec': "pcm_s16le", 'Channels': "2"}
+            
+            best_duration_str = self.best_video_obj.video.get('Duration')
+            conform_duration_str = self.video_to_conform_obj.video.get('Duration')
+
+            if not best_duration_str or not conform_duration_str:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Missing duration for one or both videos.\n")
+                self.result = None; return
+            try:
+                best_duration = float(best_duration_str)
+                conform_duration = float(conform_duration_str)
+            except ValueError:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Invalid duration format.\n")
+                self.result = None; return
+
+            min_duration_s = min(best_duration, conform_duration)
+            begin_s_for_initial_cuts = 5.0
+            if min_duration_s < (begin_s_for_initial_cuts + video_module.number_cut * self.length_time_initial_offset_calc):
+                begin_s_for_initial_cuts = 0.0
+            
+            list_cut_begin_length_initial = video_module.generate_cut_with_begin_length(
+                begin_s_for_initial_cuts, 
+                self.length_time_initial_offset_calc, 
+                tools_module.format_time_ffmpeg_dot(self.length_time_initial_offset_calc)
+            )
+            
+            initial_cut_temp_files_best_paths = self.best_video_obj.extract_audio_in_part(self.sync_lang, initial_offset_audio_params, cutTime=list_cut_begin_length_initial, asDefault=False) 
+            if initial_cut_temp_files_best_paths: self.temp_files_to_cleanup.extend(initial_cut_temp_files_best_paths)
+            
+            initial_cut_temp_files_conform_paths = self.video_to_conform_obj.extract_audio_in_part(self.sync_lang, initial_offset_audio_params, cutTime=list_cut_begin_length_initial, asDefault=False)
+            if initial_cut_temp_files_conform_paths: self.temp_files_to_cleanup.extend(initial_cut_temp_files_conform_paths)
+
+            if not initial_cut_temp_files_best_paths or not initial_cut_temp_files_conform_paths:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Failed to extract initial audio cuts for offset calculation.\n")
+                self.result = None; return
+
+            delay_fidelity_values = audioCorrelation.get_delay_fidelity(self.best_video_obj, self.video_to_conform_obj, self.length_time_initial_offset_calc, initial_cut_temp_files_best_paths, initial_cut_temp_files_conform_paths) 
+            
+            # Cleanup initial cut files immediately after use
+            _cleanup_local_temp_files(initial_cut_temp_files_best_paths)
+            _cleanup_local_temp_files(initial_cut_temp_files_conform_paths)
+            self.temp_files_to_cleanup = [f for f in self.temp_files_to_cleanup if f not in initial_cut_temp_files_best_paths and f not in initial_cut_temp_files_conform_paths]
+
+            if not delay_fidelity_values:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Initial offset: No results from get_delay_fidelity.\n")
+                self.result = None; return
+            all_collected_delays_ms = [df[2] for df_list in delay_fidelity_values.values() for df in df_list if df_list]
+            if not all_collected_delays_ms:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Initial offset: No delays collected.\n")
+                self.result = None; return
+            if len(all_collected_delays_ms) > 1:
+                try:
+                    delay_stdev = statistics.stdev(all_collected_delays_ms)
+                    if delay_stdev > 100: 
+                        sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Initial offset: Unstable delays (stdev > 100ms).\n")
+                        self.result = None; return
+                except statistics.StatisticsError: pass 
+            
+            initial_offset_ms = Decimal(str(round(statistics.mean(all_collected_delays_ms))))
+            sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Initial offset calculated: {initial_offset_ms}ms\n")
+            current_dynamic_offset_s = float(initial_offset_ms / Decimal(1000))
+
+            # --- b. Sequential Segment-by-Segment Analysis ---
+            FIDELITY_THRESHOLD = 0.80
+            INCOMPATIBILITY_THRESHOLD_PERCENT = 50.0
+            OFFSET_CONSISTENCY_WINDOW_S = 0.5 
+
+            segment_assembly_plan = []
+            total_bad_audio_duration_s = 0.0
+            current_main_time_s = 0.0
+
+            best_audio_tracks = self.best_video_obj.audios.get(self.sync_lang)
+            conform_audio_tracks = self.video_to_conform_obj.audios.get(self.sync_lang)
+            if not best_audio_tracks or not conform_audio_tracks:
+                 sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Sync language '{self.sync_lang}' audio tracks not found.\n")
+                 self.result = None; return
+            best_corr_audio_stream_order = best_audio_tracks[0]['StreamOrder']
+            conform_corr_audio_stream_order = conform_audio_tracks[0]['StreamOrder']
+            
+            idx = 0
+            while current_main_time_s < best_duration:
+                actual_segment_duration_s = min(self.segment_proc_duration_s, best_duration - current_main_time_s)
+                if actual_segment_duration_s < 1.0: break 
+
+                segment_info = {
+                    'main_start_s': current_main_time_s, 'duration_s': actual_segment_duration_s,
+                    'audio_source_object_path': None, 'audio_source_stream_order': None,
+                    'audio_extract_start_s': None, 'audio_extract_duration_s': None,
+                    'subtitles_plan': {} 
+                }
+                main_segment_start_str = tools_module.format_time_ffmpeg_dot(current_main_time_s)
+                main_segment_duration_str = tools_module.format_time_ffmpeg_dot(actual_segment_duration_s)
+                
+                main_audio_segment_path = os.path.join(self.tmp_fldr, f"ch_main_corr_seg_{self.best_video_obj.fileBaseName}_{idx}.wav")
+                self.temp_files_to_cleanup.append(main_audio_segment_path)
+                other_segment_start_abs_s = current_main_time_s - current_dynamic_offset_s
+                other_audio_segment_path = os.path.join(self.tmp_fldr, f"ch_other_corr_seg_{self.video_to_conform_obj.fileBaseName}_{idx}.wav")
+                self.temp_files_to_cleanup.append(other_audio_segment_path)
+
+                audio_segment_good = False; reason_for_bad = "unknown"
+
+                if not _extract_audio_segment_for_correlation(self.best_video_obj.filePath, best_corr_audio_stream_order, main_segment_start_str, main_segment_duration_str, main_audio_segment_path):
+                    reason_for_bad = "main_audio_extract_fail"
+                elif (other_segment_start_abs_s + actual_segment_duration_s < 0.1) or (other_segment_start_abs_s >= conform_duration - 0.1):
+                    reason_for_bad = "other_audio_out_of_bounds"
+                else:
+                    other_segment_start_clipped_s = max(0.0, other_segment_start_abs_s)
+                    other_segment_duration_clipped_s = min(actual_segment_duration_s, conform_duration - other_segment_start_clipped_s)
+                    if other_segment_duration_clipped_s < 1.0: reason_for_bad = "other_audio_clip_too_short"
+                    elif not _extract_audio_segment_for_correlation(self.video_to_conform_obj.filePath, conform_corr_audio_stream_order, tools_module.format_time_ffmpeg_dot(other_segment_start_clipped_s), tools_module.format_time_ffmpeg_dot(other_segment_duration_clipped_s), other_audio_segment_path):
+                        reason_for_bad = "other_audio_extract_fail"
+                    else:
+                        try:
+                            fidelity, _, _ = audioCorrelation.correlate(main_audio_segment_path, other_audio_segment_path, other_segment_duration_clipped_s)
+                            _shifted_file, precise_offset_s_fft_raw = audioCorrelation.second_correlation(main_audio_segment_path, other_audio_segment_path)
+                            segment_correction_s = -precise_offset_s_fft_raw if _shifted_file == main_audio_segment_path else precise_offset_s_fft_raw
+                            if fidelity >= FIDELITY_THRESHOLD and abs(segment_correction_s) < OFFSET_CONSISTENCY_WINDOW_S:
+                                current_dynamic_offset_s -= segment_correction_s
+                                segment_info.update({'audio_source_object_path': self.video_to_conform_obj.filePath, 'audio_source_stream_order': conform_corr_audio_stream_order, 'audio_extract_start_s': other_segment_start_clipped_s, 'audio_extract_duration_s': other_segment_duration_clipped_s, 'type': 'good', 'reason': 'good_match', 'fidelity': fidelity, 'segment_correction_s': segment_correction_s, 'other_start_abs_s': other_segment_start_abs_s, 'other_duration_clipped_s': other_segment_duration_clipped_s}) 
+                                audio_segment_good = True
+                            else: reason_for_bad = 'low_fidelity' if fidelity < FIDELITY_THRESHOLD else 'offset_drift_corr_loop'; segment_info.update({'fidelity': fidelity, 'segment_correction_s': segment_correction_s})
+                        except Exception as e_corr: sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Correlation exception: {e_corr}\n"); reason_for_bad = "correlation_exception"
+                
+                if not audio_segment_good:
+                    segment_info.update({'audio_source_object_path': self.best_video_obj.filePath, 'audio_source_stream_order': best_corr_audio_stream_order, 'audio_extract_start_s': current_main_time_s, 'audio_extract_duration_s': actual_segment_duration_s, 'type': 'bad', 'reason': reason_for_bad})
+                    total_bad_audio_duration_s += actual_segment_duration_s
+                
+                for sub_lang in self.all_sub_langs_available_list:
+                    sub_plan = {'generate_blank': True, 'sub_source_object_path': None, 'sub_source_stream_order': None, 'sub_source_start_s': None, 'sub_source_duration_s': actual_segment_duration_s}
+                    potential_sub_sources = []
+                    if audio_segment_good: 
+                        potential_sub_sources.append({'obj': self.video_to_conform_obj, 'start_s': segment_info['audio_extract_start_s'], 'dur_s': segment_info['audio_extract_duration_s']})
+                        potential_sub_sources.append({'obj': self.best_video_obj, 'start_s': current_main_time_s, 'dur_s': actual_segment_duration_s})
+                    else: 
+                        potential_sub_sources.append({'obj': self.best_video_obj, 'start_s': current_main_time_s, 'dur_s': actual_segment_duration_s})
+                    for vid_path_key, vid_obj_candidate in self.all_vids_dict.items():
+                        if vid_obj_candidate.filePath not in [s['obj'].filePath for s in potential_sub_sources]:
+                            potential_sub_sources.append({'obj': vid_obj_candidate, 'start_s': current_main_time_s, 'dur_s': actual_segment_duration_s}) 
+                    
+                    for source_candidate in potential_sub_sources:
+                        candidate_obj = source_candidate['obj']
+                        if hasattr(candidate_obj, 'subtitles') and candidate_obj.subtitles and sub_lang in candidate_obj.subtitles and candidate_obj.subtitles[sub_lang]:
+                            sub_track_info = candidate_obj.subtitles[sub_lang][0]
+                            sub_plan.update({'generate_blank': False, 'sub_source_object_path': candidate_obj.filePath, 'sub_source_stream_order': sub_track_info['StreamOrder'], 'sub_source_start_s': source_candidate['start_s'], 'sub_source_duration_s': source_candidate['dur_s']})
+                            break 
+                    segment_info['subtitles_plan'][sub_lang] = sub_plan
+                
+                segment_assembly_plan.append(segment_info)
+                current_main_time_s += actual_segment_duration_s
+                idx += 1
+            
+            # Cleanup per-segment WAVs after loop
+            _cleanup_local_temp_files([f for f in self.temp_files_to_cleanup if "ch_main_corr_seg" in f or "ch_other_corr_seg" in f])
+            self.temp_files_to_cleanup = [f for f in self.temp_files_to_cleanup if "ch_main_corr_seg" not in f and "ch_other_corr_seg" not in f]
+
+
+            if best_duration > 0 and (total_bad_audio_duration_s / best_duration * 100.0) > INCOMPATIBILITY_THRESHOLD_PERCENT:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Incompatible due to high bad audio duration: {total_bad_audio_duration_s / best_duration * 100.0:.2f}%\n")
+                self.result = None; return
+
+            sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Proceeding to assemble MKV. Plan has {len(segment_assembly_plan)} segments.\n")
+            mkv_path = _assemble_chimeric_mkv_from_plan(
+                self.video_to_conform_obj, segment_assembly_plan, self.best_video_obj, self.sync_lang,
+                self.all_sub_langs_available_list, self.audio_final_enc_prms, self.tmp_fldr, self.out_folder_for_chimeric_file
+            )
+            if mkv_path and os.path.exists(mkv_path):
+                chimeric_video_obj = video_module.video(self.out_folder_for_chimeric_file, os.path.basename(mkv_path))
+                chimeric_video_obj.get_mediadata()
+                chimeric_video_obj.calculate_md5_streams_split()
+                chimeric_video_obj.delays[self.sync_lang] = Decimal(0) 
+                self.result = chimeric_video_obj
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Successfully created chimeric MKV: {mkv_path}\n")
+            else:
+                sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: MKV assembly failed or file not found.\n")
+                self.result = None
+        except Exception as e:
+            sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Exception in run: {e}\n")
+            import traceback; traceback.print_exc(file=sys.stderr)
+            self.result = None
+        finally:
+            _cleanup_local_temp_files(self.temp_files_to_cleanup) 
+            sys.stderr.write(f"CHIMERIC_THREAD [{self.original_video_path}]: Finished run method.\n")
+
+
+def process(list_not_compatible_video_input_output, dict_with_video_quality_logic, 
+            current_dict_file_path_obj, common_sync_language, 
+            length_time_for_initial_offset_calc, 
+            audio_params_for_wav, tools_tmpFolder, 
+            audio_params_for_final_encode):
+
+    sys.stderr.write("CHIMERIC_PROCESSOR: Chimeric processing started (new threaded version).\n")
+
+    if not current_dict_file_path_obj:
+        sys.stderr.write("CHIMERIC_PROCESSOR: No video files to process.\n")
+        return {} 
+
+    set_bad_video = set()
+    if dict_with_video_quality_logic: 
+        for video_path_file_key, dict_with_results_val in dict_with_video_quality_logic.items():
+            if dict_with_results_val: 
+                for other_video_path_file_key2, is_video_path_file_key_better in dict_with_results_val.items():
+                    if is_video_path_file_key_better: 
+                        set_bad_video.add(other_video_path_file_key2)
+                    else: 
+                        set_bad_video.add(video_path_file_key)
+    
+    possible_best_paths = list(set(current_dict_file_path_obj.keys()) - set_bad_video)
+    
+    V_abs_best_path = None
+    if not possible_best_paths: 
+        sys.stderr.write("CHIMERIC_PROCESSOR: No best video candidates after exclusion. Checking all original files.\n")
+        if not dict_with_video_quality_logic and len(current_dict_file_path_obj) == 1:
+            V_abs_best_path = list(current_dict_file_path_obj.keys())[0]
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Only one video, selecting {V_abs_best_path} as best by default.\n")
+        elif current_dict_file_path_obj: 
+            V_abs_best_path = list(current_dict_file_path_obj.keys())[0]
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: WARNING - No clear best video from quality logic. Defaulting to first video: {V_abs_best_path}\n")
+        else: 
+            sys.stderr.write("CHIMERIC_PROCESSOR: CRITICAL ERROR - No videos available to select a best one.\n")
+            for vid_path in current_dict_file_path_obj.keys(): 
+                if vid_path not in list_not_compatible_video_input_output:
+                    list_not_compatible_video_input_output.append(vid_path)
+            return current_dict_file_path_obj 
+    else: 
+        for p in possible_best_paths:
+            if p in current_dict_file_path_obj: 
+                V_abs_best_path = p
+                break 
+    
+    if not V_abs_best_path: 
+        sys.stderr.write("CHIMERIC_PROCESSOR: CRITICAL ERROR - Could not determine V_abs_best_path.\n")
+        for vid_path in current_dict_file_path_obj.keys():
+            if vid_path not in list_not_compatible_video_input_output:
+                list_not_compatible_video_input_output.append(vid_path)
         return current_dict_file_path_obj
+
+    V_abs_best = current_dict_file_path_obj[V_abs_best_path]
     sys.stderr.write(f"CHIMERIC_PROCESSOR: V_abs_best identified as {V_abs_best.filePath}\n")
 
-    if V_abs_best.chimeric_files is None:
+    if not hasattr(V_abs_best, 'chimeric_files') or V_abs_best.chimeric_files is None:
         V_abs_best.chimeric_files = []
 
     updated_dict_file_path_obj = {V_abs_best.filePath: V_abs_best}
-    common_subtitle_languages = list(set(V_abs_best.subtitles.keys())) # Start with V_abs_best's subs
+
+    all_subtitle_languages_available = set()
+    for video_obj_iter in current_dict_file_path_obj.values():
+        if hasattr(video_obj_iter, 'subtitles') and video_obj_iter.subtitles:
+            all_subtitle_languages_available.update(video_obj_iter.subtitles.keys())
+    
+    threads = []
+    segment_processing_duration_s = 60.0 
 
     for original_path, video_to_conform in current_dict_file_path_obj.items():
-        if video_to_conform.filePath == V_abs_best.filePath: continue
-        common_subtitle_languages = list(set(common_subtitle_languages) | set(video_to_conform.subtitles.keys()))
-        sys.stderr.write(f"CHIMERIC_PROCESSOR: Attempting to conform {video_to_conform.filePath} to {V_abs_best.filePath}\n")
-        segment_assembly_plan, status = _generate_conformed_segments(V_abs_best, video_to_conform, common_sync_language, audio_params_for_wav, length_time_for_initial_offset_calc, tools_tmpFolder)
-        if status != 'compatible' or not segment_assembly_plan:
-            sys.stderr.write(f"CHIMERIC_PROCESSOR: {video_to_conform.filePath} plan generation failed or incompatible: {status}.\n")
-            list_not_compatible_video_input_output.append(original_path)
+        if video_to_conform.filePath == V_abs_best.filePath:
+            continue
+
+        sys.stderr.write(f"CHIMERIC_PROCESSOR: Preparing thread for {video_to_conform.filePath}\n")
+        thread = ChimericFileProcessorThread(
+            best_video_obj=V_abs_best,
+            video_to_conform_obj=video_to_conform,
+            sync_lang=common_sync_language,
+            segment_proc_duration_s=segment_processing_duration_s,
+            all_vids_dict=current_dict_file_path_obj, # Pass the whole dict for subtitle search
+            audio_wav_prms=audio_params_for_wav,
+            tmp_fldr=tools_tmpFolder,
+            audio_final_enc_prms=audio_params_for_final_encode,
+            all_sub_langs_available_list=list(all_subtitle_languages_available),
+            out_folder_for_chimeric_file=tools_tmpFolder # Chimeric MKVs are temporary
+        )
+        threads.append(thread)
+        thread.start()
+
+    # Join threads and collect results
+    sys.stderr.write(f"CHIMERIC_PROCESSOR: Launched {len(threads)} threads. Waiting for completion...\n")
+    for thread_idx, thread_item in enumerate(threads):
+        thread_item.join()
+        sys.stderr.write(f"CHIMERIC_PROCESSOR: Thread {thread_idx} for {thread_item.original_video_path} finished.\n")
+        if thread_item.result and isinstance(thread_item.result, video_module.video): # video_module.video is the type of video objects
+            chimeric_video_obj = thread_item.result
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Successfully processed {thread_item.original_video_path} into {chimeric_video_obj.filePath}\n")
+            
+            # Ensure chimeric_files list exists
+            if V_abs_best.chimeric_files is None: V_abs_best.chimeric_files = []
+            V_abs_best.chimeric_files.append(chimeric_video_obj)
+            updated_dict_file_path_obj[chimeric_video_obj.filePath] = chimeric_video_obj
+            
+            # Remove from incompatible list if it was there
+            if thread_item.original_video_path in list_not_compatible_video_input_output:
+                list_not_compatible_video_input_output.remove(thread_item.original_video_path)
         else:
-            chimeric_mkv_path = _assemble_chimeric_mkv(video_to_conform, segment_assembly_plan, V_abs_best, common_sync_language, common_subtitle_languages, audio_params_for_final_encode, tools_tmpFolder, tools_tmpFolder)
-            if chimeric_mkv_path and os.path.exists(chimeric_mkv_path):
-                sys.stderr.write(f"CHIMERIC_PROCESSOR: Assembled chimeric MKV for {original_path} at {chimeric_mkv_path}\n")
-                chimeric_video_obj = video_module.video(tools_tmpFolder, os.path.basename(chimeric_mkv_path)) # Chimeric file is in tools_tmpFolder
-                chimeric_video_obj.get_mediadata(); chimeric_video_obj.calculate_md5_streams_split()
-                chimeric_video_obj.delays[common_sync_language] = Decimal(0)
-                updated_dict_file_path_obj[chimeric_mkv_path] = chimeric_video_obj
-                if V_abs_best.chimeric_files is None: # Defensive check, should have been initialized in video.py
-                    V_abs_best.chimeric_files = []
-                V_abs_best.chimeric_files.append(chimeric_video_obj)
-            else:
-                sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to assemble chimeric MKV for {original_path}.\n")
-                list_not_compatible_video_input_output.append(original_path)
-    sys.stderr.write(f"CHIMERIC_PROCESSOR: Processing finished. Incompatible: {list_not_compatible_video_input_output}\n")
+            sys.stderr.write(f"CHIMERIC_PROCESSOR: Failed to process {thread_item.original_video_path}. Marking as incompatible.\n")
+            if thread_item.original_video_path not in list_not_compatible_video_input_output:
+                list_not_compatible_video_input_output.append(thread_item.original_video_path)
+
+    sys.stderr.write(f"CHIMERIC_PROCESSOR: All threads finished. Incompatible list: {list_not_compatible_video_input_output}\n")
+    sys.stderr.write(f"CHIMERIC_PROCESSOR: Final V_abs_best.chimeric_files: {len(V_abs_best.chimeric_files) if V_abs_best.chimeric_files else 0} files.\n")
     return updated_dict_file_path_obj
 
 def check_if_chimeric_tracks_needed(out_video_metadata_obj, V_abs_best_obj):
@@ -578,6 +1031,9 @@ class get_cut_time(Thread):
     '''
     classdocs
     '''
+    # This class is largely superseded by ChimericFileProcessorThread and its planned internal logic.
+    # It can be removed in a future step once ChimericFileProcessorThread fully implements
+    # the synchronization and segment generation logic.
 
 
     def __init__(self, main_video_obj,video_obj_to_cut,begin_in_second,audioParam,language,lenghtTime,lenghtTimePrepare,list_cut_begin_length,time_by_test_best_quality_converted):
