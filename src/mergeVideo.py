@@ -959,8 +959,10 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
                     "-threads", str(tools.core_to_use), "-vn"]
-    if delay_to_put != 0:
+    if delay_to_put > 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+    elif delay_to_put < 0:
+        base_cmd.extend(["-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
     base_cmd.extend(["-i", video_obj.filePath,
                      "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                      "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
