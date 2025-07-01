@@ -937,7 +937,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove):
+def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
@@ -953,6 +953,19 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
                     base_cmd.extend(["-sample_fmt", "s16"])
                 else:
                     base_cmd.extend(["-sample_fmt", "s32"])
+        elif delay_to_put < 0:
+            if '@typeorder' in audio:
+                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}"])
+            else:
+                base_cmd.extend([f"-c:a:0"])
+            base_cmd.extend([audio["ffprobe"]["codec_name"]])
+            try:
+                if '@typeorder' in audio:
+                    base_cmd.extend([f"-b:a:{int(audio['@typeorder'])-1}", video.get_bitrate(audio)])
+                else:
+                    base_cmd.extend([f"-b:a:0", video.get_bitrate(audio)])
+            except:
+                pass
         return 1
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
@@ -960,11 +973,13 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
                     "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}"])
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
     elif delay_to_put < 0:
-        base_cmd.extend(["-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
-    base_cmd.extend(["-i", video_obj.filePath,
-                     "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+        base_cmd.extend(["-i", video_obj.filePath, "-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
+    else:
+        base_cmd.extend(["-i", video_obj.filePath])
+
+    base_cmd.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                      "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
     
     number_track = 0
@@ -994,13 +1009,13 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     audio_track_to_remove = []
     for language,audios in video_obj.audios.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
     for language,audios in video_obj.commentary.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
     for language,audios in video_obj.audiodesc.items():
         for audio in audios:
-            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove)
+            number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
     
     if number_track:
         for audio in audio_track_to_remove:

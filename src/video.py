@@ -665,7 +665,10 @@ def get_birate_key(data):
         raise Exception(f"No video bitrate {data}")
     
 def get_bitrate(data):
-    return data[get_birate_key(data)]
+    if 'ffprobe' in data and 'bit_rate' in data['ffprobe']:
+        return data['ffprobe']['bit_rate']
+    else:
+        return data[get_birate_key(data)]
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:
