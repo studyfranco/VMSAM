@@ -953,6 +953,9 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
                     base_cmd.extend(["-sample_fmt", "s16"])
                 else:
                     base_cmd.extend(["-sample_fmt", "s32"])
+            else:
+                base_cmd.extend(["-sample_fmt", "s32"])
+            base_cmd.extend(["-exact_rice_parameters", "1", "-multi_dim_quant", "1"])
         elif delay_to_put < 0:
             if '@typeorder' in audio:
                 base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}"])
