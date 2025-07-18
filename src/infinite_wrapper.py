@@ -128,6 +128,8 @@ if __name__ == '__main__':
         raise Exception(f"{args.error} not writable")
     if (not os.access(args.folder, os.W_OK)):
         raise Exception(f"{args.folder} not writable")
+    if (not os.access(args.tmp, os.W_OK)):
+        raise Exception(f"{args.tmp} not writable")
     base_cmd_use_to_process = ["python3", os.path.join(args.pwd,"main.py"), "--pwd", args.pwd, "-c", str(args.core), "--tmp", args.tmp]
     if args.dev:
         base_cmd_use_to_process.append("--dev")

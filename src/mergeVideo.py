@@ -1244,8 +1244,13 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
             stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
             stderr.write("\n")
     
-    commonLanguages = list(commonLanguages)
-    common_language_use_for_generate_delay = commonLanguages.pop()
+    
+    if len(commonLanguages) > 1 and tools.special_params["original_language"] in commonLanguages:
+        common_language_use_for_generate_delay = tools.special_params["original_language"]
+        commonLanguages.remove(common_language_use_for_generate_delay)
+    else:
+        commonLanguages = list(commonLanguages)
+        common_language_use_for_generate_delay = commonLanguages.pop()
     
     MD5AudioVideo = {}
     listVideoToNotCalculateOffset = []
