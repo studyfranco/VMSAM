@@ -215,7 +215,7 @@ if __name__ == '__main__':
     parser.add_argument("-w","--wait", metavar='wait', type=int, default=600, help="Time in second between folder check")
     parser.add_argument("--config", metavar='configFile', type=str,
                         default="config.ini", help="Path to the config file, by default use the config in the software folder. This config is for configure the path to your softwares")
-    parser.add_argument("database_url_file", metavar='database_url_file', type=str,
+    parser.add_argument("--database_url_file", metavar='database_url_file', type=str,
                         help="Database URL to connect to the gestionar_show database in a file.")
     parser.add_argument("--pwd", metavar='pwd', type=str,
                         default=".", help="Path to the software, put it if you use the folder from another folder")
