@@ -107,6 +107,44 @@ def get_regex_data(regex, session):
     return session.query(regexPattern).filter(
         regexPattern.regex_pattern == regex
     ).first()
+    
+def insert_regex(regex_pattern, folder_id, rename_pattern, weight, session):
+    if regex_pattern == None or len(regex_pattern) == 0:
+        raise ValueError("regex_pattern cannot be empty")
+    if folder_id == None or folder_id <= 0:
+        raise ValueError("folder_id must be a positive integer")
+    if rename_pattern != None and len(rename_pattern) == 0:
+        rename_pattern == None
+    if weight == None:
+        weight = 1
+    elif weight < 1:
+        raise ValueError("weight must be at least 1")
+    
+    new_regex = regexPattern(
+        regex_pattern=regex_pattern,
+        folder_id=folder_id,
+        rename_pattern=rename_pattern,
+        weight=weight
+    )
+    session.add(new_regex)
+    session.commit()
+    return new_regex
+
+def update_regex(regex_data, folder_id, rename_pattern, weight, session):
+    if folder_id == None or folder_id <= 0:
+        raise ValueError("folder_id must be a positive integer")
+    if rename_pattern != None and len(rename_pattern) == 0:
+        rename_pattern = None
+    if weight == None:
+        weight = 1
+    elif weight < 1:
+        raise ValueError("weight must be at least 1")
+    
+    regex_data.folder_id = folder_id
+    regex_data.rename_pattern = rename_pattern
+    regex_data.weight = weight
+    session.commit()
+    return regex_data
 
 def get_all_regex(session):
     return session.query(regexPattern).order_by(
