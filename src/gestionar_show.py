@@ -1,7 +1,7 @@
 import argparse
 import os
 from multiprocessing import Pool, Process
-import multiprocessing.pool
+from concurrent.futures import ProcessPoolExecutor
 from sys import stderr
 from time import sleep
 import tools
@@ -15,46 +15,11 @@ import traceback
 
 episode_pattern_insert = "{<episode>}"
 
-class NoDaemonProcess(multiprocessing.Process):
-    """Non-daemon process that works with Python 3.13"""
-    
-    def __init__(self, *args, **kwargs):
-        # Properly handle all arguments passed by multiprocessing
-        kwargs['daemon'] = False
-        super().__init__(*args, **kwargs)
-    
-    def _get_daemon(self):
-        return False
-    
-    def _set_daemon(self, value):
-        pass
-    
-    daemon = property(_get_daemon, _set_daemon)
-
-class NoDaemonPool(multiprocessing.pool.Pool):
-    """Pool personnalisé utilisant des processus non-daemon"""
-    # Nous héritons de multiprocessing.pool.Pool et non de multiprocessing.Pool
-    # car ce dernier est juste une fonction wrapper, pas une vraie classe
-    def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, *, daemon=None):
-        # Handle all parameters explicitly to avoid context confusion
-        if kwargs is None:
-            kwargs = {}
-        # Force daemon=False regardless of what's passed
-        super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs, daemon=False)
-    
-    def _get_daemon(self):
-        return False
-    
-    def _set_daemon(self, value):
-        pass
-    
-    daemon = property(_get_daemon, _set_daemon)
-
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
-    video.ffmpeg_pool_audio_convert = NoDaemonPool(processes=tools.core_to_use)
-    video.ffmpeg_pool_big_job = NoDaemonPool(processes=1)
+    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+    video.ffmpeg_pool_big_job = Pool(processes=1)
     try:
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
@@ -154,12 +119,12 @@ def process_file_by_folder(files, folder_id, database_url):
             tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
-        with NoDaemonPool(processes=tools.core_to_use) as parrallel_jobs:
+        with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
             for episode_number, files in group_files_by_episode.items():
                 if episode_number <= current_folder.max_episode_number:
                     # Lancer le traitement des fichiers en parallèle
-                    list_jobs.append(parrallel_jobs.apply_async(
-                        process_episode, (files, folder_id, episode_number, database_url)
+                    list_jobs.append(parrallel_jobs.submit(
+                        process_episode,files, folder_id, episode_number, database_url
                     ))
             group_files_by_episode = None  # Libérer la mémoire
             current_folder = None  # Libérer la mémoire
@@ -217,17 +182,17 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with NoDaemonPool(processes=tools.core_to_use) as parrallel_jobs:
+    with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
         for folder_id, files in resultats_finaux.items():
             # Lancer le traitement des fichiers en parallèle
-            list_jobs.append(parrallel_jobs.apply_async(
-                process_file_by_folder, (files, folder_id, database_url)
+            list_jobs.append(parrallel_jobs.submit(
+                process_file_by_folder, files, folder_id, database_url
             ))
         resultats_finaux = None  # Libérer la mémoire
         
         for job in list_jobs:
             try:
-                job.get()
+                job.result()
             except Exception as e:
                 stderr.write(f"Error processing files: {e}\n")
     
