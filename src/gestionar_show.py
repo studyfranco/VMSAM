@@ -20,6 +20,7 @@ class NoDaemonProcess(multiprocessing.Process):
     
     def __init__(self, *args, **kwargs):
         # Properly handle all arguments passed by multiprocessing
+        kwargs['daemon'] = False
         super().__init__(*args, **kwargs)
     
     def _get_daemon(self):
@@ -34,7 +35,20 @@ class NoDaemonPool(multiprocessing.pool.Pool):
     """Pool personnalisé utilisant des processus non-daemon"""
     # Nous héritons de multiprocessing.pool.Pool et non de multiprocessing.Pool
     # car ce dernier est juste une fonction wrapper, pas une vraie classe
-    Process = NoDaemonProcess
+    def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, *, daemon=None):
+        # Handle all parameters explicitly to avoid context confusion
+        if kwargs is None:
+            kwargs = {}
+        # Force daemon=False regardless of what's passed
+        super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs, daemon=False)
+    
+    def _get_daemon(self):
+        return False
+    
+    def _set_daemon(self, value):
+        pass
+    
+    daemon = property(_get_daemon, _set_daemon)
 
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
