@@ -61,6 +61,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
                 except Exception as e:
                     stderr.write(f"Error processing file {file['nom']}: {e}\n")
+                    traceback.print_exc()
                     if previous_file.file_weight < file['weight'] or previous_file.file_weight == file['weight']:
                         shutil.move(previous_file.file_path, os.path.join(tools.folder_error, os.path.basename(previous_file.file_path)))
                         shutil.move(file['chemin'], new_file_path)
