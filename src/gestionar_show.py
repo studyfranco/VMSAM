@@ -239,6 +239,7 @@ if __name__ == '__main__':
         else:
             tools.core_to_use = 1
         tools.folder_error = args.error
+        tools.mergeRules = tools.config_loader(args.config,"mergerules")
         tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
         import json
         with open(args.database_url_file) as database_url_file:
