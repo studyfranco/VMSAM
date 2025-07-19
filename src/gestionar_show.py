@@ -61,16 +61,15 @@ def process_episode(files, folder_id, episode_number, database_url):
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
                 except Exception as e:
                     stderr.write(f"Error processing file {file['nom']}: {e}\n")
-                    traceback.print_exc()
                     if previous_file.file_weight < file['weight'] or previous_file.file_weight == file['weight']:
                         shutil.move(previous_file.file_path, os.path.join(tools.folder_error, os.path.basename(previous_file.file_path)))
                         shutil.move(file['chemin'], new_file_path)
                         with open(os.path.join(tools.folder_error, os.path.basename(previous_file.file_path))+"log.error","w") as log:
-                            log.write(f"{e}")
+                            log.write(f"Error processing file {os.path.basename(previous_file.file_path)}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
                     else:
                         shutil.move(file['chemin'], os.path.join(tools.folder_error, os.path.basename(file['chemin'])))
                         with open(os.path.join(tools.folder_error, os.path.basename(file['chemin']))+"log.error","w") as log:
-                            log.write(f"{e}")
+                            log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
                 finally:
                     tools.remove_dir(tools.tmpFolder)
                 previous_file.file_path = new_file_path

@@ -13,7 +13,7 @@ from os import path
 from random import shuffle
 from statistics import variance,mean
 from time import strftime,gmtime
-from threading import Thread
+from threading import Thread,RLock
 import tools
 import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
@@ -22,6 +22,9 @@ from decimal import *
 
 max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
+
+errors_merge = []
+errors_merge_lock = RLock()
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -170,6 +173,8 @@ class compare_video(Thread):
         except Exception as e:
             traceback.print_exc()
             sys.stderr.write(str(e)+"\n")
+            with errors_merge_lock:
+                errors_merge.append(str(e))
         
     def test_if_constant_good_delay(self):
         try:
