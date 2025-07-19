@@ -131,7 +131,7 @@ def process_file_by_folder(files, folder_id, database_url):
             
             for job in list_jobs:
                 try:
-                    job.get()
+                    job.result()
                 except Exception as e:
                     stderr.write(f"Error processing files: {e}\n")
         tools.remove_dir(tools.tmpFolder)
@@ -255,7 +255,6 @@ if __name__ == '__main__':
         uvicorn_process.terminate()
         uvicorn_process.join()
     except:
-        tools.remove_dir(tools.tmpFolder)
         traceback.print_exc()
         exit(1)
     exit(0)
