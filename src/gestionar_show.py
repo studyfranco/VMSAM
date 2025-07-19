@@ -1,7 +1,7 @@
 import argparse
 import os
 from multiprocessing import Pool, Process
-from concurrent.futures import ProcessPoolExecutor
+import multiprocessing.pool
 from sys import stderr
 from time import sleep
 import tools
@@ -15,11 +15,28 @@ import traceback
 
 episode_pattern_insert = "{<episode>}"
 
+class NoDaemonProcess(multiprocessing.Process):
+    """Classe pour créer des processus non-daemon"""
+    # Forcer l'attribut 'daemon' à toujours retourner False
+    def _get_daemon(self):
+        return False
+    
+    def _set_daemon(self, value):
+        pass
+    
+    daemon = property(_get_daemon, _set_daemon)
+
+class NoDaemonPool(multiprocessing.pool.Pool):
+    """Pool personnalisé utilisant des processus non-daemon"""
+    # Nous héritons de multiprocessing.pool.Pool et non de multiprocessing.Pool
+    # car ce dernier est juste une fonction wrapper, pas une vraie classe
+    Process = NoDaemonProcess
+
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
-    video.ffmpeg_pool_audio_convert = ProcessPoolExecutor(max_workers=tools.core_to_use)
-    video.ffmpeg_pool_big_job = ProcessPoolExecutor(max_workers=1)
+    video.ffmpeg_pool_audio_convert = NoDaemonPool(max_workers=tools.core_to_use)
+    video.ffmpeg_pool_big_job = NoDaemonPool(max_workers=1)
     try:
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
@@ -119,7 +136,7 @@ def process_file_by_folder(files, folder_id, database_url):
             tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
-        with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
+        with NoDaemonPool(max_workers=tools.core_to_use) as parrallel_jobs:
             for episode_number, files in group_files_by_episode.items():
                 if episode_number <= current_folder.max_episode_number:
                     # Lancer le traitement des fichiers en parallèle
@@ -182,8 +199,8 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
-        for folder_id, files in resultats_finaux.items():       
+    with NoDaemonPool(max_workers=tools.core_to_use) as parrallel_jobs:
+        for folder_id, files in resultats_finaux.items():
             # Lancer le traitement des fichiers en parallèle
             list_jobs.append(parrallel_jobs.apply_async(
                 process_file_by_folder, (files, folder_id, database_url)
