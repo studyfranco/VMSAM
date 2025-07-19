@@ -102,7 +102,10 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
                 raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
 
         # Créer et insérer la nouvelle regex
-        insert_regex(regex_data.regex_pattern, folder.id, regex_data.rename_pattern, regex_data.weight, session)
+        try:
+            insert_regex(regex_data.regex_pattern, folder.id, regex_data.rename_pattern, regex_data.weight, session)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error during insertion of the regex: {e}")
 
         return {
             "message": "Regex added",
