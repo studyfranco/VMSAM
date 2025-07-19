@@ -20,8 +20,19 @@ def get_session():
     session = sessionmaker(bind=engine)()
     try:
         yield session
+        session.commit()
+    except SQLAlchemyError as e:
+        session.rollback()
+        logger.error(f"Database error: {e}")
+        raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
     finally:
-        session.close()
+        try:
+            session.close()
+        except Exception as e:
+            pass
 
 class Folder(BaseModel):
     destination_path: str
