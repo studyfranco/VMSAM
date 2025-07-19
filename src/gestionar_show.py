@@ -1,6 +1,7 @@
 import argparse
 import os
 from multiprocessing import Pool, Process
+from concurrent.futures import ProcessPoolExecutor
 from sys import stderr
 from time import sleep
 import tools
@@ -17,8 +18,8 @@ episode_pattern_insert = "{<episode>}"
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
-    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-    video.ffmpeg_pool_big_job = Pool(processes=1)
+    video.ffmpeg_pool_audio_convert = ProcessPoolExecutor(processes=tools.core_to_use)
+    video.ffmpeg_pool_big_job = ProcessPoolExecutor(processes=1)
     try:
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
@@ -118,7 +119,7 @@ def process_file_by_folder(files, folder_id, database_url):
             tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
-        with Pool(processes=tools.core_to_use) as parrallel_jobs:
+        with ProcessPoolExecutor(processes=tools.core_to_use) as parrallel_jobs:
             for episode_number, files in group_files_by_episode.items():
                 if episode_number <= current_folder.max_episode_number:
                     # Lancer le traitement des fichiers en parallèle
@@ -181,7 +182,7 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with Pool(processes=tools.core_to_use) as parrallel_jobs:
+    with ProcessPoolExecutor(processes=tools.core_to_use) as parrallel_jobs:
         for folder_id, files in resultats_finaux.items():       
             # Lancer le traitement des fichiers en parallèle
             list_jobs.append(parrallel_jobs.apply_async(
