@@ -16,8 +16,12 @@ import traceback
 episode_pattern_insert = "{<episode>}"
 
 class NoDaemonProcess(multiprocessing.Process):
-    """Classe pour créer des processus non-daemon"""
-    # Forcer l'attribut 'daemon' à toujours retourner False
+    """Non-daemon process that works with Python 3.13"""
+    
+    def __init__(self, *args, **kwargs):
+        # Properly handle all arguments passed by multiprocessing
+        super().__init__(*args, **kwargs)
+    
     def _get_daemon(self):
         return False
     
