@@ -221,33 +221,39 @@ if __name__ == '__main__':
                         default=".", help="Path to the software, put it if you use the folder from another folder")
     parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
     args = parser.parse_args()
-    if (not os.access(args.error, os.W_OK)):
-        raise Exception(f"{args.error} not writable")
-    if (not os.access(args.folder, os.W_OK)):
-        raise Exception(f"{args.folder} not writable")
-    if (not os.access(args.tmp, os.W_OK)):
-        raise Exception(f"{args.tmp} not writable")
-    os.chdir(args.pwd)
-    tools.dev = args.dev
-    tools.software = tools.config_loader(args.config, "software")
-    if args.core > 1:
-        tools.core_to_use = args.core-1
-    else:
-        tools.core_to_use = 1
-    tools.folder_error = args.error
-    tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
-    import json
-    with open(args.database_url_file) as database_url_file:
-        database_url_param = json.load(database_url_file)
-    with setup_database(database_url_param["database_url"], create_tables=True) as session:
-        pass
-    
-    uvicorn_process = Process(target=run_uvicorn)
-    uvicorn_process.start()
-    
-    while True:
-        process_files_in_folder(args.folder,database_url_param["database_url"])
-        sleep(args.wait)
-    
-    uvicorn_process.terminate()
-    uvicorn_process.join()
+    try:
+        if (not os.access(args.error, os.W_OK)):
+            raise Exception(f"{args.error} not writable")
+        if (not os.access(args.folder, os.W_OK)):
+            raise Exception(f"{args.folder} not writable")
+        if (not os.access(args.tmp, os.W_OK)):
+            raise Exception(f"{args.tmp} not writable")
+        os.chdir(args.pwd)
+        tools.dev = args.dev
+        tools.software = tools.config_loader(args.config, "software")
+        if args.core > 1:
+            tools.core_to_use = args.core-1
+        else:
+            tools.core_to_use = 1
+        tools.folder_error = args.error
+        tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
+        import json
+        with open(args.database_url_file) as database_url_file:
+            database_url_param = json.load(database_url_file)
+        with setup_database(database_url_param["database_url"], create_tables=True) as session:
+            pass
+        
+        uvicorn_process = Process(target=run_uvicorn)
+        uvicorn_process.start()
+        
+        while True:
+            process_files_in_folder(args.folder,database_url_param["database_url"])
+            sleep(args.wait)
+        
+        uvicorn_process.terminate()
+        uvicorn_process.join()
+    except:
+        tools.remove_dir(tools.tmpFolder)
+        traceback.print_exc()
+        exit(1)
+    exit(0)
