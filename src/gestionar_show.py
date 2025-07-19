@@ -29,7 +29,7 @@ def process_episode(files, folder_id, episode_number, database_url):
         # Traiter les fichiers
         for file in files:
             previous_file = get_episode_data(folder_id, episode_number, session)
-            if previous_file != None and len(previous_file):
+            if previous_file != None:
                 # Si l'épisode existe déjà, on le fusionne
                 if previous_file.file_weight < file['weight']:
                     regex_data = get_regex_data(file['regex'], session)

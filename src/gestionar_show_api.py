@@ -60,7 +60,7 @@ app = FastAPI(
 def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
     # Vérifie s’il existe déjà
     existing = get_folder_by_path(folder_in.destination_path, session)
-    if existing != None and len(existing):
+    if existing != None:
         existing.max_episode_number = folder_in.max_episode_number
         existing.number_cut = folder_in.number_cut
         existing.cut_file_to_get_delay_second_method = folder_in.cut_file_to_get_delay_second_method
@@ -86,7 +86,7 @@ def test_regex_rename(regex_data):
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
     regex = get_regex_data(regex_data.regex_pattern, session)
-    if regex == None or len(regex) == 0:
+    if regex == None:
         import re
         # Vérifier que la nouvelle regex matche le fichier d'exemple
         # Vérifier que la regex permet d'extraire un numéro d'épisode valide
@@ -103,7 +103,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         
         # Vérifier l'existence du dossier via son path
         folder = get_folder_by_path(regex_data.destination_path, session)
-        if folder == None or len(folder) == 0:
+        if folder == None:
             raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
 
         test_regex_rename(regex_data)
