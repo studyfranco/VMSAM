@@ -17,7 +17,7 @@ class folder(Base):
     destination_path: Mapped[str] = mapped_column(index=True)
     original_language: Mapped[str]
     number_cut: Mapped[int]
-    cut_file_to_get_delay_second_method: Mapped[int]
+    cut_file_to_get_delay_second_method: Mapped[float]
     max_episode_number: Mapped[int]
     
     UniqueConstraint("destination_path")
@@ -70,6 +70,38 @@ def setup_database(database_url, create_tables=False):
 
 def get_folder_data(folder_id, session):
     return session.query(folder).filter(folder.id == folder_id).first()
+
+def get_folder_by_path(destination_path, session):
+    return session.query(folder).filter(folder.destination_path == destination_path).first()
+
+def insert_folder(destination_path, original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number, session):
+    if max_episode_number == None:
+        max_episode_number = 12
+    elif max_episode_number < 1:
+        raise ValueError("max_episode_number must be at least 1")
+    if number_cut == None:
+        number_cut = 5
+    elif number_cut < 1:
+        raise ValueError("number_cut must be at least 1")
+    if cut_file_to_get_delay_second_method == None:
+        cut_file_to_get_delay_second_method = 2.5
+    elif cut_file_to_get_delay_second_method <= 1:
+        raise ValueError("cut_file_to_get_delay_second_method must be greater than 1")
+    if destination_path == None and not len(destination_path):
+        raise ValueError("destination_path cannot be empty")
+    if original_language == None and not len(original_language):
+        raise ValueError("original_language cannot be empty")
+    
+    new_folder = folder(
+        destination_path=destination_path,
+        original_language=original_language,
+        number_cut=number_cut,
+        cut_file_to_get_delay_second_method=cut_file_to_get_delay_second_method,
+        max_episode_number=max_episode_number
+    )
+    session.add(new_folder)
+    session.commit()
+    return new_folder
 
 def get_regex_data(regex, session):
     return session.query(regexPattern).filter(

@@ -21,7 +21,7 @@ RUN set -x \
 
 RUN set -x \
  && apt update \
- && DEBIAN_FRONTEND=noninteractive apt install -y python3 python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg --no-install-recommends \
+ && DEBIAN_FRONTEND=noninteractive apt install -y python3 python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn --no-install-recommends \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 

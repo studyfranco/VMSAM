@@ -1,6 +1,6 @@
 import argparse
 import os
-from multiprocessing import Pool
+from multiprocessing import Pool, Process
 from sys import stderr
 from time import sleep
 import tools
@@ -9,6 +9,7 @@ import re
 import mergeVideo
 import video
 import shutil
+import uvicorn
 
 episode_pattern_insert = "{<episode>}"
 
@@ -107,16 +108,13 @@ def process_file_by_folder(files, folder_id, database_url):
             stderr.write(f"Episode number not found for file {file['nom']}\n")
             
     if len(group_files_by_episode):
-        session = setup_database(database_url)
-        # Récupérer le dossier
-        current_folder = get_folder_data(folder_id, session)
-        tools.tmpFolder = os.path.join(tools.tmpFolder, str(current_folder.id))
-        if not tools.make_dirs(tools.tmpFolder):
-            session.close()
-            raise Exception("Impossible to create the temporar dir")
-        tools.default_language_for_undetermine = current_folder.original_language
-        tools.special_params["original_language"] = current_folder.original_language
-        session.close()
+        with setup_database(database_url) as session:
+            # Récupérer le dossier
+            current_folder = get_folder_data(folder_id, session)
+            tools.tmpFolder = os.path.join(tools.tmpFolder, str(current_folder.id))
+            tools.make_dirs(tools.tmpFolder)
+            tools.default_language_for_undetermine = current_folder.original_language
+            tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
         with Pool(processes=tools.core_to_use) as parrallel_jobs:
@@ -126,6 +124,9 @@ def process_file_by_folder(files, folder_id, database_url):
                     list_jobs.append(parrallel_jobs.apply_async(
                         process_episode, (files, folder_id, episode_number, database_url)
                     ))
+            group_files_by_episode = None  # Libérer la mémoire
+            current_folder = None  # Libérer la mémoire
+            
             for job in list_jobs:
                 try:
                     job.get()
@@ -144,37 +145,40 @@ def process_files_in_folder(folder_files,database_url):
     if not fichiers:
         return
     
-    session = setup_database(database_url)
-    # Récupérer toutes les regex triées par poids décroissant
-    all_regex = get_all_regex(session)
-    
-    # Traiter chaque regex et supprimer les fichiers matchés directement
-    resultats_finaux = {}
-    
-    for regex in all_regex:
-        if not fichiers:  # Plus de fichiers à traiter
-            break
+    with setup_database(database_url) as session:
+        # Récupérer toutes les regex triées par poids décroissant
+        all_regex = get_all_regex(session)
+        
+        # Traiter chaque regex et supprimer les fichiers matchés directement
+        resultats_finaux = {}
+        
+        for regex in all_regex:
+            if not fichiers:  # Plus de fichiers à traiter
+                break
+                
+            # Compiler la regex
+            regex_compilee = re.compile(regex.regex_pattern)
             
-        # Compiler la regex
-        regex_compilee = re.compile(regex.regex_pattern)
-        
-        # Filtrer les fichiers qui matchent
-        fichiers_matches = list(filter(
-            lambda f: regex_compilee.search(f['nom']), 
-            fichiers
-        ))
-        
-        if len(fichiers_matches):
-            if regex.folder_id not in resultats_finaux:
-                resultats_finaux[regex.folder_id] = []
-            # Retirer les fichiers matchés directement de la liste principale
-            for fichier_match in fichiers_matches:
-                fichier_match['regex'] = regex.regex_pattern
-                fichier_match['weight'] = regex.weight
-                resultats_finaux[regex.folder_id].append(fichier_match)
-                fichiers.remove(fichier_match)
+            # Filtrer les fichiers qui matchent
+            fichiers_matches = list(filter(
+                lambda f: regex_compilee.search(f['nom']), 
+                fichiers
+            ))
+            
+            if len(fichiers_matches):
+                if regex.folder_id not in resultats_finaux:
+                    resultats_finaux[regex.folder_id] = []
+                # Retirer les fichiers matchés directement de la liste principale
+                for fichier_match in fichiers_matches:
+                    fichier_match['regex'] = regex.regex_pattern
+                    fichier_match['weight'] = regex.weight
+                    resultats_finaux[regex.folder_id].append(fichier_match)
+                    fichiers.remove(fichier_match)
     
-    session.close()
+        all_regex = None  # Libérer la mémoire
+        fichiers_matches = None  # Libérer la mémoire
+    fichiers = None  # Libérer la mémoire
+    
     list_jobs = []
     with Pool(processes=tools.core_to_use) as parrallel_jobs:
         for folder_id, files in resultats_finaux.items():       
@@ -182,6 +186,7 @@ def process_files_in_folder(folder_files,database_url):
             list_jobs.append(parrallel_jobs.apply_async(
                 process_file_by_folder, (files, folder_id, database_url)
             ))
+        resultats_finaux = None  # Libérer la mémoire
         
         for job in list_jobs:
             try:
@@ -191,6 +196,13 @@ def process_files_in_folder(folder_files,database_url):
     
     return
 
+def run_uvicorn():
+    env_path = os.path.join(tools.tmpFolder, "gestionar_show_api.env")
+    
+    # Écrit la variable DATABASE_URL dans un fichier .env
+    with open(env_path, "w") as env_file:
+        env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
+    uvicorn.run("gestionar_show_api:app", host="0.0.0.0", port=8080, workers=5, env_file=env_path)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script is the wrapper to process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -230,6 +242,13 @@ if __name__ == '__main__':
     session = setup_database(database_url_param["database_url"], create_tables=True)
     session.close()
     session = None
+    
+    uvicorn_process = Process(target=run_uvicorn)
+    uvicorn_process.start()
+    
     while True:
         process_files_in_folder(args.folder,database_url_param["database_url"])
         sleep(args.wait)
+    
+    uvicorn_process.terminate()
+    uvicorn_process.join()
