@@ -54,6 +54,8 @@ ENV CORE=4 \
     WAIT=300 \
     PGID="1000" \
     PUID="1000" \
-    software="main"
+    software="main" \
+    folder_to_watch="/config/input" \
+    folder_error="/config/error" 
 
 ENTRYPOINT [ "/init.sh" ]

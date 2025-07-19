@@ -16,6 +16,9 @@ class folder(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     destination_path: Mapped[str] = mapped_column(index=True)
     original_language: Mapped[str]
+    number_cut: Mapped[int]
+    cut_file_to_get_delay_second_method: Mapped[int]
+    max_episode_number: Mapped[int]
     
     UniqueConstraint("destination_path")
 
@@ -51,7 +54,7 @@ class episode(Base):
 
     folder: Mapped["folder"] = relationship(back_populates="episodes")
     
-def setup_database(database_url, create_tables=True):
+def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
     # Créer l'engine
     engine = create_engine(database_url, echo=True)
