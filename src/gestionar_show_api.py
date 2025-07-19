@@ -72,8 +72,8 @@ def test_regex_rename(regex_data):
 
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
-    regex = get_regex_data(regex, session)
-    if regex == None and len(regex) == 0:
+    regex = get_regex_data(regex_data.regex_pattern, session)
+    if regex == None or len(regex) == 0:
         import re
         # Vérifier que la nouvelle regex matche le fichier d'exemple
         # Vérifier que la regex permet d'extraire un numéro d'épisode valide
@@ -81,7 +81,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         if match != None:
             if 'episode' in match.groupdict():
                 episode_number = match.group('episode')
-                if (not episode_number.isdigit()) or int(episode_number) <= 1:
+                if (not episode_number.isdigit()) or int(episode_number) < 1:
                     raise HTTPException(status_code=400, detail=f"Regex does not extract a valid episode number. We get: {episode_number}")
             else:
                 raise HTTPException(status_code=400, detail="Regex does not extract a valid episode number from the example filename")
@@ -90,7 +90,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         
         # Vérifier l'existence du dossier via son path
         folder = get_folder_by_path(regex_data.destination_path, session)
-        if folder != None or len(folder) == 0:
+        if folder == None or len(folder) == 0:
             raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
 
         test_regex_rename(regex_data)

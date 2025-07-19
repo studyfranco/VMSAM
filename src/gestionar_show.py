@@ -15,7 +15,7 @@ episode_pattern_insert = "{<episode>}"
 
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
-    session = setup_database(database_url)
+    session = setup_database(database_url)()
     video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
     video.ffmpeg_pool_big_job = Pool(processes=1)
     try:
@@ -239,9 +239,8 @@ if __name__ == '__main__':
     import json
     with open(args.database_url_file) as database_url_file:
         database_url_param = json.load(database_url_file)
-    session = setup_database(database_url_param["database_url"], create_tables=True)
-    session.close()
-    session = None
+    with setup_database(database_url_param["database_url"], create_tables=True) as session:
+        pass
     
     uvicorn_process = Process(target=run_uvicorn)
     uvicorn_process.start()

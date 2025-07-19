@@ -66,7 +66,7 @@ def setup_database(database_url, create_tables=False):
     # Configurer la session
     Session = sessionmaker(bind=engine)
 
-    return Session()
+    return Session
 
 def get_folder_data(folder_id, session):
     return session.query(folder).filter(folder.id == folder_id).first()
@@ -114,7 +114,7 @@ def insert_regex(regex_pattern, folder_id, rename_pattern, weight, session):
     if folder_id == None or folder_id <= 0:
         raise ValueError("folder_id must be a positive integer")
     if rename_pattern != None and len(rename_pattern) == 0:
-        rename_pattern == None
+        rename_pattern = None
     if weight == None:
         weight = 1
     elif weight < 1:
