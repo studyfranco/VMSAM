@@ -66,7 +66,7 @@ def setup_database(database_url, create_tables=False):
     # Configurer la session
     Session = sessionmaker(bind=engine)
 
-    return Session
+    return Session()
 
 def get_folder_data(folder_id, session):
     return session.query(folder).filter(folder.id == folder_id).first()

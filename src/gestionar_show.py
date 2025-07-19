@@ -10,12 +10,13 @@ import mergeVideo
 import video
 import shutil
 import uvicorn
+import traceback
 
 episode_pattern_insert = "{<episode>}"
 
 def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
-    session = setup_database(database_url)()
+    session = setup_database(database_url)
     video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
     video.ffmpeg_pool_big_job = Pool(processes=1)
     try:
