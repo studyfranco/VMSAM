@@ -2,7 +2,7 @@ import argparse
 import os
 from multiprocessing import Pool, Process
 from concurrent.futures import ProcessPoolExecutor
-from sys import stderr
+from sys import stderr,stdout
 from time import sleep
 import tools
 from gestionar_show_model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode
@@ -261,9 +261,9 @@ if __name__ == '__main__':
         
         while True:
             process_files_in_folder(args.folder,database_url_param["database_url"])
-            print("POSO !!!!!!!")
+            stdout.write("\n\nPOSO !!!!!!!\n\n")
             sleep(args.wait)
-            print("STARTO !!!!!!")
+            stdout.write("STARTO !!!!!!\n\n")
         
         uvicorn_process.terminate()
         uvicorn_process.join()
