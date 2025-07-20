@@ -52,13 +52,15 @@ def process_episode(files, folder_id, episode_number, database_url):
                 tools.make_dirs(out_folder)
                 try:
                     mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
-                    os.remove(previous_file.file_path)
+                    shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
                     if previous_file.file_weight < file['weight']:
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
                     elif previous_file.file_weight > file['weight']:
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path)
                     else:
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
+                    os.remove(previous_file.file_path+'.tmp')
+                    os.remove(file['chemin'])
                 except Exception as e:
                     stderr.write(f"Error processing file {file['nom']}: {e}\n")
                     if previous_file.file_weight < file['weight'] or previous_file.file_weight == file['weight']:
