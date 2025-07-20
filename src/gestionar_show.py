@@ -16,6 +16,12 @@ import traceback
 episode_pattern_insert = "{<episode>}"
 
 def process_episode(files, folder_id, episode_number, database_url):
+    dic_weight_files = {}
+    for file in files:
+        if file['weight'] not in dic_weight_files:
+            dic_weight_files[file['weight']] = [file]
+        else:
+            dic_weight_files[file['weight']].append(file)
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
     video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
@@ -28,61 +34,62 @@ def process_episode(files, folder_id, episode_number, database_url):
         tools.tmpFolder = os.path.join(tools.tmpFolder, str(episode_number))
         
         # Traiter les fichiers
-        for file in files:
-            previous_file = get_episode_data(folder_id, episode_number, session)
-            if previous_file != None:
-                # Si l'épisode existe déjà, on le fusionne
-                if previous_file.file_weight < file['weight']:
-                    regex_data = get_regex_data(file['regex'], session)
-                    tools.special_params["forced_best_video"] = file['chemin']
-                    new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
-                    new_file_weight = file['weight']
-                elif previous_file.file_weight > file['weight']:
-                    tools.special_params["forced_best_video"] = previous_file.file_path
-                    new_file_path = previous_file.file_path
-                    new_file_weight = previous_file.file_weight
-                else:
-                    regex_data = get_regex_data(file['regex'], session)
-                    tools.special_params["forced_best_video"] = file['chemin']
-                    new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
-                    new_file_weight = file['weight']
-                
-                tools.make_dirs(tools.tmpFolder)
-                out_folder = os.path.join(tools.tmpFolder, "final_file")
-                tools.make_dirs(out_folder)
-                try:
-                    mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
-                    shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
+        for weight in reversed(sorted(dic_weight_files)):
+            for file in dic_weight_files[weight]:
+                previous_file = get_episode_data(folder_id, episode_number, session)
+                if previous_file != None:
+                    # Si l'épisode existe déjà, on le fusionne
                     if previous_file.file_weight < file['weight']:
-                        shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
+                        regex_data = get_regex_data(file['regex'], session)
+                        tools.special_params["forced_best_video"] = file['chemin']
+                        new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
+                        new_file_weight = file['weight']
                     elif previous_file.file_weight > file['weight']:
-                        shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path)
+                        tools.special_params["forced_best_video"] = previous_file.file_path
+                        new_file_path = previous_file.file_path
+                        new_file_weight = previous_file.file_weight
                     else:
-                        shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
-                    os.remove(previous_file.file_path+'.tmp')
-                    os.remove(file['chemin'])
-                except Exception as e:
-                    stderr.write(f"Error processing file {file['nom']}: {e}\n")
-                    if previous_file.file_weight < file['weight'] or previous_file.file_weight == file['weight']:
-                        shutil.move(previous_file.file_path, os.path.join(tools.folder_error, os.path.basename(previous_file.file_path)))
-                        shutil.move(file['chemin'], new_file_path)
-                        with open(os.path.join(tools.folder_error, os.path.basename(previous_file.file_path))+".log.error","w") as log:
-                            log.write(f"Error processing file {os.path.basename(previous_file.file_path)}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
-                    else:
-                        shutil.move(file['chemin'], os.path.join(tools.folder_error, os.path.basename(file['chemin'])))
-                        with open(os.path.join(tools.folder_error, os.path.basename(file['chemin']))+".log.error","w") as log:
-                            log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
-                finally:
-                    tools.remove_dir(tools.tmpFolder)
-                previous_file.file_path = new_file_path
-                previous_file.file_weight = new_file_weight
-                session.commit()
-            else:
-                # Si l'épisode n'existe pas, on l'ajoute
-                regex_data = get_regex_data(file['regex'], session)
-                new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
-                shutil.move(file['chemin'], new_file_path)
-                insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
+                        regex_data = get_regex_data(file['regex'], session)
+                        tools.special_params["forced_best_video"] = file['chemin']
+                        new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
+                        new_file_weight = file['weight']
+                    
+                    tools.make_dirs(tools.tmpFolder)
+                    out_folder = os.path.join(tools.tmpFolder, "final_file")
+                    tools.make_dirs(out_folder)
+                    try:
+                        mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
+                        shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
+                        if previous_file.file_weight < file['weight']:
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
+                        elif previous_file.file_weight > file['weight']:
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path)
+                        else:
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
+                        os.remove(previous_file.file_path+'.tmp')
+                        os.remove(file['chemin'])
+                    except Exception as e:
+                        stderr.write(f"Error processing file {file['nom']}: {e}\n")
+                        if previous_file.file_weight < file['weight'] or previous_file.file_weight == file['weight']:
+                            shutil.move(previous_file.file_path, os.path.join(tools.folder_error, os.path.basename(previous_file.file_path)))
+                            shutil.move(file['chemin'], new_file_path)
+                            with open(os.path.join(tools.folder_error, os.path.basename(previous_file.file_path))+".log.error","w") as log:
+                                log.write(f"Error processing file {os.path.basename(previous_file.file_path)}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
+                        else:
+                            shutil.move(file['chemin'], os.path.join(tools.folder_error, os.path.basename(file['chemin'])))
+                            with open(os.path.join(tools.folder_error, os.path.basename(file['chemin']))+".log.error","w") as log:
+                                log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
+                    finally:
+                        tools.remove_dir(tools.tmpFolder)
+                    previous_file.file_path = new_file_path
+                    previous_file.file_weight = new_file_weight
+                    session.commit()
+                else:
+                    # Si l'épisode n'existe pas, on l'ajoute
+                    regex_data = get_regex_data(file['regex'], session)
+                    new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
+                    shutil.move(file['chemin'], new_file_path)
+                    insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
     except Exception as e:
         stderr.write(f"Error processing files for folder {folder_id}, episode {episode_number}: {e}\n")
     session.close()
@@ -253,7 +260,9 @@ if __name__ == '__main__':
         
         while True:
             process_files_in_folder(args.folder,database_url_param["database_url"])
+            print("POSO !!!!!!!")
             sleep(args.wait)
+            print("STARTO !!!!!!")
         
         uvicorn_process.terminate()
         uvicorn_process.join()

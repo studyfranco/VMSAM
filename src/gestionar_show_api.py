@@ -71,6 +71,12 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
             "folder_id": existing.id
         }
 
+    if (not os.path.isdir(folder_in.destination_path)):
+        raise HTTPException(status_code=400, detail="Folder not exist")
+
+    if (not os.access(folder_in.destination_path, os.W_OK)):
+        raise HTTPException(status_code=400, detail="Folder not writable")
+
     # Création avec valeurs Pydantic (défauts inclus automatiquement)
     new_folder = insert_folder(folder_in.destination_path, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
 
