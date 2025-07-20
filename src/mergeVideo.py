@@ -695,29 +695,33 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
     
     videosObj.remove(dict_file_path_obj[forced_best_video])
-    launched_compare = compare_video(dict_file_path_obj[forced_best_video],videosObj[0],begin_in_second,worseAudioQualityWillUse,language,length_time,length_time_converted,list_cut_begin_length,0,process_to_get_best_video=False)
-    launched_compare.start()
-    
-    already_compared = {forced_best_video:{}}
-    list_not_compatible_video = []
-    for i in range(1,len(videosObj)):
-        prepared_compare = compare_video(dict_file_path_obj[forced_best_video],videosObj[i],begin_in_second,worseAudioQualityWillUse,language,length_time,length_time_converted,list_cut_begin_length,0,process_to_get_best_video=False)
+    if len(videosObj):
+        launched_compare = compare_video(dict_file_path_obj[forced_best_video],videosObj[0],begin_in_second,worseAudioQualityWillUse,language,length_time,length_time_converted,list_cut_begin_length,0,process_to_get_best_video=False)
+        launched_compare.start()
+        
+        already_compared = {forced_best_video:{}}
+        list_not_compatible_video = []
+        for i in range(1,len(videosObj)):
+            prepared_compare = compare_video(dict_file_path_obj[forced_best_video],videosObj[i],begin_in_second,worseAudioQualityWillUse,language,length_time,length_time_converted,list_cut_begin_length,0,process_to_get_best_video=False)
+            launched_compare.join()
+            prepared_compare.start()
+            if launched_compare.video_obj_with_best_quality != None:
+                already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = True
+            else:
+                list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
+            launched_compare = prepared_compare
+        
+        videosObj.append(dict_file_path_obj[forced_best_video])
         launched_compare.join()
-        prepared_compare.start()
         if launched_compare.video_obj_with_best_quality != None:
             already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = True
         else:
             list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
-        launched_compare = prepared_compare
-    
-    videosObj.append(dict_file_path_obj[forced_best_video])
-    launched_compare.join()
-    if launched_compare.video_obj_with_best_quality != None:
-        already_compared[forced_best_video][launched_compare.video_obj_2.filePath] = True
+
+        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     else:
-        list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
+        already_compared = {forced_best_video:{}}
     
-    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
     return already_compared
 
 def keep_best_audio(list_audio_metadata,audioRules):
