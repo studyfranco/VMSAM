@@ -84,6 +84,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
                     session.commit()
+                    mergeVideo.errors_merge = []
                 else:
                     # Si l'épisode n'existe pas, on l'ajoute
                     regex_data = get_regex_data(file['regex'], session)

@@ -1077,6 +1077,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     dict_list_video_win[other_video_path_file] = [video_path_file]
     
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
+    if len(dict_list_video_win) == 0:
+        dict_list_video_win[best_video.filePath] = []
     print(f'The best video path is {best_video.filePath}')
     md5_audio_already_added = set()
     md5_sub_already_added = set()
