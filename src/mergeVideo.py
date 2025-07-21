@@ -738,6 +738,9 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     
     return already_compared
 
+def find_differences_and_keep_best_audio():
+    begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
+
 def keep_best_audio(list_audio_metadata,audioRules):
     '''
     Todo:
@@ -996,7 +999,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode", "-fflags", "+genpts+igndts",
+                    "-err_detect", "buffer", "-err_detect", "explode",
                     "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put > 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
@@ -1006,7 +1009,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         base_cmd.extend(["-i", video_obj.filePath])
 
     base_cmd.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy", "-c:s", "ass"])
+                     "-movflags", "use_metadata_tags", "-c", "copy"])
     
     number_track = 0
     sub_track_to_remove = []
@@ -1016,19 +1019,6 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 number_track += 1
                 if sub['MD5'] != '':
                     md5_sub_already_added.add(sub['MD5'])
-                codec = sub["Format"].lower()
-                if codec in tools.sub_type_not_encodable:
-                    if '@typeorder' in sub:
-                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "copy"])
-                    else:
-                        base_cmd.extend([f"-c:s:0", "copy"])
-                elif codec in tools.sub_type_near_srt:
-                    if '@typeorder' in sub:
-                        base_cmd.extend([f"-c:s:{int(sub['@typeorder'])-1}", "srt"])
-                    else:
-                        base_cmd.extend([f"-c:s:0", "srt"])
-                #else:
-                #    print("{} have a valide type to convert ass with {}".format(sub["StreamOrder"],dic_index_data_sub_codec[int(sub["StreamOrder"])]["codec_name"]))
             else:
                 sub_track_to_remove.append(sub)
     
@@ -1149,6 +1139,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     global default_audio
     default_audio = True
     keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
+    
     generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
     
     sub_same_md5 = {}

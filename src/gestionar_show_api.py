@@ -26,7 +26,6 @@ def get_session():
         session.commit()
     except SQLAlchemyError as e:
         session.rollback()
-        logger.error(f"Database error: {e}")
         raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
     except Exception as e:
         session.rollback()
