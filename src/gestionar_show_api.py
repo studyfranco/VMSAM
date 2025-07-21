@@ -89,6 +89,12 @@ def test_regex_rename(regex_data):
     if regex_data.rename_pattern != None and episode_pattern_insert not in regex_data.rename_pattern:
         raise HTTPException(status_code=400, detail=f"Rename pattern must contain the episode pattern: {episode_pattern_insert}")
 
+def get_test_folder(regex_data,session):
+    folder = get_folder_by_path(regex_data.destination_path, session)
+    if folder == None:
+        raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
+    return folder
+
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
     regex = get_regex_data(regex_data.regex_pattern, session)
@@ -108,9 +114,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             raise HTTPException(status_code=400, detail="Regex does not match the example filename")
         
         # Vérifier l'existence du dossier via son path
-        folder = get_folder_by_path(regex_data.destination_path, session)
-        if folder == None:
-            raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
+        folder = get_test_folder(regex_data,session)
 
         test_regex_rename(regex_data)
 
@@ -135,7 +139,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         test_regex_rename(regex_data)
         # Si la regex existe déjà, on met à jour les champs
         try:
-            update_regex(regex, regex_data.rename_pattern, regex_data.weight, session)
+            update_regex(regex, get_test_folder(regex_data,session).id, regex_data.rename_pattern, regex_data.weight, session)
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error during update of the regex: {e}")
         return {
