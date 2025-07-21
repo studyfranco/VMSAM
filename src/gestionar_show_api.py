@@ -30,7 +30,7 @@ def get_session():
         raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
     except Exception as e:
         session.rollback()
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise e
     finally:
         try:
             session.close()
