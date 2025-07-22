@@ -25,6 +25,7 @@ cut_file_to_get_delay_second_method = 2.5 # With the second method we need a bet
 
 errors_merge = []
 errors_merge_lock = RLock()
+max_stream = 85
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -844,7 +845,64 @@ def keep_best_audio(list_audio_metadata,audioRules):
                                         audio_1['keep'] = False
                         except Exception as e:
                             sys.stderr.write(str(e))
+
+def test_if_forced(sub):
+    if "Title" in sub and re.match(r".*forced.*", sub["Title"].lower()):
+        return True
+    return False
+
+def get_sub_title_group_id(groups,sub_title):
+    for i,group in enumerate(groups):
+        if sub_title in group:
+            retrun i
+    return None
+
+def insert_type_in_group_sub_title(sub,type_sub,groups):
+    if "Title" in sub:
+        group_id = get_sub_title_group_id(groups,sub["Title"])
+        if group_id == None:
+            groups.append([sub["Title"]])
+    else:
+        group_id = get_sub_title_group_id(groups,"")
+        if group_id == None:
+            groups.append([""])
+
+def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
+    unique_md5 = set()
+    number_sub_will_be_copy = 0
+    for language,subs in video_sub_track_list.items():
+        for sub in subs:
+            if sub['keep']:
+                if sub['MD5'] not in md5_sub_already_added:
+                    number_sub_will_be_copy += 1
+                    if sub['MD5'] != '':
+                        unique_md5.add(sub['MD5'])
+                else:
+                    sub['keep'] = False
+    
+    if number_sub_will_be_copy > number_max_sub_stream:
+        for language,subs in video_sub_track_list.items():
+            if language not in tools.group_title_sub:
+                group_title_sub[language] = []
+            groupID_srt_type_in = {}
+            forced_srt = []
+            forced_ass = []
+            for sub in subs:
+                if (sub['keep']:
+                    if codec in tools.sub_type_near_srt and test_if_forced(sub):
+                        
                             
+                        forced_srt.append(sub)
+                    elif codec not in tools.sub_type_not_encodable and test_if_forced(sub):
+                        forced_ass.append(sub)
+            if len(forced_ass) and len(forced_srt):
+                for sub in forced_srt:
+                    sub['keep'] = False
+                number_sub_will_be_copy -= len(forced_srt)
+        
+        if number_sub_will_be_copy > number_max_sub_stream:
+
+
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
     for sub in keep_sub_ass:
@@ -875,18 +933,23 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                     language_and_type = language+'all'
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
                 if "Title" in sub:
-                    if re.match(r".* *\[{0,1}forced\]{0,1} *.*", sub["Title"].lower()):
+                    if re.match(r".*forced.*", sub["Title"].lower()):
                         merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
                         if language_and_type+'_forced' not in dic_language_list_track_ID:
                             dic_language_list_track_ID[language_and_type+'_forced'] = [sub["StreamOrder"]]
                         else:
                             dic_language_list_track_ID[language_and_type+'_forced'].append(sub["StreamOrder"])
-                    elif re.match(r".* *\[{0,1}sdh\]{0,1} *.*", sub["Title"].lower()):
+                    elif re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(CC\).*", sub["Title"].lower()) or ("flag_hearing_impaired" in data['properties'] and data['properties']["flag_hearing_impaired"]):
                         merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
                         if language_and_type+'_hearing' not in dic_language_list_track_ID:
                             dic_language_list_track_ID[language_and_type+'_hearing'] = [sub["StreamOrder"]]
                         else:
                             dic_language_list_track_ID[language_and_type+'_hearing'].append(sub["StreamOrder"])
+                    elif re.match(r".*dubtitle.*", sub["Title"].lower()):
+                        if language_and_type+'_dubtitle' not in dic_language_list_track_ID:
+                            dic_language_list_track_ID[language_and_type+'_dubtitle'] = [sub["StreamOrder"]]
+                        else:
+                            dic_language_list_track_ID[language_and_type+'_dubtitle'].append(sub["StreamOrder"])
                     else:
                         if language_and_type not in dic_language_list_track_ID:
                             dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
@@ -1056,7 +1119,8 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode",
+                    "-err_detect", "buffer", "-err_detect", "explode", "-max_muxing_queue_size", "8192",
+                    "-probesize", "50000000",
                     "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put > 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
@@ -1199,7 +1263,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for audio_language in out_video_metadata.audios.keys():
         if audio_language != common_language_use_for_generate_delay:
             find_differences_and_keep_best_audio(out_video_metadata,audio_language,audioRules)
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
+    md5_audio_already_added = set()
+    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,md5_audio_already_added,list_track_order)
     
     sub_same_md5 = {}
     keep_sub = {'ass':[],'srt':[]}
