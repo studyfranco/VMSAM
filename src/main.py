@@ -55,6 +55,9 @@ if __name__ == '__main__':
         
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
         
+        with open("titles_subs_group.json") as titles_subs_group_file:
+            tools.group_title_sub = json.load(titles_subs_group_file)
+
         video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
         video.ffmpeg_pool_big_job = Pool(processes=1)
 

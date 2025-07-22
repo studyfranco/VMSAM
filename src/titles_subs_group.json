@@ -1,0 +1,20 @@
+{
+    "ar":[["saudi arabia","arabic (saudi arabia)"],["","arabic"]],
+    "de":[["","german"]],
+    "en":[["","english"]],
+    "es":[["spanish (latin america)","latin american"],["","spanish","spanish (spain)","european"]],
+    "fil":[["","filipino"]],
+    "fr":[["","french (france)","french","european"]],
+    "id":[["","indonesian"]],
+    "it":[["","italian"]],
+    "ja":[["","japanese"]],
+    "ko":[["","korean"]],
+    "ms":[["","malay"]],
+    "pl":[["","polish"]],
+    "pt":[["","european"],["portuguese (brazil)","brazilian"]],
+    "ru":[["","russian"]],
+    "th":[["","thai"]],
+    "tr":[["","turkish"]],
+    "vi":[["","vietnamese"]],
+    "zh":[["","chinese"],["chinese (hong kong sar china)"],["chinese (simplified)","simplified"],["chinese (traditional)","traditional"]]
+}

@@ -846,26 +846,37 @@ def keep_best_audio(list_audio_metadata,audioRules):
                         except Exception as e:
                             sys.stderr.write(str(e))
 
-def test_if_forced(sub):
-    if "Title" in sub and re.match(r".*forced.*", sub["Title"].lower()):
-        return True
-    return False
-
 def get_sub_title_group_id(groups,sub_title):
     for i,group in enumerate(groups):
         if sub_title in group:
             return i
     return None
 
-def insert_type_in_group_sub_title(sub,type_sub,groups):
-    if "Title" in sub:
-        group_id = get_sub_title_group_id(groups,sub["Title"])
-        if group_id == None:
-            groups.append([sub["Title"]])
+def insert_type_in_group_sub_title(sub_clean_title,type_sub,groups,groupID_srt_type_in,sub):
+    group_id = get_sub_title_group_id(groups,sub_clean_title)
+    if group_id == None:
+        groups.append([sub_clean_title])
+        group_id = len(groups)-1
+    
+    if group_id not in groupID_srt_type_in:
+        groupID_srt_type_in[group_id] = {}
+    if type_sub not in groupID_srt_type_in[group_id]:
+        groupID_srt_type_in[group_id][type_sub] = [sub]
     else:
-        group_id = get_sub_title_group_id(groups,"")
-        if group_id == None:
-            groups.append([""])
+        groupID_srt_type_in[group_id][type_sub].append(sub)
+
+def clean_forced_title(sub):
+    clean_title = ""
+    if "Title" in sub:
+        clean_title = re.sub(r'\s*\({0,1}forced\){0,1}\s*',"",sub["Title"].lower())
+        clean_title = re.sub(r'^\s*',"",clean_title)
+        clean_title = re.sub(r'\s*$',"",clean_title)
+    return clean_title
+
+def test_if_forced(sub):
+    if "Title" in sub and re.match(r".*forced.*", sub["Title"].lower()):
+        return True
+    return False
 
 def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
     unique_md5 = set()
@@ -883,23 +894,24 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
     if number_sub_will_be_copy > number_max_sub_stream:
         for language,subs in video_sub_track_list.items():
             if language not in tools.group_title_sub:
-                group_title_sub[language] = []
+                tools.group_title_sub[language] = []
             groupID_srt_type_in = {}
-            forced_srt = []
-            forced_ass = []
             for sub in subs:
                 if (sub['keep']):
                     if codec in tools.sub_type_near_srt and test_if_forced(sub):
-                        
-                            
-                        forced_srt.append(sub)
+                        insert_type_in_group_sub_title(clean_forced_title(sub),"forced_srt",tools.group_title_sub[language],groupID_srt_type_in,sub)
                     elif codec not in tools.sub_type_not_encodable and test_if_forced(sub):
-                        forced_ass.append(sub)
-            if len(forced_ass) and len(forced_srt):
-                for sub in forced_srt:
-                    sub['keep'] = False
-                number_sub_will_be_copy -= len(forced_srt)
-        
+                        insert_type_in_group_sub_title(clean_forced_title(sub),"forced_ass",tools.group_title_sub[language],groupID_srt_type_in,sub)
+            for comparative_sub in groupID_srt_type_in.values():
+                if len(comparative_sub["forced_ass"]) and len(comparative_sub["forced_srt"]):
+                    for sub in comparative_sub["forced_srt"]:
+                        sub['keep'] = False
+                    number_sub_will_be_copy -= len(comparative_sub["forced_srt"])
+                elif len(comparative_sub["forced_srt"]) > 1:
+                    for i range(2,len(comparative_sub["forced_srt"])):
+                        comparative_sub["forced_srt"][i]['keep'] = False
+                    number_sub_will_be_copy -= (len(comparative_sub["forced_srt"]) - 1)
+
         if number_sub_will_be_copy > number_max_sub_stream:
             pass
 

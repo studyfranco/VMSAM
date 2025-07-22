@@ -249,13 +249,15 @@ if __name__ == '__main__':
             tools.core_to_use = 1
         tools.folder_error = args.error
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
+        with open("titles_subs_group.json") as titles_subs_group_file:
+            tools.group_title_sub = json.load(titles_subs_group_file)
         tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
         import json
         with open(args.database_url_file) as database_url_file:
             database_url_param = json.load(database_url_file)
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
-        
+
         uvicorn_process = Process(target=run_uvicorn)
         uvicorn_process.start()
         
