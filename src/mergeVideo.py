@@ -854,7 +854,7 @@ def test_if_forced(sub):
 def get_sub_title_group_id(groups,sub_title):
     for i,group in enumerate(groups):
         if sub_title in group:
-            retrun i
+            return i
     return None
 
 def insert_type_in_group_sub_title(sub,type_sub,groups):
@@ -888,7 +888,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
             forced_srt = []
             forced_ass = []
             for sub in subs:
-                if (sub['keep']:
+                if (sub['keep']):
                     if codec in tools.sub_type_near_srt and test_if_forced(sub):
                         
                             
@@ -901,7 +901,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
                 number_sub_will_be_copy -= len(forced_srt)
         
         if number_sub_will_be_copy > number_max_sub_stream:
-
+            pass
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
