@@ -252,6 +252,13 @@ if __name__ == '__main__':
         import json
         with open("titles_subs_group.json") as titles_subs_group_file:
             tools.group_title_sub = json.load(titles_subs_group_file)
+        
+        with open("config.json") as config_file:
+            config = json.load(config_file)
+        language_to_keep = config["language_to_keep"]
+        language_to_completely_remove = set(config["language_to_completely_remove"])
+        language_to_try_to_keep = config["language_to_try_to_keep"]
+
         tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
         with open(args.database_url_file) as database_url_file:
             database_url_param = json.load(database_url_file)
