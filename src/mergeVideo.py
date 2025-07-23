@@ -793,7 +793,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     for id_audio in list_compatible:
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
-                    to_compare = to_compare - list_compatible
+                    to_compare = [x for x in to_compare if x not in list_compatible]
                 
         except Exception as e:
             import traceback

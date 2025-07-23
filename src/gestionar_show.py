@@ -58,11 +58,6 @@ def process_episode(files, folder_id, episode_number, database_url):
                     out_folder = os.path.join(tools.tmpFolder, "final_file")
                     tools.make_dirs(out_folder)
                     try:
-                        stderr.write(f"tools.group_title_sub {tools.group_title_sub}\n")
-                        stderr.write(f"tools.language_to_keep {tools.language_to_keep}\n")
-                        stderr.write(f"tools.language_to_completely_remove {tools.language_to_completely_remove}\n")
-                        stderr.write(f"tools.language_to_try_to_keep {tools.language_to_try_to_keep}\n")
-
                         mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
                         shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
                         if previous_file.file_weight < file['weight']:
