@@ -747,7 +747,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
     if len(video_obj.audios[language]) > 1:
         try:
             begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
-            videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
+            video_obj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
 
             from sys import stderr
             ignore_compare = set([f"{i}-{i}" for i in range(len(video_obj.audios[language]))])
