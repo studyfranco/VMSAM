@@ -814,7 +814,9 @@ def keep_best_audio(list_audio_metadata,audioRules):
     '''
     for i,audio_1 in enumerate(list_audio_metadata):
         for j,audio_2 in enumerate(list_audio_metadata):
-            if audio_1['Format'].lower() == audio_2['Format'].lower():
+            if i == j or (not audio_2['keep']) or (not audio_1['keep']):
+                pass
+            elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
                         if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) >= int(video.get_bitrate(audio_2)):
@@ -1235,10 +1237,10 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
+    from sys import stderr
+    stderr.write(f"generate_new_file_audio_config we compare: {audio["MD5"]} in {md5_audio_already_added}\n")
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
-        from sys import stderr
-        stderr.write(f"generate_new_file_audio_config we remove: {audio}\n")
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
