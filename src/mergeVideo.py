@@ -769,6 +769,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     set_delay = set()
                     for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
                         set_delay.add(delay_fidelity[2])
+                    stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
                     if len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
                         validation[i][j] = True
                     elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
