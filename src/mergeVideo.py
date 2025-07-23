@@ -877,7 +877,7 @@ def sub_group_id_detector_and_clean_srt_when_ass_with_test(video_sub_track_list,
     return number_sub_will_be_copy
 
 def sub_group_id_detector(sub_list,group_title_sub_for_language,groupID_srt_type_in):
-    for sub in :
+    for sub in sub_list:
         if (sub['keep']):
             if codec in tools.sub_type_near_srt:
                 if test_if_hearing_impaired(sub):
