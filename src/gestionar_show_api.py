@@ -71,6 +71,7 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
             "folder_id": existing.id
         }
 
+    import os
     if (not os.path.isdir(folder_in.destination_path)):
         raise HTTPException(status_code=400, detail="Folder not exist")
 
