@@ -1262,7 +1262,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode", "-max_muxing_queue_size", "8192",
+                    "-err_detect", "buffer", "-err_detect", "explode",
                     "-probesize", "50000000",
                     "-threads", str(tools.core_to_use), "-vn"]
     if delay_to_put > 0:
@@ -1321,7 +1321,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
-        base_cmd.extend(["-strict", "-2", "-t", duration_best_video, tmp_file_audio])
+        base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_muxing_queue_size", "8192", tmp_file_audio])
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
