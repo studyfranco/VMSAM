@@ -744,60 +744,61 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     return already_compared
 
 def find_differences_and_keep_best_audio(video_obj,language,audioRules):
-    try:
-        begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
-        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
+    if len(video_obj.audios[language]) > 1:
+        try:
+            begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
+            videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
 
-        from sys import stderr
-        ignore_compare = set([f"{i}-{i}" for i in range(len(video_obj.audios[language]))])
-        for i in range(len(video_obj.audios[language])):
-            for j in range(i+1,len(video_obj.audios[language])):
-                ignore_compare.add(f"{j}-{i}")
-        delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,lenghtTime,ignore_audio_couple=ignore_compare)
-        
-        fileid_audio = {}
-        validation = {}
-        for audio in video_obj.audios[language]:
-            fileid_audio[audio["audio_pos_file"]] = audio
-            validation[audio["audio_pos_file"]] = {}
-
-        to_compare = []
-        for i in range(len(video_obj.audios[language])):
-            to_compare.append(i)
-            for j in range(i+1,len(video_obj.audios[language])):
-                set_delay = set()
-                for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
-                    set_delay.add(delay_fidelity[2])
-                if len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
-                    validation[i][j] = True
-                elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
-                    validation[i][j] = False
-                    stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                else:
-                    validation[i][j] = False
-        
-        while len(to_compare):
-            main = to_compare.pop(0)
-            list_compatible = set()
-            not_compatible = set()
-            for i in validation[main].keys():
-                if validation[main][i] and i not in not_compatible:
-                    list_compatible.add(i)
-                    for j in validation[i].keys():
-                        if (not(validation[i][j])):
-                            not_compatible.add(j)
-            list_compatible = list_compatible - not_compatible
-            if len(list_compatible):
-                list_audio_metadata_compatible = [fileid_audio[main]]
-                for id_audio in list_compatible:
-                    list_audio_metadata_compatible.append(fileid_audio[id_audio])
-                keep_best_audio(list_audio_metadata_compatible,audioRules)
-                to_compare = to_compare - list_compatible
+            from sys import stderr
+            ignore_compare = set([f"{i}-{i}" for i in range(len(video_obj.audios[language]))])
+            for i in range(len(video_obj.audios[language])):
+                for j in range(i+1,len(video_obj.audios[language])):
+                    ignore_compare.add(f"{j}-{i}")
+            delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,lenghtTime,ignore_audio_couple=ignore_compare)
             
-    except Exception as e:
-        stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
-    finally:
-        video_obj.remove_tmp_files(type_file="audio")
+            fileid_audio = {}
+            validation = {}
+            for audio in video_obj.audios[language]:
+                fileid_audio[audio["audio_pos_file"]] = audio
+                validation[audio["audio_pos_file"]] = {}
+
+            to_compare = []
+            for i in range(len(video_obj.audios[language])):
+                to_compare.append(i)
+                for j in range(i+1,len(video_obj.audios[language])):
+                    set_delay = set()
+                    for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
+                        set_delay.add(delay_fidelity[2])
+                    if len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
+                        validation[i][j] = True
+                    elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
+                        validation[i][j] = False
+                        stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                    else:
+                        validation[i][j] = False
+            
+            while len(to_compare):
+                main = to_compare.pop(0)
+                list_compatible = set()
+                not_compatible = set()
+                for i in validation[main].keys():
+                    if validation[main][i] and i not in not_compatible:
+                        list_compatible.add(i)
+                        for j in validation[i].keys():
+                            if (not(validation[i][j])):
+                                not_compatible.add(j)
+                list_compatible = list_compatible - not_compatible
+                if len(list_compatible):
+                    list_audio_metadata_compatible = [fileid_audio[main]]
+                    for id_audio in list_compatible:
+                        list_audio_metadata_compatible.append(fileid_audio[id_audio])
+                    keep_best_audio(list_audio_metadata_compatible,audioRules)
+                    to_compare = to_compare - list_compatible
+                
+        except Exception as e:
+            stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
+        finally:
+            video_obj.remove_tmp_files(type_file="audio")
 
 def keep_best_audio(list_audio_metadata,audioRules):
     '''
