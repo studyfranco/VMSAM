@@ -908,7 +908,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
                         sub['keep'] = False
                     number_sub_will_be_copy -= len(comparative_sub["forced_srt"])
                 elif len(comparative_sub["forced_srt"]) > 1:
-                    for i range(2,len(comparative_sub["forced_srt"])):
+                    for i in range(2,len(comparative_sub["forced_srt"])):
                         comparative_sub["forced_srt"][i]['keep'] = False
                     number_sub_will_be_copy -= (len(comparative_sub["forced_srt"]) - 1)
 
