@@ -28,8 +28,12 @@ def process_episode(files, folder_id, episode_number, database_url):
     try:
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
+        
         video.number_cut = current_folder.number_cut
         mergeVideo.cut_file_to_get_delay_second_method = current_folder.cut_file_to_get_delay_second_method
+        tools.default_language_for_undetermine = current_folder.original_language
+        tools.special_params["original_language"] = current_folder.original_language
+
         tools.tmpFolder = os.path.join(tools.tmpFolder, str(episode_number))
         stderr.write(f"Tmp folder {tools.tmpFolder} for {episode_number} of {current_folder.destination_path}\n")
 
@@ -135,7 +139,7 @@ def process_file_by_folder(files, folder_id, database_url):
             tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
-        with ProcessPoolExecutor(max_workers=tools.core_to_use,max_tasks_per_child=1) as parrallel_jobs:
+        with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
             for episode_number, files in group_files_by_episode.items():
                 if episode_number <= current_folder.max_episode_number:
                     # Lancer le traitement des fichiers en parallèle
@@ -198,7 +202,7 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with ProcessPoolExecutor(max_workers=tools.core_to_use,max_tasks_per_child=1) as parrallel_jobs:
+    with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
         for folder_id, files in resultats_finaux.items():
             # Lancer le traitement des fichiers en parallèle
             list_jobs.append(parrallel_jobs.submit(
