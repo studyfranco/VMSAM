@@ -796,6 +796,8 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     to_compare = to_compare - list_compatible
                 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
         finally:
             video_obj.remove_tmp_files(type_file="audio")
