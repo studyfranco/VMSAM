@@ -1236,6 +1236,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
 def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
+        stderr.write(f"generate_new_file_audio_config we remove: {audio}\n")
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
