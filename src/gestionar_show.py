@@ -24,14 +24,17 @@ def process_episode(files, folder_id, episode_number, database_url):
             dic_weight_files[file['weight']].append(file)
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
-    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-    video.ffmpeg_pool_big_job = Pool(processes=1)
+
     try:
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
         video.number_cut = current_folder.number_cut
         mergeVideo.cut_file_to_get_delay_second_method = current_folder.cut_file_to_get_delay_second_method
         tools.tmpFolder = os.path.join(tools.tmpFolder, str(episode_number))
+        stderr.write(f"Tmp folder {tools.tmpFolder} for {episode_number} of {current_folder.destination_path}\n")
+
+        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+        video.ffmpeg_pool_big_job = Pool(processes=1)
         
         # Traiter les fichiers
         for weight in reversed(sorted(dic_weight_files)):
@@ -57,6 +60,9 @@ def process_episode(files, folder_id, episode_number, database_url):
                     tools.make_dirs(tools.tmpFolder)
                     out_folder = os.path.join(tools.tmpFolder, "final_file")
                     tools.make_dirs(out_folder)
+
+                    mergeVideo.default_audio = True
+                    mergeVideo.errors_merge = []
                     try:
                         mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
                         shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
@@ -129,7 +135,7 @@ def process_file_by_folder(files, folder_id, database_url):
             tools.special_params["original_language"] = current_folder.original_language
         
         list_jobs = []
-        with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
+        with ProcessPoolExecutor(max_workers=tools.core_to_use,max_tasks_per_child=1) as parrallel_jobs:
             for episode_number, files in group_files_by_episode.items():
                 if episode_number <= current_folder.max_episode_number:
                     # Lancer le traitement des fichiers en parallèle
@@ -192,7 +198,7 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
+    with ProcessPoolExecutor(max_workers=tools.core_to_use,max_tasks_per_child=1) as parrallel_jobs:
         for folder_id, files in resultats_finaux.items():
             # Lancer le traitement des fichiers en parallèle
             list_jobs.append(parrallel_jobs.submit(
@@ -270,7 +276,7 @@ if __name__ == '__main__':
         
         while True:
             process_files_in_folder(args.folder,database_url_param["database_url"])
-            stdout.write("\n\nPOSO !!!!!!!\n\n")
+            stdout.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
             sleep(args.wait)
             stdout.write("STARTO !!!!!!\n\n")
         

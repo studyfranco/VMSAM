@@ -875,7 +875,7 @@ def keep_one_ass(groupID_srt_type_in,number_sub_will_be_copy,number_max_sub_stre
     return number_sub_will_be_copy
 
 def sub_group_id_detector_and_clean_srt_when_ass_with_test(video_sub_track_list,language,language_groupID_srt_type_in,number_sub_will_be_copy,number_max_sub_stream):
-    if number_sub_will_be_copy > number_max_sub_stream:
+    if number_sub_will_be_copy > number_max_sub_stream and language in video_sub_track_list:
         sub_group_id_detector(video_sub_track_list[language],tools.group_title_sub[language],language_groupID_srt_type_in[language])
 
         if number_sub_will_be_copy > number_max_sub_stream:
@@ -1237,8 +1237,6 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
-    from sys import stderr
-    stderr.write(f"generate_new_file_audio_config we compare: {audio["MD5"]} in {md5_audio_already_added}\n")
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
