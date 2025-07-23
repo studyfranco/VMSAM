@@ -783,9 +783,11 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                 list_compatible = set()
                 not_compatible = set()
                 for i in validation[main].keys():
+                    stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
                     if validation[main][i] and i not in not_compatible:
                         list_compatible.add(i)
                         for j in validation[i].keys():
+                            stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
                             if (not(validation[i][j])):
                                 not_compatible.add(j)
                 list_compatible = list_compatible - not_compatible
@@ -794,6 +796,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     for id_audio in list_compatible:
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
+                    stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
                     to_compare = [x for x in to_compare if x not in list_compatible]
                 
         except Exception as e:
@@ -813,7 +816,7 @@ def keep_best_audio(list_audio_metadata,audioRules):
             if audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
-                        if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) > int(video.get_bitrate(audio_2)):
+                        if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) >= int(video.get_bitrate(audio_2)):
                             audio_2['keep'] = False
                         elif int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1)):
                             audio_1['keep'] = False
