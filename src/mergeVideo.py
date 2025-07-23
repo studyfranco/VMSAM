@@ -802,6 +802,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
         except Exception as e:
             import traceback
             traceback.print_exc()
+            from sys import stderr
             stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
         finally:
             video_obj.remove_tmp_files(type_file="audio")
@@ -1236,6 +1237,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
 def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
+        from sys import stderr
         stderr.write(f"generate_new_file_audio_config we remove: {audio}\n")
         return 0
     else:
