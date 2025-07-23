@@ -58,6 +58,11 @@ def process_episode(files, folder_id, episode_number, database_url):
                     out_folder = os.path.join(tools.tmpFolder, "final_file")
                     tools.make_dirs(out_folder)
                     try:
+                        stderr.write(f"tools.group_title_sub {tools.group_title_sub}\n")
+                        stderr.write(f"tools.language_to_keep {tools.language_to_keep}\n")
+                        stderr.write(f"tools.language_to_completely_remove {tools.language_to_completely_remove}\n")
+                        stderr.write(f"tools.language_to_try_to_keep {tools.language_to_try_to_keep}\n")
+
                         mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
                         shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
                         if previous_file.file_weight < file['weight']:
@@ -255,9 +260,9 @@ if __name__ == '__main__':
         
         with open("config.json") as config_file:
             config = json.load(config_file)
-        language_to_keep = config["language_to_keep"]
-        language_to_completely_remove = set(config["language_to_completely_remove"])
-        language_to_try_to_keep = config["language_to_try_to_keep"]
+        tools.language_to_keep = config["language_to_keep"]
+        tools.language_to_completely_remove = set(config["language_to_completely_remove"])
+        tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
         tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
         with open(args.database_url_file) as database_url_file:

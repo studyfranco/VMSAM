@@ -60,9 +60,9 @@ if __name__ == '__main__':
         
         with open("config.json") as config_file:
             config = json.load(config_file)
-        language_to_keep = config["language_to_keep"]
-        language_to_completely_remove = set(config["language_to_completely_remove"])
-        language_to_try_to_keep = config["language_to_try_to_keep"]
+        tools.language_to_keep = config["language_to_keep"]
+        tools.language_to_completely_remove = set(config["language_to_completely_remove"])
+        tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
         video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
         video.ffmpeg_pool_big_job = Pool(processes=1)
