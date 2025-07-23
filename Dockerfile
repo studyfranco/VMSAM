@@ -44,7 +44,7 @@ RUN set -x \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
 COPY init.sh /
-COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json /home/vmsam/
+COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json /home/vmsam/
 RUN chmod +x /init.sh \
  && chmod +x /home/vmsam/run.sh
 
