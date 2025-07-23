@@ -754,7 +754,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
             for i in range(len(video_obj.audios[language])):
                 for j in range(i+1,len(video_obj.audios[language])):
                     ignore_compare.add(f"{j}-{i}")
-            delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,lenghtTime,ignore_audio_couple=ignore_compare)
+            delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,length_time,ignore_audio_couple=ignore_compare)
             
             fileid_audio = {}
             validation = {}
