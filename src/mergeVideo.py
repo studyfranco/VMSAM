@@ -878,42 +878,45 @@ def test_if_forced(sub):
         return True
     return False
 
-def clean_number_stream_to_be_lover_than_max(number_max_sub_stream):
-    unique_md5 = set()
-    number_sub_will_be_copy = 0
-    for language,subs in video_sub_track_list.items():
-        for sub in subs:
-            if sub['keep']:
-                if sub['MD5'] not in md5_sub_already_added:
-                    number_sub_will_be_copy += 1
-                    if sub['MD5'] != '':
-                        unique_md5.add(sub['MD5'])
-                else:
-                    sub['keep'] = False
-    
-    if number_sub_will_be_copy > number_max_sub_stream:
+def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_track_list):
+    try:
+        unique_md5 = set()
+        number_sub_will_be_copy = 0
         for language,subs in video_sub_track_list.items():
-            if language not in tools.group_title_sub:
-                tools.group_title_sub[language] = []
-            groupID_srt_type_in = {}
             for sub in subs:
-                if (sub['keep']):
-                    if codec in tools.sub_type_near_srt and test_if_forced(sub):
-                        insert_type_in_group_sub_title(clean_forced_title(sub),"forced_srt",tools.group_title_sub[language],groupID_srt_type_in,sub)
-                    elif codec not in tools.sub_type_not_encodable and test_if_forced(sub):
-                        insert_type_in_group_sub_title(clean_forced_title(sub),"forced_ass",tools.group_title_sub[language],groupID_srt_type_in,sub)
-            for comparative_sub in groupID_srt_type_in.values():
-                if len(comparative_sub["forced_ass"]) and len(comparative_sub["forced_srt"]):
-                    for sub in comparative_sub["forced_srt"]:
+                if sub['keep']:
+                    if sub['MD5'] not in unique_md5:
+                        number_sub_will_be_copy += 1
+                        if sub['MD5'] != '':
+                            unique_md5.add(sub['MD5'])
+                    else:
                         sub['keep'] = False
-                    number_sub_will_be_copy -= len(comparative_sub["forced_srt"])
-                elif len(comparative_sub["forced_srt"]) > 1:
-                    for i in range(2,len(comparative_sub["forced_srt"])):
-                        comparative_sub["forced_srt"][i]['keep'] = False
-                    number_sub_will_be_copy -= (len(comparative_sub["forced_srt"]) - 1)
-
+        
         if number_sub_will_be_copy > number_max_sub_stream:
-            pass
+            for language,subs in video_sub_track_list.items():
+                if language not in tools.group_title_sub:
+                    tools.group_title_sub[language] = []
+                groupID_srt_type_in = {}
+                for sub in subs:
+                    if (sub['keep']):
+                        if codec in tools.sub_type_near_srt and test_if_forced(sub):
+                            insert_type_in_group_sub_title(clean_forced_title(sub),"forced_srt",tools.group_title_sub[language],groupID_srt_type_in,sub)
+                        elif codec not in tools.sub_type_not_encodable and test_if_forced(sub):
+                            insert_type_in_group_sub_title(clean_forced_title(sub),"forced_ass",tools.group_title_sub[language],groupID_srt_type_in,sub)
+                for comparative_sub in groupID_srt_type_in.values():
+                    if len(comparative_sub["forced_ass"]) and len(comparative_sub["forced_srt"]):
+                        for sub in comparative_sub["forced_srt"]:
+                            sub['keep'] = False
+                        number_sub_will_be_copy -= len(comparative_sub["forced_srt"])
+                    elif len(comparative_sub["forced_srt"]) > 1:
+                        for i in range(2,len(comparative_sub["forced_srt"])):
+                            comparative_sub["forced_srt"][i]['keep'] = False
+                        number_sub_will_be_copy -= (len(comparative_sub["forced_srt"]) - 1)
+
+            if number_sub_will_be_copy > number_max_sub_stream:
+                pass
+    except Exception as e:
+        stderr.write(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
@@ -951,7 +954,7 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                             dic_language_list_track_ID[language_and_type+'_forced'] = [sub["StreamOrder"]]
                         else:
                             dic_language_list_track_ID[language_and_type+'_forced'].append(sub["StreamOrder"])
-                    elif re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(CC\).*", sub["Title"].lower()) or ("flag_hearing_impaired" in data['properties'] and data['properties']["flag_hearing_impaired"]):
+                    elif re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(CC\).*", sub["Title"].lower()) or ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
                         merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
                         if language_and_type+'_hearing' not in dic_language_list_track_ID:
                             dic_language_list_track_ID[language_and_type+'_hearing'] = [sub["StreamOrder"]]
@@ -1275,8 +1278,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for audio_language in out_video_metadata.audios.keys():
         if audio_language != common_language_use_for_generate_delay:
             find_differences_and_keep_best_audio(out_video_metadata,audio_language,audioRules)
-    md5_audio_already_added = set()
-    generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,md5_audio_already_added,list_track_order)
+
+    number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
     
     sub_same_md5 = {}
     keep_sub = {'ass':[],'srt':[]}
@@ -1308,7 +1311,9 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     if len(keep_sub["srt"]) and len(keep_sub["ass"]):
         not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
-                
+
+    clean_number_stream_to_be_lover_than_max(max_stream-1-number_track_audio,out_video_metadata.subtitles)
+
     generate_merge_command_insert_ID_sub_track_set_not_default(final_insert,out_video_metadata.subtitles,set(),list_track_order)
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])

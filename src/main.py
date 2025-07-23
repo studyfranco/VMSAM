@@ -41,8 +41,8 @@ if __name__ == '__main__':
 
         import mergeVideo
         import video
+        import json
         if args.param != None:
-            import json
             with open(args.param) as param_file:
                 tools.special_params = json.load(param_file)
             tools.default_language_for_undetermine = tools.special_params["default_language_und"]
