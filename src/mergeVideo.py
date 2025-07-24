@@ -309,7 +309,9 @@ class compare_video(Thread):
         if len(delay_detected) == 1 and 0 in delay_detected:
             return delayUse,ignore_audio_couple
         elif len(delay_detected) == 0:
-            raise Exception("We don't have any delay. Why this happen ?")
+            with errors_merge_lock:
+                errors_merge.append(f"We don't have any delay. Why this happen ?\n In delay_Fidelity_Values {delay_Fidelity_Values} and ignore_audio_couple {ignore_audio_couple}\n")
+            raise Exception(f"We don't have any delay. Why this happen ?\n In delay_Fidelity_Values {delay_Fidelity_Values} and ignore_audio_couple {ignore_audio_couple}\n")
         else:
             delayUse += list(delay_detected)[0]
             self.recreate_files_for_delay_adjuster(delayUse)

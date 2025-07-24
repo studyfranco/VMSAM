@@ -36,9 +36,6 @@ def process_episode(files, folder_id, episode_number, database_url):
 
         tools.tmpFolder = os.path.join(tools.tmpFolder, str(episode_number))
         stderr.write(f"Tmp folder {tools.tmpFolder} for {episode_number} of {current_folder.destination_path}\n")
-
-        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-        video.ffmpeg_pool_big_job = Pool(processes=1)
         
         # Traiter les fichiers
         for weight in reversed(sorted(dic_weight_files)):
@@ -67,16 +64,19 @@ def process_episode(files, folder_id, episode_number, database_url):
 
                     mergeVideo.default_audio = True
                     mergeVideo.errors_merge = []
+
+                    video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+                    video.ffmpeg_pool_big_job = Pool(processes=1)
                     try:
                         mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
-                        shutil.move(previous_file.file_path, previous_file.file_path+'.tmp')
                         if previous_file.file_weight < file['weight']:
-                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
                         elif previous_file.file_weight > file['weight']:
-                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path)
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path+'.tmp')
                         else:
-                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path)
-                        os.remove(previous_file.file_path+'.tmp')
+                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
+                        os.remove(previous_file.file_path)
+                        shutil.move(new_file_path+'.tmp', new_file_path)
                         os.remove(file['chemin'])
                     except Exception as e:
                         stderr.write(f"Error processing file {file['nom']}: {e}\n")
@@ -90,11 +90,14 @@ def process_episode(files, folder_id, episode_number, database_url):
                             with open(os.path.join(tools.folder_error, os.path.basename(file['chemin']))+".log.error","w") as log:
                                 log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
                     finally:
+                        video.ffmpeg_pool_audio_convert.close()
+                        video.ffmpeg_pool_big_job.close()
+                        video.ffmpeg_pool_audio_convert.terminate()
+                        video.ffmpeg_pool_big_job.terminate()
                         tools.remove_dir(tools.tmpFolder)
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
                     session.commit()
-                    mergeVideo.errors_merge = []
                 else:
                     # Si l'épisode n'existe pas, on l'ajoute
                     regex_data = get_regex_data(file['regex'], session)
@@ -104,8 +107,6 @@ def process_episode(files, folder_id, episode_number, database_url):
     except Exception as e:
         stderr.write(f"Error processing files for folder {folder_id}, episode {episode_number}: {e}\n")
     session.close()
-    video.ffmpeg_pool_audio_convert.close()
-    video.ffmpeg_pool_big_job.close()
 
 def extraire_episode(nom_fichier, regex_pattern):
     """Extrait le numéro d'épisode selon le pattern regex"""
