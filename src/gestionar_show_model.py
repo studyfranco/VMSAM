@@ -57,7 +57,7 @@ class episode(Base):
 def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
     # Créer l'engine
-    engine = create_engine(database_url, echo=True)
+    engine = create_engine(database_url, echo=False)
     
     # Créer les tables si demandé
     if create_tables:

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # Initialise la DB
-engine = create_engine(settings.DATABASE_URL, echo=True)
+engine = create_engine(settings.DATABASE_URL, echo=False)
 
 def get_session():
     session = sessionmaker(bind=engine)()
