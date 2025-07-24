@@ -90,10 +90,13 @@ def process_episode(files, folder_id, episode_number, database_url):
                             with open(os.path.join(tools.folder_error, os.path.basename(file['chemin']))+".log.error","w") as log:
                                 log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
                     finally:
-                        video.ffmpeg_pool_audio_convert.close()
-                        video.ffmpeg_pool_big_job.close()
-                        video.ffmpeg_pool_audio_convert.terminate()
-                        video.ffmpeg_pool_big_job.terminate()
+                        try:
+                            video.ffmpeg_pool_audio_convert.close()
+                            video.ffmpeg_pool_big_job.close()
+                            video.ffmpeg_pool_audio_convert.terminate()
+                            video.ffmpeg_pool_big_job.terminate()
+                        except Exception as e:
+                            stderr.write(f"Error close pool: {e}\n")
                         tools.remove_dir(tools.tmpFolder)
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
