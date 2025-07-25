@@ -1028,7 +1028,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
 
             # Remove srt sub on not keep
             if number_sub_will_be_copy > number_max_sub_stream:
-                language_to_clean = video_sub_track_list.keys() - tools.language_to_keep - tools.language_to_try_to_keep
+                language_to_clean = set(video_sub_track_list.keys()) - set(tools.language_to_keep) - set(tools.language_to_try_to_keep)
                 for language in language_to_clean:
                     sub_group_id_detector(video_sub_track_list[language],tools.group_title_sub[language],language_groupID_srt_type_in[language])
 
