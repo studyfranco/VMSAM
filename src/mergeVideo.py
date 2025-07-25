@@ -891,6 +891,7 @@ def sub_group_id_detector_and_clean_srt_when_ass_with_test(video_sub_track_list,
 def sub_group_id_detector(sub_list,group_title_sub_for_language,groupID_srt_type_in):
     for sub in sub_list:
         if (sub['keep']):
+            codec = sub['ffprobe']["codec_name"].lower()
             if codec in tools.sub_type_near_srt:
                 if test_if_hearing_impaired(sub):
                     insert_type_in_group_sub_title(clean_hearing_impaired_title(sub),"hi_srt",group_title_sub_for_language,groupID_srt_type_in,sub)
@@ -1018,6 +1019,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
                 language_groupID_srt_type_in[language] = groupID_srt_type_in
                 for sub in subs:
                     if (sub['keep']):
+                        codec = sub['ffprobe']["codec_name"].lower()
                         if codec in tools.sub_type_near_srt and test_if_forced(sub):
                             insert_type_in_group_sub_title(clean_forced_title(sub),"forced_srt",tools.group_title_sub[language],groupID_srt_type_in,sub)
                         elif codec not in tools.sub_type_not_encodable and test_if_forced(sub):
