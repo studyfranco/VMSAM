@@ -26,8 +26,20 @@ def get_session():
         session.commit()
     except SQLAlchemyError as e:
         session.rollback()
+        try:
+            session.close()
+            import gc
+            gc.collect()
+        except Exception as e:
+            pass
         raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
     except Exception as e:
+        try:
+            session.close()
+            import gc
+            gc.collect()
+        except Exception as e:
+            pass
         session.rollback()
         raise e
     finally:
