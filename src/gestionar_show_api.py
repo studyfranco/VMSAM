@@ -148,7 +148,8 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         return {
             "message": "Regex added",
             "regex_pattern": regex_data.regex_pattern,
-            "extracted_episode": int(episode_number)
+            "extracted_episode": int(episode_number),
+            "folder id": folder.id
         }
     else:
         test_regex_rename(regex_data)
