@@ -208,7 +208,7 @@ def process_files_in_folder(folder_files,database_url):
     
     list_jobs = []
     global parrallel_jobs
-    parrallel_jobs = ProcessPoolExecutor(max_workers=2)
+    parrallel_jobs = ProcessPoolExecutor(max_workers=1)
 
     for folder_id, files in resultats_finaux.items():
         # Lancer le traitement des fichiers en parallèle
