@@ -98,6 +98,7 @@ def extract_ffmpeg_type_dict_all(filePath):
         dic_index_data_sub_codec[data["index"]] = data
     return dic_index_data_sub_codec
 
+tmpFolder_original = "/tmp"
 tmpFolder = "/tmp"
 software = {}
 core_to_use = 1

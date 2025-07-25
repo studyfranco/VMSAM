@@ -2,6 +2,7 @@ import argparse
 import os
 from multiprocessing import Pool, Process
 from concurrent.futures import ProcessPoolExecutor
+from threading import Thread
 from sys import stderr,stdout
 from time import sleep
 import tools
@@ -14,6 +15,7 @@ import uvicorn
 import traceback
 
 episode_pattern_insert = "{<episode>}"
+parrallel_jobs = None
 
 def process_episode(files, folder_id, episode_number, database_url):
     dic_weight_files = {}
@@ -34,7 +36,8 @@ def process_episode(files, folder_id, episode_number, database_url):
         tools.default_language_for_undetermine = current_folder.original_language
         tools.special_params["original_language"] = current_folder.original_language
 
-        tools.tmpFolder = os.path.join(tools.tmpFolder, str(episode_number))
+        tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(current_folder.id)), str(episode_number))
+        out_folder = os.path.join(tools.tmpFolder, "final_file")
         stderr.write(f"Tmp folder {tools.tmpFolder} for {episode_number} of {current_folder.destination_path}\n")
         
         # Traiter les fichiers
@@ -59,7 +62,6 @@ def process_episode(files, folder_id, episode_number, database_url):
                         new_file_weight = file['weight']
                     
                     tools.make_dirs(tools.tmpFolder)
-                    out_folder = os.path.join(tools.tmpFolder, "final_file")
                     tools.make_dirs(out_folder)
 
                     mergeVideo.default_audio = True
@@ -137,28 +139,24 @@ def process_file_by_folder(files, folder_id, database_url):
         with setup_database(database_url) as session:
             # Récupérer le dossier
             current_folder = get_folder_data(folder_id, session)
-            tools.tmpFolder = os.path.join(tools.tmpFolder, str(current_folder.id))
-            tools.make_dirs(tools.tmpFolder)
-            tools.default_language_for_undetermine = current_folder.original_language
-            tools.special_params["original_language"] = current_folder.original_language
-        
+            tmp_folder_group = os.path.join(tools.tmpFolder_original, str(current_folder.id))
+            tools.make_dirs(tmp_folder_group)
         list_jobs = []
-        with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
-            for episode_number, files in group_files_by_episode.items():
-                if episode_number <= current_folder.max_episode_number:
-                    # Lancer le traitement des fichiers en parallèle
-                    list_jobs.append(parrallel_jobs.submit(
-                        process_episode,files, folder_id, episode_number, database_url
-                    ))
-            group_files_by_episode = None  # Libérer la mémoire
-            current_folder = None  # Libérer la mémoire
-            
-            for job in list_jobs:
-                try:
-                    job.result()
-                except Exception as e:
-                    stderr.write(f"Error processing files: {e}\n")
-        tools.remove_dir(tools.tmpFolder)
+        for episode_number, files in group_files_by_episode.items():
+            if episode_number <= current_folder.max_episode_number:
+                # Lancer le traitement des fichiers en parallèle
+                list_jobs.append(parrallel_jobs.submit(
+                    process_episode,files, folder_id, episode_number, database_url
+                ))
+        group_files_by_episode = None  # Libérer la mémoire
+        current_folder = None  # Libérer la mémoire
+        
+        for job in list_jobs:
+            try:
+                job.result()
+            except Exception as e:
+                stderr.write(f"Error processing files: {e}\n")
+        tools.remove_dir(tmp_folder_group)
     return
 
 def process_files_in_folder(folder_files,database_url):
@@ -206,20 +204,22 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
-    with ProcessPoolExecutor(max_workers=tools.core_to_use) as parrallel_jobs:
-        for folder_id, files in resultats_finaux.items():
-            # Lancer le traitement des fichiers en parallèle
-            list_jobs.append(parrallel_jobs.submit(
-                process_file_by_folder, files, folder_id, database_url
-            ))
-        resultats_finaux = None  # Libérer la mémoire
-        
-        for job in list_jobs:
-            try:
-                job.result()
-            except Exception as e:
-                stderr.write(f"Error processing files: {e}\n")
+    parrallel_jobs = ProcessPoolExecutor(max_workers=2)
+
+    for folder_id, files in resultats_finaux.items():
+        # Lancer le traitement des fichiers en parallèle
+        list_jobs.append(Thread(target=process_file_by_folder, args=(files, folder_id, database_url)))
+        list_jobs[-1].start()
+    resultats_finaux = None  # Libérer la mémoire
     
+    for job in list_jobs:
+        try:
+            job.join()
+        except Exception as e:
+            stderr.write(f"Error processing files: {e}\n")
+    
+    parrallel_jobs.shutdown()
+
     return
 
 def run_uvicorn():
@@ -262,6 +262,7 @@ if __name__ == '__main__':
         else:
             tools.core_to_use = 1
         tools.folder_error = args.error
+        tools.tmpFolder_original = path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
         import json
         with open("titles_subs_group.json") as titles_subs_group_file:
