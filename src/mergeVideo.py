@@ -1056,6 +1056,9 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
                                         number_sub_will_be_copy = keep_one_ass(language_groupID_srt_type_in[language],number_sub_will_be_copy,number_max_sub_stream)
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        from sys import stderr
         stderr.write(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
