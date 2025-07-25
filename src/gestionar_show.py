@@ -142,6 +142,8 @@ def process_file_by_folder(files, folder_id, database_url):
             current_folder = get_folder_data(folder_id, session)
             tmp_folder_group = os.path.join(tools.tmpFolder_original, str(current_folder.id))
         tools.make_dirs(tmp_folder_group)
+
+        global parrallel_jobs
         list_jobs = []
         for episode_number, files in group_files_by_episode.items():
             if episode_number <= current_folder.max_episode_number:
@@ -205,6 +207,7 @@ def process_files_in_folder(folder_files,database_url):
     fichiers = None  # Libérer la mémoire
     
     list_jobs = []
+    global parrallel_jobs
     parrallel_jobs = ProcessPoolExecutor(max_workers=2)
 
     for folder_id, files in resultats_finaux.items():
