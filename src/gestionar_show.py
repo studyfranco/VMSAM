@@ -140,7 +140,7 @@ def process_file_by_folder(files, folder_id, database_url):
             # Récupérer le dossier
             current_folder = get_folder_data(folder_id, session)
             tmp_folder_group = os.path.join(tools.tmpFolder_original, str(current_folder.id))
-            tools.make_dirs(tmp_folder_group)
+        tools.make_dirs(tmp_folder_group)
         list_jobs = []
         for episode_number, files in group_files_by_episode.items():
             if episode_number <= current_folder.max_episode_number:
@@ -262,7 +262,7 @@ if __name__ == '__main__':
         else:
             tools.core_to_use = 1
         tools.folder_error = args.error
-        tools.tmpFolder_original = path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
+        tools.tmpFolder_original = os.path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
         import json
         with open("titles_subs_group.json") as titles_subs_group_file:
