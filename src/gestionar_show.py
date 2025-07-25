@@ -109,6 +109,8 @@ def process_episode(files, folder_id, episode_number, database_url):
                     new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
                     shutil.move(file['chemin'], new_file_path)
                     insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
+                import gc
+                gc.collect()
     except Exception as e:
         stderr.write(f"Error processing files for folder {folder_id}, episode {episode_number}: {e}\n")
     session.close()
