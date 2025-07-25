@@ -39,7 +39,6 @@ def process_episode(files, folder_id, episode_number, database_url):
 
         tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(current_folder.id)), str(episode_number))
         out_folder = os.path.join(tools.tmpFolder, "final_file")
-        stderr.write(f"Tmp folder {tools.tmpFolder} for {episode_number} of {current_folder.destination_path}\n")
         
         # Traiter les fichiers
         for weight in reversed(sorted(dic_weight_files)):
