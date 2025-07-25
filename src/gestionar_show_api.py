@@ -33,6 +33,8 @@ def get_session():
     finally:
         try:
             session.close()
+            import gc
+            gc.collect()
         except Exception as e:
             pass
 

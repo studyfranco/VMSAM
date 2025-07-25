@@ -288,6 +288,8 @@ if __name__ == '__main__':
         
         while True:
             process_files_in_folder(args.folder,database_url_param["database_url"])
+            import gc
+            gc.collect()
             stdout.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
             stderr.write("Was ist poso ?\n")
             stdout.write("EIN\n BREAKO !\n")
