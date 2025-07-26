@@ -11,6 +11,7 @@ from time import strftime,gmtime,sleep
 import tools
 import re
 import json
+from iso639 import Lang,is_language
 
 ffmpeg_pool_audio_convert = None
 ffmpeg_pool_big_job = None
@@ -83,30 +84,36 @@ class video():
                     raise Exception(f"Multiple video in the same file {self.filePath}, I can't compare and merge they")
                 else:
                     self.video = data
-            elif data['@type'] == 'Audio': 
+            else:
                 if 'Language' in data:
-                    language = data['Language'].split("-")[0]
+                    if is_language(data['Language']):
+                        language_iso_1 = Lang(data['Language']).pt1
+                        if language_iso_1 != None:
+                            language = language_iso_1
+                        else:
+                            language = data['Language'].split("-")[0]
+                    else:
+                        language = data['Language'].split("-")[0]
                 else:
                     language = "und"
-                if ('Title' in data and 'commentary' in data['Title'].lower()) or ("flag_commentary" in data['properties'] and data['properties']["flag_commentary"]):
-                    if language in self.commentary:
-                        self.commentary[language].append(data)
+                if data['@type'] == 'Audio': 
+                    if ('Title' in data and 'commentary' in data['Title'].lower()) or ("flag_commentary" in data['properties'] and data['properties']["flag_commentary"]):
+                        if language in self.commentary:
+                            self.commentary[language].append(data)
+                        else:
+                            self.commentary[language] = [data]
+                    elif ('Title' in data and re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
+                        if language in self.audiodesc:
+                            self.audiodesc[language].append(data)
+                        else:
+                            self.audiodesc[language] = [data]
                     else:
-                        self.commentary[language] = [data]
-                elif ('Title' in data and re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
-                    if language in self.audiodesc:
-                        self.audiodesc[language].append(data)
-                    else:
-                        self.audiodesc[language] = [data]
-                else:
-                    data["compatible"] = True
-                    if language in self.audios:
-                        self.audios[language].append(data)
-                    else:
-                        self.audios[language] = [data]
-            elif data['@type'] == 'Text':
-                if 'Language' in data:
-                    language = data['Language'].split("-")[0]
+                        data["compatible"] = True
+                        if language in self.audios:
+                            self.audios[language].append(data)
+                        else:
+                            self.audios[language] = [data]
+                elif data['@type'] == 'Text':
                     if language in self.subtitles:
                         self.subtitles[language].append(data)
                     else:

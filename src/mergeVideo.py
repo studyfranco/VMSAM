@@ -1121,6 +1121,12 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                             dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                         else:
                             dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
+                elif ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
+                    merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
+                    if language_and_type+'_hearing' not in dic_language_list_track_ID:
+                        dic_language_list_track_ID[language_and_type+'_hearing'] = [sub["StreamOrder"]]
+                    else:
+                        dic_language_list_track_ID[language_and_type+'_hearing'].append(sub["StreamOrder"])
                 else:
                     if language_and_type not in dic_language_list_track_ID:
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
