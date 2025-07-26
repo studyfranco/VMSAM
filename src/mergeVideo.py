@@ -208,12 +208,12 @@ class compare_video(Thread):
                 for delay_fidelity in delay_fidelity_list:
                     if delay_fidelity != delay_fidelity_list[0][2]:
                         number_values_not_good += 1
-                    if (number_values_not_good/video.number_cut) > 0.25:
-                        ignore_audio_couple.add(key_audio)
-                        with errors_merge_lock:
-                            errors_merge.append(f"We was in first_delay_test at number_values_not_good/video.number_cut. {delay_fidelity_list}")
-                    else:
-                        delay_detected.add(delay_fidelity_list[0][2])
+                if (number_values_not_good/video.number_cut) > 0.25:
+                    ignore_audio_couple.add(key_audio)
+                    with errors_merge_lock:
+                        errors_merge.append(f"We was in first_delay_test at number_values_not_good/video.number_cut. {delay_fidelity_list}")
+                else:
+                    delay_detected.add(delay_fidelity_list[0][2])
             elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
                 to_ignore = set(delay_Fidelity_Values.keys())
                 to_ignore.remove(key_audio)
