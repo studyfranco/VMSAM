@@ -88,7 +88,7 @@ class video():
                 if 'Language' in data:
                     if is_language(data['Language']):
                         language_iso_1 = Lang(data['Language']).pt1
-                        if language_iso_1 != None:
+                        if language_iso_1 != None and language_iso_1 != '':
                             language = language_iso_1
                         else:
                             language = data['Language'].split("-")[0]
