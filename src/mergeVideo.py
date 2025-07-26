@@ -1562,7 +1562,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
 
         most_frequent_language = max(audio_counts, key=audio_counts.get)
         if audio_counts[most_frequent_language] == 1:
-            raise Exception("No common language between "+str([videoObj.filePath for videoObj in videosObj]))
+            raise Exception(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}"))
         else:
             commonLanguages.add(most_frequent_language)
             from sys import stderr
