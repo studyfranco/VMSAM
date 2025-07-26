@@ -210,6 +210,8 @@ class compare_video(Thread):
                         number_values_not_good += 1
                     if (number_values_not_good/video.number_cut) > 0.25:
                         ignore_audio_couple.add(key_audio)
+                        with errors_merge_lock:
+                            errors_merge.append(f"We was in first_delay_test at number_values_not_good/video.number_cut. {delay_fidelity_list}")
                     else:
                         delay_detected.add(delay_fidelity_list[0][2])
             elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
@@ -219,6 +221,8 @@ class compare_video(Thread):
                 delay_found = self.adjuster_chroma_bugged(list(set_delay),to_ignore)
                 if delay_found == None:
                     ignore_audio_couple.add(key_audio)
+                    with errors_merge_lock:
+                        errors_merge.append(f"We was in first_delay_test at delay_found == None. {set_delay}")
                 else:
                     #delay_detected.add(delay_fidelity_list[0][2])
                     if set_delay_clone[1] > set_delay_clone[0]:
@@ -229,6 +233,8 @@ class compare_video(Thread):
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
                 ignore_audio_couple.add(key_audio)
+                with errors_merge_lock:
+                    errors_merge.append(f"We was in first_delay_test at else. {set_delay}")
         
         '''
             TODO:
@@ -1435,7 +1441,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     list_track_order=[]
     global default_audio
     default_audio = True
-    keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
+
+    try:
+        keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
+    except Exception as e:
+        with errors_merge_lock:
+            errors_merge.append(f"Error keep_best_audio {e} we have {out_video_metadata.audios}")
+            raise e
+    
     for audio_language in out_video_metadata.audios.keys():
         if audio_language != common_language_use_for_generate_delay:
             find_differences_and_keep_best_audio(out_video_metadata,audio_language,audioRules)
