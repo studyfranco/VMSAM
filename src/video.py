@@ -91,10 +91,13 @@ class video():
                         if language_iso_1 != None and language_iso_1 != '':
                             language = language_iso_1
                         else:
-                            language_iso_1 = Lang(data['Language']).macro().pt1
-                            if language_iso_1 != None and language_iso_1 != '':
-                                language = language_iso_1
-                            else:
+                            try:
+                                language_iso_1 = Lang(data['Language']).macro().pt1
+                                if language_iso_1 != None and language_iso_1 != '':
+                                    language = language_iso_1
+                                else:
+                                    language = data['Language'].split("-")[0]
+                            except:
                                 language = data['Language'].split("-")[0]
                     else:
                         language = data['Language'].split("-")[0]
