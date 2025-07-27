@@ -282,12 +282,14 @@ if __name__ == '__main__':
         tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
         with open(args.database_url_file) as database_url_file:
             database_url_param = json.load(database_url_file)
+        stderr.write("Setup database\n")
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
 
         uvicorn_process = Process(target=run_uvicorn)
         uvicorn_process.start()
         
+        stderr.write("Start !\n")
         while True:
             process_files_in_folder(args.folder,database_url_param["database_url"])
             import gc
