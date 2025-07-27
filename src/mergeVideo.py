@@ -206,7 +206,7 @@ class compare_video(Thread):
             elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
                 number_values_not_good = 0
                 for delay_fidelity in delay_fidelity_list:
-                    if delay_fidelity != delay_fidelity_list[0][2]:
+                    if delay_fidelity[2] != delay_fidelity_list[0][2]:
                         number_values_not_good += 1
                 if (float(number_values_not_good)/float(video.number_cut)) > 0.25:
                     ignore_audio_couple.add(key_audio)
