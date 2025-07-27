@@ -53,7 +53,14 @@ class episode(Base):
     )
 
     folder: Mapped["folder"] = relationship(back_populates="episodes")
-    
+
+class incrementaller(Base):
+    __tablename__ = 'incrementaller'
+
+    regex_pattern: Mapped[str] = mapped_column(primary_key=True)
+    rename_pattern: Mapped[str]
+    episode_incremental: Mapped[int]
+
 def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
     # Créer l'engine
@@ -167,3 +174,39 @@ def insert_episode(folder_id, episode_number, file_path, file_weight, session):
     session.add(new_episode)
     session.commit()
     return new_episode
+
+def get_incrementaller_data(regex, session):
+    return session.query(incrementaller).filter(
+        incrementaller.regex_pattern == regex
+    ).first()
+
+def get_all_incrementaller(session):
+    return session.query(incrementaller).all()
+
+def insert_incremental(regex_pattern, rename_pattern, episode_incremental, session):
+    if regex_pattern == None or len(regex_pattern) == 0:
+        raise ValueError("regex_pattern cannot be empty")
+    if rename_pattern != None and len(rename_pattern) == 0:
+        raise ValueError("rename_pattern cannot be empty")
+    if episode_incremental == None:
+        raise ValueError("episode_incremental must be define")
+    
+    new_incremental = incrementaller(
+        regex_pattern=regex_pattern,
+        rename_pattern=rename_pattern,
+        episode_incremental=episode_incremental
+    )
+    session.add(new_incremental)
+    session.commit()
+    return new_incremental
+
+def update_incremental(incremental_data, rename_pattern, episode_incremental, session):
+    if rename_pattern != None and len(rename_pattern) == 0:
+        raise ValueError("rename_pattern cannot be empty")
+    if episode_incremental == None:
+        raise ValueError("episode_incremental must be define")
+
+    incremental_data.rename_pattern = rename_pattern
+    incremental_data.episode_incremental = episode_incremental
+    session.commit()
+    return incremental_data

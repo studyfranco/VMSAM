@@ -64,6 +64,12 @@ class Regex(BaseModel):
     example_filename: str
     destination_path: str
 
+class Incrementaller(BaseModel):
+    regex_pattern: str
+    rename_pattern: str
+    episode_incremental: int = Field(default=12)
+    example_filename: str
+
 app = FastAPI(
     title="Gestionar Show API",
     description="API pour la gestion des folders, regex patterns et épisodes",
@@ -161,4 +167,57 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         return {
             "message": "Regex updated",
             "regex_pattern": regex_data.regex_pattern
+        }
+
+@app.post("/incrementaller/")
+def create_regex(incremental_data: Incrementaller, session: Session = Depends(get_session)):
+    incremental = get_incrementaller_data(incremental_data.regex_pattern, session)
+    if incremental == None:
+        import re
+        # Vérifier que la nouvelle regex matche le fichier d'exemple
+        # Vérifier que la regex permet d'extraire un numéro d'épisode valide
+        match = re.search(incremental_data.regex_pattern, incremental_data.example_filename)
+        if match != None:
+            if 'episode' in match.groupdict():
+                episode_number = match.group('episode')
+                if (not episode_number.isdigit()) or int(episode_number) < 1:
+                    raise HTTPException(status_code=400, detail=f"Regex does not extract a valid episode number. We get: {episode_number}")
+            else:
+                raise HTTPException(status_code=400, detail="Regex does not extract a valid episode number from the example filename")
+        else:
+            raise HTTPException(status_code=400, detail="Regex does not match the example filename")
+
+        test_regex_rename(incremental_data)
+
+        # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
+        all_incremental = get_all_incrementaller(session)
+        for regex in all_incremental:
+            if re.search(regex.regex_pattern, incremental_data.example_filename) != None:
+                raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
+
+        # Créer et insérer la nouvelle regex
+        try:
+            insert_incremental(incremental_data.regex_pattern, incremental_data.rename_pattern, incremental_data.episode_incremental, session)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error during insertion of the regex: {e}")
+
+        return {
+            "message": "Regex added",
+            "regex_pattern": incremental_data.regex_pattern,
+            "extracted_episode": int(episode_number),
+            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(episode_number+incremental_data.episode_incremental):02}")
+        }
+    else:
+        test_regex_rename(incremental_data)
+        # Si la regex existe déjà, on met à jour les champs
+        try:
+            update_incremental(incremental, incremental_data.rename_pattern, incremental_data.episode_incremental, session)
+            match = re.search(incremental_data.regex_pattern, incremental_data.example_filename)
+            episode_number = match.group('episode')
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error during update of the regex: {e}")
+        return {
+            "message": "Regex updated",
+            "regex_pattern": incremental_data.regex_pattern
+            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(episode_number+incremental_data.episode_incremental):02}")
         }
