@@ -218,6 +218,6 @@ def create_regex(incremental_data: Incrementaller, session: Session = Depends(ge
             raise HTTPException(status_code=400, detail=f"Error during update of the regex: {e}")
         return {
             "message": "Regex updated",
-            "regex_pattern": incremental_data.regex_pattern
+            "regex_pattern": incremental_data.regex_pattern,
             "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(episode_number+incremental_data.episode_incremental):02}")
         }
