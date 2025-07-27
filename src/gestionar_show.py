@@ -299,6 +299,7 @@ if __name__ == '__main__':
             stdout.write("F..........\n")
             sleep(args.wait)
             stdout.write("STARTO !!!!!!\n\n")
+            stderr.write("Nein !\n")
         
         uvicorn_process.terminate()
         uvicorn_process.join()
