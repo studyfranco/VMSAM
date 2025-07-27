@@ -109,7 +109,7 @@ class video():
                             self.commentary[language].append(data)
                         else:
                             self.commentary[language] = [data]
-                    elif ('Title' in data and re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
+                    elif ('Title' in data and ( re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) or re.match(r".* *\[{0,1}audio {0,1}guide\]{0,1} *.*", data["Title"].lower()) ) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
                         if language in self.audiodesc:
                             self.audiodesc[language].append(data)
                         else:
