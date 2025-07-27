@@ -100,7 +100,7 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
     if maxTime < 60:
         timeTake = strftime('%H:%M:%S',gmtime(maxTime))
     else:
-        timeTake = "00:00:10"
+        timeTake = "00:00:60"
         maxTime = 60
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
