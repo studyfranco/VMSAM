@@ -97,11 +97,11 @@ def decript_merge_rules_bester(rules,best,weak):
     rules[best][weak] = True
     
 def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
-    if maxTime < 10:
+    if maxTime < 60:
         timeTake = strftime('%H:%M:%S',gmtime(maxTime))
     else:
         timeTake = "00:00:10"
-        maxTime = 10
+        maxTime = 60
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
         videoObj.wait_end_ffmpeg_progress_audio()
