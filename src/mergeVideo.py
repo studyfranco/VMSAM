@@ -324,10 +324,12 @@ class compare_video(Thread):
             
             delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime,ignore_audio_couple=ignore_audio_couple)
             delay_detected = set()
+            delay_fidelity = []
             for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
                 set_delay = set()
                 for delay_fidelity in delay_fidelity_list:
                     set_delay.add(delay_fidelity[2])
+                    delay_fidelity.append(delay_fidelity[0])
                 if len(set_delay) == 1:
                     delay_detected.update(set_delay)
                 elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
@@ -343,11 +345,17 @@ class compare_video(Thread):
                         
             if len(delay_detected) == 1 and 0 in delay_detected:
                 return delayUse,ignore_audio_couple
+            elif (len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128) or (len(set_delay) == 1 and abs(list(set_delay)[0]) < 128):
+                from statistics import mean
+                if mean(delay_fidelity) >= 0.90:
+                    return delayUse,ignore_audio_couple
+                else:
+                    raise Exception(f"Not able to find delay with the method 1 and in test 4.1 we find {delay_detected} with a delay of {delayUse} with result {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
             else:
                 delays = self.get_delays_dict(delay_Fidelity_Values,delayUse=0)
                 self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
                 self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
-                raise Exception(f"Not able to find delay with the method 1 and in test 4 we find {delay_detected} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                raise Exception(f"Not able to find delay with the method 1 and in test 4 we find {delay_detected} with a delay of {delayUse} with result {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
     
     def adjuster_chroma_bugged(self,list_delay,ignore_audio_couple):
         if list_delay[0] > list_delay[1]:
@@ -777,12 +785,29 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     set_delay = set()
                     for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
                         set_delay.add(delay_fidelity[2])
-                    stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                    if len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
+                    if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
                         validation[i][j] = True
+                    elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
+                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                        from statistics import mean
+                        if mean([fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]) >= 0.90:
+                            validation[i][j] = True
+                        else:
+                            validation[i][j] = False
                     elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                         validation[i][j] = False
                         stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                    elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
+                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                        from statistics import mean
+                        if mean([fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]) >= 0.90:
+                            validation[i][j] = True
+                        else:
+                            validation[i][j] = False
                     else:
                         validation[i][j] = False
             
