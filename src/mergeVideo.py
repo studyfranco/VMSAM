@@ -792,9 +792,9 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                         validation[i][j] = True
                     elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
                         stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         from statistics import mean
-                        if mean([fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]) >= 0.90:
+                        if mean([fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]) >= 0.90:
                             validation[i][j] = True
                         else:
                             validation[i][j] = False
@@ -802,12 +802,12 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                         validation[i][j] = False
                         stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
                         stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                     elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
                         stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]}\n")
+                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         from statistics import mean
-                        if mean([fi for fi in delay_Fidelity_Values[f"{i}-{j}"][0]]) >= 0.90:
+                        if mean([fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]) >= 0.90:
                             validation[i][j] = True
                         else:
                             validation[i][j] = False
