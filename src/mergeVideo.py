@@ -46,15 +46,18 @@ def decript_merge_rules(stringRules):
                 if subValue not in rules:
                     rules[subValue] = {}
             for sup in precedentSuperior:
-                if sup[0] == subValue:
-                    pass
-                elif isinstance(sup[1], float):
-                    for subValue in value:
-                        if subValue not in rules[sup[0]] or (isinstance(rules[sup[0]][subValue], float) and rules[sup[0]][subValue] > 1 and rules[sup[0]][subValue] < sup[1]):
+                for subValue in value:
+                    if sup[0] == subValue:
+                        pass
+                    elif isinstance(sup[1], float):
+                        if subValue not in rules[sup[0]]:
                             rules[sup[0]][subValue] = sup[1]
                             rules[subValue][sup[0]] = False
-                elif isinstance(sup[1], bool):
-                    for subValue in value:
+                        elif subValue in rules[sup[0]] and isinstance(rules[sup[0]][subValue], bool) and (not rules[sup[0]][subValue]) and (not (isinstance(rules[subValue][sup[0]], bool) and rules[subValue][sup[0]]) ):
+                            if rules[subValue][sup[0]] >= 1 and sup[1] >= 1:
+                                rules[sup[0]][subValue] = sup[1]
+                                
+                    elif isinstance(sup[1], bool):
                         rules[sup[0]][subValue] = True
                         rules[subValue][sup[0]] = False
                     
