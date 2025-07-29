@@ -335,7 +335,7 @@ if __name__ == '__main__':
         
         stderr.write("Start !\n")
         while True:
-            incrementaller(folder_files,database_url)
+            incrementaller(args.folder,database_url_param["database_url"])
             process_files_in_folder(args.folder,database_url_param["database_url"])
             import gc
             gc.collect()
