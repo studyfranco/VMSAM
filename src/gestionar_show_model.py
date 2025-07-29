@@ -183,7 +183,7 @@ def get_incrementaller_data(regex, session):
 def get_all_incrementaller(session):
     return session.query(incrementaller).all()
 
-def insert_incremental(regex_pattern, rename_pattern, episode_incremental, session):
+def insert_incrementaller(regex_pattern, rename_pattern, episode_incremental, session):
     if regex_pattern == None or len(regex_pattern) == 0:
         raise ValueError("regex_pattern cannot be empty")
     if rename_pattern != None and len(rename_pattern) == 0:
@@ -200,7 +200,7 @@ def insert_incremental(regex_pattern, rename_pattern, episode_incremental, sessi
     session.commit()
     return new_incremental
 
-def update_incremental(incremental_data, rename_pattern, episode_incremental, session):
+def update_incrementaller(incremental_data, rename_pattern, episode_incremental, session):
     if rename_pattern != None and len(rename_pattern) == 0:
         raise ValueError("rename_pattern cannot be empty")
     if episode_incremental == None:
