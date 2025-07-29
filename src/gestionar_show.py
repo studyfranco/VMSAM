@@ -261,13 +261,13 @@ def incrementaller(folder_files,database_url):
                 for fichier_match in fichiers_matches:
                     fichiers.remove(fichier_match)
                     try:
-                        episode_number = extraire_episode(file['nom'], file['regex'])
+                        episode_number = extraire_episode(file['nom'], regex.regex_pattern)
                         if episode_number == None or (not episode_number.isdigit()):
                             raise Exception(f"Episode not found")
                         elif int(episode_number) > 0:
-                            new_file_path = os.path.join(os.path.dirname(file['chemin']), regex.rename_pattern.replace(episode_pattern_insert, f"{int(episode_number)+episode_incremental:02}"))
+                            new_file_path = os.path.join(os.path.dirname(file['chemin']), regex.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+regex.episode_incremental):02}"))
                             shutil.move(file['chemin'], new_file_path)
-                            print(f'Files {file['nom']} rename in {delay_to_put}')
+                            print(f'Files {file['nom']} rename in {os.path.basename(new_file_path)}')
                     except Exception as e:
                         stderr.write(f"Error processing {file['nom']}: {e}\n")
 
@@ -335,6 +335,7 @@ if __name__ == '__main__':
         
         stderr.write("Start !\n")
         while True:
+            incrementaller(folder_files,database_url)
             process_files_in_folder(args.folder,database_url_param["database_url"])
             import gc
             gc.collect()
