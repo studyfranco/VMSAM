@@ -327,12 +327,12 @@ class compare_video(Thread):
             
             delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime,ignore_audio_couple=ignore_audio_couple)
             delay_detected = set()
-            delay_fidelity = []
+            delay_fidelity_calculated = []
             for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
                 set_delay = set()
                 for delay_fidelity in delay_fidelity_list:
                     set_delay.add(delay_fidelity[2])
-                    delay_fidelity.append(delay_fidelity[0])
+                    delay_fidelity_calculated.append(delay_fidelity[0])
                 if len(set_delay) == 1:
                     delay_detected.update(set_delay)
                 elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
@@ -350,7 +350,7 @@ class compare_video(Thread):
                 return delayUse,ignore_audio_couple
             elif (len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128) or (len(set_delay) == 1 and abs(list(set_delay)[0]) < 128):
                 from statistics import mean
-                if mean(delay_fidelity) >= 0.90:
+                if mean(delay_fidelity_calculated) >= 0.90:
                     return delayUse,ignore_audio_couple
                 else:
                     raise Exception(f"Not able to find delay with the method 1 and in test 4.1 we find {delay_detected} with a delay of {delayUse} with result {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
