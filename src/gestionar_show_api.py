@@ -171,9 +171,9 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
 
 @app.post("/incrementaller/")
 def create_regex(incremental_data: Incrementaller, session: Session = Depends(get_session)):
+    import re
     incremental = get_incrementaller_data(incremental_data.regex_pattern, session)
     if incremental == None:
-        import re
         # Vérifier que la nouvelle regex matche le fichier d'exemple
         # Vérifier que la regex permet d'extraire un numéro d'épisode valide
         match = re.search(incremental_data.regex_pattern, incremental_data.example_filename)

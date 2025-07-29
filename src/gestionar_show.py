@@ -7,7 +7,7 @@ from threading import Thread
 from sys import stderr,stdout
 from time import sleep
 import tools
-from gestionar_show_model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode
+from gestionar_show_model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller
 import re
 import mergeVideo
 import video
@@ -226,6 +226,50 @@ def process_files_in_folder(folder_files,database_url):
     parrallel_jobs.shutdown()
 
     return
+
+def incrementaller(folder_files,database_url):
+    fichiers = [
+            {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
+            for fichier in os.listdir(folder_files)
+            if os.path.isfile(os.path.join(folder_files, fichier))
+        ]
+        
+    if not fichiers:
+        return
+    
+    with setup_database(database_url) as session:
+        # Récupérer toutes les regex triées par poids décroissant
+        all_regex = get_all_incrementaller(session)
+        
+        # Traiter chaque regex et supprimer les fichiers matchés directement
+        resultats_finaux = {}
+        
+        for regex in all_regex:
+            if not fichiers:  # Plus de fichiers à traiter
+                break
+                
+            # Compiler la regex
+            regex_compilee = re.compile(regex.regex_pattern)
+            
+            # Filtrer les fichiers qui matchent
+            fichiers_matches = list(filter(
+                lambda f: regex_compilee.search(f['nom']), 
+                fichiers
+            ))
+            
+            if len(fichiers_matches):
+                for fichier_match in fichiers_matches:
+                    fichiers.remove(fichier_match)
+                    try:
+                        episode_number = extraire_episode(file['nom'], file['regex'])
+                        if episode_number == None or (not episode_number.isdigit()):
+                            raise Exception(f"Episode not found")
+                        elif int(episode_number) > 0:
+                            new_file_path = os.path.join(os.path.dirname(file['chemin']), regex.rename_pattern.replace(episode_pattern_insert, f"{int(episode_number)+episode_incremental:02}"))
+                            shutil.move(file['chemin'], new_file_path)
+                            print(f'Files {file['nom']} rename in {delay_to_put}')
+                    except Exception as e:
+                        stderr.write(f"Error processing {file['nom']}: {e}\n")
 
 def run_uvicorn():
     env_path = os.path.join(tools.tmpFolder, "gestionar_show_api.env")
