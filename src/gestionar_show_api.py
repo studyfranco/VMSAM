@@ -205,7 +205,7 @@ def create_regex(incremental_data: Incrementaller, session: Session = Depends(ge
             "message": "Regex added",
             "regex_pattern": incremental_data.regex_pattern,
             "extracted_episode": int(episode_number),
-            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(episode_number+incremental_data.episode_incremental):02}")
+            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
     else:
         test_regex_rename(incremental_data)
@@ -219,5 +219,5 @@ def create_regex(incremental_data: Incrementaller, session: Session = Depends(ge
         return {
             "message": "Regex updated",
             "regex_pattern": incremental_data.regex_pattern,
-            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(episode_number+incremental_data.episode_incremental):02}")
+            "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
