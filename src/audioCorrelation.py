@@ -22,7 +22,7 @@ import numpy
 step = 1
 # minimum number of points that must overlap in cross correlation
 # exception is raised if this cannot be met
-min_overlap = 30
+min_overlap = 32
 # report match when cross correlation has a peak exceeding threshold
 #threshold = 0.5
 

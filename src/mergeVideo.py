@@ -197,41 +197,47 @@ class compare_video(Thread):
             raise e
         
     def first_delay_test(self):
-        delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime)
+        from statistics import mean
+        delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
         for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
             set_delay = set()
+            delay_fidelity_calculated = []
             for delay_fidelity in delay_fidelity_list:
                 set_delay.add(delay_fidelity[2])
+                delay_fidelity_calculated.append(delay_fidelity[0])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
-            elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
-                number_values_not_good = 0
-                for delay_fidelity in delay_fidelity_list:
-                    if delay_fidelity[2] != delay_fidelity_list[0][2]:
-                        number_values_not_good += 1
-                if (float(number_values_not_good)/float(video.number_cut)) > 0.25:
-                    ignore_audio_couple.add(key_audio)
-                    with errors_merge_lock:
-                        errors_merge.append(f"We was in first_delay_test at number_values_not_good/video.number_cut {number_values_not_good}/{number_values_not_good} = {float(number_values_not_good)/float(video.number_cut)}. {delay_fidelity_list}")
-                else:
-                    delay_detected.add(delay_fidelity_list[0][2])
-            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
-                to_ignore = set(delay_Fidelity_Values.keys())
-                to_ignore.remove(key_audio)
-                set_delay_clone = list(set_delay.copy())
-                delay_found = self.adjuster_chroma_bugged(list(set_delay),to_ignore)
-                if delay_found == None:
-                    ignore_audio_couple.add(key_audio)
-                    with errors_merge_lock:
-                        errors_merge.append(f"We was in first_delay_test at delay_found == None. {set_delay}")
-                else:
-                    #delay_detected.add(delay_fidelity_list[0][2])
-                    if set_delay_clone[1] > set_delay_clone[0]:
-                        delay_detected.add(set_delay_clone[0]+67) # 125/2
+            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127 and mean(delay_fidelity_calculated) >= 60.0:
+                second_method = True
+                if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
+                    number_values_not_good = 0
+                    for delay_fidelity in delay_fidelity_list:
+                        if delay_fidelity[2] != delay_fidelity_list[0][2] or delay_fidelity[0] < 0.80:
+                            number_values_not_good += 1
+                    if (float(number_values_not_good)/float(video.number_cut)) > 0.25:
+                        with errors_merge_lock:
+                            errors_merge.append(f"We was in first_delay_test at number_values_not_good/video.number_cut {number_values_not_good}/{video.number_cut} = {float(number_values_not_good)/float(video.number_cut)}. {delay_fidelity_list}")
                     else:
-                        delay_detected.add(set_delay_clone[1]+67)
+                        delay_detected.add(delay_fidelity_list[0][2])
+                        second_method = False
+                
+                if second_method:
+                    to_ignore = set(delay_Fidelity_Values.keys())
+                    to_ignore.remove(key_audio)
+                    set_delay_clone = list(set_delay.copy())
+                    delay_found = self.adjuster_chroma_bugged(list(set_delay),to_ignore)
+                    if delay_found == None:
+                        ignore_audio_couple.add(key_audio)
+                        with errors_merge_lock:
+                            errors_merge.append(f"We was in first_delay_test at delay_found == None. {set_delay}")
+                    else:
+                        #delay_detected.add(delay_fidelity_list[0][2])
+                        if set_delay_clone[1] > set_delay_clone[0]:
+                            delay_detected.add(set_delay_clone[0]+67) # 125/2
+                        else:
+                            delay_detected.add(set_delay_clone[1]+67)
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
@@ -263,50 +269,60 @@ class compare_video(Thread):
         
         self.recreate_files_for_delay_adjuster(delayUse)
         
-        delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime,ignore_audio_couple=ignore_audio_couple)
+        delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
             set_delay = set()
+            delay_fidelity_calculated = []
             for delay_fidelity in delay_fidelity_list:
                 set_delay.add(delay_fidelity[2])
+                delay_fidelity_calculated.append(delay_fidelity[0])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
-            elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
-                sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
-                with errors_merge_lock:
-                    errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
-                delay_detected.add(delay_fidelity_list[0][2])
-            else:
-                number_of_change = 0
-                previous_delay = delay_fidelity_list[0][2]
-                previous_delay_iteration = 0
-                majoritar_value = delay_fidelity_list[0][2]
-                majoritar_value_number_iteration = 0
-                for delay_data in delay_fidelity_list:
-                    if delay_data[2] != previous_delay:
-                        number_of_change += 1
-                        if majoritar_value_number_iteration < previous_delay_iteration:
-                            majoritar_value = previous_delay
-                            majoritar_value_number_iteration = previous_delay_iteration
-                        previous_delay = delay_data[2]
-                        previous_delay_iteration = 1
-                    else:
-                        previous_delay_iteration += 1
-                
-                if majoritar_value_number_iteration < previous_delay_iteration:
-                    majoritar_value = previous_delay
-                    majoritar_value_number_iteration = previous_delay_iteration
-                
-                if len(set_delay) > 2 or number_of_change > 1:
-                    delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
-                    self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
-                    self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
-                    raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
-                else:
-                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have the problem, this is maybe a bug.\n")
+            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 128 and mean(delay_fidelity_calculated) >= 0.90:
+                if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
+                    if tools.dev:
+                        sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_fidelity_list} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                     with errors_merge_lock:
-                        errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have the problem, this is maybe a bug.\n")
-                    delay_detected.add(majoritar_value)
+                        errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_fidelity_list} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                    delay_detected.add(delay_fidelity_list[0][2])
+                else:
+                    number_of_change = 0
+                    previous_delay = delay_fidelity_list[0][2]
+                    previous_delay_iteration = 0
+                    majoritar_value = delay_fidelity_list[0][2]
+                    majoritar_value_number_iteration = 0
+                    previous_bad_fidelity = False
+                    for delay_data in delay_fidelity_list:
+                        if delay_data[2] != previous_delay:
+                            if previous_bad_fidelity or delay_data[0] < 0.90:
+                                number_of_change += 1
+                            if majoritar_value_number_iteration < previous_delay_iteration:
+                                majoritar_value = previous_delay
+                                majoritar_value_number_iteration = previous_delay_iteration
+                            previous_delay = delay_data[2]
+                            previous_delay_iteration = 1
+                        else:
+                            previous_delay_iteration += 1
+                        if delay_data[0] < 0.90:
+                            previous_bad_fidelity = True
+                    
+                    if majoritar_value_number_iteration < previous_delay_iteration:
+                        majoritar_value = previous_delay
+                        majoritar_value_number_iteration = previous_delay_iteration
+                    
+                    if len(set_delay) > 2 or number_of_change > 1:
+                        delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
+                        self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
+                        self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
+                        raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                    else:
+                        sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
+                        with errors_merge_lock:
+                            errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
+                        delay_detected.add(majoritar_value)
+            else:
+                raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                 """delay_adjusted = None
                 if len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127:
                     delay_adjusted = self.adjuster_chroma_bugged(list(set([delayUse + delay_fidelity[2] for delay_fidelity in delay_fidelity_list])),ignore_audio_couple)
@@ -325,7 +341,7 @@ class compare_video(Thread):
             delayUse += list(delay_detected)[0]
             self.recreate_files_for_delay_adjuster(delayUse)
             
-            delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime,ignore_audio_couple=ignore_audio_couple)
+            delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2,ignore_audio_couple=ignore_audio_couple)
             delay_detected = set()
             delay_fidelity_calculated = []
             for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
@@ -335,7 +351,7 @@ class compare_video(Thread):
                     delay_fidelity_calculated.append(delay_fidelity[0])
                 if len(set_delay) == 1:
                     delay_detected.update(set_delay)
-                elif delay_fidelity_list[0][2] ==  delay_fidelity_list[-1][2]:
+                elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 128 and delay_fidelity_list[0][2] == delay_fidelity_list[-1][2] and mean(delay_fidelity_calculated) >= 0.90:
                     sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                     with errors_merge_lock:
                         errors_merge.append(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
@@ -349,7 +365,6 @@ class compare_video(Thread):
             if len(delay_detected) == 1 and 0 in delay_detected:
                 return delayUse,ignore_audio_couple
             elif (len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128) or (len(set_delay) == 1 and abs(list(set_delay)[0]) < 128):
-                from statistics import mean
                 if mean(delay_fidelity_calculated) >= 0.90:
                     return delayUse,ignore_audio_couple
                 else:
@@ -429,9 +444,9 @@ class compare_video(Thread):
                 TODO:
                     protect the memory to overload
             '''
-            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
+            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
-            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*video.number_cut/cut_file_to_get_delay_second_method)))]])
+            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             self.video_obj_1.wait_end_ffmpeg_progress_audio()
             self.video_obj_2.wait_end_ffmpeg_progress_audio()
             for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
@@ -595,7 +610,7 @@ def prepare_get_delay_sub(videos_obj,language):
     get_good_parameters_to_get_fidelity(videos_obj,language,audio_parameter_to_use_for_comparison,min_video_duration_in_sec)
     
     begin_in_second,length_time = video.generate_begin_and_length_by_segment(min_video_duration_in_sec)
-    length_time_converted = strftime('%H:%M:%S',gmtime(length_time))
+    length_time_converted = strftime('%H:%M:%S',gmtime(length_time*2))
     list_cut_begin_length = video.generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted)
 
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
@@ -606,7 +621,7 @@ def prepare_get_delay(videos_obj,language,audioRules):
         for language_obj,audios in videoObj.audios.items():
             for audio in audios:
                 audio["keep"] = True
-        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
+        videoObj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length,asDefault=True)
         videoObj.delays[language] = 0
         for language_obj,audios in videoObj.commentary.items():
             for audio in audios:
@@ -773,7 +788,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
             for i in range(len(video_obj.audios[language])):
                 for j in range(i+1,len(video_obj.audios[language])):
                     ignore_compare.add(f"{j}-{i}")
-            delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,length_time,ignore_audio_couple=ignore_compare)
+            delay_Fidelity_Values = get_delay_fidelity(video_obj,video_obj,length_time*2,ignore_audio_couple=ignore_compare)
             
             fileid_audio = {}
             validation = {}
@@ -785,29 +800,27 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
             for i in range(len(video_obj.audios[language])):
                 to_compare.append(i)
                 for j in range(i+1,len(video_obj.audios[language])):
-                    set_delay = set()
-                    for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
-                        set_delay.add(delay_fidelity[2])
-                    if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
-                        validation[i][j] = True
-                    elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
-                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                        from statistics import mean
-                        if mean([fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]) >= 0.90:
+                    from statistics import mean
+                    if mean([fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]) >= 0.90:
+                        set_delay = set()
+                        for delay_fidelity in delay_Fidelity_Values[f"{i}-{j}"]:
+                            set_delay.add(delay_fidelity[2])
+                        if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
                             validation[i][j] = True
-                        else:
+                        elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
+                            if tools.dev:
+                                stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                            validation[i][j] = True
+                        elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
-                    elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
-                        validation[i][j] = False
-                        stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                    elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
-                        stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                        stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                        from statistics import mean
-                        if mean([fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]) >= 0.90:
+                            stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                            stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                            stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                        elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
+                            if tools.dev:
+                                stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             validation[i][j] = True
                         else:
                             validation[i][j] = False
@@ -819,11 +832,13 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                 list_compatible = set()
                 not_compatible = set()
                 for i in validation[main].keys():
-                    stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
+                    if tools.dev:
+                        stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
                     if validation[main][i] and i not in not_compatible:
                         list_compatible.add(i)
                         for j in validation[i].keys():
-                            stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
+                            if tools.dev:
+                                stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
                             if (not(validation[i][j])):
                                 not_compatible.add(j)
                 list_compatible = list_compatible - not_compatible
@@ -832,7 +847,8 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     for id_audio in list_compatible:
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
-                    stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
+                    if tools.dev:
+                        stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
                     to_compare = [x for x in to_compare if x not in list_compatible]
                 
         except Exception as e:

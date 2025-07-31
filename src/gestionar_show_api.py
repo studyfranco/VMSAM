@@ -53,8 +53,8 @@ def get_session():
 class Folder(BaseModel):
     destination_path: str
     original_language: str
-    number_cut: int = Field(default=5)
-    cut_file_to_get_delay_second_method: float = Field(default=2.5)
+    number_cut: int = Field(default=10)
+    cut_file_to_get_delay_second_method: float = Field(default=2)
     max_episode_number: int = Field(default=12)
     
 class Regex(BaseModel):
