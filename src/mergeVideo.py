@@ -209,7 +209,7 @@ class compare_video(Thread):
                 delay_fidelity_calculated.append(delay_fidelity[0])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
-            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127 and mean(delay_fidelity_calculated) >= 60.0:
+            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127 and mean(delay_fidelity_calculated) >= 0.70:
                 second_method = True
                 if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
                     number_values_not_good = 0
@@ -235,15 +235,19 @@ class compare_video(Thread):
                     else:
                         #delay_detected.add(delay_fidelity_list[0][2])
                         if set_delay_clone[1] > set_delay_clone[0]:
-                            delay_detected.add(set_delay_clone[0]+67) # 125/2
+                            delay_detected.add(set_delay_clone[0]+round(abs(list(set_delay)[0]-list(set_delay)[1])/2)) # 125/2
                         else:
-                            delay_detected.add(set_delay_clone[1]+67)
+                            delay_detected.add(set_delay_clone[1]+round(abs(list(set_delay)[0]-list(set_delay)[1])/2))
             else:
                 # Work in progress
                 # We need to ask to the user to pass them if they want.
                 ignore_audio_couple.add(key_audio)
                 with errors_merge_lock:
-                    errors_merge.append(f"We was in first_delay_test at else. {set_delay}")
+                    if len(set_delay) == 2:
+                        message = f"with a difference of {abs(list(set_delay)[0]-list(set_delay)[1])} "
+                    else:
+                        message = ""
+                    errors_merge.append(f"We was in first_delay_test at else.{key_audio}: {set_delay} {message}for a mean fidelity of {mean(delay_fidelity_calculated)}")
         
         '''
             TODO:
