@@ -198,7 +198,7 @@ class compare_video(Thread):
         
     def first_delay_test(self):
         from statistics import mean
-        print(f"Start first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+        sys.stderr.write(f"\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
         delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
@@ -427,7 +427,7 @@ class compare_video(Thread):
     def second_delay_test(self,delayUse,ignore_audio_couple):
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
-        print(f"Start second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}")
+        sys.stderr.write(f"\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
@@ -637,13 +637,12 @@ def prepare_get_delay(videos_obj,language,audioRules):
 
 def print_forced_video(forced_best_video):
     if tools.dev:
-        print(f"The forced video is {forced_best_video}")
+        sys.stderr.write(f"The forced video is {forced_best_video}\n")
 
 def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
     if len(list_not_compatible_video):
-        from sys import stderr
-        stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
-        stderr.write("\n")
+        sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
+        sys.stderr.write("\n")
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:
                 del dict_file_path_obj[not_compatible_video]
@@ -722,9 +721,8 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
                     TODO:
                         I want check the file with the best number of match file and remove the files with the less connected. Normally the two list can't be connected.
                 """
-                from sys import stderr
-                stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random")
-                stderr.write("\n")
+                sys.stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random\n")
+                sys.stderr.write("\n")
                 list_not_compatible_video.append(compareObjs[i+1].filePath)
                 list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
         
@@ -789,7 +787,6 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
             begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
             video_obj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
 
-            from sys import stderr
             ignore_compare = set([f"{i}-{i}" for i in range(len(video_obj.audios[language]))])
             for i in range(len(video_obj.audios[language])):
                 for j in range(i+1,len(video_obj.audios[language])):
@@ -815,18 +812,18 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             validation[i][j] = True
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
                             if tools.dev:
-                                stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                                sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             validation[i][j] = True
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
-                            stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                            stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                            stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                            sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                            sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                            sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
                             if tools.dev:
-                                stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                                sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             validation[i][j] = True
                         else:
                             validation[i][j] = False
@@ -839,12 +836,12 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                 not_compatible = set()
                 for i in validation[main].keys():
                     if tools.dev:
-                        stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
+                        sys.stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
                     if validation[main][i] and i not in not_compatible:
                         list_compatible.add(i)
                         for j in validation[i].keys():
                             if tools.dev:
-                                stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
+                                sys.stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
                             if (not(validation[i][j])):
                                 not_compatible.add(j)
                 list_compatible = list_compatible - not_compatible
@@ -854,14 +851,13 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
                     if tools.dev:
-                        stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
+                        sys.stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
                     to_compare = [x for x in to_compare if x not in list_compatible]
                 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            from sys import stderr
-            stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
+            sys.stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
         finally:
             video_obj.remove_tmp_files(type_file="audio")
 
@@ -1116,8 +1112,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
     except Exception as e:
         import traceback
         traceback.print_exc()
-        from sys import stderr
-        stderr.write(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
+        sys.stderr.write(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
@@ -1280,7 +1275,7 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
-    print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
+    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}\n')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
@@ -1296,7 +1291,7 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
-    print(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}')
+    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}\n')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
@@ -1408,7 +1403,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
-    print("Launch the merge")
+    sys.stderr.write("Launch the merge\n")
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
@@ -1429,7 +1424,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     best_video = dict_file_path_obj[list(dict_file_path_obj.keys() - set_bad_video)[0]]
     if len(dict_list_video_win) == 0:
         dict_list_video_win[best_video.filePath] = []
-    print(f'The best video path is {best_video.filePath}')
+    sys.stdout.write(f'The best video path is {best_video.filePath}\n')
     md5_audio_already_added = set()
     md5_sub_already_added = set()
     
@@ -1550,6 +1545,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
+    sys.stderr.write("File produce\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
@@ -1616,7 +1612,6 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
             raise Exception(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}")
         else:
             commonLanguages.add(most_frequent_language)
-            from sys import stderr
             i = 0
             list_video_not_compatible = []
             list_video_not_compatible_name = []
@@ -1629,8 +1624,8 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                 del videosObj[i]
             for i in list_video_not_compatible_name:
                 del dict_file_path_obj[i]
-            stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
-            stderr.write("\n")
+            sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
+            sys.stderr.write("\n")
     
     
     if len(commonLanguages) > 1 and tools.special_params["original_language"] in commonLanguages:
