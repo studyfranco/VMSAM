@@ -198,6 +198,7 @@ class compare_video(Thread):
         
     def first_delay_test(self):
         from statistics import mean
+        print(f"Start first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
         delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
@@ -426,6 +427,7 @@ class compare_video(Thread):
     def second_delay_test(self,delayUse,ignore_audio_couple):
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
+        print(f"Start second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
@@ -1406,6 +1408,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
+    print("Launch the merge")
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
