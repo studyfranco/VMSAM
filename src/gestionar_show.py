@@ -32,6 +32,8 @@ def process_episode(files, folder_id, episode_number, database_url):
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
         
+        stderr.write(f"\tStart integration episode {episode_number} of {current_folder.destination_path}\n")
+        
         video.number_cut = current_folder.number_cut
         mergeVideo.cut_file_to_get_delay_second_method = current_folder.cut_file_to_get_delay_second_method
         tools.default_language_for_undetermine = current_folder.original_language
@@ -164,6 +166,7 @@ def process_file_by_folder(files, folder_id, database_url):
     return
 
 def process_files_in_folder(folder_files,database_url):
+    stderr.write("Start integrator !\n")
     fichiers = [
             {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
             for fichier in os.listdir(folder_files)
@@ -238,6 +241,7 @@ def incrementaller(folder_files,database_url):
         return
     
     with setup_database(database_url) as session:
+        stderr.write("Start Renamer !\n")
         # Récupérer toutes les regex triées par poids décroissant
         all_regex = get_all_incrementaller(session)
         
@@ -267,7 +271,7 @@ def incrementaller(folder_files,database_url):
                         elif int(episode_number) > 0:
                             new_file_path = os.path.join(os.path.dirname(fichier_match['chemin']), regex.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+regex.episode_incremental):02}"))
                             shutil.move(fichier_match['chemin'], new_file_path)
-                            print(f'Files {fichier_match['nom']} rename in {os.path.basename(new_file_path)}')
+                            stderr.write(f'\tFile {fichier_match['nom']} rename in {os.path.basename(new_file_path)}\n')
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
@@ -339,14 +343,8 @@ if __name__ == '__main__':
             process_files_in_folder(args.folder,database_url_param["database_url"])
             import gc
             gc.collect()
-            stdout.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
-            stderr.write("Was ist poso ?\n")
-            stdout.write("EIN\n BREAKO !\n")
-            stderr.write("EEHHH ?\n")
-            stdout.write("F..........\n")
+            stderr.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
             sleep(args.wait)
-            stdout.write("STARTO !!!!!!\n\n")
-            stderr.write("Nein !\n")
         
         uvicorn_process.terminate()
         uvicorn_process.join()
