@@ -198,7 +198,8 @@ class compare_video(Thread):
         
     def first_delay_test(self):
         from statistics import mean
-        sys.stderr.write(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
+        if tools.dev:
+            sys.stderr.write(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
         delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
@@ -427,7 +428,8 @@ class compare_video(Thread):
     def second_delay_test(self,delayUse,ignore_audio_couple):
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
-        sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
+        if tools.dev:
+            sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
