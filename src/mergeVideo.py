@@ -1478,6 +1478,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
+    sys.stderr.write(f"\t\tCalculate the md5 for streams\n")
     out_video_metadata.calculate_md5_streams_split()
     
     sys.stderr.write(f"\t\tPrepare the final command\n")
