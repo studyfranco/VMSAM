@@ -198,7 +198,7 @@ class compare_video(Thread):
         
     def first_delay_test(self):
         from statistics import mean
-        sys.stderr.write(f"\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
+        sys.stderr.write(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
         delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
@@ -215,7 +215,7 @@ class compare_video(Thread):
                 if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
                     number_values_not_good = 0
                     for delay_fidelity in delay_fidelity_list:
-                        if delay_fidelity[2] != delay_fidelity_list[0][2] or delay_fidelity[0] < 0.80:
+                        if delay_fidelity[2] != delay_fidelity_list[0][2] or delay_fidelity[0] < 0.85:
                             number_values_not_good += 1
                     if (float(number_values_not_good)/float(video.number_cut)) > 0.25:
                         with errors_merge_lock:
@@ -316,7 +316,7 @@ class compare_video(Thread):
                         majoritar_value = previous_delay
                         majoritar_value_number_iteration = previous_delay_iteration
                     
-                    if len(set_delay) > 2 or number_of_change > 1:
+                    if number_of_change > 1:
                         delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
                         self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
                         self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
@@ -427,7 +427,7 @@ class compare_video(Thread):
     def second_delay_test(self,delayUse,ignore_audio_couple):
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
-        sys.stderr.write(f"\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
+        sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
@@ -1403,7 +1403,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
-    sys.stderr.write("Launch the merge\n")
+    sys.stderr.write("\t\tLaunch the merge\n")
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
@@ -1467,6 +1467,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         else:
             raise e
 
+    sys.stdout.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
+    
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
@@ -1545,7 +1547,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
-    sys.stderr.write("File produce\n")
+    sys.stderr.write("\t\tFile produce\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
