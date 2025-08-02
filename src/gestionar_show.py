@@ -104,13 +104,13 @@ def process_episode(files, folder_id, episode_number, database_url):
                         tools.remove_dir(tools.tmpFolder)
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
-                    session.commit()
                 else:
                     # Si l'épisode n'existe pas, on l'ajoute
                     regex_data = get_regex_data(file['regex'], session)
                     new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
                     shutil.move(file['chemin'], new_file_path)
                     insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
+                session.commit()
                 import gc
                 gc.collect()
     except Exception as e:
