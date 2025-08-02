@@ -1467,7 +1467,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         else:
             raise e
 
-    sys.stdout.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
+    if tools.dev:
+        sys.stderr.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
     tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
@@ -1547,7 +1548,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt(final_insert)
-    sys.stderr.write("\t\tFile produce\n")
+    if tools.dev:
+        sys.stderr.write("\t\tFile produce\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
