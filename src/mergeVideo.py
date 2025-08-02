@@ -1474,10 +1474,13 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
     
+    sys.stderr.write(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
     out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
     out_video_metadata.calculate_md5_streams_split()
+    
+    sys.stderr.write(f"\t\tPrepare the final command\n")
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
@@ -1497,6 +1500,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     global default_audio
     default_audio = True
 
+    sys.stderr.write(f"\t\tKeep the best audio\n")
     try:
         keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
@@ -1506,6 +1510,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     for audio_language in out_video_metadata.audios.keys():
         if audio_language != common_language_use_for_generate_delay:
+            sys.stderr.write(f"\t\tKeep the best audio for {audio_language}\n")
             find_differences_and_keep_best_audio(out_video_metadata,audio_language,audioRules)
 
     number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)

@@ -32,7 +32,8 @@ def process_episode(files, folder_id, episode_number, database_url):
         # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
         
-        stderr.write(f"\tStart integration episode {episode_number} of {current_folder.destination_path}\n")
+        if tools.dev:
+            stderr.write(f"\tStart integration episode {episode_number} of {current_folder.destination_path}\n")
         
         video.number_cut = current_folder.number_cut
         mergeVideo.cut_file_to_get_delay_second_method = current_folder.cut_file_to_get_delay_second_method
@@ -72,7 +73,12 @@ def process_episode(files, folder_id, episode_number, database_url):
                     video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
                     video.ffmpeg_pool_big_job = Pool(processes=1)
                     try:
+                        stderr.write(f"\t\tStart merging {file['nom']} and {previous_file.file_path} into {new_file_path}\n")
+                        
                         mergeVideo.merge_videos([file['chemin'],previous_file.file_path],out_folder,True)
+                        
+                        stderr.write(f"\t\tEnd merging {file['nom']} and {previous_file.file_path} into {new_file_path}\n")
+                        
                         if previous_file.file_weight < file['weight']:
                             shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
                         elif previous_file.file_weight > file['weight']:
