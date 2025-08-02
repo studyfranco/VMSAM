@@ -208,7 +208,7 @@ class video():
                             nameFilesExtractCut.append(nameOutFile)
                             cmd = baseCommand.copy()
                             cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
-                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
+                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_tester, (cmd,2,180)))
                             cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):

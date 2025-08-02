@@ -785,6 +785,8 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
 
 def find_differences_and_keep_best_audio(video_obj,language,audioRules):
     if len(video_obj.audios[language]) > 1:
+        if tools.dev:
+            sys.stderr.write(f"\t\tKeep the best audio for {language}\n")
         try:
             begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
             video_obj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
@@ -1513,7 +1515,6 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     
     for audio_language in out_video_metadata.audios.keys():
         if audio_language != common_language_use_for_generate_delay:
-            sys.stderr.write(f"\t\tKeep the best audio for {audio_language}\n")
             find_differences_and_keep_best_audio(out_video_metadata,audio_language,audioRules)
 
     number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)

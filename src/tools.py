@@ -6,7 +6,9 @@ Created on 23 Apr 2022
 import os
 import shutil
 import sys
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, TimeoutExpired
+import psutil
+import time
 from configparser import ConfigParser
 
 def config_loader(file, section):
@@ -72,6 +74,61 @@ def launch_cmdExt_no_test(cmd):
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     stdout, stderror = cmdDownload.communicate()
     exitCode = cmdDownload.returncode
+    return stdout, stderror, exitCode
+
+def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
+    cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+    try:
+        ps_proc = psutil.Process(cmdDownload.pid)
+        start_time = time.time()
+        
+        while cmdDownload.poll() == None:
+            if ps_proc.status() == psutil.STATUS_ZOMBIE or ps_proc.cpu_percent(interval=1.0) < 0.1:
+                if cmdDownload.poll() == None:
+                    try:
+                        cmdDownload.kill()
+                    except Exception:
+                        pass
+                    try:
+                        cmdDownload.communicate(timeout=5)
+                    except TimeoutExpired:
+                        try:
+                            cmdDownload.kill()
+                        except:
+                            pass
+                    
+                    max_restart -= 1
+                    if max_restart < 0:
+                        raise Exception("The process is zombie and cannot be restarted: "+" ".join(cmd)+"\n")
+                    else:
+                        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+                        ps_proc = psutil.Process(cmdDownload.pid)
+                        start_time = time.time()
+            elif time.time() - start_time > timeout:
+                if cmdDownload.poll() == None:
+                    try:
+                        cmdDownload.kill()
+                    except Exception:
+                        pass
+                    try:
+                        cmdDownload.communicate(timeout=5)
+                    except TimeoutExpired:
+                        try:
+                            cmdDownload.kill()
+                        except:
+                            pass
+                    
+                    raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
+            else:
+                time.sleep(5)
+    except psutil.NoSuchProcess:
+        # The process has finished
+        pass
+    
+    stdout, stderror = cmdDownload.communicate()
+    exitCode = cmdDownload.returncode
+    if exitCode != 0:
+        raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
     return stdout, stderror, exitCode
 
 def remove_element_without_bug(list_set, element):
