@@ -110,18 +110,40 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         videoObj.wait_end_ffmpeg_progress_audio()
         if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
             raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
+        
+class get_delay_fidelity_thread(Thread):
+    def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file,lenghtTime):
+        Thread.__init__(self)
+        self.video_obj_1_tmp_file = video_obj_1_tmp_file
+        self.video_obj_2_tmp_file = video_obj_2_tmp_file
+        self.lenghtTime = lenghtTime
+        self.delay_Fidelity_Values  = None
+
+    def run(self):
+        self.delay_Fidelity_Values = correlate(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file,self.lenghtTime)
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
     delay_Fidelity_Values = {}
+    delay_Fidelity_Values_jobs = []
+    
     video_obj_1.wait_end_ffmpeg_progress_audio()
     video_obj_2.wait_end_ffmpeg_progress_audio()
     for i in range(0,len(video_obj_1.tmpFiles['audio'])):
         for j in range(0,len(video_obj_2.tmpFiles['audio'])):
             if f"{i}-{j}" not in ignore_audio_couple:
-                delay_between_two_audio = []
-                delay_Fidelity_Values[f"{i}-{j}"] = delay_between_two_audio
+                delay_Fidelity_Values_jobs_between_audio = []
+                delay_Fidelity_Values_jobs.append([f"{i}-{j}",delay_Fidelity_Values_jobs_between_audio])
                 for h in range(0,video.number_cut):
-                    delay_between_two_audio.append(correlate(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h],lenghtTime))
+                    delay_Fidelity_Values_jobs_between_audio.append(get_delay_fidelity_thread(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h],lenghtTime))
+                    delay_Fidelity_Values_jobs_between_audio[-1].start()
+    
+    for delay_Fidelity_Values_job in delay_Fidelity_Values_jobs:
+        delay_between_two_audio = []
+        delay_Fidelity_Values[delay_Fidelity_Values_job[0]] = delay_between_two_audio
+        for delay_Fidelity_Values_job_between_audio in delay_Fidelity_Values_job[1]:
+            delay_Fidelity_Values_job_between_audio.join()
+            delay_between_two_audio.append(delay_Fidelity_Values_job_between_audio.delay_Fidelity_Values)
+
     import gc
     gc.collect()
     return delay_Fidelity_Values
