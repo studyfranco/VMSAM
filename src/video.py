@@ -52,11 +52,11 @@ class video():
         self.sameAudioMD5UseForCalculation = []
     
     def get_mediadata(self):
-        stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mediainfo"], "--Output=JSON", self.filePath])
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_tester([tools.software["mediainfo"], "--Output=JSON", self.filePath], 5, 90)
         if exitCode != 0:
             raise Exception("Error with {} during the mediadata: {}".format(self.filePath,stderror.decode("UTF-8")))
         self.mediadata = json.loads(stdout.decode("UTF-8"))
-        stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mkvmerge"],"-i", "-F", "json", self.filePath])
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_tester([tools.software["mkvmerge"],"-i", "-F", "json", self.filePath], 5, 90)
         if exitCode != 0:
             raise Exception("Error with {} during the mkvmerge metadata: {}".format(self.filePath,stderror.decode("UTF-8")))
         self.mkvmergedata = json.loads(stdout.decode("UTF-8"))
