@@ -301,6 +301,8 @@ class video():
         if self.mediadata == None:
             self.get_mediadata()
         
+        stderr.write("Start to calculate the md5 of the streams\n")
+        
         length_video = float(self.video['Duration'])
         if length_video > 20:
             length_video = length_video-10.0
