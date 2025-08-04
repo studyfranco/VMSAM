@@ -379,8 +379,6 @@ class video():
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
-        
-        stderr.write("\t\tEnd to calculate the md5 of the streams\n")
 
 """
 Preparation function
@@ -755,7 +753,6 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
     stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
-    stderr.write(f"Calculating md5 for {filePath} stream {streamID} with command: {' '.join(cmd)}\n")
     if exitCode == 0:
         md5 = stdout.decode("utf-8").strip().split("=")[-1]
         return (streamID, md5)
@@ -778,7 +775,6 @@ def subtitle_text_srt_md5(filePath,streamID):
         "-f", "srt", "pipe:1"
     ]
     stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
-    stderr.write(f"Calculating md5_text for {filePath} stream {streamID} with command: {' '.join(cmd)}\n")
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
@@ -805,7 +801,6 @@ def count_font_lines_in_ass(filePath, streamID):
     ]
     
     stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
-    stderr.write(f"Calculating count_font_lines_in_ass for {filePath} stream {streamID} with command: {' '.join(cmd)}\n")
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
 
@@ -827,7 +822,6 @@ def subtitle_text_ass_md5(filePath,streamID):
         "-f", "ass", "pipe:1"
     ]
     stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
-    stderr.write(f"Calculating subtitle_text_ass_md5 for {filePath} stream {streamID} with command: {' '.join(cmd)}\n")
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'^[^,\n]+,\d[^,\n]+,[^,\n]+,', '', line) for line in lines if line.strip()]
