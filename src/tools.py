@@ -145,7 +145,7 @@ def remove_element_without_bug(list_set, element):
     
 def extract_ffmpeg_type_dict(filePath):
     import json
-    stdout, stderror, exitCode = launch_cmdExt_with_tester([software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", filePath], 5, 60)
+    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", filePath])
     data_sub_codec = json.loads(stdout.decode("UTF-8"))
     dic_index_data_sub_codec = {}
     for data in data_sub_codec["streams"]:
@@ -154,7 +154,7 @@ def extract_ffmpeg_type_dict(filePath):
 
 def extract_ffmpeg_type_dict_all(filePath):
     import json
-    stdout, stderror, exitCode = launch_cmdExt_with_tester([software["ffprobe"], "-v", "error", "-show_streams", "-of", "json", filePath], 5, 60)
+    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-show_streams", "-of", "json", filePath])
     data_sub_codec = json.loads(stdout.decode("UTF-8"))
     dic_index_data_sub_codec = {}
     for data in data_sub_codec["streams"]:
