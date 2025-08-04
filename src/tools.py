@@ -84,8 +84,8 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
         
         while cmdDownload.poll() == None:
             time.sleep(10)
-            if ps_proc.status() == psutil.STATUS_ZOMBIE or ps_proc.cpu_percent(interval=1.0) < 0.1:
-                if ps_proc.cpu_percent(interval=2.0) < 0.1 and cmdDownload.poll() == None:
+            if ps_proc.status() == psutil.STATUS_ZOMBIE or ps_proc.cpu_percent(interval=1.0) < 0.05:
+                if ps_proc.cpu_percent(interval=2.0) < 0.05 and cmdDownload.poll() == None:
                     try:
                         cmdDownload.kill()
                     except Exception:
