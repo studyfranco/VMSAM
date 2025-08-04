@@ -194,7 +194,7 @@ class video():
                         nameFilesExtractCut.append(nameOutFile)
                         cmd = baseCommand.copy()
                         cmd.extend(["-map", "0:"+str(audio['StreamOrder']), nameOutFile])
-                        self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (cmd,)))
+                        self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_tester, (cmd,2,300)))
             else:
                 for audio in self.audios[language]:
                     if audio["compatible"]:
@@ -208,7 +208,7 @@ class video():
                             nameFilesExtractCut.append(nameOutFile)
                             cmd = baseCommand.copy()
                             cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
-                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_tester, (cmd,2,180)))
+                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_tester, (cmd,2,300)))
                             cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
@@ -748,7 +748,7 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
 
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
-    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,2,180)
     if exitCode == 0:
         md5 = stdout.decode("utf-8").strip().split("=")[-1]
         return (streamID, md5)
@@ -770,7 +770,7 @@ def subtitle_text_srt_md5(filePath,streamID):
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,2,180)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
@@ -796,7 +796,7 @@ def count_font_lines_in_ass(filePath, streamID):
         "pipe:1"
     ]
     
-    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,2,180)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
 
@@ -817,7 +817,7 @@ def subtitle_text_ass_md5(filePath,streamID):
          "-c:s", "ass",
         "-f", "ass", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt(cmd)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,2,180)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'^[^,\n]+,\d[^,\n]+,[^,\n]+,', '', line) for line in lines if line.strip()]

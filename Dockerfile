@@ -57,6 +57,7 @@ ENV CORE=4 \
     PUID="1000" \
     software="main" \
     folder_to_watch="/config/input" \
-    folder_error="/config/error" 
+    folder_error="/config/error" \
+    dev=false
 
 ENTRYPOINT [ "/init.sh" ]
