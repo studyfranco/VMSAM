@@ -301,7 +301,7 @@ class video():
         if self.mediadata == None:
             self.get_mediadata()
         
-        stderr.write("Start to calculate the md5 of the streams\n")
+        stderr.write("\t\tStart to calculate the md5 of the streams\n")
         
         length_video = float(self.video['Duration'])
         if length_video > 20:
@@ -337,6 +337,8 @@ class video():
                         task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(subtitle_text_md5,(self.filePath,subtitle["StreamOrder"])))
                 else:
                     task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
+        
+        stderr.write("\t\tStart to wait the end of the md5 calculation of the streams\n")
         
         for language, data in task_audio.items():
             i=0
@@ -377,6 +379,8 @@ class video():
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
+        
+        stderr.write("\t\tEnd to calculate the md5 of the streams\n")
 
 """
 Preparation function
