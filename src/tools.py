@@ -118,8 +118,13 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                             cmdDownload.kill()
                         except:
                             pass
-                    
-                    raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
+                    max_restart -= 1
+                    if max_restart < 0:
+                        raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
+                    else:
+                        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+                        ps_proc = psutil.Process(cmdDownload.pid)
+                        start_time = time.time()
             else:
                 time.sleep(5)
     except psutil.NoSuchProcess:
