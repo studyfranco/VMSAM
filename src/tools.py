@@ -102,6 +102,7 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                     if max_restart < 0:
                         raise Exception("The process is zombie and cannot be restarted: "+" ".join(cmd)+"\n")
                     else:
+                        sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
                         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
                         ps_proc = psutil.Process(cmdDownload.pid)
                         start_time = time.time()
@@ -122,6 +123,7 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                     if max_restart < 0:
                         raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
                     else:
+                        sys.stderr.write("The process is timeout and will be restarted: "+" ".join(cmd)+"\n")
                         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
                         ps_proc = psutil.Process(cmdDownload.pid)
                         start_time = time.time()
