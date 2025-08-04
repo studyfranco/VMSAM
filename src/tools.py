@@ -86,12 +86,14 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
             time.sleep(10)
             if ps_proc.status() == psutil.STATUS_ZOMBIE or ps_proc.cpu_percent(interval=1.0) < 0.05:
                 if ps_proc.cpu_percent(interval=2.0) < 0.05 and cmdDownload.poll() == None:
+                    stdout = None
+                    stderror = None
                     try:
                         cmdDownload.kill()
                     except Exception:
                         pass
                     try:
-                        cmdDownload.communicate(timeout=5)
+                        stdout, stderror = cmdDownload.communicate(timeout=5)
                     except TimeoutExpired:
                         try:
                             cmdDownload.kill()
@@ -100,7 +102,7 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                     
                     max_restart -= 1
                     if max_restart < 0:
-                        raise Exception("The process is zombie and cannot be restarted: "+" ".join(cmd)+"\n")
+                        raise Exception(f"The process is zombie and cannot be restarted:{cmd}\n{stderror}\n{stdout}\n")
                     else:
                         sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
                         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
