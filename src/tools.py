@@ -135,7 +135,49 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
         # The process has finished
         pass
     
-    stdout, stderror = cmdDownload.communicate()
+    stdout, stderror = cmdDownload.communicate(timeout=5)
+    exitCode = cmdDownload.returncode
+    if exitCode != 0:
+        raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
+    return stdout, stderror, exitCode
+
+def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
+    cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+    try:
+        ps_proc = psutil.Process(cmdDownload.pid)
+        start_time = time.time()
+        
+        while cmdDownload.poll() == None:
+            time.sleep(10)
+            ps_proc.cpu_percent(interval=0.5)
+            if time.time() - start_time > timeout:
+                if cmdDownload.poll() == None:
+                    try:
+                        cmdDownload.kill()
+                    except Exception:
+                        pass
+                    try:
+                        cmdDownload.communicate(timeout=5)
+                    except TimeoutExpired:
+                        try:
+                            cmdDownload.kill()
+                        except:
+                            pass
+                    max_restart -= 1
+                    if max_restart < 0:
+                        raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
+                    else:
+                        sys.stderr.write("The process is timeout and will be restarted: "+" ".join(cmd)+"\n")
+                        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+                        ps_proc = psutil.Process(cmdDownload.pid)
+                        start_time = time.time()
+            else:
+                time.sleep(5)
+    except psutil.NoSuchProcess:
+        # The process has finished
+        pass
+    
+    stdout, stderror = cmdDownload.communicate(timeout=5)
     exitCode = cmdDownload.returncode
     if exitCode != 0:
         raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
@@ -149,7 +191,7 @@ def remove_element_without_bug(list_set, element):
     
 def extract_ffmpeg_type_dict(filePath):
     import json
-    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", filePath])
+    stdout, stderror, exitCode = launch_cmdExt_with_timeout_reload([software["ffprobe"], "-v", "error", "-select_streams", "s", "-show_streams", "-of", "json", filePath],max_restart=3,timeout=60)
     data_sub_codec = json.loads(stdout.decode("UTF-8"))
     dic_index_data_sub_codec = {}
     for data in data_sub_codec["streams"]:
@@ -158,7 +200,7 @@ def extract_ffmpeg_type_dict(filePath):
 
 def extract_ffmpeg_type_dict_all(filePath):
     import json
-    stdout, stderror, exitCode = launch_cmdExt([software["ffprobe"], "-v", "error", "-show_streams", "-of", "json", filePath])
+    stdout, stderror, exitCode = launch_cmdExt_with_timeout_reload([software["ffprobe"], "-v", "error", "-show_streams", "-of", "json", filePath],max_restart=3,timeout=60)
     data_sub_codec = json.loads(stdout.decode("UTF-8"))
     dic_index_data_sub_codec = {}
     for data in data_sub_codec["streams"]:

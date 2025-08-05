@@ -6,7 +6,7 @@ Created on 23 Apr 2022
 
 from os import path,remove
 from sys import stderr
-from threading import RLock
+from threading import RLock,Thread
 from time import strftime,gmtime,sleep
 import tools
 import re
@@ -329,14 +329,8 @@ class video():
         for language, data in self.subtitles.items():
             task_subtitle[language] = []
             for subtitle in data:
-                if dic_index_data_sub_codec[int(subtitle["StreamOrder"])]["codec_name"] != None:
-                    codec = dic_index_data_sub_codec[int(subtitle["StreamOrder"])]["codec_name"].lower()
-                    if codec in tools.sub_type_not_encodable:
-                        task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
-                    else:
-                        task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(subtitle_text_md5,(self.filePath,subtitle["StreamOrder"])))
-                else:
-                    task_subtitle[language].append(ffmpeg_pool_audio_convert.apply_async(md5_calculator,(self.filePath,subtitle["StreamOrder"],10,length_video,float(subtitle['Duration']))))
+                task_subtitle[language].append(subtitle_md5_second(self.filePath,subtitle,dic_index_data_sub_codec,length_video))
+                task_subtitle[language][-1].start()
         
         stderr.write("\t\tStart to wait the end of the md5 calculation of the streams\n")
         
@@ -371,14 +365,8 @@ class video():
                 i += 1
 
         for language, data in task_subtitle.items():
-            i=0
             for subtitle in data:
-                result = subtitle.get()
-                if result[1] != None:
-                    self.subtitles[language][i]['MD5'] = result[1]
-                else:
-                    stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
-                i += 1
+                subtitle.join(timeout=120)
 
 """
 Preparation function
@@ -752,11 +740,35 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
 
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,30)
     if exitCode == 0:
         md5 = stdout.decode("utf-8").strip().split("=")[-1]
         return (streamID, md5)
     return (streamID, None)
+
+class subtitle_md5_second(Thread):
+    def __init__(self,filePath,subtitle,dic_index_data_sub_codec,length_video):
+        Thread.__init__(self)
+        self.filePath = filePath
+        self.subtitle = subtitle
+        self.dic_index_data_sub_codec = dic_index_data_sub_codec
+        self.length_video = length_video
+        self.md5 = None
+    
+    def run(self):
+        if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
+            codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
+            if codec in tools.sub_type_not_encodable:
+                streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
+            else:
+                streamID, md5 = subtitle_text_md5(self.filePath,self.subtitle["StreamOrder"])
+        else:
+            streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
+            
+        if md5 != None:
+            self.subtitle['MD5'] = md5
+        else:
+            stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle}")
 
 def subtitle_text_md5(filePath,streamID):
     number_of_style = count_font_lines_in_ass(filePath, streamID)
@@ -774,7 +786,7 @@ def subtitle_text_srt_md5(filePath,streamID):
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,30)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
@@ -800,7 +812,7 @@ def count_font_lines_in_ass(filePath, streamID):
         "pipe:1"
     ]
     
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,30)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
 
@@ -821,7 +833,7 @@ def subtitle_text_ass_md5(filePath,streamID):
          "-c:s", "ass",
         "-f", "ass", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,60)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_tester(cmd,5,30)
     if exitCode == 0:
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'^[^,\n]+,\d[^,\n]+,[^,\n]+,', '', line) for line in lines if line.strip()]
