@@ -56,7 +56,7 @@ class video():
         if exitCode != 0:
             raise Exception("Error with {} during the mediadata: {}".format(self.filePath,stderror.decode("UTF-8")))
         self.mediadata = json.loads(stdout.decode("UTF-8"))
-        stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["mkvmerge"],"-i", "-F", "json", self.filePath])
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"],"-i", "-F", "json", self.filePath], 5, 90)
         if exitCode != 0:
             raise Exception("Error with {} during the mkvmerge metadata: {}".format(self.filePath,stderror.decode("UTF-8")))
         self.mkvmergedata = json.loads(stdout.decode("UTF-8"))
@@ -301,7 +301,8 @@ class video():
         if self.mediadata == None:
             self.get_mediadata()
         
-        stderr.write("\t\tStart to calculate the md5 of the streams\n")
+        if tools.dev:
+            stderr.write("\t\tStart to calculate the md5 of the streams\n")
         
         length_video = float(self.video['Duration'])
         if length_video > 20:

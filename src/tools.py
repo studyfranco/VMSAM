@@ -78,36 +78,35 @@ def launch_cmdExt_no_test(cmd):
 
 def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+    exitCode = 5555
     try:
         ps_proc = psutil.Process(cmdDownload.pid)
         start_time = time.time()
         
-        while cmdDownload.poll() == None:
+        while cmdDownload.poll() == None and exitCode != 0:
             time.sleep(10)
             if cmdDownload.poll() == None and (ps_proc.status() == psutil.STATUS_ZOMBIE or ps_proc.cpu_percent(interval=1.0) < 0.05):
                 if ps_proc.cpu_percent(interval=2.0) < 0.05 and cmdDownload.poll() == None:
                     stdout = None
                     stderror = None
                     try:
-                        cmdDownload.kill()
-                    except Exception:
-                        pass
-                    try:
                         stdout, stderror = cmdDownload.communicate(timeout=5)
+                        exitCode = cmdDownload.returncode
                     except TimeoutExpired:
                         try:
                             cmdDownload.kill()
                         except:
                             pass
                     
-                    max_restart -= 1
-                    if max_restart < 0:
-                        raise Exception(f"The process is zombie and cannot be restarted:{cmd}\n{stderror}\n{stdout}\n")
-                    else:
-                        sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
-                        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
-                        ps_proc = psutil.Process(cmdDownload.pid)
-                        start_time = time.time()
+                    if exitCode != 0:
+                        max_restart -= 1
+                        if max_restart < 0:
+                            raise Exception(f"The process is zombie and cannot be restarted:{cmd}\n{stderror}\n{stdout}\n")
+                        else:
+                            sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
+                            cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+                            ps_proc = psutil.Process(cmdDownload.pid)
+                            start_time = time.time()
             elif time.time() - start_time > timeout:
                 if cmdDownload.poll() == None:
                     try:

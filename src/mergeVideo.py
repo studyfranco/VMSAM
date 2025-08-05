@@ -1429,7 +1429,8 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
-    sys.stderr.write("\t\tLaunch the merge\n")
+    if tools.dev:
+        sys.stderr.write("\t\tLaunch the merge\n")
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
@@ -1504,10 +1505,12 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
-    sys.stderr.write(f"\t\tCalculate the md5 for streams\n")
+    if tools.dev:
+        sys.stderr.write(f"\t\tCalculate the md5 for streams\n")
     out_video_metadata.calculate_md5_streams_split()
     
-    sys.stderr.write(f"\t\tPrepare the final command\n")
+    if tools.dev:
+        sys.stderr.write(f"\t\tPrepare the final command\n")
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
@@ -1527,7 +1530,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     global default_audio
     default_audio = True
 
-    sys.stderr.write(f"\t\tKeep the best audio\n")
+    if tools.dev:
+        sys.stderr.write(f"\t\tKeep the best audio\n")
     try:
         keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
