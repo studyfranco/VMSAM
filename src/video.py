@@ -727,7 +727,7 @@ def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChalleng
 
 def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=None):
     cmd = [
-    tools.software["ffmpeg"], "-v", "error", "-i", filePath,
+    tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
     "-ss", str(start_time)]
 
     if end_time != None:
@@ -781,7 +781,7 @@ def subtitle_text_srt_md5(filePath,streamID):
     import hashlib
     import re
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-threads", str(tools.core_to_use), "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
@@ -804,7 +804,8 @@ def count_font_lines_in_ass(filePath, streamID):
     import re
     cmd = [
         "ffmpeg",
-        "-v", "error", "-threads", str(tools.core_to_use),
+        "-v", "error", "-probesize", "50000000",
+        "-threads", str(1),
         "-i", filePath,
         "-map", f"0:{streamID}",
         "-c:s", "ass",
@@ -828,7 +829,7 @@ def subtitle_text_ass_md5(filePath,streamID):
     import hashlib
     import re
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-threads", str(tools.core_to_use), "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "ass",
         "-f", "ass", "pipe:1"
