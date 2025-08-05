@@ -7,7 +7,7 @@ Created on 23 Apr 2022
 from os import path,remove
 from sys import stderr
 from threading import RLock,Thread
-from time import strftime,gmtime,sleep
+from time import strftime,gmtime,sleep,time
 import tools
 import re
 import json
@@ -368,11 +368,8 @@ class video():
 
         stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
         for language, data in task_subtitle.items():
-            i=0
             for subtitle in data:
-                stderr.write(f"\t\t\tWait the end of the subtitle {i} for {language}\n")
                 subtitle.join(timeout=120)
-                i += 1
         stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
 
 """
@@ -762,6 +759,8 @@ class subtitle_md5_second(Thread):
         self.length_video = length_video
     
     def run(self):
+        begin = time()
+        stderr.write(f"Start to calculate the md5 of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
         if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
             codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
             if codec in tools.sub_type_not_encodable:
@@ -773,6 +772,7 @@ class subtitle_md5_second(Thread):
             
         if md5 != None:
             self.subtitle['MD5'] = md5
+            stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
         else:
             stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle}")
 
