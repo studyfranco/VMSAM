@@ -142,45 +142,25 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
     return stdout, stderror, exitCode
 
 def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
-    cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
-    try:
-        ps_proc = psutil.Process(cmdDownload.pid)
-        start_time = time.time()
-        
-        while cmdDownload.poll() == None:
-            time.sleep(10)
-            ps_proc.cpu_percent(interval=0.5)
-            if time.time() - start_time > timeout:
-                if cmdDownload.poll() == None:
-                    stdout = None
-                    stderror = None
-                    try:
-                        cmdDownload.kill()
-                    except Exception:
-                        pass
-                    try:
-                        stdout, stderror = cmdDownload.communicate(timeout=5)
-                    except TimeoutExpired:
-                        try:
-                            cmdDownload.kill()
-                        except:
-                            pass
-                    max_restart -= 1
-                    if max_restart < 0:
-                        raise Exception(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
-                    else:
-                        sys.stderr.write(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
-                        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
-                        ps_proc = psutil.Process(cmdDownload.pid)
-                        start_time = time.time()
+    unpocessed = True
+    while unpocessed:
+        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        try:
+            stdout, stderror = cmdDownload.communicate(timeout=timeout)
+            exitCode = cmdDownload.returncode
+            unpocessed = False
+        except TimeoutExpired:
+            try:
+                cmdDownload.kill()
+            except:
+                pass
+            max_restart -= 1
+            if max_restart < 0:
+                raise Exception(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
             else:
-                time.sleep(5)
-    except psutil.NoSuchProcess:
-        # The process has finished
-        pass
+                sys.stderr.write(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
+                cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     
-    stdout, stderror = cmdDownload.communicate(timeout=5)
-    exitCode = cmdDownload.returncode
     if exitCode != 0:
         raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
     return stdout, stderror, exitCode
