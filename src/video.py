@@ -8,6 +8,7 @@ from os import path,remove
 from sys import stderr
 from threading import RLock,Thread
 from time import strftime,gmtime,sleep,time
+import hashlib
 import tools
 import re
 import json
@@ -784,8 +785,6 @@ def subtitle_text_md5(filePath,streamID):
         return subtitle_text_srt_md5(filePath,streamID)
 
 def subtitle_text_srt_md5(filePath,streamID):
-    import hashlib
-    import re
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
         "-map", f"0:{streamID}",
@@ -794,6 +793,7 @@ def subtitle_text_srt_md5(filePath,streamID):
     ]
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
     if exitCode == 0:
+        stderr.write(f"subtitle_text_srt_md5: {streamID} exit OK")
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
         filtered_text = "\n".join(text_lines).encode('utf-8')
@@ -807,7 +807,6 @@ def subtitle_text_srt_md5(filePath,streamID):
         return (streamID, None)
 
 def count_font_lines_in_ass(filePath, streamID):
-    import re
     cmd = [
         "ffmpeg",
         "-v", "error", "-probesize", "50000000",
@@ -821,6 +820,7 @@ def count_font_lines_in_ass(filePath, streamID):
     
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
     if exitCode == 0:
+        stderr.write(f"count_font_lines_in_ass: {streamID} exit OK")
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
 
         style_pattern = re.compile(r'^Style:.+', re.IGNORECASE)
@@ -832,8 +832,6 @@ def count_font_lines_in_ass(filePath, streamID):
         return None
 
 def subtitle_text_ass_md5(filePath,streamID):
-    import hashlib
-    import re
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
         "-map", f"0:{streamID}",
@@ -842,6 +840,7 @@ def subtitle_text_ass_md5(filePath,streamID):
     ]
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
     if exitCode == 0:
+        stderr.write(f"subtitle_text_ass_md5: {streamID} exit OK")
         lines = stdout.decode('utf-8', errors='ignore').splitlines()
         text_lines = [re.sub(r'^[^,\n]+,\d[^,\n]+,[^,\n]+,', '', line) for line in lines if line.strip()]
         filtered_text = "\n".join(text_lines).encode('utf-8')

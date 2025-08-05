@@ -79,6 +79,7 @@ def launch_cmdExt_no_test(cmd):
 def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     exitCode = 5555
+    global dev
     try:
         ps_proc = psutil.Process(cmdDownload.pid)
         start_time = time.time()
@@ -103,7 +104,8 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                         if max_restart < 0:
                             raise Exception(f"The process is zombie and cannot be restarted:{cmd}\n{stderror}\n{stdout}\n")
                         else:
-                            sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
+                            if dev:
+                                sys.stderr.write("The process is zombie and will be restarted: "+" ".join(cmd)+"\n")
                             cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
                             ps_proc = psutil.Process(cmdDownload.pid)
                             start_time = time.time()
@@ -124,7 +126,8 @@ def launch_cmdExt_with_tester(cmd,max_restart=1,timeout=120):
                     if max_restart < 0:
                         raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
                     else:
-                        sys.stderr.write("The process is timeout and will be restarted: "+" ".join(cmd)+"\n")
+                        if dev:
+                            sys.stderr.write("The process is timeout and will be restarted: "+" ".join(cmd)+"\n")
                         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
                         ps_proc = psutil.Process(cmdDownload.pid)
                         start_time = time.time()
@@ -157,7 +160,8 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
             if max_restart < 0:
                 raise Exception(f"The process is timeout and will not be restarted:{cmd}\n")
             else:
-                sys.stderr.write(f"The process is timeout and will be restarted:{cmd}\n")
+                if dev:
+                    sys.stderr.write(f"The process is timeout and will be restarted:{cmd}\n")
                 cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     
     if exitCode != 0:
