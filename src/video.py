@@ -333,7 +333,8 @@ class video():
                 task_subtitle[language].append(subtitle_md5_second(self.filePath,subtitle,dic_index_data_sub_codec,length_video))
                 task_subtitle[language][-1].start()
         
-        stderr.write("\t\tStart to wait the end of the md5 calculation of the streams\n")
+        if tools.dev:
+            stderr.write("\t\tStart to wait the end of the md5 calculation of the streams\n")
         
         for language, data in task_audio.items():
             i=0
@@ -366,9 +367,12 @@ class video():
                 i += 1
 
         stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
+        i = 0
         for language, data in task_subtitle.items():
             for subtitle in data:
+                stderr.write(f"\t\t\tWait the end of the subtitle {i} for {language}\n")
                 subtitle.join(timeout=120)
+        stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
 
 """
 Preparation function
