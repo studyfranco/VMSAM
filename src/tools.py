@@ -155,9 +155,9 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
                 pass
             max_restart -= 1
             if max_restart < 0:
-                raise Exception(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
+                raise Exception(f"The process is timeout and will not be restarted:{cmd}\n")
             else:
-                sys.stderr.write(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
+                sys.stderr.write(f"The process is timeout and will be restarted:{cmd}\n")
                 cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     
     if exitCode != 0:
