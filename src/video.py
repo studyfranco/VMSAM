@@ -365,6 +365,7 @@ class video():
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
 
+        stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
         for language, data in task_subtitle.items():
             for subtitle in data:
                 subtitle.join(timeout=120)
