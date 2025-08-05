@@ -753,7 +753,6 @@ class subtitle_md5_second(Thread):
         self.subtitle = subtitle
         self.dic_index_data_sub_codec = dic_index_data_sub_codec
         self.length_video = length_video
-        self.md5 = None
     
     def run(self):
         if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
