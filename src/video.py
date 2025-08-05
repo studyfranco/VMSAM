@@ -367,11 +367,12 @@ class video():
                 i += 1
 
         stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
-        i = 0
         for language, data in task_subtitle.items():
+            i=0
             for subtitle in data:
                 stderr.write(f"\t\t\tWait the end of the subtitle {i} for {language}\n")
                 subtitle.join(timeout=120)
+                i += 1
         stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
 
 """
