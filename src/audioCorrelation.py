@@ -166,7 +166,7 @@ def get_files_metrics(outfile):
     return r,s
 
 def generate_norm_cmd(in_file,out_file):
-    return [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-nostdin", "-i", in_file, "-filter_complex",
+    return [tools.software["ffmpeg"], "-y", "-threads", str(2), "-nostdin", "-i", in_file, "-filter_complex",
             "[0:0]loudnorm=i=-23.0:lra=7.0:tp=-2.0:offset=4.45:linear=true:print_format=json[norm0]",
             "-map_metadata", "0", "-map_metadata:s:a:0", "0:s:a:0", "-map_chapters", "0", "-c:v", "copy", "-map", "[norm0]",
             "-c:a:0", "pcm_s16le", "-c:s", "copy", out_file]
@@ -192,9 +192,9 @@ def read_normalized(in1,in2):
         if r1 != r2:
             wait_end_big_job()
             out_in1_norm_denoise = path.join(tools.tmpFolder,base_namme_in1+"_norm_denoise.wav")
-            job_in1 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
+            job_in1 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(2), "-i", out_in1_norm, "-af", "'afftdn=nf=-25'", out_in1_norm_denoise],) )
             out_in2_norm_denoise = path.join(tools.tmpFolder,base_namme_in2+"_norm_denoise.wav")
-            job_in2 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", out_in2_norm, "-af", "'afftdn=nf=-25'", out_in2_norm_denoise],) )
+            job_in2 = ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, ([tools.software["ffmpeg"], "-y", "-threads", str(2), "-i", out_in2_norm, "-af", "'afftdn=nf=-25'", out_in2_norm_denoise],) )
             
             job_in1.get()
             r1,s1 = get_files_metrics(out_in1_norm_denoise)
