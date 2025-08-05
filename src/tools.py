@@ -152,12 +152,14 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
             ps_proc.cpu_percent(interval=0.5)
             if time.time() - start_time > timeout:
                 if cmdDownload.poll() == None:
+                    stdout = None
+                    stderror = None
                     try:
                         cmdDownload.kill()
                     except Exception:
                         pass
                     try:
-                        cmdDownload.communicate(timeout=5)
+                        stdout, stderror = cmdDownload.communicate(timeout=5)
                     except TimeoutExpired:
                         try:
                             cmdDownload.kill()
@@ -165,9 +167,9 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
                             pass
                     max_restart -= 1
                     if max_restart < 0:
-                        raise Exception("The process is timeout and will not be restarted: "+" ".join(cmd)+"\n")
+                        raise Exception(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
                     else:
-                        sys.stderr.write("The process is timeout and will be restarted: "+" ".join(cmd)+"\n")
+                        sys.stderr.write(f"The process is timeout and will not be restarted:{cmd}\n{stderror}\n{stdout}\n")
                         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
                         ps_proc = psutil.Process(cmdDownload.pid)
                         start_time = time.time()
