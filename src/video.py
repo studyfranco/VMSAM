@@ -367,11 +367,13 @@ class video():
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
 
-        stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
+        if tools.dev:
+            stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
         for language, data in task_subtitle.items():
             for subtitle in data:
                 subtitle.join(timeout=120)
-        stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
+        if tools.dev:
+            stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
 
 """
 Preparation function
@@ -760,8 +762,8 @@ class subtitle_md5_second(Thread):
         self.length_video = length_video
     
     def run(self):
-        begin = time()
-        stderr.write(f"Start to calculate the md5 of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
+        #begin = time()
+        #stderr.write(f"Start to calculate the md5 of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
         if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
             codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
             if codec in tools.sub_type_not_encodable:
@@ -773,7 +775,7 @@ class subtitle_md5_second(Thread):
             
         if md5 != None:
             self.subtitle['MD5'] = md5
-            stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
+            #stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
         else:
             stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle}")
 
