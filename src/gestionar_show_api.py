@@ -118,26 +118,27 @@ def get_test_folder(regex_data,session):
 
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
+    import re
+    # Vérifier que la nouvelle regex matche le fichier d'exemple
+    # Vérifier que la regex permet d'extraire un numéro d'épisode valide
+    match = re.search(regex_data.regex_pattern, regex_data.example_filename)
+    if match != None:
+        if 'episode' in match.groupdict():
+            episode_number = match.group('episode')
+            if (not episode_number.isdigit()) or int(episode_number) < 1:
+                raise HTTPException(status_code=400, detail=f"Regex does not extract a valid episode number. We get: {episode_number}")
+        else:
+            raise HTTPException(status_code=400, detail="Regex does not extract a valid episode number from the example filename")
+    else:
+        raise HTTPException(status_code=400, detail="Regex does not match the example filename")
+    
+    test_regex_rename(regex_data)
+    
     regex = get_regex_data(regex_data.regex_pattern, session)
     if regex == None:
-        import re
-        # Vérifier que la nouvelle regex matche le fichier d'exemple
-        # Vérifier que la regex permet d'extraire un numéro d'épisode valide
-        match = re.search(regex_data.regex_pattern, regex_data.example_filename)
-        if match != None:
-            if 'episode' in match.groupdict():
-                episode_number = match.group('episode')
-                if (not episode_number.isdigit()) or int(episode_number) < 1:
-                    raise HTTPException(status_code=400, detail=f"Regex does not extract a valid episode number. We get: {episode_number}")
-            else:
-                raise HTTPException(status_code=400, detail="Regex does not extract a valid episode number from the example filename")
-        else:
-            raise HTTPException(status_code=400, detail="Regex does not match the example filename")
         
         # Vérifier l'existence du dossier via son path
         folder = get_test_folder(regex_data,session)
-
-        test_regex_rename(regex_data)
 
         # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
         all_regex = get_all_regex(session)
@@ -158,7 +159,6 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             "folder id": folder.id
         }
     else:
-        test_regex_rename(regex_data)
         # Si la regex existe déjà, on met à jour les champs
         try:
             update_regex(regex, get_test_folder(regex_data,session).id, regex_data.rename_pattern, regex_data.weight, session)
