@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from typing import Optional
-from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller
+from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder
 from gestionar_show import episode_pattern_insert
 
 class Settings(BaseSettings):
@@ -221,3 +221,42 @@ def create_regex(incremental_data: Incrementaller, session: Session = Depends(ge
             "regex_pattern": incremental_data.regex_pattern,
             "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
+        
+@app.get("/folders_infos/")
+def get_folder_info(destination_like: str, session: Session = Depends(get_session)):
+    """Récupère les infos des dossiers qui matchent le nom partiel"""
+    folders = search_like_folder(destination_like, session)
+    if not folders:
+        raise HTTPException(status_code=404, detail="No folders found matching the criteria")
+    
+    infos = []
+    for folder in folders:
+        infos.append({
+            "id": folder.id,
+            "destination_path": folder.destination_path,
+            "original_language": folder.original_language,
+            "number_cut": folder.number_cut,
+            "cut_file_to_get_delay_second_method": folder.cut_file_to_get_delay_second_method,
+            "max_episode_number": folder.max_episode_number
+        })
+    return {
+        "folders": infos
+    }
+    
+@app.get("/regex_folder/")
+def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session)):
+    """Récupère les regex d'un dossier spécifique"""
+    regex_list = get_regex_by_folder(folder_id, session)
+    if not regex_list:
+        raise HTTPException(status_code=404, detail="No regex found for this folder")
+    
+    infos = []
+    for regex in regex_list:
+        infos.append({
+            "regex_pattern": regex.regex_pattern,
+            "rename_pattern": regex.rename_pattern,
+            "weight": regex.weight
+        })
+    return {
+        "regex_patterns": infos
+    }

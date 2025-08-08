@@ -747,10 +747,13 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
 
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
-    if exitCode == 0:
-        md5 = stdout.decode("utf-8").strip().split("=")[-1]
-        return (streamID, md5)
+    try:
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,6,45)
+        if exitCode == 0:
+            md5 = stdout.decode("utf-8").strip().split("=")[-1]
+            return (streamID, md5)
+    except Exception as e:
+        stderr.write(f"Error calculating MD5 for {filePath}, stream {streamID}: {e}\n")
     return (streamID, None)
 
 class subtitle_md5_second(Thread):
@@ -764,20 +767,23 @@ class subtitle_md5_second(Thread):
     def run(self):
         #begin = time()
         #stderr.write(f"Start to calculate the md5 of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
-        if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
-            codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
-            if codec in tools.sub_type_not_encodable:
-                streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
+        try:
+            if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
+                codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
+                if codec in tools.sub_type_not_encodable:
+                    streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
+                else:
+                    streamID, md5 = subtitle_text_md5(self.filePath,self.subtitle["StreamOrder"])
             else:
-                streamID, md5 = subtitle_text_md5(self.filePath,self.subtitle["StreamOrder"])
-        else:
-            streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
-            
-        if md5 != None:
-            self.subtitle['MD5'] = md5
-            #stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
-        else:
-            stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle}")
+                streamID, md5 = md5_calculator(self.filePath,self.subtitle["StreamOrder"],10,self.length_video,float(self.subtitle['Duration']))
+                
+            if md5 != None:
+                self.subtitle['MD5'] = md5
+                #stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
+            else:
+                stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle['StreamOrder']} (no md5 returned)\n")
+        except Exception as e:
+            stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle['StreamOrder']}: {e}\n")
 
 def subtitle_text_md5(filePath,streamID):
     number_of_style = count_font_lines_in_ass(filePath, streamID)

@@ -81,6 +81,9 @@ def get_folder_data(folder_id, session):
 def get_folder_by_path(destination_path, session):
     return session.query(folder).filter(folder.destination_path == destination_path).first()
 
+def search_like_folder(folder_name_part, session):
+    return session.query(folder).filter(folder.destination_path.like(f"%{folder_name_part}%")).all()
+
 def insert_folder(destination_path, original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number, session):
     if max_episode_number == None:
         max_episode_number = 12
@@ -156,6 +159,11 @@ def update_regex(regex_data, folder_id, rename_pattern, weight, session):
 def get_all_regex(session):
     return session.query(regexPattern).order_by(
         regexPattern.weight.desc()
+    ).all()
+
+def get_regex_by_folder(folder_id, session):
+    return session.query(regexPattern).filter(
+        regexPattern.folder_id == folder_id
     ).all()
     
 def get_episode_data(folder_id, episode_number, session):
