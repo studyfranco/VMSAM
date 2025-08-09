@@ -161,7 +161,7 @@ def get_all_regex(session):
         regexPattern.weight.desc()
     ).all()
 
-def get_regex_by_folder(folder_id, session):
+def get_regex_by_folder_id(folder_id, session):
     return session.query(regexPattern).filter(
         regexPattern.folder_id == folder_id
     ).all()

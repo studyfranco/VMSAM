@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from typing import Optional
-from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder
+from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id
 from gestionar_show import episode_pattern_insert
 
 class Settings(BaseSettings):
@@ -246,7 +246,7 @@ def get_folder_info(destination_like: str, session: Session = Depends(get_sessio
 @app.get("/regex_folder/")
 def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session)):
     """Récupère les regex d'un dossier spécifique"""
-    regex_list = get_regex_by_folder(folder_id, session)
+    regex_list = get_regex_by_folder_id(folder_id, session)
     if not regex_list:
         raise HTTPException(status_code=404, detail="No regex found for this folder")
     
