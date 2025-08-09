@@ -292,7 +292,7 @@ def second_correlation(in1,in2):
         sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
         # If audio_sync is not installed, we return the file and offset
-        print(f"audio_sync not working: {e}")
+        sys.stderr.write(f"\t\taudio_sync not working: {e}\n")
     
     return file,offset
 
