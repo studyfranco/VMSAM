@@ -16,7 +16,7 @@ pub struct CorrelationResult {
 
 /// Paramètres (à ajuster)
 const BLOCK_SIZE_SAMPLES: usize = 131_072; // ~0.5 MB of f32 (131k * 4 = 524kB)
-const MAX_N_CAP: usize = 1 << 22; // cap for FFT size (~4M)
+const MAX_N_CAP: usize = 1 << 22; // cap for FFT size (~4M). Increase if you have more RAM.
 
 /// Probe sample rate and duration (seconds) using ffprobe.
 /// Returns (sample_rate, duration_seconds)
@@ -220,11 +220,34 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
     ref_samples.reverse();
     let m = ref_samples.len();
 
+    // Safety: if reference is too large for our FFT cap, bail early with a clear error
+    if m > MAX_N_CAP {
+        anyhow::bail!(
+            "reference is too large for streaming FFT approach (samples = {}, MAX_N_CAP = {}). \
+             Consider increasing MAX_N_CAP or using a segmentation strategy.",
+            m,
+            MAX_N_CAP
+        );
+    }
+
     // block size B
     let b = BLOCK_SIZE_SAMPLES;
     let mut n = next_pow2(b + m - 1);
     if n > MAX_N_CAP {
+        // if cap is smaller than required, reduce to cap (safe because m <= MAX_N_CAP)
         n = MAX_N_CAP;
+    }
+    // ensure n >= m
+    if n < m {
+        n = next_pow2(m);
+        if n > MAX_N_CAP {
+            anyhow::bail!(
+                "computed FFT size exceeds MAX_N_CAP after adjusting to reference size (m = {}, needed n = {}, MAX_N_CAP = {})",
+                m,
+                n,
+                MAX_N_CAP
+            );
+        }
     }
 
     // FFT planner (f32)
@@ -276,6 +299,18 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         if n_iter > MAX_N_CAP {
             n_iter = MAX_N_CAP;
         }
+        // ensure n_iter >= m (otherwise we'd index ref_samples out of bounds later)
+        if n_iter < m {
+            n_iter = next_pow2(m);
+            if n_iter > MAX_N_CAP {
+                anyhow::bail!(
+                    "iteration FFT size exceeds MAX_N_CAP (m = {}, n_iter = {}, MAX_N_CAP = {})",
+                    m,
+                    n_iter,
+                    MAX_N_CAP
+                );
+            }
+        }
 
         // If n_iter equals precomputed n, reuse ref_fft_pre; otherwise compute ref_fft_local
         let mut ref_fft_local: Vec<Complex32>;
@@ -299,7 +334,13 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         }
         // copy block
         for (i, &v) in block_samples.iter().enumerate() {
-            in_buf[overlap.len() + i] = Complex32::new(v, 0.0);
+            let idx = overlap.len() + i;
+            if idx < in_buf.len() {
+                in_buf[idx] = Complex32::new(v, 0.0);
+            } else {
+                // should not happen because we sized n_iter >= l + m -1, but guard anyway
+                break;
+            }
         }
 
         // FFT input (create plan for n_iter)
@@ -307,11 +348,10 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         let ifft_local = planner.plan_fft_inverse(n_iter);
         fft_local.process(&mut in_buf);
 
-        // multiply by ref_fft_local
+        // multiply by ref_fft_local (both length n_iter)
         for i in 0..n_iter {
             let a = in_buf[i];
             let b = ref_fft_local[i];
-            // complex multiply
             in_buf[i] = a * b;
         }
 
@@ -339,13 +379,14 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         let mut tail_source: Vec<f32> = Vec::with_capacity(overlap.len() + block_samples.len());
         tail_source.extend_from_slice(&overlap);
         tail_source.extend_from_slice(&block_samples);
-        if tail_source.len() >= if m >= 1 { m - 1 } else { 0 } {
-            let start = tail_source.len().saturating_sub(if m >= 1 { m - 1 } else { 0 });
+        let overlap_len = if m >= 1 { m - 1 } else { 0 };
+        if tail_source.len() >= overlap_len {
+            let start = tail_source.len().saturating_sub(overlap_len);
             overlap.clear();
             overlap.extend_from_slice(&tail_source[start..]);
         } else {
             // pad left with zeros
-            let mut new_overlap = vec![0.0f32; if m >= 1 { m - 1 } else { 0 }];
+            let mut new_overlap = vec![0.0f32; overlap_len];
             let pad = new_overlap.len().saturating_sub(tail_source.len());
             for i in 0..tail_source.len() {
                 new_overlap[pad + i] = tail_source[i];
