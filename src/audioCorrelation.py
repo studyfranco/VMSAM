@@ -287,7 +287,7 @@ def second_correlation(in1,in2):
     sys.stderr.write(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
     try:
         begin = time.time()
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,30)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,120)
         data = json.loads(stdout.decode("utf-8").strip())
         sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
