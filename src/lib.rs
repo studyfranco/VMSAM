@@ -72,8 +72,6 @@ async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
 /// cgroup-aware detection: try to detect container memory limit and available memory.
 /// Returns available bytes (conservative).
 fn detect_cgroup_memory_limit_bytes() -> Option<usize> {
-    use std::path::PathBuf;
-
     // try cgroup v2 common file
     let cg_v2_root = Path::new("/sys/fs/cgroup/memory.max");
     if cg_v2_root.exists() {
@@ -250,7 +248,7 @@ fn next_pow2(mut n: usize) -> usize {
 }
 
 /// largest power of two <= n
-fn next_pow2_floor(mut n: usize) -> usize {
+fn next_pow2_floor(n: usize) -> usize {
     if n == 0 {
         return 1;
     }
@@ -402,10 +400,8 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
     let mut n = if desired_n <= max_n_cap {
         desired_n
     } else {
-        // fallback to largest power of two <= max_n_cap
         let cand = next_pow2_floor(max_n_cap);
         if cand < m {
-            // ensure at least next_pow2(m)
             let cand2 = next_pow2(m);
             if cand2 > max_n_cap {
                 anyhow::bail!(
@@ -467,17 +463,17 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
     let _pool = Arc::new(Semaphore::new(pool_capacity));
 
     loop {
-        // try to read exactly block_size_b * 4 bytes (may read less at EOF)
         let nread = reader.read(&mut local_buf).await?;
         if nread == 0 {
             break;
         }
         let samples_read = nread / 4;
-        // build input = overlap + block (pad with zeros automatically because in_buf is zeroed)
+
         // zero in_buf
         for v in in_buf.iter_mut() {
             *v = Complex32::new(0.0, 0.0);
         }
+
         // copy overlap
         for (i, &v) in overlap.iter().enumerate() {
             in_buf[i] = Complex32::new(v, 0.0);
@@ -522,9 +518,7 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         }
 
         // update overlap: take last (m-1) samples from (previous overlap + current block)
-        // We'll build tail_source of length overlap_len + samples_read
-        let mut tail_source_len = overlap_len + samples_read;
-        let mut tail_source: Vec<f32> = Vec::with_capacity(tail_source_len);
+        let mut tail_source: Vec<f32> = Vec::with_capacity(overlap_len + samples_read);
         tail_source.extend_from_slice(&overlap);
         // append block samples
         for i in 0..samples_read {
