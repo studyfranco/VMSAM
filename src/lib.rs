@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use num_complex::Complex32;
 use rustfft::FftPlanner;
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
@@ -15,8 +16,11 @@ pub struct CorrelationResult {
 }
 
 /// Paramètres (à ajuster)
-const BLOCK_SIZE_SAMPLES: usize = 131_072; // ~0.5 MB of f32 (131k * 4 = 524kB)
-const MAX_N_CAP: usize = 1 << 22; // cap for FFT size (~4M). Increase if you have more RAM.
+const BLOCK_SIZE_SAMPLES: usize = 131_072; // taille bloc pour streaming (échantillons)
+const MIN_N_CAP: usize = 1 << 14; // 16k minimum FFT size
+const ABS_MAX_N_CAP: usize = 1 << 26; // safety hard cap (~67M) -- you can lower this if needed
+const SAFETY_FRACTION_NUM: usize = 1; // numerator for fraction (1 / SAFETY_FRACTION_DEN)
+const SAFETY_FRACTION_DEN: usize = 4; // fraction of available memory to use (1/4 of available)
 
 /// Probe sample rate and duration (seconds) using ffprobe.
 /// Returns (sample_rate, duration_seconds)
@@ -64,6 +68,104 @@ async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
     let sr = sr.unwrap_or(48000);
     let dur = dur.unwrap_or(0.0);
     Ok((sr, dur))
+}
+
+/// Read /proc/meminfo and return MemAvailable (or MemTotal) in bytes.
+/// If reading fails, return a conservative default (512 MB).
+fn detect_available_memory_bytes() -> usize {
+    const DEFAULT: usize = 512 * 1024 * 1024; // 512 MB default
+    match fs::read_to_string("/proc/meminfo") {
+        Ok(s) => {
+            for line in s.lines() {
+                if line.starts_with("MemAvailable:") {
+                    // format: "MemAvailable: 12345678 kB"
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<usize>() {
+                            return kb * 1024;
+                        }
+                    }
+                }
+            }
+            // fallback to MemTotal
+            for line in s.lines() {
+                if line.starts_with("MemTotal:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<usize>() {
+                            return kb * 1024;
+                        }
+                    }
+                }
+            }
+            DEFAULT
+        }
+        Err(_) => DEFAULT,
+    }
+}
+
+/// Heuristic to compute a safe MAX_N_CAP based on available memory.
+/// We estimate memory per FFT element: two Complex32 buffers + overhead -> ~16 bytes/element.
+/// We use SAFETY_FRACTION (1/4 by default) of available memory.
+fn compute_max_n_cap() -> usize {
+    let avail = detect_available_memory_bytes();
+    // fraction of available memory to use
+    let usable = (avail / SAFETY_FRACTION_DEN) * SAFETY_FRACTION_NUM;
+    // estimate bytes per complex element (two complex buffers, one in_buf + one ref_fft)
+    let bytes_per_element = 16usize; // 8 bytes per Complex32 * 2 buffers = 16
+    if usable <= bytes_per_element {
+        return MIN_N_CAP;
+    }
+    let mut n = usable / bytes_per_element;
+    // clamp n between MIN_N_CAP and ABS_MAX_N_CAP
+    if n < MIN_N_CAP {
+        n = MIN_N_CAP;
+    }
+    if n > ABS_MAX_N_CAP {
+        n = ABS_MAX_N_CAP;
+    }
+    // round down to nearest power of two
+    let p = next_pow2_floor(n);
+    // ensure p >= MIN_N_CAP
+    if p < MIN_N_CAP {
+        MIN_N_CAP
+    } else {
+        p
+    }
+}
+
+/// next power of two (>= n)
+fn next_pow2(mut n: usize) -> usize {
+    if n == 0 {
+        return 1;
+    }
+    n -= 1;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    if std::mem::size_of::<usize>() > 4 {
+        n |= n >> 32;
+    }
+    n + 1
+}
+
+/// largest power of two <= n
+fn next_pow2_floor(mut n: usize) -> usize {
+    if n == 0 {
+        return 1;
+    }
+    // if already power of two return it
+    if n.is_power_of_two() {
+        return n;
+    }
+    // otherwise, get the highest one bit
+    let mut p = 1usize;
+    while p <= n {
+        p <<= 1;
+    }
+    p >> 1
 }
 
 /// Spawn ffmpeg child that outputs mono pcm_f32le to stdout.
@@ -164,27 +266,13 @@ async fn read_all_pcm_f32_from_ffmpeg(path: &Path, pan_expr: Option<String>, tar
     Ok((target_sr, samples))
 }
 
-/// next power of two
-fn next_pow2(mut n: usize) -> usize {
-    if n == 0 {
-        return 1;
-    }
-    n -= 1;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
-    if std::mem::size_of::<usize>() > 4 {
-        n |= n >> 32;
-    }
-    n + 1
-}
-
 /// Core: streaming cross-correlation using overlap-save.
 /// - load the smaller file fully as reference (rev)
 /// - stream the larger file in blocks, compute convolution with reversed ref via FFT
 pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: usize) -> Result<CorrelationResult> {
+    // compute runtime cap based on memory
+    let max_n_cap = compute_max_n_cap();
+
     // probe both files
     let p1 = Path::new(in1);
     let p2 = Path::new(in2);
@@ -221,31 +309,30 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
     let m = ref_samples.len();
 
     // Safety: if reference is too large for our FFT cap, bail early with a clear error
-    if m > MAX_N_CAP {
+    if m > max_n_cap {
         anyhow::bail!(
-            "reference is too large for streaming FFT approach (samples = {}, MAX_N_CAP = {}). \
-             Consider increasing MAX_N_CAP or using a segmentation strategy.",
+            "reference is too large for streaming FFT approach (samples = {}, computed MAX_N_CAP = {}). \
+             Consider increasing available memory, lowering SAFETY_FRACTION_DEN, or using segmentation.",
             m,
-            MAX_N_CAP
+            max_n_cap
         );
     }
 
     // block size B
     let b = BLOCK_SIZE_SAMPLES;
     let mut n = next_pow2(b + m - 1);
-    if n > MAX_N_CAP {
-        // if cap is smaller than required, reduce to cap (safe because m <= MAX_N_CAP)
-        n = MAX_N_CAP;
+    if n > max_n_cap {
+        n = max_n_cap;
     }
     // ensure n >= m
     if n < m {
         n = next_pow2(m);
-        if n > MAX_N_CAP {
+        if n > max_n_cap {
             anyhow::bail!(
-                "computed FFT size exceeds MAX_N_CAP after adjusting to reference size (m = {}, needed n = {}, MAX_N_CAP = {})",
+                "computed FFT size exceeds computed MAX_N_CAP after adjusting to reference size (m = {}, needed n = {}, MAX_N_CAP = {})",
                 m,
                 n,
-                MAX_N_CAP
+                max_n_cap
             );
         }
     }
@@ -296,18 +383,18 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
         // build input = overlap + block
         let l = overlap.len() + block_samples.len();
         let mut n_iter = next_pow2(l + m - 1);
-        if n_iter > MAX_N_CAP {
-            n_iter = MAX_N_CAP;
+        if n_iter > max_n_cap {
+            n_iter = max_n_cap;
         }
         // ensure n_iter >= m (otherwise we'd index ref_samples out of bounds later)
         if n_iter < m {
             n_iter = next_pow2(m);
-            if n_iter > MAX_N_CAP {
+            if n_iter > max_n_cap {
                 anyhow::bail!(
-                    "iteration FFT size exceeds MAX_N_CAP (m = {}, n_iter = {}, MAX_N_CAP = {})",
+                    "iteration FFT size exceeds computed MAX_N_CAP (m = {}, n_iter = {}, MAX_N_CAP = {})",
                     m,
                     n_iter,
-                    MAX_N_CAP
+                    max_n_cap
                 );
             }
         }
@@ -338,7 +425,7 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
             if idx < in_buf.len() {
                 in_buf[idx] = Complex32::new(v, 0.0);
             } else {
-                // should not happen because we sized n_iter >= l + m -1, but guard anyway
+                // guard; shouldn't happen with correct sizing
                 break;
             }
         }
