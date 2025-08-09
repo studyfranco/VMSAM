@@ -66,14 +66,12 @@ fn get_buffer_pool() -> &'static Mutex<BufferPool> {
 /// Processeur de corrélation réutilisable pour éviter les allocations répétées
 pub struct CorrelationProcessor {
     fft_planner: FftPlanner<f64>,
-    scratch_buffer: Vec<C64<f64>>,
 }
 
 impl CorrelationProcessor {
     pub fn new() -> Self {
         Self {
             fft_planner: FftPlanner::new(),
-            scratch_buffer: Vec::new(),
         }
     }
 
@@ -434,17 +432,73 @@ pub async fn read_normalized_async_optimized(in1: &str, in2: &str, pool_capacity
     Ok((r1, s1, s2))
 }
 
-async fn corrabs_optimized(s1: Vec<f64>, s2: Vec<f64>, processor: &mut CorrelationProcessor) -> Result<(usize, usize)> {
-    let s1_clone = s1.clone();
-    let s2_clone = s2.clone();
-    
-    task::spawn_blocking(move || {
-        // Créer un processeur temporaire pour ce thread
-        let mut temp_processor = CorrelationProcessor::new();
-        temp_processor.correlate_optimized(&s1_clone, &s2_clone)
-    })
-    .await
-    .context("corrabs join error")?
+/// corrabs sync (FFT) — spawn_blocking caller - version optimisée
+fn corrabs_sync_optimized(s1: &[f64], s2: &[f64]) -> Result<(usize, usize)> {
+    let ls1 = s1.len();
+    let ls2 = s2.len();
+    let needed = ls1 + ls2 - 1;
+    let mut padsize = 1usize;
+    while padsize < needed {
+        padsize <<= 1;
+    }
+
+    // Obtenir les buffers du pool
+    let mut pool = get_buffer_pool().lock().unwrap();
+    let mut buffer1 = pool.get_buffer(padsize);
+    let mut buffer2 = pool.get_buffer(padsize);
+    drop(pool); // Libérer le mutex rapidement
+
+    // Créer le planner FFT
+    let mut planner = FftPlanner::<f64>::new();
+    let fft = planner.plan_fft_forward(padsize);
+    let ifft = planner.plan_fft_inverse(padsize);
+
+    // Copier s1 dans buffer1
+    for i in 0..ls1 {
+        buffer1[i] = C64::new(s1[i], 0.0);
+    }
+
+    // Copier s2 dans buffer2
+    for i in 0..ls2 {
+        buffer2[i] = C64::new(s2[i], 0.0);
+    }
+
+    // FFT des deux signaux
+    fft.process(&mut buffer1);
+    fft.process(&mut buffer2);
+
+    // Produit conjugué in-place dans buffer1
+    for i in 0..padsize {
+        let conj_b = C64::new(buffer2[i].re, -buffer2[i].im);
+        buffer1[i] *= conj_b;
+    }
+
+    // IFFT du résultat
+    ifft.process(&mut buffer1);
+
+    // Recherche du maximum
+    let mut xmax = 0usize;
+    let mut maxv = f64::NEG_INFINITY;
+    for (i, val) in buffer1.iter().enumerate() {
+        let mag = val.norm_sqr().sqrt(); // Plus efficace que re² + im²
+        if mag > maxv {
+            maxv = mag;
+            xmax = i;
+        }
+    }
+
+    // Retourner les buffers au pool
+    let mut pool = get_buffer_pool().lock().unwrap();
+    pool.return_buffer(buffer1);
+    pool.return_buffer(buffer2);
+
+    Ok((padsize, xmax))
+}
+
+async fn corrabs_optimized(s1: Vec<f64>, s2: Vec<f64>) -> Result<(usize, usize)> {
+    task::spawn_blocking(move || corrabs_sync_optimized(&s1, &s2))
+        .await
+        .context("corrabs join error")?
 }
 
 /// second_correlation async principal optimisé
@@ -454,10 +508,7 @@ pub async fn second_correlation_async_optimized(
     pool_capacity: usize
 ) -> Result<CorrelationResult> {
     let (fs, s1, s2) = read_normalized_async_optimized(in1, in2, pool_capacity).await?;
-    
-    // Créer un processeur pour cette corrélation
-    let mut processor = CorrelationProcessor::new();
-    let (padsize, xmax) = corrabs_optimized(s1, s2, &mut processor).await?;
+    let (padsize, xmax) = corrabs_optimized(s1, s2).await?;
 
     let fs_f = fs as f64;
     let (file_to_cut, offset_seconds) = if xmax > padsize / 2 {
@@ -477,7 +528,14 @@ pub async fn second_correlation_with_processor(
     pool_capacity: usize
 ) -> Result<CorrelationResult> {
     let (fs, s1, s2) = read_normalized_async_optimized(in1, in2, pool_capacity).await?;
-    let (padsize, xmax) = corrabs_optimized(s1, s2, processor).await?;
+    let (padsize, xmax) = task::spawn_blocking({
+        let s1_clone = s1.clone();
+        let s2_clone = s2.clone();
+        move || {
+            let mut temp_processor = CorrelationProcessor::new();
+            temp_processor.correlate_optimized(&s1_clone, &s2_clone)
+        }
+    }).await.context("corrabs join error")??;
 
     let fs_f = fs as f64;
     let (file_to_cut, offset_seconds) = if xmax > padsize / 2 {
