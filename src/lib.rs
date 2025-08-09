@@ -1,253 +1,38 @@
+// Assurez-vous d'avoir ces dépendances dans Cargo.toml:
+// tokio = { version = "1.37", features = ["full"] }
+// rustfft = "6.0"
+// num-complex = "0.4"
+// anyhow = "1.0"
+
 use anyhow::{Context, Result};
-use hound;
-use rustfft::{FftPlanner, num_complex::Complex as C64};
-use serde::Serialize;
-use std::collections::VecDeque;
+use num_complex::Complex32;
+use rustfft::{FftPlanner};
 use std::path::Path;
-use std::process::Stdio;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
-use tokio::task;
-use uuid::Uuid;
+use serde::Serialize;
 
-/// Résultat sérialisable
 #[derive(Debug, Serialize)]
 pub struct CorrelationResult {
     pub file: String,
     pub offset_seconds: f64,
 }
 
-/// Pool global de buffers FFT pour réduire les allocations
-static BUFFER_POOL: OnceLock<Mutex<BufferPool>> = OnceLock::new();
+/// Paramètres (à ajuster)
+const BLOCK_SIZE_SAMPLES: usize = 131_072; // ~0.5 MB of f32 (131k * 4 = 524kB)
+const MAX_FFMPEG_POOL: usize = 2;
 
-struct BufferPool {
-    buffers: VecDeque<Vec<C64<f64>>>,
-    max_pool_size: usize,
-}
-
-impl BufferPool {
-    fn new(max_size: usize) -> Self {
-        Self {
-            buffers: VecDeque::with_capacity(max_size),
-            max_pool_size: max_size,
-        }
-    }
-
-    fn get_buffer(&mut self, size: usize) -> Vec<C64<f64>> {
-        // Chercher un buffer de taille suffisante
-        if let Some(mut buffer) = self.buffers.pop_front() {
-            if buffer.len() >= size {
-                buffer.truncate(size);
-                // Réinitialiser tous les éléments à zéro
-                buffer.fill(C64::new(0.0, 0.0));
-                return buffer;
-            }
-            // Si trop petit, le remettre dans le pool
-            self.buffers.push_back(buffer);
-        }
-        
-        // Allouer un nouveau buffer
-        vec![C64::new(0.0, 0.0); size]
-    }
-
-    fn return_buffer(&mut self, buffer: Vec<C64<f64>>) {
-        // Limiter la taille du pool pour éviter l'accumulation excessive
-        if self.buffers.len() < self.max_pool_size && buffer.capacity() >= 1024 {
-            self.buffers.push_back(buffer);
-        }
-    }
-}
-
-fn get_buffer_pool() -> &'static Mutex<BufferPool> {
-    BUFFER_POOL.get_or_init(|| Mutex::new(BufferPool::new(8)))
-}
-
-/// Processeur de corrélation réutilisable pour éviter les allocations répétées
-pub struct CorrelationProcessor {
-    fft_planner: FftPlanner<f64>,
-}
-
-impl CorrelationProcessor {
-    pub fn new() -> Self {
-        Self {
-            fft_planner: FftPlanner::new(),
-        }
-    }
-
-    /// Version optimisée de corrabs avec réutilisation des buffers
-    pub fn correlate_optimized(&mut self, s1: &[f64], s2: &[f64]) -> Result<(usize, usize)> {
-        let ls1 = s1.len();
-        let ls2 = s2.len();
-        let needed = ls1 + ls2 - 1;
-        let mut padsize = 1usize;
-        while padsize < needed {
-            padsize <<= 1;
-        }
-
-        // Obtenir les buffers du pool
-        let mut pool = get_buffer_pool().lock().unwrap();
-        let mut buffer1 = pool.get_buffer(padsize);
-        let mut buffer2 = pool.get_buffer(padsize);
-        drop(pool); // Libérer le mutex rapidement
-
-        // Préparer les FFT planners
-        let fft = self.fft_planner.plan_fft_forward(padsize);
-        let ifft = self.fft_planner.plan_fft_inverse(padsize);
-
-        // Copier s1 dans buffer1
-        for i in 0..ls1 {
-            buffer1[i] = C64::new(s1[i], 0.0);
-        }
-        // Assurer que le reste est à zéro (déjà fait par get_buffer)
-
-        // Copier s2 dans buffer2
-        for i in 0..ls2 {
-            buffer2[i] = C64::new(s2[i], 0.0);
-        }
-
-        // FFT des deux signaux
-        fft.process(&mut buffer1);
-        fft.process(&mut buffer2);
-
-        // Produit conjugué in-place dans buffer1
-        for i in 0..padsize {
-            let conj_b = C64::new(buffer2[i].re, -buffer2[i].im);
-            buffer1[i] *= conj_b;
-        }
-
-        // IFFT du résultat
-        ifft.process(&mut buffer1);
-
-        // Recherche du maximum
-        let mut xmax = 0usize;
-        let mut maxv = f64::NEG_INFINITY;
-        for (i, val) in buffer1.iter().enumerate() {
-            let mag = val.norm_sqr().sqrt(); // Plus efficace que re² + im²
-            if mag > maxv {
-                maxv = mag;
-                xmax = i;
-            }
-        }
-
-        // Retourner les buffers au pool
-        let mut pool = get_buffer_pool().lock().unwrap();
-        pool.return_buffer(buffer1);
-        pool.return_buffer(buffer2);
-
-        Ok((padsize, xmax))
-    }
-}
-
-/// Lecture WAV mono synchrone optimisée
-fn read_wav_mono_sync_optimized(path: &str) -> Result<(u32, Vec<f64>)> {
-    let mut reader = hound::WavReader::open(path)
-        .with_context(|| format!("opening wav file: {}", path))?;
-    let spec = reader.spec();
-    let sr = spec.sample_rate;
-    let channels = spec.channels as usize;
-
-    // Optimisation : éviter la double allocation pour le cas mono
-    if channels == 1 {
-        let total_samples = reader.len() as usize;
-        let mut samples = Vec::with_capacity(total_samples);
-        
-        // Conversion directe avec normalisation
-        for sample_result in reader.samples::<i16>() {
-            let sample = sample_result.context("wav read error")?;
-            samples.push(sample as f64 / 32768.0); // Normalisation directe
-        }
-        return Ok((sr, samples));
-    }
-
-    // Cas multi-canal : traitement par chunks pour réduire les pics mémoire
-    let total_samples = reader.len() as usize;
-    let frames = total_samples / channels;
-    let mut mono_samples = Vec::with_capacity(frames);
-    
-    let chunk_size = 4096; // Traitement par chunks de 4096 échantillons
-    let mut chunk = Vec::with_capacity(chunk_size * channels);
-    
-    for sample_result in reader.samples::<i16>() {
-        let sample = sample_result.context("wav read error")?;
-        chunk.push(sample);
-        
-        if chunk.len() == chunk_size * channels {
-            // Traiter le chunk
-            for frame_idx in 0..(chunk_size) {
-                let mut sum = 0i64;
-                for ch in 0..channels {
-                    let idx = frame_idx * channels + ch;
-                    if idx < chunk.len() {
-                        sum += chunk[idx] as i64;
-                    }
-                }
-                let avg = (sum as f64 / channels as f64) / 32768.0; // Normalisation
-                mono_samples.push(avg);
-            }
-            chunk.clear();
-        }
-    }
-    
-    // Traiter le chunk restant
-    if !chunk.is_empty() {
-        let remaining_frames = chunk.len() / channels;
-        for frame_idx in 0..remaining_frames {
-            let mut sum = 0i64;
-            for ch in 0..channels {
-                let idx = frame_idx * channels + ch;
-                sum += chunk[idx] as i64;
-            }
-            let avg = (sum as f64 / channels as f64) / 32768.0;
-            mono_samples.push(avg);
-        }
-    }
-    
-    Ok((sr, mono_samples))
-}
-
-async fn read_wav_mono_optimized(path: &str) -> Result<(u32, Vec<f64>)> {
-    let p = path.to_string();
-    task::spawn_blocking(move || read_wav_mono_sync_optimized(&p))
-        .await
-        .context("task join error")?
-}
-
-/// Exécute une commande ffmpeg (args) contrôlée par le pool (Semaphore)
-async fn run_ffmpeg_job(pool: Arc<Semaphore>, args: Vec<String>) -> Result<()> {
-    let permit = pool.acquire_owned().await.expect("semaphore closed");
-
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-
-    let status = cmd
-        .status()
-        .await
-        .with_context(|| format!("failed to spawn ffmpeg with args: {:?}", args))?;
-
-    drop(permit);
-
-    if !status.success() {
-        anyhow::bail!("ffmpeg failed with status: {:?}", status);
-    }
-    Ok(())
-}
-
-/// appelle ffprobe pour obtenir le nombre de channels (async)
-async fn probe_channel_count(path: &Path) -> Result<usize> {
+/// Probe sample rate and duration (seconds) using ffprobe.
+/// Returns (sample_rate, duration_seconds)
+async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
     let out = Command::new("ffprobe")
         .args(&[
-            "-v",
-            "error",
-            "-select_streams",
-            "a:0",
-            "-show_entries",
-            "stream=channels",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
+            "-v", "error",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=sample_rate,duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
             path.to_string_lossy().as_ref(),
         ])
         .output()
@@ -255,303 +40,314 @@ async fn probe_channel_count(path: &Path) -> Result<usize> {
         .with_context(|| format!("ffprobe failed for {:?}", path))?;
 
     if !out.status.success() {
-        anyhow::bail!(
-            "ffprobe returned non-zero for {:?} (stderr hidden)",
-            path
-        );
+        anyhow::bail!("ffprobe returned non-zero for {:?}", path);
     }
-    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let n: usize = s.parse().unwrap_or(1);
-    Ok(n.max(1))
+    let txt = String::from_utf8_lossy(&out.stdout);
+    // ffprobe returns lines: sample_rate\n duration\n  (order may vary)
+    let mut sr: Option<u32> = None;
+    let mut dur: Option<f64> = None;
+    for line in txt.lines() {
+        let s = line.trim();
+        if s.is_empty() { continue; }
+        if sr.is_none() && s.chars().all(|c| c.is_digit(10)) {
+            if let Ok(v) = s.parse::<u32>() { sr = Some(v); continue; }
+        }
+        if dur.is_none() {
+            if let Ok(v) = s.parse::<f64>() { dur = Some(v); continue; }
+        }
+    }
+    let sr = sr.unwrap_or(48000);
+    let dur = dur.unwrap_or(0.0);
+    Ok((sr, dur))
 }
 
-/// construit l'argument -af pour pan mix -> mono avec coefficients 1/N
-fn build_pan_mono_expression(channels: usize) -> String {
-    if channels <= 1 {
-        return "pan=mono|c0=c0".to_string();
+/// Spawn ffmpeg to output mono pcm_f32le to stdout.
+/// Optionally resample via `target_sr` (None => leave sample rate).
+fn spawn_ffmpeg_pipe(path: &Path, pan_expr: Option<String>, target_sr: Option<u32>) -> Result<tokio::process::ChildStdout> {
+    // build args:
+    // -i in -af "<pan_expr>" -ac 1 [-ar target_sr] -f f32le -acodec pcm_f32le -
+    let mut cmd = Command::new("ffmpeg");
+    let mut args = vec![
+        "-vn".to_string(),
+        "-nostdin".to_string(),
+        "-i".to_string(),
+        path.to_string_lossy().into_owned(),
+    ];
+    if let Some(pan) = pan_expr {
+        args.push("-af".to_string());
+        args.push(pan);
+    } else {
+        // force mono simple
+        // we'll rely on -ac 1 below
     }
-    let coef = 1.0 / channels as f64;
-    let mut parts = Vec::with_capacity(channels);
-    for i in 0..channels {
-        parts.push(format!("{coef:.6}*c{i}", coef = coef, i = i));
+    args.push("-ac".to_string());
+    args.push("1".to_string());
+    if let Some(sr) = target_sr {
+        args.push("-ar".to_string());
+        args.push(format!("{}", sr));
     }
-    format!("pan=mono|c0={}", parts.join("+"))
+    args.extend(vec![
+        "-f".to_string(),
+        "f32le".to_string(),
+        "-acodec".to_string(),
+        "pcm_f32le".to_string(),
+        "-".to_string(),
+    ]);
+
+    cmd.args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+
+    let mut child = cmd.spawn().context("failed to spawn ffmpeg")?;
+    let stdout = child.stdout.take().context("no stdout from ffmpeg")?;
+    Ok(stdout)
 }
 
-/// génère les args ffmpeg pour normaliser et mixer en mono (pan then loudnorm)
-async fn generate_norm_args_mix_mono(in_path: &Path, out_path: &Path) -> Result<Vec<String>> {
-    let channels = probe_channel_count(in_path).await.unwrap_or(1);
-    let pan = build_pan_mono_expression(channels);
-    let filter = format!(
-        "{},loudnorm=i=-23.0:lra=7.0:tp=-2.0:offset=4.45:linear=true:print_format=json",
-        pan
-    );
+/// Read the whole stdin (pcm_f32le) into a Vec<f32> (for the reference file).
+/// We deliberately use f32 to reduce RAM.
+async fn read_all_pcm_f32_from_ffmpeg(path: &Path, pan_expr: Option<String>, target_sr: Option<u32>) -> Result<(u32, Vec<f32>)> {
+    // probe sr first
+    let (sr0, _dur) = probe_samplerate_duration(path).await?;
+    let target_sr = target_sr.unwrap_or(sr0);
 
-    Ok(vec![
-        "-y".into(),
-        "-threads".into(),
-        "2".into(),
-        "-nostdin".into(),
-        "-i".into(),
-        in_path.to_string_lossy().into_owned(),
-        "-af".into(),
-        filter,
-        "-c:a".into(),
-        "pcm_s16le".into(),
-        out_path.to_string_lossy().into_owned(),
-    ])
+    let mut out = Command::new("ffmpeg")
+        .args(&[
+            "-vn", "-nostdin",
+            "-i", path.to_string_lossy().as_ref(),
+        ])
+        .args(if let Some(p) = pan_expr {
+            vec!["-af", &p, "-ac", "1"]
+        } else {
+            vec!["-ac", "1"]
+        })
+        .args(&["-ar", &format!("{}", target_sr), "-f", "f32le", "-acodec", "pcm_f32le", "-"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("spawn ffmpeg for read_all")?
+        .stdout
+        .context("no stdout")?;
+
+    let mut reader = tokio::io::BufReader::new(out);
+    let mut buf = Vec::new();
+    reader.read_to_end(&mut buf).await.context("read ffmpeg stdout")?;
+
+    // convert bytes -> f32 little endian
+    let mut samples = Vec::with_capacity(buf.len() / 4);
+    for chunk in buf.chunks_exact(4) {
+        let bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
+        samples.push(f32::from_le_bytes(bytes));
+    }
+    Ok((target_sr, samples))
 }
 
-/// génère args pour denoise (afftdn)
-fn generate_denoise_args(in_path: &Path, out_path: &Path) -> Vec<String> {
-    vec![
-        "-y".into(),
-        "-threads".into(),
-        "2".into(),
-        "-nostdin".into(),
-        "-i".into(),
-        in_path.to_string_lossy().into_owned(),
-        "-af".into(),
-        "afftdn=nf=-25".into(),
-        out_path.to_string_lossy().into_owned(),
-    ]
-}
+/// Core: streaming cross-correlation using overlap-save:
+/// - load the smaller file fully as reference (rev)
+/// - stream the larger file in blocks, compute convolution with reversed ref via FFT
+pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: usize) -> Result<CorrelationResult> {
+    // probe both files (sample rate + duration)
+    let p1 = Path::new(in1);
+    let p2 = Path::new(in2);
+    let (sr1, dur1) = probe_samplerate_duration(p1).await?;
+    let (sr2, dur2) = probe_samplerate_duration(p2).await?;
 
-/// read_normalized async optimisé : normalise + mix -> mono + (évent. denoise if still diff sample rate)
-/// Retourne (fs, s1_mono, s2_mono)
-pub async fn read_normalized_async_optimized(in1: &str, in2: &str, pool_capacity: usize) -> Result<(u32, Vec<f64>, Vec<f64>)> {
-    let pool = Arc::new(Semaphore::new(pool_capacity));
+    // compute approximate samples
+    let samples1 = (sr1 as f64 * dur1).round() as usize;
+    let samples2 = (sr2 as f64 * dur2).round() as usize;
 
-    // Tentative de lecture initiale optimisée
-    let mut r1_opt = None;
-    let mut r2_opt = None;
-    if let Ok((sr1, _)) = task::spawn_blocking({
-        let p = in1.to_string();
-        move || read_wav_mono_sync_optimized(&p)
-    }).await.context("join error")? {
-        r1_opt = Some(sr1);
+    // choose shorter as reference
+    let (ref_path, stream_path, ref_samples_est, sr_ref, sr_stream) = if samples1 <= samples2 {
+        (p1, p2, samples1, sr1, sr2)
+    } else {
+        (p2, p1, samples2, sr2, sr1)
+    };
+
+    // choose common sample rate (min)
+    let target_sr = std::cmp::min(sr_ref, sr_stream);
+
+    // optional pan expression: simple average mix (1/N)
+    // for robustness we leave pan None and rely on -ac 1 (ffmpeg do mixing).
+    let pan_expr: Option<String> = None;
+
+    // read reference fully in f32 (mono, resampled if needed)
+    let (_sr_ref_used, mut ref_samples) =
+        read_all_pcm_f32_from_ffmpeg(ref_path, pan_expr.clone(), Some(target_sr)).await?;
+
+    if ref_samples.is_empty() {
+        anyhow::bail!("reference samples empty");
     }
-    if let Ok((sr2, _)) = task::spawn_blocking({
-        let p = in2.to_string();
-        move || read_wav_mono_sync_optimized(&p)
-    }).await.context("join error")? {
-        r2_opt = Some(sr2);
+
+    // reverse reference for correlation (we will convolve streaming signal with reversed reference)
+    ref_samples.reverse();
+    let m = ref_samples.len();
+
+    // Prepare FFT planner and reference FFT for chosen N (we'll decide N per block)
+    // We'll pick a block size B (samples per iteration), and choose N = next_pow2(B + m - 1).
+    let b = BLOCK_SIZE_SAMPLES;
+    let n_min = next_pow2(b + m - 1);
+
+    // but if m is big, n_min may be huge; ensure N not excessive:
+    let mut n = n_min;
+    // optional cap N size: e.g. don't exceed 1<<22 (~4M) to bound mem; adjust as needed
+    let max_n = 1 << 22;
+    if n > max_n {
+        n = max_n;
     }
 
-    // Si les deux taux existent et sont égaux -> lecture directe optimisée
-    if let (Some(sr1), Some(sr2)) = (r1_opt, r2_opt) {
-        if sr1 == sr2 {
-            let (_rr1, ss1) = read_wav_mono_optimized(in1).await?;
-            let (rr2, ss2) = read_wav_mono_optimized(in2).await?;
-            if sr1 != rr2 {
-                anyhow::bail!("sample rates mismatch on direct read: {} vs {}", sr1, rr2);
+    // compute FFT of ref padded to N (Complex32)
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(n);
+    let ifft = planner.plan_fft_inverse(n);
+
+    // prepare ref_fft
+    let mut ref_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); n];
+    for i in 0..m.min(n) {
+        ref_buf[i] = Complex32::new(ref_samples[i], 0.0);
+    }
+    fft.process(&mut ref_buf);
+    let ref_fft = ref_buf.clone(); // store for reuse
+
+    // spawn ffmpeg on streaming file and read blocks from stdout
+    let mut stdout = spawn_ffmpeg_pipe(stream_path, pan_expr.clone(), Some(target_sr))?;
+    let mut reader = tokio::io::BufReader::new(stdout);
+
+    // we'll read bytes for one block: block bytes = B * 4 (f32)
+    let block_bytes = b * 4;
+    let mut overlap: Vec<f32> = vec![0.0f32; m - 1]; // M-1 overlap initially zero
+    let mut local_buf: Vec<u8> = vec![0u8; block_bytes];
+
+    // track max
+    let mut maxv = f32::NEG_INFINITY;
+    let mut max_idx_samples: usize = 0usize;
+    let mut global_pos: usize = 0usize; // position in stream (sample index at start of this block)
+
+    // semaphore only used if we spawn ffmpeg jobs parallel elsewhere; keep for compatibility
+    let _pool = Arc::new(Semaphore::new(pool_capacity));
+
+    loop {
+        // read up to block_bytes from ffmpeg stdout
+        let nread = reader.read(&mut local_buf).await?;
+        if nread == 0 { break; } // EOF
+
+        // if nread not multiple of 4, trim
+        let samples_read = nread / 4;
+        let mut block_samples: Vec<f32> = Vec::with_capacity(samples_read);
+        for i in 0..samples_read {
+            let base = i * 4;
+            let bytes = [local_buf[base], local_buf[base+1], local_buf[base+2], local_buf[base+3]];
+            block_samples.push(f32::from_le_bytes(bytes));
+        }
+
+        // Build input segment = overlap (m-1) + block_samples (B' maybe smaller)
+        let l = overlap.len() + block_samples.len();
+        // Choose N for this iteration: N >= l + m -1  (convolution length)
+        let mut N = next_pow2(l + m - 1);
+        if N > max_n { N = max_n; } // cap
+
+        // prepare buffers (complex)
+        let mut in_buf: Vec<Complex32> = vec![Complex32::new(0.0,0.0); N];
+        // copy overlap
+        for (i, &v) in overlap.iter().enumerate() {
+            in_buf[i] = Complex32::new(v, 0.0);
+        }
+        // copy block
+        for (i, &v) in block_samples.iter().enumerate() {
+            in_buf[overlap.len() + i] = Complex32::new(v, 0.0);
+        }
+        // zero padding already present
+
+        // compute FFT of input (if N differs from ref_fft size, we need ref FFT resized)
+        // We'll compute ref_fft for this N on the fly if sizes differ (rare if we fix N).
+        let fft_local = planner.plan_fft_forward(N);
+        let ifft_local = planner.plan_fft_inverse(N);
+
+        // prepare ref_fft_local
+        let mut ref_fft_local: Vec<Complex32> = vec![Complex32::new(0.0,0.0); N];
+        // place reversed ref (we previously reversed ref_samples) into beginning
+        let copy_n = std::cmp::min(m, N);
+        for i in 0..copy_n {
+            ref_fft_local[i] = Complex32::new(ref_samples[i], 0.0);
+        }
+        fft_local.process(&mut ref_fft_local);
+
+        // FFT input
+        fft_local.process(&mut in_buf);
+
+        // pointwise multiply in_buf * ref_fft_local (complex multiply)
+        for i in 0..N {
+            let a = in_buf[i];
+            let b = ref_fft_local[i];
+            // a *= b
+            in_buf[i] = a * b;
+        }
+
+        // ifft
+        ifft_local.process(&mut in_buf);
+
+        // valid output region: indices [m-1 .. m-1 + block_len - 1] (length block_len)
+        let start_idx = m.saturating_sub(1);
+        let block_len = block_samples.len();
+        for i in 0..block_len {
+            let idx = start_idx + i;
+            if idx >= in_buf.len() { break; }
+            // The convolution result is in_buf[idx].re / N if the ifft is unnormalized in rustfft. rustfft does NOT normalize IFFT (it scales by 1/N if using it?), actually rustfft's inverse does not scale — you must divide by N.
+            // rustfft's inverse does NOT scale, so divide by N:
+            let val = in_buf[idx].re / (N as f32);
+            let mag = val.abs();
+            if mag > maxv {
+                maxv = mag;
+                max_idx_samples = global_pos + i;
             }
-            return Ok((sr1, ss1, ss2));
         }
-    }
 
-    // Sinon: normalisation vers fichiers temporaires mono
-    let base1 = Path::new(in1)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("in1");
-    let base2 = Path::new(in2)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("in2");
-    let uid1 = Uuid::new_v4().to_string();
-    let uid2 = Uuid::new_v4().to_string();
-
-    let tmp_dir = std::env::temp_dir();
-    let out1 = tmp_dir.join(format!("{}_{}_norm.wav", base1, uid1));
-    let out2 = tmp_dir.join(format!("{}_{}_norm.wav", base2, uid2));
-
-    // build args (async because we probe channels)
-    let args1 = generate_norm_args_mix_mono(Path::new(in1), &out1).await?;
-    let args2 = generate_norm_args_mix_mono(Path::new(in2), &out2).await?;
-
-    // spawn both jobs under pool
-    let p1 = {
-        let pool = pool.clone();
-        let a = args1.clone();
-        tokio::spawn(async move { run_ffmpeg_job(pool, a).await })
-    };
-    let p2 = {
-        let pool = pool.clone();
-        let a = args2.clone();
-        tokio::spawn(async move { run_ffmpeg_job(pool, a).await })
-    };
-
-    // await both
-    let _ = p1.await.context("join norm job1")??;
-    let _ = p2.await.context("join norm job2")??;
-
-    // read resulting WAVs avec lecture optimisée
-    let (mut r1, mut s1) = read_wav_mono_optimized(out1.to_string_lossy().as_ref()).await?;
-    let (mut r2, mut s2) = read_wav_mono_optimized(out2.to_string_lossy().as_ref()).await?;
-
-    // if sample rates still different -> attempt denoise and reread
-    if r1 != r2 {
-        let out1_d = tmp_dir.join(format!("{}_{}_norm_denoise.wav", base1, uid1));
-        let out2_d = tmp_dir.join(format!("{}_{}_norm_denoise.wav", base2, uid2));
-
-        let args1 = generate_denoise_args(&out1, &out1_d);
-        let args2 = generate_denoise_args(&out2, &out2_d);
-
-        let p1 = {
-            let pool = pool.clone();
-            tokio::spawn(async move { run_ffmpeg_job(pool, args1).await })
-        };
-        let p2 = {
-            let pool = pool.clone();
-            tokio::spawn(async move { run_ffmpeg_job(pool, args2).await })
-        };
-
-        let _ = p1.await.context("join denoise job1")??;
-        let _ = p2.await.context("join denoise job2")??;
-
-        let (rr1, ss1) = read_wav_mono_optimized(out1_d.to_string_lossy().as_ref()).await?;
-        let (rr2, ss2) = read_wav_mono_optimized(out2_d.to_string_lossy().as_ref()).await?;
-        r1 = rr1; r2 = rr2; s1 = ss1; s2 = ss2;
-
-        // cleanup both norm and denoise files
-        let _ = tokio::fs::remove_file(out1).await;
-        let _ = tokio::fs::remove_file(out2).await;
-        let _ = tokio::fs::remove_file(out1_d).await;
-        let _ = tokio::fs::remove_file(out2_d).await;
-    } else {
-        // cleanup norm files
-        let _ = tokio::fs::remove_file(out1).await;
-        let _ = tokio::fs::remove_file(out2).await;
-    }
-
-    if r1 != r2 {
-        anyhow::bail!("not same sample rate after normalization attempts: {} vs {}", r1, r2);
-    }
-
-    Ok((r1, s1, s2))
-}
-
-/// corrabs sync (FFT) — spawn_blocking caller - version optimisée
-fn corrabs_sync_optimized(s1: &[f64], s2: &[f64]) -> Result<(usize, usize)> {
-    let ls1 = s1.len();
-    let ls2 = s2.len();
-    let needed = ls1 + ls2 - 1;
-    let mut padsize = 1usize;
-    while padsize < needed {
-        padsize <<= 1;
-    }
-
-    // Obtenir les buffers du pool
-    let mut pool = get_buffer_pool().lock().unwrap();
-    let mut buffer1 = pool.get_buffer(padsize);
-    let mut buffer2 = pool.get_buffer(padsize);
-    drop(pool); // Libérer le mutex rapidement
-
-    // Créer le planner FFT
-    let mut planner = FftPlanner::<f64>::new();
-    let fft = planner.plan_fft_forward(padsize);
-    let ifft = planner.plan_fft_inverse(padsize);
-
-    // Copier s1 dans buffer1
-    for i in 0..ls1 {
-        buffer1[i] = C64::new(s1[i], 0.0);
-    }
-
-    // Copier s2 dans buffer2
-    for i in 0..ls2 {
-        buffer2[i] = C64::new(s2[i], 0.0);
-    }
-
-    // FFT des deux signaux
-    fft.process(&mut buffer1);
-    fft.process(&mut buffer2);
-
-    // Produit conjugué in-place dans buffer1
-    for i in 0..padsize {
-        let conj_b = C64::new(buffer2[i].re, -buffer2[i].im);
-        buffer1[i] *= conj_b;
-    }
-
-    // IFFT du résultat
-    ifft.process(&mut buffer1);
-
-    // Recherche du maximum
-    let mut xmax = 0usize;
-    let mut maxv = f64::NEG_INFINITY;
-    for (i, val) in buffer1.iter().enumerate() {
-        let mag = val.norm_sqr().sqrt(); // Plus efficace que re² + im²
-        if mag > maxv {
-            maxv = mag;
-            xmax = i;
+        // update overlap to last m-1 samples of (overlap + block)
+        // Build temp vec = overlap + block_samples, then take tail
+        let mut tail_source_len = overlap.len() + block_samples.len();
+        let mut tail_source: Vec<f32> = Vec::with_capacity(tail_source_len);
+        tail_source.extend_from_slice(&overlap);
+        tail_source.extend_from_slice(&block_samples);
+        if tail_source.len() >= m - 1 {
+            let start = tail_source.len() - (m - 1);
+            overlap.clear();
+            overlap.extend_from_slice(&tail_source[start..]);
+        } else {
+            // smaller than m-1: pad with zeros on the left
+            let mut new_overlap = vec![0.0f32; m - 1 - tail_source.len()];
+            new_overlap.extend_from_slice(&tail_source);
+            overlap = new_overlap;
         }
-    }
 
-    // Retourner les buffers au pool
-    let mut pool = get_buffer_pool().lock().unwrap();
-    pool.return_buffer(buffer1);
-    pool.return_buffer(buffer2);
+        // advance global pos
+        global_pos += block_len;
+    } // end loop reading
 
-    Ok((padsize, xmax))
-}
-
-async fn corrabs_optimized(s1: Vec<f64>, s2: Vec<f64>) -> Result<(usize, usize)> {
-    task::spawn_blocking(move || corrabs_sync_optimized(&s1, &s2))
-        .await
-        .context("corrabs join error")?
-}
-
-/// second_correlation async principal optimisé
-pub async fn second_correlation_async_optimized(
-    in1: &str, 
-    in2: &str, 
-    pool_capacity: usize
-) -> Result<CorrelationResult> {
-    let (fs, s1, s2) = read_normalized_async_optimized(in1, in2, pool_capacity).await?;
-    let (padsize, xmax) = corrabs_optimized(s1, s2).await?;
-
-    let fs_f = fs as f64;
-    let (file_to_cut, offset_seconds) = if xmax > padsize / 2 {
-        (in2.to_string(), (padsize - xmax) as f64 / fs_f)
-    } else {
-        (in1.to_string(), (xmax) as f64 / fs_f)
-    };
+    // Compute offset_seconds and file choice: if reference was in1 then file_to_cut=in2 else in1.
+    // We chose ref_path earlier accordingly.
+    let file_to_cut = if ref_path == p1 { in2.to_string() } else { in1.to_string() };
+    // The correlation peak index indicates the best alignment: when ref was reversed, peak index corresponds to...
+    // Interpretation: global sample index (max_idx_samples) is the lag where s_stream * s_ref (cross-correlation) achieves maximum.
+    // offset_seconds = max_idx_samples / target_sr
+    let offset_seconds = (max_idx_samples as f64) / (target_sr as f64);
 
     Ok(CorrelationResult { file: file_to_cut, offset_seconds })
 }
 
-/// Version avec processeur réutilisable pour traitement en batch
-pub async fn second_correlation_with_processor(
-    in1: &str, 
-    in2: &str, 
-    processor: &mut CorrelationProcessor,
-    pool_capacity: usize
-) -> Result<CorrelationResult> {
-    let (fs, s1, s2) = read_normalized_async_optimized(in1, in2, pool_capacity).await?;
-    let (padsize, xmax) = task::spawn_blocking({
-        let s1_clone = s1.clone();
-        let s2_clone = s2.clone();
-        move || {
-            let mut temp_processor = CorrelationProcessor::new();
-            temp_processor.correlate_optimized(&s1_clone, &s2_clone)
-        }
-    }).await.context("corrabs join error")??;
-
-    let fs_f = fs as f64;
-    let (file_to_cut, offset_seconds) = if xmax > padsize / 2 {
-        (in2.to_string(), (padsize - xmax) as f64 / fs_f)
-    } else {
-        (in1.to_string(), (xmax) as f64 / fs_f)
-    };
-
-    Ok(CorrelationResult { file: file_to_cut, offset_seconds })
+/// next power of two
+fn next_pow2(mut n: usize) -> usize {
+    if n == 0 { return 1; }
+    n -= 1;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    if std::mem::size_of::<usize>() > 4 {
+        n |= n >> 32;
+    }
+    n + 1
 }
 
-// Fonctions de compatibilité pour remplacer directement l'ancienne version
-pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -> Result<(u32, Vec<f64>, Vec<f64>)> {
-    read_normalized_async_optimized(in1, in2, pool_capacity).await
-}
-
-pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize) -> Result<CorrelationResult> {
-    second_correlation_async_optimized(in1, in2, pool_capacity).await
+pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize) -> anyhow::Result<CorrelationResult> {
+    second_correlation_streaming(in1, in2, pool_capacity).await
 }
