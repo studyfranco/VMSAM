@@ -16,7 +16,6 @@ pub struct CorrelationResult {
 
 /// Paramètres (à ajuster)
 const BLOCK_SIZE_SAMPLES: usize = 131_072; // ~0.5 MB of f32 (131k * 4 = 524kB)
-const MAX_FFMPEG_POOL: usize = 2;
 const MAX_N_CAP: usize = 1 << 22; // cap for FFT size (~4M)
 
 /// Probe sample rate and duration (seconds) using ffprobe.
@@ -273,27 +272,27 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
 
         // build input = overlap + block
         let l = overlap.len() + block_samples.len();
-        let mut N = next_pow2(l + m - 1);
-        if N > MAX_N_CAP {
-            N = MAX_N_CAP;
+        let mut n_iter = next_pow2(l + m - 1);
+        if n_iter > MAX_N_CAP {
+            n_iter = MAX_N_CAP;
         }
 
-        // If N equals precomputed n, reuse ref_fft_pre; otherwise compute ref_fft_local
+        // If n_iter equals precomputed n, reuse ref_fft_pre; otherwise compute ref_fft_local
         let mut ref_fft_local: Vec<Complex32>;
-        if N == n {
+        if n_iter == n {
             ref_fft_local = ref_fft_pre.clone();
         } else {
-            let fft_local = planner.plan_fft_forward(N);
-            ref_fft_local = vec![Complex32::new(0.0, 0.0); N];
-            let copy_n = std::cmp::min(m, N);
+            let fft_local = planner.plan_fft_forward(n_iter);
+            ref_fft_local = vec![Complex32::new(0.0, 0.0); n_iter];
+            let copy_n = std::cmp::min(m, n_iter);
             for i in 0..copy_n {
                 ref_fft_local[i] = Complex32::new(ref_samples[i], 0.0);
             }
             fft_local.process(&mut ref_fft_local);
         }
 
-        // prepare input buffer of size N
-        let mut in_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); N];
+        // prepare input buffer of size n_iter
+        let mut in_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); n_iter];
         // copy overlap
         for (i, &v) in overlap.iter().enumerate() {
             in_buf[i] = Complex32::new(v, 0.0);
@@ -303,13 +302,13 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
             in_buf[overlap.len() + i] = Complex32::new(v, 0.0);
         }
 
-        // FFT input (create plan for N)
-        let fft_local = planner.plan_fft_forward(N);
-        let ifft_local = planner.plan_fft_inverse(N);
+        // FFT input (create plan for n_iter)
+        let fft_local = planner.plan_fft_forward(n_iter);
+        let ifft_local = planner.plan_fft_inverse(n_iter);
         fft_local.process(&mut in_buf);
 
         // multiply by ref_fft_local
-        for i in 0..N {
+        for i in 0..n_iter {
             let a = in_buf[i];
             let b = ref_fft_local[i];
             // complex multiply
@@ -327,8 +326,8 @@ pub async fn second_correlation_streaming(in1: &str, in2: &str, pool_capacity: u
             if idx >= in_buf.len() {
                 break;
             }
-            // rustfft inverse is NOT normalized, divide by N
-            let val = in_buf[idx].re / (N as f32);
+            // rustfft inverse is NOT normalized, divide by n_iter
+            let val = in_buf[idx].re / (n_iter as f32);
             let mag = val.abs();
             if mag > maxv {
                 maxv = mag;
