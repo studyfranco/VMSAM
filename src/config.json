@@ -1,5 +1,5 @@
 {
     "language_to_keep":["zh","en","ru","de","fr"],
     "language_to_try_to_keep":["pl","pt","es","it","ja"],
-    "language_to_completely_remove":["ar","tr"]
+    "language_to_completely_remove":["ar","tr","id","fil","ms"]
 }

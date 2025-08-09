@@ -5,13 +5,17 @@ Created on 1 May 2022
 '''
 
 import tools
+import gc
+import json
+import time
+
+import sys
 
 '''
 1 May 2022
 Based on https://raw.githubusercontent.com/kdave/audio-compare/master/correlation.py 
 '''
 # correlation.py
-import subprocess
 import numpy
 
 # seconds to sample audio file for
@@ -254,6 +258,7 @@ def show2(fs,s1,s2,title=None):
     plt.show()
 
 def second_correlation(in1,in2):
+    begin = time.time()
     fs,s1,s2 = read_normalized(in1,in2)
     ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
     ls1 = None
@@ -277,6 +282,18 @@ def second_correlation(in1,in2):
     padsize = None
     xmax = None
     fs = None
+    gc.collect()
+    
+    sys.stderr.write(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
+    try:
+        begin = time.time()
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(["audio_sync",in1,in2],5,30)
+        data = json.loads(stdout.decode("utf-8").strip())
+        sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
+    except Exception as e:
+        # If audio_sync is not installed, we return the file and offset
+        print(f"audio_sync not working: {e}")
+    
     return file,offset
 
 '''

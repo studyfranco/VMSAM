@@ -18,6 +18,7 @@ import tools
 import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
+import gc
 from decimal import *
 
 max_delay_variance_second_method = 0.005
@@ -144,7 +145,6 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
             delay_Fidelity_Values_job_between_audio.join()
             delay_between_two_audio.append(delay_Fidelity_Values_job_between_audio.delay_Fidelity_Values)
 
-    import gc
     gc.collect()
     return delay_Fidelity_Values
 
@@ -486,7 +486,6 @@ class compare_video(Thread):
                         delay_Values[f"{i}-{j}"] = delay_between_two_audio
                         delay_between_two_audio.append(second_correlation(self.video_obj_1.tmpFiles['audio'][i][0],self.video_obj_2.tmpFiles['audio'][j][0]))
             
-            import gc
             gc.collect()
             delay_detected = []
             for key_audio, delay_list in delay_Values.items():
