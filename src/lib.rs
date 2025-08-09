@@ -1,13 +1,10 @@
 use anyhow::{Context, Result};
 use hound;
-use num_complex::Complex;
-use rustfft::{FftPlanner, num_complex::Complex as C};
+use rustfft::{FftPlanner, num_complex::Complex as C64};
 use serde::Serialize;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
-use tempfile::NamedTempFile;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 use tokio::task;
@@ -40,8 +37,7 @@ fn read_wav_mono_sync(path: &str) -> Result<(u32, Vec<f64>)> {
         return Ok((sr, out));
     }
 
-    // si multi -> mix average (on prendra le canal 0 après ffmpeg mix -> normalement mono)
-    // mais au cas où, on moyennise ici par sécurité
+    // si multi -> mix average
     let frames = samples.len() / channels;
     let mut out: Vec<f64> = Vec::with_capacity(frames);
     for frame_idx in 0..frames {
@@ -122,7 +118,6 @@ fn build_pan_mono_expression(channels: usize) -> String {
         return "pan=mono|c0=c0".to_string();
     }
     let coef = 1.0 / channels as f64;
-    // construisons "c0=coef*c0+coef*c1+..."
     let mut parts = Vec::with_capacity(channels);
     for i in 0..channels {
         parts.push(format!("{coef:.6}*c{i}", coef = coef, i = i));
@@ -175,7 +170,6 @@ pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -
     let pool = Arc::new(Semaphore::new(pool_capacity));
 
     // Tentative de lecture initiale --- utile si input déjà WAV pcm -> on peut extraire sample rate
-    // On tente une lecture; si échec (par ex. input non-wav), on procédera à la normalisation directe.
     let mut r1_opt = None;
     let mut r2_opt = None;
     if let Ok((sr1, _)) = task::spawn_blocking({
@@ -191,16 +185,20 @@ pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -
         r2_opt = Some(sr2);
     }
 
-    // If both sample rates known and equal -> just read them
+    // Si les deux taux existent et sont égaux -> lecture directe
     if let (Some(sr1), Some(sr2)) = (r1_opt, r2_opt) {
         if sr1 == sr2 {
-            let (rr1, ss1) = read_wav_mono(in1).await?;
+            let (_rr1, ss1) = read_wav_mono(in1).await?;
             let (rr2, ss2) = read_wav_mono(in2).await?;
-            return Ok((rr1, ss1, ss2));
+            // garantir cohérence
+            if sr1 != rr2 {
+                anyhow::bail!("sample rates mismatch on direct read: {} vs {}", sr1, rr2);
+            }
+            return Ok((sr1, ss1, ss2));
         }
     }
 
-    // Otherwise: need to generate normalized mono files
+    // Sinon: normalisation vers fichiers temporaires mono
     let base1 = Path::new(in1)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -212,7 +210,7 @@ pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -
     let uid1 = Uuid::new_v4().to_string();
     let uid2 = Uuid::new_v4().to_string();
 
-    let mut tmp_dir = std::env::temp_dir();
+    let tmp_dir = std::env::temp_dir();
     let out1 = tmp_dir.join(format!("{}_{}_norm.wav", base1, uid1));
     let out2 = tmp_dir.join(format!("{}_{}_norm.wav", base2, uid2));
 
@@ -240,7 +238,7 @@ pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -
     let (mut r1, mut s1) = read_wav_mono(out1.to_string_lossy().as_ref()).await?;
     let (mut r2, mut s2) = read_wav_mono(out2.to_string_lossy().as_ref()).await?;
 
-    // if sample rates still different -> attempt denoise and reread (mimics original python fallback)
+    // if sample rates still different -> attempt denoise and reread
     if r1 != r2 {
         let out1_d = tmp_dir.join(format!("{}_{}_norm_denoise.wav", base1, uid1));
         let out2_d = tmp_dir.join(format!("{}_{}_norm_denoise.wav", base2, uid2));
@@ -286,18 +284,24 @@ pub async fn read_normalized_async(in1: &str, in2: &str, pool_capacity: usize) -
 fn corrabs_sync(s1: &[f64], s2: &[f64]) -> Result<(usize, usize)> {
     let ls1 = s1.len();
     let ls2 = s2.len();
-    let mut padsize = ls1 + ls2 + 1;
-    let mut p = 1usize;
-    while p <= padsize {
-        p <<= 1;
+    // taille de convolution: ls1 + ls2 - 1 (classique); on prend puissance de 2 >=
+    let needed = ls1 + ls2 - 1;
+    let mut padsize = 1usize;
+    while padsize < needed {
+        padsize <<= 1;
     }
-    padsize = p;
 
-    let mut a: Vec<C> = vec![C::new(0.0, 0.0); padsize];
-    let mut b: Vec<C> = vec![C::new(0.0, 0.0); padsize];
+    // allouer vecteurs complexes f64
+    let mut a: Vec<C64<f64>> = vec![C64::new(0.0, 0.0); padsize];
+    let mut b: Vec<C64<f64>> = vec![C64::new(0.0, 0.0); padsize];
 
-    for i in 0..ls1 { a[i] = C::new(s1[i], 0.0); }
-    for i in 0..ls2 { b[i] = C::new(s2[i], 0.0); }
+    // copier signaux réels dans la partie réelle
+    for i in 0..ls1 {
+        a[i] = C64::new(s1[i], 0.0);
+    }
+    for i in 0..ls2 {
+        b[i] = C64::new(s2[i], 0.0);
+    }
 
     let mut planner = FftPlanner::<f64>::new();
     let fft = planner.plan_fft_forward(padsize);
@@ -306,16 +310,18 @@ fn corrabs_sync(s1: &[f64], s2: &[f64]) -> Result<(usize, usize)> {
     fft.process(&mut a);
     fft.process(&mut b);
 
-    let mut prod: Vec<C> = vec![C::new(0.0, 0.0); padsize];
+    // produit a * conj(b)
+    let mut prod: Vec<C64<f64>> = vec![C64::new(0.0, 0.0); padsize];
     for i in 0..padsize {
-        let conj_b = C::new(b[i].re, -b[i].im);
+        let conj_b = C64::new(b[i].re, -b[i].im);
         prod[i] = a[i] * conj_b;
     }
 
     ifft.process(&mut prod);
 
+    // magnitude max
     let mut xmax = 0usize;
-    let mut maxv = 0f64;
+    let mut maxv = f64::NEG_INFINITY;
     for (i, val) in prod.iter().enumerate() {
         let mag = (val.re.powi(2) + val.im.powi(2)).sqrt();
         if mag > maxv {
@@ -338,6 +344,7 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
     let (padsize, xmax) = corrabs(s1, s2).await?;
 
     let fs_f = fs as f64;
+    // interprétation lag: index > padsize/2 => lag négatif (s2 en avance), sinon lag positif (s1 en avance)
     let (file_to_cut, offset_seconds) = if xmax > padsize / 2 {
         (in2.to_string(), (padsize - xmax) as f64 / fs_f)
     } else {
