@@ -323,3 +323,229 @@ def save_debug_images_for_gap(dst_dir: str, dirA: str, dirB: str, gap_idx_tuple:
         saved += 1
         if saved >= (before + after + 1) * 2:
             break
+
+# frame_compare.py
+import os
+import tempfile
+import shutil
+import math
+from PIL import Image
+import imagehash
+import subprocess
+from statistics import mean, median
+
+# use tools.launch_cmdExt to run ffmpeg if available in the environment where this module is imported.
+import tools
+
+class FrameComparer:
+    """
+    Helper to compare frames between two video files in a given time window.
+    - extracts only necessary frames using ffmpeg
+    - builds phash series for both videos
+    - tries to find the 'gap' area by looking for common scenes before and after
+      (2 common scenes before, 3 after) as requested.
+    - thresholds and window sizes are adaptive based on media properties
+    """
+    def __init__(self, main_file, cut_file, window_start_sec, window_end_sec, fps=25, band_width=10, max_search_frames=60, debug=False):
+        self.main_file = main_file
+        self.cut_file = cut_file
+        self.start = float(window_start_sec)
+        self.end = float(window_end_sec)
+        self.fps = int(fps)
+        self.band_width = int(band_width)
+        self.max_search_frames = int(max_search_frames)
+        self.debug = debug
+        self.tmpdir = tempfile.mkdtemp(prefix="framecmp_")
+
+    def _extract_frames(self, filename, target_prefix, start, end, fps):
+        """
+        Extract frames from filename between start and end with ffmpeg at the specified fps.
+        Returns list of frame filepaths.
+        """
+        outdir = os.path.join(self.tmpdir, target_prefix)
+        os.makedirs(outdir, exist_ok=True)
+        # use fps and -vsync 0 and -q:v for jpeg
+        # frame output pattern:
+        pattern = os.path.join(outdir, "f_%06d.jpg")
+        ffmpeg = tools.software["ffmpeg"]
+        duration = max(0.01, end - start)
+        cmd = [ffmpeg, "-y", "-ss", str(start), "-t", str(duration),
+               "-i", filename,
+               "-vf", f"fps={fps}",
+               "-qscale:v", "3",
+               "-vsync", "0",
+               pattern]
+        tools.launch_cmdExt(cmd)
+        # collect files in order
+        files = sorted([os.path.join(outdir, f) for f in os.listdir(outdir) if f.endswith(".jpg")])
+        return files
+
+    def _compute_phash_series(self, frame_files):
+        """
+        Compute imagehash.phash for each image in frame_files.
+        Returns list of (index, phash) where phash is a imagehash.ImageHash
+        """
+        hashes = []
+        for i, f in enumerate(frame_files):
+            try:
+                img = Image.open(f).convert("RGB")
+                ph = imagehash.phash(img)
+                hashes.append((i, ph))
+            except Exception:
+                # skip problematic file
+                continue
+        return hashes
+
+    def _phash_distance(self, h1, h2):
+        return (h1 - h2)
+
+    def find_scene_gap_requirements(self, before_common=2, after_common=3):
+        """
+        Main routine:
+         - extract frames from both files between start,end using fps
+         - compute phash series
+         - look for pattern: 2 matching frames before gap (aligned), 3 matching after gap
+         - returns boundary frames in target coordinates: start_frame,end_frame and times
+        """
+        # extract frames
+        frames_main = self._extract_frames(self.main_file, "main", self.start, self.end, self.fps)
+        frames_cut  = self._extract_frames(self.cut_file, "cut",  self.start, self.end, self.fps)
+
+        if not frames_main or not frames_cut:
+            # extraction failed
+            return None
+
+        ph_main = self._compute_phash_series(frames_main)
+        ph_cut  = self._compute_phash_series(frames_cut)
+
+        # adapt phash threshold: compute median hamming distance between aligned windows
+        # compute distances for aligned segments (min length)
+        min_len = min(len(ph_main), len(ph_cut))
+        aligned_dists = []
+        for i in range(min_len):
+            aligned_dists.append(self._phash_distance(ph_main[i][1], ph_cut[i][1]))
+        if aligned_dists:
+            base_med = median(aligned_dists)
+            base_mean = mean(aligned_dists)
+            # threshold: allow small multiple of median; clamp between 2 and 12
+            threshold = int(max(2, min(12, base_med + max(1, base_mean * 0.3))))
+        else:
+            threshold = 8
+
+        # build arrays of just phash for quicker operations
+        arr_main = [h for i,h in ph_main]
+        arr_cut  = [h for i,h in ph_cut]
+
+        # naive cross-correlation to find alignment shifts with low phash distance
+        # For each candidate center in cut, compare surrounding frames to main and seek pattern
+        Ncut = len(arr_cut)
+        Nmain = len(arr_main)
+        # We'll slide a relative offset delta where main[idx] ~ cut[idx+delta] (try offsets within +/- band_width)
+        # For each delta between -band..+band, evaluate how many matching frames around central region
+        best_candidate = None
+        best_score = -1
+
+        # Limit offsets
+        max_delta = min(self.band_width, max(1, Ncut))
+        for delta in range(-max_delta, max_delta + 1):
+            # compute match counts
+            match_before = 0
+            match_after = 0
+            # search for positions where we can find 'before_common' consecutive matches
+            # scan indices where both indexes valid
+            for i in range(0, Ncut):
+                j = i + delta
+                if j < 0 or j >= Nmain:
+                    continue
+                d = self._phash_distance(arr_cut[i], arr_main[j])
+                if d <= threshold:
+                    # potential match; check consecutive for before_common requirement
+                    ok_before = True
+                    for k in range(1, before_common):
+                        ii = i - k
+                        jj = j - k
+                        if ii < 0 or jj < 0:
+                            ok_before = False
+                            break
+                        if self._phash_distance(arr_cut[ii], arr_main[jj]) > threshold:
+                            ok_before = False
+                            break
+                    if ok_before:
+                        match_before += 1
+                    # similarly for after_common:
+                    ok_after = True
+                    for k in range(1, after_common):
+                        ii = i + k
+                        jj = j + k
+                        if ii >= Ncut or jj >= Nmain:
+                            ok_after = False
+                            break
+                        if self._phash_distance(arr_cut[ii], arr_main[jj]) > threshold:
+                            ok_after = False
+                            break
+                    if ok_after:
+                        match_after += 1
+
+            # score: prefer deltas with at least one before match and one after match and with larger sums
+            score = match_before + match_after * 2
+            if score > best_score:
+                best_score = score
+                best_candidate = delta
+
+        # if best candidate weak, return None
+        if best_candidate is None or best_score <= 0:
+            return None
+
+        # Now find precise boundary frames in cut using best_candidate:
+        delta = best_candidate
+        # compute evidence array for each index in cut: True if distance <= threshold with main at shifted pos
+        evidence = []
+        for i in range(Ncut):
+            j = i + delta
+            if 0 <= j < Nmain:
+                d = self._phash_distance(arr_cut[i], arr_main[j])
+                evidence.append(d <= threshold)
+            else:
+                evidence.append(False)
+
+        # find first long run of False that separates two runs of True with 2 before and 3 after
+        # scan for index where left has before_common trues and right has after_common trues
+        for i in range(1, Ncut - 1):
+            # test separation point i..i+gaplen
+            # find a gap window starting at i of length upto max_search_frames where evidence is mostly False
+            for gap_len in range(1, min(self.max_search_frames, Ncut - i)):
+                left_ok = all(evidence[max(0, i - before_common):i])
+                right_ok = all(evidence[i + gap_len: min(Ncut, i + gap_len + after_common)])
+                mid_all_false = all(not e for e in evidence[i:i + gap_len])
+                if left_ok and right_ok and mid_all_false:
+                    # map frames to times: frame index in cut -> time = start + idx/fps
+                    start_frame = i
+                    end_frame = i + gap_len - 1
+                    start_time = self.start + float(start_frame) / float(self.fps)
+                    end_time   = self.start + float(end_frame) / float(self.fps)
+                    # return in absolute target coordinates (we assume cut indexing)
+                    return {
+                        "start_frame": start_frame,
+                        "end_frame": end_frame,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "delta": delta,
+                        "threshold": threshold,
+                        "score": best_score
+                    }
+
+        # nothing found
+        return None
+
+    def cleanup(self):
+        try:
+            shutil.rmtree(self.tmpdir)
+        except Exception:
+            pass
+
+    # ensure temp cleanup on delete
+    def __del__(self):
+        try:
+            self.cleanup()
+        except Exception:
+            pass
