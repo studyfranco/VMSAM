@@ -1512,7 +1512,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for convert_process in ffmpeg_cmd_dict['convert_process']:
         convert_process.get()
     try:
-        tools.launch_cmdExt(merge_cmd)
+        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 600)
     except Exception as e:
         import re
         lined_error = str(e).splitlines()
@@ -1534,9 +1534,9 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if tools.dev:
         sys.stderr.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
-    tools.launch_cmdExt([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
+    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                          "-err_detect", "buffer", "-err_detect", "explode", "-threads", str(tools.core_to_use),
-                         "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"])
+                         "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 360)
     
     if tools.dev:
         sys.stderr.write(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
@@ -1620,7 +1620,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
-    tools.launch_cmdExt(final_insert)
+    tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 480)
     if tools.dev:
         sys.stderr.write("\t\tFile produce\n")
      
