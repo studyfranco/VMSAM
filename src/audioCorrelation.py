@@ -8,7 +8,7 @@ import tools
 import gc
 import json
 import time
-
+from threading import RLock
 import sys
 
 '''
@@ -257,42 +257,49 @@ def show2(fs,s1,s2,title=None):
     show1(fs,s2,'red')
     plt.show()
 
+lock_fallback = RLock()
 def second_correlation(in1,in2):
-    begin = time.time()
-    fs,s1,s2 = read_normalized(in1,in2)
-    ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
-    ls1 = None
-    ls2 = None
-    ca = None
-    s1 = None
-    s2 = None
-    # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
-    #sync_text = """
-    #==============================================================================
-    #%s needs 'ffmpeg -ss %s' cut to get in sync
-    #==============================================================================
-    #"""
-    if xmax > padsize // 2:
-        # if show: show2(fs,s1,s2[padsize-xmax:],title='1st=blue;2nd=red=cut(%s;%s)'%(in1,in2))
-        file,offset = in2,(padsize-xmax)/fs
-    else:
-        # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
-        file,offset = in1,xmax/fs
-    #print(sync_text%(file,offset))
-    padsize = None
-    xmax = None
-    fs = None
-    gc.collect()
-    
-    sys.stderr.write(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
     try:
         begin = time.time()
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,120)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,300)
         data = json.loads(stdout.decode("utf-8").strip())
-        sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
+        file = data['file']
+        offset = data['offset_seconds']
+        if tools.dev:
+            sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
         # If audio_sync is not installed, we return the file and offset
         sys.stderr.write(f"\t\taudio_sync not working: {e}\n")
+        
+        with lock_fallback:
+            begin = time.time()
+            fs,s1,s2 = read_normalized(in1,in2)
+            ls1,ls2,padsize,xmax,ca = corrabs(s1,s2)
+            ls1 = None
+            ls2 = None
+            ca = None
+            s1 = None
+            s2 = None
+            # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
+            #sync_text = """
+            #==============================================================================
+            #%s needs 'ffmpeg -ss %s' cut to get in sync
+            #==============================================================================
+            #"""
+            if xmax > padsize // 2:
+                # if show: show2(fs,s1,s2[padsize-xmax:],title='1st=blue;2nd=red=cut(%s;%s)'%(in1,in2))
+                file,offset = in2,(padsize-xmax)/fs
+            else:
+                # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
+                file,offset = in1,xmax/fs
+            #print(sync_text%(file,offset))
+            padsize = None
+            xmax = None
+            fs = None
+            gc.collect()
+        
+        if tools.dev:
+            sys.stderr.write(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
     
     return file,offset
 

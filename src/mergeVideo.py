@@ -148,17 +148,45 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
     gc.collect()
     return delay_Fidelity_Values
 
+class get_delay_second_method_thread(Thread):
+    def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file):
+        Thread.__init__(self)
+        self.video_obj_1_tmp_file = video_obj_1_tmp_file
+        self.video_obj_2_tmp_file = video_obj_2_tmp_file
+        self.delay_values  = None
+
+    def run(self):
+        result = second_correlation(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file)
+        if result[0] == self.video_obj_1_tmp_file:
+            self.delay_values = result
+        elif result[0] == self.video_obj_2_tmp_file:
+            self.delay_values = result
+        else:
+            self.delay_values = result
+
 def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()):
     delay_Values = {}
+    delay_value_jobs = []
+    
     video_obj_1.wait_end_ffmpeg_progress_audio()
     video_obj_2.wait_end_ffmpeg_progress_audio()
     for i in range(0,len(video_obj_1.tmpFiles['audio'])):
         for j in range(0,len(video_obj_2.tmpFiles['audio'])):
             if f"{i}-{j}" not in ignore_audio_couple:
-                delay_between_two_audio = []
-                delay_Values[f"{i}-{j}"] = delay_between_two_audio
+                delay_value_jobs_between_audio = []
+                delay_value_jobs.append([f"{i}-{j}",delay_value_jobs_between_audio])
                 for h in range(0,video.number_cut):
-                    delay_between_two_audio.append(second_correlation(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
+                    delay_value_jobs_between_audio.append(get_delay_second_method_thread(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
+                    delay_value_jobs_between_audio[-1].start()
+
+    for delay_value_job in delay_value_jobs:
+        delay_between_two_audio = []
+        delay_Values[delay_value_job[0]] = delay_between_two_audio
+        for delay_value_job_between_audio in delay_value_job[1]:
+            delay_value_job_between_audio.join()
+            delay_between_two_audio.append(delay_value_job_between_audio.delay_values)
+
+    gc.collect()
     return delay_Values
 
 class compare_video(Thread):
@@ -1460,7 +1488,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
         base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_muxing_queue_size", "8192", tmp_file_audio])
 
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt, (base_cmd,)))
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,360)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
     
     return number_track
