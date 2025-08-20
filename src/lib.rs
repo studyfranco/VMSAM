@@ -16,10 +16,10 @@ pub struct CorrelationResult {
 }
 
 /// Tuning constants
-const USABLE_PERCENT: usize = 85; // use 85% of detected available memory
-const MIN_N_CAP: usize = 1 << 14; // min FFT size (16k)
-const ABS_MAX_N_CAP: usize = 1 << 26; // hard cap for FFT size (~67M)
-const SAFETY_BYTES_PER_ELEMENT: usize = 20; // bytes per FFT "element" estimation (Complex32 * 2 + headroom)
+const USABLE_PERCENT: usize = 90; // use 85% of detected available memory
+const MIN_N_CAP: usize = 1 << 16; // min FFT size (16k)
+const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap for FFT size (~67M)
+const SAFETY_BYTES_PER_ELEMENT: usize = 18; // bytes per FFT "element" estimation (Complex32 * 2 + headroom)
 
 /// Utility: probe sample rate & duration via ffprobe
 async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
