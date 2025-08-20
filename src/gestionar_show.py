@@ -162,6 +162,7 @@ def process_file_by_folder(files, folder_id, database_url):
                 list_jobs.append(parrallel_jobs.submit(
                     process_episode,files, folder_id, episode_number, database_url
                 ))
+            sleep(2)
         group_files_by_episode = None  # Libérer la mémoire
         current_folder = None  # Libérer la mémoire
         
@@ -226,6 +227,7 @@ def process_files_in_folder(folder_files,database_url):
         # Lancer le traitement des fichiers en parallèle
         list_jobs.append(Thread(target=process_file_by_folder, args=(files, folder_id, database_url)))
         list_jobs[-1].start()
+        sleep(1)
     resultats_finaux = None  # Libérer la mémoire
     
     for job in list_jobs:

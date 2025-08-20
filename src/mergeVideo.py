@@ -233,7 +233,6 @@ class compare_video(Thread):
     def test_if_constant_good_delay(self):
         try:
             delay_first_method,ignore_audio_couple = self.first_delay_test()
-            self.recreate_files_for_delay_adjuster(delay_first_method-500)
             delay_second_method = self.second_delay_test(delay_first_method-500,ignore_audio_couple)
             
             calculated_delay = delay_first_method+round(delay_second_method*1000)-500
@@ -478,7 +477,7 @@ class compare_video(Thread):
             delay_first_method_bigger_result = list_delay[1]
         #self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
         mean_between_delay = round((list_delay[0]+list_delay[1])/2)
-        self.recreate_files_for_delay_adjuster(mean_between_delay)
+        #self.recreate_files_for_delay_adjuster(mean_between_delay)
         try:
             #delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
             delay_second_method = self.second_delay_test(mean_between_delay,ignore_audio_couple)
@@ -516,6 +515,21 @@ class compare_video(Thread):
     def second_delay_test(self,delayUse,ignore_audio_couple):
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
+
+        old_codec = self.audioParam['codec']
+        self.audioParam['codec'] = "pcm_s16le"
+        old_channel_number = self.audioParam['Channels']
+        self.audioParam['Channels'] = "1"
+        if 'SamplingRate' in self.audioParam:
+            old_sampling_rate = self.audioParam['SamplingRate']
+        else:
+            old_sampling_rate = None
+
+        self.audioParam['SamplingRate'] = video.get_less_sampling_rate(self.video_obj_1.audios[self.language],self.video_obj_2.audios[self.language])
+        if int(self.audioParam['SamplingRate']) > 44100:
+            self.audioParam['SamplingRate'] = "44100"
+
+        self.recreate_files_for_delay_adjuster(delay_use)
         if tools.dev:
             sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
@@ -534,22 +548,19 @@ class compare_video(Thread):
                 raise Exception(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
         
         if len(delay_detected) != 1 and variance(delay_detected) > max_delay_variance_second_method:
+            self.audioParam['codec'] = old_codec
+            self.audioParam['Channels'] = old_channel_number
+            if old_sampling_rate == None:
+                del self.audioParam['SamplingRate']
+            else:
+                self.audioParam['SamplingRate'] = old_sampling_rate
+
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
             '''
                 TODO:
                     protect the memory to overload
             '''
-            old_codec = self.audioParam['codec']
-            self.audioParam['codec'] = "pcm_f32le"
-            old_channel_number = self.audioParam['Channels']
-            self.audioParam['Channels'] = "1"
-            if 'SamplingRate' in self.audioParam:
-                old_sampling_rate = self.audioParam['SamplingRate']
-            else:
-                old_sampling_rate = None
-            
-            self.audioParam['SamplingRate'] = video.get_less_sampling_rate(self.video_obj_1.audios[self.language],self.video_obj_2.audios[self.language])
 
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
