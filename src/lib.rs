@@ -218,6 +218,8 @@ fn next_pow2_floor(n: usize) -> usize {
 /// Uses ffmpeg to mix to mono and resample if needed. Returns (sr, samples).
 async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>)> {
     let mut args = vec![
+        "-threads".to_string(),
+        "3".to_string(),
         "-vn".to_string(),
         "-nostdin".to_string(),
         "-i".to_string(),
@@ -340,6 +342,8 @@ async fn correlate_overlap_save(
 
     // spawn ffmpeg for stream_path
     let mut args = vec![
+        "-threads".to_string(),
+        "3".to_string(),
         "-vn".to_string(),
         "-nostdin".to_string(),
         "-i".to_string(),
