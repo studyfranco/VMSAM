@@ -549,7 +549,7 @@ class compare_video(Thread):
             else:
                 old_sampling_rate = None
             
-            self.audioParam['SamplingRate'] = get_less_sampling_rate(self.video_obj_1.audios[self.language],self.video_obj_2.audios[self.language])
+            self.audioParam['SamplingRate'] = video.get_less_sampling_rate(self.video_obj_1.audios[self.language],self.video_obj_2.audios[self.language])
 
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
