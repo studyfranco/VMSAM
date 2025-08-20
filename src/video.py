@@ -669,9 +669,9 @@ def get_less_sampling_rate(audios_1,audios_2):
             pass
     
     if worse_sampling_rate != 99999999999999999999999999999:
-        return worse_sampling_rate
+        return str(worse_sampling_rate)
     else:
-        return 44100
+        return str(44100)
 
 def get_shortest_audio_durations(videosObj,language):
     shorter = 1000000000000000000000000000000000
