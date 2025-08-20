@@ -653,6 +653,26 @@ def get_less_channel_number(videos_obj,language):
     except:
         return "2"
 
+def get_less_sampling_rate(audios_1,audios_2):
+    worse_sampling_rate = 99999999999999999999999999999
+    for audio_1 in audios_1:
+        try:
+            if worse_sampling_rate > int(audio_1['SamplingRate']):
+                worse_sampling_rate = int(audio_1['SamplingRate'])
+        except:
+            pass
+    for audio_2 in audios_2:
+        try:
+            if worse_sampling_rate > int(audio_2['SamplingRate']):
+                worse_sampling_rate = int(audio_2['SamplingRate'])
+        except:
+            pass
+    
+    if worse_sampling_rate != 99999999999999999999999999999:
+        return worse_sampling_rate
+    else:
+        return 44100
+
 def get_shortest_audio_durations(videosObj,language):
     shorter = 1000000000000000000000000000000000
     for videoObj in videosObj:

@@ -223,9 +223,13 @@ async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>
         "-i".to_string(),
         path.to_string_lossy().into_owned(),
         "-ac".to_string(),
-        "1".to_string(),
+        "1".to_string(),                          // downmix to mono
         "-ar".to_string(),
-        target_sr.to_string(),
+        target_sr.to_string(),                    // resample
+        "-af".to_string(),
+        "[0:0]loudnorm=i=-23.0:lra=7.0:tp=-2.0:linear=true:print_format=json[norm0]".to_string(), // loudness normalization
+        "-map".to_string(),
+        "[norm0]".to_string(),
         "-f".to_string(),
         "f32le".to_string(),
         "-acodec".to_string(),
@@ -343,9 +347,13 @@ async fn correlate_overlap_save(
         "-i".to_string(),
         stream_path.to_string_lossy().into_owned(),
         "-ac".to_string(),
-        "1".to_string(),
+        "1".to_string(),                          // downmix to mono
         "-ar".to_string(),
-        target_sr.to_string(),
+        target_sr.to_string(),                    // resample
+        "-af".to_string(),
+        "[0:0]loudnorm=i=-23.0:lra=7.0:tp=-2.0:linear=true:print_format=json[norm0]".to_string(), // loudness normalization
+        "-map".to_string(),
+        "[norm0]".to_string(),
         "-f".to_string(),
         "f32le".to_string(),
         "-acodec".to_string(),

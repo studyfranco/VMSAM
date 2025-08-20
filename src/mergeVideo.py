@@ -203,7 +203,7 @@ class compare_video(Thread):
         self.video_obj_1 = video_obj_1
         self.video_obj_2 = video_obj_2
         self.begin_in_second = begin_in_second
-        self.audioParam = audioParam
+        self.audioParam = audioParam.copy()
         self.language = language
         self.lenghtTime = lenghtTime
         self.lenghtTimePrepare = lenghtTimePrepare
@@ -540,11 +540,31 @@ class compare_video(Thread):
                 TODO:
                     protect the memory to overload
             '''
-            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+            old_codec = self.audioParam['codec']
+            self.audioParam['codec'] = "pcm_f32le"
+            old_channel_number = self.audioParam['Channels']
+            self.audioParam['Channels'] = "1"
+            if 'SamplingRate' in self.audioParam:
+                old_sampling_rate = self.audioParam['SamplingRate']
+            else:
+                old_sampling_rate = None
+            
+            self.audioParam['SamplingRate'] = get_less_sampling_rate(self.video_obj_1.audios[self.language],self.video_obj_2.audios[self.language])
+
+            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
-            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+
+            self.audioParam['codec'] = old_codec
+            self.audioParam['Channels'] = old_channel_number
+            if old_sampling_rate == None:
+                del self.audioParam['SamplingRate']
+            else:
+                self.audioParam['SamplingRate'] = old_sampling_rate
+
             self.video_obj_1.wait_end_ffmpeg_progress_audio()
             self.video_obj_2.wait_end_ffmpeg_progress_audio()
+
             for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
                 for j in range(0,len(self.video_obj_2.tmpFiles['audio'])):
                     if f"{i}-{j}" not in ignore_audio_couple:
