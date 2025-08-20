@@ -529,7 +529,7 @@ class compare_video(Thread):
         if int(self.audioParam['SamplingRate']) > 44100:
             self.audioParam['SamplingRate'] = "44100"
 
-        self.recreate_files_for_delay_adjuster(delay_use)
+        self.recreate_files_for_delay_adjuster(delayUse)
         if tools.dev:
             sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
