@@ -261,7 +261,7 @@ lock_fallback = RLock()
 def second_correlation(in1,in2):
     try:
         begin = time.time()
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,600)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],5,1800)
         data = json.loads(stdout.decode("utf-8").strip())
         file = data['file']
         offset = data['offset_seconds']
