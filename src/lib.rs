@@ -217,7 +217,7 @@ fn next_pow2_floor(n: usize) -> usize {
 /// Read entire audio via ffmpeg into Vec<f32> (mono, target sample rate).
 /// Uses ffmpeg to mix to mono and resample if needed. Returns (sr, samples).
 async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>)> {
-    let mut args = vec![
+    let args = vec![
         "-threads".to_string(),
         "3".to_string(),
         "-vn".to_string(),
@@ -268,7 +268,7 @@ fn correlate_full(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
         anyhow::bail!("empty input for correlation");
     }
     let needed = ls1 + ls2 - 1;
-    let mut n = next_pow2(needed);
+    let n = next_pow2(needed);
     // create planner and buffers
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(n);
@@ -341,7 +341,7 @@ async fn correlate_overlap_save(
     let ref_fft = ref_buf;
 
     // spawn ffmpeg for stream_path
-    let mut args = vec![
+    let args = vec![
         "-threads".to_string(),
         "3".to_string(),
         "-vn".to_string(),
@@ -500,7 +500,7 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
     }
 
     // otherwise streaming: choose shorter file as reference to load fully
-    let (ref_path, stream_path, ref_est) = if est1 <= est2 {
+    let (ref_path, stream_path, _ref_est) = if est1 <= est2 {
         (p1, p2, est1)
     } else {
         (p2, p1, est2)
@@ -539,7 +539,7 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
     let n = n_try;
 
     // run overlap-save with chosen n
-    let (padsize, xmax_samples) = correlate_overlap_save(&ref_samples, stream_path, target_sr, n, pool_capacity).await?;
+    let (_padsize, xmax_samples) = correlate_overlap_save(&ref_samples, stream_path, target_sr, n, pool_capacity).await?;
 
     // interpret result
     let fs_f = target_sr as f64;
