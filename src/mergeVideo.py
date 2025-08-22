@@ -1259,42 +1259,49 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                 
                 codec = sub['ffprobe']["codec_name"].lower()
                 if codec in tools.sub_type_not_encodable:
-                    language_and_type = language+'uncodable'
+                    type_sub = '_uncodable'
                 elif codec in tools.sub_type_near_srt:
-                    language_and_type = language+'srt'
+                    type_sub = '_srt'
                 else:
-                    language_and_type = language+'all'
+                    type_sub = '_all'
+                
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
                 if "Title" in sub:
                     if re.match(r".*forced.*", sub["Title"].lower()):
                         merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
-                        if language_and_type+'_forced' not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type+'_forced'] = [sub["StreamOrder"]]
+                        language_and_type = language + '_forced' + type_sub
+                        if language_and_type not in dic_language_list_track_ID:
+                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                         else:
-                            dic_language_list_track_ID[language_and_type+'_forced'].append(sub["StreamOrder"])
+                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                     elif re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(cc\).*", sub["Title"].lower()) or ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
                         merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
-                        if language_and_type+'_hearing' not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type+'_hearing'] = [sub["StreamOrder"]]
+                        language_and_type = language + '_hearing' + type_sub
+                        if language_and_type not in dic_language_list_track_ID:
+                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                         else:
-                            dic_language_list_track_ID[language_and_type+'_hearing'].append(sub["StreamOrder"])
+                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                     elif re.match(r".*dubtitle.*", sub["Title"].lower()):
-                        if language_and_type+'_dubtitle' not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type+'_dubtitle'] = [sub["StreamOrder"]]
+                        language_and_type = language + '_dubtitle' + type_sub
+                        if language_and_type not in dic_language_list_track_ID:
+                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                         else:
-                            dic_language_list_track_ID[language_and_type+'_dubtitle'].append(sub["StreamOrder"])
+                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                     else:
+                        language_and_type = language + type_sub
                         if language_and_type not in dic_language_list_track_ID:
                             dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                         else:
                             dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                 elif ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
                     merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
-                    if language_and_type+'_hearing' not in dic_language_list_track_ID:
-                        dic_language_list_track_ID[language_and_type+'_hearing'] = [sub["StreamOrder"]]
+                    language_and_type = language + '_hearing' + type_sub
+                    if language_and_type not in dic_language_list_track_ID:
+                        dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
-                        dic_language_list_track_ID[language_and_type+'_hearing'].append(sub["StreamOrder"])
+                        dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                 else:
+                    language_and_type = language + type_sub
                     if language_and_type not in dic_language_list_track_ID:
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
