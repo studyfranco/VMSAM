@@ -1267,7 +1267,7 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                 
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
                 if "Title" in sub:
-                    if re.match(r".*forced.*", sub["Title"].lower()):
+                    if re.match(r".*forced.*", sub["Title"].lower()) and re.match(r".*forcé.*", sub["Title"].lower()):
                         merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
                         language_and_type = language + '_forced' + type_sub
                         if language_and_type not in dic_language_list_track_ID:
