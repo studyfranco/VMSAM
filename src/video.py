@@ -182,6 +182,7 @@ class video():
                 baseCommand.extend(["-ar", exportParam['SamplingRate']])
             if 'Channels' in exportParam:
                 baseCommand.extend(["-ac", exportParam['Channels']])
+            baseCommand.extend(["-af", "loudnorm=i=-23.0:lra=7.0:tp=-2.0:linear=true:print_format=json"])
             audio_pos_file = 0
             wait_end_big_job()
             if cutTime == None:
