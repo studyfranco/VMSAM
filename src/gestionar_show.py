@@ -5,7 +5,7 @@ from multiprocessing import Pool, Process
 from concurrent.futures import ProcessPoolExecutor
 from threading import Thread
 from sys import stderr,stdout
-from time import sleep
+from time import sleep,time
 import tools
 from gestionar_show_model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller
 import re
@@ -349,12 +349,18 @@ if __name__ == '__main__':
         
         stderr.write("Start !\n")
         while True:
-            incrementaller(args.folder,database_url_param["database_url"])
-            process_files_in_folder(args.folder,database_url_param["database_url"])
+            begin = time()
+            try:
+                incrementaller(args.folder,database_url_param["database_url"])
+                process_files_in_folder(args.folder,database_url_param["database_url"])
+            except Exception as e:
+                stderr.write(f"Error: {e}\n")
             import gc
             gc.collect()
             stderr.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
-            sleep(args.wait)
+            waiting_time = int(args.wait-(time()-begin))
+            if waiting_time > 0:
+                sleep(waiting_time)
         
         uvicorn_process.terminate()
         uvicorn_process.join()

@@ -820,20 +820,25 @@ def subtitle_text_srt_md5(filePath,streamID):
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
-    if exitCode == 0:
-        if tools.dev:
-            stderr.write(f"subtitle_text_srt_md5: {streamID} exit OK\n")
-        lines = stdout.decode('utf-8', errors='ignore').splitlines()
-        text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
-        filtered_text = "\n".join(text_lines).encode('utf-8')
-        md5 = hashlib.md5(filtered_text).hexdigest()
-        if (not text_lines):
-            stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
-            return (streamID, None)
+    try:
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
+        if exitCode == 0:
+            if tools.dev:
+                stderr.write(f"subtitle_text_srt_md5: {streamID} exit OK\n")
+            lines = stdout.decode('utf-8', errors='ignore').splitlines()
+            text_lines = [re.sub(r'<[^<]+>', '', line) for line in lines if line.strip() and (not line.strip().isdigit()) and ("-->" not in line)]
+            filtered_text = "\n".join(text_lines).encode('utf-8')
+            md5 = hashlib.md5(filtered_text).hexdigest()
+            if (not text_lines):
+                stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
+                return (streamID, None)
+            else:
+                return (streamID, md5)
         else:
-            return (streamID, md5)
-    else:
+            return (streamID, None)
+    except Exception as e:
+        if tools.dev:
+            stderr.write(f"subtitle_text_srt_md5: error during md5 calculation {e}\n")
         return (streamID, None)
 
 def count_font_lines_in_ass(filePath, streamID):

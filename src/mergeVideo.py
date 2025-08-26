@@ -1240,10 +1240,11 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
     for sub in keep_sub_ass:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
-        set_md5_ass.add(md5)
+        if md5 != None:
+            set_md5_ass.add(md5)
     for sub in keep_sub_srt:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
-        if md5 in set_md5_ass:
+        if md5 != None and md5 in set_md5_ass:
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1649,36 +1650,43 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
 
     number_track_audio = generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(final_insert,out_video_metadata.audios,out_video_metadata.commentary,out_video_metadata.audiodesc,set(),list_track_order)
     
-    sub_same_md5 = {}
-    keep_sub = {'ass':[],'srt':[]}
     for language,subs in out_video_metadata.subtitles.items():
+        sub_same_md5 = {}
+        keep_sub = {'ass':[],'srt':[]}
         for sub in subs:
             if sub['MD5'] in sub_same_md5:
                 sub_same_md5[sub['MD5']].append(sub)
             else:
                 sub_same_md5[sub['MD5']] = [sub]
-    for sub_md5,subs in sub_same_md5.items():
-        codec = sub['ffprobe']["codec_name"].lower()
-        if len(subs) > 1:
-            have_srt_sub = False
-            for sub in subs:
-                if sub['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
-                    have_srt_sub = True
+        for sub_md5,subs in sub_same_md5.items():
+            codec = sub['ffprobe']["codec_name"].lower()
+            if len(subs) > 1:
+                have_srt_sub = False
+                have_ass_sub = False
+                for sub in subs:
+                    if sub['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
+                        have_srt_sub = True
+                        keep_sub["srt"].append(sub)
+                    elif sub['Format'].lower() in tools.sub_type_near_srt:
+                        sub['keep'] = False
+                    else:
+                        sub['keep'] = False
+                        have_ass_sub = True
+                if (not have_srt_sub):
+                    subs[0]['keep'] = True
+                    if codec not in tools.sub_type_not_encodable:
+                        keep_sub["ass"].append(sub)
+                elif have_srt_sub and have_srt_sub:
+                    stderr.write(f"SRT and ASS found for {language} with same MD5 text")
+                
+            else:
+                if sub['Format'].lower() in tools.sub_type_near_srt:
                     keep_sub["srt"].append(sub)
-                else:
-                    sub['keep'] = False
-            if (not have_srt_sub):
-                subs[0]['keep'] = True
-                if codec not in tools.sub_type_not_encodable:
+                elif codec not in tools.sub_type_not_encodable:
                     keep_sub["ass"].append(sub)
-        else:
-            if sub['Format'].lower() in tools.sub_type_near_srt:
-                keep_sub["srt"].append(sub)
-            elif codec not in tools.sub_type_not_encodable:
-                keep_sub["ass"].append(sub)
-    
-    if len(keep_sub["srt"]) and len(keep_sub["ass"]):
-        not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
+        
+        if len(keep_sub["srt"]) and len(keep_sub["ass"]):
+            not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
 
     clean_number_stream_to_be_lover_than_max(max_stream-1-number_track_audio,out_video_metadata.subtitles)
 
