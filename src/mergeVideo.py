@@ -1677,7 +1677,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     if codec not in tools.sub_type_not_encodable:
                         keep_sub["ass"].append(sub)
                 elif have_srt_sub and have_srt_sub:
-                    stderr.write(f"SRT and ASS found for {language} with same MD5 text")
+                    sys.stderr.write(f"SRT and ASS found for {language} with same MD5 text")
                 
             else:
                 if sub['Format'].lower() in tools.sub_type_near_srt:
