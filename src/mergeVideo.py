@@ -1295,7 +1295,7 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
                         dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
-                (f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
+                sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
             else:
                 track_to_remove.add(sub["StreamOrder"])
                 if sub['MD5'] in md5_sub_already_added:
