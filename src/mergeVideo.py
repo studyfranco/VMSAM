@@ -1245,6 +1245,7 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     for sub in keep_sub_srt:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
         if md5 != None and md5 in set_md5_ass:
+            sys.stderr.write(f"ASS converted in SRT found.\n\n{sub}\n\n")
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1664,23 +1665,25 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 have_srt_sub = False
                 have_ass_sub = False
                 for sub in subs:
-                    if sub['Format'].lower() in tools.sub_type_near_srt and (not have_srt_sub):
+                    if codec in tools.sub_type_near_srt and (not have_srt_sub):
                         have_srt_sub = True
                         keep_sub["srt"].append(sub)
-                    elif sub['Format'].lower() in tools.sub_type_near_srt:
+                    elif codec in tools.sub_type_near_srt:
                         sub['keep'] = False
-                    else:
+                    elif codec not in tools.sub_type_not_encodable:
                         sub['keep'] = False
                         have_ass_sub = True
+                    else:
+                        sub['keep'] = False
                 if (not have_srt_sub):
                     subs[0]['keep'] = True
-                    if codec not in tools.sub_type_not_encodable:
+                    if sub[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable and sub[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_near_srt:
                         keep_sub["ass"].append(sub)
                 elif have_srt_sub and have_srt_sub:
-                    sys.stderr.write(f"SRT and ASS found for {language} with same MD5 text")
+                    sys.stderr.write(f"SRT and ASS found for {language} with same MD5 text\n")
                 
             else:
-                if sub['Format'].lower() in tools.sub_type_near_srt:
+                if codec in tools.sub_type_near_srt:
                     keep_sub["srt"].append(sub)
                 elif codec not in tools.sub_type_not_encodable:
                     keep_sub["ass"].append(sub)
