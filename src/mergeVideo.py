@@ -1650,11 +1650,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             else:
                 sub_same_md5[sub['MD5']] = [sub]
         for sub_md5,subs in sub_same_md5.items():
-            codec = sub['ffprobe']["codec_name"].lower()
             if len(subs) > 1:
                 have_srt_sub = False
                 have_ass_sub = False
                 for sub in subs:
+                    codec = sub['ffprobe']["codec_name"].lower()
                     if codec in tools.sub_type_near_srt and (not have_srt_sub):
                         have_srt_sub = True
                         keep_sub["srt"].append(sub)
@@ -1669,7 +1669,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     subs[0]['keep'] = True
                     if subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable and subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_near_srt:
                         keep_sub["ass"].append(sub)
-                elif have_srt_sub and have_srt_sub:
+                elif have_srt_sub and have_ass_sub:
                     sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
                 
             else:
