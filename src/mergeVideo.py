@@ -1160,12 +1160,13 @@ def clean_forced_title(sub):
     clean_title = ""
     if "Title" in sub:
         clean_title = re.sub(r'\s*\({0,1}forced\){0,1}\s*',"",sub["Title"].lower())
+        clean_title = re.sub(r'\s*\({0,1}forcé\){0,1}\s*',"",clean_title)
         clean_title = re.sub(r'^\s*',"",clean_title)
         clean_title = re.sub(r'\s*$',"",clean_title)
     return clean_title
 
 def test_if_forced(sub):
-    if "Title" in sub and re.match(r".*forced.*", sub["Title"].lower()):
+    if "Title" in sub and (re.match(r".*forced.*", sub["Title"].lower()) or re.match(r".*forcé.*", sub["Title"].lower())):
         return True
     return False
 
@@ -1245,7 +1246,7 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     for sub in keep_sub_srt:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
         if md5 != None and md5 in set_md5_ass:
-            sys.stderr.write(f"ASS converted in SRT found.\n\n{sub}\n\n")
+            sys.stderr.write(f"\t\tASS converted in SRT found.\n\n{sub}\n\n")
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1268,48 +1269,36 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                     type_sub = '_all'
                 
                 merge_cmd.extend(["--default-track-flag", sub["StreamOrder"]+":0"])
-                if "Title" in sub:
-                    if re.match(r".*forced.*", sub["Title"].lower()) and re.match(r".*forcé.*", sub["Title"].lower()):
-                        merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
-                        language_and_type = language + '_forced' + type_sub
-                        if language_and_type not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
-                        else:
-                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
-                    elif re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(cc\).*", sub["Title"].lower()) or ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
-                        merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
-                        language_and_type = language + '_hearing' + type_sub
-                        if language_and_type not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
-                        else:
-                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
-                    elif re.match(r".*dubtitle.*", sub["Title"].lower()):
-                        language_and_type = language + '_dubtitle' + type_sub
-                        if language_and_type not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
-                        else:
-                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
+                if test_if_forced(sub):
+                    merge_cmd.extend(["--forced-display-flag", sub["StreamOrder"]+":1"])
+                    language_and_type = language + '_forced' + type_sub
+                    if language_and_type not in dic_language_list_track_ID:
+                        dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
-                        language_and_type = language + type_sub
-                        if language_and_type not in dic_language_list_track_ID:
-                            dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
-                        else:
-                            dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
-                elif ("flag_hearing_impaired" in sub['properties'] and sub['properties']["flag_hearing_impaired"]):
+                        dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
+                elif test_if_hearing_impaired(sub):
                     merge_cmd.extend(["--hearing-impaired-flag", sub["StreamOrder"]+":1"])
                     language_and_type = language + '_hearing' + type_sub
                     if language_and_type not in dic_language_list_track_ID:
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
                         dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
+                elif test_if_dubtitle(sub):
+                    language_and_type = language + '_dubtitle' + type_sub
+                    if language_and_type not in dic_language_list_track_ID:
+                        dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
+                    else:
+                        dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                 else:
-                    language_and_type = language + type_sub
+                    language_and_type = language + '_aa' + type_sub
                     if language_and_type not in dic_language_list_track_ID:
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
                         dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
             else:
                 track_to_remove.add(sub["StreamOrder"])
+                if sub['MD5'] in md5_sub_already_added):
+                    sys.stderr.write(f"\t\tTrack not added. It have the same md5 as other track added.\n\n{sub}\n\n")
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
     
@@ -1680,7 +1669,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     if sub[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable and sub[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_near_srt:
                         keep_sub["ass"].append(sub)
                 elif have_srt_sub and have_srt_sub:
-                    sys.stderr.write(f"SRT and ASS found for {language} with same MD5 text\n")
+                    sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
                 
             else:
                 if codec in tools.sub_type_near_srt:
