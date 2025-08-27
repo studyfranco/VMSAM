@@ -1246,7 +1246,8 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     for sub in keep_sub_srt:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
         if md5 != None and md5 in set_md5_ass:
-            sys.stderr.write(f"\t\tASS converted in SRT found.\n\n{sub}\n\n")
+            if tools.dev:
+                sys.stderr.write(f"\t\tASS converted in SRT found.\n\n{sub}\n\n")
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1300,6 +1301,8 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                 track_to_remove.add(sub["StreamOrder"])
                 if sub['MD5'] in md5_sub_already_added:
                     sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
+                else:
+                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
     
@@ -1483,6 +1486,10 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     if sub['MD5'] != '':
                         md5_sub_already_added.add(sub['MD5'])
                 else:
+                    if sub['MD5'] in md5_sub_already_added:
+                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It have the same md5 as other track added.\n")
+                    else:
+                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
                     sub_track_to_remove.append(sub)
     
     audio_track_to_remove = []
@@ -1651,6 +1658,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 sub_same_md5[sub['MD5']] = [sub]
         for sub_md5,subs in sub_same_md5.items():
             if len(subs) > 1:
+                sys.stderr.write(f"\t\tMultiple MD5 text for {language}:\n")
                 have_srt_sub = False
                 have_ass_sub = False
                 for sub in subs:
@@ -1658,10 +1666,13 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     if codec in tools.sub_type_near_srt and (not have_srt_sub):
                         have_srt_sub = True
                         keep_sub["srt"].append(sub)
+                        sys.stderr.write(f"\t\t\tFirst SRT found for {language} with MD5 text\n")
                     elif codec in tools.sub_type_near_srt:
                         sub['keep'] = False
+                        sys.stderr.write(f"\t\t\tAnother SRT found for {language} with MD5 text\n")
                     elif codec not in tools.sub_type_not_encodable:
                         sub['keep'] = False
+                        sys.stderr.write(f"\t\t\tASS found for {language} with MD5 text\n")
                         have_ass_sub = True
                     else:
                         sub['keep'] = False
@@ -1670,7 +1681,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                     if subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable and subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_near_srt:
                         keep_sub["ass"].append(sub)
                 elif have_srt_sub and have_ass_sub:
-                    sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
+                    if tools.dev:
+                        sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
                 
             else:
                 codec = subs[0]['ffprobe']["codec_name"].lower()
