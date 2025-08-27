@@ -1298,7 +1298,7 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
             else:
                 track_to_remove.add(sub["StreamOrder"])
                 if sub['MD5'] in md5_sub_already_added:
-                    sys.stderr.write(f"\t\tTrack not added. It have the same md5 as other track added.\n\n{sub}\n\n")
+                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} not added for {language}. It have the same md5 as other track added.\n\n")
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
     
