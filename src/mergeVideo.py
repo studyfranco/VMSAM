@@ -1487,10 +1487,11 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     if sub['MD5'] != '':
                         md5_sub_already_added.add(sub['MD5'])
                 else:
-                    if sub['MD5'] in md5_sub_already_added:
-                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It have the same md5 as other track added.\n")
-                    else:
-                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
+                    if tools.dev:
+                        if sub['MD5'] in md5_sub_already_added:
+                            sys.stderr.write(f"\t\tTrack {sub['StreamOrder']} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It have the same md5 as other track added.\n")
+                        else:
+                            sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
                     sub_track_to_remove.append(sub)
     
     audio_track_to_remove = []
