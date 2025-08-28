@@ -1659,7 +1659,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 sub_same_md5[sub['MD5']] = [sub]
         for sub_md5,subs in sub_same_md5.items():
             if len(subs) > 1:
-                sys.stderr.write(f"\t\tMultiple MD5 text for {language}:\n")
+                if tools.dev:
+                    sys.stderr.write(f"\t\tMultiple MD5 text for {language}:\n")
                 have_srt_sub = False
                 have_ass_sub = False
                 for sub in subs:
@@ -1682,10 +1683,12 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                         sub['keep'] = False
                 if (not have_srt_sub):
                     subs[0]['keep'] = True
-                    sys.stderr.write(f"\t\tNo SRT sub found for language {language} with MD5 text\n")
+                    if tools.dev:
+                        sys.stderr.write(f"\t\tNo SRT sub found for language {language} with MD5 text\n")
                     if subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable:
-                        keep_sub["ass"].append(sub)
-                        sys.stderr.write(f"\t\tSo, the stream {sub['StreamOrder']} is a ASS for language {sub['Language']} and it will be kept.\n")
+                        keep_sub["ass"].append(subs[0])
+                        if tools.dev:
+                            sys.stderr.write(f"\t\tSo, the stream {subs[0]['StreamOrder']} is a ASS for language {subs[0]['Language']} and it will be kept.\n")
                 elif have_srt_sub and have_ass_sub:
                     if tools.dev:
                         sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
@@ -1693,9 +1696,9 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
             else:
                 codec = subs[0]['ffprobe']["codec_name"].lower()
                 if codec in tools.sub_type_near_srt:
-                    keep_sub["srt"].append(sub)
+                    keep_sub["srt"].append(subs[0])
                 elif codec not in tools.sub_type_not_encodable:
-                    keep_sub["ass"].append(sub)
+                    keep_sub["ass"].append(subs[0])
         
         if len(keep_sub["srt"]) and len(keep_sub["ass"]):
             not_keep_ass_converted_in_srt(out_path_tmp_file_name_split,keep_sub["ass"],keep_sub["srt"])
