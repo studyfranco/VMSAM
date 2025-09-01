@@ -1247,8 +1247,8 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     for sub in keep_sub_srt:
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
         if md5 != None and md5 in set_md5_ass:
-            #if tools.dev:
-            sys.stderr.write(f"\t\tThe sub stream {sub['StreamOrder']} is a ASS converted SRT for language {sub['Language']}.\n")
+            if tools.dev:
+                sys.stderr.write(f"\t\tThe sub stream {sub['StreamOrder']} is a ASS converted SRT for language {sub['Language']}.\n")
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1297,13 +1297,15 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                         dic_language_list_track_ID[language_and_type] = [sub["StreamOrder"]]
                     else:
                         dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
-                sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
+                if tools.dev:
+                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
             else:
                 track_to_remove.add(sub["StreamOrder"])
-                if sub['MD5'] in md5_sub_already_added:
-                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
-                else:
-                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
+                if tools.dev:
+                    if sub['MD5'] in md5_sub_already_added:
+                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
+                    else:
+                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
     
