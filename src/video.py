@@ -830,7 +830,7 @@ def subtitle_text_srt_md5(filePath,streamID):
             filtered_text = "\n".join(text_lines).encode('utf-8')
             md5 = hashlib.md5(filtered_text).hexdigest()
             if (not text_lines):
-                stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
+                stderr.write(f"No subtitle text found in {filePath}, stream {streamID}, look {text_lines}\n")
                 return (streamID, None)
             else:
                 return (streamID, md5)
@@ -883,7 +883,7 @@ def subtitle_text_ass_md5(filePath,streamID):
         filtered_text = "\n".join(text_lines).encode('utf-8')
         md5 = hashlib.md5(filtered_text).hexdigest()
         if (not text_lines):
-            stderr.write(f"No subtitle text found in {filePath}, stream {streamID}\n")
+            stderr.write(f"No subtitle text found in {filePath}, stream {streamID}, look {text_lines}\n")
             return (streamID, None)
         else:
             return (streamID, md5)
