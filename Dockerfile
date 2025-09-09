@@ -35,7 +35,7 @@ RUN set -x \
 
 RUN set -x \
  && apt update \
- && DEBIAN_FRONTEND=noninteractive apt install -y tar gosu libchromaprint-tools=1.5.0-2 mediainfo ffmpeg mkvtoolnix sqlite3 --no-install-recommends \
+ && DEBIAN_FRONTEND=noninteractive apt install -y tar gosu libchromaprint-tools mediainfo ffmpeg mkvtoolnix sqlite3 --no-install-recommends \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 

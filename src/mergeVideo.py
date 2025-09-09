@@ -348,7 +348,13 @@ class compare_video(Thread):
                     majoritar_value = delay_fidelity_list[0][2]
                     majoritar_value_number_iteration = 0
                     previous_bad_fidelity = False
+                    good_fidelity_found = False
+                    bad_fidelity_found = False
                     for delay_data in delay_fidelity_list:
+                        if delay_data[0] > 0.90:
+                            good_fidelity_found = True
+                        elif delay_data[0] < 0.75:
+                            bad_fidelity_found = True
                         if delay_data[2] != previous_delay:
                             if previous_bad_fidelity or delay_data[0] < 0.90:
                                 number_of_change += 1
@@ -367,10 +373,16 @@ class compare_video(Thread):
                         majoritar_value_number_iteration = previous_delay_iteration
                     
                     if number_of_change > 1:
-                        delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
-                        self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
-                        self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
-                        raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
+                        if (not bad_fidelity_found) or (not good_fidelity_found):
+                            sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the fidelity is mid, this is maybe a bug.\n")
+                            with errors_merge_lock:
+                                errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the fidelity is mid, this is maybe a bug.\n")
+                            delay_detected.add(majoritar_value)
+                        else:
+                            delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
+                            self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
+                            self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
+                            raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                     else:
                         sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
                         with errors_merge_lock:
