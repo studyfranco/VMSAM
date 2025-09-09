@@ -388,6 +388,17 @@ class compare_video(Thread):
                         with errors_merge_lock:
                             errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
                         delay_detected.add(majoritar_value)
+            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 128 and mean(delay_fidelity_calculated) >= 0.75:
+                if list(set_delay)[0] == 0 or list(set_delay)[1] == 0:
+                    delay_detected.add(0)
+                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the mean fidelity is mid, this is maybe a bug.\n")
+                    with errors_merge_lock:
+                        errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the mean fidelity is mid, this is maybe a bug.\n")
+                else:
+                    delays = self.get_delays_dict(delay_Fidelity_Values,delayUse)
+                    self.video_obj_1.delayFirstMethodAbort[self.video_obj_2.filePath] = [1,delays]
+                    self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
+                    raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
             else:
                 raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                 """delay_adjusted = None
