@@ -1488,7 +1488,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer", "-err_detect", "explode",
                     "-probesize", "50000000",
-                    "-threads", str(tools.core_to_use), "-vn"]
+                    "-threads", "5", "-vn"]
     if delay_to_put > 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
     elif delay_to_put < 0:

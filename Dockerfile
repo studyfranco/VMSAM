@@ -25,8 +25,8 @@ LABEL maintainer="studyfranco@gmail.com"
 ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz" \
     pathtomodelfromdownload="vmaf-3.0.0/model"
 
+# && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
 RUN set -x \
- && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
  && apt update \
  && apt dist-upgrade -y \
  && apt autopurge -yy \
