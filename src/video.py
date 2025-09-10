@@ -5,6 +5,7 @@ Created on 23 Apr 2022
 '''
 
 from os import path,remove
+import shutil
 from sys import stderr
 from threading import RLock,Thread
 from time import strftime,gmtime,sleep,time
@@ -53,6 +54,7 @@ class video():
         self.sameAudioMD5UseForCalculation = []
     
     def get_mediadata(self):
+        have_incompatible_ffmpeg_codec = False
         stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mediainfo"], "--Output=JSON", self.filePath], 5, 90)
         if exitCode != 0:
             raise Exception("Error with {} during the mediadata: {}".format(self.filePath,stderror.decode("UTF-8")))
@@ -126,12 +128,57 @@ class video():
                         self.subtitles[language].append(data)
                     else:
                         self.subtitles[language] = [data]
+
+            if 'properties' in data and 'codec' in data['properties']:
+                if data['properties']['codec'].lower() in tools.to_convert_ffmpeg_type:
+                    have_incompatible_ffmpeg_codec = True
+                    data["ffmpeg_compatible"] = False
+                else:
+                    data["ffmpeg_compatible"] = True
+
+        if have_incompatible_ffmpeg_codec:
+            self.convert_problematic_stream_with_ffmpeg()
+            
         if len(self.audios) == 0:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
         if "und" in self.audios and tools.default_language_for_undetermine not in self.audios:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
-            
+    
+    def convert_problematic_stream_with_ffmpeg(self):
+        """
+        Sometimes, ffmpeg don't detect the codec of a stream correctly. It result of a impossibility to integrate it.
+        This function will convert stream who can be converted by ffmpeg.
+        """
+
+        base_cmd = [tools.software["ffmpeg"],"-err_detect", "crccheck", "-err_detect", "bitstream",
+                    "-err_detect", "buffer", "-err_detect", "explode", "-y", "-probesize", "50000000", "-threads", "5"]
+        cmd_convert = []
+        
+        for language,subs in self.subtitles.items():
+            for sub in subs:
+                if not sub["ffmpeg_compatible"]:
+                    if "@typeorder" in sub:
+                        base_cmd.append(f"-c:s:{sub['@typeorder']}")
+                        cmd_convert.append(f"-c:s:{sub['@typeorder']}")
+                    else:
+                        base_cmd.append(f"-c:s")
+                        cmd_convert.append(f"-c:s")
+                    base_cmd.append(tools.to_convert_ffmpeg_type[sub['properties']['codec'].lower()][0])
+                    cmd_convert.append(tools.to_convert_ffmpeg_type[sub['properties']['codec'].lower()][1])
+        
+        base_cmd.extend(["-i", self.filePath, "-map", "0", "-map_metadata", "0", "-copy_unknown",
+                     "-movflags", "use_metadata_tags", "-c", "copy"])
+        base_cmd.extend(cmd_convert)
+        base_cmd.append(path.join(self.filePath+".ffmpeg_convert.mkv"))
+        
+        tools.launch_cmdExt_with_timeout_reload(base_cmd,3,1800)
+        
+        remove(self.filePath)
+        shutil.move(path.join(self.filePath+".ffmpeg_convert.mkv"), self.filePath)
+        
+        self.get_mediadata()
+
     def get_best_video(self,data_video_1,data_video_2):
         stderr.write("!"*40+"\n")
         stderr.write(f'Multiple video in the same file {self.filePath}, I will compare the {data_video_1["StreamOrder"]} et {data_video_2["StreamOrder"]} track\n')
