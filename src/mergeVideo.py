@@ -558,18 +558,18 @@ class compare_video(Thread):
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
-            set_delay = set()
+            list_delay = []
             for delay in delay_list:
-                set_delay.add(delay[1])
-            if len(set_delay) == 1 or variance(set_delay) < max_delay_variance_second_method:
-                delay_detected.update(set_delay)
+                list_delay.append(delay[1])
+            if len(list_delay) == 1 or variance(list_delay) < max_delay_variance_second_method:
+                delay_detected.update(list_delay)
             elif abs(delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
-                sys.stderr.write(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
+                sys.stderr.write(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
                 delay_detected.add(delay_list[0][1])
                 delay_detected.add(delay_list[-1][1])
             else:
-                raise Exception(f"Variance delay in the second test is to big {set_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
-        
+                raise Exception(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
+
         if len(delay_detected) != 1 and variance(delay_detected) > max_delay_variance_second_method:
             self.audioParam['codec'] = old_codec
             self.audioParam['Channels'] = old_channel_number
@@ -1604,7 +1604,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for convert_process in ffmpeg_cmd_dict['convert_process']:
         convert_process.get()
     try:
-        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 600)
+        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
     except Exception as e:
         import re
         lined_error = str(e).splitlines()
@@ -1735,7 +1735,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
-    tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 480)
+    tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
     if tools.dev:
         sys.stderr.write("\t\tFile produce\n")
      
