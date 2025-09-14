@@ -233,9 +233,9 @@ class compare_video(Thread):
     def test_if_constant_good_delay(self):
         try:
             delay_first_method,ignore_audio_couple = self.first_delay_test()
-            delay_second_method = self.second_delay_test(delay_first_method-500,ignore_audio_couple)
+            delay_second_method = self.second_delay_test(delay_first_method,ignore_audio_couple)
             
-            calculated_delay = delay_first_method+round(delay_second_method*1000)-500
+            calculated_delay = delay_first_method+round(delay_second_method*1000)
             if abs(calculated_delay-delay_first_method) < 500:
                 return calculated_delay
             else:
@@ -1558,6 +1558,9 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
+    for file_path,video_obj in dict_file_path_obj.items():
+        video_obj.remove_tmp_files()
+
     if tools.dev:
         sys.stderr.write("\t\tLaunch the merge\n")
     set_bad_video = set()

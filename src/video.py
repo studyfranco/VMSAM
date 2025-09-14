@@ -261,6 +261,7 @@ class video():
                             cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
+        self.wait_end_ffmpeg_progress_audio()
         if type == None:
             for key,list_tmp in self.tmpFiles:
                 for files in list_tmp:
