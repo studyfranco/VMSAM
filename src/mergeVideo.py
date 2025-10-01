@@ -12,7 +12,7 @@ import traceback
 from os import path
 from random import shuffle
 from statistics import variance,mean
-from time import strftime,gmtime
+from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
 import video
@@ -178,6 +178,7 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
                 for h in range(0,video.number_cut):
                     delay_value_jobs_between_audio.append(get_delay_second_method_thread(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
                     delay_value_jobs_between_audio[-1].start()
+                    sleep(1) # To avoid too much process at the same time.
 
     for delay_value_job in delay_value_jobs:
         delay_between_two_audio = []
