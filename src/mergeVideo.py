@@ -21,7 +21,7 @@ import json
 import gc
 from decimal import *
 
-max_delay_variance_second_method = 100 #0.005
+max_delay_variance_second_method = 0.005
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
 
 errors_merge = []
