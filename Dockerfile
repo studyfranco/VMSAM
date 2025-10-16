@@ -25,7 +25,7 @@ LABEL maintainer="studyfranco@gmail.com"
 ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz" \
     pathtomodelfromdownload="vmaf-3.0.0/model"
 
-# && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
+# Base system update
 RUN set -x \
  && apt update \
  && apt dist-upgrade -y \
@@ -33,19 +33,27 @@ RUN set -x \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Core dependencies
 RUN set -x \
  && apt update \
  && DEBIAN_FRONTEND=noninteractive apt install -y tar gosu libchromaprint-tools mediainfo ffmpeg mkvtoolnix sqlite3 --no-install-recommends \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Python and ML dependencies for enhanced scene detection and delay uncertainty estimation
 RUN set -x \
  && apt update \
- && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-pip python3-psutil python3-pysubs2 --no-install-recommends \
+ && DEBIAN_FRONTEND=noninteractive apt install -y \
+    python3-numpy python3-scipy python3-matplotlib python3-sklearn python3-pandas \
+    python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext \
+    python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings \
+    python3-pip python3-psutil python3-pysubs2 python3-joblib python3-threadpoolctl \
+    --no-install-recommends \
  && python3 -m pip install --break-system-packages iso639-lang \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* /root/.cache
 
+# User setup and VMAF models
 RUN set -x \
  && apt update \
  && DEBIAN_FRONTEND=noninteractive apt install -y wget \
@@ -64,6 +72,7 @@ RUN set -x \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Environment variables including ML feature flags
 ENV CORE=4 \
     WAIT=300 \
     PGID="1000" \
@@ -71,7 +80,9 @@ ENV CORE=4 \
     software="main" \
     folder_to_watch="/config/input" \
     folder_error="/config/error" \
-    dev=false
+    dev=false \
+    ML_SCENE_DETECTION=true \
+    ML_DELAY_UNCERTAINTY=true
 
 COPY init.sh /
 COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json /home/vmsam/
