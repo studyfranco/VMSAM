@@ -25,7 +25,7 @@ LABEL maintainer="studyfranco@gmail.com"
 ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz" \
     pathtomodelfromdownload="vmaf-3.0.0/model"
 
-# && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
+# Update and upgrade system packages
 RUN set -x \
  && apt update \
  && apt dist-upgrade -y \
@@ -33,19 +33,28 @@ RUN set -x \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Install core multimedia and processing tools
 RUN set -x \
  && apt update \
  && DEBIAN_FRONTEND=noninteractive apt install -y tar gosu libchromaprint-tools mediainfo ffmpeg mkvtoolnix sqlite3 --no-install-recommends \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Install Python packages and ML dependencies for scene detection
 RUN set -x \
  && apt update \
  && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-pip python3-psutil python3-pysubs2 --no-install-recommends \
  && python3 -m pip install --break-system-packages iso639-lang \
+ # Install PySceneDetect and additional ML packages for scene detection \
+ && python3 -m pip install --break-system-packages scenedetect[opencv] \
+ && python3 -m pip install --break-system-packages opencv-python-headless \
+ # Install additional packages for enhanced frame comparison and uncertainty analysis \
+ && python3 -m pip install --break-system-packages scikit-image \
+ && python3 -m pip install --break-system-packages imageio \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* /root/.cache
 
+# Setup user and download VMAF models
 RUN set -x \
  && apt update \
  && DEBIAN_FRONTEND=noninteractive apt install -y wget \
@@ -64,6 +73,7 @@ RUN set -x \
  && apt clean autoclean -y \
  && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+# Environment variables with ML scene detection support
 ENV CORE=4 \
     WAIT=300 \
     PGID="1000" \
@@ -71,8 +81,13 @@ ENV CORE=4 \
     software="main" \
     folder_to_watch="/config/input" \
     folder_error="/config/error" \
-    dev=false
+    dev=false \
+    # ML scene detection settings \
+    VMSAM_ML_SCENE_DETECTION=true \
+    VMSAM_SCENE_THRESHOLD=27.0 \
+    VMSAM_MIN_SCENE_LEN=30
 
+# Copy application files including new ML modules
 COPY init.sh /
 COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json /home/vmsam/
 COPY --from=builder --chown=vmsam:vmsam /usr/src/app/target/release/audio_sync /home/vmsam/audio_sync
