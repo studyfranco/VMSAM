@@ -70,7 +70,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                     mergeVideo.default_audio = True
                     mergeVideo.errors_merge = []
 
-                    video.ffmpeg_pool_audio_convert = Pool(processes=int(tools.core_to_use/1.5))
+                    video.ffmpeg_pool_audio_convert = Pool(processes=int(tools.core_to_use/1.6))
                     video.ffmpeg_pool_big_job = Pool(processes=1)
                     try:
                         if tools.dev:

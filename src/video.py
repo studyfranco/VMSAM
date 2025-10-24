@@ -215,7 +215,7 @@ class video():
                 self.remove_tmp_files(type_file="audio")
             self.tmpFiles['audio'] = nameFilesExtract
     
-            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn"]
+            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn"]
             if exportParam['Format'] == 'WAV':
                 if 'codec' in exportParam:
                     baseCommand.extend(["-c:a", exportParam['codec']])
@@ -243,7 +243,7 @@ class video():
                         nameFilesExtractCut.append(nameOutFile)
                         cmd = baseCommand.copy()
                         cmd.extend(["-map", "0:"+str(audio['StreamOrder']), nameOutFile])
-                        self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (cmd,3,1800)))
+                        self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (cmd,3,max(600*4,1800))))
             else:
                 for audio in self.audios[language]:
                     if audio["compatible"]:
@@ -257,7 +257,7 @@ class video():
                             nameFilesExtractCut.append(nameOutFile)
                             cmd = baseCommand.copy()
                             cmd.extend(["-map", "0:"+str(audio['StreamOrder']), "-ss", cut[0], "-t", cut[1] , nameOutFile])
-                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (cmd,3,1800)))
+                            self.ffmpeg_progress_audio.append(ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (cmd,3,max(600*4,1800))))
                             cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
