@@ -63,8 +63,16 @@ class incrementaller(Base):
 
 def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
+
+    connect_args = {}
+    if database_url.startswith("postgresql"):
+        # Argument spécifique à PostgreSQL (psycopg2)
+        connect_args['connect_timeout'] = 60
+    elif database_url.startswith("sqlite"):
+        # Argument spécifique à SQLite
+        connect_args['timeout'] = 60
     # Créer l'engine
-    engine = create_engine(database_url, echo=False)
+    engine = create_engine(database_url, echo=False, connect_args=connect_args)
     
     # Créer les tables si demandé
     if create_tables:
