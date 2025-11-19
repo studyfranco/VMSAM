@@ -70,7 +70,7 @@ def setup_database(database_url, create_tables=False):
         connect_args['connect_timeout'] = 60
     elif database_url.startswith("sqlite"):
         # Argument spécifique à SQLite
-        connect_args['timeout'] = 60
+        connect_args['timeout'] = 61
     # Créer l'engine
     engine = create_engine(database_url, echo=False, connect_args=connect_args)
     
