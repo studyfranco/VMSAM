@@ -18,7 +18,7 @@ ENV RUSTFLAGS="-C opt-level=3 -C strip=symbols"
 RUN cargo build --release
 
 # ---------- Runtime ----------
-FROM ghcr.io/studyfranco/docker-baseimages-debian:testing
+FROM ghcr.io/studyfranco/docker-baseimages-debian:testing-video
 
 LABEL maintainer="studyfranco@gmail.com"
 
