@@ -1455,6 +1455,9 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
+    elif int(audio.get("StreamSize", 1)) == 0 or float(audio.get("Duration", 1)) == 0:
+        sys.stderr.write(f"Skip the element {audio['StreamOrder']}, it seems to be empty\n")
+        return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
         if audio["Format"].lower() == "flac" or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
@@ -1512,6 +1515,8 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     number_track += 1
                     if sub['MD5'] != '':
                         md5_sub_already_added.add(sub['MD5'])
+                elif int(sub.get("StreamSize", 1)) == 0 or float(sub.get("Duration", 1)) == 0:
+                    sys.stderr.write(f"Skip the element {sub['StreamOrder']} not added for {language} from {video_obj.filePath}. It seems to be empty\n")
                 else:
                     if tools.dev:
                         if sub['MD5'] in md5_sub_already_added:
