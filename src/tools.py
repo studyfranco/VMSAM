@@ -1,7 +1,7 @@
 '''
 Created on 23 Apr 2022
 
-@author: francois
+@author: studyfranco
 '''
 import os
 import shutil
