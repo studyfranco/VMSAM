@@ -1,0 +1,32 @@
+on:
+  schedule:
+    - cron: '0 1 15 * *'
+  workflow_dispatch:
+
+jobs:
+  update-last-update:
+    runs-on: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up git identity
+        run: |
+          git config user.name "Francois STUDER"
+          git config user.email "31127324+studyfranco@users.noreply.github.com"
+
+      - name: Update Last Update date in README
+        run: |
+          TODAY=$(date -u +'%Y-%m-%d')
+          awk -v today="$TODAY" '
+            /^## Last Update/ { print; getline; print today; next }
+            { print }
+          ' README.md > README.tmp && mv README.tmp README.md
+
+      - name: Commit changes if needed
+        run: |
+          TODAY=$(date -u +'%Y-%m-%d')
+          git add README.md
+          git commit -m "chore: monthly Last Update set to $TODAY"
+          git push
