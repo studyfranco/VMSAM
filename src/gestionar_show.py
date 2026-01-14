@@ -286,6 +286,9 @@ def incrementaller(folder_files,database_url):
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
 def run_uvicorn():
+    import sys
+    sys.stdin = None
+
     env_path = os.path.join(tools.tmpFolder, "gestionar_show_api.env")
     
     # Écrit la variable DATABASE_URL dans un fichier .env
