@@ -26,7 +26,8 @@ RUN set -x \
     && apt update \
     && DEBIAN_FRONTEND=noninteractive apt install -y ca-certificates --no-install-recommends \
     && apt clean autoclean -y \
-    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* \ 
+    && mkdir /app
 
 WORKDIR /app
 COPY --from=builder /usr/src/app/target/release/vmsam-web /app/vmsam-web

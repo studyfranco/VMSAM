@@ -14,3 +14,4 @@ anyhow = "1.0"
 # For file system operations if async is needed, though std::fs often suffices for simple reads
 tokio-stream = "0.1" 
 futures-util = "0.3" 
+tracing-subscriber = "0.3" 
