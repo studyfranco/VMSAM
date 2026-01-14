@@ -83,6 +83,11 @@ def setup_database(database_url, create_tables=False):
 
     return Session()
 
+def get_all_folder(session):
+    return session.query(folder).order_by(
+        folder.destination_path.asc()
+    ).all()
+
 def get_folder_data(folder_id, session):
     return session.query(folder).filter(folder.id == folder_id).first()
 

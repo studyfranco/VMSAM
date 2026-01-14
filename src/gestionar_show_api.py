@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from typing import Optional
-from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id
+from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
 from gestionar_show import episode_pattern_insert
 
 class Settings(BaseSettings):
@@ -92,10 +92,20 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
         }
 
     import os
-    if (not os.path.isdir(folder_in.destination_path)):
-        raise HTTPException(status_code=400, detail="Folder not exist")
+    if os.path.isfile(folder_in.destination_path):
+        raise HTTPException(status_code=400, detail="A regular file already exists at this path")
+    elif (not os.path.isdir(folder_in.destination_path)):
+        try:
+            if (not os.makedirs(folder_in.destination_path, exist_ok=True)):
+                raise HTTPException(status_code=400, detail="Folder can't be created")
+            if (not os.path.isdir(folder_in.destination_path)):
+                raise HTTPException(status_code=400, detail="Folder can't be created")
+        except HTTPException as e:
+            raise e
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Folder can't be created: {str(e)}")
 
-    if (not os.access(folder_in.destination_path, os.W_OK)):
+    elif (not os.access(folder_in.destination_path, os.W_OK)):
         raise HTTPException(status_code=400, detail="Folder not writable")
 
     # Création avec valeurs Pydantic (défauts inclus automatiquement)
@@ -170,7 +180,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         }
 
 @app.post("/incrementaller/")
-def create_regex(incremental_data: Incrementaller, session: Session = Depends(get_session)):
+def create_regex_incrementaller(incremental_data: Incrementaller, session: Session = Depends(get_session)):
     import re
     incremental = get_incrementaller_data(incremental_data.regex_pattern, session)
     if incremental == None:
@@ -221,7 +231,28 @@ def create_regex(incremental_data: Incrementaller, session: Session = Depends(ge
             "regex_pattern": incremental_data.regex_pattern,
             "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
-        
+
+@app.get("/folders_list/")
+def get_folders_list(session: Session = Depends(get_session)):
+    """Récupère la liste des dossiers"""
+    folders = get_all_folder(session)
+    if not folders:
+        raise HTTPException(status_code=404, detail="No folders found")
+
+    infos = []
+    for folder in folders:
+        infos.append({
+            "id": folder.id,
+            "destination_path": folder.destination_path,
+            "original_language": folder.original_language,
+            "number_cut": folder.number_cut,
+            "cut_file_to_get_delay_second_method": folder.cut_file_to_get_delay_second_method,
+            "max_episode_number": folder.max_episode_number
+        })
+    return {
+        "folders": infos
+    }
+
 @app.get("/folders_infos/")
 def get_folder_info(destination_like: str, session: Session = Depends(get_session)):
     """Récupère les infos des dossiers qui matchent le nom partiel"""
