@@ -1,3 +1,54 @@
+// --- Utilities ---
+
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${type === 'error' ? 'bg-red-600' :
+            type === 'success' ? 'bg-emerald-600' :
+                'bg-blue-600'
+        } text-white font-medium transition-opacity duration-300 opacity-0 transform translate-y-[-10px]`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    // Animate in
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', 'translate-y-[-10px]');
+    });
+
+    setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function copyPattern(pattern) {
+    navigator.clipboard.writeText(pattern);
+    showToast('Pattern copied to clipboard!', 'success');
+}
+
+function toggleHelp() {
+    const content = document.getElementById('help-content');
+    const icon = document.getElementById('help-icon');
+    if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.textContent = '▲';
+    } else {
+        content.classList.add('hidden');
+        icon.textContent = '▼';
+    }
+}
+
+function toggleAdvanced() {
+    const content = document.getElementById('advanced-options');
+    const icon = document.getElementById('adv-icon');
+    if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.textContent = '▼';
+    } else {
+        content.classList.add('hidden');
+        icon.textContent = '▶';
+    }
+}
+
 // State
 let state = {
     currentBaseDir: null,
@@ -61,7 +112,7 @@ async function loadDirBrowser(path = '') {
         if (path) {
             const parentPath = path.split('/').slice(0, -1).join('/');
             const backBtn = document.createElement('div');
-            backBtn.className = 'p-2 hover:bg-slate-800 cursor-pointer text-blue-400 flex items-center gap-2 rounded';
+            backBtn.className = 'p-2 hover:bg-slate-800 cursor-pointer text-blue-400 flex items-center gap-2 rounded transition-colors';
             backBtn.innerHTML = '<span>📁 ..</span>';
             backBtn.onclick = () => loadDirBrowser(parentPath);
             container.appendChild(backBtn);
@@ -69,39 +120,44 @@ async function loadDirBrowser(path = '') {
 
         items.filter(i => i.is_dir).forEach(item => {
             const el = document.createElement('div');
-            el.className = `p-2 hover:bg-slate-800 cursor-pointer flex items-center gap-2 rounded ${state.currentBaseDir === item.path ? 'bg-slate-800 ring-1 ring-blue-500' : ''}`;
-            el.innerHTML = `<span>📁 ${item.name}</span>`;
-            el.onclick = () => {
-                // If clicking same dir, select it. If navigating, single click? 
-                // Let's implement navigate on double click, select on click
-                // For simplicity: Click to select, have a "navigate" button or detect
-                // Actually, browsers usually click to navigate. 
-                // Let's verify requirement: "User navigates and selects a base directory".
-                // We'll treat click as navigate-in for dirs.
-                // We need a way to "select" a dir as the base.
-                // Let's add a "Select This" button for current dir or item.
-                // Simplified: Browsing *is* selecting. The current navigated path is the selection?
-                // Or user browses to /srv/media, sees it, and validates.
-                // Let's assume selecting a child directory updates the Base Directory input.
-                loadDirBrowser(item.path); // Navigate down
-            };
+            // Base classes
+            el.className = `p-2 rounded flex items-center justify-between gap-2 group hover:bg-slate-800/50 transition-colors ${state.currentBaseDir === item.path ? 'bg-slate-800 ring-1 ring-blue-500' : ''}`;
 
-            // Add a "Select" button next to it? Or just selecting the row updates state?
-            // Let's try: Click row to select (highlight), Double click to enter.
-            el.onclick = (e) => {
-                // Simple selection logic
-                document.querySelectorAll('#dir-browser > div').forEach(d => d.classList.remove('bg-slate-800', 'ring-1', 'ring-blue-500'));
-                el.classList.add('bg-slate-800', 'ring-1', 'ring-blue-500');
-                state.currentBaseDir = item.path;
-                updatePreview();
-            };
-            el.ondblclick = () => loadDirBrowser(item.path);
-
+            el.innerHTML = `
+                <div class="flex items-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
+                    <span>📁 ${item.name}</span>
+                </div>
+                <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button class="text-blue-400 hover:text-blue-300 text-xs px-2 py-1 bg-slate-900 rounded border border-slate-700" onclick="selectDir('${item.path}', event)">Select</button>
+                    <button class="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 bg-slate-900 rounded border border-slate-700" onclick="loadDirBrowser('${item.path}')">Open →</button>
+                </div>
+            `;
             container.appendChild(el);
         });
     } catch (e) {
         container.innerHTML = `<div class="text-red-400 text-sm">Error: ${e.message}</div>`;
     }
+}
+
+function selectDir(path, event) {
+    event.stopPropagation();
+    state.currentBaseDir = path;
+    updatePreview();
+
+    // Visual feedback
+    const container = document.getElementById('dir-browser');
+    Array.from(container.children).forEach(child => {
+        child.classList.remove('bg-slate-800', 'ring-1', 'ring-blue-500');
+        // If this child represents the selected path (simple check might fail if nested, but good for flat list)
+        // Actually better to traverse or re-render? Re-render is safer but slower. 
+        // Let's do simple class toggle on the clicked element's parent if available, or just re-render row logic.
+        // Since 'event' is passed, we can target the row.
+    });
+
+    // Find the row that contains the button or is the row
+    const row = event.target.closest('div.group'); // Added 'group' to main div
+    if (row) row.classList.add('bg-slate-800', 'ring-1', 'ring-blue-500');
+
 }
 
 function updatePreview() {
@@ -110,36 +166,47 @@ function updatePreview() {
     const sub = document.getElementById('subfolder').value.trim();
     const base = state.currentBaseDir || '[Select Base Dir]';
 
-    // Logic: {BaseDir}/tv-shows/{SeriesName} {tvdb-{TVDB_ID}}/{Subfolder}
-    /*
-     wait, re-reading: "Shows the resulting path: {BaseDir}/tv-shows/{SeriesName} {tvdb-{TVDB_ID}}/{Subfolder}"
-     So we append /tv-shows/ automatically? Or is that part of BaseDir? 
-     Let's assume the user selects /srv/media and we construct the rest.
-     */
-
     const fullPath = `${base}/tv-shows/${series} {tvdb-${tvdb}}/${sub}`;
     document.getElementById('path-preview').textContent = fullPath;
 }
 
 async function submitFolder() {
-    if (!state.currentBaseDir || !document.getElementById('series-name').value || !document.getElementById('tvdb-id').value) {
-        alert('Please fill all fields and select a base directory.');
+    const seriesName = document.getElementById('series-name').value.trim();
+    const tvdbId = document.getElementById('tvdb-id').value.trim();
+    const subfolder = document.getElementById('subfolder').value.trim();
+
+    if (!state.currentBaseDir || !seriesName || !tvdbId) {
+        showToast('Please fill all fields and select a base directory.', 'error');
         return;
     }
 
+    // Construct destination_path logic
+    // Format: {baseDir}/tv-shows/{SeriesName} {tvdb-{TVDB_ID}}/{Subfolder}
+    const destinationPath = `${state.currentBaseDir}/tv-shows/${seriesName} {tvdb-${tvdbId}}/${subfolder}`;
+
+    // Helper safely get int/float
+    const parseIntSafe = (id, def) => {
+        const v = parseInt(document.getElementById(id).value, 10);
+        return isNaN(v) ? def : v;
+    };
+    const parseFloatSafe = (id, def) => {
+        const v = parseFloat(document.getElementById(id).value);
+        return isNaN(v) ? def : v;
+    };
+
     const payload = {
-        name: document.getElementById('series-name').value,
-        tvdb_id: parseInt(document.getElementById('tvdb-id').value, 10),
-        subfolder: document.getElementById('subfolder').value,
-        base_path: state.currentBaseDir
-        // Add other fields if required by VMSAM schema
+        destination_path: destinationPath,
+        original_language: document.getElementById('orig-lang').value.trim() || "en",
+        number_cut: parseIntSafe('number-cut', 10),
+        cut_file_to_get_delay_second_method: parseFloatSafe('cut-delay', 2.0),
+        max_episode_number: parseIntSafe('max-ep', 12)
     };
 
     try {
         await api.createFolder(payload);
-        alert('Folder created successfully!');
+        showToast('Folder created successfully!', 'success');
     } catch (e) {
-        alert('Error creating folder: ' + e.message);
+        showToast('Error creating folder: ' + e.message, 'error');
     }
 }
 
@@ -160,10 +227,10 @@ async function initRegexTab() {
 
     let folders = [];
     try {
-        folders = await api.getFolders();
-        // Mock if empty for dev
+        const response = await api.getFolders();
+        folders = response.folders || [];
         if (!folders || folders.length === 0) {
-            console.log('No folders returned, maybe mock?');
+            console.log('No folders returned');
         }
     } catch (e) { console.error(e); }
 
@@ -357,12 +424,12 @@ async function submitAllRegex() {
 
     try {
         await Promise.all(payload);
-        alert('All regex rules submitted successfully!');
+        showToast('All regex rules submitted successfully!', 'success');
         // Clear cards?
         document.getElementById('regex-cards').innerHTML = '';
         state.regexCards = [];
     } catch (e) {
-        alert('Error submitting rules: ' + e.message);
+        showToast('Error submitting rules: ' + e.message, 'error');
     }
 }
 
