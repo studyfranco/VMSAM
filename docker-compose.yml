@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  web-interface:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - VMSAM_API_HOST=http://vmsam-api:8000
+      - CREATE_ROOT=/srv/media
+      - FILES_ROOT=/srv/downloads
+      - RUST_LOG=poem=debug
+    volumes:
+      # Simulate mounts for dev
+      - ./mock_media:/srv/media:ro
+      - ./mock_downloads:/srv/downloads:ro
