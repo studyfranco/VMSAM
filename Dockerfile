@@ -4,6 +4,12 @@ FROM rust:slim as builder
 WORKDIR /usr/src/app
 COPY . .
 
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y build-essential ca-certificates pkg-config libssl-dev git --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
 RUN cargo build --release
 
 # Runtime stage
