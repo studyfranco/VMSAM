@@ -7,9 +7,20 @@ COPY . .
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM ghcr.io/studyfranco/docker-baseimages-debian:testing
 
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN set -x \
+    && apt update \
+    && apt dist-upgrade -y \
+    && apt autopurge -yy \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y ca-certificates --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
 WORKDIR /app
 COPY --from=builder /usr/src/app/target/release/vmsam-web /app/vmsam-web
