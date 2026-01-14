@@ -3,8 +3,8 @@
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${type === 'error' ? 'bg-red-600' :
-            type === 'success' ? 'bg-emerald-600' :
-                'bg-blue-600'
+        type === 'success' ? 'bg-emerald-600' :
+            'bg-blue-600'
         } text-white font-medium transition-opacity duration-300 opacity-0 transform translate-y-[-10px]`;
     toast.textContent = message;
     document.body.appendChild(toast);
@@ -166,7 +166,7 @@ function updatePreview() {
     const sub = document.getElementById('subfolder').value.trim();
     const base = state.currentBaseDir || '[Select Base Dir]';
 
-    const fullPath = `${base}/tv-shows/${series} {tvdb-${tvdb}}/${sub}`;
+    const fullPath = `${base}/${seriesName} {tvdb-${tvdbId}} [tvdb-${tvdbId}] [tvdbid-${tvdbId}]/${sub}`;
     document.getElementById('path-preview').textContent = fullPath;
 }
 
@@ -182,7 +182,7 @@ async function submitFolder() {
 
     // Construct destination_path logic
     // Format: {baseDir}/tv-shows/{SeriesName} {tvdb-{TVDB_ID}}/{Subfolder}
-    const destinationPath = `${state.currentBaseDir}/tv-shows/${seriesName} {tvdb-${tvdbId}}/${subfolder}`;
+    const destinationPath = `${state.currentBaseDir}/${seriesName} {tvdb-${tvdbId}} [tvdb-${tvdbId}] [tvdbid-${tvdbId}]/${subfolder}`;
 
     // Helper safely get int/float
     const parseIntSafe = (id, def) => {
