@@ -2,20 +2,20 @@
 
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
-    toast.className = `fixed top-4 right-4 px-6 py-3 rounded-lg shadow-lg z-50 ${type === 'error' ? 'bg-red-600' :
-        type === 'success' ? 'bg-emerald-600' :
-            'bg-blue-600'
-        } text-white font-medium transition-opacity duration-300 opacity-0 transform translate-y-[-10px]`;
+    toast.className = `toast ${type === 'error' ? 'toast-error' :
+            type === 'success' ? 'toast-success' :
+                'toast-info'
+        }`;
     toast.textContent = message;
     document.body.appendChild(toast);
 
     // Animate in
     requestAnimationFrame(() => {
-        toast.classList.remove('opacity-0', 'translate-y-[-10px]');
+        toast.classList.add('toast-visible');
     });
 
     setTimeout(() => {
-        toast.classList.add('opacity-0');
+        toast.classList.remove('toast-visible');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
@@ -112,7 +112,7 @@ async function loadDirBrowser(path = '') {
         if (path) {
             const parentPath = path.split('/').slice(0, -1).join('/');
             const backBtn = document.createElement('div');
-            backBtn.className = 'p-2 hover:bg-slate-800 cursor-pointer text-blue-400 flex items-center gap-2 rounded transition-colors';
+            backBtn.className = 'dir-item text-blue-300';
             backBtn.innerHTML = '<span>📁 ..</span>';
             backBtn.onclick = () => loadDirBrowser(parentPath);
             container.appendChild(backBtn);
@@ -121,21 +121,21 @@ async function loadDirBrowser(path = '') {
         items.filter(i => i.is_dir).forEach(item => {
             const el = document.createElement('div');
             // Base classes
-            el.className = `p-2 rounded flex items-center justify-between gap-2 group hover:bg-slate-800/50 transition-colors ${state.currentBaseDir === item.path ? 'bg-slate-800 ring-1 ring-blue-500' : ''}`;
+            el.className = `dir-item group ${state.currentBaseDir === item.path ? 'dir-selected' : ''}`;
 
             el.innerHTML = `
-                <div class="flex items-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
+                <div class="flex-row-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
                     <span>📁 ${item.name}</span>
                 </div>
                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button class="text-blue-400 hover:text-blue-300 text-xs px-2 py-1 bg-slate-900 rounded border border-slate-700" onclick="selectDir('${item.path}', event)">Select</button>
-                    <button class="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 bg-slate-900 rounded border border-slate-700" onclick="loadDirBrowser('${item.path}')">Open →</button>
+                    <button class="btn btn-sm btn-secondary" onclick="selectDir('${item.path}', event)">Select</button>
+                    <button class="btn btn-sm btn-secondary" onclick="loadDirBrowser('${item.path}')">Open →</button>
                 </div>
             `;
             container.appendChild(el);
         });
     } catch (e) {
-        container.innerHTML = `<div class="text-red-400 text-sm">Error: ${e.message}</div>`;
+        container.innerHTML = `<div class="text-error text-sm">Error: ${e.message}</div>`;
     }
 }
 
@@ -147,16 +147,12 @@ function selectDir(path, event) {
     // Visual feedback
     const container = document.getElementById('dir-browser');
     Array.from(container.children).forEach(child => {
-        child.classList.remove('bg-slate-800', 'ring-1', 'ring-blue-500');
-        // If this child represents the selected path (simple check might fail if nested, but good for flat list)
-        // Actually better to traverse or re-render? Re-render is safer but slower. 
-        // Let's do simple class toggle on the clicked element's parent if available, or just re-render row logic.
-        // Since 'event' is passed, we can target the row.
+        child.classList.remove('dir-selected');
     });
 
     // Find the row that contains the button or is the row
-    const row = event.target.closest('div.group'); // Added 'group' to main div
-    if (row) row.classList.add('bg-slate-800', 'ring-1', 'ring-blue-500');
+    const row = event.target.closest('.dir-item');
+    if (row) row.classList.add('dir-selected');
 
 }
 
@@ -166,7 +162,7 @@ function updatePreview() {
     const sub = document.getElementById('subfolder').value.trim();
     const base = state.currentBaseDir || '[Select Base Dir]';
 
-    const fullPath = `${base}/${seriesName} {tvdb-${tvdbId}} [tvdb-${tvdbId}] [tvdbid-${tvdbId}]/${sub}`;
+    const fullPath = `${base}/${series} {tvdb-${tvdb}} [tvdb-${tvdb}] [tvdbid-${tvdb}]/${sub}`;
     document.getElementById('path-preview').textContent = fullPath;
 }
 
@@ -239,14 +235,16 @@ async function initRegexTab() {
         const filtered = folders.filter(f => f.destination_path.toLowerCase().includes(query.toLowerCase()));
         filtered.forEach(f => {
             const item = document.createElement('div');
-            item.className = 'p-3 hover:bg-slate-800 cursor-pointer border-b border-slate-800 text-sm text-slate-300';
+            item.className = 'p-3 hover-bg-surface cursor-pointer border-b border-slate-800 text-sm text-muted';
+            item.style.borderBottom = '1px solid var(--border)';
             item.textContent = f.destination_path;
             item.onclick = () => {
                 state.selectedFolderId = f.id;
                 state.selectedFolderPath = f.destination_path;
                 document.querySelector('#selected-folder-display span').textContent = f.destination_path;
                 document.getElementById('selected-folder-display').classList.remove('hidden');
-                document.getElementById('regex-work-area').classList.remove('opacity-50', 'pointer-events-none');
+                document.getElementById('regex-work-area').style.opacity = '1';
+                document.getElementById('regex-work-area').style.pointerEvents = 'auto';
                 list.classList.add('hidden');
                 input.value = '';
             };
@@ -262,7 +260,8 @@ function clearFolderSelection() {
     state.selectedFolderId = null;
     state.selectedFolderPath = null;
     document.getElementById('selected-folder-display').classList.add('hidden');
-    document.getElementById('regex-work-area').classList.add('opacity-50', 'pointer-events-none');
+    document.getElementById('regex-work-area').style.opacity = '0.5';
+    document.getElementById('regex-work-area').style.pointerEvents = 'none';
 }
 
 // File Modal
@@ -283,15 +282,15 @@ async function openFileModal() {
         list.innerHTML = '';
         vidFiles.forEach(f => {
             const row = document.createElement('div');
-            row.className = 'flex items-center gap-3 p-2 hover:bg-slate-700/50 rounded';
+            row.className = 'flex-row-center gap-3 p-2 hover-bg-surface rounded';
             row.innerHTML = `
-                <input type="checkbox" value="${f.name}" class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500">
-                <span class="text-sm text-slate-200">${f.name}</span>
+                <input type="checkbox" value="${f.name}" class="w-4 h-4">
+                <span class="text-sm text-primary">${f.name}</span>
             `;
             list.appendChild(row);
         });
     } catch (e) {
-        list.innerHTML = `<div class="text-red-400 p-4">${e.message}</div>`;
+        list.innerHTML = `<div class="text-error p-4">${e.message}</div>`;
     }
 }
 
@@ -315,34 +314,35 @@ function addRegexCard(filename) {
 
     const card = document.createElement('div');
     card.id = `card-${id}`;
-    card.className = 'bg-slate-800 border border-slate-700 rounded-lg p-6 relative group';
+    card.className = 'card p-6 relative group';
+    // Style adjustments for inner elements using inline or utility
     card.innerHTML = `
-        <button onclick="removeCard('${id}')" class="absolute top-4 right-4 text-slate-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">🗑️</button>
+        <button onclick="removeCard('${id}')" class="absolute top-4 right-4 text-muted hover-text-error opacity-0 group-hover:opacity-100 transition-opacity" style="background:none; border:none; cursor:pointer;">🗑️</button>
         <div class="mb-4">
-            <div class="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Target File</div>
-            <div class="font-mono text-sm text-yellow-100 bg-slate-900/50 p-2 rounded border border-slate-700/50 break-all">${filename}</div>
+            <div class="text-xs text-muted uppercase font-bold tracking-wider mb-1">Target File</div>
+            <div class="font-mono text-sm text-accent surface p-2 break-all">${filename}</div>
         </div>
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 md-grid-cols-2 gap-4">
             <div>
-                <label class="block text-xs text-slate-400 mb-1">Regex Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="regex-input w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono text-emerald-400 focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
-                <div class="h-4 mt-1 text-xs text-slate-500 validation-msg"></div>
+                <label class="label">Regex Pattern</label>
+                <input type="text" oninput="validateCard('${id}', '${filename}')" class="regex-input input text-accent font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
+                <div class="h-4 mt-1 text-xs text-muted validation-msg"></div>
             </div>
             <div>
-                <label class="block text-xs text-slate-400 mb-1">Rename Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm font-mono text-blue-400 focus:ring-1 focus:ring-blue-500 outline-none" placeholder="e.g. MyShow - {episode_pattern} - Title">
-                <div class="h-4 mt-1 text-xs text-slate-500 rename-msg"></div>
+                <label class="label">Rename Pattern</label>
+                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input text-blue-300 font-mono" placeholder="e.g. MyShow - {episode_pattern} - Title">
+                <div class="h-4 mt-1 text-xs text-muted rename-msg"></div>
             </div>
         </div>
-        <div class="mt-4 flex items-center gap-4">
+        <div class="mt-4 flex-row-center gap-4">
              <div>
-                <label class="block text-xs text-slate-400 mb-1">Weight</label>
-                <input type="number" value="1" class="weight-input w-20 bg-slate-900 border border-slate-700 rounded p-2 text-sm text-center">
+                <label class="label">Weight</label>
+                <input type="number" value="1" class="weight-input input text-center" style="width: 5rem;">
             </div>
-            <div class="flex-1 bg-slate-900/30 rounded p-2 flex items-center justify-between border border-slate-800">
-                <span class="text-xs text-slate-500">Episode Extraction:</span>
-                <span class="text-sm font-bold text-white extracted-ep">-</span>
+            <div class="flex-1 surface p-2 flex-between">
+                <span class="text-xs text-muted">Episode Extraction:</span>
+                <span class="text-sm font-bold text-primary extracted-ep">-</span>
             </div>
         </div>
     `;
@@ -377,26 +377,26 @@ function validateCard(id, filename) {
 
         if (match && match.groups && match.groups.episode) {
             msg.textContent = "✓ Valid Pattern";
-            msg.className = "h-4 mt-1 text-xs text-emerald-500 validation-msg";
+            msg.className = "h-4 mt-1 text-xs text-accent validation-msg";
             epDisplay.textContent = match.groups.episode;
             regexValid = true;
         } else {
             msg.textContent = "⚠ No 'episode' group match";
-            msg.className = "h-4 mt-1 text-xs text-amber-500 validation-msg";
+            msg.className = "h-4 mt-1 text-xs text-error validation-msg"; // Use warning color/error
             epDisplay.textContent = "-";
         }
     } catch (e) {
         msg.textContent = "⚠ Invalid Regex Syntax";
-        msg.className = "h-4 mt-1 text-xs text-red-500 validation-msg";
+        msg.className = "h-4 mt-1 text-xs text-error validation-msg";
     }
 
     // Rename Pattern Validation
     if (renameInput && !renameInput.includes('{episode_pattern}')) {
         renameMsg.textContent = "⚠ Must contain {episode_pattern}";
-        renameMsg.className = "h-4 mt-1 text-xs text-amber-500 rename-msg";
+        renameMsg.className = "h-4 mt-1 text-xs text-error rename-msg";
     } else {
         renameMsg.textContent = "";
-        renameMsg.className = "h-4 mt-1 text-xs text-slate-500 rename-msg";
+        renameMsg.className = "h-4 mt-1 text-xs text-muted rename-msg";
     }
 }
 
