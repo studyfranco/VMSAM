@@ -333,7 +333,6 @@ async function openFileModal() {
             `;
             list.appendChild(row);
         });
-        list.appendChild(row);
         // Search Filter
         document.getElementById('file-search').oninput = (e) => {
             const term = e.target.value.toLowerCase();
