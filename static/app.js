@@ -3,19 +3,19 @@
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type === 'error' ? 'toast-error' :
-        type === 'success' ? 'toast-success' :
-            'toast-info'
+            type === 'success' ? 'toast-success' :
+                '' // Default is info
         }`;
     toast.textContent = message;
     document.body.appendChild(toast);
 
     // Animate in
     requestAnimationFrame(() => {
-        toast.classList.add('toast-visible');
+        toast.classList.add('visible');
     });
 
     setTimeout(() => {
-        toast.classList.remove('toast-visible');
+        toast.classList.remove('visible');
         setTimeout(() => toast.remove(), 300);
     }, 3000);
 }
@@ -112,7 +112,7 @@ function switchTab(tabId) {
 
 async function loadDirBrowser(path = '') {
     const container = document.getElementById('dir-browser');
-    container.innerHTML = '<div class="text-slate-500 text-sm animate-pulse">Loading...</div>';
+    container.innerHTML = '<div class="loading-message">Loading...</div>';
 
     try {
         const items = await api.listFiles(path, 'create');
@@ -126,7 +126,7 @@ async function loadDirBrowser(path = '') {
             const parentPath = parts.slice(0, -1).join('/');
 
             const backBtn = document.createElement('div');
-            backBtn.className = 'dir-item text-blue-300';
+            backBtn.className = 'dir-item text-blue';
             backBtn.innerHTML = '<span>📁 ..</span>';
             // Ensure we handle empty parent correctly (root)
             backBtn.onclick = () => loadDirBrowser(parentPath);
@@ -137,13 +137,14 @@ async function loadDirBrowser(path = '') {
         items.filter(i => i.is_dir).forEach(item => {
             const el = document.createElement('div');
             // Base classes
-            el.className = `p-2 rounded flex items-center justify-between group hover:bg-slate-800/50 ${state.currentBaseDir === item.path ? 'bg-slate-800 ring-1 ring-blue-500' : ''}`;
+            const isSelected = state.currentBaseDir === item.path;
+            el.className = `dir-item group ${isSelected ? 'selected' : ''}`;
 
             el.innerHTML = `
-                <div class="flex items-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
+                <div class="dir-name flex-1" onclick="selectDir('${item.path}', event)">
                     <span>📁 ${item.name}</span>
                 </div>
-                <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="dir-actions" style="opacity: 0.8;">
                     <button class="btn btn-sm btn-secondary" onclick="selectDir('${item.path}', event)">Select</button>
                     <button class="btn btn-sm btn-secondary" onclick="loadDirBrowser('${item.path}')">Open →</button>
                 </div>
@@ -151,7 +152,7 @@ async function loadDirBrowser(path = '') {
             container.appendChild(el);
         });
     } catch (e) {
-        container.innerHTML = `<div class="text-red-400 text-sm">Error: ${e.message}</div>`;
+        container.innerHTML = `<div class="text-accent text-sm">Error: ${e.message}</div>`;
         console.error('Directory loading error:', e);
     }
 }
@@ -164,12 +165,12 @@ function selectDir(path, event) {
     // Visual feedback
     const container = document.getElementById('dir-browser');
     Array.from(container.children).forEach(child => {
-        child.classList.remove('dir-selected');
+        child.classList.remove('selected');
     });
 
     // Find the row that contains the button or is the row
     const row = event.target.closest('.dir-item');
-    if (row) row.classList.add('dir-selected');
+    if (row) row.classList.add('selected');
 
 }
 
@@ -252,8 +253,7 @@ async function initRegexTab() {
         const filtered = folders.filter(f => f.destination_path.toLowerCase().includes(query.toLowerCase()));
         filtered.forEach(f => {
             const item = document.createElement('div');
-            item.className = 'p-3 hover-bg-surface cursor-pointer border-b border-slate-800 text-sm text-muted';
-            item.style.borderBottom = '1px solid var(--border)';
+            item.className = 'dir-item text-muted';
             item.textContent = f.destination_path;
             item.onclick = () => {
                 state.selectedFolderId = f.id;
@@ -299,15 +299,15 @@ async function openFileModal() {
         list.innerHTML = '';
         vidFiles.forEach(f => {
             const row = document.createElement('div');
-            row.className = 'flex-row-center gap-3 p-2 hover-bg-surface rounded';
+            row.className = 'file-row';
             row.innerHTML = `
-                <input type="checkbox" value="${f.name}" class="w-4 h-4">
-                <span class="text-sm text-primary">${f.name}</span>
+                <input type="checkbox" value="${f.name}" class="input-checkbox">
+                <span class="text-main">${f.name}</span>
             `;
             list.appendChild(row);
         });
     } catch (e) {
-        list.innerHTML = `<div class="text-error p-4">${e.message}</div>`;
+        list.innerHTML = `<div class="text-accent p-4">${e.message}</div>`;
     }
 }
 
@@ -331,35 +331,34 @@ function addRegexCard(filename) {
 
     const card = document.createElement('div');
     card.id = `card-${id}`;
-    card.className = 'card p-6 relative group';
-    // Style adjustments for inner elements using inline or utility
+    card.className = 'card relative group mt-4';
     card.innerHTML = `
-        <button onclick="removeCard('${id}')" class="absolute top-4 right-4 text-muted hover-text-error opacity-0 group-hover:opacity-100 transition-opacity" style="background:none; border:none; cursor:pointer;">🗑️</button>
-        <div class="mb-4">
-            <div class="text-xs text-muted uppercase font-bold tracking-wider mb-1">Target File</div>
-            <div class="font-mono text-sm text-accent surface p-2 break-all">${filename}</div>
+        <div style="display:flex; justify-content:space-between; margin-bottom: 1rem;">
+             <span class="text-muted text-xs uppercase font-bold">Target File</span>
+             <button onclick="removeCard('${id}')" class="btn-icon">🗑️</button>
         </div>
+        <div class="font-mono text-sm text-accent p-2 mb-4" style="background:var(--bg-surface); border-radius:4px;">${filename}</div>
         
-        <div class="grid grid-cols-1 md-grid-cols-2 gap-4">
+        <div class="grid-2">
             <div>
                 <label class="label">Regex Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="regex-input input text-accent font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
-                <div class="h-4 mt-1 text-xs text-muted validation-msg"></div>
+                <input type="text" oninput="validateCard('${id}', '${filename}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
+                <div class="mt-2 text-xs text-muted validation-msg"></div>
             </div>
             <div>
                 <label class="label">Rename Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input text-blue-300 font-mono" placeholder="e.g. MyShow - {episode_pattern} - Title">
-                <div class="h-4 mt-1 text-xs text-muted rename-msg"></div>
+                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {episode_pattern} - Title">
+                <div class="mt-2 text-xs text-muted rename-msg"></div>
             </div>
         </div>
-        <div class="mt-4 flex-row-center gap-4">
+        <div class="mt-4 flex items-center gap-4">
              <div>
                 <label class="label">Weight</label>
                 <input type="number" value="1" class="weight-input input text-center" style="width: 5rem;">
             </div>
-            <div class="flex-1 surface p-2 flex-between">
+            <div class="flex-1 p-2 flex-between" style="background:var(--bg-surface); border-radius:4px;">
                 <span class="text-xs text-muted">Episode Extraction:</span>
-                <span class="text-sm font-bold text-primary extracted-ep">-</span>
+                <span class="text-sm font-bold text-main extracted-ep">-</span>
             </div>
         </div>
     `;
@@ -394,26 +393,26 @@ function validateCard(id, filename) {
 
         if (match && match.groups && match.groups.episode) {
             msg.textContent = "✓ Valid Pattern";
-            msg.className = "h-4 mt-1 text-xs text-accent validation-msg";
+            msg.className = "mt-2 text-xs text-success validation-msg";
             epDisplay.textContent = match.groups.episode;
             regexValid = true;
         } else {
             msg.textContent = "⚠ No 'episode' group match";
-            msg.className = "h-4 mt-1 text-xs text-error validation-msg"; // Use warning color/error
+            msg.className = "mt-2 text-xs text-warning validation-msg";
             epDisplay.textContent = "-";
         }
     } catch (e) {
         msg.textContent = "⚠ Invalid Regex Syntax";
-        msg.className = "h-4 mt-1 text-xs text-error validation-msg";
+        msg.className = "mt-2 text-xs text-danger validation-msg";
     }
 
     // Rename Pattern Validation
     if (renameInput && !renameInput.includes('{episode_pattern}')) {
         renameMsg.textContent = "⚠ Must contain {episode_pattern}";
-        renameMsg.className = "h-4 mt-1 text-xs text-error rename-msg";
+        renameMsg.className = "mt-2 text-xs text-warning rename-msg";
     } else {
         renameMsg.textContent = "";
-        renameMsg.className = "h-4 mt-1 text-xs text-muted rename-msg";
+        renameMsg.className = "mt-2 text-xs text-muted rename-msg";
     }
 }
 
