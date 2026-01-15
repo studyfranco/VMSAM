@@ -232,6 +232,7 @@ async function submitFolder() {
         await api.createFolder(payload);
         showToast('Folder created successfully!', 'success');
     } catch (e) {
+        console.error('Create folder error:', e);
         showToast('Error creating folder: ' + e.message, 'error');
     }
 }
@@ -332,6 +333,16 @@ async function openFileModal() {
             `;
             list.appendChild(row);
         });
+        list.appendChild(row);
+        // Search Filter
+        document.getElementById('file-search').oninput = (e) => {
+            const term = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('.file-row');
+            rows.forEach(row => {
+                const text = row.querySelector('span').textContent.toLowerCase();
+                row.style.display = text.includes(term) ? 'flex' : 'none';
+            });
+        };
     } catch (e) {
         list.innerHTML = `<div class="text-accent p-4">${e.message}</div>`;
     }
@@ -363,7 +374,7 @@ function addRegexCard(filename) {
              <span class="text-muted text-xs uppercase font-bold">Target File</span>
              <button onclick="removeCard('${id}')" class="btn-icon">🗑️</button>
         </div>
-        <div class="font-mono text-sm text-accent p-2 mb-4" style="background:var(--bg-surface); border-radius:4px;">${filename}</div>
+        <div class="font-mono text-sm text-accent p-2 mb-4" style="background:var(--bg-surface); border-radius:4px; word-break: break-all;" title="${filename}">${filename}</div>
         
         <div class="grid-2">
             <div>
@@ -373,7 +384,7 @@ function addRegexCard(filename) {
             </div>
             <div>
                 <label class="label">Rename Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {episode_pattern} - Title">
+                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
                 <div class="mt-2 text-xs text-muted rename-msg"></div>
             </div>
         </div>
@@ -386,7 +397,7 @@ function addRegexCard(filename) {
             <!-- Extraction Display -->
             <div class="flex-1 flex flex-col items-center justify-center p-4 rounded border border-accent/30" style="background:var(--bg-surface);">
                 <span class="text-xs text-muted uppercase tracking-wider mb-1">Extracted Episode</span>
-                <span class="text-2xl font-bold text-success extracted-ep">-</span>
+                <span class="text-3xl font-bold text-success extracted-ep">-</span>
             </div>
         </div>
 
