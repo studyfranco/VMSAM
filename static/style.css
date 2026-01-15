@@ -1,19 +1,20 @@
 /* VMSAM KDE Plasma-inspired Dark Theme Refactor */
 
 :root {
-    --bg-main: #1b1e20;
-    --bg-surface: #232629;
-    --bg-card: #2a2e32;
+    --bg-main: #232629;
+    --bg-surface: #31363b;
+    --bg-card: #31363b;
     --text-main: #eff0f1;
     --text-muted: #bdc3c7;
-    --accent: #27ae60;
-    --accent-hover: #2ecc71;
+    --accent: #1cdc9a;
+    /* Cooler Breeze Green */
+    --accent-hover: #16b37c;
     --highlight: #3daee9;
-    /* KDE Blue */
-    --border: #31363b;
+    /* Breeze Blue */
+    --border: #4d5057;
     --danger: #e74c3c;
     --warning: #f39c12;
-    --success: #27ae60;
+    --success: #1cdc9a;
 
     --radius: 6px;
     --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
@@ -52,10 +53,7 @@ body {
 .title {
     font-size: 1.8rem;
     font-weight: 700;
-    background: linear-gradient(90deg, #3daee9, #27ae60);
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--highlight);
     margin: 0;
 }
 

@@ -125,16 +125,36 @@
                     <div id="help-content" class="hidden mt-4">
                         <div class="grid-2">
                             <div>
-                                <h4 class="text-accent">Common Patterns</h4>
-                                <ul style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
-                                    <li><code class="text-accent">(?P&lt;episode&gt;\d+)</code> - Simple digit</li>
-                                    <li><code class="text-accent">S\d{2}E(?P&lt;episode&gt;\d+)</code> - S01E01</li>
+                                <h4 class="text-accent">✅ Valid Examples</h4>
+                                <ul class="help-list"
+                                    style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+                                    <li class="mb-2">
+                                        <strong>Simple digit capture:</strong><br>
+                                        <code class="text-accent">(?P&lt;episode&gt;\d+)</code>
+                                    </li>
+                                    <li class="mb-2">
+                                        <strong>Season anchor (Recommended):</strong><br>
+                                        <code class="text-accent">\.S01E(?P&lt;episode&gt;\d+)\.</code>
+                                    </li>
+                                    <li>
+                                        <strong>Flexible anchor:</strong><br>
+                                        <code class="text-accent">S\d{2}E(?P&lt;episode&gt;\d+)</code>
+                                    </li>
                                 </ul>
                             </div>
                             <div>
-                                <h4 class="text-accent">Rules</h4>
-                                <p class="text-muted text-sm">Must capture <code class="text-accent">episode</code>
-                                    group. Rename pattern must use <code class="text-blue">{episode_pattern}</code>.</p>
+                                <h4 class="text-accent" style="color: var(--danger);">❌ Invalid Examples</h4>
+                                <ul class="help-list"
+                                    style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+                                    <li class="mb-2"><code>(\d+)</code> - <span class="text-muted">Missing named
+                                            group</span></li>
+                                    <li><code>(.*)</code> - <span class="text-muted">Too greedy/vague</span></li>
+                                </ul>
+                                <div class="mt-4 p-2 text-sm"
+                                    style="background: var(--bg-surface); border: 1px solid var(--accent); border-radius: 4px;">
+                                    <strong>Note:</strong> Rename pattern must strictly use <code
+                                        class="text-accent">{episode_pattern}</code> placeholder.
+                                </div>
                             </div>
                         </div>
                     </div>

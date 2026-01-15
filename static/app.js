@@ -100,19 +100,24 @@ function switchTab(tabId) {
 
     // Lazy load logic
     if (tabId === 'folder-tab') {
-        // Refresh folder browser if empty
         const container = document.getElementById('dir-browser');
-        if (!container.children.length || container.textContent === 'Loading directories...') {
+        // Always try to load if empty or stuck loading, or just force reload for freshness
+        if (!container.children.length || container.textContent.includes('Loading')) {
+            console.log('Switching to folder-tab: Loading directories...');
             loadDirBrowser();
         }
+    } else if (tabId === 'regex-tab') {
+        console.log('Switching to regex-tab: Initializing...');
+        initRegexTab();
     }
 }
 
 // --- UI Logic: Folder Creation ---
 
 async function loadDirBrowser(path = '') {
+    console.log('loadDirBrowser called with path:', path);
     const container = document.getElementById('dir-browser');
-    container.innerHTML = '<div class="loading-message">Loading...</div>';
+    container.innerHTML = '<div class="loading-message" style="padding:1rem; text-align:center;">Loading...</div>';
 
     try {
         const items = await api.listFiles(path, 'create');
@@ -128,9 +133,12 @@ async function loadDirBrowser(path = '') {
             const backBtn = document.createElement('div');
             backBtn.className = 'dir-item text-blue';
             backBtn.innerHTML = '<span>📁 ..</span>';
-            // Ensure we handle empty parent correctly (root)
             backBtn.onclick = () => loadDirBrowser(parentPath);
             container.appendChild(backBtn);
+        }
+
+        if (items.length === 0) {
+            container.innerHTML += '<div class="text-muted text-center p-2">No folders found</div>';
         }
 
         // Render directories
@@ -152,8 +160,12 @@ async function loadDirBrowser(path = '') {
             container.appendChild(el);
         });
     } catch (e) {
-        container.innerHTML = `<div class="text-accent text-sm">Error: ${e.message}</div>`;
         console.error('Directory loading error:', e);
+        container.innerHTML = `
+            <div class="text-accent text-sm p-4 text-center">
+                Error: ${e.message} <br>
+                <button class="btn btn-sm btn-primary mt-2" onclick="loadDirBrowser('${path}')">Retry</button>
+            </div>`;
     }
 }
 
@@ -241,12 +253,26 @@ async function initRegexTab() {
 
     let folders = [];
     try {
+        console.log('Fetching folders for Regex tab...');
         const response = await api.getFolders();
-        folders = response.folders || [];
-        if (!folders || folders.length === 0) {
-            console.log('No folders returned');
+        // Check if response is array or object with folders property
+        if (Array.isArray(response)) {
+            folders = response;
+        } else if (response.folders && Array.isArray(response.folders)) {
+            folders = response.folders;
+        } else {
+            console.warn('Unexpected folder response structure:', response);
+            showToast('Received unexpected data format for folders', 'error');
         }
-    } catch (e) { console.error(e); }
+
+        if (!folders || folders.length === 0) {
+            console.log('No folders returned from API');
+            showToast('No folders found to manage', 'info');
+        }
+    } catch (e) {
+        console.error('Error fetching folders:', e);
+        showToast('Failed to load folders: ' + e.message, 'error');
+    }
 
     const renderFolders = (query) => {
         list.innerHTML = '';
@@ -450,4 +476,4 @@ async function submitAllRegex() {
 }
 
 // Init
-initRegexTab();
+// initRegexTab(); // Removed auto-init, handled by switchTab
