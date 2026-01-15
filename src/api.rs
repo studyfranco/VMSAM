@@ -99,13 +99,30 @@ async fn proxy_folders_list() -> impl IntoResponse {
     }
 }
 
-// Proxy for creating folder
+// Proxy for creating folder with absolute path enforcement
 #[handler]
 async fn proxy_create_folder(body: String) -> impl IntoResponse {
-     let client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let url = format!("{}/folders/", get_vmsam_host());
 
-    match client.post(&url).header("Content-Type", "application/json").body(body).send().await {
+    // Intercept and fix path
+    let mut new_body = body.clone();
+    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&body) {
+         if let Some(dest) = json.get("destination_path").and_then(|v| v.as_str()) {
+             let root = get_create_root();
+             // Ensure it's treated as relative
+             let relative_dest = dest.trim_start_matches('/');
+             let absolute_path = root.join(relative_dest);
+             
+             // Update JSON
+             json["destination_path"] = serde_json::Value::String(absolute_path.to_string_lossy().to_string());
+             if let Ok(s) = serde_json::to_string(&json) {
+                 new_body = s;
+             }
+         }
+    }
+
+    match client.post(&url).header("Content-Type", "application/json").body(new_body).send().await {
          Ok(resp) => {
              let status = resp.status();
              let body = resp.bytes().await.unwrap_or_default();
