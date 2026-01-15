@@ -8,13 +8,16 @@
     <link rel="stylesheet" href="style.css">
 </head>
 
-<body>
-    <div class="container">
-        <header class="flex-between mb-6">
-            <h1 class="text-gradient">
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8 flex items-center justify-between">
+            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
                 VMSAM Interface
             </h1>
             <nav class="flex gap-4">
+                <button onclick="switchTab('home-tab')" class="nav-btn">
+                    Home
+                </button>
                 <button onclick="switchTab('folder-tab')" class="nav-btn">
                     Folder Creation
                 </button>
@@ -25,409 +28,212 @@
         </header>
 
         <main id="app-content">
-            <!-- Folder Creation Tab -->
-            <section id="folder-tab" class="card p-6">
-                <h2 class="mb-4">Create Media Folder</h2>
-
-                <!-- Directory Browser -->
-                <div class="mb-6">
-                    <label class="label">Base Directory</label>
-                    <div class="surface p-4" style="max-height: 15rem; overflow-y: auto;" id="dir-browser">
-                        <div class="text-muted text-sm" style="animation: pulse 2s infinite;">Loading directories...
-                        </div>
-                    </div>
-                    <input type="hidden" id="selected-base-dir">
-                </div>
-
-                <div class="grid grid-cols-1 md-grid-cols-2 gap-6">
-                    <div>
-                        <label class="label">Series Name</label>
-                        <input type="text" id="series-name" class="input" placeholder="e.g. Breaking Bad">
-                    </div>
-                    <div>
-                        <label class="label">TVDB ID</label>
-                        <input type="number" id="tvdb-id" class="input" placeholder="e.g. 81189">
-                    </div>
-                    <div>
-                        <label class="label">Subfolder</label>
-                        <input type="text" id="subfolder" value="Season 01" class="input">
+            <!-- Home / Landing Tab -->
+            <section id="home-tab" class="flex-col flex-center" style="min-height: 60vh;">
+                <h2 class="mb-6 text-gradient" style="font-size: 2.5rem;">Welcome to VMSAM</h2>
+                <div class="grid grid-cols-1 md-grid-cols-2 gap-6" style="max-width: 50rem; width: 100%;">
+                    <!-- Card 1: Folder Creation -->
+                    <div class="text-6xl mb-6">📁</div>
+                    <h3 class="text-2xl font-bold text-blue-400 group-hover:text-blue-300 mb-4">Create Folder</h3>
+                    <p class="text-slate-400">Initialize a new TV Show folder structure, fetch metadata via TVDB ID,
+                        and prepare for media organization.</p>
+                    <div class="mt-6">
+                        <span class="text-blue-400 font-medium group-hover:underline">Get Started →</span>
                     </div>
                 </div>
 
-                <!-- Advanced Options (Collapsible) -->
-                <div class="mt-4 pt-4" style="border-top: 1px solid var(--border);">
-                    <button onclick="toggleAdvanced()" class="flex-row-center gap-2 text-muted hover-text-white text-sm"
-                        style="background:none; border:none; cursor:pointer;">
-                        <span id="adv-icon">▶</span> Advanced Options
-                    </button>
-                    <div id="advanced-options" class="hidden mt-4 grid grid-cols-1 md-grid-cols-2 lg-grid-cols-4 gap-4">
-                        <div>
-                            <label class="label">Original Language</label>
-                            <input type="text" id="orig-lang" value="en" class="input">
-                        </div>
-                        <div>
-                            <label class="label">Number Cut</label>
-                            <input type="number" id="number-cut" value="10" class="input">
-                        </div>
-                        <div>
-                            <label class="label">Max Episode</label>
-                            <input type="number" id="max-ep" value="12" class="input">
-                        </div>
-                        <div>
-                            <label class="label">Cut Delay (sec)</label>
-                            <input type="number" id="cut-delay" value="2.0" step="0.1" class="input">
-                        </div>
+                <!-- Card 2: Bulk Regex -->
+                <div onclick="switchTab('regex-tab')"
+                    class="bg-slate-800 p-8 rounded-xl border border-slate-700 hover:border-emerald-500 cursor-pointer transition-all hover:scale-105 group text-center shadow-lg">
+                    <div class="text-6xl mb-6">⚡</div>
+                    <h3 class="text-2xl font-bold text-emerald-400 group-hover:text-emerald-300 mb-4">Bulk Regex
+                    </h3>
+                    <p class="text-slate-400">Define powerful regex patterns to automatically identify and rename
+                        episode files across your library.</p>
+                    <div class="mt-6">
+                        <span class="text-emerald-400 font-medium group-hover:underline">Get Started →</span>
                     </div>
                 </div>
-
-                <!-- Live Preview -->
-                <div class="mt-6 p-4 surface">
-                    <div class="text-muted text-sm mb-1">Preview Path</div>
-                    <code id="path-preview" class="text-accent font-mono text-sm"
-                        style="word-break: break-all;">Select a directory...</code>
-                </div>
-
-                <div class="mt-6 flex" style="justify-content: flex-end;">
-                    <button onclick="submitFolder()" class="btn btn-primary">
-                        Create Folder
-                    </button>
-                </div>
-            </section>
-
-            <!-- Bulk Regex Tab -->
-            <section id="regex-tab" class="hidden">
-                <!-- Regex Help Section -->
-                <div class="card p-6 mb-6">
-                    <button onclick="toggleHelp()" class="flex-between"
-                        style="width: 100%; background: none; border: none; cursor: pointer;">
-                        <h3>📖 Regex Pattern Help</h3>
-                        <span class="text-muted" id="help-icon">▼</span>
-                    </button>
-                    <div id="help-content" class="hidden mt-4"
-                        style="display: flex; flex-direction: column; gap: 0.75rem;">
-                        <div class="surface p-4">
-                            <h4 class="text-accent mb-2">Important Rules</h4>
-                            <ul class="text-sm text-muted" style="padding-left: 1.5rem; list-style-type: disc;">
-                                <li>Your regex <strong>must</strong> contain a named group: <code
-                                        class="text-accent">(?P&lt;episode&gt;\d+)</code></li>
-                                <li>If you provide a rename pattern, it <strong>must</strong> contain: <code
-                                        class="text-blue-300">{episode_pattern}</code></li>
-                                <li>The placeholder <code>{episode_pattern}</code> will be replaced by the extracted
-                                    episode number</li>
-                            </ul>
-                        </div>
-
-                        <div class="surface p-4">
-                            <h4 class="text-accent mb-2">Common Patterns</h4>
-                            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-                                <div class="flex-between p-2"
-                                    style="background-color: var(--bg-card); border-radius: var(--radius-sm);">
-                                    <code class="text-xs text-accent">(?P&lt;episode&gt;\d+)</code>
-                                    <span class="text-xs text-muted">Simple digit capture</span>
-                                    <button onclick="copyPattern('(?P&lt;episode&gt;\\d+)')"
-                                        class="text-blue-300 text-xs"
-                                        style="background:none; border:none; cursor:pointer;">Copy</button>
-                                </div>
-                                <div class="flex-between p-2"
-                                    style="background-color: var(--bg-card); border-radius: var(--radius-sm);">
-                                    <code class="text-xs text-accent">\.S01E(?P&lt;episode&gt;\d+)\.</code>
-                                    <span class="text-xs text-muted">Season 01 with episode</span>
-                                    <button onclick="copyPattern('\\.S01E(?P&lt;episode&gt;\\d+)\\.')"
-                                        class="text-blue-300 text-xs"
-                                        style="background:none; border:none; cursor:pointer;">Copy</button>
-                                </div>
-                                <div class="flex-between p-2"
-                                    style="background-color: var(--bg-card); border-radius: var(--radius-sm);">
-                                    <code class="text-xs text-accent">S\d{2}E(?P&lt;episode&gt;\d+)</code>
-                                    <span class="text-xs text-muted">Flexible season number</span>
-                                    <button onclick="copyPattern('S\\d{2}E(?P&lt;episode&gt;\\d+)')"
-                                        class="text-blue-300 text-xs"
-                                        style="background:none; border:none; cursor:pointer;">Copy</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="surface p-4">
-                            <h4 class="text-blue-300 mb-2">Rename Pattern Examples</h4>
-                            <div class="text-sm text-muted"
-                                style="display: flex; flex-direction: column; gap: 0.25rem;">
-                                <div><code class="text-blue-300">SeriesName S01E{episode_pattern}.mkv</code></div>
-                                <div><code class="text-blue-300">ShowName - {episode_pattern} - Title.mp4</code></div>
-                                <div><code class="text-blue-300">{episode_pattern}.avi</code></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Folder Selection -->
-                <div class="card p-6 mb-6">
-                    <h2 class="mb-4">1. Select Target Folder</h2>
-                    <div style="position: relative;">
-                        <input type="text" id="folder-search" class="input" placeholder="Search folders...">
-                    </div>
-                    <div id="folder-list" class="surface mt-4 hidden" style="max-height: 12rem; overflow-y: auto;">
-                        <!-- Populated by JS -->
-                    </div>
-                    <div id="selected-folder-display" class="mt-4 p-3 surface hidden flex-between">
-                        <span class="text-sm font-mono text-accent"
-                            style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
-                        <button onclick="clearFolderSelection()" class="text-muted hover-text-white text-sm"
-                            style="background:none; border:none; cursor:pointer;">Change</button>
-                    </div>
-                </div>
-
-                <!-- File Selection & Rules -->
-                <div id="regex-work-area" style="opacity: 0.5; pointer-events: none; transition: opacity 0.3s;">
-                    <div class="flex-between mb-4">
-                        <h2>2. Define Rules</h2>
-                        <button onclick="openFileModal()" class="btn btn-primary flex-center gap-2">
-                            <span>+</span> Add Files
-                        </button>
-                    </div>
-
-                    <div id="regex-cards" style="display: flex; flex-direction: column; gap: 1rem;">
-                        <!-- Regex cards will appear here -->
-                    </div>
-
-                    <div class="mt-6 flex" style="justify-content: flex-end;">
-                        <button onclick="submitAllRegex()" class="btn btn-primary"
-                            style="padding: 0.75rem 2rem; font-size: 1.1rem;">
-                            Submit All Rules
-                        </button>
-                    </div>
-                </div>
-            </section>
-        </main>
     </div>
+    </section>
 
-    <!-- File Selection Modal -->
-    <div id="file-modal" class="modal-backdrop hidden">
-        <div class="modal-content">
-            <div class="p-4 flex-between" style="border-bottom: 1px solid var(--border);">
-                <h3>Select Files</h3>
-                <button onclick="closeFileModal()" class="text-muted hover-text-white"
-                    style="background:none; border:none; cursor:pointer; font-size: 1.5rem;">✕</button>
+    <!-- Folder Creation Tab -->
+    <section id="folder-tab" class="space-y-6 hidden">
+        <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-white">Create Media Folder</h2>
+
+            <!-- Directory Browser -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-slate-400 mb-2">Base Directory</label>
+                <div class="bg-slate-900 rounded-lg border border-slate-700 p-4 max-h-60 overflow-y-auto"
+                    id="dir-browser">
+                    <div class="text-slate-500 text-sm animate-pulse">Loading directories...</div>
+                </div>
+                <input type="hidden" id="selected-base-dir">
             </div>
 
-            <div class="p-4" style="border-bottom: 1px solid var(--border);">
-                <input type="text" id="file-search" class="input" placeholder="Filter files...">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">Series Name</label>
+                    <input type="text" id="series-name"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="e.g. Breaking Bad">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">TVDB ID</label>
+                    <input type="number" id="tvdb-id"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="e.g. 81189">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-400 mb-1">Subfolder</label>
+                    <input type="text" id="subfolder" value="Season 01"
+                        class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600">
+                </div>
             </div>
 
-            <div class="flex-1 p-2" id="file-list" style="overflow-y: auto;">
-                <!-- File list items -->
+            <!-- Advanced Options (Collapsible) -->
+            <div class="mt-4 border-t border-slate-700 pt-4">
+                <button onclick="toggleAdvanced()"
+                    class="flex items-center gap-2 text-slate-400 hover:text-white text-sm font-medium transition-colors">
+                    <span id="adv-icon">▶</span> Advanced Options
+                </button>
+                <div id="advanced-options" class="hidden mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">Original Language</label>
+                        <input type="text" id="orig-lang" value="en"
+                            class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">Number Cut</label>
+                        <input type="number" id="number-cut" value="10"
+                            class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">Max Episode</label>
+                        <input type="number" id="max-ep" value="12"
+                            class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-slate-500 mb-1">Cut Delay (sec)</label>
+                        <input type="number" id="cut-delay" value="2.0" step="0.1"
+                            class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
+                    </div>
+                </div>
             </div>
 
-            <div class="p-4 flex gap-3" style="border-top: 1px solid var(--border); justify-content: flex-end;">
-                <button onclick="closeFileModal()" class="btn btn-secondary">Cancel</button>
-                <button onclick="addSelectedFiles()" class="btn btn-primary">Add Selected</button>
+            <!-- Live Preview -->
+            <div class="mt-6 p-4 bg-slate-900/50 rounded-lg border border-slate-700/50">
+                <div class="text-sm text-slate-400 mb-1">Preview Path</div>
+                <code id="path-preview" class="text-blue-400 font-mono text-sm break-all">Select a directory...</code>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button onclick="submitFolder()"
+                    class="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-blue-500/20">
+                    Create Folder
+                </button>
             </div>
         </div>
-    </div>
+    </section>
 
-    <script src="app.js"></script>
-</body>
+    <!-- Bulk Regex Tab -->
+    <section id="regex-tab" class="hidden space-y-6">
+        <!-- Regex Help Section -->
+        <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg mb-6">
+            <button onclick="toggleHelp()" class="w-full flex justify-between items-center text-left">
+                <h3 class="text-lg font-semibold text-white">📖 Regex Pattern Help</h3>
+                <span class="text-slate-400" id="help-icon">▼</span>
+            </button>
+            <div id="help-content" class="hidden mt-4 space-y-3">
+                <div class="bg-slate-900 p-4 rounded border border-slate-700">
+                    <h4 class="text-sm font-bold text-blue-400 mb-2">Important Rules</h4>
+                    <ul class="text-sm text-slate-300 space-y-1 list-disc list-inside">
+                        <li>Your regex <strong>must</strong> contain a named group: <code
+                                class="text-emerald-400">(?P&lt;episode&gt;\d+)</code></li>
+                        <li>If you provide a rename pattern, it <strong>must</strong> contain: <code
+                                class="text-blue-400">{episode_pattern}</code></li>
+                        <li>The placeholder <code>{episode_pattern}</code> will be replaced by the extracted
+                            episode number</li>
+                    </ul>
+                </div>
 
-</html>
+                <div class="bg-slate-900 p-4 rounded border border-slate-700">
+                    <h4 class="text-sm font-bold text-emerald-400 mb-2">Common Patterns</h4>
+                    <div class="space-y-2">
+                        <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
+                            <code class="text-xs text-emerald-300">(?P&lt;episode&gt;\d+)</code>
+                            <span class="text-xs text-slate-400">Simple digit capture</span>
+                            <button onclick="copyPattern('(?P&lt;episode&gt;\\d+)')"
+                                class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
+                            <code class="text-xs text-emerald-300">\.S01E(?P&lt;episode&gt;\d+)\.</code>
+                            <span class="text-xs text-slate-400">Season 01 with episode</span>
+                            <button onclick="copyPattern('\\.S01E(?P&lt;episode&gt;\\d+)\\.')"
+                                class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
+                        </div>
+                        <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
+                            <code class="text-xs text-emerald-300">S\d{2}E(?P&lt;episode&gt;\d+)</code>
+                            <span class="text-xs text-slate-400">Flexible season number</span>
+                            <button onclick="copyPattern('S\\d{2}E(?P&lt;episode&gt;\\d+)')"
+                                class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
+                        </div>
+                    </div>
+                </div>
 
-<body class="bg-slate-900 text-slate-100 min-h-screen">
-    <div class="container mx-auto px-4 py-8">
-        <header class="mb-8 flex items-center justify-between">
-            <h1 class="text-3xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
-                VMSAM Interface
-            </h1>
-            <nav class="space-x-4">
-                <button onclick="switchTab('folder-tab')"
-                    class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors font-medium text-sm text-slate-300 hover:text-white border border-slate-700">
-                    Folder Creation
+                <div class="bg-slate-900 p-4 rounded border border-slate-700">
+                    <h4 class="text-sm font-bold text-blue-400 mb-2">Rename Pattern Examples</h4>
+                    <div class="space-y-1 text-sm text-slate-300">
+                        <div><code class="text-blue-300">SeriesName S01E{episode_pattern}.mkv</code></div>
+                        <div><code class="text-blue-300">ShowName - {episode_pattern} - Title.mp4</code></div>
+                        <div><code class="text-blue-300">{episode_pattern}.avi</code></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Folder Selection -->
+        <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-white">1. Select Target Folder</h2>
+            <div class="relative">
+                <input type="text" id="folder-search"
+                    class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Search folders...">
+            </div>
+            <div id="folder-list"
+                class="mt-2 max-h-48 overflow-y-auto bg-slate-900 rounded-lg border border-slate-700 hidden">
+                <!-- Populated by JS -->
+            </div>
+            <div id="selected-folder-display"
+                class="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 hidden flex items-center justify-between">
+                <span class="text-sm font-mono text-blue-400 truncate"></span>
+                <button onclick="clearFolderSelection()" class="text-slate-400 hover:text-white text-sm">Change</button>
+            </div>
+        </div>
+
+        <!-- File Selection & Rules -->
+        <div id="regex-work-area" class="opacity-50 pointer-events-none transition-opacity">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-xl font-semibold text-white">2. Define Rules</h2>
+                <button onclick="openFileModal()"
+                    class="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-emerald-500/20">
+                    <span>+</span> Add Files
                 </button>
-                <button onclick="switchTab('regex-tab')"
-                    class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors font-medium text-sm text-slate-300 hover:text-white border border-slate-700">
-                    Bulk Regex
+            </div>
+
+            <div id="regex-cards" class="space-y-4">
+                <!-- Regex cards will appear here -->
+            </div>
+
+            <div class="mt-8 flex justify-end">
+                <button onclick="submitAllRegex()"
+                    class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-lg transition-colors shadow-lg shadow-indigo-500/20">
+                    Submit All Rules
                 </button>
-            </nav>
-        </header>
-
-        <main id="app-content">
-            <!-- Folder Creation Tab -->
-            <section id="folder-tab" class="space-y-6">
-                <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
-                    <h2 class="text-xl font-semibold mb-4 text-white">Create Media Folder</h2>
-
-                    <!-- Directory Browser -->
-                    <div class="mb-6">
-                        <label class="block text-sm font-medium text-slate-400 mb-2">Base Directory</label>
-                        <div class="bg-slate-900 rounded-lg border border-slate-700 p-4 max-h-60 overflow-y-auto"
-                            id="dir-browser">
-                            <div class="text-slate-500 text-sm animate-pulse">Loading directories...</div>
-                        </div>
-                        <input type="hidden" id="selected-base-dir">
-                    </div>
-
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-medium text-slate-400 mb-1">Series Name</label>
-                            <input type="text" id="series-name"
-                                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
-                                placeholder="e.g. Breaking Bad">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-400 mb-1">TVDB ID</label>
-                            <input type="number" id="tvdb-id"
-                                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
-                                placeholder="e.g. 81189">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-slate-400 mb-1">Subfolder</label>
-                            <input type="text" id="subfolder" value="Season 01"
-                                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600">
-                        </div>
-                    </div>
-
-                    <!-- Advanced Options (Collapsible) -->
-                    <div class="mt-4 border-t border-slate-700 pt-4">
-                        <button onclick="toggleAdvanced()"
-                            class="flex items-center gap-2 text-slate-400 hover:text-white text-sm font-medium transition-colors">
-                            <span id="adv-icon">▶</span> Advanced Options
-                        </button>
-                        <div id="advanced-options"
-                            class="hidden mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <div>
-                                <label class="block text-xs text-slate-500 mb-1">Original Language</label>
-                                <input type="text" id="orig-lang" value="en"
-                                    class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-500 mb-1">Number Cut</label>
-                                <input type="number" id="number-cut" value="10"
-                                    class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-500 mb-1">Max Episode</label>
-                                <input type="number" id="max-ep" value="12"
-                                    class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs text-slate-500 mb-1">Cut Delay (sec)</label>
-                                <input type="number" id="cut-delay" value="2.0" step="0.1"
-                                    class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Live Preview -->
-                    <div class="mt-6 p-4 bg-slate-900/50 rounded-lg border border-slate-700/50">
-                        <div class="text-sm text-slate-400 mb-1">Preview Path</div>
-                        <code id="path-preview"
-                            class="text-blue-400 font-mono text-sm break-all">Select a directory...</code>
-                    </div>
-
-                    <div class="mt-6 flex justify-end">
-                        <button onclick="submitFolder()"
-                            class="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-blue-500/20">
-                            Create Folder
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Bulk Regex Tab -->
-            <section id="regex-tab" class="hidden space-y-6">
-                <!-- Regex Help Section -->
-                <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg mb-6">
-                    <button onclick="toggleHelp()" class="w-full flex justify-between items-center text-left">
-                        <h3 class="text-lg font-semibold text-white">📖 Regex Pattern Help</h3>
-                        <span class="text-slate-400" id="help-icon">▼</span>
-                    </button>
-                    <div id="help-content" class="hidden mt-4 space-y-3">
-                        <div class="bg-slate-900 p-4 rounded border border-slate-700">
-                            <h4 class="text-sm font-bold text-blue-400 mb-2">Important Rules</h4>
-                            <ul class="text-sm text-slate-300 space-y-1 list-disc list-inside">
-                                <li>Your regex <strong>must</strong> contain a named group: <code
-                                        class="text-emerald-400">(?P&lt;episode&gt;\d+)</code></li>
-                                <li>If you provide a rename pattern, it <strong>must</strong> contain: <code
-                                        class="text-blue-400">{episode_pattern}</code></li>
-                                <li>The placeholder <code>{episode_pattern}</code> will be replaced by the extracted
-                                    episode number</li>
-                            </ul>
-                        </div>
-
-                        <div class="bg-slate-900 p-4 rounded border border-slate-700">
-                            <h4 class="text-sm font-bold text-emerald-400 mb-2">Common Patterns</h4>
-                            <div class="space-y-2">
-                                <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
-                                    <code class="text-xs text-emerald-300">(?P&lt;episode&gt;\d+)</code>
-                                    <span class="text-xs text-slate-400">Simple digit capture</span>
-                                    <button onclick="copyPattern('(?P&lt;episode&gt;\\d+)')"
-                                        class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
-                                </div>
-                                <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
-                                    <code class="text-xs text-emerald-300">\.S01E(?P&lt;episode&gt;\d+)\.</code>
-                                    <span class="text-xs text-slate-400">Season 01 with episode</span>
-                                    <button onclick="copyPattern('\\.S01E(?P&lt;episode&gt;\\d+)\\.')"
-                                        class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
-                                </div>
-                                <div class="flex items-center justify-between p-2 bg-slate-800 rounded">
-                                    <code class="text-xs text-emerald-300">S\d{2}E(?P&lt;episode&gt;\d+)</code>
-                                    <span class="text-xs text-slate-400">Flexible season number</span>
-                                    <button onclick="copyPattern('S\\d{2}E(?P&lt;episode&gt;\\d+)')"
-                                        class="text-blue-400 hover:text-blue-300 text-xs">Copy</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bg-slate-900 p-4 rounded border border-slate-700">
-                            <h4 class="text-sm font-bold text-blue-400 mb-2">Rename Pattern Examples</h4>
-                            <div class="space-y-1 text-sm text-slate-300">
-                                <div><code class="text-blue-300">SeriesName S01E{episode_pattern}.mkv</code></div>
-                                <div><code class="text-blue-300">ShowName - {episode_pattern} - Title.mp4</code></div>
-                                <div><code class="text-blue-300">{episode_pattern}.avi</code></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <!-- Folder Selection -->
-                <div class="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg">
-                    <h2 class="text-xl font-semibold mb-4 text-white">1. Select Target Folder</h2>
-                    <div class="relative">
-                        <input type="text" id="folder-search"
-                            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 outline-none"
-                            placeholder="Search folders...">
-                    </div>
-                    <div id="folder-list"
-                        class="mt-2 max-h-48 overflow-y-auto bg-slate-900 rounded-lg border border-slate-700 hidden">
-                        <!-- Populated by JS -->
-                    </div>
-                    <div id="selected-folder-display"
-                        class="mt-4 p-3 bg-slate-900/50 rounded-lg border border-slate-700/50 hidden flex items-center justify-between">
-                        <span class="text-sm font-mono text-blue-400 truncate"></span>
-                        <button onclick="clearFolderSelection()"
-                            class="text-slate-400 hover:text-white text-sm">Change</button>
-                    </div>
-                </div>
-
-                <!-- File Selection & Rules -->
-                <div id="regex-work-area" class="opacity-50 pointer-events-none transition-opacity">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-xl font-semibold text-white">2. Define Rules</h2>
-                        <button onclick="openFileModal()"
-                            class="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-medium transition-colors shadow-lg shadow-emerald-500/20">
-                            <span>+</span> Add Files
-                        </button>
-                    </div>
-
-                    <div id="regex-cards" class="space-y-4">
-                        <!-- Regex cards will appear here -->
-                    </div>
-
-                    <div class="mt-8 flex justify-end">
-                        <button onclick="submitAllRegex()"
-                            class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold text-lg transition-colors shadow-lg shadow-indigo-500/20">
-                            Submit All Rules
-                        </button>
-                    </div>
-                </div>
-            </section>
-        </main>
+            </div>
+        </div>
+    </section>
+    </main>
     </div>
 
     <!-- File Selection Modal -->

@@ -3,8 +3,8 @@
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type === 'error' ? 'toast-error' :
-            type === 'success' ? 'toast-success' :
-                'toast-info'
+        type === 'success' ? 'toast-success' :
+            'toast-info'
         }`;
     toast.textContent = message;
     document.body.appendChild(toast);
@@ -97,6 +97,15 @@ const api = {
 function switchTab(tabId) {
     document.querySelectorAll('main > section').forEach(el => el.classList.add('hidden'));
     document.getElementById(tabId).classList.remove('hidden');
+
+    // Lazy load logic
+    if (tabId === 'folder-tab') {
+        // Refresh folder browser if empty
+        const container = document.getElementById('dir-browser');
+        if (!container.children.length || container.textContent === 'Loading directories...') {
+            loadDirBrowser();
+        }
+    }
 }
 
 // --- UI Logic: Folder Creation ---
@@ -109,22 +118,29 @@ async function loadDirBrowser(path = '') {
         const items = await api.listFiles(path, 'create');
         container.innerHTML = '';
 
+        // Back button: navigate UP one level
         if (path) {
-            const parentPath = path.split('/').slice(0, -1).join('/');
+            // Path is now relative, e.g. "subdir/nested"
+            // Split by separator
+            const parts = path.split('/');
+            const parentPath = parts.slice(0, -1).join('/');
+
             const backBtn = document.createElement('div');
             backBtn.className = 'dir-item text-blue-300';
             backBtn.innerHTML = '<span>📁 ..</span>';
+            // Ensure we handle empty parent correctly (root)
             backBtn.onclick = () => loadDirBrowser(parentPath);
             container.appendChild(backBtn);
         }
 
+        // Render directories
         items.filter(i => i.is_dir).forEach(item => {
             const el = document.createElement('div');
             // Base classes
-            el.className = `dir-item group ${state.currentBaseDir === item.path ? 'dir-selected' : ''}`;
+            el.className = `p-2 rounded flex items-center justify-between group hover:bg-slate-800/50 ${state.currentBaseDir === item.path ? 'bg-slate-800 ring-1 ring-blue-500' : ''}`;
 
             el.innerHTML = `
-                <div class="flex-row-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
+                <div class="flex items-center gap-2 flex-1 cursor-pointer" onclick="selectDir('${item.path}', event)">
                     <span>📁 ${item.name}</span>
                 </div>
                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -135,7 +151,8 @@ async function loadDirBrowser(path = '') {
             container.appendChild(el);
         });
     } catch (e) {
-        container.innerHTML = `<div class="text-error text-sm">Error: ${e.message}</div>`;
+        container.innerHTML = `<div class="text-red-400 text-sm">Error: ${e.message}</div>`;
+        console.error('Directory loading error:', e);
     }
 }
 
@@ -210,7 +227,7 @@ async function submitFolder() {
 document.getElementById('series-name').addEventListener('input', updatePreview);
 document.getElementById('tvdb-id').addEventListener('input', updatePreview);
 document.getElementById('subfolder').addEventListener('input', updatePreview);
-loadDirBrowser(); // Init
+
 
 // --- UI Logic: Regex ---
 

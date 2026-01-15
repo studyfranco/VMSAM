@@ -54,10 +54,18 @@ async fn list_files(Query(params): Query<ListParams>) -> impl IntoResponse {
                 let is_dir = metadata.map(|m| m.is_dir()).unwrap_or(false);
                 let name = entry.file_name().to_string_lossy().to_string();
                 
+                // Calculate relative path for frontend usage
+                // IMPORTANT: We strip the prefix so we return relative path "foo/bar", not "/src/media/foo/bar"
+                let relative_path = entry.path()
+                    .strip_prefix(&root)
+                    .unwrap_or(&entry.path())
+                    .to_string_lossy()
+                    .to_string();
+
                 items.push(FileEntry {
                     name,
                     is_dir,
-                    path: entry.path().to_string_lossy().to_string(), // In real app, make relative
+                    path: relative_path, // Send RELATIVE path
                 });
             }
             // Sort: directories first, then files
