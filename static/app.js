@@ -382,10 +382,17 @@ function addRegexCard(filename) {
                 <label class="label">Weight</label>
                 <input type="number" value="1" class="weight-input input text-center" style="width: 5rem;">
             </div>
-            <div class="flex-1 p-2 flex-between" style="background:var(--bg-surface); border-radius:4px;">
-                <span class="text-xs text-muted">Episode Extraction:</span>
-                <span class="text-sm font-bold text-main extracted-ep">-</span>
+            
+            <!-- Extraction Display -->
+            <div class="flex-1 flex flex-col items-center justify-center p-4 rounded border border-accent/30" style="background:var(--bg-surface);">
+                <span class="text-xs text-muted uppercase tracking-wider mb-1">Extracted Episode</span>
+                <span class="text-2xl font-bold text-success extracted-ep">-</span>
             </div>
+        </div>
+
+        <!-- Card Footer -->
+        <div class="mt-4 pt-4 border-t border-border flex justify-end">
+            <button onclick="submitSingleRule('${id}')" class="btn btn-primary btn-sm">Save Rule</button>
         </div>
     `;
 
@@ -433,8 +440,8 @@ function validateCard(id, filename) {
     }
 
     // Rename Pattern Validation
-    if (renameInput && !renameInput.includes('{episode_pattern}')) {
-        renameMsg.textContent = "⚠ Must contain {episode_pattern}";
+    if (renameInput && !renameInput.includes('{<episode>}')) {
+        renameMsg.textContent = "⚠ Must contain {<episode>}";
         renameMsg.className = "mt-2 text-xs text-warning rename-msg";
     } else {
         renameMsg.textContent = "";
@@ -442,38 +449,53 @@ function validateCard(id, filename) {
     }
 }
 
-async function submitAllRegex() {
-    const payload = [];
+async function submitSingleRule(id) {
+    const item = state.regexCards.find(c => c.id === id);
+    if (!item) return;
+    const card = item.el;
 
-    for (const item of state.regexCards) {
-        const card = item.el;
-        const regexVal = card.querySelector('.regex-input').value;
-        const renameVal = card.querySelector('.rename-input').value;
-        const weight = parseInt(card.querySelector('.weight-input').value, 10);
+    const regexVal = card.querySelector('.regex-input').value;
+    const renameVal = card.querySelector('.rename-input').value;
+    const weight = parseInt(card.querySelector('.weight-input').value, 10);
 
-        if (!regexVal) continue;
-
-        payload.push(api.createRegex({
-            regex_pattern: regexVal,
-            rename_pattern: renameVal,
-            weight: weight,
-            example_filename: item.filename,
-            destination_path: state.selectedFolderPath
-        }));
+    // Validate again just in case
+    if (!regexVal) {
+        showToast('Regex pattern is required', 'error');
+        return;
     }
 
-    if (payload.length === 0) return;
+    // Check specific validation state if needed, or rely on visual cues
+    // Here we proceed if inputs have values
+
+    const payload = {
+        regex_pattern: regexVal,
+        rename_pattern: renameVal,
+        weight: weight,
+        example_filename: item.filename,
+        destination_path: state.selectedFolderPath
+    };
 
     try {
-        await Promise.all(payload);
-        showToast('All regex rules submitted successfully!', 'success');
-        // Clear cards?
-        document.getElementById('regex-cards').innerHTML = '';
-        state.regexCards = [];
+        await api.createRegex(payload);
+        showToast('Rule saved successfully!', 'success');
+        // Optional: Visual feedback like disabling button or changing text
+        const btn = card.querySelector('button.btn-primary');
+        if (btn) {
+            btn.textContent = 'Saved ✓';
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-secondary'); // or checkmark style
+            setTimeout(() => {
+                btn.textContent = 'Save Rule';
+                btn.classList.add('btn-primary');
+                btn.classList.remove('btn-secondary');
+            }, 3000);
+        }
     } catch (e) {
-        showToast('Error submitting rules: ' + e.message, 'error');
+        showToast('Error saving rule: ' + e.message, 'error');
     }
 }
+
+// submitAllRegex removed in favor of single rule submission
 
 // Init
 // initRegexTab(); // Removed auto-init, handled by switchTab
