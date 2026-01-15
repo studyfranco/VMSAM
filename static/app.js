@@ -3,8 +3,8 @@
 function showToast(message, type = 'info') {
     const toast = document.createElement('div');
     toast.className = `toast ${type === 'error' ? 'toast-error' :
-            type === 'success' ? 'toast-success' :
-                '' // Default is info
+        type === 'success' ? 'toast-success' :
+            '' // Default is info
         }`;
     toast.textContent = message;
     document.body.appendChild(toast);
@@ -138,7 +138,7 @@ async function loadDirBrowser(path = '') {
             const el = document.createElement('div');
             // Base classes
             const isSelected = state.currentBaseDir === item.path;
-            el.className = `dir-item group ${isSelected ? 'selected' : ''}`;
+            el.className = `dir-item ${isSelected ? 'selected' : ''}`;
 
             el.innerHTML = `
                 <div class="dir-name flex-1" onclick="selectDir('${item.path}', event)">
@@ -331,7 +331,7 @@ function addRegexCard(filename) {
 
     const card = document.createElement('div');
     card.id = `card-${id}`;
-    card.className = 'card relative group mt-4';
+    card.className = 'card mt-4';
     card.innerHTML = `
         <div style="display:flex; justify-content:space-between; margin-bottom: 1rem;">
              <span class="text-muted text-xs uppercase font-bold">Target File</span>
