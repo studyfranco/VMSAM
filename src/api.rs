@@ -155,11 +155,20 @@ async fn proxy_create_regex(body: String) -> impl IntoResponse {
 
 // Proxy for listing regexes
 #[handler]
-async fn proxy_list_regex() -> impl IntoResponse {
+async fn proxy_list_regex(Query(params): Query<std::collections::HashMap<String, String>>) -> impl IntoResponse {
     let client = reqwest::Client::new();
-    let url = format!("{}/regex_folder/", get_vmsam_host());
+    let host = get_vmsam_host();
+    let mut url = reqwest::Url::parse(&format!("{}/regex_folder/", host)).unwrap();
     
-    match client.get(&url).send().await {
+    // Add query parameters
+    {
+        let mut query_pairs = url.query_pairs_mut();
+        for (k, v) in &params {
+            query_pairs.append_pair(k, v);
+        }
+    }
+    
+    match client.get(url).send().await {
         Ok(resp) => {
              let status = resp.status();
              let body = resp.bytes().await.unwrap_or_default();

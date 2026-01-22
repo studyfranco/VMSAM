@@ -90,11 +90,11 @@ const api = {
         if (!res.ok) throw new Error('Failed to create regex');
         return res.json();
     },
-    async getRegexes(folderPath) {
+    async getRegexes(folderId) {
         // We assume the backend proxy /api/vmsam/regex_list returns all or filters.
         // If the upstream api supports filtering by folder, we would pass it here.
-        // For now, let's fetch all and filter client side if needed, or just fetch all.
-        const res = await fetch('/api/vmsam/regex_list');
+        // Update: Upstream expects folder_id
+        const res = await fetch(`/api/vmsam/regex_list?folder_id=${folderId}`);
         if (!res.ok) throw new Error('Failed to fetch regexes');
         return res.json();
     }
@@ -306,7 +306,7 @@ async function initRegexTab() {
                 input.value = '';
 
                 // Load existing rules
-                loadExistingRules(f.destination_path);
+                loadExistingRules(f.destination_path, f.id);
             };
             list.appendChild(item);
         });
@@ -316,7 +316,7 @@ async function initRegexTab() {
     renderFolders('');
 }
 
-async function loadExistingRules(folderPath) {
+async function loadExistingRules(folderPath, folderId) {
     const container = document.getElementById('existing-rules-container');
     if (!container) {
         // Inject container if not exists
@@ -346,10 +346,11 @@ async function loadExistingRules(folderPath) {
     document.getElementById('existing-rules-icon').textContent = '▼';
 
     try {
-        const rules = await api.getRegexes(folderPath);
-        // Filter by folderPath if API returns all
-        // Assuming rules have 'destination_path' property
-        const folderRules = rules.filter(r => r.destination_path === folderPath);
+        const rules = await api.getRegexes(folderId);
+        // Filter by folderPath (robust comparison)
+        const normalize = p => p ? p.trim().replace(/\/+$/, '').toLowerCase() : '';
+        const targetPath = normalize(folderPath);
+        const folderRules = rules.filter(r => normalize(r.destination_path) === targetPath);
 
         if (folderRules.length === 0) {
             content.innerHTML = '<div class="text-sm text-muted italic">No existing rules for this folder.</div>';
@@ -474,8 +475,13 @@ function addRegexCard(filename) {
     const container = document.getElementById('regex-cards');
 
     // Pre-fill logic
-    // Escape [ and (
-    const escapedName = filename.replace(/[\[\(\]\)]/g, "\\$&"); // Escapes [ and ( with \
+    // Escape all regex special characters: \ ^ $ * + ? . ( ) | { } [ ]
+    // Using a robust escape function
+    const escapeRegex = (string) => {
+        return string.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
+    };
+
+    const escapedName = escapeRegex(filename);
     // Regex Pattern: Pre-fill with filename (escaped)
     const regexPattern = escapedName;
     // Rename Pattern: Pre-fill with filename (original)
