@@ -480,7 +480,7 @@ function addRegexCard(filename) {
     // Escape all regex special characters: \ ^ $ * + ? . ( ) | { } [ ]
     // Using a robust escape function
     const escapeRegex = (string) => {
-        return string.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
+        return string.replace(/[\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
     };
 
     const escapedName = escapeRegex(filename);
