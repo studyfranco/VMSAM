@@ -346,11 +346,13 @@ async function loadExistingRules(folderPath, folderId) {
     document.getElementById('existing-rules-icon').textContent = '▼';
 
     try {
-        const rules = await api.getRegexes(folderId);
-        // Filter by folderPath (robust comparison)
-        const normalize = p => p ? p.trim().replace(/\/+$/, '').toLowerCase() : '';
-        const targetPath = normalize(folderPath);
-        const folderRules = rules.filter(r => normalize(r.destination_path) === targetPath);
+        const response = await api.getRegexes(folderId);
+        // Correctly extract array from response object
+        const rules = response.regex_patterns || [];
+
+        // Remove client-side filtering as API already filters by folderId
+        // and rules do not contain destination_path
+        const folderRules = rules;
 
         if (folderRules.length === 0) {
             content.innerHTML = '<div class="text-sm text-muted italic">No existing rules for this folder.</div>';
