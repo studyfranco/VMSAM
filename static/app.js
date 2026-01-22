@@ -89,6 +89,14 @@ const api = {
         });
         if (!res.ok) throw new Error('Failed to create regex');
         return res.json();
+    },
+    async getRegexes(folderPath) {
+        // We assume the backend proxy /api/vmsam/regex_list returns all or filters.
+        // If the upstream api supports filtering by folder, we would pass it here.
+        // For now, let's fetch all and filter client side if needed, or just fetch all.
+        const res = await fetch('/api/vmsam/regex_list');
+        if (!res.ok) throw new Error('Failed to fetch regexes');
+        return res.json();
     }
 };
 
@@ -148,13 +156,18 @@ async function loadDirBrowser(path = '') {
             const isSelected = state.currentBaseDir === item.path;
             el.className = `dir-item ${isSelected ? 'selected' : ''}`;
 
+            // Row click creates selection
+            el.onclick = (e) => selectDir(item.path, e);
+            // Double click opens the directory
+            el.ondblclick = () => loadDirBrowser(item.path);
+
             el.innerHTML = `
-                <div class="dir-name flex-1" onclick="selectDir('${item.path}', event)">
+                <div class="dir-name flex-1">
                     <span>📁 ${item.name}</span>
                 </div>
                 <div class="dir-actions" style="opacity: 0.8;">
                     <button class="btn btn-sm btn-secondary" onclick="selectDir('${item.path}', event)">Select</button>
-                    <button class="btn btn-sm btn-secondary" onclick="loadDirBrowser('${item.path}')">Open →</button>
+                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); loadDirBrowser('${item.path}')">Open →</button>
                 </div>
             `;
             container.appendChild(el);
@@ -291,6 +304,9 @@ async function initRegexTab() {
                 document.getElementById('regex-work-area').style.pointerEvents = 'auto';
                 list.classList.add('hidden');
                 input.value = '';
+
+                // Load existing rules
+                loadExistingRules(f.destination_path);
             };
             list.appendChild(item);
         });
@@ -300,12 +316,83 @@ async function initRegexTab() {
     renderFolders('');
 }
 
+async function loadExistingRules(folderPath) {
+    const container = document.getElementById('existing-rules-container');
+    if (!container) {
+        // Inject container if not exists
+        const workArea = document.getElementById('regex-work-area');
+        const newContainer = document.createElement('div');
+        newContainer.id = 'existing-rules-container';
+        newContainer.className = 'mb-6 p-4 rounded border border-border bg-surface';
+        newContainer.innerHTML = `
+            <div onclick="toggleExistingRules()" class="flex justify-between items-center cursor-pointer select-none">
+                <h3 class="font-bold text-lg text-main">Existing Rules</h3>
+                <span id="existing-rules-icon">▼</span>
+            </div>
+            <div id="existing-rules-content" class="hidden mt-4 grid gap-4">
+                <div class="text-sm text-muted">Loading...</div>
+            </div>
+        `;
+        // Insert before the "Add New Rule" area/cards or at top
+        workArea.insertBefore(newContainer, workArea.firstChild);
+    }
+
+    const content = document.getElementById('existing-rules-content');
+    content.innerHTML = '<div class="text-sm text-muted">Loading...</div>';
+
+    // Ensure it's closed by default/reset state if desired, or keep user preference
+    // User requested "closed by default"
+    content.classList.add('hidden');
+    document.getElementById('existing-rules-icon').textContent = '▼';
+
+    try {
+        const rules = await api.getRegexes(folderPath);
+        // Filter by folderPath if API returns all
+        // Assuming rules have 'destination_path' property
+        const folderRules = rules.filter(r => r.destination_path === folderPath);
+
+        if (folderRules.length === 0) {
+            content.innerHTML = '<div class="text-sm text-muted italic">No existing rules for this folder.</div>';
+        } else {
+            content.innerHTML = '';
+            folderRules.forEach(rule => {
+                const el = document.createElement('div');
+                el.className = 'p-3 rounded bg-base border border-border/50 text-sm';
+                el.innerHTML = `
+                    <div class="font-mono text-accent mb-1">${rule.regex_pattern}</div>
+                    <div class="text-muted">→ ${rule.rename_pattern}</div>
+                `;
+                content.appendChild(el);
+            });
+        }
+    } catch (e) {
+        console.error('Error loading rules:', e);
+        content.innerHTML = `<div class="text-danger text-sm">Failed to load rules: ${e.message}</div>`;
+    }
+}
+
+function toggleExistingRules() {
+    const content = document.getElementById('existing-rules-content');
+    const icon = document.getElementById('existing-rules-icon');
+    if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.textContent = '▲';
+    } else {
+        content.classList.add('hidden');
+        icon.textContent = '▼';
+    }
+}
+
 function clearFolderSelection() {
     state.selectedFolderId = null;
     state.selectedFolderPath = null;
     document.getElementById('selected-folder-display').classList.add('hidden');
     document.getElementById('regex-work-area').style.opacity = '0.5';
     document.getElementById('regex-work-area').style.pointerEvents = 'none';
+
+    // Clear rules
+    const container = document.getElementById('existing-rules-container');
+    if (container) container.remove();
 }
 
 // File Modal
@@ -335,11 +422,32 @@ async function openFileModal() {
         });
         // Search Filter
         document.getElementById('file-search').oninput = (e) => {
-            const term = e.target.value.toLowerCase();
+            const val = e.target.value;
+            let regex = null;
+            try {
+                // Try to create regex from input (case insensitive)
+                regex = new RegExp(val, 'i');
+            } catch (e) {
+                // Invalid regex, regex stays null
+            }
+
             const rows = document.querySelectorAll('.file-row');
             rows.forEach(row => {
-                const text = row.querySelector('span').textContent.toLowerCase();
-                row.style.display = text.includes(term) ? 'flex' : 'none';
+                const text = row.querySelector('span').textContent;
+                let match = false;
+                if (regex) {
+                    match = regex.test(text);
+                } else {
+                    // Fallback to simple includes if regex is empty (matches all) or we decide to treat invalid regex as text search?
+                    // User requested "interpret text as Regex". If invalid, maybe don't match, or match nothing?
+                    // Let's fallback to includes if basic text, but if it looks like regex but fails?
+                    // Safest: if val is empty, match all. If val is invalid regex, maybe just text search?
+                    // Actually, "interpret text as Regular Expression" implies if I type ".*mkv", it should work.
+                    // If I type "[", it crashes new RegExp.
+                    // Let's do: if invalid regex, search as literal text.
+                    match = text.toLowerCase().includes(val.toLowerCase());
+                }
+                row.style.display = match ? 'flex' : 'none';
             });
         };
     } catch (e) {
@@ -365,6 +473,14 @@ function addRegexCard(filename) {
     const id = Date.now() + Math.random().toString(36).substr(2, 9);
     const container = document.getElementById('regex-cards');
 
+    // Pre-fill logic
+    // Escape [ and (
+    const escapedName = filename.replace(/[\[\(\]\)]/g, "\\$&"); // Escapes [ and ( with \
+    // Regex Pattern: Pre-fill with filename (escaped)
+    const regexPattern = escapedName;
+    // Rename Pattern: Pre-fill with filename (original)
+    const renamePattern = filename;
+
     const card = document.createElement('div');
     card.id = `card-${id}`;
     card.className = 'card mt-4';
@@ -378,12 +494,12 @@ function addRegexCard(filename) {
         <div class="grid-2">
             <div>
                 <label class="label">Regex Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
+                <input type="text" value="${regexPattern}" oninput="validateCard('${id}', '${filename}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
                 <div class="mt-2 text-xs text-muted validation-msg"></div>
             </div>
             <div>
                 <label class="label">Rename Pattern</label>
-                <input type="text" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
+                <input type="text" value="${renamePattern}" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
                 <div class="mt-2 text-xs text-muted rename-msg"></div>
             </div>
         </div>
@@ -401,13 +517,16 @@ function addRegexCard(filename) {
         </div>
 
         <!-- Card Footer -->
-        <div class="mt-4 pt-4 border-t border-border flex justify-end">
-            <button onclick="submitSingleRule('${id}')" class="btn btn-primary btn-sm">Save Rule</button>
+        <div class="mt-4 pt-4 border-t border-border flex justify-end gap-2">
+            <button onclick="submitSingleRule('${id}', true)" class="btn btn-secondary btn-sm">Save & Close</button>
+            <button onclick="submitSingleRule('${id}', false)" class="btn btn-primary btn-sm">Save Rule</button>
         </div>
     `;
 
     container.appendChild(card);
     state.regexCards.push({ id, filename, el: card });
+    // Run validation initially since we pre-filled
+    setTimeout(() => validateCard(id, filename), 0);
 }
 
 function removeCard(id) {
@@ -459,7 +578,7 @@ function validateCard(id, filename) {
     }
 }
 
-async function submitSingleRule(id) {
+async function submitSingleRule(id, closeOnSuccess = false) {
     const item = state.regexCards.find(c => c.id === id);
     if (!item) return;
     const card = item.el;
@@ -474,9 +593,6 @@ async function submitSingleRule(id) {
         return;
     }
 
-    // Check specific validation state if needed, or rely on visual cues
-    // Here we proceed if inputs have values
-
     const payload = {
         regex_pattern: regexVal,
         rename_pattern: renameVal,
@@ -488,18 +604,24 @@ async function submitSingleRule(id) {
     try {
         await api.createRegex(payload);
         showToast('Rule saved successfully!', 'success');
-        // Optional: Visual feedback like disabling button or changing text
-        const btn = card.querySelector('button.btn-primary');
-        if (btn) {
-            btn.textContent = 'Saved ✓';
-            btn.classList.remove('btn-primary');
-            btn.classList.add('btn-secondary'); // or checkmark style
-            setTimeout(() => {
-                btn.textContent = 'Save Rule';
-                btn.classList.add('btn-primary');
-                btn.classList.remove('btn-secondary');
-            }, 3000);
+
+        if (closeOnSuccess) {
+            removeCard(id);
+        } else {
+            // Optional: Visual feedback like disabling button or changing text
+            const btn = card.querySelector('button.btn-primary');
+            if (btn) {
+                btn.textContent = 'Saved ✓';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-secondary'); // or checkmark style
+                setTimeout(() => {
+                    btn.textContent = 'Save Rule';
+                    btn.classList.add('btn-primary');
+                    btn.classList.remove('btn-secondary');
+                }, 3000);
+            }
         }
+
     } catch (e) {
         showToast('Error saving rule: ' + e.message, 'error');
     }

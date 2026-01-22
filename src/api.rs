@@ -137,11 +137,30 @@ async fn proxy_create_folder(body: String) -> impl IntoResponse {
 // Proxy for creating regex
 #[handler]
 async fn proxy_create_regex(body: String) -> impl IntoResponse {
-     let client = reqwest::Client::new();
+    let client = reqwest::Client::new();
     let url = format!("{}/regex/", get_vmsam_host());
 
     match client.post(&url).header("Content-Type", "application/json").body(body).send().await {
          Ok(resp) => {
+             let status = resp.status();
+             let body = resp.bytes().await.unwrap_or_default();
+              Response::builder().status(status).body(Body::from(body))
+        },
+        Err(e) => {
+            Response::builder().status(StatusCode::BAD_GATEWAY).body(Body::from(e.to_string()))
+        }
+    }
+}
+
+
+// Proxy for listing regexes
+#[handler]
+async fn proxy_list_regex() -> impl IntoResponse {
+    let client = reqwest::Client::new();
+    let url = format!("{}/regex_folder/", get_vmsam_host());
+    
+    match client.get(&url).send().await {
+        Ok(resp) => {
              let status = resp.status();
              let body = resp.bytes().await.unwrap_or_default();
               Response::builder().status(status).body(Body::from(body))
@@ -173,4 +192,5 @@ pub fn routes() -> Route {
         .at("/vmsam/folders_list", poem::get(proxy_folders_list))
         .at("/vmsam/folders", poem::post(proxy_create_folder))
         .at("/vmsam/regex", poem::post(proxy_create_regex))
+        .at("/vmsam/regex_list", poem::get(proxy_list_regex))
 }
