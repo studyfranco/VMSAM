@@ -358,13 +358,28 @@ async function loadExistingRules(folderPath, folderId) {
             content.innerHTML = '<div class="text-sm text-muted italic">No existing rules for this folder.</div>';
         } else {
             content.innerHTML = '';
+
+            // Sort
+            folderRules.sort((a, b) => a.regex_pattern.localeCompare(b.regex_pattern));
+
             folderRules.forEach(rule => {
                 const el = document.createElement('div');
-                el.className = 'p-3 rounded bg-base border border-border/50 text-sm';
-                el.innerHTML = `
-                    <div class="font-mono text-accent mb-1">${rule.regex_pattern}</div>
-                    <div class="text-muted">→ ${rule.rename_pattern}</div>
-                `;
+                el.className = 'p-3 rounded bg-base border border-border/50 text-sm flex justify-between items-center mb-2';
+
+                const left = document.createElement('div');
+                const reg = document.createElement('div');
+                reg.className = 'font-mono text-accent mb-1';
+                reg.textContent = rule.regex_pattern; // Safe display
+                const ren = document.createElement('div');
+                ren.className = 'text-muted';
+                ren.textContent = `→ ${rule.rename_pattern}`; // Safe display
+                left.append(reg, ren);
+
+                const right = document.createElement('div');
+                right.className = 'badge badge-secondary text-xs'; // Adjust class as needed
+                right.textContent = `W: ${rule.weight}`;
+
+                el.append(left, right);
                 content.appendChild(el);
             });
         }
@@ -502,12 +517,12 @@ function addRegexCard(filename) {
         <div class="grid-2">
             <div>
                 <label class="label">Regex Pattern</label>
-                <input type="text" value="${regexPattern}" oninput="validateCard('${id}', '${filename}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
+                <input type="text" value="${regexPattern}" oninput="validateCard('${id}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
                 <div class="mt-2 text-xs text-muted validation-msg"></div>
             </div>
             <div>
                 <label class="label">Rename Pattern</label>
-                <input type="text" value="${renamePattern}" oninput="validateCard('${id}', '${filename}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
+                <input type="text" value="${renamePattern}" oninput="validateCard('${id}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
                 <div class="mt-2 text-xs text-muted rename-msg"></div>
             </div>
         </div>
@@ -534,7 +549,7 @@ function addRegexCard(filename) {
     container.appendChild(card);
     state.regexCards.push({ id, filename, el: card });
     // Run validation initially since we pre-filled
-    setTimeout(() => validateCard(id, filename), 0);
+    setTimeout(() => validateCard(id), 0);
 }
 
 function removeCard(id) {
@@ -543,7 +558,10 @@ function removeCard(id) {
     state.regexCards = state.regexCards.filter(c => c.id !== id);
 }
 
-function validateCard(id, filename) {
+function validateCard(id) {
+    const item = state.regexCards.find(c => c.id === id);
+    if (!item) return;
+    const filename = item.filename;
     const card = document.getElementById(`card-${id}`);
     const input = card.querySelector('.regex-input').value;
     const msg = card.querySelector('.validation-msg');
