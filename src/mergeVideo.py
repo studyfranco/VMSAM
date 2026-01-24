@@ -594,7 +594,8 @@ class compare_video(Thread):
 
             self.video_obj_1.wait_end_ffmpeg_progress_audio()
             self.video_obj_2.wait_end_ffmpeg_progress_audio()
-
+            
+            delay_Values = {}
             for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
                 for j in range(0,len(self.video_obj_2.tmpFiles['audio'])):
                     if f"{i}-{j}" not in ignore_audio_couple:
