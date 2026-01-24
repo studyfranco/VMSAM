@@ -158,9 +158,9 @@ class get_delay_second_method_thread(Thread):
     def run(self):
         result = second_correlation(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file)
         if result[0] == self.video_obj_1_tmp_file:
-            self.delay_values = result
+            self.delay_values = (self.video_obj_1_tmp_file, -result[1])
         elif result[0] == self.video_obj_2_tmp_file:
-            self.delay_values = result
+            self.delay_values = (self.video_obj_2_tmp_file, result[1])
         else:
             self.delay_values = result
 
@@ -581,11 +581,6 @@ class compare_video(Thread):
 
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
-            '''
-                TODO:
-                    protect the memory to overload
-            '''
-
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
             begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
@@ -611,7 +606,10 @@ class compare_video(Thread):
             delay_detected = []
             for key_audio, delay_list in delay_Values.items():
                 for delay in delay_list:
-                    delay_detected.append(delay[1])
+                    if delay[0] == self.video_obj_1.filePath:
+                        delay_detected.append(-delay[1])
+                    else:
+                        delay_detected.append(delay[1])
             return mean(delay_detected)
             
     def get_best_video(self,delay):
