@@ -215,7 +215,7 @@ class video():
                 self.remove_tmp_files(type_file="audio")
             self.tmpFiles['audio'] = nameFilesExtract
     
-            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn", "-sn"]
+            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn", "-sn"]
             codec_param = [] 
             if exportParam['Format'] == 'WAV':
                 if 'codec' in exportParam:
@@ -460,7 +460,7 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
     if not path.exists(name_out_file_tmp):
         raise FileNotFoundError(f"Extraction failed for {name_out_file_tmp}")
     
-    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", "3", "-nostdin", "-i",
+    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "3", "-nostdin", "-i",
                     name_out_file_tmp, "-af", f"loudnorm=i={target_i}:lra={target_lra}:tp={target_tp}:print_format=json",
                     "-f", "null", "-"])
     try:
@@ -490,7 +490,7 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
     else:
         filter_str = f"volume={gain_db:.2f}dB"
 
-    cmd_normalisation = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", "3", "-nostdin", "-i",
+    cmd_normalisation = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "3", "-nostdin", "-i",
                     name_out_file_tmp,
                     "-map", "0"]
     cmd_normalisation.extend(codec_param)
