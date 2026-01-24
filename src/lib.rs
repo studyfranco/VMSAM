@@ -21,6 +21,10 @@ const MIN_N_CAP: usize = 1 << 16; // min FFT size (64k)
 const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap for FFT size (~268M)
 const SAFETY_BYTES_PER_ELEMENT: usize = 18; // bytes per FFT "element" estimation
 
+/// Chunk size for parallel correlation (~4M samples = ~83 seconds at 48kHz)
+/// This keeps per-thread FFT buffers small (~64MB each) regardless of total file size
+const CHUNK_SIZE_SAMPLES: usize = 4_000_000;
+
 // ----------------------------------------------------------------------------
 // Memory Detection (PRESERVED from original)
 // ----------------------------------------------------------------------------
@@ -231,7 +235,6 @@ async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
 // ----------------------------------------------------------------------------
 
 /// Read entire audio via ffmpeg into Vec<i16> (mono, target sample rate).
-/// Uses ffmpeg to mix to mono and resample if needed. Returns (sr, samples).
 async fn read_full_pcm_i16(path: &Path, target_sr: u32) -> Result<(u32, Vec<i16>)> {
     let args = vec![
         "-threads".to_string(),
@@ -241,9 +244,9 @@ async fn read_full_pcm_i16(path: &Path, target_sr: u32) -> Result<(u32, Vec<i16>
         "-i".to_string(),
         path.to_string_lossy().into_owned(),
         "-ac".to_string(),
-        "1".to_string(),                          // downmix to mono
+        "1".to_string(),
         "-ar".to_string(),
-        target_sr.to_string(),                    // resample
+        target_sr.to_string(),
         "-f".to_string(),
         "s16le".to_string(),
         "-acodec".to_string(),
@@ -280,13 +283,17 @@ fn i16_to_f32(s: i16) -> f32 {
 }
 
 // ----------------------------------------------------------------------------
-// FFT-based Correlation (Parallelized with Rayon)
+// FFT-based Correlation (Parallelized with Rayon + Overlap-Add)
 // ----------------------------------------------------------------------------
 
-/// Correlate using parallel chunked processing.
-/// ref_samples: reference audio (i16, not reversed yet)
+/// Correlate using parallel Overlap-Add chunked processing.
+/// 
+/// CRITICAL: FFT size `n` is based on CHUNK_SIZE + ref_len, NOT total file size.
+/// This ensures each thread allocates small buffers (~32-64MB) regardless of file size.
+/// 
+/// ref_samples: reference audio (i16)
 /// target_samples: target audio (i16)
-/// Returns (fft_size_used, best_lag_samples)
+/// Returns (total_correlation_length, best_lag_samples)
 fn correlate_parallel(ref_samples: &[i16], target_samples: &[i16]) -> Result<(usize, usize)> {
     let m = ref_samples.len();
     let n_target = target_samples.len();
@@ -294,16 +301,22 @@ fn correlate_parallel(ref_samples: &[i16], target_samples: &[i16]) -> Result<(us
         anyhow::bail!("empty input for correlation");
     }
 
-    // Compute needed padsize for full correlation
-    let needed = m + n_target - 1;
-    let n = next_pow2(needed);
+    // Use fixed chunk size, but ensure it's at least as large as reference
+    let chunk_size = std::cmp::max(CHUNK_SIZE_SAMPLES, m);
+    
+    // FFT size based on CHUNK, not total file!
+    // n = next_pow2(chunk_size + m - 1) for linear convolution via FFT
+    let n = next_pow2(chunk_size + m - 1);
+    
+    // Total correlation length (for interpreting final result)
+    let total_corr_len = m + n_target - 1;
 
-    // Prepare FFT planner (thread-local planners will be used by rayon)
+    // Prepare FFT planner
     let mut planner = FftPlanner::<f32>::new();
     let fft = Arc::new(planner.plan_fft_forward(n));
     let ifft = Arc::new(planner.plan_fft_inverse(n));
 
-    // Pre-compute reference FFT (reversed for correlation)
+    // Pre-compute reference FFT (padded to chunk-based n)
     let mut ref_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); n];
     for (i, &s) in ref_samples.iter().enumerate() {
         ref_buf[i] = Complex32::new(i16_to_f32(s), 0.0);
@@ -311,38 +324,35 @@ fn correlate_parallel(ref_samples: &[i16], target_samples: &[i16]) -> Result<(us
     fft.process(&mut ref_buf);
     let ref_fft = Arc::new(ref_buf);
 
-    // Fixed chunk size for optimal work-stealing (~4M samples = ~8MB per chunk as i16)
-    // This allows Rayon's work-stealing to balance load effectively without massive temporary buffers
-    const CHUNK_SIZE_SAMPLES: usize = 4_000_000;
-    
-    // Ensure chunk is at least as large as reference (for valid correlation)
-    let chunk_size = std::cmp::max(CHUNK_SIZE_SAMPLES, m);
+    // Overlap-Add: step size ensures no peaks are missed at boundaries
+    // overlap = m - 1 samples, so step = chunk_size - (m - 1)
+    let overlap = m.saturating_sub(1);
+    let step = chunk_size.saturating_sub(overlap);
+    if step == 0 {
+        anyhow::bail!("chunk_size too small for reference length");
+    }
 
-    // Process in parallel chunks with overlap
-    let overlap = m - 1;
-
-    // Create chunk boundaries
-    let mut chunk_starts = Vec::new();
+    // Generate chunk start positions
+    let mut chunk_starts: Vec<usize> = Vec::new();
     let mut pos = 0;
     while pos < n_target {
         chunk_starts.push(pos);
-        pos += chunk_size.saturating_sub(overlap);
-        if pos + overlap >= n_target && pos < n_target {
-            // Last partial chunk
-            break;
-        }
+        pos += step;
     }
 
     // Process chunks in parallel
     let results: Vec<(f32, usize)> = chunk_starts
         .par_iter()
         .map(|&start| {
+            // Determine chunk bounds
             let end = std::cmp::min(start + chunk_size, n_target);
             let chunk = &target_samples[start..end];
             let chunk_len = chunk.len();
 
-            // Create local FFT buffer
+            // Allocate LOCAL buffer of size n (small, chunk-based!)
             let mut local_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); n];
+            
+            // Fill with chunk samples
             for (i, &s) in chunk.iter().enumerate() {
                 local_buf[i] = Complex32::new(i16_to_f32(s), 0.0);
             }
@@ -350,7 +360,7 @@ fn correlate_parallel(ref_samples: &[i16], target_samples: &[i16]) -> Result<(us
             // FFT of chunk
             fft.process(&mut local_buf);
 
-            // Multiply with conjugate of reference FFT
+            // Multiply with conjugate of reference FFT (correlation in freq domain)
             for i in 0..n {
                 let conj_ref = Complex32::new(ref_fft[i].re, -ref_fft[i].im);
                 local_buf[i] *= conj_ref;
@@ -359,45 +369,45 @@ fn correlate_parallel(ref_samples: &[i16], target_samples: &[i16]) -> Result<(us
             // Inverse FFT
             ifft.process(&mut local_buf);
 
-            // Find max in valid region
+            // Find max in valid correlation output region
+            // Valid indices: 0 to (chunk_len + m - 2), but capped at n
+            let valid_len = std::cmp::min(chunk_len + m - 1, n);
+            
             let mut local_max = f32::NEG_INFINITY;
             let mut local_max_idx = 0usize;
 
-            // Valid output region for this chunk
-            let valid_end = std::cmp::min(chunk_len + m - 1, n);
-            for i in 0..valid_end {
-                let mag = (local_buf[i].re * local_buf[i].re + local_buf[i].im * local_buf[i].im).sqrt() / (n as f32);
+            for i in 0..valid_len {
+                // Normalize by n (IFFT scaling)
+                let val = local_buf[i].re / (n as f32);
+                let mag = val.abs();
                 if mag > local_max {
                     local_max = mag;
                     local_max_idx = i;
                 }
             }
 
-            // Adjust index to global position
-            let global_idx = if local_max_idx >= m - 1 {
-                start + (local_max_idx - (m - 1))
-            } else {
-                // Negative lag relative to chunk start
-                start.saturating_sub(m - 1 - local_max_idx)
-            };
+            // Translate local index to GLOBAL sample position
+            // The correlation output at local index `i` corresponds to:
+            // - lag = i - (m - 1) relative to chunk start
+            // - global_lag = start + i - (m - 1) relative to target start
+            // But we want the raw correlation index (as if we did full correlation)
+            // global_correlation_index = start + local_max_idx
+            let global_idx = start + local_max_idx;
 
             (local_max, global_idx)
         })
         .collect();
 
-    // Find global maximum
+    // Find global maximum across all chunks
     let (_, best_idx) = results
         .into_iter()
         .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
         .unwrap_or((0.0, 0));
 
-    Ok((n, best_idx))
+    Ok((total_corr_len, best_idx))
 }
 
 /// Overlap-save correlation streaming for memory-constrained scenarios.
-/// ref_samples_rev: reference audio (i16, REVERSED)
-/// stream_path: path to stream target audio from
-/// Returns (fft_size_used, best_lag_samples)
 async fn correlate_overlap_save_i16(
     ref_samples_rev: &[i16],
     stream_path: &Path,
@@ -407,12 +417,13 @@ async fn correlate_overlap_save_i16(
     let m = ref_samples_rev.len();
     if m == 0 { anyhow::bail!("empty reference"); }
 
-    // Choose n: largest power of two <= max_n_cap but >= m
-    let mut n = next_pow2_floor(max_n_cap);
-    if n < m {
-        n = next_pow2(m);
-        if n > max_n_cap {
-            anyhow::bail!("reference too large for overlap-save with cap (m={}, cap={})", m, max_n_cap);
+    // Choose n: based on reasonable chunk, not total file
+    let chunk_size = std::cmp::max(CHUNK_SIZE_SAMPLES, m);
+    let mut n = next_pow2(chunk_size + m - 1);
+    if n > max_n_cap {
+        n = next_pow2_floor(max_n_cap);
+        if n < m * 2 {
+            anyhow::bail!("reference too large for streaming FFT (m={}, cap={})", m, max_n_cap);
         }
     }
 
@@ -420,7 +431,7 @@ async fn correlate_overlap_save_i16(
     let block_b = n.saturating_sub(m).saturating_add(1);
     if block_b == 0 { anyhow::bail!("computed block size is zero"); }
 
-    // Prepare planner and precompute ref_fft at n
+    // Prepare planner and precompute ref_fft
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(n);
     let ifft = planner.plan_fft_inverse(n);
@@ -432,7 +443,7 @@ async fn correlate_overlap_save_i16(
     fft.process(&mut ref_buf);
     let ref_fft = ref_buf;
 
-    // Spawn ffmpeg for stream_path (s16le format)
+    // Spawn ffmpeg (s16le format)
     let args = vec![
         "-threads".to_string(),
         "3".to_string(),
@@ -463,7 +474,7 @@ async fn correlate_overlap_save_i16(
     // Buffers for overlap-save
     let overlap_len = m.saturating_sub(1);
     let mut overlap: Vec<i16> = vec![0i16; overlap_len];
-    let mut local_bytes: Vec<u8> = vec![0u8; block_b.saturating_mul(2)]; // 2 bytes per i16
+    let mut local_bytes: Vec<u8> = vec![0u8; block_b.saturating_mul(2)];
     let mut in_buf: Vec<Complex32> = vec![Complex32::new(0.0, 0.0); n];
 
     let mut maxv = f32::NEG_INFINITY;
@@ -475,7 +486,7 @@ async fn correlate_overlap_save_i16(
         if nread == 0 { break; }
         let samples_read = nread / 2;
 
-        // Zero in_buf
+        // Zero buffer
         for v in in_buf.iter_mut() { *v = Complex32::new(0.0, 0.0); }
 
         // Copy overlap
@@ -483,7 +494,7 @@ async fn correlate_overlap_save_i16(
             in_buf[i] = Complex32::new(i16_to_f32(v), 0.0);
         }
 
-        // Copy block samples
+        // Copy new samples
         for i in 0..samples_read {
             let base = i * 2;
             let bytes = [local_bytes[base], local_bytes[base+1]];
@@ -494,7 +505,7 @@ async fn correlate_overlap_save_i16(
             }
         }
 
-        // FFT input
+        // FFT
         fft.process(&mut in_buf);
 
         // Multiply with ref_fft
@@ -505,7 +516,7 @@ async fn correlate_overlap_save_i16(
         // Inverse FFT
         ifft.process(&mut in_buf);
 
-        // Output region start = m-1
+        // Find max in output region
         let start_idx = m.saturating_sub(1);
         for i in 0..samples_read {
             let idx = start_idx + i;
@@ -518,7 +529,7 @@ async fn correlate_overlap_save_i16(
             }
         }
 
-        // Update overlap: keep last overlap_len samples
+        // Update overlap
         let mut tail: Vec<i16> = Vec::with_capacity(overlap_len + samples_read);
         tail.extend_from_slice(&overlap);
         for i in 0..samples_read {
@@ -550,7 +561,7 @@ async fn correlate_overlap_save_i16(
 // Public API
 // ----------------------------------------------------------------------------
 
-/// Top-level function exposed to main.rs: choose fast parallel FFT if memory allows, else overlap-save streaming.
+/// Top-level correlation function: parallel if memory allows, streaming otherwise.
 pub async fn second_correlation_async(in1: &str, in2: &str, _pool_capacity: usize) -> Result<CorrelationResult> {
     // Probe both files
     let p1 = Path::new(in1);
@@ -565,39 +576,39 @@ pub async fn second_correlation_async(in1: &str, in2: &str, _pool_capacity: usiz
     let est1 = (sr1 as f64 * dur1).round() as usize;
     let est2 = (sr2 as f64 * dur2).round() as usize;
 
-    // Compute memory-based cap
-    let max_n_cap = compute_max_n_cap();
-
-    // Estimate needed N for full FFT
-    let needed_full = est1.saturating_add(est2).saturating_sub(1);
-    let n_full = next_pow2(needed_full);
-
-    // Compute estimated bytes for full in-memory:
-    // - 2 bytes per sample for i16 storage (est1 + est2)
-    // - Plus FFT buffers (Complex32 = 8 bytes per element, * 2 for forward buffers)
-    let storage_bytes = (est1 + est2) * 2; // i16 storage
-    let fft_bytes = n_full * 8 * 3; // ref_fft + local_buf + overhead
-    let bytes_needed = storage_bytes + fft_bytes;
+    // Memory check: can we load both files as i16?
+    // Each sample = 2 bytes, plus FFT overhead per-thread
+    let storage_bytes = (est1 + est2) * 2;
+    let num_threads = rayon::current_num_threads();
+    let chunk_fft_size = next_pow2(CHUNK_SIZE_SAMPLES + std::cmp::min(est1, est2));
+    let per_thread_fft_bytes = chunk_fft_size * 8 * 2; // Complex32 = 8 bytes, 2 buffers
+    let total_fft_bytes = num_threads * per_thread_fft_bytes;
+    let bytes_needed = storage_bytes + total_fft_bytes;
 
     let avail = detect_available_memory_bytes();
     let usable = avail.saturating_mul(USABLE_PERCENT) / 100;
 
-    if bytes_needed <= usable && n_full <= ABS_MAX_N_CAP {
+    if bytes_needed <= usable {
         // Fast path: load both files fully (as i16) and run parallel correlation
         let (_sr_a, a) = read_full_pcm_i16(p1, target_sr).await?;
         let (_sr_b, b) = read_full_pcm_i16(p2, target_sr).await?;
 
-        let (padsize, xmax) = correlate_parallel(&a, &b)?;
+        let (total_len, xmax) = correlate_parallel(&a, &b)?;
         let fs_f = target_sr as f64;
-        let (file_cut, offset_seconds) = if xmax > padsize / 2 {
-            (in2.to_string(), (padsize - xmax) as f64 / fs_f)
+        
+        // Determine which file to cut based on correlation peak position
+        let (file_cut, offset_seconds) = if xmax > total_len / 2 {
+            (in2.to_string(), (total_len - xmax) as f64 / fs_f)
         } else {
-            (in1.to_string(), (xmax) as f64 / fs_f)
+            (in1.to_string(), xmax as f64 / fs_f)
         };
         return Ok(CorrelationResult { file: file_cut, offset_seconds });
     }
 
-    // Otherwise streaming: choose shorter file as reference to load fully
+    // Slow path: streaming for memory-constrained scenarios
+    let max_n_cap = compute_max_n_cap();
+    
+    // Choose shorter file as reference
     let (ref_path, stream_path, _ref_est) = if est1 <= est2 {
         (p1, p2, est1)
     } else {
@@ -615,16 +626,14 @@ pub async fn second_correlation_async(in1: &str, in2: &str, _pool_capacity: usiz
     let m = ref_samples.len();
     if m > max_n_cap {
         anyhow::bail!(
-            "reference is too large for streaming FFT given current memory cap (m={}, cap={}). Consider increasing container memory.",
-            m,
-            max_n_cap
+            "reference too large for streaming (m={}, cap={})",
+            m, max_n_cap
         );
     }
 
-    // Run overlap-save with chosen n
+    // Run overlap-save streaming
     let (_padsize, xmax_samples) = correlate_overlap_save_i16(&ref_samples, stream_path, target_sr, max_n_cap).await?;
 
-    // Interpret result
     let fs_f = target_sr as f64;
     let file_cut = if ref_path == p1 { in2.to_string() } else { in1.to_string() };
     let offset_seconds = (xmax_samples as f64) / fs_f;
@@ -668,6 +677,18 @@ mod tests {
     }
 
     #[test]
+    fn test_chunk_fft_size_is_bounded() {
+        // Verify FFT size is based on CHUNK, not arbitrary large files
+        let ref_len = 1_000_000; // 1M samples reference
+        let chunk_size = std::cmp::max(CHUNK_SIZE_SAMPLES, ref_len);
+        let n = next_pow2(chunk_size + ref_len - 1);
+        
+        // Should be ~8M (2^23), NOT 2^28 or larger
+        assert!(n <= 1 << 24, "FFT size {} is too large!", n);
+        assert!(n >= chunk_size, "FFT size {} is too small!", n);
+    }
+
+    #[test]
     fn test_correlate_parallel_simple() {
         // Simple test: find where a pattern appears in a signal
         let reference: Vec<i16> = vec![1000, 2000, 3000, 2000, 1000];
@@ -680,13 +701,15 @@ mod tests {
         let result = correlate_parallel(&reference, &target);
         assert!(result.is_ok());
         let (_n, best_idx) = result.unwrap();
-        // The correlation peak should be around offset 50
-        assert!((best_idx as isize - 50).abs() <= 2, "Expected peak near 50, got {}", best_idx);
+        // The correlation peak should be around offset 50 + (ref_len - 1) = 54
+        // (correlation index = target_offset + ref_len - 1 for perfect match)
+        let expected = 50 + reference.len() - 1;
+        assert!((best_idx as isize - expected as isize).abs() <= 2, 
+            "Expected peak near {}, got {}", expected, best_idx);
     }
 
     #[test]
     fn test_memory_detection_runs() {
-        // Just ensure it doesn't panic
         let mem = detect_available_memory_bytes();
         assert!(mem > 0);
     }
