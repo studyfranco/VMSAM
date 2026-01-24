@@ -870,7 +870,7 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
     try:
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,6,45)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,6,120)
         if exitCode == 0:
             md5 = stdout.decode("utf-8").strip().split("=")[-1]
             return (streamID, md5)
