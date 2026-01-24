@@ -160,7 +160,7 @@ class get_delay_second_method_thread(Thread):
         if result[0] == self.video_obj_1_tmp_file:
             self.delay_values = (self.video_obj_1_tmp_file, -result[1])
         elif result[0] == self.video_obj_2_tmp_file:
-            self.delay_values = (self.video_obj_2_tmp_file, result[1])
+            self.delay_values = (self.video_obj_1_tmp_file, result[1])
         else:
             self.delay_values = result
 
@@ -600,16 +600,17 @@ class compare_video(Thread):
                     if f"{i}-{j}" not in ignore_audio_couple:
                         delay_between_two_audio = []
                         delay_Values[f"{i}-{j}"] = delay_between_two_audio
-                        delay_between_two_audio.append(second_correlation(self.video_obj_1.tmpFiles['audio'][i][0],self.video_obj_2.tmpFiles['audio'][j][0]))
+                        result = second_correlation(self.video_obj_1.tmpFiles['audio'][i][0],self.video_obj_2.tmpFiles['audio'][j][0])
+                        if result[0] == self.video_obj_1.tmpFiles['audio'][i][0]:
+                            delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], -result[1]))
+                        if result[0] == self.video_obj_2.tmpFiles['audio'][j][0]:
+                            delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], result[1]))
             
             gc.collect()
             delay_detected = []
             for key_audio, delay_list in delay_Values.items():
                 for delay in delay_list:
-                    if delay[0] == self.video_obj_1.filePath:
-                        delay_detected.append(-delay[1])
-                    else:
-                        delay_detected.append(delay[1])
+                    delay_detected.append(delay[1])
             return mean(delay_detected)
             
     def get_best_video(self,delay):
