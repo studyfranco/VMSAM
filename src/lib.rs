@@ -25,8 +25,8 @@ pub struct CorrelationResult {
 // CONFIGURATION CONSTANTS
 // ============================================================================
 
-/// Duration threshold in seconds (20 minutes)
-const DURATION_THRESHOLD_SECS: f64 = 20.0 * 60.0;
+/// Duration threshold in seconds (25 minutes)
+const DURATION_THRESHOLD_SECS: f64 = 25.0 * 60.0;
 
 /// Forced sample rate for long files (8kHz = 6x reduction from 48kHz)
 const FORCE_SAMPLE_RATE_LONG: u32 = 8000;
@@ -225,9 +225,9 @@ fn correlate_full_r2c(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
 // PARALLEL ENGINE (Head-Only Sync with Overlap-Save)
 // ============================================================================
 
-/// Maximum reference duration for parallel mode (5 minutes at 8kHz = 2,400,000 samples)
-/// Using first 5 minutes is sufficient to establish synchronization
-const MAX_REF_SAMPLES_PARALLEL: usize = 5 * 60 * FORCE_SAMPLE_RATE_LONG as usize;
+/// Maximum reference duration for parallel mode (25 minutes at 8kHz = 12,000,000 samples)
+/// Using first 25 minutes is sufficient to establish synchronization
+const MAX_REF_SAMPLES_PARALLEL: usize = 25 * 60 * FORCE_SAMPLE_RATE_LONG as usize;
 
 /// Parallel chunked correlation with "Head-Only Sync" strategy
 /// 
