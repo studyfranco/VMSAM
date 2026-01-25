@@ -21,9 +21,9 @@ const MIN_N_CAP: usize = 1 << 16; // min FFT size (64k)
 const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap for FFT size (~268M)
 const SAFETY_BYTES_PER_ELEMENT: usize = 18; // bytes per FFT "element" estimation
 
-/// Chunk size for parallel correlation (~4M samples = ~83 seconds at 48kHz)
-/// This keeps per-thread FFT buffers small (~64MB each) regardless of total file size
-const CHUNK_SIZE_SAMPLES: usize = 4_000_000;
+/// Chunk size for parallel correlation (2^20 = ~1M samples = ~22 seconds at 48kHz)
+/// This keeps per-thread FFT buffers small (~16MB each) to fit in L3 cache
+const CHUNK_SIZE_SAMPLES: usize = 1 << 20; // 1,048,576 samples
 
 // ----------------------------------------------------------------------------
 // Memory Detection (PRESERVED from original)
@@ -593,14 +593,33 @@ pub async fn second_correlation_async(in1: &str, in2: &str, _pool_capacity: usiz
         let (_sr_a, a) = read_full_pcm_i16(p1, target_sr).await?;
         let (_sr_b, b) = read_full_pcm_i16(p2, target_sr).await?;
 
-        let (total_len, xmax) = correlate_parallel(&a, &b)?;
+        // CRITICAL: Always use SMALLER vector as reference for efficient chunking
+        // The larger vector gets split into parallel chunks, the smaller one is the FFT kernel
+        let (ref_samples, target_samples, ref_is_file1) = if a.len() <= b.len() {
+            (&a, &b, true)  // a is reference (file1)
+        } else {
+            (&b, &a, false) // b is reference (file2)
+        };
+
+        let (total_len, xmax) = correlate_parallel(ref_samples, target_samples)?;
         let fs_f = target_sr as f64;
         
         // Determine which file to cut based on correlation peak position
+        // Account for whether we swapped the inputs
         let (file_cut, offset_seconds) = if xmax > total_len / 2 {
-            (in2.to_string(), (total_len - xmax) as f64 / fs_f)
+            let offset = (total_len - xmax) as f64 / fs_f;
+            if ref_is_file1 {
+                (in2.to_string(), offset)
+            } else {
+                (in1.to_string(), offset)
+            }
         } else {
-            (in1.to_string(), xmax as f64 / fs_f)
+            let offset = xmax as f64 / fs_f;
+            if ref_is_file1 {
+                (in1.to_string(), offset)
+            } else {
+                (in2.to_string(), offset)
+            }
         };
         return Ok(CorrelationResult { file: file_cut, offset_seconds });
     }
