@@ -16,7 +16,7 @@ pub struct CorrelationResult {
 }
 
 /// Tuning constants
-const USABLE_PERCENT: usize = 90; // use 85% of detected available memory
+const USABLE_PERCENT: usize = 80; // use 85% of detected available memory
 const MIN_N_CAP: usize = 1 << 16; // min FFT size (16k)
 const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap for FFT size (~67M)
 const SAFETY_BYTES_PER_ELEMENT: usize = 18; // bytes per FFT "element" estimation (Complex32 * 2 + headroom)
@@ -63,7 +63,7 @@ async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
             }
         }
     }
-    Ok((sr.unwrap_or(48000), dur.unwrap_or(0.0)))
+    Ok((sr.unwrap_or(44100), dur.unwrap_or(0.0)))
 }
 
 /// Detect cgroup memory limit (v2 or v1) if present. Returns Some(limit_bytes) or None if no concrete limit.
@@ -218,6 +218,8 @@ fn next_pow2_floor(n: usize) -> usize {
 /// Uses ffmpeg to mix to mono and resample if needed. Returns (sr, samples).
 async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>)> {
     let args = vec![
+        "-probesize".to_string(),
+        "500M".to_string(),
         "-threads".to_string(),
         "3".to_string(),
         "-vn".to_string(),
