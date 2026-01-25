@@ -222,141 +222,137 @@ fn correlate_full_r2c(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
 }
 
 // ============================================================================
-// PARALLEL ENGINE (Chunked Correlation with Segmented Reference)
+// PARALLEL ENGINE (Head-Only Sync with Overlap-Save)
 // ============================================================================
 
-/// Shared FFT context for parallel correlation (thread-safe via Arc)
-struct ParallelFftContext {
-    n: usize,
-    spectrum_len: usize,
-    r2c: Arc<dyn realfft::RealToComplex<f32>>,
-    c2r: Arc<dyn realfft::ComplexToReal<f32>>,
-}
+/// Maximum reference duration for parallel mode (5 minutes at 8kHz = 2,400,000 samples)
+/// Using first 5 minutes is sufficient to establish synchronization
+const MAX_REF_SAMPLES_PARALLEL: usize = 5 * 60 * FORCE_SAMPLE_RATE_LONG as usize;
 
-impl ParallelFftContext {
-    fn new(n: usize) -> Self {
-        let mut planner = RealFftPlanner::<f32>::new();
-        let r2c = planner.plan_fft_forward(n);
-        let c2r = planner.plan_fft_inverse(n);
-        Self {
-            n,
-            spectrum_len: n / 2 + 1,
-            r2c,
-            c2r,
-        }
-    }
-}
-
-/// Compute correlation for a single chunk against reference spectrum
-fn correlate_chunk(
-    ctx: &ParallelFftContext,
-    chunk: &[f32],
-    ref_spectrum: &[Complex32],
-) -> Result<Vec<f32>> {
-    let mut input = vec![0.0f32; ctx.n];
-    input[..chunk.len()].copy_from_slice(chunk);
-
-    let mut spectrum = vec![Complex32::new(0.0, 0.0); ctx.spectrum_len];
-
-    // Forward R2C
-    ctx.r2c
-        .process(&mut input, &mut spectrum)
-        .map_err(|e| anyhow::anyhow!("R2C chunk FFT failed: {:?}", e))?;
-
-    // Multiply with conjugate of reference
-    for i in 0..ctx.spectrum_len {
-        let conj_ref = Complex32::new(ref_spectrum[i].re, -ref_spectrum[i].im);
-        spectrum[i] *= conj_ref;
-    }
-
-    // Inverse C2R
-    let mut result = vec![0.0f32; ctx.n];
-    ctx.c2r
-        .process(&mut spectrum, &mut result)
-        .map_err(|e| anyhow::anyhow!("C2R chunk IFFT failed: {:?}", e))?;
-
-    Ok(result)
-}
-
-/// Parallel chunked correlation with segmented reference
-/// Guarantees 100% CPU utilization by splitting both target and reference
+/// Parallel chunked correlation with "Head-Only Sync" strategy
+/// 
+/// Algorithm:
+/// 1. Truncate reference to first 5 minutes (keeps kernel small)
+/// 2. Precompute reference spectrum once (constant kernel)
+/// 3. Chunk target into overlapping blocks using overlap-save
+/// 4. Process all chunks in parallel against the same reference spectrum
+/// 5. Find global maximum correlation peak
 fn correlate_parallel(reference: &[f32], target: &[f32]) -> Result<(usize, usize)> {
     if reference.is_empty() || target.is_empty() {
         anyhow::bail!("empty input for parallel correlation");
     }
 
+    // Step 1: Truncate reference to max 5 minutes (Head-Only Sync)
+    let ref_len = reference.len().min(MAX_REF_SAMPLES_PARALLEL);
+    let ref_truncated = &reference[..ref_len];
+    
+    if ref_len < reference.len() {
+        eprintln!(
+            "[INFO] Reference truncated from {} to {} samples (5min head) for parallel correlation",
+            reference.len(),
+            ref_len
+        );
+    }
+
+    // Step 2: Choose FFT size for overlap-save
+    // N must be >= ref_len + chunk_size - 1 for valid linear convolution
+    // Using chunk_size = N - ref_len + 1 (valid output samples per block)
     let chunk_size = CHUNK_SIZE_SAMPLES;
-    let n = next_pow2(chunk_size * 2); // Enough room for overlap-add
+    let n = next_pow2(ref_len + chunk_size);
     let spectrum_len = n / 2 + 1;
+    
+    // Valid output length per chunk (overlap-save)
+    let valid_len = n - ref_len + 1;
+    
+    // Overlap length (samples to carry from previous chunk)
+    let overlap = ref_len - 1;
 
-    // Setup FFT context
-    let ctx = Arc::new(ParallelFftContext::new(n));
+    // Step 3: Precompute reference spectrum (constant kernel for all workers)
+    let mut planner = RealFftPlanner::<f32>::new();
+    let r2c = planner.plan_fft_forward(n);
+    
+    let mut ref_input = vec![0.0f32; n];
+    ref_input[..ref_len].copy_from_slice(ref_truncated);
+    
+    let mut ref_spectrum = vec![Complex32::new(0.0, 0.0); spectrum_len];
+    r2c.process(&mut ref_input, &mut ref_spectrum)
+        .map_err(|e| anyhow::anyhow!("R2C FFT for reference failed: {:?}", e))?;
+    
+    // Share reference spectrum across all threads
+    let ref_spectrum = Arc::new(ref_spectrum);
 
-    // Determine if we need to segment the reference
-    let ref_segment_threshold = chunk_size / 2;
-    let ref_segments: Vec<&[f32]> = if reference.len() > ref_segment_threshold {
-        // Split reference into overlapping segments for better parallelism
-        reference
-            .chunks(ref_segment_threshold)
-            .collect()
-    } else {
-        vec![reference]
-    };
+    // Step 4: Create overlapping chunks of target (overlap-save)
+    // Each chunk starts at (i * valid_len) but includes 'overlap' samples from before
+    let mut chunks: Vec<(usize, Vec<f32>)> = Vec::new();
+    let mut pos: usize = 0;
+    
+    while pos < target.len() {
+        // Chunk start position in original target (for result indexing)
+        let chunk_start = pos;
+        
+        // Build chunk with overlap from previous
+        let mut chunk = vec![0.0f32; n];
+        let start_with_overlap = pos.saturating_sub(overlap);
+        let samples_to_copy = (target.len() - start_with_overlap).min(n);
+        
+        chunk[..samples_to_copy].copy_from_slice(&target[start_with_overlap..start_with_overlap + samples_to_copy]);
+        
+        chunks.push((chunk_start, chunk));
+        
+        // Advance by valid_len samples
+        pos += valid_len;
+    }
 
-    // Precompute spectra for all reference segments
-    let ref_spectra: Vec<Vec<Complex32>> = ref_segments
+    // Step 5: Parallel correlation of all chunks
+    let results: Vec<(usize, f32)> = chunks
         .par_iter()
-        .map(|seg| {
-            let mut planner = RealFftPlanner::<f32>::new();
-            let r2c = planner.plan_fft_forward(n);
-
-            let mut input = vec![0.0f32; n];
-            input[..seg.len()].copy_from_slice(seg);
-
-            let mut spectrum = vec![Complex32::new(0.0, 0.0); spectrum_len];
-            r2c.process(&mut input, &mut spectrum).ok();
-            spectrum
-        })
-        .collect();
-
-    // Split target into chunks
-    let target_chunks: Vec<(usize, &[f32])> = target
-        .chunks(chunk_size)
-        .enumerate()
-        .map(|(i, chunk)| (i * chunk_size, chunk))
-        .collect();
-
-    // Parallel correlation: each (chunk, ref_segment) pair
-    let results: Vec<(usize, f32)> = target_chunks
-        .par_iter()
-        .flat_map(|(chunk_offset, chunk)| {
-            ref_spectra
-                .par_iter()
+        .filter_map(|(chunk_start, chunk_data)| {
+            // Each thread creates its own FFT planner (they cache internally)
+            let mut local_planner = RealFftPlanner::<f32>::new();
+            let local_r2c = local_planner.plan_fft_forward(n);
+            let local_c2r = local_planner.plan_fft_inverse(n);
+            
+            // Forward FFT of chunk
+            let mut chunk_input = chunk_data.clone();
+            let mut chunk_spectrum = vec![Complex32::new(0.0, 0.0); spectrum_len];
+            
+            if local_r2c.process(&mut chunk_input, &mut chunk_spectrum).is_err() {
+                return None;
+            }
+            
+            // Cross-correlation: chunk * conj(ref)
+            for i in 0..spectrum_len {
+                let conj_ref = Complex32::new(ref_spectrum[i].re, -ref_spectrum[i].im);
+                chunk_spectrum[i] *= conj_ref;
+            }
+            
+            // Inverse FFT
+            let mut corr_result = vec![0.0f32; n];
+            if local_c2r.process(&mut chunk_spectrum, &mut corr_result).is_err() {
+                return None;
+            }
+            
+            // Find max in valid region (overlap-save: skip first 'overlap' samples)
+            // But adjust so global index is correct
+            let offset_in_chunk = if *chunk_start == 0 { 0 } else { overlap };
+            let valid_start = offset_in_chunk;
+            let valid_end = (valid_start + valid_len).min(corr_result.len());
+            
+            let (local_idx, local_max) = corr_result[valid_start..valid_end]
+                .iter()
                 .enumerate()
-                .filter_map(|(seg_idx, ref_spectrum)| {
-                    let seg_offset = seg_idx * ref_segment_threshold;
-                    match correlate_chunk(&ctx, chunk, ref_spectrum) {
-                        Ok(corr) => {
-                            // Find local max in this correlation result
-                            let (local_idx, local_max) = corr
-                                .iter()
-                                .enumerate()
-                                .map(|(i, &v)| (i, v.abs()))
-                                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-                                .unwrap_or((0, 0.0));
-                            
-                            // Global sample index
-                            let global_idx = chunk_offset + local_idx;
-                            Some((global_idx, local_max))
-                        }
-                        Err(_) => None,
-                    }
-                })
-                .collect::<Vec<_>>()
+                .map(|(i, &v)| (i, v.abs()))
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                .unwrap_or((0, 0.0));
+            
+            // Global sample index in target
+            let global_idx = chunk_start + local_idx;
+            
+            Some((global_idx, local_max))
         })
         .collect();
 
-    // Find global maximum across all results
+    // Step 6: Find global maximum across all chunks
     let (best_idx, _best_val) = results
         .into_iter()
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
