@@ -21,7 +21,7 @@ import json
 import gc
 from decimal import *
 
-max_delay_variance_second_method = 0.005
+max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
 
 errors_merge = []
@@ -581,31 +581,37 @@ class compare_video(Thread):
 
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
-            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
-            begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
-            self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+            if int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method) < 2400:
+                if int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method) < 1500:
+                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
+                    self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+                else:
+                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(1500))]])
+                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
+                    self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(1500))]])
+                    
+                self.audioParam['codec'] = old_codec
+                self.audioParam['Channels'] = old_channel_number
+                if old_sampling_rate == None:
+                    del self.audioParam['SamplingRate']
+                else:
+                    self.audioParam['SamplingRate'] = old_sampling_rate
 
-            self.audioParam['codec'] = old_codec
-            self.audioParam['Channels'] = old_channel_number
-            if old_sampling_rate == None:
-                del self.audioParam['SamplingRate']
-            else:
-                self.audioParam['SamplingRate'] = old_sampling_rate
+                delay_Values = {}
+                self.video_obj_1.wait_end_ffmpeg_progress_audio()
+                self.video_obj_2.wait_end_ffmpeg_progress_audio()
 
-            delay_Values = {}
-            self.video_obj_1.wait_end_ffmpeg_progress_audio()
-            self.video_obj_2.wait_end_ffmpeg_progress_audio()
-
-            for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
-                for j in range(0,len(self.video_obj_2.tmpFiles['audio'])):
-                    if f"{i}-{j}" not in ignore_audio_couple:
-                        delay_between_two_audio = []
-                        delay_Values[f"{i}-{j}"] = delay_between_two_audio
-                        result = second_correlation(self.video_obj_1.tmpFiles['audio'][i][0],self.video_obj_2.tmpFiles['audio'][j][0])
-                        if result[0] == self.video_obj_1.tmpFiles['audio'][i][0]:
-                            delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], -result[1]))
-                        if result[0] == self.video_obj_2.tmpFiles['audio'][j][0]:
-                            delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], result[1]))
+                for i in range(0,len(self.video_obj_1.tmpFiles['audio'])):
+                    for j in range(0,len(self.video_obj_2.tmpFiles['audio'])):
+                        if f"{i}-{j}" not in ignore_audio_couple:
+                            delay_between_two_audio = []
+                            delay_Values[f"{i}-{j}"] = delay_between_two_audio
+                            result = second_correlation(self.video_obj_1.tmpFiles['audio'][i][0],self.video_obj_2.tmpFiles['audio'][j][0])
+                            if result[0] == self.video_obj_1.tmpFiles['audio'][i][0]:
+                                delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], -result[1]))
+                            if result[0] == self.video_obj_2.tmpFiles['audio'][j][0]:
+                                delay_between_two_audio.append((self.video_obj_1.tmpFiles['audio'][i][0], result[1]))
             
             gc.collect()
             delay_detected = []
