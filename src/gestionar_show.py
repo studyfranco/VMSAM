@@ -18,7 +18,7 @@ import traceback
 episode_pattern_insert = "{<episode>}"
 parrallel_jobs = None
 
-def process_rejected_files(file, folder_id, folder_path, episode_number, session):
+def process_rejected_files(file, folder_id, folder_path, episode_number, session, data_rejected):
     tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(folder_id)), str(episode_number))
     out_folder = os.path.join(tools.tmpFolder, "final_file")
 
@@ -26,11 +26,13 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
     tools.make_dirs(out_folder_final)
 
     find_match = False
+    other_rejected_files = []
     for incompatible_file in get_incompatible_files_data(folder_id, episode_number, session):
         if not find_match:
             tools.remove_dir(tools.tmpFolder)
             tools.make_dirs(out_folder)
             try:
+                mergeVideo.errors_merge = []
                 if incompatible_file.file_weight < file['weight']:
                     tools.special_params["forced_best_video"] = file['chemin']
                     new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(file['chemin']))[0]+'.mkv')
@@ -62,14 +64,14 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                 shutil.move(new_file_path+'.tmp', new_file_path)
                 os.remove(file['chemin'])
             except Exception as e:
-                pass
+                other_rejected_files.append({"error":e, "traceback":traceback.print_exc(), "merged_errors":mergeVideo.errors_merge})
 
     if not find_match:
         shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
         insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
-        log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
+        log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {data_rejected['merged_errors']}\n\nOther rejected files: {other_rejected_files}")
 
 
 def process_episode(files, folder_id, episode_number, database_url):
@@ -141,12 +143,13 @@ def process_episode(files, folder_id, episode_number, database_url):
                         os.remove(file['chemin'])
                     except Exception as e:
                         stderr.write(f"Error merging {file['nom']} and {previous_file.file_path} are incompatibles\n")
+                        data_rejected = {"error":e, "traceback":traceback.print_exc(), "merged_errors":mergeVideo.errors_merge}
                         try:
                             if previous_file.file_weight >= file['weight']:
-                                process_rejected_files(file, folder_id, current_folder.destination_path, episode_number, session)
+                                process_rejected_files(file, folder_id, current_folder.destination_path, episode_number, session, data_rejected)
                             else:
                                 previous_file_dic = {'nom': os.path.basename(previous_file.file_path), 'chemin': previous_file.file_path, 'weight': previous_file.file_weight}
-                                process_rejected_files(previous_file_dic, folder_id, current_folder.destination_path, episode_number, session)
+                                process_rejected_files(previous_file_dic, folder_id, current_folder.destination_path, episode_number, session, data_rejected)
                                 shutil.move(file['chemin'], new_file_path)
                         except Exception as e:
                             pass
