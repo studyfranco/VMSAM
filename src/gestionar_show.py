@@ -27,9 +27,9 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
     find_match = False
     for incompatible_file in get_incompatible_files_data(folder_id, episode_number, session):
-        tools.remove_dir(tools.tmpFolder)
-        tools.make_dirs(out_folder)
         if not find_match:
+            tools.remove_dir(tools.tmpFolder)
+            tools.make_dirs(out_folder)
             try:
                 if incompatible_file.file_weight < file['weight']:
                     tools.special_params["forced_best_video"] = file['chemin']
@@ -147,7 +147,12 @@ def process_episode(files, folder_id, episode_number, database_url):
                     except Exception as e:
                         stderr.write(f"Error merging {file['nom']} and {previous_file.file_path} are incompatibles\n")
                         try:
-                            process_rejected_files(file, folder_id, current_folder.destination_path, episode_number, session)
+                            if previous_file.file_weight >= file['weight']:
+                                process_rejected_files(file, folder_id, current_folder.destination_path, episode_number, session)
+                            else:
+                                previous_file_dic = {'nom': os.path.basename(previous_file.file_path), 'chemin': previous_file.file_path, 'weight': previous_file.file_weight}
+                                process_rejected_files(previous_file_dic, folder_id, current_folder.destination_path, episode_number, session)
+                                shutil.move(file['chemin'], new_file_path)
                         except Exception as e:
                             pass
                     finally:
