@@ -22,7 +22,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
     tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(folder_id)), str(episode_number))
     out_folder = os.path.join(tools.tmpFolder, "final_file")
 
-    out_folder_final = os.path.join(tools.folder_error, folder_path)
+    out_folder_final = os.path.join(tools.folder_error, folder_path.lstrip(os.sep))
     tools.make_dirs(out_folder_final)
 
     find_match = False
@@ -66,7 +66,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
     if not find_match:
         shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
-        insert_incompatible_file(folder_id, episode_number, file['chemin'], file['weight'], session)
+        insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
         log.write(f"Error processing file {file['nom']}: {e}\n{traceback.print_exc()}\n\nMerged errors: {mergeVideo.errors_merge}")
