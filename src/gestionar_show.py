@@ -103,16 +103,11 @@ def process_episode(files, folder_id, episode_number, database_url):
                 previous_file = get_episode_data(folder_id, episode_number, session)
                 if previous_file != None:
                     # Si l'épisode existe déjà, on le fusionne
-                    if previous_file.file_weight < file['weight']:
-                        regex_data = get_regex_data(file['regex'], session)
-                        tools.special_params["forced_best_video"] = file['chemin']
-                        new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
-                        new_file_weight = file['weight']
-                    elif previous_file.file_weight > file['weight']:
+                    if previous_file.file_weight >= file['weight']:
                         tools.special_params["forced_best_video"] = previous_file.file_path
                         new_file_path = previous_file.file_path
                         new_file_weight = previous_file.file_weight
-                    else:
+                    else: # previous_file.file_weight < file['weight']
                         regex_data = get_regex_data(file['regex'], session)
                         tools.special_params["forced_best_video"] = file['chemin']
                         new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
