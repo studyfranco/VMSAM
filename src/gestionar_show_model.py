@@ -28,6 +28,9 @@ class folder(Base):
     episodes: Mapped[List["episode"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan"
     )
+    incompatible_files: Mapped[List["incompatibleFile"]] = relationship(
+        back_populates="folder", cascade="all, delete-orphan"
+    )
 
 class regexPattern(Base):
     __tablename__ = 'regex_patterns'
@@ -39,11 +42,22 @@ class regexPattern(Base):
 
     folder: Mapped["folder"] = relationship(back_populates="regex_patterns")
 
+class incompatibleFile(Base):
+    __tablename__ = 'incompatible_files'
+
+    id: Mapped[int_big] = mapped_column(primary_key=True)
+    folder_id: Mapped[int] = mapped_column(ForeignKey("folders.id"), index=True)
+    episode_number: Mapped[int]
+    file_path: Mapped[str]
+    file_weight: Mapped[int]
+
+    folder: Mapped["folder"] = relationship(back_populates="incompatible_merged_files")
+
 class episode(Base):
     __tablename__ = 'episodes'
 
     id: Mapped[int_big] = mapped_column(primary_key=True)
-    folder_id: Mapped[int] = mapped_column(ForeignKey("folders.id"))
+    folder_id: Mapped[int] = mapped_column(ForeignKey("folders.id"), index=True)
     episode_number: Mapped[int]
     file_path: Mapped[str]
     file_weight: Mapped[int]
@@ -195,6 +209,25 @@ def insert_episode(folder_id, episode_number, file_path, file_weight, session):
     session.add(new_episode)
     session.commit()
     return new_episode
+
+def get_incompatible_files_data(folder_id, episode_number, session):
+    return session.query(incompatibleFile).filter(
+        incompatibleFile.folder_id == folder_id,
+        incompatibleFile.episode_number == episode_number
+    ).order_by(
+        incompatibleFile.file_weight.desc()
+    ).all()
+
+def insert_incompatible_file(folder_id, episode_number, file_path, file_weight, session):
+    new_incompatible = incompatibleFile(
+        folder_id=folder_id,
+        episode_number=episode_number,
+        file_path=file_path,
+        file_weight=file_weight
+    )
+    session.add(new_incompatible)
+    session.commit()
+    return new_incompatible
 
 def get_incrementaller_data(regex, session):
     return session.query(incrementaller).filter(
