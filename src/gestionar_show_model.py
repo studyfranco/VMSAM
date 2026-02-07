@@ -51,7 +51,7 @@ class incompatibleFile(Base):
     file_path: Mapped[str]
     file_weight: Mapped[int]
 
-    folder: Mapped["folder"] = relationship(back_populates="incompatible_merged_files")
+    folder: Mapped["folder"] = relationship(back_populates="incompatible_files")
 
 class episode(Base):
     __tablename__ = 'episodes'
