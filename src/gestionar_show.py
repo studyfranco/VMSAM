@@ -27,6 +27,8 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
     find_match = False
     other_rejected_files = []
+    if not tools.dev:
+        mergeVideo.show_not_compatible_error = False
     for incompatible_file in get_incompatible_files_data(folder_id, episode_number, session):
         if not find_match:
             tools.remove_dir(tools.tmpFolder)
@@ -122,6 +124,8 @@ def process_episode(files, folder_id, episode_number, database_url):
 
                     mergeVideo.default_audio = True
                     mergeVideo.errors_merge = []
+                    if not tools.dev:
+                        mergeVideo.show_not_compatible_error = False
 
                     video.ffmpeg_pool_audio_convert = Pool(processes=int(tools.core_to_use/1.6))
                     video.ffmpeg_pool_big_job = Pool(processes=1)

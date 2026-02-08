@@ -27,6 +27,7 @@ cut_file_to_get_delay_second_method = 2.5 # With the second method we need a bet
 errors_merge = []
 errors_merge_lock = RLock()
 max_stream = 85
+show_not_compatible_error = True
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -226,8 +227,9 @@ class compare_video(Thread):
                 delay = self.adjust_delay_to_frame(delay)
                 self.video_obj_2.delays[self.language] += (delay*-Decimal(1.0)) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
-            traceback.print_exc()
-            sys.stderr.write(str(e)+"\n")
+            if show_not_compatible_error:
+                traceback.print_exc()
+                sys.stderr.write(str(e)+"\n")
             with errors_merge_lock:
                 errors_merge.append(str(e))
         
