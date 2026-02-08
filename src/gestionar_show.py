@@ -148,7 +148,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         shutil.move(new_file_path+'.tmp', new_file_path)
                         os.remove(file['chemin'])
                     except Exception as e:
-                        stderr.write(f"Error merging {file['nom']} and {previous_file.file_path} are incompatibles\n")
+                        stderr.write(f"Error merging: {file['nom']} and {previous_file.file_path} are incompatibles\n")
                         data_rejected = {"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge}
                         try:
                             if previous_file.file_weight >= file['weight']:

@@ -317,7 +317,8 @@ class compare_video(Thread):
                 self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
                 raise Exception(f"Multiple delay found with the method 1 and in test 1 {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
             else:
-                sys.stderr.write(f"This is  delay {delayUse}, calculated by second method for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} \n")
+                if show_not_compatible_error:
+                    sys.stderr.write(f"This is  delay {delayUse}, calculated by second method for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} \n")
                 with errors_merge_lock:
                     errors_merge.append(f"This is  delay {delayUse}, calculated by second method for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} \n")
         elif 'delay_found' in locals() and delay_found != None:
@@ -377,7 +378,8 @@ class compare_video(Thread):
                     
                     if number_of_change > 1:
                         if (not bad_fidelity_found) or (not good_fidelity_found):
-                            sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the fidelity is mid, this is maybe a bug.\n")
+                            if show_not_compatible_error:
+                                sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the fidelity is mid, this is maybe a bug.\n")
                             with errors_merge_lock:
                                 errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the fidelity is mid, this is maybe a bug.\n")
                             delay_detected.add(majoritar_value)
@@ -387,14 +389,16 @@ class compare_video(Thread):
                             self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
                             raise Exception(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                     else:
-                        sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
+                        if show_not_compatible_error:
+                            sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
                         with errors_merge_lock:
                             errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only one piece have a problem, this is maybe a bug.\n")
                         delay_detected.add(majoritar_value)
             elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 128 and mean(delay_fidelity_calculated) >= 0.75:
                 if list(set_delay)[0] == 0 or list(set_delay)[1] == 0:
                     delay_detected.add(0)
-                    sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the mean fidelity is mid, this is maybe a bug.\n")
+                    if show_not_compatible_error:
+                        sys.stderr.write(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the mean fidelity is mid, this is maybe a bug.\n")
                     with errors_merge_lock:
                         errors_merge.append(f"Multiple delay found with the method 1 and in test 2 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} the mean fidelity is mid, this is maybe a bug.\n")
                 else:
@@ -436,7 +440,8 @@ class compare_video(Thread):
                     delay_detected.update(set_delay)
                 elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 128 and mean(delay_fidelity_calculated) >= 0.90:
                     if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
-                        sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
+                        if show_not_compatible_error:
+                            sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                         with errors_merge_lock:
                             errors_merge.append(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the same delay\n")
                         delay_detected.add(delay_fidelity_list[0][2])
@@ -471,7 +476,8 @@ class compare_video(Thread):
                             self.video_obj_2.delayFirstMethodAbort[self.video_obj_1.filePath] = [2,delays]
                             raise Exception(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
                         else:
-                            sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only 0 piece have a problem, this is maybe a incertitude.\n")
+                            if show_not_compatible_error:
+                                sys.stderr.write(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only 0 piece have a problem, this is maybe a incertitude.\n")
                             with errors_merge_lock:
                                 errors_merge.append(f"Multiple delay found with the method 1 and in test 3 {delay_Fidelity_Values} with a delay of {delayUse} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but only 0 piece have a problem, this is maybe a incertitude.\n")
                             delay_detected.add(majoritar_value)
@@ -510,7 +516,8 @@ class compare_video(Thread):
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
         except Exception as e:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
-            sys.stderr.write("We get an error during adjuster_chroma_bugged:\n"+str(e)+"\n")
+            if show_not_compatible_error:
+                sys.stderr.write("We get an error during adjuster_chroma_bugged:\n"+str(e)+"\n")
             with errors_merge_lock:
                 errors_merge.append("We get an error during adjuster_chroma_bugged:\n"+str(e)+"\n")
             return None
@@ -518,12 +525,14 @@ class compare_video(Thread):
         calculated_delay = mean_between_delay+round(delay_second_method*1000) #delay_first_method+round(delay_second_method*1000)
         if abs(delay_second_method) < 0.125:
             # calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
-            sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
+            if show_not_compatible_error:
+                sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             with errors_merge_lock:
                 errors_merge.append(f"The delay {calculated_delay} find with adjuster_chroma_bugged is valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             return calculated_delay
         else:
-            sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
+            if show_not_compatible_error:
+                sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             with errors_merge_lock:
                 errors_merge.append(f"The delay {calculated_delay} find with adjuster_chroma_bugged is not valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             return None
@@ -567,11 +576,14 @@ class compare_video(Thread):
             if len(list_delay) == 1 or variance(list_delay) < max_delay_variance_second_method:
                 delay_detected.update(list_delay)
             elif abs(delay_list[0][1]-delay_list[-1][1]) < max_delay_variance_second_method:
-                sys.stderr.write(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} ")
+                if show_not_compatible_error:
+                    sys.stderr.write(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have a similar delay\n")
+                with errors_merge_lock:
+                    errors_merge.append(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have a similar delay")
                 delay_detected.add(delay_list[0][1])
                 delay_detected.add(delay_list[-1][1])
             else:
-                raise Exception(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} but the first and last part have the similar delay\n")
+                raise Exception(f"Variance delay in the second test is to big {list_delay} with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
 
         if len(delay_detected) != 1 and variance(delay_detected) > max_delay_variance_second_method:
             self.audioParam['codec'] = old_codec
