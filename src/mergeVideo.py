@@ -28,6 +28,7 @@ errors_merge = []
 errors_merge_lock = RLock()
 max_stream = 85
 show_not_compatible_error = True
+not_compatible_video_list = []
 
 def decript_merge_rules(stringRules):
     rules = {}
@@ -805,8 +806,10 @@ def print_forced_video(forced_best_video):
 
 def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
     if len(list_not_compatible_video):
-        sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
-        sys.stderr.write("\n")
+        if show_not_compatible_error:
+            sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
+            sys.stderr.write("\n")
+        not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:
                 del dict_file_path_obj[not_compatible_video]

@@ -42,8 +42,12 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                     tools.special_params["forced_best_video"] = incompatible_file.file_path
                     new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(incompatible_file.file_path))[0]+'.mkv')
                 else:
-                    tools.special_params["forced_best_video"] = file['chemin']
-                    new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(file['chemin']))[0]+'.mkv')
+                    if os.path.getsize(file['chemin']) >= os.path.getsize(incompatible_file.file_path):
+                        tools.special_params["forced_best_video"] = file['chemin']
+                        new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(file['chemin']))[0]+'.mkv')
+                    else:
+                        tools.special_params["forced_best_video"] = incompatible_file.file_path
+                        new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(incompatible_file.file_path))[0]+'.mkv')
 
                 if tools.dev:
                     stderr.write(f"\t\tStart merging {file['nom']} and {incompatible_file.file_path} into {out_folder_final}\n")
