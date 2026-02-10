@@ -142,9 +142,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         if tools.dev:
                             stderr.write(f"\t\tEnd merging {file['nom']} and {previous_file.file_path} into {new_file_path}\n")
                         
-                        if previous_file.file_weight < file['weight']:
-                            shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
-                        elif previous_file.file_weight > file['weight']:
+                        if previous_file.file_weight >= file['weight']:
                             shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(previous_file.file_path))[0]+'_merged.mkv'), new_file_path+'.tmp')
                         else:
                             shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
