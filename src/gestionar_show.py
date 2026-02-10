@@ -64,8 +64,12 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                     shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(incompatible_file.file_path))[0]+'_merged.mkv'), new_file_path+'.tmp')
                     incompatible_file.file_weight = incompatible_file.file_weight
                 else:
-                    shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
-                    incompatible_file.file_weight = file['weight']
+                    if os.path.getsize(file['chemin']) >= os.path.getsize(incompatible_file.file_path): 
+                        shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(file['chemin']))[0]+'_merged.mkv'), new_file_path+'.tmp')
+                        incompatible_file.file_weight = file['weight']
+                    else:
+                        shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(incompatible_file.file_path))[0]+'_merged.mkv'), new_file_path+'.tmp')
+                        incompatible_file.file_weight = incompatible_file.file_weight
                 
                 os.remove(incompatible_file.file_path)
                 shutil.move(new_file_path+'.tmp', new_file_path)
@@ -79,7 +83,9 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
         insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
-        log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {data_rejected['merged_errors']}\n\nOther rejected files: {other_rejected_files}")
+        log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {data_rejected['merged_errors']}\n\nOther rejected files:")
+        for rejected_file in other_rejected_files:
+            log.write(f"\n\n{rejected_file['error']}\n{rejected_file['traceback']}\n\nMerged errors: {rejected_file['merged_errors']}")
 
 
 def process_episode(files, folder_id, episode_number, database_url):
