@@ -1903,7 +1903,7 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
             videosObj.append(video.video(path.dirname(file),path.basename(file)))
             if videosObj[-1].fileBaseName in name_file:
                 name_file[videosObj[-1].fileBaseName] += 1
-                videosObj[-1].fileBaseName += "_"+str(name_file[videosObj[-1].fileBaseName])
+                videosObj[-1].fileBaseName = videosObj[-1].fileBaseName + "_" + str(name_file[videosObj[-1].fileBaseName])
             else:
                 name_file[videosObj[-1].fileBaseName] = 0
     else:
@@ -1911,7 +1911,7 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
             videosObj.append(video.video(inFolder,file))
             if videosObj[-1].fileBaseName in name_file:
                 name_file[videosObj[-1].fileBaseName] += 1
-                videosObj[-1].fileBaseName += "_"+str(name_file[videosObj[-1].fileBaseName])
+                videosObj[-1].fileBaseName = videosObj[-1].fileBaseName + "_" + str(name_file[videosObj[-1].fileBaseName])
             else:
                 name_file[videosObj[-1].fileBaseName] = 0
     name_file = None
