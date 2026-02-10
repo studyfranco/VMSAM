@@ -70,7 +70,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                     else:
                         shutil.move(os.path.join(out_folder, os.path.splitext(os.path.basename(incompatible_file.file_path))[0]+'_merged.mkv'), new_file_path+'.tmp')
                         incompatible_file.file_weight = incompatible_file.file_weight
-                
+
                 os.remove(incompatible_file.file_path)
                 shutil.move(new_file_path+'.tmp', new_file_path)
                 incompatible_file.file_path = new_file_path

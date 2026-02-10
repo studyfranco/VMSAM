@@ -86,7 +86,7 @@ def setup_database(database_url, create_tables=False):
         # Argument spécifique à SQLite
         connect_args['timeout'] = 61
     # Créer l'engine
-    engine = create_engine(database_url, echo=False, connect_args=connect_args)
+    engine = create_engine(database_url, echo=False, connect_args=connect_args, pool_pre_ping=True)
     
     # Créer les tables si demandé
     if create_tables:
