@@ -1047,10 +1047,10 @@ def keep_best_audio(list_audio_metadata,audioRules):
                         elif int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1)):
                             audio_1['keep'] = False
                     elif float(audio_1['Channels']) > float(audio_2['Channels']):
-                        if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and (float(video.get_bitrate(audio_1))/float(audio_1['Channels'])) > (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])*0.95):
+                        if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and (float(video.get_bitrate(audio_1))/float(audio_1['Channels'])) > ((float(video.get_bitrate(audio_2))/float(audio_2['Channels']))*0.90):
                             audio_2['keep'] = False
                     elif float(audio_2['Channels']) > float(audio_1['Channels']):
-                        if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])) > (float(video.get_bitrate(audio_1))/float(audio_1['Channels'])*0.95):
+                        if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])) > ((float(video.get_bitrate(audio_1))/float(audio_1['Channels']))*0.90):
                             audio_1['keep'] = False
                 except Exception as e:
                     sys.stderr.write(str(e))
