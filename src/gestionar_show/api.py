@@ -5,8 +5,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from typing import Optional
-from gestionar_show_model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
-from gestionar_show import episode_pattern_insert
+from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
+
+episode_pattern_insert = "{<episode>}"
 
 class Settings(BaseSettings):
     DATABASE_URL: str

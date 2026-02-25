@@ -7,7 +7,8 @@ from threading import Thread
 from sys import stderr,stdout
 from time import sleep,time
 import tools
-from gestionar_show_model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
+from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
+from gestionar_show.api import episode_pattern_insert
 import re
 import mergeVideo
 import video
@@ -15,7 +16,6 @@ import shutil
 import uvicorn
 import traceback
 
-episode_pattern_insert = "{<episode>}"
 parrallel_jobs = None
 
 def process_rejected_files(file, folder_id, folder_path, episode_number, session, data_rejected):
@@ -360,7 +360,7 @@ def run_uvicorn():
     # Écrit la variable DATABASE_URL dans un fichier .env
     with open(env_path, "w") as env_file:
         env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
-    uvicorn.run("gestionar_show_api:app", host="0.0.0.0", port=8080, workers=5, env_file=env_path, log_level="error")
+    uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, workers=5, env_file=env_path, log_level="error")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script is the wrapper to process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
