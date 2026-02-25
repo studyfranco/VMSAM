@@ -129,12 +129,28 @@ class video():
                     else:
                         self.subtitles[language] = [data]
 
-            if 'properties' in data and 'codec' in data['properties']:
-                if data['properties']['codec'].lower() in tools.to_convert_ffmpeg_type:
-                    have_incompatible_ffmpeg_codec = True
-                    data["ffmpeg_compatible"] = False
-                else:
-                    data["ffmpeg_compatible"] = True
+            if ('properties' in data and 'codec' in data['properties'] and data['properties']['codec'].lower() in tools.to_convert_ffmpeg_type):
+                data['ffmpeg_to_convert'] = tools.to_convert_ffmpeg_type[data['properties']['codec'].lower()]
+                data["ffmpeg_compatible"] = False
+                have_incompatible_ffmpeg_codec = True
+                if tools.dev:
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['properties']['codec'].lower()}\n")
+            elif 'ffprobe' in data and 'codec_name' in data['ffprobe'] and data['ffprobe']['codec_name'].lower() in tools.to_convert_ffmpeg_type:
+                data['ffmpeg_to_convert'] = tools.to_convert_ffmpeg_type[data['ffprobe']['codec_name'].lower()]
+                data["ffmpeg_compatible"] = False
+                have_incompatible_ffmpeg_codec = True
+                if tools.dev:
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['properties']['codec'].lower()}\n")
+            elif (data.get("Format","").lower() in tools.to_convert_ffmpeg_type):
+                data['ffmpeg_to_convert'] = tools.to_convert_ffmpeg_type[data.get("Format","").lower()]
+                data["ffmpeg_compatible"] = False
+                have_incompatible_ffmpeg_codec = True
+                if tools.dev:
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()}\n")
+            elif data['@type'] in {'Audio', 'Text'}:
+                if tools.dev:
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the compatible format {data.get("Format","").lower()}\n")
+                data["ffmpeg_compatible"] = True
 
         if have_incompatible_ffmpeg_codec:
             self.convert_problematic_stream_with_ffmpeg()
@@ -152,7 +168,7 @@ class video():
         """
 
         base_cmd = [tools.software["ffmpeg"],"-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode", "-y", "-analyzeduration", "0", "-probesize", "100M", "-threads", "5"]
+                    "-err_detect", "buffer", "-err_detect", "explode", "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "5"]
         cmd_convert = []
         
         for language,subs in self.subtitles.items():
@@ -164,8 +180,20 @@ class video():
                     else:
                         base_cmd.append(f"-c:s")
                         cmd_convert.append(f"-c:s")
-                    base_cmd.append(tools.to_convert_ffmpeg_type[sub['properties']['codec'].lower()][0])
-                    cmd_convert.append(tools.to_convert_ffmpeg_type[sub['properties']['codec'].lower()][1])
+                    base_cmd.append(sub["ffmpeg_to_convert"][0])
+                    cmd_convert.append(sub["ffmpeg_to_convert"][1])
+        
+        for language,audios in self.audios.items():
+            for audio in audios:
+                if not audio["ffmpeg_compatible"]:
+                    if "@typeorder" in audio:
+                        base_cmd.append(f"-c:a:{audio['@typeorder']}")
+                        cmd_convert.append(f"-c:a:{audio['@typeorder']}")
+                    else:
+                        base_cmd.append(f"-c:a")
+                        cmd_convert.append(f"-c:a")
+                    base_cmd.append(audio["ffmpeg_to_convert"][0])
+                    cmd_convert.append(audio["ffmpeg_to_convert"][1])
         
         base_cmd.extend(["-i", self.filePath, "-map", "0", "-map_metadata", "0", "-copy_unknown",
                      "-movflags", "use_metadata_tags", "-c", "copy"])
