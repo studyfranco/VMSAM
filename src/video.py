@@ -172,6 +172,7 @@ class video():
         base_cmd.extend(cmd_convert)
         base_cmd.append(path.join(self.filePath+".ffmpeg_convert.mkv"))
         
+        stderr.write(f"Convertion of the file {self.filePath} with :\n{' '.join(base_cmd)}\n")
         tools.launch_cmdExt_with_timeout_reload(base_cmd,3,1800)
         
         remove(self.filePath)
