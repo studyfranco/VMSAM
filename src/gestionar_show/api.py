@@ -5,6 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from typing import Optional
+from time import sleep
 from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
 
 episode_pattern_insert = "{<episode>}"
@@ -99,6 +100,7 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
         try:
             if (not os.makedirs(folder_in.destination_path, exist_ok=True)):
                 raise HTTPException(status_code=400, detail="Folder can't be created")
+            sleep(1)
             if (not os.path.isdir(folder_in.destination_path)):
                 raise HTTPException(status_code=400, detail="Folder can't be created")
         except HTTPException as e:
