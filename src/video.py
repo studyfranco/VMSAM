@@ -175,8 +175,8 @@ class video():
             for sub in subs:
                 if not sub["ffmpeg_compatible"]:
                     if "@typeorder" in sub:
-                        base_cmd.append(f"-c:s:{sub['@typeorder']}")
-                        cmd_convert.append(f"-c:s:{sub['@typeorder']}")
+                        base_cmd.append(f"-c:s:{int(sub['@typeorder'])-1}")
+                        cmd_convert.append(f"-c:s:{int(sub['@typeorder'])-1}")
                     else:
                         base_cmd.append(f"-c:s")
                         cmd_convert.append(f"-c:s")
@@ -187,8 +187,8 @@ class video():
             for audio in audios:
                 if not audio["ffmpeg_compatible"]:
                     if "@typeorder" in audio:
-                        base_cmd.append(f"-c:a:{audio['@typeorder']}")
-                        cmd_convert.append(f"-c:a:{audio['@typeorder']}")
+                        base_cmd.append(f"-c:a:{int(audio['@typeorder'])-1}")
+                        cmd_convert.append(f"-c:a:{int(audio['@typeorder'])-1}")
                     else:
                         base_cmd.append(f"-c:a")
                         cmd_convert.append(f"-c:a")
