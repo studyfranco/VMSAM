@@ -3,20 +3,19 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from time import sleep
 from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
-from tools import tmpFolder
 
 episode_pattern_insert = "{<episode>}"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
+    model_config = SettingsConfigDict(env_file=env_file)
 
     class Config:
-        import os
-        env_file = os.path.join(tmpFolder, "gestionar_show_api.env")  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
+        env_file = ".env"  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
 
 settings = Settings()
 
