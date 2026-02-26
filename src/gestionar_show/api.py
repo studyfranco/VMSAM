@@ -12,10 +12,7 @@ episode_pattern_insert = "{<episode>}"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    model_config = SettingsConfigDict(env_file=env_file)
-
-    class Config:
-        env_file = ".env"  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8')
 
 settings = Settings()
 
