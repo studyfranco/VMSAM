@@ -7,8 +7,8 @@ from threading import Thread
 from sys import stderr,stdout
 from time import sleep,time
 import tools
-from vmsam.gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
-from vmsam.gestionar_show.api import episode_pattern_insert
+from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
+from gestionar_show.api import episode_pattern_insert
 import re
 import mergeVideo
 import video

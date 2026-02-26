@@ -73,8 +73,12 @@ ENV CORE=4 \
     folder_error="/config/error" \
     dev=false
 
+RUN mkdir -p /home/vmsam/gestionar_show/ \
+    && mkdir -p /home/vmsam/gestionar_movie/
 COPY init.sh /
-COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json src/gestionar_show src/gestionar_movie /home/vmsam/
+COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json /home/vmsam/
+COPY --chown=vmsam:vmsam src/gestionar_show /home/vmsam/gestionar_show/
+COPY --chown=vmsam:vmsam src/gestionar_movie /home/vmsam/gestionar_movie/
 COPY --from=builder --chown=vmsam:vmsam /usr/src/app/target/release/audio_sync /home/vmsam/audio_sync
 RUN chmod +x /init.sh \
     && chmod +x /home/vmsam/run.sh
