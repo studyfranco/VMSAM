@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     class Config:
-        env_file = ".env"  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
+        env_file = "gestionar_show/.env"  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
 
 settings = Settings()
 
