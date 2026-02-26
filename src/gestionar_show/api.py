@@ -7,12 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from time import sleep
 from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
+from tools import tmpFolder
 
 episode_pattern_insert = "{<episode>}"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8', extra='ignore')
+   # model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 settings = Settings()
 
