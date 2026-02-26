@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 from time import sleep
 from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
-from . .tools import tmpFolder
+from tools import tmpFolder
 
 episode_pattern_insert = "{<episode>}"
 
