@@ -13,12 +13,10 @@ episode_pattern_insert = "{<episode>}"
 
 class Settings(BaseSettings):
     DATABASE_URL: str
-   # model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
-
-settings = Settings()
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 # Initialise la DB
-engine = create_engine(settings.DATABASE_URL, echo=False)
+engine = None
 
 def get_session():
     session = sessionmaker(bind=engine)()
@@ -76,6 +74,12 @@ app = FastAPI(
     description="API pour la gestion des folders, regex patterns et épisodes",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+def on_startup():
+    settings = Settings()
+    global engine
+    engine = create_engine(settings.DATABASE_URL, echo=False)
 
 @app.post("/folders/")
 def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
