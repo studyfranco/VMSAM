@@ -362,7 +362,7 @@ def run_uvicorn():
         env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
     with open("gestionar_show/.env", "w") as env_file:
         env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
-    uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, workers=5, env_file=env_path, log_level="error")
+    uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, env_file=env_path, workers=5, log_level="error")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script is the wrapper to process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
