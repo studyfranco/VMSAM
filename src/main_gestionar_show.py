@@ -360,6 +360,8 @@ def run_uvicorn():
     # Écrit la variable DATABASE_URL dans un fichier .env
     with open(env_path, "w") as env_file:
         env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
+    with open("gestionar_show/.env", "w") as env_file:
+        env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
     uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, workers=5, env_file=env_path, log_level="error")
 
 if __name__ == '__main__':
