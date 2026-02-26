@@ -206,6 +206,7 @@ class video():
         remove(self.filePath)
         shutil.move(path.join(self.filePath+".ffmpeg_convert.mkv"), self.filePath)
         
+        self.video = None
         self.get_mediadata()
 
     def get_best_video(self,data_video_1,data_video_2):
