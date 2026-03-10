@@ -1579,7 +1579,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
-        base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_muxing_queue_size", "8192", tmp_file_audio])
+        base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_audio])
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,360)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
