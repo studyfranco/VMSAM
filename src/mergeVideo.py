@@ -1513,7 +1513,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode",
+                    "-err_detect", "buffer",
                     "-analyzeduration", "100M", "-probesize", "100M",
                     "-threads", "5", "-vn"]
     if delay_to_put > 0:
