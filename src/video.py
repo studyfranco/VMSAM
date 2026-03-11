@@ -168,7 +168,7 @@ class video():
         """
 
         base_cmd = [tools.software["ffmpeg"],"-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-err_detect", "explode", "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "5"]
+                    "-err_detect", "buffer", "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "5"]
         cmd_convert = []
         
         for language,subs in self.subtitles.items():
