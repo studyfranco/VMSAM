@@ -885,7 +885,7 @@ def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChalleng
 
 def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=None):
     cmd = [
-    tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
+    tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "50000000", "-threads", "1", "-i", filePath,
     "-ss", str(start_time)]
 
     if end_time != None:
@@ -900,7 +900,7 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
     cmd.extend(["-map", f"0:{streamID}", "-c", "copy", "-f", "md5", "-"
     ])
     try:
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,6,120)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,6,240)
         if exitCode == 0:
             md5 = stdout.decode("utf-8").strip().split("=")[-1]
             return (streamID, md5)
@@ -946,13 +946,13 @@ def subtitle_text_md5(filePath,streamID):
 
 def subtitle_text_srt_md5(filePath,streamID):
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "500000000", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
     ]
     try:
-        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,240)
         if exitCode == 0:
             if tools.dev:
                 stderr.write(f"subtitle_text_srt_md5: {streamID} exit OK\n")
@@ -975,8 +975,8 @@ def subtitle_text_srt_md5(filePath,streamID):
 def count_font_lines_in_ass(filePath, streamID):
     cmd = [
         "ffmpeg",
-        "-v", "error", "-probesize", "50000000",
-        "-threads", str(1),
+        "-v", "error", "-analyzeduration", "0", "-probesize", "500000000",
+        "-threads", "1",
         "-i", filePath,
         "-map", f"0:{streamID}",
         "-c:s", "ass",
@@ -984,7 +984,7 @@ def count_font_lines_in_ass(filePath, streamID):
         "pipe:1"
     ]
     
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,240)
     if exitCode == 0:
         if tools.dev:
             stderr.write(f"count_font_lines_in_ass: {streamID} exit OK")
@@ -1000,12 +1000,12 @@ def count_font_lines_in_ass(filePath, streamID):
 
 def subtitle_text_ass_md5(filePath,streamID):
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-probesize", "50000000", "-threads", str(1), "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "500000000", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "ass",
         "-f", "ass", "pipe:1"
     ]
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,30)
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd,5,240)
     if exitCode == 0:
         if tools.dev:
             stderr.write(f"subtitle_text_ass_md5: {streamID} exit OK")
