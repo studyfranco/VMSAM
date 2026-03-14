@@ -168,7 +168,7 @@ class video():
         """
 
         base_cmd = [tools.software["ffmpeg"],"-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "5"]
+                    "-err_detect", "buffer", "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "5"]
         cmd_convert = []
         
         for language,subs in self.subtitles.items():
@@ -245,7 +245,7 @@ class video():
                 self.remove_tmp_files(type_file="audio")
             self.tmpFiles['audio'] = nameFilesExtract
     
-            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn", "-sn"]
+            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn", "-sn"]
             codec_param = [] 
             if exportParam['Format'] == 'WAV':
                 if 'codec' in exportParam:
@@ -490,7 +490,7 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
     if not path.exists(name_out_file_tmp):
         raise FileNotFoundError(f"Extraction failed for {name_out_file_tmp}")
     
-    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "3", "-nostdin", "-i",
+    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
                     name_out_file_tmp, "-af", f"loudnorm=i={target_i}:lra={target_lra}:tp={target_tp}:print_format=json",
                     "-f", "null", "-"])
     try:
@@ -520,7 +520,7 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
     else:
         filter_str = f"volume={gain_db:.2f}dB"
 
-    cmd_normalisation = [tools.software["ffmpeg"], "-y", "-analyzeduration", "0", "-probesize", "500M", "-threads", "3", "-nostdin", "-i",
+    cmd_normalisation = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
                     name_out_file_tmp,
                     "-map", "0"]
     cmd_normalisation.extend(codec_param)
@@ -885,7 +885,7 @@ def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChalleng
 
 def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=None):
     cmd = [
-    tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "50000000", "-threads", "1", "-i", filePath,
+    tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
     "-ss", str(start_time)]
 
     if end_time != None:
@@ -946,7 +946,7 @@ def subtitle_text_md5(filePath,streamID):
 
 def subtitle_text_srt_md5(filePath,streamID):
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "500000000", "-threads", "1", "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "srt",
         "-f", "srt", "pipe:1"
@@ -975,7 +975,7 @@ def subtitle_text_srt_md5(filePath,streamID):
 def count_font_lines_in_ass(filePath, streamID):
     cmd = [
         "ffmpeg",
-        "-v", "error", "-analyzeduration", "0", "-probesize", "500000000",
+        "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M",
         "-threads", "1",
         "-i", filePath,
         "-map", f"0:{streamID}",
@@ -1000,7 +1000,7 @@ def count_font_lines_in_ass(filePath, streamID):
 
 def subtitle_text_ass_md5(filePath,streamID):
     cmd = [
-        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "0", "-probesize", "500000000", "-threads", "1", "-i", filePath,
+        tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",
          "-c:s", "ass",
         "-f", "ass", "pipe:1"

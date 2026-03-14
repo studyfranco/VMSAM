@@ -1514,7 +1514,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
                     "-err_detect", "buffer",
-                    "-analyzeduration", "0", "-probesize", "500M",
+                    "-analyzeduration", "1000M", "-probesize", "1000M",
                     "-threads", "5", "-vn"]
     if delay_to_put > 0:
         base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
@@ -1659,7 +1659,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         sys.stderr.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
     tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck", "-err_detect", "bitstream",
-                         "-err_detect", "buffer", "-analyzeduration", "0", "-probesize", "500M", "-threads", str(tools.core_to_use),
+                         "-err_detect", "buffer", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 360)
     
     if tools.dev:
