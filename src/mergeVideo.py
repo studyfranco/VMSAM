@@ -1656,7 +1656,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
             cmd_first_pass.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_first_pass = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_first_pass.mkv")
-        cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)+(Decimal(delay_to_put)/Decimal(1000))),
+        cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
                                 "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
 
         tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
