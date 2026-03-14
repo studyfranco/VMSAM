@@ -1494,6 +1494,8 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
             pass
 
 def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
+    cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
+                            "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_first_pass, 2, 3600)
 
     stderr_text = stderror.decode("utf-8", errors="ignore")
@@ -1656,9 +1658,6 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
             cmd_first_pass.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
         tmp_file_first_pass = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_first_pass.mkv")
-        cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
-                                "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
-
         tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file)))
