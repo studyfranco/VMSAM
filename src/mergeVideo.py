@@ -1637,12 +1637,25 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
     for convert_process in ffmpeg_cmd_dict['convert_process']:
         stdout, stderror, exitCode = convert_process.get()
-        any_error = False
-        for line in stderror.decode("utf-8", errors="ignore").splitlines():
-            if any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
-                any_error = True
+
+        stderr_text = stderror.decode("utf-8", errors="ignore")
+
+        source_file = ""
+        for line in stderr_text.splitlines():
+            match = re.search(r"Input #0,.+, from '(.+)':", line)
+            if match:
+                source_file += match.group(1) + "\n"
+
+        any_error = []
+        for line in stderr_text.splitlines():
+            if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
+                any_error.append(line)
+
         if any_error:
-            sys.stderr.write(f"The process is a error: {stderror.decode("utf-8", errors="ignore")}\n{stdout.decode("utf-8", errors="ignore")}\nReturn code: {exitCode}\n")
+            sys.stderr.write(f"[FFmpeg WARN] {source_file}")
+            for line in any_error:
+                sys.stderr.write(f"  {line}\n")
+
     try:
         tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
     except Exception as e:
