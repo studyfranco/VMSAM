@@ -1163,7 +1163,7 @@ def insert_type_in_group_sub_title(sub_clean_title,type_sub,groups,groupID_srt_t
 def clean_title(sub):
     clean_title = ""
     if "Title" in sub:
-        clean_title = re.sub(r'^\s*',"",clean_title)
+        clean_title = re.sub(r'^\s*',"",sub["Title"])
         clean_title = re.sub(r'\s*$',"",clean_title)
     return clean_title
 
@@ -1638,11 +1638,11 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     for convert_process in ffmpeg_cmd_dict['convert_process']:
         stdout, stderror, exitCode = convert_process.get()
         any_error = False
-        for line in stderror.decode("utf-8").splitlines():
+        for line in stderror.decode("utf-8", errors="ignore").splitlines():
             if any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
                 any_error = True
         if any_error:
-            sys.stderr.write(f"The process is a error: {stderror.decode("utf-8")}\n{stdout.decode("utf-8")}\nReturn code: {exitCode}\n")
+            sys.stderr.write(f"The process is a error: {stderror.decode("utf-8", errors="ignore")}\n{stdout.decode("utf-8", errors="ignore")}\nReturn code: {exitCode}\n")
     try:
         tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
     except Exception as e:
