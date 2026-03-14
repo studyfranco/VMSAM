@@ -1475,7 +1475,86 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put):
+def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
+    if audio["Format"].lower() == "flac" or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
+        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", "flac", "-compression_level", "12"])
+        if "BitDepth" in audio:
+            if audio["BitDepth"] == "16":
+                base_cmd.extend(["-sample_fmt", "s16"])
+            else:
+                base_cmd.extend(["-sample_fmt", "s32"])
+        else:
+            base_cmd.extend(["-sample_fmt", "s32"])
+        base_cmd.extend(["-exact_rice_parameters", "1"])
+    elif delay_to_put < 0:
+        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", audio["ffprobe"]["codec_name"]])
+        try:
+            base_cmd.extend([f"-b:a{get_relative_id_track(audio)}", video.get_bitrate(audio)])
+        except:
+            pass
+
+def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_first_pass, 2, 3600)
+
+    stderr_text = stderror.decode("utf-8", errors="ignore")
+
+    any_error = []
+    for line in stderr_text.splitlines():
+        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
+            any_error.append(line)
+
+    if any_error:
+        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}")
+        for line in any_error:
+            sys.stderr.write(f"  {line}\n")
+
+    new_video = video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
+    new_video.get_mediadata()
+
+    base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
+                    "-analyzeduration", "1000M", "-probesize", "1000M",
+                    "-threads", "5", "-vn"]
+
+    if delay_to_put > 0:
+        base_cmd.extend(["-itsoffset", f"{Decimal(str(delay_to_put))/Decimal(1000)}", "-i", tmp_file_first_pass])
+    elif delay_to_put < 0:
+        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{Decimal(str(delay_to_put))/Decimal(1000)*Decimal(-1)}"])
+    else:
+        base_cmd.extend(["-i", tmp_file_first_pass])
+
+    base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
+                     "-movflags", "use_metadata_tags", "-c", "copy"])
+    
+    for language,audios in new_video.audios.items():
+        for audio in audios:
+            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
+
+    for language,audios in new_video.commentary.items():
+        for audio in audios:
+            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
+   
+    for language,audios in new_video.audiodesc.items():
+        for audio in audios:
+            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)    
+
+    base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file])
+
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(base_cmd,5,3600)
+    tools.file_remove(tmp_file_first_pass)
+
+    stderr_text = stderror.decode("utf-8", errors="ignore")
+
+    any_error = []
+    for line in stderr_text.splitlines():
+        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
+            any_error.append(line)
+
+    if any_error:
+        sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}")
+        for line in any_error:
+            sys.stderr.write(f"  {line}\n")
+
+def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
@@ -1485,54 +1564,25 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
-        if audio["Format"].lower() == "flac" or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
-            if '@typeorder' in audio:
-                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}", "flac", "-compression_level", "12"])
-            else:
-                base_cmd.extend([f"-c:a:0", "flac", "-compression_level", "12"])
-            if "BitDepth" in audio:
-                if audio["BitDepth"] == "16":
-                    base_cmd.extend(["-sample_fmt", "s16"])
-                else:
-                    base_cmd.extend(["-sample_fmt", "s32"])
-            else:
-                base_cmd.extend(["-sample_fmt", "s32"])
-            base_cmd.extend(["-exact_rice_parameters", "1"])
-        elif delay_to_put < 0:
-            if '@typeorder' in audio:
-                base_cmd.extend([f"-c:a:{int(audio['@typeorder'])-1}"])
-            else:
-                base_cmd.extend([f"-c:a:0"])
-            base_cmd.extend([audio["ffprobe"]["codec_name"]])
-            try:
-                if '@typeorder' in audio:
-                    base_cmd.extend([f"-b:a:{int(audio['@typeorder'])-1}", video.get_bitrate(audio)])
-                else:
-                    base_cmd.extend([f"-b:a:0", video.get_bitrate(audio)])
-            except:
-                pass
         return 1
+
+def get_relative_id_track(track):
+    if '@typeorder' in track:
+        return f":{int(track['@typeorder'])-1}"
+    else:
+        return ":0"
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
 
-    tmp_file_mkvmerge = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_mkvmerge_tmp.mkv")
-    tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"], "-o", tmp_file_mkvmerge, "-D", video_obj.filePath], 2, 3600)
-
-    base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
-                    "-analyzeduration", "1000M", "-probesize", "1000M",
-                    "-threads", "5", "-vn"]
-    if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", tmp_file_mkvmerge])
-    elif delay_to_put < 0:
-        base_cmd.extend(["-i", tmp_file_mkvmerge, "-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
-    else:
-        base_cmd.extend(["-i", tmp_file_mkvmerge])
-
-    base_cmd.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy"])
+    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
+                            "-analyzeduration", "1000M", "-probesize", "1000M",
+                            "-threads", "5", "-vn", "-i", video_obj.filePath,
+                            "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+                            "-movflags", "use_metadata_tags", "-c", "copy"]
     
     number_track = 0
     sub_track_to_remove = []
+    sub_track_to_convert_or_keep = []
     for language,subs in video_obj.subtitles.items():
         if language in tools.language_to_completely_remove:
             for sub in subs:
@@ -1547,6 +1597,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                         number_track += 1
                         if sub['MD5'] != '':
                             md5_sub_already_added.add(sub['MD5'])
+                        sub_track_to_convert_or_keep.append(sub)
                 else:
                     if tools.dev:
                         if sub['MD5'] in md5_sub_already_added:
@@ -1554,6 +1605,25 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                         else:
                             sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
                     sub_track_to_remove.append(sub)
+
+    if len(sub_track_to_convert_or_keep):
+        have_sub_pgs = False
+        sub_relative_index = 0
+        sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
+        for sub in sub_track_to_convert_or_keep:
+            codec = sub["Format"].lower()
+            if codec in tools.sub_type_not_encodable:
+                have_sub_pgs = True
+            elif codec in tools.sub_type_near_srt:
+                cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
+            else:
+                cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "ass"])
+            sub_relative_index += 1
+        
+        if have_sub_pgs:
+            cmd_first_pass.extend(["-avoid_negative_ts", "disabled"])
+            cmd_first_pass.remove("-fflags")
+            cmd_first_pass.remove("+genpts+igndts")
     
     audio_track_to_remove = []
     for language,audios in video_obj.audios.items():
@@ -1562,34 +1632,37 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
     for language,audios in video_obj.commentary.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
     for language,audios in video_obj.audiodesc.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_track_to_remove,delay_to_put)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
     
     if number_track:
         for audio in audio_track_to_remove:
-            base_cmd.extend(["-map", f"-0:{audio["StreamOrder"]}"])
+            cmd_first_pass.extend(["-map", f"-0:{audio["StreamOrder"]}"])
             
         for sub in sub_track_to_remove:
-            base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
+            cmd_first_pass.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
-        tmp_file_audio = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
-        base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_audio])
+        tmp_file_first_pass = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_first_pass.mkv")
+        cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
+                                "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
 
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,2160)))
-        ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
+        tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
+
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file)))
+        ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
     
     return number_track
 
@@ -1643,25 +1716,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
 
     for convert_process in ffmpeg_cmd_dict['convert_process']:
-        stdout, stderror, exitCode = convert_process.get()
-
-        stderr_text = stderror.decode("utf-8", errors="ignore")
-
-        source_file = ""
-        for line in stderr_text.splitlines():
-            match = re.search(r"Input #0,.+, from '(.+)':", line)
-            if match:
-                source_file += match.group(1) + "\n"
-
-        any_error = []
-        for line in stderr_text.splitlines():
-            if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
-                any_error.append(line)
-
-        if any_error:
-            sys.stderr.write(f"[FFmpeg WARN] {source_file}")
-            for line in any_error:
-                sys.stderr.write(f"  {line}\n")
+        convert_process.get()
 
     try:
         tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
