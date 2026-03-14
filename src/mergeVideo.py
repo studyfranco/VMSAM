@@ -220,14 +220,14 @@ class compare_video(Thread):
     def run(self):
         try:
             delay = self.test_if_constant_good_delay()
+            delay = self.adjust_delay_to_frame(delay)
             if self.process_to_get_best_video:
                 self.get_best_video(delay)
             else: # You must have the video you want process in video_obj_1
                 self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
                 self.video_obj_2.remove_tmp_files(type_file="audio")
                 self.video_obj_with_best_quality = self.video_obj_1
-                delay = self.adjust_delay_to_frame(delay)
-                self.video_obj_2.delays[self.language] += (delay*-Decimal(1.0)) # Delay you need to give to mkvmerge to be good.
+                self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0')) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
             if show_not_compatible_error:
                 traceback.print_exc()
@@ -644,7 +644,7 @@ class compare_video(Thread):
             self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
             delay = self.adjust_delay_to_frame(delay)
-            self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
+            self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0')) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_1.remove_tmp_files(type_file="audio")
@@ -1702,10 +1702,10 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'merge_cmd' : [],
                        'metadata_cmd' : []}
     
-    generate_new_file(best_video,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
+    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,0.0,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
+        generate_merge_command_common_md5(video_obj_common_md5,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
     
     for other_video_path_file in dict_list_video_win[best_video.filePath]:
         generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,best_video.delays[common_language_use_for_generate_delay],common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
