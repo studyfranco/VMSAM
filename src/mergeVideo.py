@@ -1518,7 +1518,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     tmp_file_mkvmerge = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_mkvmerge_tmp.mkv")
     tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"], "-o", tmp_file_mkvmerge, "-D", video_obj.filePath], 2, 3600)
 
-    base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
+    base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
                     "-analyzeduration", "1000M", "-probesize", "1000M",
                     "-threads", "5", "-vn"]
     if delay_to_put > 0:
@@ -1588,7 +1588,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         tmp_file_audio = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
         base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_audio])
 
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,360)))
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,2160)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file_audio])
     
     return number_track
