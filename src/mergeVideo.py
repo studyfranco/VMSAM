@@ -19,6 +19,7 @@ import video
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
+import hashlib
 from decimal import *
 
 max_delay_variance_second_method = 0.004
@@ -1514,7 +1515,7 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
 
-    tmp_file_mkvmerge = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_mkvmerge_tmp.mkv")
+    tmp_file_mkvmerge = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_mkvmerge_tmp.mkv")
     tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"], "-o", tmp_file_mkvmerge, "-D", video_obj.filePath], 2, 3600)
 
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
@@ -1584,7 +1585,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         for sub in sub_track_to_remove:
             base_cmd.extend(["-map", f"-0:{sub["StreamOrder"]}"])
 
-        tmp_file_audio = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_tmp.mkv")
+        tmp_file_audio = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
         base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_audio])
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(tools.launch_cmdExt_with_timeout_reload, (base_cmd,5,360)))
