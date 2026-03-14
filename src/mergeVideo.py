@@ -1635,6 +1635,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     out_path_tmp_file_name_split = path.join(tools.tmpFolder,f"{best_video.fileBaseName}_merged_split.mkv")
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name_split]
     merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
+
     for convert_process in ffmpeg_cmd_dict['convert_process']:
         stdout, stderror, exitCode = convert_process.get()
 
@@ -1659,7 +1660,6 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     try:
         tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
     except Exception as e:
-        import re
         lined_error = str(e).splitlines()
         if re.match('Return code: 1', lined_error[-1]) != None:
             only_UID_warning = True
