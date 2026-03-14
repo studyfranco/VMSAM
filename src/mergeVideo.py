@@ -1598,6 +1598,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
 
     if tools.dev:
         sys.stderr.write("\t\tLaunch the merge\n")
+    tools.make_dirs(tools.tmpFolder)
     set_bad_video = set()
     dict_list_video_win = {}
     for video_path_file, dict_with_results in dict_with_video_quality_logic.items():
