@@ -167,8 +167,8 @@ class video():
         This function will convert stream who can be converted by ffmpeg.
         """
 
-        base_cmd = [tools.software["ffmpeg"],"-err_detect", "crccheck", "-err_detect", "bitstream",
-                    "-err_detect", "buffer", "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "5"]
+        base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
+                    "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "5"]
         cmd_convert = []
         
         for language,subs in self.subtitles.items():

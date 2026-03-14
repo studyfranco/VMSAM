@@ -219,7 +219,7 @@ fn next_pow2_floor(n: usize) -> usize {
 async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>)> {
     let args = vec![
         "-probesize".to_string(),
-        "500M".to_string(),
+        "1000M".to_string(),
         "-threads".to_string(),
         "3".to_string(),
         "-vn".to_string(),
