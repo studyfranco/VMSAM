@@ -1513,15 +1513,19 @@ def generate_new_file_audio_config(base_cmd,audio,md5_audio_already_added,audio_
         return 1
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+
+    tmp_file_mkvmerge = path.join(tools.tmpFolder,f"{video_obj.fileBaseName}_mkvmerge_tmp.mkv")
+    tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"], "-o", tmp_file_mkvmerge, "-D", video_obj.filePath], 2, 3600)
+
     base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
                     "-analyzeduration", "1000M", "-probesize", "1000M",
                     "-threads", "5", "-vn"]
     if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", video_obj.filePath])
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal(1000)}", "-i", tmp_file_mkvmerge])
     elif delay_to_put < 0:
-        base_cmd.extend(["-i", video_obj.filePath, "-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
+        base_cmd.extend(["-i", tmp_file_mkvmerge, "-ss", f"{delay_to_put/Decimal(1000)*Decimal(-1)}"])
     else:
-        base_cmd.extend(["-i", video_obj.filePath])
+        base_cmd.extend(["-i", tmp_file_mkvmerge])
 
     base_cmd.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                      "-movflags", "use_metadata_tags", "-c", "copy"])
