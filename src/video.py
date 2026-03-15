@@ -52,6 +52,7 @@ class video():
         self.delayFirstMethodAbort = {}
         self.shiftCuts = None
         self.sameAudioMD5UseForCalculation = []
+        self.need_one_audio_track = True
     
     def get_mediadata(self):
         have_incompatible_ffmpeg_codec = False
@@ -155,7 +156,7 @@ class video():
         if have_incompatible_ffmpeg_codec:
             self.convert_problematic_stream_with_ffmpeg()
             
-        if len(self.audios) == 0:
+        if len(self.audios) == 0 and self.need_one_audio_track:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
         if "und" in self.audios and tools.default_language_for_undetermine not in self.audios:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language

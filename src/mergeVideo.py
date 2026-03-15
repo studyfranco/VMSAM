@@ -1512,6 +1512,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
             sys.stderr.write(f"  {line}\n")
 
     new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
+    new_video.need_one_audio_track = False
     new_video.get_mediadata()
 
     base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
