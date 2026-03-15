@@ -1506,7 +1506,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
             any_error.append(line)
 
     if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}")
+        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
@@ -1552,7 +1552,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
             any_error.append(line)
 
     if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}")
+        sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
