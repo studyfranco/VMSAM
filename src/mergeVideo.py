@@ -1502,14 +1502,17 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
 
     keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
     any_error = []
-    for line in stderr_text.splitlines():
-        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
-            any_error.append(line)
+    #for line in stderr_text.splitlines():
+    #    if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
+    #        any_error.append(line)
 
-    if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
-        for line in any_error:
-            sys.stderr.write(f"  {line}\n")
+    #if any_error:
+    #    sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
+    #    for line in any_error:
+    #        sys.stderr.write(f"  {line}\n")
+
+    sys.stderr.write(f"[FFmpeg] First pass for {video_obj.filePath}\n{stderr_text}\n")
+
 
     new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
     new_video.need_one_audio_track = False
