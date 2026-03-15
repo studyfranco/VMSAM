@@ -1500,9 +1500,10 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
 
     stderr_text = stderror.decode("utf-8", errors="ignore")
 
+    keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
     any_error = []
     for line in stderr_text.splitlines():
-        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
+        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
             any_error.append(line)
 
     if any_error:
@@ -1548,7 +1549,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
 
     any_error = []
     for line in stderr_text.splitlines():
-        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]):
+        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
             any_error.append(line)
 
     if any_error:
