@@ -34,8 +34,11 @@ def file_exists(f):
     except IOError:
         return False
     
-def file_remove(path,file):
-    os.remove(os.path.join(path,file))
+def file_remove(path,file=None):
+    if file is None:
+        os.remove(path)
+    else:
+        os.remove(os.path.join(path,file))
 
 def make_dirs(d):
     try:
