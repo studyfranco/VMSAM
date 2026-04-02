@@ -1530,7 +1530,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
         base_cmd.extend(["-i", tmp_file_first_pass])
 
     base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy"])
+                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
     
     for language,audios in new_video.audios.items():
         for audio in audios:
@@ -1584,7 +1584,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
                             "-threads", "5", "-vn", "-i", video_obj.filePath,
-                            "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
+                            "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown", "-copyts",
                             "-movflags", "use_metadata_tags", "-c", "copy"]
     
     number_track = 0
