@@ -1581,7 +1581,7 @@ def get_relative_id_track(track):
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
 
-    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
+    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
                             "-threads", "5", "-vn", "-i", video_obj.filePath,
                             "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown", "-copyts",
