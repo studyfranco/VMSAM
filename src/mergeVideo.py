@@ -1493,6 +1493,33 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
         except:
             pass
 
+def check_delay_retention_sub(track, original_video_path):
+    extra_tags = track.get("extra", {})
+    vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
+    sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
+    if vmsam_tmp_str:
+        data_to_save = json.loads(vmsam_tmp_str)
+        if Decimal(data_to_save["original_delay"]) != Decimal(track["Delay"]):
+            sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track['Delay']}\n")
+
+# With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
+def check_delay_retention(new_video, original_video_path):
+    for language,audios in new_video.audios.items():
+        for audio in audios:
+            check_delay_retention_sub(audio, original_video_path)
+
+    for language,subtitles in new_video.subtitles.items():
+        for subtitle in subtitles:
+            check_delay_retention_sub(subtitle, original_video_path)
+
+    for language,audios in new_video.commentary.items():
+        for audio in audios:
+            check_delay_retention_sub(audio, original_video_path)
+   
+    for language,audios in new_video.audiodesc.items():
+        for audio in audios:
+            check_delay_retention_sub(audio, original_video_path)
+
 def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
     cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
                             "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
@@ -1517,6 +1544,8 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
+
+    check_delay_retention(new_video,video_obj.filePath)
 
     base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
                     "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -1561,7 +1590,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
-def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove):
+def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
@@ -1571,6 +1600,7 @@ def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_
         return 0
     else:
         md5_audio_already_added.add(audio["MD5"])
+        audio_track_to_convert_or_keep.append(audio)
         return 1
 
 def get_relative_id_track(track):
@@ -1581,7 +1611,7 @@ def get_relative_id_track(track):
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
 
-    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts",
+    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
                             "-threads", "5", "-vn", "-i", video_obj.filePath,
                             "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown", "-copyts",
@@ -1612,50 +1642,71 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                         else:
                             sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
                     sub_track_to_remove.append(sub)
-
-    if len(sub_track_to_convert_or_keep):
-        have_sub_pgs = False
-        sub_relative_index = 0
-        sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-        for sub in sub_track_to_convert_or_keep:
-            codec = sub["Format"].lower()
-            if codec in tools.sub_type_not_encodable:
-                have_sub_pgs = True
-            elif codec in tools.sub_type_near_srt:
-                cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
-            else:
-                cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "ass"])
-            sub_relative_index += 1
-        
-        if have_sub_pgs:
-            cmd_first_pass.extend(["-avoid_negative_ts", "disabled"])
-            cmd_first_pass.remove("-fflags")
-            cmd_first_pass.remove("+genpts+igndts")
     
     audio_track_to_remove = []
+    audio_track_to_convert_or_keep = []
     for language,audios in video_obj.audios.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     for language,audios in video_obj.commentary.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     for language,audios in video_obj.audiodesc.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
-                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove)
+                number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     
     if number_track:
+        if len(sub_track_to_convert_or_keep):
+            have_sub_pgs = False
+            sub_relative_index = 0
+            sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
+            for sub in sub_track_to_convert_or_keep:
+                codec = sub["Format"].lower()
+                if codec in tools.sub_type_not_encodable:
+                    have_sub_pgs = True
+                elif codec in tools.sub_type_near_srt:
+                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
+                else:
+                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "ass"])
+
+                data_to_save = {
+                    "original_position": int(sub.get('StreamOrder', '0')),
+                    "original_delay": float(sub.get('Delay', '0'))
+                }
+                data_to_save_string = json.dumps(data_to_save)
+
+                cmd_first_pass.extend([f"-metadata:s:s:{sub_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
+                sub_relative_index += 1
+            
+            if have_sub_pgs:
+                cmd_first_pass.extend(["-avoid_negative_ts", "disabled"])
+                cmd_first_pass.remove("-fflags")
+                cmd_first_pass.remove("+genpts+igndts")
+
+        if len(audio_track_to_convert_or_keep):
+            audio_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
+            audio_relative_index = 0
+            for audio in audio_track_to_convert_or_keep:
+                data_to_save = {
+                    "original_position": int(audio.get('StreamOrder', '0')),
+                    "original_delay": float(audio.get('Delay', '0'))
+                }
+                data_to_save_string = json.dumps(data_to_save)
+                cmd_first_pass.extend([f"-metadata:s:a:{audio_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
+                audio_relative_index += 1
+
         for audio in audio_track_to_remove:
             cmd_first_pass.extend(["-map", f"-0:{audio["StreamOrder"]}"])
             
