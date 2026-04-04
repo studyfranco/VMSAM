@@ -1496,10 +1496,11 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
 def check_delay_retention_sub(track, original_video_path):
     extra_tags = track.get("extra", {})
     vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
-    sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
+    if tools.dev:
+        sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
     if vmsam_tmp_str:
         data_to_save = json.loads(vmsam_tmp_str)
-        if Decimal(data_to_save["original_delay"]) != Decimal(track["Delay"]):
+        if Decimal(data_to_save["original_delay"]) != Decimal(track.get('Delay', '0')):
             sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track['Delay']}\n")
 
 # With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
