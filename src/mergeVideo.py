@@ -1496,12 +1496,11 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
 def check_delay_retention_sub(track, original_video_path):
     extra_tags = track.get("extra", {})
     vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
-    if tools.dev:
-        sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
+    sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
     if vmsam_tmp_str:
         data_to_save = json.loads(vmsam_tmp_str)
-        if Decimal(data_to_save["original_delay"]) != Decimal(track.get('Delay', '0')):
-            sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track['Delay']}\n")
+        if Decimal(str(data_to_save["original_delay"])) != Decimal(str(track.get('Delay', '0'))):
+            sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track.get('Delay', '0')}\n")
 
 # With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
 def check_delay_retention(new_video, original_video_path):
@@ -1590,6 +1589,12 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
         sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
+
+    new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
+    new_video.need_one_audio_track = False
+    new_video.get_mediadata()
+
+    check_delay_retention(new_video,video_obj.filePath)
 
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
