@@ -246,7 +246,7 @@ class video():
                 self.remove_tmp_files(type_file="audio")
             self.tmpFiles['audio'] = nameFilesExtract
     
-            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-vn", "-dn", "-sn"]
+            baseCommand = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(3), "-nostdin", "-i", self.filePath, "-copyts", "-vn", "-dn", "-sn"]
             codec_param = [] 
             if exportParam['Format'] == 'WAV':
                 if 'codec' in exportParam:
