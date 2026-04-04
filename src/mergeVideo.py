@@ -1498,8 +1498,7 @@ def check_delay_retention_sub(track, original_video_path):
     vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
     sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
     if vmsam_tmp_str:
-        #data_to_save = json.loads(vmsam_tmp_str)
-        data_to_save = vmsam_tmp_str
+        data_to_save = json.loads(vmsam_tmp_str)
         if Decimal(data_to_save["original_delay"]) != Decimal(track["Delay"]):
             sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track['Delay']}\n")
 
