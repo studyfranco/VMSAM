@@ -1487,8 +1487,11 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
         else:
             base_cmd.extend(["-sample_fmt", "s32"])
         base_cmd.extend(["-exact_rice_parameters", "1"])
+        if delay_to_put < 0:
+            base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
     elif delay_to_put < 0:
         base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", audio["ffprobe"]["codec_name"]])
+        base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
         try:
             base_cmd.extend([f"-b:a{get_relative_id_track(audio)}", video.get_bitrate(audio)])
         except:
@@ -1546,21 +1549,22 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
 
-    check_delay_retention(new_video,video_obj.filePath,"First pass")
+    if tools.dev:
+        check_delay_retention(new_video,video_obj.filePath,"First pass")
 
     base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
                     "-analyzeduration", "1000M", "-probesize", "1000M",
                     "-threads", "5", "-vn"]
 
     if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{Decimal(str(delay_to_put))/Decimal(1000)}", "-i", tmp_file_first_pass])
+        base_cmd.extend(["-itsoffset", f"{Decimal(str(delay_to_put))/Decimal('1000')}", "-i", tmp_file_first_pass, "-copyts"])
     elif delay_to_put < 0:
-        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{Decimal(str(delay_to_put))/Decimal(1000)*Decimal(-1)}"])
+        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{Decimal(str(delay_to_put))/Decimal('1000')*Decimal(-1)}"])
     else:
-        base_cmd.extend(["-i", tmp_file_first_pass])
+        base_cmd.extend(["-i", tmp_file_first_pass, "-copyts"])
 
     base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
+                     "-movflags", "use_metadata_tags", "-c", "copy"])
     
     for language,audios in new_video.audios.items():
         for audio in audios:
@@ -1595,7 +1599,8 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
 
-    check_delay_retention(new_video,video_obj.filePath,"Second pass")
+    if tools.dev:
+        check_delay_retention(new_video,video_obj.filePath,"Second pass")
 
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
@@ -2008,14 +2013,17 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     listVideoToNotCalculateOffset = []
     for videoObj in videosObj:
         set_audio_delay = set([Decimal(str(audio.get('Delay', '0'))) for audio in videoObj.audios[common_language_use_for_generate_delay]])
-        sys.stderr.write(f"Delay for {videoObj.filePath} audio delay: {set_audio_delay}\n")
+        if tools.dev:
+            sys.stderr.write(f"Delay for {videoObj.filePath} audio delay: {set_audio_delay}\n")
         if len(set_audio_delay) == 1:
             MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
-            sys.stderr.write(f"{videoObj.filePath} MD5 merged: {MD5merged}\n")
+            if tools.dev:
+                sys.stderr.write(f"{videoObj.filePath} MD5 merged: {MD5merged}\n")
             if MD5merged in MD5AudioVideo:
                 set_audio_delay_main = set([Decimal(str(audio.get('Delay', '0'))) for audio in MD5AudioVideo[MD5merged].audios[common_language_use_for_generate_delay]])
                 if forced_best_video == videoObj.filePath:
-                    sys.stderr.write(f"MD5 {videoObj.filePath} are the same as {MD5AudioVideo[MD5merged].filePath}\n")
+                    if tools.dev:
+                        sys.stderr.write(f"MD5 {videoObj.filePath} are the same as {MD5AudioVideo[MD5merged].filePath}\n")
                     videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
                     videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
@@ -2023,7 +2031,8 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                     MD5AudioVideo[MD5merged].delay_same_md5_audio = (set_audio_delay.pop() - set_audio_delay_main.pop()) * Decimal("1000")
                     MD5AudioVideo[MD5merged] = videoObj
                 else:
-                    sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
+                    if tools.dev:
+                        sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
                     listVideoToNotCalculateOffset.append(videoObj)
                     videoObj.delay_same_md5_audio = (set_audio_delay_main.pop() - set_audio_delay.pop()) * Decimal("1000")
