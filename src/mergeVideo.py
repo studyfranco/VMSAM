@@ -2020,13 +2020,13 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                     videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
                     listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
-                    MD5AudioVideo[MD5merged].delay_same_md5_audio = set_audio_delay.pop() - set_audio_delay_main.pop()
+                    MD5AudioVideo[MD5merged].delay_same_md5_audio = (set_audio_delay.pop() - set_audio_delay_main.pop()) * Decimal("1000")
                     MD5AudioVideo[MD5merged] = videoObj
                 else:
                     sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
                     listVideoToNotCalculateOffset.append(videoObj)
-                    videoObj.delay_same_md5_audio = set_audio_delay_main.pop() - set_audio_delay.pop()
+                    videoObj.delay_same_md5_audio = (set_audio_delay_main.pop() - set_audio_delay.pop()) * Decimal("1000")
             else:
                 MD5AudioVideo[MD5merged] = videoObj
     
