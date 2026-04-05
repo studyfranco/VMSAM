@@ -2013,19 +2013,20 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
             MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
             sys.stderr.write(f"{videoObj.filePath} MD5 merged: {MD5merged}\n")
             if MD5merged in MD5AudioVideo:
+                set_audio_delay_main = set([Decimal(str(audio.get('Delay', '0'))) for audio in MD5AudioVideo[MD5merged].audios[common_language_use_for_generate_delay]])
                 if forced_best_video == videoObj.filePath:
                     sys.stderr.write(f"MD5 {videoObj.filePath} are the same as {MD5AudioVideo[MD5merged].filePath}\n")
                     videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
                     videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
                     listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
-                    MD5AudioVideo[MD5merged].delay_same_md5_audio = set_audio_delay.pop()
+                    MD5AudioVideo[MD5merged].delay_same_md5_audio = set_audio_delay.pop() - set_audio_delay_main.pop()
                     MD5AudioVideo[MD5merged] = videoObj
                 else:
                     sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
                     listVideoToNotCalculateOffset.append(videoObj)
-                    videoObj.delay_same_md5_audio = set_audio_delay.pop()
+                    videoObj.delay_same_md5_audio = set_audio_delay_main.pop() - set_audio_delay.pop()
             else:
                 MD5AudioVideo[MD5merged] = videoObj
     
