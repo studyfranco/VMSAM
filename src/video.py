@@ -52,6 +52,7 @@ class video():
         self.delayFirstMethodAbort = {}
         self.shiftCuts = None
         self.sameAudioMD5UseForCalculation = []
+        self.delay_same_md5_audio = None
         self.need_one_audio_track = True
     
     def get_mediadata(self):

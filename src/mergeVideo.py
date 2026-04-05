@@ -1442,18 +1442,19 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     return number_track_audio
 
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
-    number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
+    delay_to_use = video_obj.delay_same_md5_audio + delay_to_put
+    number_track = generate_new_file(video_obj,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     else:
-        if delay_to_put != 0:
-            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
+        if delay_to_use != 0:
+            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_use)}"])
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
-    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}\n')
+    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_use}\n')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
-        generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
+        generate_merge_command_common_md5(video_obj_common_md5,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     video_obj = dict_file_path_obj[video_path_file]
@@ -1493,32 +1494,32 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
         except:
             pass
 
-def check_delay_retention_sub(track, original_video_path):
+def check_delay_retention_sub(track, original_video_path,sentence):
     extra_tags = track.get("extra", {})
     vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
-    sys.stderr.write(f"[FFmpeg DEBUG] {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
+    sys.stderr.write(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
     if vmsam_tmp_str:
         data_to_save = json.loads(vmsam_tmp_str)
         if Decimal(str(data_to_save["original_delay"])) != Decimal(str(track.get('Delay', '0'))):
-            sys.stderr.write(f"[FFmpeg WARN] Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track.get('Delay', '0')}\n")
+            sys.stderr.write(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track.get('Delay', '0')}\n")
 
 # With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
-def check_delay_retention(new_video, original_video_path):
+def check_delay_retention(new_video, original_video_path,sentence):
     for language,audios in new_video.audios.items():
         for audio in audios:
-            check_delay_retention_sub(audio, original_video_path)
+            check_delay_retention_sub(audio, original_video_path,sentence)
 
     for language,subtitles in new_video.subtitles.items():
         for subtitle in subtitles:
-            check_delay_retention_sub(subtitle, original_video_path)
+            check_delay_retention_sub(subtitle, original_video_path,sentence)
 
     for language,audios in new_video.commentary.items():
         for audio in audios:
-            check_delay_retention_sub(audio, original_video_path)
+            check_delay_retention_sub(audio, original_video_path,sentence)
    
     for language,audios in new_video.audiodesc.items():
         for audio in audios:
-            check_delay_retention_sub(audio, original_video_path)
+            check_delay_retention_sub(audio, original_video_path,sentence)
 
 def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
     cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
@@ -1545,7 +1546,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
 
-    check_delay_retention(new_video,video_obj.filePath)
+    check_delay_retention(new_video,video_obj.filePath,"First pass")
 
     base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
                     "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -1594,7 +1595,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
 
-    check_delay_retention(new_video,video_obj.filePath)
+    check_delay_retention(new_video,video_obj.filePath,"Second pass")
 
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
@@ -2006,17 +2007,23 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     MD5AudioVideo = {}
     listVideoToNotCalculateOffset = []
     for videoObj in videosObj:
-        MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
-        if MD5merged in MD5AudioVideo:
-            if forced_best_video == videoObj.filePath:
-                videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
-                listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
-                MD5AudioVideo[MD5merged] = videoObj
+        set_audio_delay = set([Decimal(str(audio['Delay'])) for audio in videoObj.audios[common_language_use_for_generate_delay]])
+        if len(set_audio_delay) == 1:
+            MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
+            if MD5merged in MD5AudioVideo:
+                if forced_best_video == videoObj.filePath:
+                    videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
+                    videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
+                    MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
+                    listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
+                    MD5AudioVideo[MD5merged].delay_same_md5_audio = set_audio_delay.pop()
+                    MD5AudioVideo[MD5merged] = videoObj
+                else:
+                    MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
+                    listVideoToNotCalculateOffset.append(videoObj)
+                    videoObj.delay_same_md5_audio = set_audio_delay.pop()
             else:
-                MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
-                listVideoToNotCalculateOffset.append(videoObj)
-        else:
-            MD5AudioVideo[MD5merged] = videoObj
+                MD5AudioVideo[MD5merged] = videoObj
     
     for videoObj in listVideoToNotCalculateOffset:
         videosObj.remove(videoObj)
