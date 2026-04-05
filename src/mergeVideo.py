@@ -2007,7 +2007,8 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     MD5AudioVideo = {}
     listVideoToNotCalculateOffset = []
     for videoObj in videosObj:
-        set_audio_delay = set([Decimal(str(audio['Delay'])) for audio in videoObj.audios[common_language_use_for_generate_delay]])
+        set_audio_delay = set([Decimal(str(audio.get('Delay', '0'))) for audio in videoObj.audios[common_language_use_for_generate_delay]])
+        sys.stderr.write(f"Delay for {videoObj.filePath} audio delay: {set_audio_delay}\n")
         if len(set_audio_delay) == 1:
             MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
             if MD5merged in MD5AudioVideo:
