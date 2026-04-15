@@ -653,23 +653,12 @@ class compare_video(Thread):
             self.video_obj_1.delays[self.language] += delay # Delay you need to give to mkvmerge to be good.
             
     def adjust_delay_to_frame(self,delay):
+        delay = Decimal(delay)
         if self.video_obj_with_best_quality.video["FrameRate_Mode"] == "CFR":
             getcontext().prec = 10
-            framerate = Decimal(self.video_obj_with_best_quality.video["FrameRate"])
-            number_frame = round(Decimal(delay)/framerate)
-            distance_frame = Decimal(delay)%framerate
-            if abs(distance_frame) < framerate/Decimal(2.0):
-                return Decimal(number_frame)*framerate
-            elif number_frame > 0:
-                return Decimal(number_frame+1)*framerate
-            elif number_frame < 0:
-                return Decimal(number_frame-1)*framerate
-            elif distance_frame > 0:
-                return Decimal(number_frame+1)*framerate
-            elif distance_frame < 0:
-                return Decimal(number_frame-1)*framerate
-            else:
-                return delay
+            framerate_duration_ms = Decimal('1000.0')/Decimal(self.video_obj_with_best_quality.video["FrameRate"])
+            number_frame = round(delay/framerate_duration_ms)
+            return Decimal(number_frame*framerate_duration_ms)
             
         else:
             ''' TODO:
