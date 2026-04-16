@@ -1440,10 +1440,10 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     else:
         if delay_to_use != 0:
-            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_use)}"])
+            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_use))}"])
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
-    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_use}\n')
+    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_use:.3f}\n')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
@@ -1456,10 +1456,10 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
     else:
         if delay_to_put != 0:
-            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{round(delay_to_put)}"])
+            ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_put))}"])
         ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     
-    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put}\n')
+    sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put:.3f}\n')
     
     for video_obj_common_md5 in video_obj.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
@@ -1549,9 +1549,9 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
                     "-threads", "5", "-vn"]
 
     if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{Decimal(str(delay_to_put))/Decimal('1000')}", "-i", tmp_file_first_pass, "-copyts"])
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", tmp_file_first_pass, "-copyts"])
     elif delay_to_put < 0:
-        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{Decimal(str(delay_to_put))/Decimal('1000')*Decimal(-1)}"])
+        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{delay_to_put/Decimal('1000')*Decimal(-1):.6f}"])
     else:
         base_cmd.extend(["-i", tmp_file_first_pass, "-copyts"])
 
