@@ -18,7 +18,7 @@ from iso639 import Lang,is_language
 ffmpeg_pool_audio_convert = None
 ffmpeg_pool_big_job = None
 path_to_livmaf_model = "" #Nothing if it use the default
-number_cut = 5
+number_cut = 10
 percent_time_by_test_video_quality_from_cut = 25
 
 class video():
@@ -114,7 +114,7 @@ class video():
                             self.commentary[language].append(data)
                         else:
                             self.commentary[language] = [data]
-                    elif ('Title' in data and ( re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) or re.match(r".* *\[{0,1}audio {0,1}guide\]{0,1} *.*", data["Title"].lower()) ) ) or ("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]):
+                    elif (("flag_visual_impaired" in data['properties'] and data['properties']["flag_visual_impaired"]) or ('Title' in data and ( re.match(r".* *\[{0,1}audio {0,1}description\]{0,1} *.*", data["Title"].lower()) or re.match(r".* *\[{0,1}audio {0,1}guide\]{0,1} *.*", data["Title"].lower()) or data["Title"].lower() == 'descriptive' ) ) ):
                         if language in self.audiodesc:
                             self.audiodesc[language].append(data)
                         else:

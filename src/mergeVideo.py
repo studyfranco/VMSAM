@@ -240,7 +240,7 @@ class compare_video(Thread):
             delay_first_method,ignore_audio_couple = self.first_delay_test()
             delay_second_method = self.second_delay_test(delay_first_method,ignore_audio_couple)
             
-            calculated_delay = delay_first_method+round(delay_second_method*1000)
+            calculated_delay = Decimal(delay_first_method)+(Decimal(delay_second_method)*Decimal('1000.0'))
             if abs(calculated_delay-delay_first_method) < 500:
                 return calculated_delay
             else:
@@ -787,6 +787,9 @@ def prepare_get_delay(videos_obj,language,audioRules):
         for language_obj,audios in videoObj.commentary.items():
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_commentary"])
+        for language_obj,audios in videoObj.audiodesc.items():
+            for audio in audios:
+                audio["keep"] = (not tools.special_params["remove_descriptive"])
     
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
@@ -2017,14 +2020,14 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                     videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
                     listVideoToNotCalculateOffset.append(MD5AudioVideo[MD5merged])
-                    MD5AudioVideo[MD5merged].delay_same_md5_audio = (set_audio_delay.pop() - set_audio_delay_main.pop()) * Decimal("1000")
+                    MD5AudioVideo[MD5merged].delay_same_md5_audio = (set_audio_delay.pop() - set_audio_delay_main.pop()) * Decimal("1000.0")
                     MD5AudioVideo[MD5merged] = videoObj
                 else:
                     if tools.dev:
                         sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
                     listVideoToNotCalculateOffset.append(videoObj)
-                    videoObj.delay_same_md5_audio = (set_audio_delay_main.pop() - set_audio_delay.pop()) * Decimal("1000")
+                    videoObj.delay_same_md5_audio = (set_audio_delay_main.pop() - set_audio_delay.pop()) * Decimal("1000.0")
             else:
                 MD5AudioVideo[MD5merged] = videoObj
     

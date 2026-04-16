@@ -1,11 +1,15 @@
 {
-	"original_language":"ja",
-	"default_language_und":"ja",
-	"change_all_und":true,
-	"remove_commentary":false,
-	"always_keep_audio_format":["flac","dts"],
-	"number_cut":5,
-	"second_cut_lenght":2.5,
-	"forced_best_video":"",
-	"forced_best_video_contain":false
+	"original_language": "ja",
+	"default_language_und": "ja",
+	"change_all_und": true,
+	"remove_commentary": false,
+	"remove_descriptive": false,
+	"always_keep_audio_format": [
+		"flac",
+		"dts"
+	],
+	"number_cut": 5,
+	"second_cut_lenght": 2.5,
+	"forced_best_video": "",
+	"forced_best_video_contain": false
 }

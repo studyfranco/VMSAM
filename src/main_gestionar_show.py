@@ -408,7 +408,7 @@ if __name__ == '__main__':
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
-        tools.special_params = {"change_all_und":True, "remove_commentary":True, "forced_best_video_contain":False}
+        tools.special_params = {"change_all_und":True, "remove_commentary":True, "remove_descriptive":True, "forced_best_video_contain":False}
         with open(args.database_url_file) as database_url_file:
             database_url_param = json.load(database_url_file)
         stderr.write("Setup database\n")

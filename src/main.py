@@ -42,16 +42,18 @@ if __name__ == '__main__':
         import mergeVideo
         import video
         import json
+        tools.special_params = {"change_all_und":False, "original_language":"",
+            "remove_commentary":True, "remove_descriptive":True,
+            "forced_best_video":"", "forced_best_video_contain":False}
+
         if args.param != None:
             with open(args.param) as param_file:
-                tools.special_params = json.load(param_file)
+                tools.special_params.update(json.load(param_file))
             tools.default_language_for_undetermine = tools.special_params["default_language_und"]
             if "model_path" in tools.special_params and tools.special_params['model_path'] != "" and tools.special_params['model_path'] != None:
                 video.path_to_livmaf_model = ":model_path="+tools.special_params['model_path']
             video.number_cut = tools.special_params["number_cut"]
             mergeVideo.cut_file_to_get_delay_second_method = tools.special_params["second_cut_lenght"]
-        else:
-            tools.special_params = {"change_all_und":False, "original_language":"", "remove_commentary":False, "forced_best_video":"", "forced_best_video_contain":False}
         
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
         
