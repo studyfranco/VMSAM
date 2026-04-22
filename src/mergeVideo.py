@@ -1549,14 +1549,14 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
                     "-threads", "5", "-vn"]
 
     if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", tmp_file_first_pass, "-copyts"])
+        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", tmp_file_first_pass])
     elif delay_to_put < 0:
         base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{delay_to_put/Decimal('1000')*Decimal(-1):.6f}"])
     else:
-        base_cmd.extend(["-i", tmp_file_first_pass, "-copyts"])
+        base_cmd.extend(["-i", tmp_file_first_pass])
 
     base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy"])
+                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
     
     for language,audios in new_video.audios.items():
         for audio in audios:
