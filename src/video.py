@@ -54,6 +54,7 @@ class video():
         self.sameAudioMD5UseForCalculation = []
         self.delay_same_md5_audio = None
         self.need_one_audio_track = True
+        self.und_in_default = False
     
     def get_mediadata(self):
         have_incompatible_ffmpeg_codec = False
@@ -162,6 +163,7 @@ class video():
         if "und" in self.audios and tools.default_language_for_undetermine not in self.audios:
             # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
+            self.und_in_default = True
     
     def convert_problematic_stream_with_ffmpeg(self):
         """
