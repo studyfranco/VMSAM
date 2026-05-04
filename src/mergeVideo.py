@@ -1470,15 +1470,15 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
 
 def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
     if audio["Format"].lower() == "flac" or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
-        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", "flac", "-compression_level:a{get_relative_id_track(audio)}", "12"])
+        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", "flac", f"-compression_level:a{get_relative_id_track(audio)}", "12"])
         if "BitDepth" in audio:
             if audio["BitDepth"] == "16":
-                base_cmd.extend(["-sample_fmt:a{get_relative_id_track(audio)}", "s16"])
+                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s16"])
             else:
-                base_cmd.extend(["-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
+                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
         else:
-            base_cmd.extend(["-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
-        base_cmd.extend(["-exact_rice_parameters:a{get_relative_id_track(audio)}", "1"])
+            base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
+        base_cmd.extend([f"-exact_rice_parameters:a{get_relative_id_track(audio)}", "1"])
         if delay_to_put < 0:
             base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
     elif delay_to_put < 0:
