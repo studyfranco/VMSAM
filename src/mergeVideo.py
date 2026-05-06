@@ -27,7 +27,7 @@ cut_file_to_get_delay_second_method = 2.5 # With the second method we need a bet
 
 errors_merge = []
 errors_merge_lock = RLock()
-max_stream = 85
+max_stream = 80
 show_not_compatible_error = True
 not_compatible_video_list = []
 
@@ -2094,6 +2094,8 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
         process_md5_thread.start()
         md5_threads.append(process_md5_thread)
         
+    tools.language_to_completely_remove = tools.language_to_completely_remove.copy()
+    tools.language_to_completely_remove.remove(tools.special_params["original_language"])
     for process_md5_thread in md5_threads:
         process_md5_thread.join()
     
