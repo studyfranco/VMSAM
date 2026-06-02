@@ -2095,7 +2095,8 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
         md5_threads.append(process_md5_thread)
         
     tools.language_to_completely_remove = tools.language_to_completely_remove.copy()
-    tools.language_to_completely_remove.remove(tools.special_params["original_language"])
+    if tools.special_params["original_language"] in tools.language_to_completely_remove:
+        tools.language_to_completely_remove.remove(tools.special_params["original_language"])
     for process_md5_thread in md5_threads:
         process_md5_thread.join()
     
