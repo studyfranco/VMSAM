@@ -1,7 +1,7 @@
 import argparse
 import os
 from datetime import datetime
-from multiprocessing import Pool, Process
+from multiprocessing import Pool, Process, set_start_method, get_context
 from concurrent.futures import ProcessPoolExecutor
 from threading import Thread
 from sys import stderr,stdout
@@ -287,7 +287,8 @@ def process_files_in_folder(folder_files,database_url):
     
     list_jobs = []
     global parrallel_jobs
-    parrallel_jobs = ProcessPoolExecutor(max_workers=2)
+    ctx = get_context("fork")
+    parrallel_jobs = ProcessPoolExecutor(max_workers=2, mp_context=ctx)
 
     for folder_id, files in resultats_finaux.items():
         # Lancer le traitement des fichiers en parallèle
@@ -351,11 +352,11 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
-def run_uvicorn(database_url):
+def run_uvicorn(database_url, tmpFolder):
     import sys
     sys.stdin = None
 
-    env_path = os.path.join(tools.tmpFolder, "gestionar_show_api.env")
+    env_path = os.path.join(tmpFolder, "gestionar_show_api.env")
     
     # Écrit la variable DATABASE_URL dans un fichier .env
     with open(env_path, "w") as env_file:
@@ -382,6 +383,7 @@ if __name__ == '__main__':
     parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
     args = parser.parse_args()
     try:
+        set_start_method('fork', force=True)
         if (not os.access(args.error, os.W_OK)):
             raise Exception(f"{args.error} not writable")
         if (not os.access(args.folder, os.W_OK)):
@@ -393,6 +395,7 @@ if __name__ == '__main__':
         tools.software = tools.config_loader(args.config, "software")
         tools.core_to_use = max(1, args.core-1)
         tools.folder_error = args.error
+        tools.tmpFolder = args.tmp
         tools.tmpFolder_original = os.path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
         import json
@@ -412,7 +415,7 @@ if __name__ == '__main__':
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
 
-        uvicorn_process = Process(target=run_uvicorn, args=(database_url_param["database_url"],))
+        uvicorn_process = Process(target=run_uvicorn, args=(database_url_param["database_url"], tools.tmpFolder))
         uvicorn_process.start()
         
         stderr.write("Start !\n")
