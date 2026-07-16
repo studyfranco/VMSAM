@@ -351,7 +351,7 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
-def run_uvicorn():
+def run_uvicorn(database_url):
     import sys
     sys.stdin = None
 
@@ -359,9 +359,9 @@ def run_uvicorn():
     
     # Écrit la variable DATABASE_URL dans un fichier .env
     with open(env_path, "w") as env_file:
-        env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
+        env_file.write(f"DATABASE_URL={database_url}\n")
     with open("gestionar_show/.env", "w") as env_file:
-        env_file.write(f"DATABASE_URL={database_url_param['database_url']}\n")
+        env_file.write(f"DATABASE_URL={database_url}\n")
     uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, env_file=env_path, workers=5, log_level="error")
 
 if __name__ == '__main__':
@@ -415,7 +415,7 @@ if __name__ == '__main__':
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
 
-        uvicorn_process = Process(target=run_uvicorn)
+        uvicorn_process = Process(target=run_uvicorn, args=(database_url_param["database_url"],))
         uvicorn_process.start()
         
         stderr.write("Start !\n")
