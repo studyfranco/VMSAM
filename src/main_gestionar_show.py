@@ -137,7 +137,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                     if not tools.dev:
                         mergeVideo.show_not_compatible_error = False
 
-                    video.ffmpeg_pool_audio_convert = Pool(processes=int(tools.core_to_use/1.6))
+                    video.ffmpeg_pool_audio_convert = Pool(processes=max(1, int(tools.core_to_use/1.6)))
                     video.ffmpeg_pool_big_job = Pool(processes=1)
                     try:
                         if tools.dev:
@@ -391,10 +391,7 @@ if __name__ == '__main__':
         os.chdir(args.pwd)
         tools.dev = args.dev
         tools.software = tools.config_loader(args.config, "software")
-        if args.core > 1:
-            tools.core_to_use = args.core-1
-        else:
-            tools.core_to_use = 1
+        tools.core_to_use = max(1, args.core-1)
         tools.folder_error = args.error
         tools.tmpFolder_original = os.path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
         tools.mergeRules = tools.config_loader(args.config,"mergerules")
