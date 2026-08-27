@@ -1,3 +1,12 @@
 .vscode/settings.json
 *.pyc
 /.pytest_cache/
+target/*
+*.db
+*.db-journal
+# WAL mode sidecars, created alongside the database once journal_mode=WAL is set.
+*.db-wal
+*.db-shm
+Cargo.lock
+.claude/*
+example/*
