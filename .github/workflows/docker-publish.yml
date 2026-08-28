@@ -7,7 +7,7 @@ name: Docker
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "feat/dual-uvicorn-fusion-api" ]
     # Publish semver tags as releases.
     tags: [ 'v*.*.*' ]
   pull_request:
