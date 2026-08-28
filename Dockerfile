@@ -23,8 +23,7 @@ FROM ghcr.io/studyfranco/docker-baseimages-debian:testing-video
 LABEL maintainer="studyfranco@gmail.com"
 
 ARG defaultlibvmaf="https://github.com/Netflix/vmaf/archive/refs/tags/v3.0.0.tar.gz" \
-    pathtomodelfromdownload="vmaf-3.0.0/model" \
-    VMSAM_GIT_COMMIT="IDK"
+    pathtomodelfromdownload="vmaf-3.0.0/model"
 
 # && echo "deb https://deb.debian.org/debian/ bullseye main contrib non-free" >> /etc/apt/sources.list.d/bullseye.list \
 RUN set -x \
@@ -65,6 +64,8 @@ RUN set -x \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
+ARG VMSAM_GIT_COMMIT="IDK"
+
 ENV CORE=4 \
     WAIT=300 \
     PGID="1000" \
@@ -72,7 +73,8 @@ ENV CORE=4 \
     software="main" \
     folder_to_watch="/config/input" \
     folder_error="/config/error" \
-    dev=false
+    dev=false \
+    VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT}
 
 RUN mkdir -p /home/vmsam/gestionar_show/ \
     && mkdir -p /home/vmsam/gestionar_movie/
