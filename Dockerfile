@@ -41,7 +41,7 @@ RUN set -x \
 
 RUN set -x \
     && apt update \
-    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-pip python3-psutil python3-pysubs2 --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-pip python3-psutil python3-pysubs2 tesseract-ocr-all tesseract-ocr pytesseract --no-install-recommends \
     && python3 -m pip install --break-system-packages iso639-lang \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* /root/.cache
@@ -64,17 +64,9 @@ RUN set -x \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
-ARG VMSAM_GIT_COMMIT="IDK"
+WORKDIR /
 
-ENV CORE=4 \
-    WAIT=300 \
-    PGID="1000" \
-    PUID="1000" \
-    software="main" \
-    folder_to_watch="/config/input" \
-    folder_error="/config/error" \
-    dev=false \
-    VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT}
+ARG VMSAM_GIT_COMMIT="IDK"
 
 RUN mkdir -p /home/vmsam/gestionar_show/ \
     && mkdir -p /home/vmsam/gestionar_movie/
@@ -86,6 +78,17 @@ COPY --from=builder --chown=vmsam:vmsam /usr/src/app/target/release/audio_sync /
 RUN chmod +x /init.sh \
     && chmod +x /home/vmsam/run.sh
 
-WORKDIR /
+ENV CORE=4 \
+    WAIT=300 \
+    PGID="1000" \
+    PUID="1000" \
+    software="main" \
+    folder_to_watch="/config/input" \
+    folder_error="/config/error" \
+    dev=false \
+    XDG_CACHE_HOME=/tmp/.cache \
+    CARGO_HOME=/tmp/cargo \
+    PYTHONPYCACHEPREFIX=/tmp/pycache \
+    VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT}
 
 ENTRYPOINT [ "/init.sh" ]
