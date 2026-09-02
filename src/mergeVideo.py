@@ -1017,8 +1017,6 @@ def keep_best_audio(list_audio_metadata,audioRules):
         for j,audio_2 in enumerate(list_audio_metadata):
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
-            # BEGIN: AGENT modification ok
-            #
             # Une piste fabriquee perd face a une piste intacte, avant toute
             # regle de codec: sinon un FLAC assemble de trois sources evince un
             # AAC d'origine, et les regles ci-dessous ne comparent que codec,
@@ -1039,7 +1037,6 @@ def keep_best_audio(list_audio_metadata,audioRules):
                 audio_1['keep'] = False
             elif audio_2.get('fabricated') and (not audio_1.get('fabricated')):
                 audio_2['keep'] = False
-            # END: AGENT modification
             elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):

@@ -120,6 +120,8 @@ ENV CORE=4 \
     CARGO_HOME=/tmp/cargo \
     PYTHONPYCACHEPREFIX=/tmp/pycache \
     VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT} \
-    VMSAM_MODE="test"
+    VMSAM_MODE="test" \
+    VMSAM_TEST_OUTPUT_DIR=
+
 
 ENTRYPOINT [ "/init.sh" ]

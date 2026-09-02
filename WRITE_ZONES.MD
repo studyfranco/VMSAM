@@ -30,6 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
+| `*.MD` at the repository root | **except `AGENT_NOTES.MD`** — the rules that bind you are not yours to edit. A wrong rule is a finding, see §6 |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -157,6 +158,9 @@ Before every commit:
 # 1. no write outside the open paths
 git diff --cached --name-only
 
+# 1b. no document rewritten except the logbook
+git diff --cached --name-only -- '*.MD' | grep -v '^AGENT_NOTES.MD$'   # must be empty
+
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)
 git diff --cached -U0 -- src/mergeVideo.py src/tools.py
@@ -168,7 +172,7 @@ git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be emp
 python3 -m compileall -q src -x '__pycache__'
 ```
 
-Check 3 must print nothing. Check 4 fails on `frame_compare.py` until someone
+Checks 1b and 3 must print nothing. Check 4 fails on `frame_compare.py` until someone
 fixes it; that failure is expected and is the only one allowed.
 
 ## 6. Reporting a blocked need
