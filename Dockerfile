@@ -47,20 +47,38 @@ RUN set -x \
 
 RUN set -x \
     && apt update \
-    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-dotenv python3-psutil --no-install-recommends \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
 RUN set -x \
     && apt update \
-    && DEBIAN_FRONTEND=noninteractive apt install -y python3-onnxruntime python3-resampy python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-psutil python3-pysubs2 pytesseract --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-resampy python3-fastapi python3-uvicorn python3-pydantic-settings --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-onnxruntime python3-pysubs2 pytesseract python3-av python3-imagehash --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-librosa --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-opencv --no-install-recommends \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
 RUN set -x \
     && apt update \
     && DEBIAN_FRONTEND=noninteractive apt install -y python3-pip --no-install-recommends \
-    && python3 -m pip install --break-system-packages iso639-lang \
+    && python3 -m pip install --break-system-packages --upgrade scenedetect-headless iso639-lang \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* /root/.cache
 
