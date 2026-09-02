@@ -266,10 +266,11 @@ def second_correlation(in1,in2):
         file = data['file']
         offset = data['offset_seconds']
         if tools.dev:
-            sys.stderr.write(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
+            tools.logs.append(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
         # If audio_sync is not installed, we return the file and offset
         sys.stderr.write(f"\t\taudio_sync not working: {e}\n")
+        tools.logs.append(f"\t\taudio_sync not working: {e}\n")
         
         with lock_fallback:
             begin = time.time()
@@ -299,7 +300,7 @@ def second_correlation(in1,in2):
             gc.collect()
         
         if tools.dev:
-            sys.stderr.write(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
+            tools.logs.append(f"\t\tSecond correlation in old function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {file} in offset {offset}\n")
     
     return file,offset
 

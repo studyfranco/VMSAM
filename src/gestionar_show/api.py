@@ -3,17 +3,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 from time import sleep
-from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder
-from tools import tmpFolder
+from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data
+import tools
+import urllib.error
+from . import internal_client
+from .settings import Settings
 
 episode_pattern_insert = "{<episode>}"
-
-class Settings(BaseSettings):
-    DATABASE_URL: str
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 # Initialise la DB
 engine = None
@@ -68,6 +66,9 @@ class Incrementaller(BaseModel):
     rename_pattern: str
     episode_incremental: int = Field(default=12)
     example_filename: str
+
+class FusionRequest(BaseModel):
+	error_file_path: str
 
 app = FastAPI(
     title="Gestionar Show API",
@@ -172,7 +173,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             "message": "Regex added",
             "regex_pattern": regex_data.regex_pattern,
             "extracted_episode": int(episode_number),
-            "folder id": folder.id
+            "folder_id": folder.id
         }
     else:
         # Si la regex existe déjà, on met à jour les champs
@@ -296,4 +297,86 @@ def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session))
         })
     return {
         "regex_patterns": infos
+    }
+
+@app.get("/errors")
+def get_incompatible_files_list(session: Session = Depends(get_session)):
+    """Liste les fichiers rejetés par le pipeline avec leurs métadonnées"""
+    incompatible_files = get_all_incompatible_files(session)
+
+    infos = []
+    for incompatible_file in incompatible_files:
+        infos.append({
+            "id": incompatible_file.id,
+            "folder_id": incompatible_file.folder_id,
+            "episode_number": incompatible_file.episode_number,
+            "file_path": incompatible_file.file_path,
+            "file_weight": incompatible_file.file_weight
+        })
+    return {
+        "incompatible_files": infos
+    }
+
+@app.get("/fusion")
+def get_fusion_queue_status():
+    """Etat de la file d'attente, relaye depuis l'instance interne"""
+    try:
+        status_code, payload = internal_client.call_internal_api("GET", "/internal/fusion")
+    except (urllib.error.URLError, OSError) as e:
+        raise HTTPException(status_code=503, detail=f"Internal fusion worker unreachable: {e}")
+
+    if status_code != 200:
+        raise HTTPException(status_code=status_code, detail=payload.get("detail", "Internal fusion worker error"))
+    return payload
+
+@app.post("/fusion")
+def create_fusion_job(fusion_request: FusionRequest, session: Session = Depends(get_session)):
+    """Valide une demande de fusion puis la transmet au worker interne"""
+    incompatible_file = get_incompatible_file_by_path(fusion_request.error_file_path, session)
+    if incompatible_file == None:
+        raise HTTPException(status_code=404, detail=f"{fusion_request.error_file_path} not found in incompatible_files")
+
+    master_episode = get_episode_data(incompatible_file.folder_id, incompatible_file.episode_number, session)
+    if master_episode == None:
+        raise HTTPException(status_code=404, detail=f"No episode {incompatible_file.episode_number} registered for folder {incompatible_file.folder_id}, nothing to merge with")
+
+    try:
+        status_code, payload = internal_client.call_internal_api(
+            "POST", "/internal/fusion", payload={"error_file_path": fusion_request.error_file_path}
+        )
+    except (urllib.error.URLError, OSError) as e:
+        raise HTTPException(status_code=503, detail=f"Internal fusion worker unreachable: {e}")
+
+    if status_code >= 400:
+        raise HTTPException(status_code=status_code, detail=payload.get("detail", "Internal fusion worker error"))
+
+    payload["master_file_path"] = master_episode.file_path
+    return payload
+
+@app.get("/health")
+def get_health():
+    """Verification de deploiement: version, mode courant et etat d'execution"""
+    status = "ok"
+    is_running = False
+    try:
+        status_code, payload = internal_client.call_internal_api("GET", "/internal/health", timeout=5)
+        if status_code == 200:
+            is_running = bool(payload.get("is_running", False))
+        else:
+            status = "degraded"
+    except (urllib.error.URLError, OSError):
+        # The public instance keeps serving its own endpoints when the internal
+        # worker is down, so this reports degraded rather than failing outright.
+        status = "degraded"
+
+    return {
+        "status": status,
+        "git_commit": tools.get_git_commit(),
+        "mode": tools.get_execution_mode(),
+        # Whether the verbose diagnostics are actually on. The image has always
+        # set dev=true, but until run.sh was fixed nothing passed --dev, so
+        # tools.dev stayed False and every gated diagnostic was silently dark.
+        # There was no way to tell from outside; now there is.
+        "dev": tools.get_dev_env_var(),
+        "is_running": is_running
     }

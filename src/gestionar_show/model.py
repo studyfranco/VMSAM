@@ -6,8 +6,12 @@ from typing_extensions import Annotated
 int_big = Annotated[BigInteger, mapped_column(BigInteger)]
 
 class Base(DeclarativeBase):
-    type_annotations = {
-        'str': Text,
+    # SQLAlchemy 2.0 resolves Mapped[...] annotations through type_annotation_map,
+    # keyed by the Python type itself. The previous `type_annotations = {'str': Text}`
+    # was neither the expected attribute name nor the expected key type, so it was
+    # silently ignored and every Mapped[str] fell back to the default VARCHAR.
+    type_annotation_map = {
+        str: Text,
     }
 
 class folder(Base):
@@ -19,8 +23,12 @@ class folder(Base):
     number_cut: Mapped[int]
     cut_file_to_get_delay_second_method: Mapped[float]
     max_episode_number: Mapped[int]
-    
-    UniqueConstraint("destination_path")
+
+    # A bare UniqueConstraint(...) in the class body is a free-standing expression
+    # that never reaches the Table, so it has to go through __table_args__.
+    __table_args__ = (
+        UniqueConstraint("destination_path", name="uq_folders_destination_path"),
+    )
 
     regex_patterns: Mapped[List["regexPattern"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan"
@@ -50,6 +58,10 @@ class incompatibleFile(Base):
     episode_number: Mapped[int]
     file_path: Mapped[str]
     file_weight: Mapped[int]
+
+    __table_args__ = (
+        UniqueConstraint("file_path", name="uq_incompatible_files_file_path"),
+    )
 
     folder: Mapped["folder"] = relationship(back_populates="incompatible_files")
 
@@ -228,6 +240,22 @@ def insert_incompatible_file(folder_id, episode_number, file_path, file_weight, 
     session.add(new_incompatible)
     session.commit()
     return new_incompatible
+
+def get_all_incompatible_files(session):
+    return session.query(incompatibleFile).order_by(
+        incompatibleFile.folder_id.asc(),
+        incompatibleFile.episode_number.asc(),
+        incompatibleFile.file_weight.desc()
+    ).all()
+
+def get_incompatible_file_by_path(file_path, session):
+    return session.query(incompatibleFile).filter(
+        incompatibleFile.file_path == file_path
+    ).first()
+
+def delete_incompatible_file(incompatible_file_data, session):
+    session.delete(incompatible_file_data)
+    session.commit()
 
 def get_incrementaller_data(regex, session):
     return session.query(incrementaller).filter(

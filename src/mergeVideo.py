@@ -254,6 +254,8 @@ class compare_video(Thread):
         from statistics import mean
         if tools.dev:
             sys.stderr.write(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
+            with errors_merge_lock:
+                tools.logs.append(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
         delay_Fidelity_Values = get_delay_fidelity(self.video_obj_1,self.video_obj_2,self.lenghtTime*2)
         ignore_audio_couple = set()
         delay_detected = set()
@@ -569,6 +571,8 @@ class compare_video(Thread):
         self.recreate_files_for_delay_adjuster(delayUse)
         if tools.dev:
             sys.stderr.write(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
+            with errors_merge_lock:
+                tools.logs.append(f"\t\tStart second_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath} with delay {delayUse}\n")
         delay_Values = get_delay_by_second_method(self.video_obj_1,self.video_obj_2,ignore_audio_couple=ignore_audio_couple)
         delay_detected = set()
         for key_audio, delay_list in delay_Values.items():
@@ -795,12 +799,13 @@ def prepare_get_delay(videos_obj,language,audioRules):
 
 def print_forced_video(forced_best_video):
     if tools.dev:
-        sys.stderr.write(f"The forced video is {forced_best_video}\n")
+        tools.logs.append(f"The forced video is {forced_best_video}\n")
 
 def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
     if len(list_not_compatible_video):
         if show_not_compatible_error:
             sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
+            tools.logs.append(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos\n")
             sys.stderr.write("\n")
         not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
@@ -882,6 +887,7 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
                         I want check the file with the best number of match file and remove the files with the less connected. Normally the two list can't be connected.
                 """
                 sys.stderr.write(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random\n")
+                tools.logs.append(f"You enter in a not working part. You have one last file not compatible you may stop here the result will be random\n")
                 sys.stderr.write("\n")
                 list_not_compatible_video.append(compareObjs[i+1].filePath)
                 list_not_compatible_video.extend(remove_not_compatible_audio(compareObjs[i+1].filePath,already_compared))
@@ -944,7 +950,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
 def find_differences_and_keep_best_audio(video_obj,language,audioRules):
     if len(video_obj.audios[language]) > 1:
         if tools.dev:
-            sys.stderr.write(f"\t\tKeep the best audio for {language}\n")
+            tools.logs.append(f"\t\tKeep the best audio for {language}\n")
         try:
             begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
             video_obj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
@@ -974,18 +980,21 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             validation[i][j] = True
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
                             if tools.dev:
-                                sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             validation[i][j] = True
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
                             sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                            tools.logs.append(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
                             sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                            tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
                             sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                            tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
                             if tools.dev:
-                                sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             validation[i][j] = True
                         else:
                             validation[i][j] = False
@@ -998,12 +1007,12 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                 not_compatible = set()
                 for i in validation[main].keys():
                     if tools.dev:
-                        sys.stderr.write(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
+                        tools.logs.append(f"find_differences_and_keep_best_audio validation[{main}][{i}]: {validation[main][i]}\n")
                     if validation[main][i] and i not in not_compatible:
                         list_compatible.add(i)
                         for j in validation[i].keys():
                             if tools.dev:
-                                sys.stderr.write(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
+                                tools.logs.append(f"find_differences_and_keep_best_audio validation[{i}][{j}]: {validation[i][j]}\n")
                             if (not(validation[i][j])):
                                 not_compatible.add(j)
                 list_compatible = list_compatible - not_compatible
@@ -1013,13 +1022,14 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
                     if tools.dev:
-                        sys.stderr.write(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
+                        tools.logs.append(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
                     to_compare = [x for x in to_compare if x not in list_compatible]
                 
         except Exception as e:
             import traceback
             traceback.print_exc()
             sys.stderr.write(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
+            tools.logs.append(f"Error processing find_differences_and_keep_best_audio on {language}: {e}\n")
         finally:
             video_obj.remove_tmp_files(type_file="audio")
 
@@ -1047,6 +1057,7 @@ def keep_best_audio(list_audio_metadata,audioRules):
                             audio_1['keep'] = False
                 except Exception as e:
                     sys.stderr.write(str(e))
+                    tools.logs.append(str(e))
             else:
                 if audio_1['Format'].lower() in audioRules:
                     if audio_2['Format'].lower() in audioRules[audio_1['Format'].lower()]:
@@ -1060,6 +1071,7 @@ def keep_best_audio(list_audio_metadata,audioRules):
                                         audio_2['keep'] = False
                         except Exception as e:
                             sys.stderr.write(str(e))
+                            tools.logs.append(str(e))
                         
                         try:
                             if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and float(audio_2['Channels']) >= float(audio_1['Channels']):
@@ -1071,6 +1083,7 @@ def keep_best_audio(list_audio_metadata,audioRules):
                                         audio_1['keep'] = False
                         except Exception as e:
                             sys.stderr.write(str(e))
+                            tools.logs.append(str(e))
 
 def remove_sub_language(video_sub_track_list,language,number_sub_will_be_copy,number_max_sub_stream):
     if number_sub_will_be_copy > number_max_sub_stream:
@@ -1276,6 +1289,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
         import traceback
         traceback.print_exc()
         sys.stderr.write(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
+        tools.logs.append(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
     set_md5_ass = set()
@@ -1288,7 +1302,7 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
         stream_ID,md5 = video.subtitle_text_srt_md5(file_path,sub["StreamOrder"])
         if md5 != None and md5 in set_md5_ass:
             if tools.dev:
-                sys.stderr.write(f"\t\tThe sub stream {sub['StreamOrder']} is a ASS converted SRT for language {sub['Language']}.\n")
+                tools.logs.append(f"\t\tThe sub stream {sub['StreamOrder']} is a ASS converted SRT for language {sub['Language']}.\n")
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
@@ -1338,14 +1352,14 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                     else:
                         dic_language_list_track_ID[language_and_type].append(sub["StreamOrder"])
                 if tools.dev:
-                    sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
+                    tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} added for {language}.\n")
             else:
                 track_to_remove.add(sub["StreamOrder"])
                 if tools.dev:
                     if sub['MD5'] in md5_sub_already_added:
-                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
+                        tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
                     else:
-                        sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
+                        tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
     if len(track_to_remove):
         merge_cmd.extend(["-s","!"+",".join(track_to_remove)])
     
@@ -1600,6 +1614,7 @@ def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_
         return 0
     elif int(audio.get("StreamSize", 1)) == 0 or float(audio.get("Duration", 1)) == 0:
         sys.stderr.write(f"Skip the element {audio['StreamOrder']}, it seems to be empty\n")
+        tools.logs.append(f"Skip the element {audio['StreamOrder']}, it seems to be empty\n")
         audio_track_to_remove.append(audio)
         return 0
     else:
@@ -1635,6 +1650,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
                     if int(sub.get("StreamSize", 1)) == 0 or float(sub.get("Duration", 1)) == 0:
                         sys.stderr.write(f"Skip the element {sub['StreamOrder']} not added for {language} from {video_obj.filePath}. It seems to be empty\n")
+                        tools.logs.append(f"Skip the element {sub['StreamOrder']} not added for {language} from {video_obj.filePath}. It seems to be empty\n")
                         sub_track_to_remove.append(sub)
                     else:
                         number_track += 1
@@ -1644,9 +1660,9 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 else:
                     if tools.dev:
                         if sub['MD5'] in md5_sub_already_added:
-                            sys.stderr.write(f"\t\tTrack {sub['StreamOrder']} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It have the same md5 as other track added.\n")
+                            tools.logs.append(f"\t\tTrack {sub['StreamOrder']} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It have the same md5 as other track added.\n")
                         else:
-                            sys.stderr.write(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
+                            tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language} from {video_obj.filePath}. It is not keep.\n")
                     sub_track_to_remove.append(sub)
     
     audio_track_to_remove = []
@@ -1732,7 +1748,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         video_obj.remove_tmp_files()
 
     if tools.dev:
-        sys.stderr.write("\t\tLaunch the merge\n")
+        tools.logs.append("\t\tLaunch the merge\n")
     tools.make_dirs(tools.tmpFolder)
     set_bad_video = set()
     dict_list_video_win = {}
@@ -1795,27 +1811,28 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                 raise e
             else:
                 sys.stderr.write(str(e))
+                tools.logs.append(str(e))
         else:
             raise e
 
     if tools.dev:
-        sys.stderr.write(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
+        tools.logs.append(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
     tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
                          "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
                          "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 360)
     
     if tools.dev:
-        sys.stderr.write(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
+        tools.logs.append(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
     out_video_metadata = video.video(tools.tmpFolder,path.basename(out_path_tmp_file_name_split))
     out_video_metadata.get_mediadata()
     out_video_metadata.video = best_video.video
     if tools.dev:
-        sys.stderr.write(f"\t\tCalculate the md5 for streams\n")
+        tools.logs.append(f"\t\tCalculate the md5 for streams\n")
     out_video_metadata.calculate_md5_streams_split()
     
     if tools.dev:
-        sys.stderr.write(f"\t\tPrepare the final command\n")
+        tools.logs.append(f"\t\tPrepare the final command\n")
 
     out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
     if path.exists(out_path_file_name+'.mkv'):
@@ -1836,7 +1853,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     default_audio = True
 
     if tools.dev:
-        sys.stderr.write(f"\t\tKeep the best audio\n")
+        tools.logs.append(f"\t\tKeep the best audio\n")
     try:
         keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
@@ -1862,7 +1879,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         for sub_md5,subs in sub_same_md5.items():
             if len(subs) > 1:
                 if tools.dev:
-                    sys.stderr.write(f"\t\tMultiple MD5 text for {language}:\n")
+                    tools.logs.append(f"\t\tMultiple MD5 text for {language}:\n")
                 have_srt_sub = False
                 have_ass_sub = False
                 for sub in subs:
@@ -1871,29 +1888,29 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                         have_srt_sub = True
                         keep_sub["srt"].append(sub)
                         if tools.dev:
-                            sys.stderr.write(f"\t\t\tFirst SRT found for {language} with MD5 text\n")
+                            tools.logs.append(f"\t\t\tFirst SRT found for {language} with MD5 text\n")
                     elif codec in tools.sub_type_near_srt:
                         sub['keep'] = False
                         if tools.dev:
-                            sys.stderr.write(f"\t\t\tAnother SRT found for {language} with MD5 text\n")
+                            tools.logs.append(f"\t\t\tAnother SRT found for {language} with MD5 text\n")
                     elif codec not in tools.sub_type_not_encodable:
                         sub['keep'] = False
                         if tools.dev:
-                            sys.stderr.write(f"\t\t\tASS found for {language} with MD5 text\n")
+                            tools.logs.append(f"\t\t\tASS found for {language} with MD5 text\n")
                         have_ass_sub = True
                     else:
                         sub['keep'] = False
                 if (not have_srt_sub):
                     subs[0]['keep'] = True
                     if tools.dev:
-                        sys.stderr.write(f"\t\tNo SRT sub found for language {language} with MD5 text\n")
+                        tools.logs.append(f"\t\tNo SRT sub found for language {language} with MD5 text\n")
                     if subs[0]['ffprobe']["codec_name"].lower() not in tools.sub_type_not_encodable:
                         keep_sub["ass"].append(subs[0])
                         if tools.dev:
-                            sys.stderr.write(f"\t\tSo, the stream {subs[0]['StreamOrder']} is a ASS for language {subs[0]['Language']} and it will be kept.\n")
+                            tools.logs.append(f"\t\tSo, the stream {subs[0]['StreamOrder']} is a ASS for language {subs[0]['Language']} and it will be kept.\n")
                 elif have_srt_sub and have_ass_sub:
                     if tools.dev:
-                        sys.stderr.write(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
+                        tools.logs.append(f"\t\tSRT and ASS found for {language} with same MD5 text\n")
                 
             else:
                 codec = subs[0]['ffprobe']["codec_name"].lower()
@@ -1913,7 +1930,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
     if tools.dev:
-        sys.stderr.write("\t\tFile produce\n")
+        tools.logs.append("\t\tFile produce\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
@@ -1993,6 +2010,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
             for i in list_video_not_compatible_name:
                 del dict_file_path_obj[i]
             sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}")
+            tools.logs.append(f"{[not_compatible_video for not_compatible_video in list_video_not_compatible_name]} not have the language {most_frequent_language}\n")
             sys.stderr.write("\n")
     
     
@@ -2008,16 +2026,16 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     for videoObj in videosObj:
         set_audio_delay = set([Decimal(str(audio.get('Delay', '0'))) for audio in videoObj.audios[common_language_use_for_generate_delay]])
         if tools.dev:
-            sys.stderr.write(f"Delay for {videoObj.filePath} audio delay: {set_audio_delay}\n")
+            tools.logs.append(f"Delay for {videoObj.filePath} audio delay: {set_audio_delay}\n")
         if len(set_audio_delay) == 1:
             MD5merged = "".join(set([audio['MD5'] for audio in videoObj.audios[common_language_use_for_generate_delay]]))
             if tools.dev:
-                sys.stderr.write(f"{videoObj.filePath} MD5 merged: {MD5merged}\n")
+                tools.logs.append(f"{videoObj.filePath} MD5 merged: {MD5merged}\n")
             if MD5merged in MD5AudioVideo:
                 set_audio_delay_main = set([Decimal(str(audio.get('Delay', '0'))) for audio in MD5AudioVideo[MD5merged].audios[common_language_use_for_generate_delay]])
                 if forced_best_video == videoObj.filePath:
                     if tools.dev:
-                        sys.stderr.write(f"MD5 {videoObj.filePath} are the same as {MD5AudioVideo[MD5merged].filePath}\n")
+                        tools.logs.append(f"MD5 {videoObj.filePath} are the same as {MD5AudioVideo[MD5merged].filePath}\n")
                     videoObj.sameAudioMD5UseForCalculation.append(MD5AudioVideo[MD5merged])
                     videoObj.sameAudioMD5UseForCalculation.extend(MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation)
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation = []
@@ -2026,7 +2044,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
                     MD5AudioVideo[MD5merged] = videoObj
                 else:
                     if tools.dev:
-                        sys.stderr.write(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
+                        tools.logs.append(f"MD5 {MD5AudioVideo[MD5merged].filePath} are the same as {videoObj.filePath}\n")
                     MD5AudioVideo[MD5merged].sameAudioMD5UseForCalculation.append(videoObj)
                     listVideoToNotCalculateOffset.append(videoObj)
                     videoObj.delay_same_md5_audio = (set_audio_delay_main.pop() - set_audio_delay.pop()) * Decimal("1000.0")

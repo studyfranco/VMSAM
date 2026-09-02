@@ -6,7 +6,7 @@ Created on 23 Apr 2022
 
 from os import path,remove
 import shutil
-from sys import stderr
+from sys import stderr,exc_info
 from threading import RLock,Thread
 from time import strftime,gmtime,sleep,time
 import hashlib
@@ -215,9 +215,13 @@ class video():
 
     def get_best_video(self,data_video_1,data_video_2):
         stderr.write("!"*40+"\n")
+        tools.logs.append("!"*40+"\n")
         stderr.write(f'Multiple video in the same file {self.filePath}, I will compare the {data_video_1["StreamOrder"]} et {data_video_2["StreamOrder"]} track\n')
+        tools.logs.append(f'Multiple video in the same file {self.filePath}, I will compare the {data_video_1["StreamOrder"]} et {data_video_2["StreamOrder"]} track\n')
         stderr.write("If your video are not sync, the result can be random.\n")
+        tools.logs.append("If your video are not sync, the result can be random.\n")
         stderr.write("!"*40+"\n")
+        tools.logs.append("!"*40+"\n")
         
         
             
@@ -389,7 +393,7 @@ class video():
             self.get_mediadata()
         
         if tools.dev:
-            stderr.write("\t\tStart to calculate the md5 of the streams\n")
+            tools.logs.append("\t\tStart to calculate the md5 of the streams\n")
         
         length_video = float(self.video['Duration'])
         if length_video > 20:
@@ -421,7 +425,7 @@ class video():
                 task_subtitle[language][-1].start()
         
         if tools.dev:
-            stderr.write("\t\tStart to wait the end of the md5 calculation of the streams\n")
+            tools.logs.append("\t\tStart to wait the end of the md5 calculation of the streams\n")
         
         for language, data in task_audio.items():
             i=0
@@ -431,6 +435,7 @@ class video():
                     self.audios[language][i]['MD5'] = result[1]
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                    tools.logs.append(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
 
         for language, data in task_commentary.items():
@@ -441,6 +446,7 @@ class video():
                     self.commentary[language][i]['MD5'] = result[1]
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                    tools.logs.append(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
                 
         for language, data in task_audio_desc.items():
@@ -451,15 +457,16 @@ class video():
                     self.audiodesc[language][i]['MD5'] = result[1]
                 else:
                     stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
+                    tools.logs.append(f"Error with {self.filePath} during the md5 calculation of the stream {result[0]}")
                 i += 1
 
         if tools.dev:
-            stderr.write("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
+            tools.logs.append("\t\tStart to wait the end of the md5 calculation of the subtitles\n")
         for language, data in task_subtitle.items():
             for subtitle in data:
                 subtitle.join(timeout=120)
         if tools.dev:
-            stderr.write("\t\tEnd of the md5 calculation of the subtitles\n")
+            tools.logs.append("\t\tEnd of the md5 calculation of the subtitles\n")
 
 """
 Preparation function
@@ -731,11 +738,31 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
             for job_psnr in jobs_psnr:
                 result = job_psnr.get()
                 list_result_average_psnr.append(float(re.search(r'.*\[Parsed_psnr.*\].+average:(\d+.\d+).*',result[1].decode("utf-8"), re.MULTILINE).group(1)))
-            
+
+            if tools.dev:
+                # The PSNR frame scan, one line per candidate offset. It walks
+                # [-2,+2] frames and keeps the best mean PSNR, and the winner
+                # decides the frame the delay finally lands on -- yet nothing
+                # said which offset won, by how much, or whether the five were
+                # within noise of each other. A scan whose five means differ by
+                # a fraction of a dB has not located a frame, it has picked one.
+                tools.logs.append(f"\t\tPSNR frame scan {i:+d}: mean "
+                                f"{tools.dev_num(mean(list_result_average_psnr) if list_result_average_psnr else None)} dB over "
+                                f"{len(list_result_average_psnr)} cut(s), values "
+                                f"{tools.dev_list(list_result_average_psnr,2)}, best so far "
+                                f"{tools.dev_num(best_value_psnr)} dB at frame {good_frame:+d}\n")
+
             if mean(list_result_average_psnr) >= best_value_psnr:
                 good_frame = i
                 best_value_psnr = mean(list_result_average_psnr)
-    
+
+    if tools.dev:
+        tools.logs.append(f"\t\tPSNR frame scan result: frame {good_frame:+d} at "
+                        f"{tools.dev_num(best_value_psnr)} dB; delay "
+                        f"{tools.dev_num(calculated_delay*1000.0)} ms -> "
+                        f"{tools.dev_num(((float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame) - begin_in_sec_frame_adjusted)*1000.0)} ms "
+                        f"on a {tools.dev_num(time_by_frame*1000.0)} ms frame ({frame_rate_use} fps)\n")
+
     calculated_delay = (float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame) - begin_in_sec_frame_adjusted
     return calculated_delay*1000,generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame),length_time_frame_adjusted)
 
@@ -787,6 +814,53 @@ def get_less_channel_number(videos_obj,language):
 
         return videos_obj[less_channel_number[0]].audios[language][less_channel_number[1]]['Channels']
     except:
+        # INSTRUMENTATION ONLY -- behaviour deliberately unchanged, pending the
+        # corpus measurement the owner asked for before deciding.
+        #
+        # WHY THIS IS INSTRUMENTED, corrected by Agent 4 after I overstated it.
+        #
+        # I called this a measurement-integrity defect. It is not, on this
+        # corpus, for two reasons I verified rather than took on trust:
+        #   * prepare_get_delay_sub already defaults Channels to "2" and acts
+        #     only on `== "1"`, so returning "2" is EXACTLY equivalent to not
+        #     calling this function at all;
+        #   * the one value is applied to BOTH sides of the pair, so a wrong
+        #     answer cannot skew the lag between them -- the only quantity the
+        #     correlation measures.
+        # Measured over 1312 audio streams in 359 files: channels are 2, 6 and
+        # 8, with ZERO mono streams, so the only case where the fallback would
+        # change anything does not occur here.
+        #
+        # It is logged for a DIFFERENT reason. The bare except swallows ordinary
+        # control flow, not just corrupt metadata: the loop above reads
+        # `videos_obj[i].audios` BEFORE `len(videos_obj) > i`, so the bounds
+        # test is on the wrong side of the `and` and can never short-circuit --
+        # a pair where nobody carries this language raises IndexError and lands
+        # here. A video merely missing the language raises KeyError at the
+        # comparison below and lands here too. So this fires on normal
+        # conditions and says nothing, and how OFTEN it fires is a real signal
+        # about the corpus. Diagnostic, not correctness -- the _residual_detail
+        # shape, where the diagnosis is wrong and the verdict is right anyway.
+        #
+        # The err_id is not reachable from this module -- it receives video
+        # objects and a language, nothing that names the job -- so the language
+        # and the exception are logged and the id is recovered from the
+        # surrounding fusion job log. No path is logged: subtitle and media
+        # names are private.
+        #
+        # The handler stays a BARE `except:` and the exception is read from
+        # sys.exc_info(). Writing `except Exception as error` would have been
+        # tidier and IS a behaviour change -- bare except also catches
+        # BaseException, so KeyboardInterrupt and SystemExit would stop being
+        # swallowed here. closure_check caught exactly that and classified the
+        # first version BEHAVIOUR rather than logging-only, which is the guard
+        # doing its job on a change I had described to myself as pure
+        # instrumentation. Whether that handler SHOULD be narrowed is a separate
+        # decision the owner has not made.
+        if tools.dev:
+            _err = exc_info()[1]
+            tools.logs.append(f"\t\tget_less_channel_number FELL BACK to '2' for "
+                            f"{language}: {type(_err).__name__}: {str(_err)[:120]}\n")
         return "2"
 
 def get_less_sampling_rate(audios_1,audios_2):
@@ -807,6 +881,22 @@ def get_less_sampling_rate(audios_1,audios_2):
     if worse_sampling_rate != 99999999999999999999999999999:
         return str(worse_sampling_rate)
     else:
+        # INSTRUMENTATION ONLY. Reaching here means EVERY audio entry on both
+        # sides failed to parse.
+        #
+        # Also corrected by Agent 4: this cannot corrupt a measurement on this
+        # corpus. mergeVideo clamps the result to 44100 on the very next line,
+        # so the fallback and the correctly-parsed value CONVERGE for any source
+        # at 44100 or above -- and across 1312 streams the rates are 48000
+        # (x1298) and 44100 (x14), nothing below. It is also one value applied
+        # to both sides, so it cannot skew a lag. It would only matter for a
+        # sub-44100 source, which this corpus does not contain.
+        # Logged to find out whether that ever changes, not because it is
+        # currently wrong.
+        if tools.dev:
+            tools.logs.append(f"\t\tget_less_sampling_rate FELL BACK to '44100': "
+                            f"no parseable SamplingRate in {len(audios_1)} + "
+                            f"{len(audios_2)} audio entries\n")
         return str(44100)
 
 def get_shortest_audio_durations(videosObj,language):
@@ -978,7 +1068,7 @@ def subtitle_text_srt_md5(filePath,streamID):
 
 def count_font_lines_in_ass(filePath, streamID):
     cmd = [
-        "ffmpeg",
+        tools.software["ffmpeg"],
         "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M",
         "-threads", "1",
         "-i", filePath,

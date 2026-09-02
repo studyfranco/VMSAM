@@ -3,6 +3,7 @@ Created on 23 Apr 2022
 
 @author: studyfranco
 '''
+import fcntl
 import os
 import shutil
 import sys
@@ -214,3 +215,173 @@ group_title_sub = {}
 language_to_keep = []
 language_to_completely_remove = set()
 language_to_try_to_keep = []
+
+def get_git_commit():
+    """Deployment SHA, injected at build time via VMSAM_GIT_COMMIT.
+
+    The runtime image ships no .git directory, so build metadata is the only
+    source. Lue a chaque appel: une variable d'environnement ne change pas en
+    cours de process, et le cache ne payait pas son global.
+    """
+    return os.environ.get("VMSAM_GIT_COMMIT", "").strip() or "unknown"
+
+mode_test = "test"
+mode_production = "production"
+
+def get_execution_mode():
+    """Read VMSAM_MODE at call time so switching mode needs no code change.
+
+    Defaults to `test`: an unset or misspelled value must never silently take
+    the destructive branch.
+    """
+    return os.environ.get("VMSAM_MODE", mode_test).strip().lower()
+
+logs = []
+
+def dev_num(value, decimals=3):
+    """Format one number for a `tools.dev` diagnostic line, without ever raising.
+
+    Diagnostics run inside merges, so a logging path that can raise is a defect,
+    not a cosmetic problem. The values these lines carry are frequently `None`
+    (a measurement that did not happen), a numpy scalar, or a `Decimal`, and a
+    plain f-string format spec raises `TypeError` on the first of those. Every
+    input yields a string here; nothing propagates.
+    """
+    if value == None:
+        return "n/a"
+    try:
+        return f"{float(value):.{int(decimals)}f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def dev_list(values, decimals=1, limit=12):
+    """`dev_num` over a sequence, bracketed and truncated. Never raises.
+
+    Merges are chatty and a full per-cut vector can run to dozens of entries, so
+    the tail is summarised as a count rather than printed. A non-sequence falls
+    back to `dev_num`, which is what makes this safe to call on whatever a
+    measurement returned.
+    """
+    if isinstance(values, (str, bytes)):
+        return str(values)
+    try:
+        items = list(values)
+    except TypeError:
+        return dev_num(values, decimals)
+    shown = ", ".join(dev_num(item, decimals) for item in items[:limit])
+    if len(items) > limit:
+        shown = shown + f", +{len(items) - limit} more"
+    return "[" + shown + "]"
+
+# Port de l'API interne de fusion, liee a 127.0.0.1 et jamais exposee.
+internal_api_port = 42085
+
+def _env_flag(name, default=False):
+    """Read a boolean from the environment. Absent or unparseable keeps `default`."""
+    raw = os.environ.get(name)
+    if raw == None:
+        return default
+    raw = raw.strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off", ""):
+        return False
+    return default
+
+
+# Defaulted from the environment, not just from --dev, because uvicorn's public
+# instance runs with workers=5 and those are SEPARATE processes: they import
+# this module fresh and never see an assignment made in __main__. That is why
+# GET /health reported dev=False while the internal single-worker instance --
+# the one that actually runs merges -- had it True. --dev still forces it on.
+def get_dev_env_var():
+    return _env_flag("dev", True)
+
+''' Verrou d'episode, partage entre la boucle d'integration et le worker de fusion '''
+def episode_lock_path(folder_id, episode_number):
+    return os.path.join(tmpFolder_original, "locks", f"{folder_id}_{episode_number}.lock")
+
+
+def acquire_episode_lock(folder_id, episode_number, blocking=True):
+    """Prend le verrou d'un episode. Retourne le handle, ou None si occupe.
+
+    Les deux ecrivains d'un episode sont dans des process distincts -- la boucle
+    d'integration et le worker de fusion -- donc le verrou doit etre au niveau
+    du systeme: flock sur un fichier, libere par le noyau si le process meurt,
+    ce qu'un drapeau en base ou en memoire ne garantit pas.
+
+    blocking=False rend la main immediatement quand le verrou est tenu: c'est ce
+    que veut la boucle d'integration, qui repassera sur cet episode au prochain
+    tour plutot que d'attendre la fin d'une fusion.
+    """
+    if not make_dirs(os.path.dirname(episode_lock_path(folder_id, episode_number))):
+        return None
+    handle = open(episode_lock_path(folder_id, episode_number), "w")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX if blocking else (fcntl.LOCK_EX | fcntl.LOCK_NB))
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def release_episode_lock(handle):
+    """Libere un verrou. Tolere None, pour que l'appelant n'ait pas a tester."""
+    if handle == None:
+        return
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    handle.close()
+
+
+config_file = "config.ini"
+
+def load_merge_runtime_from_env():
+    """Reconstruit l'etat runtime necessaire a un merge, depuis l'environnement.
+
+    __main__ construit cet etat puis lance l'instance interne dans un Process.
+    Tant que la methode de demarrage etait `fork`, l'enfant en heritait
+    implicitement. Python 3.14 est passe a `forkserver` par defaut: un enfant n'y
+    voit plus que les valeurs par defaut de ce module, et l'echec est SILENCIEUX
+    -- tmpFolder_original retombe a "/tmp", donc les verrous d'episode des deux
+    process partent dans deux arbres differents et n'excluent plus rien, pendant
+    que software={} fait echouer tout appel a ffmpeg.
+
+    Appeler ceci au demarrage de l'instance interne la rend independante de la
+    methode de demarrage. C'est idempotent: sous `fork` les valeurs sont deja
+    correctes et on relit les memes fichiers.
+    """
+    global tmpFolder_original, tmpFolder, core_to_use, folder_error, software
+    global mergeRules, group_title_sub, language_to_keep
+    global language_to_completely_remove, language_to_try_to_keep, special_params
+
+    tmp_original = os.environ.get("VMSAM_TMP_FOLDER_ORIGINAL", "").strip()
+    if len(tmp_original):
+        tmpFolder_original = tmp_original
+        tmpFolder = os.path.dirname(tmp_original) or tmpFolder
+    core = os.environ.get("VMSAM_CORE_TO_USE", "").strip()
+    if core.isdigit():
+        core_to_use = max(1, int(core))
+    error_folder = os.environ.get("VMSAM_FOLDER_ERROR", "").strip()
+    if len(error_folder):
+        folder_error = error_folder
+
+    current_config = os.environ.get("VMSAM_CONFIG", "").strip() or config_file
+    software = config_loader(current_config, "software")
+    mergeRules = config_loader(current_config, "mergerules")
+
+    import json
+    with open("titles_subs_group.json") as titles_subs_group_file:
+        group_title_sub = json.load(titles_subs_group_file)
+    with open("config.json") as configuration_file:
+        configuration = json.load(configuration_file)
+    language_to_keep = configuration["language_to_keep"]
+    language_to_completely_remove = set(configuration["language_to_completely_remove"])
+    language_to_try_to_keep = configuration["language_to_try_to_keep"]
+
+    special_params = {"change_all_und":True, "remove_commentary":True,
+                      "remove_descriptive":True, "forced_best_video_contain":False}
+

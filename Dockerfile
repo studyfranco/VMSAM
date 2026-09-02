@@ -41,7 +41,25 @@ RUN set -x \
 
 RUN set -x \
     && apt update \
-    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-onnxruntime python3-resampy python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-pip python3-psutil python3-pysubs2 tesseract-ocr-all tesseract-ocr pytesseract --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt install -y tesseract-ocr-all --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-numpy python3-scipy python3-matplotlib python3-sqlalchemy python3-sqlalchemy-ext python3-psycopg --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-onnxruntime python3-resampy python3-fastapi python3-uvicorn python3-dotenv python3-pydantic-settings python3-psutil python3-pysubs2 pytesseract --no-install-recommends \
+    && apt clean autoclean -y \
+    && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
+
+RUN set -x \
+    && apt update \
+    && DEBIAN_FRONTEND=noninteractive apt install -y python3-pip --no-install-recommends \
     && python3 -m pip install --break-system-packages iso639-lang \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/* /root/.cache
@@ -89,6 +107,7 @@ ENV CORE=4 \
     XDG_CACHE_HOME=/tmp/.cache \
     CARGO_HOME=/tmp/cargo \
     PYTHONPYCACHEPREFIX=/tmp/pycache \
-    VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT}
+    VMSAM_GIT_COMMIT=${VMSAM_GIT_COMMIT} \
+    VMSAM_MODE="test"
 
 ENTRYPOINT [ "/init.sh" ]

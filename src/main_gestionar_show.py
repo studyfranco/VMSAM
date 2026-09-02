@@ -35,6 +35,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
             tools.make_dirs(out_folder)
             try:
                 mergeVideo.errors_merge = []
+                tools.logs = []
                 if incompatible_file.file_weight < file['weight']:
                     tools.special_params["forced_best_video"] = file['chemin']
                     new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(file['chemin']))[0]+'.mkv')
@@ -76,16 +77,16 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                 incompatible_file.file_path = new_file_path
                 os.remove(file['chemin'])
             except Exception as e:
-                other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge})
+                other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge, "merged_logs": tools.logs})
 
     if not find_match:
         shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
         insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
-        log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {data_rejected['merged_errors']}\n\nOther rejected files:")
+        log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {"\n".join(data_rejected['merged_errors'])}\n\nLogs:\n{"\n".join(data_rejected['merged_logs'])}\n\nOther rejected files:")
         for rejected_file in other_rejected_files:
-            log.write(f"\n\n{rejected_file['error']}\n{rejected_file['traceback']}\n\nMerged errors: {rejected_file['merged_errors']}")
+            log.write(f"\n\n{rejected_file['error']}\n{rejected_file['traceback']}\n\nMerged errors:\n{"\n".join(rejected_file['merged_errors'])}\n\nLogs:\n{"\n".join(rejected_file['merged_logs'])}\n\n")
 
 
 def process_episode(files, folder_id, episode_number, database_url):
@@ -97,6 +98,17 @@ def process_episode(files, folder_id, episode_number, database_url):
             dic_weight_files[file['weight']].append(file)
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
+
+    # Le worker de fusion peut travailler le meme episode, dans les deux modes:
+    # meme en test il lit le fichier maitre que l'on remplace ici. On prend le
+    # verrou sans bloquer: si la fusion le tient, on saute cet episode et la
+    # boucle repassera dessus au prochain tour, ce qui vaut mieux que de figer un
+    # worker d'integration pendant toute la duree d'une fusion.
+    lock_handle = tools.acquire_episode_lock(folder_id, episode_number, blocking=False)
+    if lock_handle == None:
+        stderr.write(f"Episode {episode_number} of folder {folder_id} is held by the fusion worker, skipped this round\n")
+        session.close()
+        return
 
     try:
         # Récupérer le dossier
@@ -134,6 +146,7 @@ def process_episode(files, folder_id, episode_number, database_url):
 
                     mergeVideo.default_audio = True
                     mergeVideo.errors_merge = []
+                    tools.logs = []
                     if not tools.dev:
                         mergeVideo.show_not_compatible_error = False
 
@@ -157,7 +170,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         os.remove(file['chemin'])
                     except Exception as e:
                         stderr.write(f"Error merging: {file['nom']} and {previous_file.file_path} are incompatibles\n")
-                        data_rejected = {"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge}
+                        data_rejected = {"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge, "merged_logs": tools.logs}
                         try:
                             if previous_file.file_weight >= file['weight']:
                                 process_rejected_files(file, folder_id, current_folder.destination_path, episode_number, session, data_rejected)
@@ -189,6 +202,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                 gc.collect()
     except Exception as e:
         stderr.write(f"Error processing files for folder {folder_id}, episode {episode_number}: {e}\n")
+    tools.release_episode_lock(lock_handle)
     session.close()
 
 def extraire_episode(nom_fichier, regex_pattern):
@@ -352,18 +366,50 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
-def run_uvicorn(database_url, tmpFolder):
+def write_api_env_file(env_path, database_url, with_merge_runtime=False):
+    """Écrit le .env lu par uvicorn au démarrage d'une instance.
+
+    Le port de l'instance interne n'y figure pas: il est fixé par
+    tools.internal_api_port et lu directement par le lanceur comme par
+    internal_client, ce qui évite qu'ils puissent diverger.
+
+    with_merge_runtime transmet l'état que __main__ a construit. On ne peut pas
+    compter sur l'héritage par fork: depuis Python 3.14 la méthode par défaut
+    est forkserver, où l'enfant ne voit que les valeurs par défaut du module.
+    """
+    with open(env_path, "w") as env_file:
+        env_file.write(f"DATABASE_URL={database_url}\n")
+        if with_merge_runtime:
+            env_file.write(f"VMSAM_TMP_FOLDER_ORIGINAL={tools.tmpFolder_original}\n")
+            env_file.write(f"VMSAM_CORE_TO_USE={tools.core_to_use}\n")
+            env_file.write(f"VMSAM_FOLDER_ERROR={tools.folder_error}\n")
+            env_file.write(f"VMSAM_CONFIG={tools.config_file}\n")
+
+def run_uvicorn_public(database_url, tmpFolder):
+    """Instance publique: exposée, multi-worker, sans état de file d'attente."""
     import sys
     sys.stdin = None
 
     env_path = os.path.join(tmpFolder, "gestionar_show_api.env")
-    
-    # Écrit la variable DATABASE_URL dans un fichier .env
-    with open(env_path, "w") as env_file:
-        env_file.write(f"DATABASE_URL={database_url}\n")
-    with open("gestionar_show/.env", "w") as env_file:
-        env_file.write(f"DATABASE_URL={database_url}\n")
+    write_api_env_file(env_path, database_url)
+    write_api_env_file("gestionar_show/.env", database_url)
     uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, env_file=env_path, workers=5, log_level="error")
+
+def run_uvicorn_internal(database_url, tmpFolder):
+    """Instance interne: 127.0.0.1 seulement, un seul worker.
+
+    workers doit rester à 1. La file de fusion et son thread vivent dans la
+    mémoire de ce process, et à workers=1 uvicorn sert l'app en direct sans
+    superviseur multiprocess: elle hérite donc des globales `tools` du fork
+    fait par __main__. À 2 ou plus, la file se scinde entre les workers et
+    `tools.software` est vide, ce qui fait échouer toute fusion.
+    """
+    import sys
+    sys.stdin = None
+
+    env_path = os.path.join(tmpFolder, "gestionar_show_internal_api.env")
+    write_api_env_file(env_path, database_url, with_merge_runtime=True)
+    uvicorn.run("gestionar_show.internal_api:app", host="127.0.0.1", port=tools.internal_api_port, env_file=env_path, workers=1, log_level="error")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='This script is the wrapper to process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -392,6 +438,7 @@ if __name__ == '__main__':
             raise Exception(f"{args.tmp} not writable")
         os.chdir(args.pwd)
         tools.dev = args.dev
+        tools.config_file = args.config
         tools.software = tools.config_loader(args.config, "software")
         tools.core_to_use = max(1, args.core-1)
         tools.folder_error = args.error
@@ -415,7 +462,11 @@ if __name__ == '__main__':
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
 
-        uvicorn_process = Process(target=run_uvicorn, args=(database_url_param["database_url"], tools.tmpFolder))
+        stderr.write(f"Start internal fusion worker on 127.0.0.1:{tools.internal_api_port}\n")
+        internal_uvicorn_process = Process(target=run_uvicorn_internal, args=(database_url_param["database_url"], tools.tmpFolder))
+        internal_uvicorn_process.start()
+
+        uvicorn_process = Process(target=run_uvicorn_public, args=(database_url_param["database_url"], tools.tmpFolder))
         uvicorn_process.start()
         
         stderr.write("Start !\n")
@@ -435,6 +486,8 @@ if __name__ == '__main__':
         
         uvicorn_process.terminate()
         uvicorn_process.join()
+        internal_uvicorn_process.terminate()
+        internal_uvicorn_process.join()
     except:
         traceback.print_exc()
         exit(1)
