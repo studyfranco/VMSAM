@@ -122,11 +122,18 @@ def worker_loop():
     de boucle à vide, et un job soumis réveille le thread immédiatement. L'arrêt
     passe par une sentinelle plutôt que par un drapeau relu périodiquement.
     """
-    global current_job
+    global current_job, parrallel_jobs
     while True:
         job = fusion_queue.get()
         if job is shutdown_sentinel:
             fusion_queue.task_done()
+            # shutdown() rend le pool inutilisable definitivement: on le remet a
+            # None pour que start_worker puisse en recreer un. Sans cela, sa
+            # garde `if parrallel_jobs == None` le laisserait tel quel et le
+            # premier submit leverait "cannot schedule new futures after
+            # shutdown".
+            parrallel_jobs.shutdown()
+            parrallel_jobs = None
             return
 
         with state_lock:
@@ -295,11 +302,25 @@ def run_fusion_job(database_url, error_file_path):
         elif job_error == None:
             apply_production_outcome(session, incompatible_file, previous_file,
                                      new_file_path, new_file_weight, merged_file_path)
-        # production + échec: on ne touche à rien, volontairement.
-
-        tools.remove_dir(tools.tmpFolder, printError=False)
+        elif tools.dev:
+            # En production un echec ne touche NI les fichiers NI la base: le
+            # fichier en erreur reste dans son dossier, ce qui EST deja
+            # l'information. La trace n'est donc ecrite qu'en mode dev, ou l'on
+            # cherche a comprendre l'echec.
+            # Elle est necessaire meme la: job_error est capture plus haut, donc
+            # il ne remonte jamais jusqu'au except de cette fonction et un echec
+            # de fusion ne dirait rien nulle part.
+            stderr.write(f"Fusion failed for {incompatible_file.file_path}: {job_error['error']}\n")
+            write_log_file(incompatible_file.file_path+".log.error",
+                           f"Error processing file {os.path.basename(incompatible_file.file_path)}: "
+                           f"{job_error['error']}\n{job_error['traceback']}\n\n"
+                           f"Merged errors:\n{chr(10).join(mergeVideo.errors_merge)}\n\n"
+                           f"Logs:\n{chr(10).join(tools.logs)}\n")
+    except Exception as e:
+        stderr.write(f"Error with the merge: {e}\n")
     finally:
         tools.release_episode_lock(lock_handle)
+        tools.remove_dir(tools.tmpFolder, printError=False)
         session.close()
 
 
@@ -310,10 +331,9 @@ def apply_test_outcome(current_folder, incompatible_file, new_file_path,
     Les sources et la base ne sont pas touchées. Le succès dépose le mkv et son
     .log; l'échec ne dépose que le .log.error.
     """
-    test_output_dir = get_test_output_dir()
-    if not len(test_output_dir):
-        raise Exception("VMSAM_TEST_OUTPUT_DIR must be set in test mode")
-    out_folder_final = os.path.join(test_output_dir, current_folder.destination_path.lstrip(os.sep))
+    # Pas de controle sur VMSAM_TEST_OUTPUT_DIR ici: internal_api refuse de
+    # demarrer le worker quand il est vide, donc aucun job n'atteint ce point.
+    out_folder_final = os.path.join(get_test_output_dir(), current_folder.destination_path.lstrip(os.sep))
     if not tools.make_dirs(out_folder_final):
         raise Exception(f"Cannot create the test output folder {out_folder_final}")
 
@@ -339,12 +359,22 @@ def apply_production_outcome(session, incompatible_file, previous_file,
     Même séquence que process_episode -- écriture sous .tmp, retrait de l'ancien
     maître, renommage -- puis suppression du fichier en erreur et de sa ligne.
     """
+    # Ecrire a cote de la cible puis basculer en UN appel: os.replace est
+    # atomique sur un meme systeme de fichiers, et le .tmp est dans le dossier
+    # de destination donc la condition tient. La sequence precedente --
+    # os.remove(maitre) puis move -- laissait une fenetre, courte mais reelle,
+    # ou l'episode n'avait plus aucun fichier: un plantage a cet instant perdait
+    # le maitre sans que le nouveau soit en place.
     shutil.move(merged_file_path, new_file_path+'.tmp')
-    os.remove(previous_file.file_path)
-    shutil.move(new_file_path+'.tmp', new_file_path)
+    os.replace(new_file_path+'.tmp', new_file_path)
+    # L'ancien maitre n'est supprime que si le nom a change (cas du renommage
+    # par rename_pattern): sinon os.replace vient deja de le remplacer.
+    if os.path.abspath(previous_file.file_path) != os.path.abspath(new_file_path):
+        os.remove(previous_file.file_path)
     os.remove(incompatible_file.file_path)
     previous_file.file_path = new_file_path
     previous_file.file_weight = new_file_weight
     # delete_incompatible_file committe: la mise à jour de l'épisode et la
     # suppression de la ligne partent dans la même transaction.
     delete_incompatible_file(incompatible_file, session)
+    session.commit()

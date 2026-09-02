@@ -659,14 +659,36 @@ class compare_video(Thread):
     def adjust_delay_to_frame(self,delay):
         delay = Decimal(delay)
         if self.video_obj_with_best_quality.video["FrameRate_Mode"] == "CFR":
+            """
+            BEGIN: AGENT modification ok
+            """
+
+            """
+            END: AGENT modification
+            """
             getcontext().prec = 10
             framerate_duration_ms = Decimal('1000.0')/Decimal(self.video_obj_with_best_quality.video["FrameRate"])
             number_frame = round(delay/framerate_duration_ms)
             return Decimal(number_frame*framerate_duration_ms)
-            
+            """
+            BEGIN: AGENT modification ok
+            """
+            return Decimal(number_frame*framerate_duration_ms)
+            """
+            END: AGENT modification
+            """
         else:
+            """
+            BEGIN: AGENT modification ok
+            """
+
             ''' TODO:
                 ADD VFR calculation if found'''
+            
+
+            """
+            END: AGENT modification
+            """
             return delay
 
 def was_they_not_already_compared(video_obj_1,video_obj_2,already_compared):
@@ -689,50 +711,6 @@ def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
             return new_compare_objs.pop(i)
     return None
 
-class get_cut_time(Thread):
-    '''
-    classdocs
-    '''
-
-
-    def __init__(self, main_video_obj,video_obj_to_cut,begin_in_second,audioParam,language,lenghtTime,lenghtTimePrepare,list_cut_begin_length,time_by_test_best_quality_converted):
-        '''
-        Constructor
-        '''
-        Thread.__init__(self)
-        self.main_video_obj = main_video_obj
-        self.video_obj_to_cut = video_obj_to_cut
-        self.begin_in_second = begin_in_second
-        self.audioParam = audioParam
-        self.language = language
-        self.lenghtTime = lenghtTime
-        self.lenghtTimePrepare = lenghtTimePrepare
-        self.list_cut_begin_length = list_cut_begin_length
-        self.time_by_test_best_quality_converted = time_by_test_best_quality_converted
-
-    def run(self):
-        try:
-            delay = self.get_first_delay_and_gap()
-            if self.process_to_get_best_video:
-                self.get_best_video(delay)
-            else: # You must have the video you want process in video_obj_1
-                self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
-                self.video_obj_2.remove_tmp_files(type_file="audio")
-                self.video_obj_with_best_quality = self.video_obj_1
-                self.video_obj_2.delays[self.language] += (delay*-1.0) # Delay you need to give to mkvmerge to be good.
-        except Exception as e:
-            traceback.print_exc()
-            sys.stderr.write(str(e)+"\n")
-    
-    def get_first_delay_and_gap(self):
-        delay_Fidelity_Values = get_delay_fidelity(self.main_video_obj,self.video_obj_to_cut,self.lenghtTime)
-        # Il va falloir verifier que nous avons bien les mêmes delays entre les différents audios
-        keys_audio = list(delay_Fidelity_Values.keys())
-        values_of_delay = delay_Fidelity_Values[keys_audio[0]]
-        for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
-            for i in range(len(values_of_delay)):
-                if values_of_delay[i] != delay_fidelity_list[i]:
-                    raise Exception(f"{delay_Fidelity_Values} Impossible to find a way to cut {self.video_obj_to_cut.filePath} who have differents audio not compatible with {self.main_video_obj.filePath}")
 
 """
     Theorically the video I will remove have no connexion between other files.
@@ -801,30 +779,27 @@ def print_forced_video(forced_best_video):
     if tools.dev:
         tools.logs.append(f"The forced video is {forced_best_video}\n")
 
-def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj):
+def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,best_video):
     if len(list_not_compatible_video):
         if show_not_compatible_error:
             sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
             tools.logs.append(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos\n")
             sys.stderr.write("\n")
+        """
+        BEGIN: AGENT modification ok
+        """
+
+
         not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:
                 del dict_file_path_obj[not_compatible_video]
         if len(dict_file_path_obj) < 2:
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
+        """
+        END: AGENT modification
+        """
 
-def find_a_cut_for_not_compatible(list_not_compatible_video,dict_file_path_obj,main_video,videosObj,language,audioRules):
-    if video.number_cut < 15:
-        video.number_cut = 15
-    elif (video.number_cut % 2) == 0:
-        video.number_cut += 1
-    
-    begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
-    dict_file_path_obj[main_video].extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=list_cut_begin_length)
-    for not_compatible_video in list_not_compatible_video:
-        if not_compatible_video in dict_file_path_obj:
-            dict_file_path_obj[not_compatible_video].extract_audio_in_part(language,worseAudioQualityWillUse,cutTime=list_cut_begin_length)
     
 def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
     begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
@@ -911,7 +886,7 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
             
         shuffle(compareObjs)
     
-    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
+    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs.get(0))
     return already_compared
 
 def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video):
@@ -941,7 +916,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
         else:
             list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
 
-        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj)
+        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,forced_best_video)
     else:
         already_compared = {forced_best_video:{}}
     

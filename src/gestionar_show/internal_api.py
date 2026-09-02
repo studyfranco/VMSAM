@@ -13,10 +13,17 @@ main_gestionar_show (software paths, merge rules, core count, temp folders).
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from sys import stderr
+
 import tools
 
 from . import fusion
 from .settings import Settings
+
+# Faux tant que le worker n'a pas pu demarrer: la fusion est alors refusee avec
+# sa raison, au lieu d'accepter des jobs que personne ne consommera.
+fusion_enabled = False
+
 
 class InternalFusionRequest(BaseModel):
     error_file_path: str
@@ -29,12 +36,26 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
+    global fusion_enabled
     settings = Settings()
     # Reconstruire l'etat runtime des merges sans dependre de la methode de
     # demarrage: sous forkserver (defaut depuis Python 3.14) rien n'est herite,
     # et l'echec serait silencieux -- verrous d'episode dans un autre arbre,
     # tools.software vide.
     tools.load_merge_runtime_from_env()
+
+    # En mode test, une fusion n'a nulle part ou deposer son resultat sans
+    # VMSAM_TEST_OUTPUT_DIR. On refuse alors de demarrer le worker plutot que de
+    # laisser chaque job echouer un par un apres avoir consomme un merge complet.
+    # Le reste de l'instance demarre: /internal/health reste interrogeable et dit
+    # pourquoi la fusion est indisponible.
+    if fusion.is_test_mode() and (not len(fusion.get_test_output_dir())):
+        fusion_enabled = False
+        stderr.write("VMSAM_TEST_OUTPUT_DIR is not set: the internal fusion endpoint stays disabled, "
+                     "the rest of the internal instance starts normally\n")
+        return
+
+    fusion_enabled = True
     # Le worker passe l'URL au process fils, qui ouvre sa propre session: un
     # sessionmaker ne survit pas proprement au fork.
     fusion.start_worker(settings.DATABASE_URL)
@@ -51,7 +72,8 @@ def get_internal_health():
         "git_commit": tools.get_git_commit(),
         "mode": tools.get_execution_mode(),
         "is_running": fusion.is_job_running(),
-        "queue_length": fusion.get_fusion_status()["queue_length"]
+        "queue_length": fusion.get_fusion_status()["queue_length"],
+        "fusion_enabled": fusion_enabled
     }
 
 @app.get("/internal/fusion")
@@ -69,8 +91,8 @@ def create_internal_fusion_job(fusion_request: InternalFusionRequest):
     """
     # The worker is the authority on execution settings: the public instance only
     # screens out an unknown VMSAM_MODE, the test output directory is checked here.
-    if fusion.is_test_mode() and (not len(fusion.get_test_output_dir())):
-        raise HTTPException(status_code=400, detail="VMSAM_TEST_OUTPUT_DIR must be set in test mode")
+    if not fusion_enabled:
+        raise HTTPException(status_code=503, detail="Fusion is disabled: VMSAM_TEST_OUTPUT_DIR is not set in test mode")
 
     try:
         position = fusion.enqueue_fusion_job(fusion_request.error_file_path)
