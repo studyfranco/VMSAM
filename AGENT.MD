@@ -20,9 +20,10 @@ equivalent reached 1191 lines and stopped being read before acting.
 | `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
+| `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
 
-**You write exactly one of these: `AGENT_NOTES.MD`.** Every other document here is
-the owner's, **this file included**. Campaign 1's `AGENT.MD` carried the line *"You
+**These documents are frozen — `AGENT_NOTES.MD` and `TASKS/` excepted, and this file
+included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
 agent that may rewrite what binds it eventually rewrites itself out of it.
@@ -31,6 +32,9 @@ So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** 
 **finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
 keep working elsewhere. The owner arbitrates and edits. This applies to a rule you
 believe is simply mistaken — being right does not make it yours to change.
+
+The freeze covers **tracked files** in this repository. Outside it, `VMSAM_HELP_AI/`
+is yours to organise as you like.
 
 Campaign 1's archive, suffixed `_DEV_AI`. **Consult, do not follow:**
 
@@ -43,6 +47,25 @@ Campaign 1's archive, suffixed `_DEV_AI`. **Consult, do not follow:**
 None of it is authority. It was written by agents under time pressure, and the
 corrections it carries are the reason to trust the numbers more than the conclusions.
 
+## 📋 `TASKS/` — the work, and its history
+
+```
+TASKS/
+├── <NNN>-<slug>.MD     an open task: the owner states the goal, you fill in the rest
+└── done/               closed tasks, moved here — the campaign's history
+```
+
+One task, one file, one number. You fill it in as you go, not at the end:
+
+- **what you changed** — files and zones, so a reviewer goes straight there;
+- **what you measured** — the numbers that show it works, never the claim that it does;
+- **what you dropped** — an approach tried and abandoned is worth more than silence:
+  it stops a successor re-deriving it;
+- **what stayed blocked** — the findings of `WRITE_ZONES.MD` §6.
+
+A task moves to `done/` when its goal is met **and** its commit exists — not when you
+stop working on it. An abandoned task stays open and says why it was abandoned.
+
 ## 📁 `VMSAM_HELP_AI/` — where private material goes
 
 A directory **beside the repository, never inside it**. Create it if it is missing;
@@ -50,11 +73,20 @@ it is never committed and never referenced by path in a tracked file.
 
 Put there anything the repository must not carry: real media paths and filenames,
 show titles, season/episode names, TVDB/TMDB ids and any external catalogue id,
-extracts or fragments of media files, session links, host paths, and the mapping
-from an opaque error id to the file it designates.
+extracts or fragments of media files, session links, host paths, the mapping from
+an opaque error id to the file it designates — and **everything you are told about
+the test instance**: how it is provisioned, on what conditions it is refreshed, how
+a run is requested. None of that belongs in a tracked file.
 
 In a tracked file, cite the opaque id and write *"details in the private notes
 beside the repository"*. That sentence is enough; the id is the key.
+
+**Write it down the moment you are told, not the moment you need it.** What arrives
+in a prompt lives only in the conversation that carried it: your own context is
+trimmed, and a successor inherits none of it. The test instance's rules are the case
+that will cost you — received once, needed days later. Record them in
+`VMSAM_HELP_AI/` on arrival. **Not in `AGENT_NOTES.MD`**: that file is tracked and
+committed, which makes the obvious place the wrong one.
 
 The same rule binds this document. It carried a session link until it was noticed —
 which is the point: the leak is easy, it is a single paste, and it is only visible
@@ -170,11 +202,22 @@ You are free on the method. You are not free on knowing what a correct result is
    — and check it yourself. This is the target, and it exists before the code does.
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
    crashes, files that never appear, a path never taken.
-3. **When the code holds, run it in a test instance.** A local run proves your code
-   executes; only a real run proves the pipeline produces the result.
+3. **When the code holds, ask for a run in the test instance.** A local run proves
+   your code executes; only a real run proves the pipeline produces the result. You
+   do not operate that instance. **Its rules are deliberately absent from this
+   repository — you are given them in the prompt.** Copy them into `VMSAM_HELP_AI/`
+   the moment you receive them; do not plan around them, and do not infer any of
+   them from the runs you have seen.
 4. **Compare.** The produced file and your target must be **identical to what you
    expected**. Not close, not plausible — identical on the properties you named in
    step 1.
+
+**A test run is batched, exactly like a commit.** A pass costs the same whether it
+carries one line or a finished feature — so ask when you hold something worth the
+pass, and state what you expect it to show *before* it runs. And never assume the
+instance carries your latest code: name the revision you believe is under test, and
+when a result contradicts what you read in the source, question that assumption
+before you question the code.
 
 **Why in this order.** A target built afterwards is fitted to whatever came out,
 and then any result looks like a success. Campaign 1 has the example: a method was
@@ -189,6 +232,39 @@ Comparing a produced artefact against a target you built proves the path ran.
 
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
+
+## 📦 Commits — what earns one
+
+A commit is a unit of **result**, not of activity. What earns one:
+
+- a feature that works end to end — the code *and* the measurement that shows it works;
+- a blocking bug fixed;
+- a complete, coherent change to one zone.
+
+What does not: a line added to `AGENT_NOTES.MD`, a comment, a rename, a
+reformatting, a half-written function, "work in progress". Those wait and travel
+with the work they belong to.
+
+**What this rule is made of.** Campaign 1 produced **1914 commits in six days**.
+Of the 1451 that carry files:
+
+| | |
+| :--- | ---: |
+| commits touching documentation only | **70 %** |
+| commits touching a single file | **70 %** |
+| commits touching only a notes / state / task file | **393** |
+| merge commits | **489** |
+| commits touching `mergeVideo.py`, the engine | **63** |
+
+`DOMAIN_INVARIANTS.MD` was committed **217 times** — three and a half times more
+often than the file the campaign existed to improve. A history in that shape cannot be reviewed:
+the work that mattered is not hidden by the noise, it is *indistinguishable* from it.
+
+And `WRITE_ZONES.MD` §5's checks run per commit, so a commit carrying nothing
+still costs a full verification.
+
+If a day's work produced nothing that fits the list above, it produces **no commit**.
+That is a normal outcome, and `AGENT_NOTES.MD` is where it is recorded.
 
 ## 🔐 Privacy — the repository is potentially public
 

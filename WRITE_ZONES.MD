@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `*.MD` at the repository root | **except `AGENT_NOTES.MD`** — the rules that bind you are not yours to edit. A wrong rule is a finding, see §6 |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `*_DEV_AI.MD` | the rules that bind you, and the campaign-1 archive. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -134,8 +134,31 @@ before the edit.
 ## 4. Open
 
 `src/frame_compare.py`, `src/get_cut_time.py`, `src/merge_video_unused.py`,
-`src/folder_generator.py`, `src/gestionar_movie/`, new modules, campaign tooling,
-tests, diagnostics and documents.
+`src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
+code that ships and runs in production.
+
+### What does not go in the repository
+
+This repository holds **VMSAM's code**. Nothing else. Batch scripts, verification
+harnesses, corpus sweeps, forensic reports, per-agent state files, task archives,
+scratch analysis: `VMSAM_HELP_AI/`, beside the repository, never inside it.
+
+Campaign 1 is the measurement. It left behind, under `src/`:
+
+| directory | files | lines |
+| :--- | ---: | ---: |
+| `diagnostics/` | 624 | 88 394 |
+| `tools_batch/` | 173 | 47 349 |
+| `task_archive/` | 101 | 13 030 |
+| **total** | **898** | **148 773** |
+
+VMSAM itself is 7 225 lines of Python and 569 of Rust. The scaffolding outweighed
+the program **nineteen to one**, and someone opening the repository could no longer
+tell what VMSAM *is*.
+
+The test, applied to every file you are about to create: **would this still matter
+to someone running VMSAM in production?** If it exists to help *you* work — to
+measure, to sweep, to remember, to report — it goes beside the repository.
 
 ### Files with no importer
 
@@ -158,8 +181,8 @@ Before every commit:
 # 1. no write outside the open paths
 git diff --cached --name-only
 
-# 1b. no document rewritten except the logbook
-git diff --cached --name-only -- '*.MD' | grep -v '^AGENT_NOTES.MD$'   # must be empty
+# 1b. no governance document rewritten
+git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD FILE_MAP.MD SPEC_ZONE_A.MD '*_DEV_AI.MD'   # must be empty
 
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)
