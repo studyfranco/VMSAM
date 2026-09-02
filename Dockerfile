@@ -53,7 +53,7 @@ RUN set -x \
 
 RUN set -x \
     && apt update \
-    && DEBIAN_FRONTEND=noninteractive apt install -y python3-resampy python3-fastapi python3-uvicorn python3-pydantic=2.10.6-2 python3-pydantic-settings --no-install-recommends \
+    && DEBIAN_FRONTEND=noninteractive apt install -f -y python3-resampy python3-fastapi python3-uvicorn python3-pydantic-settings --no-install-recommends \
     && apt clean autoclean -y \
     && rm -rf /var/cache/* /var/lib/apt/lists/* /var/log/* /var/tmp/* /tmp/*
 
