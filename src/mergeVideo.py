@@ -1017,6 +1017,29 @@ def keep_best_audio(list_audio_metadata,audioRules):
         for j,audio_2 in enumerate(list_audio_metadata):
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
+            # BEGIN: AGENT modification ok
+            #
+            # Une piste fabriquee perd face a une piste intacte, avant toute
+            # regle de codec: sinon un FLAC assemble de trois sources evince un
+            # AAC d'origine, et les regles ci-dessous ne comparent que codec,
+            # canaux, frequence et debit -- sur lesquels une piste fabriquee
+            # peut gagner.
+            #
+            # `fabricated` est defini dans SPEC_ZONE_A.MD: chaine absente ou
+            # vide = piste intacte, chaine presente = piste construite par la
+            # reparation, et sa valeur dit comment. On teste la VERITE, jamais
+            # l'egalite, pour qu'une methode ajoutee plus tard soit prise en
+            # compte sans toucher a cette ligne.
+            #
+            # Rien ne pose la cle aujourd'hui: .get() rend False des deux cotes
+            # et cette branche ne s'active jamais. Le comportement actuel est
+            # donc inchange, et il changera de lui-meme le jour ou la reparation
+            # marquera ses pistes.
+            elif audio_1.get('fabricated') and (not audio_2.get('fabricated')):
+                audio_1['keep'] = False
+            elif audio_2.get('fabricated') and (not audio_1.get('fabricated')):
+                audio_2['keep'] = False
+            # END: AGENT modification
             elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
