@@ -28,7 +28,7 @@ Measured on campaign 1's corpus of 315 diagnosed error files.
 | no shared language | 2 % | no audio language in common, or the tags lie |
 
 **The largest family is not speed.** Over 79 measured files, **zero** showed a clean
-slope near a constant (`FINDINGS_DEV_AI` §15). A repair that only handles speed
+slope near a constant (`CAMPAIGNS/01-dev-AI/FINDINGS.MD` §15). A repair that only handles speed
 addresses a tenth of the problem.
 
 Two files out of 315 were proven genuinely unrepairable: one truncated at source,

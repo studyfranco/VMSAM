@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `*_DEV_AI.MD` | the rules that bind you, and the campaign-1 archive. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -182,7 +182,8 @@ Before every commit:
 git diff --cached --name-only
 
 # 1b. no governance document rewritten
-git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD FILE_MAP.MD SPEC_ZONE_A.MD '*_DEV_AI.MD'   # must be empty
+git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
+       FILE_MAP.MD SPEC_ZONE_A.MD CAMPAIGNS/   # must be empty
 
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)

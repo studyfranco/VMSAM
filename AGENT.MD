@@ -1,8 +1,8 @@
 # VMSAM — AI Agent Context & Directives
 
 **This file governs `master`.** The `dev-AI` campaign had its own copy with its own
-rules; do not apply them here. Documents ending in `_DEV_AI` are that campaign's
-archive — measured knowledge to consult, not instructions to follow.
+rules; do not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive
+— measured knowledge to consult, not instructions to follow.
 
 Budget: **250 lines.** A rule that does not fit is not a rule, it is a finding, and
 it belongs in the archive. This ceiling exists because the previous campaign's
@@ -36,13 +36,17 @@ believe is simply mistaken — being right does not make it yours to change.
 The freeze covers **tracked files** in this repository. Outside it, `VMSAM_HELP_AI/`
 is yours to organise as you like.
 
-Campaign 1's archive, suffixed `_DEV_AI`. **Consult, do not follow:**
+Campaign 1's archive lives in `CAMPAIGNS/01-dev-AI/`. **Consult, do not follow:**
 
 | file | what it actually contains |
 | :--- | :--- |
-| `FINDINGS_DEV_AI.MD` | 23 measured findings — the most reliable of the three. 13 were withdrawn or superseded and say so |
-| `DOMAIN_INVARIANTS_DEV_AI.MD` | 136 entries, and the title oversells them: a **minority** are VMSAM domain rules (which file is the master, the delay sign convention, per-pair chromaprint resolution, "a constant offset is not the normal case in this corpus"); the **majority** are general research method. 15 were later corrected. Grep it, do not read it |
-| `MERGE_VIDEO_ARCHITECTURE_DEV_AI.MD` | how the merge path is built — the most directly useful before touching the engine |
+| `RESTART.MD` | **start here.** The Lead's synthesis on the last day: the one-sentence diagnosis, what was achieved, the five findings a restart must inherit, and an explicit **discard** list of methods that produced confident wrong answers |
+| `FINDINGS.MD` | 23 measured findings — the most reliable of the three. 13 were withdrawn or superseded and say so |
+| `DOMAIN_INVARIANTS.MD` | 136 entries, and the title oversells them: a **minority** are VMSAM domain rules (which file is the master, the delay sign convention, per-pair chromaprint resolution, "a constant offset is not the normal case in this corpus"); the **majority** are general research method. 15 were later corrected. Grep it, do not read it |
+| `MERGE_VIDEO_ARCHITECTURE.MD` | how the merge path is built — the most directly useful before touching the engine |
+| `PROVENANCE_PROPOSAL.MD` | the one design question the campaign ended on: what the merge knows and nothing writes down |
+| `PROVENANCE_DOWNGRADE_COSTING.MD` | what refusing that field would cost, counted in cells |
+| `handovers/` | the four agent handovers `RESTART.MD` indexes, 2 586 lines |
 
 None of it is authority. It was written by agents under time pressure, and the
 corrections it carries are the reason to trust the numbers more than the conclusions.
@@ -191,6 +195,36 @@ What each stage actually does, read from the code, is in `FILE_MAP.MD`.
   comparison audio (`loudnorm`, −23 LUFS), applies offsets with `aresample` and
   `-itsoffset`, then `mkvmerge` assembles the container and receives the final
   per-track `--sync` in integer milliseconds.
+
+## 🏷️ The `fabricated` marker
+
+A track that the pipeline **built** is not a track it **copied**, and after the mux
+nothing tells them apart. One key carries the difference, on the audio stream dict:
+
+| `fabricated` | |
+| :--- | :--- |
+| absent or empty | the track is untouched — it came from a source file as it was |
+| a non-empty string | the track was **built**, and the string says how: `chimeric`, `resampled:<factor>`, `chimeric+resampled:<factor>` |
+
+**Test truthiness, never equality.** A value you do not recognise still means
+fabricated, so a method added later needs no change at any consumer.
+
+On the produced file the same string is a Matroska track tag, `VMSAM_FABRICATED`,
+so the origin survives the merge and is recoverable months later:
+
+```sh
+ffprobe -v error -show_entries stream_tags=VMSAM_FABRICATED -of compact <file>
+```
+
+**Nothing sets the key today** — `keep_best_audio` already reads it (a fabricated
+track loses to an intact one before any codec rule) and the branch is inert until
+the repair marks its tracks. The full contract is `SPEC_ZONE_A.MD` §4.
+
+**Why it is defined before it exists.** Provenance is knowable only at the moment
+of production; after that it is gone. Campaign 1 measured the consequence: **zero of
+110 measurements could be attributed to the code that produced them**, and three
+separate tools reconstructed track provenance from emission order, from track
+counts and from codec — three methods, three answers, no tiebreak.
 
 ## 🎯 Target-first — be certain of what you must obtain
 
