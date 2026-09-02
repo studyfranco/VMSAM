@@ -886,7 +886,7 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
             
         shuffle(compareObjs)
     
-    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs.get(0))
+    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs[0])
     return already_compared
 
 def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video):
@@ -916,7 +916,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
         else:
             list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
 
-        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,forced_best_video)
+        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,dict_file_path_obj[forced_best_video])
     else:
         already_compared = {forced_best_video:{}}
     

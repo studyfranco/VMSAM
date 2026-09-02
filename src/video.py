@@ -612,6 +612,9 @@ def big_job_waiter():
     ffmpeg_pool_audio_convert.apply_async(sleep, (0.00000000001,)).get()
 
 def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test):
+    """
+    BEGIN: AGENT modification ok
+    """
     import re
     from statistics import mean
     ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
@@ -678,10 +681,24 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
         return "1"
     else:
         return "2"
+    """
+    END: AGENT modification
+    """
     
 def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_test, calculated_delay):
+    """
+    BEGIN: AGENT modification ok
+    """
     import re
     from statistics import mean
+    # test_if_constant_good_delay retourne un Decimal, et la division par 1000
+    # dans get_best_video en garde le type -- alors que toute l'arithmetique de
+    # timeline ici est en float, semee par get_fps() qui rend deja un float.
+    # Le premier `begin_in_sec_frame_adjusted + calculated_delay` levait donc
+    # TypeError, que compare_video.run attrape et convertit en "not compatible":
+    # le chemin sans best_video force jetait silencieusement chaque candidat.
+    # Conversion une seule fois ici, ou les deux appelants convergent.
+    calculated_delay = float(calculated_delay)
     ffmpeg_PSNR = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
        "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
        "-lavfi", "[0:{}][1:{}]psnr".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder']),
@@ -765,6 +782,9 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
 
     calculated_delay = (float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame) - begin_in_sec_frame_adjusted
     return calculated_delay*1000,generate_cut_to_compare_video_quality(begin_in_sec_frame_adjusted,(float(int((begin_in_sec_frame_adjusted + calculated_delay)/time_by_frame)+good_frame)*time_by_frame),length_time_frame_adjusted)
+    """
+    END: AGENT modification
+    """
 
 def get_common_audios_language(videosObj):
     commonLanguages = set(videosObj[0].audios.keys())
@@ -861,6 +881,12 @@ def get_less_channel_number(videos_obj,language):
             _err = exc_info()[1]
             tools.logs.append(f"\t\tget_less_channel_number FELL BACK to '2' for "
                             f"{language}: {type(_err).__name__}: {str(_err)[:120]}\n")
+        # Un `except:` nu attrape aussi BaseException: sans ce garde-fou, un
+        # Ctrl-C ou un sys.exit() pendant l'analyse etait avale et remplace par
+        # une valeur fabriquee. On relaie ces deux-la, le reste du comportement
+        # est inchange.
+        if isinstance(exc_info()[1], (KeyboardInterrupt, SystemExit)):
+            raise
         return "2"
 
 def get_less_sampling_rate(audios_1,audios_2):
@@ -897,6 +923,9 @@ def get_less_sampling_rate(audios_1,audios_2):
             tools.logs.append(f"\t\tget_less_sampling_rate FELL BACK to '44100': "
                             f"no parseable SamplingRate in {len(audios_1)} + "
                             f"{len(audios_2)} audio entries\n")
+        # Meme garde-fou que get_less_channel_number ci-dessus.
+        if isinstance(exc_info()[1], (KeyboardInterrupt, SystemExit)):
+            raise
         return str(44100)
 
 def get_shortest_audio_durations(videosObj,language):
