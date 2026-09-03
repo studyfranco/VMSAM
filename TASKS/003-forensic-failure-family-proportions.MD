@@ -34,13 +34,113 @@ Deliver into `VMSAM_HELP_AI/forensic/`:
   that was not configured, written where "this file is unverifiable" is read.
 
 ## What changed
-*(fill as you go)*
+
+Nothing in this repository. `vmsam-forensic` writes no code and no repository files
+by charter; the deliverables are reports in the private notes beside the repository
+(`reports/CRITERIA.md`, `reports/TASK_003_FAMILY_PROPORTIONS.md`, `reports/FINDINGS.md`,
+and a per-id table `data/family_per_id.csv`).
 
 ## What was measured
-*(fill as you go)*
+
+**Method.** All 315 files classified from the pipeline's own refusal record — the
+`.log.error` beside each error file, present for **315/315**. From it the per-window
+`(correlation, offset_points, delay_ms)` triples are recovered per track pair.
+Criteria were written down **before** the classifier ran, and campaign 1's `Class`,
+`Step`, `Final Status` and `Detail` columns were **never read**; only its id, folder
+and episode columns were extracted, mechanically, to compare the corpus.
+
+**The corpus has not grown.** Its id set is identical to campaign 1's: 315/315,
+symmetric difference empty, zero folder or episode mismatches. `CAMPAIGN.MD` and the
+task brief both state new errors keep arriving; measured, none have.
+
+**Proportions, 315 files, every file accounted for:**
+
+| family | n | share |
+| :--- | ---: | ---: |
+| different cuts | 189 | 60.0 % |
+| weak correlation | 53 | 16.8 % |
+| trimmed edges | 31 | 9.8 % |
+| **constant offset — refused anyway** (not in `CAMPAIGN.MD`'s table) | 24 | 7.6 % |
+| speed mismatch | 8 | 2.5 % |
+| no shared language | 7 | 2.2 % |
+| *instrument did not run — no measurement exists* | 2 | 0.6 % |
+| *unclassifiable — measured, shape fits nothing* | 1 | 0.3 % |
+
+The last two lines are counted separately and are never folded into a family.
+
+**Three results that change how the table should be read.**
+
+1. **`speed mismatch` drifts at 0.098–0.102 %, i.e. NTSC 1000/1001 — not PAL.** No
+   file in the corpus drifts at PAL's 4.271 %. `CAMPAIGN.MD` labels the family "PAL 25
+   fps against 23.976" while giving its rate as "~1 s per half-hour", which is the
+   NTSC rate; the number is right and the label is not. **This 2.5 % is a floor**: a
+   PAL-rate file drifts ~13 s inside one comparison window, so its correlation
+   collapses and it cannot present as a slope at all — the method structurally cannot
+   see one, and such a file lands in `weak correlation`.
+2. **A sixth population, 24 files (7.6 %), has a constant offset and was refused
+   anyway** — delay spread ≤ 1 quantum across all ten windows at fidelity ≥ 0.85, 14
+   of them with spread exactly 0 and fidelity to 0.995. For 11 of them the cause is
+   measured: two of the **master's** same-language tracks are stable 250 ms apart, so
+   `delay_detected` ends with two values beyond the `< 127` reconciliation window at
+   `mergeVideo.py:315`. The candidate is refused for a defect in the file it is
+   compared against. Error ids 6, 7, 10, 11, 14, 15, 16, 17, 18, 19, 24.
+3. **`weak correlation` contains 26 files that are not a sync failure at all.**
+   `vmsam-ci` measured that error id 237 is a different television series from its
+   folder's master. Independently, and without reading any filename, folder id 103
+   splits 26 / 23 in my classification: 26 at fidelity 0.564–0.590 (the 0.50 chance
+   floor) and 23 with real correlation structure — the same partition ci reached from
+   release names and video frames. **ci's hedges stand**: ci verified one file
+   visually, attributed the other 25 without opening them, and left 37 folders
+   unchecked. I am not yet reporting a misfiled-content proportion of my own.
+
+**The measurement quantum is not 125 ms.** `audioCorrelation.get_max_corr` uses
+`int(lengthFile/n_points*1000)`, computed per call; recovered from the logs as 124 in
+one file and 125 in others. `vmsam-dev-1` independently measures the range as 124–142
+ms, exactly 125 only when the shortest audio runs 18.7–30.4 minutes; that hedge is
+carried as dev-1 stated it. Every tolerance in this work is expressed in quanta
+recovered per file, never in a fixed millisecond figure.
+
+**Exemplars**, screened against the gates `vmsam-dev-2` stated — genuine sync problem
+(fidelity ≥ 0.85), a language shared with the master, the master carrying it, and no
+`dts` in any shared-language track:
+
+| family | exemplar ids | note |
+| :--- | :--- | :--- |
+| different cuts | **266**, **428**, **212** (then 202) | 266 is a clean 3-plateau staircase, 1000 ms per step, fidelity 0.938 |
+| trimmed edges | **267**, **69**, **76** | single step at the start; 76 carries 8 languages |
+| speed mismatch | **33**, **31** | both NTSC 1000/1001, not PAL |
+| constant offset — refused anyway | **22**, **23**, **21** | ten identical zero delays at fidelity ≈ 0.99 |
+| weak correlation | **none usable** | nothing in it is a demonstrable sync problem |
+
+Usable-per-family counts: different cuts 186/189, trimmed edges 28/31, constant offset
+24/24, speed mismatch 2/8, weak correlation **0/53**, no shared language 0/7.
 
 ## What was dropped
-*(fill as you go)*
+
+- **Corroborating a speed slope with the container duration ratio.** It was in my
+  written criteria before I measured. It failed: the eight speed files' durations
+  differ by 4.7–6.9 % while their content drifts by 0.1 %, because the duration
+  difference is extra content, not speed — which `docs/AUDIO_SPEED_POLICY.MD` line 137
+  already says. Withdrawn because it failed, not adjusted until it passed.
+- **Treating a correlation peak as evidence of anything on its own.** Chance for this
+  statistic is 0.50, not 0, so a "0.6 correlation" is noise. Every threshold here is
+  stated against that floor.
+- **Moving the `constant offset` fidelity bar from 0.85 to 0.80** to absorb error id
+  45, the single unclassifiable file. One file is not worth a fitted threshold; it is
+  reported as a boundary case instead.
 
 ## What stayed blocked
-*(fill as you go)*
+
+- **Whether any PAL-rate file exists in this corpus.** The pipeline's own comparison
+  windows are too long to hold correlation across a 4.27 % drift, so the question
+  cannot be answered from its logs at all. A short-window re-measurement of all 53
+  `weak correlation` files is the test; it is running and unfinished.
+- **The corpus-wide misfiled-content count.** Corroborated in folder 103 only; 37
+  folders unchecked by ci and not yet swept by me.
+- **Why 13 of the 24 `constant offset` files were refused.** Only 11 have the
+  two-track mechanism shown; the other 13 have a single measured pair and share only
+  the symptom.
+- **What ffmpeg failed on for error ids 112 and 693.** Both files' media probe fine
+  under ffprobe 9.0.1 here, so the failure was in the pipeline's environment rather
+  than necessarily in the file — but which, I have not shown. Recorded as *the
+  instrument did not run*, never as *these files are unverifiable*.
