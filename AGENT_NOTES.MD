@@ -21,6 +21,86 @@ record.
 
 ---
 
+## 2026-09-03 — RETRACTION, and the locator's head blind spot: the first ~227 s are structurally invisible
+
+**I retract the entry below.** Its headline — *stage 2 is wrong where stage 1 is
+right* — is **backwards on id 108**, and unverified on id 12. `vmsam-ci` found it
+by bisection and `vmsam-forensic` reached it independently by another instrument.
+
+**What is actually there.** id 108's window 0 spans [120, 334] and contains a
+**real 500 ms step at ~146 s** — 26 s of the window pre-step, 188 s post-step.
+Stage 2's window-0 value of +1453.9 ms is the **correct** offset for the content at
+the start of that window. Chromaprint returned -1000 on all ten windows and **did
+not detect the step at all**.
+
+**Neither instrument is broken.** A single number for a window that spans a step is
+ill-defined, and the two resolved the ambiguity differently: chromaprint by
+majority (188 s against 26 s), the FFT by the short strong segment, because the
+pre-step 26 s correlate at 0.8 while the post-step 188 s correlate at 0.45.
+
+I have marked **id 12 unverified** rather than carrying the claim there. Its window
+0 may hold a real step by the same mechanism, and my RMS explanation for it may
+have been explaining the wrong thing — a real step produces that outlier whether or
+not the window is loud.
+
+**The remedy ci and I had converged on would have shipped a defect.** Dropping the
+outlier window and merging on the remaining nine gives a uniform offset that is
+correct after the step and **wrong by 500 ms before it** — a plausible file,
+silently wrong at the head, with every per-plateau check passing.
+
+### The defect this exposed in `change_point_locator.py`, and it is the worst of the four
+
+On id 108 my ten-window scan reads **-1000 on all ten**, so the locator returns
+`kind: "constant"` with no change point. **Confidently wrong**, where the other
+three defects merely refuse.
+
+Pointed at the region, my own method finds it — **fourth instrument, agreeing**:
+
+| | last OLD | first NEW | bracket |
+| :--- | ---: | ---: | :--- |
+| W = 30 s (q 135) | p = 130.0 | p = 132.5 | **T ∈ (145.0, 147.5)** |
+| W = 15 s (q 150) | p = 137.5 | p = 140.0 | **T ∈ (145.0, 147.5)** |
+
+Both lengths give the same bracket; ci's FFT bisection says 146-148 s, forensic's
+probe grid ~567 ms, the pipeline's own stage-2 log 501 ms. Step **12 → 8 points =
+4 points**, which is exactly 500 ms at the pipeline's 125 ms quantum — and 540 ms
+at W=30, 600 ms at W=15, the point count portable and the millisecond not.
+
+**The blind spot is exactly computable, not incidental.** A window reads the old
+plateau while more than half of it is pre-change, so a step is visible only if some
+window is majority-pre while the next is majority-post. **Window 0 is the first, so
+nothing can be majority-pre before it.** A step is invisible unless
+`T > begin + L/2`:
+
+| shortest audio | begin | window L | first visible T |
+| ---: | ---: | ---: | ---: |
+| 1195.7 s | 120 | 172 | **206.0 s** |
+| 1420.1 s | 120 | 214 | **227.0 s** |
+| 2545.5 s | 120 | 418 | **329.0 s** |
+
+So on a 24-minute episode the **first ~227 seconds** are invisible: the 120 s before
+any window starts, plus the first half of window 0. `CAMPAIGN.MD` puts **trimmed
+edges at 18 %** of the corpus, and a trimmed head *is* a change point near the
+start — the blind spot sits squarely on the second-largest failure family.
+
+**Fix: scan `[0, begin + L/2]` explicitly**, with the same two-window-length
+agreement test. Same code path, pointed at a region the pipeline's geometry never
+covers. Fourth on the list of fixes the module freeze blocks.
+
+**Told dev-2**: treat `kind: "constant"` as *unverified in the head*. It means "no
+step visible to a scan that cannot see the first ~227 s", not "the offset is
+constant". Applying it as a container delay on id 108 would be wrong by 500 ms for
+146 seconds.
+
+### What survives from the retracted entry
+
+Only the narrow, measured fact, and it belongs to ci and forensic rather than to my
+interpretation: **stage 2's variance test cannot distinguish a real step from a bad
+window, and refuses both identically.** For these files the refusal is *correct* by
+`AGENT.MD`'s standard — there genuinely is no single constant offset — and it is
+exactly the case zone A exists to take over. The defect is not the refusal; it is
+that nothing downstream is told which of the two it was.
+
 ## 2026-09-03 — measured: on one file, stage 2 is WRONG where stage 1 is right, which inverts the design assumption
 
 `AGENT.MD` records the owner's design intent: fingerprint peaks put stage 1 off by
