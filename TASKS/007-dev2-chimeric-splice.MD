@@ -54,9 +54,11 @@ one dead code cannot fake.
 
 ## What changed / measured / dropped / blocked
 
-**State: the path is built and lands a repaired track in a real merge. It has
-NOT yet run on a real error file** — that is what still separates this from
-`SPEC_ZONE_A.MD` §2.
+**State: `SPEC_ZONE_A.MD` §2 is met, locally, on a real error file that used to
+fail — error id 266.** All three of its conditions, including the third, which is
+the one dead code cannot fake. What remains is `AGENT.MD` step 3: the same thing
+in the test container, which is blocked on the module freeze rather than on
+readiness.
 
 ### What changed — commit `3747488`
 
@@ -275,6 +277,116 @@ Note for reading the first real result: `vmsam-forensic` reports that id 266
 shares **jpn only**, master-only eng/por/spa, candidate-only none — so both
 rebuilt tracks fill from the master and **nothing on that file exercises the
 silence path**.
+
+### T16 / T17 — the real error file, id 266
+
+The error tree is mounted readable here, so the pair could be run locally without
+a container. Details in the private notes beside the repository; the file is cited
+by its opaque id.
+
+`vmsam-forensic` ranked id 266 first and it is the right choice: shared **jpn
+only**, master carries it, `eac3` + `aac` with no `dts`, three plateaus at clean
+1000 ms steps, and the whole duration difference interior.
+
+**The plan came from `vmsam-dev-1` and was refused before any work was done.**
+Its first segment starts at `master_start_ms = 0` with an offset of −2000, so it
+reads the candidate at −2000 ms:
+
+```
+declined: segment reads the candidate at [-2000, 627000) ms, outside its 1430048 ms
+```
+
+That is arithmetic, not judgement: with a negative offset the first segment must
+start at `max(0, −offset)`. Master `[0, 2000)` is a **leading gap** — the master
+has two seconds at the head the candidate cannot supply — filled from the master.
+Reported to `vmsam-dev-1`, which accepted it and cannot commit the fix.
+
+**Result with the corrected head:**
+
+| | |
+| :--- | :--- |
+| outcome | **repaired**, marker `chimeric` |
+| audio | `eac3`→`eac3` @224 000, `aac`→`aac` @128 000, both bitrates via `video.get_bitrate` |
+| gap fill | **master** on both, 9.000 s filled, **0.000 s silence** |
+| subtitles | **21 rebuilt, 0 cues dropped** |
+| declined / failed | 0 / 0 |
+| **output** | **1.14 GB merged mkv, where the baseline produced only a `.log.error`** |
+| **in the final file** | the repaired jpn `eac3`, carrying `VMSAM_FABRICATED=chimeric` |
+
+`SPEC_ZONE_A.MD` §2 point 1 and point 2, met.
+
+### Point 3 — the target built by hand, and its own defect
+
+The expected jpn track was rebuilt independently, with a **different
+construction** from the module's: piece-by-piece extraction and concatenation
+rather than one `filter_complex`. If the two agree it is not because they share a
+mistake.
+
+**The first attempt was wrong, and the target was the wrong one.** Every region
+reported an identical −170.69 ms — and a constant lag across gaps *and* plateaus
+means a uniform shift, not misplaced pieces. Correlating the target against the
+**master** settled which: the target read +162 ms, the produced track did not. Its
+first piece measured **1.829 s instead of 2.000** — `-ss 0` on an AAC track drops
+the decoder's priming samples — and everything after inherited the shift.
+
+Rebuilt in **exact sample counts** rather than trusting `-t`. The lesson is the
+fixture lesson again: *"built by hand" is not "correct"*, and a hand-built target
+needs its own verification as much as the code does.
+
+**Against the corrected target:**
+
+| master position | region | lag | corr |
+| ---: | :--- | ---: | ---: |
+| 300 s | plateau 1, candidate −2000 | −0.19 ms | 0.978 |
+| 600 s | plateau 1, before the change point | −0.19 ms | 0.993 |
+| **629.6 s** | **GAP: change point 1** | **+0.19 ms** | **0.999** |
+| 700 s | plateau 2, after the change point | +0.81 ms | 0.982 |
+| 900 s | plateau 2, candidate −3000 | +0.81 ms | 0.985 |
+| **1089 s** | **GAP: change point 2** | **+1.50 ms** | **1.000** |
+| 1150 s | plateau 3, after the change point | +1.19 ms | 0.990 |
+| 1400 s | plateau 3, tail | +1.19 ms | 0.988 |
+| 0–60 s | head gap + plateau 1 | −0.19 ms | 0.974 |
+
+The two gap rows are the discriminating ones: r = 0.999 and 1.000 says they carry
+**master** content, which is what the target requires and what a splice that
+ignored the gaps would not produce.
+
+The head row needed care. Over a 1.4 s window it read −170.69 ms — because the
+first seconds of this programme are **near-silent** (RMS 0.3) and the correlation
+was matching noise against noise. With signal in the window it reads −0.19 ms.
+A measurement taken where there is no signal is not a measurement.
+
+### The verifier found a defect it was not designed for
+
+The two rebuilt tracks were given the **same** plan and the verification reported
+**10.1 ms** for the `eac3` and **37.9 ms** for the `aac`. That 27.8 ms difference
+is not noise: `vmsam-dev-1` independently measured the candidate's two jpn streams
+as **27.5 ms apart** — the true offsets are −1991.1 and −1963.7, and one language
+offset cannot serve both.
+
+`vmsam-dev-1` traced it to `locate_change_points` reading `audios[language][0]`
+and returning one offset for the language, while the repair rebuilds **every**
+stream of it. 27.5 ms is 0.66 of a frame at 23.976 fps, under the merge's own
+snapping and under my 100 ms tolerance, **so it would have shipped silently.**
+
+This is `CAMPAIGN.MD`'s per-language delay question appearing *within* a language,
+and the fourth time this corpus has shown two same-language tracks of one file a
+constant distance apart — ids 20–23 at 125 ms, `vmsam-forensic`'s eleven at
+250 ms, now 27.5 ms.
+
+**And I had a stream-mapping error of my own**, which `vmsam-dev-1` caught: one
+script used `0:a:1` (the *second* audio, the aac) while describing it as the eac3,
+another used `0:1` (absolute index 1, the eac3). Both notations are valid and they
+select different streams. My "consistent −38 ms" was the aac stream; on the eac3
+the quantisation residual is 8.9 ms, well under half a 125 ms point.
+
+**Consequence: do not absorb a uniform residual into `delay_same_md5_audio`.** I
+had proposed it. It is wrong here for a better reason than the one I gave: the
+residual is not one number — it is +8.9 ms for one track and −18.6 ms for the
+other — so a single absorbed value would fix one and break the other. The original
+objection stands too: a uniform residual is also the signature of a plan sign
+error, and absorbing it would have turned a loud failure into a plausible file.
+`vmsam-dev-1` takes the sub-quantum refinement instead; nothing needs absorbing.
 
 ### Findings that are not mine to fix
 
