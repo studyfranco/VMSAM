@@ -141,6 +141,84 @@ plateaus that agree within a window group and high fidelity on them. My repair
 must never accept this shape, and it cannot today, because it only ever executes
 a plan somebody measured.
 
+### The second fixture — independent provenance, and what it caught
+
+`vmsam-ci` named the limit of the first fixture before I hit it: both its arms
+share one provenance — a file and a copy of itself — so it proves the splice
+arithmetic is exact and can prove nothing about media whose two sides were
+encoded independently, which is every real case. Acted on rather than filed.
+
+Measured first, to pick a genuinely independent pair from `/config/example`:
+two of the four releases carry the **same** Japanese audio (lag 0.0/0.2/0.0/0.1 ms,
+r = **1.000** at four positions), so they are one observation, not two. The BDRip
+against the WEB-DL is independent — Blu-ray master against streaming master, FLAC
+48 kHz against AAC 44.1 kHz — with a constant natural offset of −955.6/−955.1/
+−955.4/−954.5 ms and r = **0.910–0.973**. High, but not 1.000.
+
+Fixture 2 is that pair, with 8 s removed from the candidate. It exercises three
+paths fixture 1 could not: a **non-zero base offset underneath the staircase**, a
+gap filled **across codec and sample rate**, and the **silence** path, because the
+BDRip carries only Japanese while the candidate carries jpn/kor/eng.
+
+**It found a real defect on its first run, and the defect was mine.** I derived
+the plan's base offset **with the wrong sign**. The repaired track came out
+uniformly **+16 146 ms** off — exactly twice the 8072.85 ms base offset — with the
+staircase correctly removed. Uniform, therefore invisible to every per-plateau
+check, and visible only against the master. `vmsam-ci` predicted that failure
+shape out loud before the run, and the diagnostic it proposed is what found it.
+
+The sign I got wrong is the one written down as an equation, agreed in writing
+with `vmsam-dev-1`, and verified once already on fixture 1. **Stating a convention
+does not protect you from misapplying it.** Only a measurement against the master
+does. Fixture 1 could not have caught it: its base offset was zero.
+
+| | |
+| :--- | :--- |
+| A2 the gap holds **master** content | lag **0.3 ms**, r = 0.997 |
+| A3 the same gap in kor/eng holds **silence** | RMS **0.00000000**, peak 0.0, against 0.064–0.110 elsewhere |
+| A4 the master's FLAC jpn beats the fabricated AAC jpn | predicted, and confirmed — the intact track survived untagged |
+
+A4 is the counterpart to finding 1: the eviction runs the **right** way round
+whenever the codec rule genuinely favours the intact track. The bad case is two
+tracks of the same codec where only the bitrate separates them.
+
+### The check that should have caught it, now built in
+
+`merge_video_chimeric` verifies its own output: after muxing it correlates each
+rebuilt track against the master at up to four positions and **refuses the
+repair** above a 100 ms tolerance. This is the automatic form of
+`SPEC_ZONE_A.MD` §2 point 3 — produce the target and compare against it.
+
+Two constraints shaped it, both from teammates:
+
+- **The probes sit strictly inside candidate-sourced pieces, never in a gap.** A
+  gap is master content by construction and would match at any offset — *a
+  control that cannot fail is not a control* (`docs/AUDIO_SPEED_POLICY.MD`).
+- **It verifies a zero, it does not measure a step**, so it is quantum-independent
+  and does not violate `vmsam-dev-1`'s constraint that a step must never be
+  re-measured at a different window length.
+
+**Fired both ways on real production runs, not in a unit test:**
+
+| plan | result |
+| :--- | :--- |
+| base offset with the wrong sign | **declined** — `track 1 (ja) off by 16145.9 ms. Tolerance 100 ms`, and the merge then correctly falls through to `Only ... file left` because nothing was repaired |
+| corrected plan | **repaired** — `aligned, worst lag 0.5 ms` (probes at 148.6 s → 0.0 ms, 453.0 s → 0.5 ms) |
+
+And a third outcome rather than a false pass: kor and en came back **`skipped` —
+"the master has no track in this language"**. A track the master cannot verify is
+not a verified track.
+
+A verification refusal is now recorded as **`declined`**, not `failed`: the module
+ran, looked at what it had produced, and said no. Collapsing those two would have
+lost the outcome that carries a reason.
+
+**Default.** `repair_verify` defaults **on**, inside a feature that is off by
+default. `WRITE_ZONES.MD` §4's rule — new capability must not run unless enabled —
+is held by `repair_chimeric`. The verification is not a further capability; it is
+what stops the repair delivering a silently wrong track, and a safety you have to
+remember to arm is not one.
+
 ### Findings that are not mine to fix
 
 1. **`keep_best_audio`'s `fabricated` rule cannot fire, and the harm it exists to

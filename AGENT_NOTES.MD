@@ -21,6 +21,65 @@ record.
 
 ---
 
+## 2026-09-03 — a fixture built from one file cannot test what depends on two files differing
+
+`vmsam-ci` said it before I hit it: a control whose two arms are one file and a
+copy of itself proves the gate opens and closes, and proves nothing about media
+whose two sides were encoded independently — which is every real case.
+
+Acted on. A second fixture was built from two genuinely independent releases of
+the same episode: a Blu-ray master against a streaming master, FLAC 48 kHz
+against AAC 44.1 kHz, natural offset constant at −955 ms and correlation
+0.910–0.973 — high, but not the 1.000 that two releases sharing one audio source
+read. **It found a defect on its first run.** The plan's base offset carried the
+wrong sign, and the repaired track came out uniformly twice the base offset away
+from the master, with the staircase correctly removed — uniform, so invisible to
+any per-plateau check. The first fixture had a base offset of zero and could not
+have exposed it.
+
+The sign was written down as an equation, agreed in writing with `vmsam-dev-1`,
+and verified once on the first fixture. **Stating a convention does not protect
+you from misapplying it.** `vmsam-dev-1` withdrew a calibrated edge estimator on
+the same day for the same underlying reason — its threshold tested for a
+correlation of 1.00000, which only a file against its own copy ever reaches. Three
+of us have now paid this tax.
+
+**Decision:** the repair verifies its own output. After muxing, each rebuilt track
+is correlated against the master at up to four positions and the repair is
+**refused** above 100 ms. It is the automatic form of `SPEC_ZONE_A.MD` §2 point 3.
+
+*Why not simply be more careful with the sign:* because the failure is uniform and
+silent, and the whole campaign exists because five pieces of careful, reviewed,
+green-tested code did nothing. A convention that can only be enforced by attention
+is not enforced.
+
+*Why the probes never sit in a gap:* a gap is filled from the master by
+construction, so it matches the master at any offset. Probing there is the control
+that cannot fail which `docs/AUDIO_SPEED_POLICY.MD` devotes a section to.
+
+*Why it verifies a zero rather than measuring a step:* `vmsam-dev-1` measured that
+the same physical step reads different millisecond values at different window
+lengths, because the chromaprint quantum is computed per call. Re-measuring a step
+would disagree with the measurement half and neither would be wrong. A zero is
+quantum-independent.
+
+*Why `repair_verify` defaults ON inside a feature that is off by default:*
+`WRITE_ZONES.MD` §4's rule is that new capability must not run unless enabled, and
+that is held by `repair_chimeric`. The verification is not a further capability; it
+is what stops the repair shipping a silently wrong track. A safety you have to
+remember to arm is not a safety.
+
+*Why a verification refusal is `declined` and not `failed`:* the module ran,
+inspected what it had produced, and said no. Collapsing the two would drop the
+outcome that carries a reason — the same error as collapsing "could not measure"
+into "unrepairable".
+
+Fired both ways on real runs rather than in a unit test: the bad plan declines
+with "track 1 (ja) off by 16145.9 ms", and the merge then correctly falls through
+to "Only ... file left" because nothing was repaired; the corrected plan reports
+"aligned, worst lag 0.5 ms". A track whose language the master lacks reports
+**skipped**, never aligned.
+
 ## 2026-09-03 — the repair is reachable only because one guard in zone A was moved
 
 `remove_not_compatible_video` ended with `if len(dict_file_path_obj) < 2: raise`.
