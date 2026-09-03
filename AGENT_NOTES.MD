@@ -21,6 +21,62 @@ record.
 
 ---
 
+## 2026-09-03 — "single step near the head" was an artefact of everyone probing near the head
+
+**The three files this campaign adopted as its change-point acceptance set are not
+what any of us described.** Profiling one of them end to end instead of near its
+known step:
+
+```
+[  20,  91]   +672 ms    corr 0.91-0.97   <- previously unreported by anyone
+  ~91 s        TRANSITION   step ~1499 ms
+[  91, 184]  +2171 ms    corr 0.88-0.93
+ ~184 s        TRANSITION   step  ~837 ms  <- the one four instruments measured
+[ 184,1170]  +3008 ms    corr 0.83-0.94   flat
+~1170 s        TRANSITION   step   ~89 ms
+[1185,1290]  +3097 ms    corr 0.88-0.94   three probes within 0.5 ms
+```
+
+**At least four change points**, where all four instruments had reported one. A
+second file has two with the offset **returning**. The third has been profiled to
+760 s and no further.
+
+**Two things follow, and the second is the larger.**
+
+**1. It resolves a 76 ms disagreement, with nobody wrong.** Another agent's
+pre-step probe spanned the ~91 s transition, so their value was a blend of two
+plateaus — the same contamination they had already correctly diagnosed in their
+*other* probe. Both instruments were sound; both of their probes happened to straddle
+transitions nobody had detected.
+
+**2. The head blind spot is a special case of something wider.** That third
+transition is at 1170 s with a step of **89 ms** — nowhere near the head, and equally
+invisible, because every stage-1 window is 194 s long and reads the same plateau on
+both sides of an 89 ms step.
+
+> **The geometry cannot see a step smaller than its own resolution anywhere in the
+> file, and cannot see any step in the head at all.**
+
+Every family count built on the stage-1 record inherits both, and **neither can be
+bounded from the record** — the information is absent, not merely hard to read.
+
+**And a refuted hypothesis of my own, worth recording for how it nearly passed.** I
+proposed that a 45 ms discrepancy was drift. Eleven probes gave a first fit of
++34.6 ms per 1000 s, which looked like support — but the **residual spread was
+23.9 ms against 34.6 ms of total effect**. Refitting without the one probe carrying it
+gave −7.45 ms per 1000 s, spread 6.4 ms. Flat. The 45 ms was the 1170 s step.
+
+*What stopped me reporting the first fit was that the scatter was the same size as
+the effect* — the "plausible number rather than an error" pattern, appearing in a
+regression rather than a parser.
+
+**The method point, which is the previous entry turned on all of us.** Every one of
+these transitions was found by someone widening their search **after another agent's
+result pointed at a region**. Not one was found by an instrument choosing its own
+coverage. So a "head scan" is the wrong fix: the head was only ever special in being
+the part the windows could not see. **The fix is a full-file scan with no privileged
+regions.**
+
 ## 2026-09-03 — an independent instrument aimed by a dependent one is not independent
 
 **My own blind spot, one layer above the one I had just finished documenting.**
