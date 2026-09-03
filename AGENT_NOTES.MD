@@ -21,6 +21,79 @@ record.
 
 ---
 
+## 2026-09-03 — two instruments, one number: forensic's 750 and ci's 837 were never in conflict
+
+`vmsam-ci` bisected error id 13 and got a step of **837 ms**; the pipeline's own
+stage-2 log gives **833.5 ms** by a wholly separate route; `vmsam-forensic`'s probe
+grid gives **750 ms**. ci was about to report the 87 ms gap to forensic as a
+discrepancy. **It is not one.**
+
+Measured here on one pair of probes with one decode, using **160 s windows so the
+quantum is 125 ms** — the pipeline's own, avoiding the short-window bias ci had
+just caught in me:
+
+| | FFT (unquantised) | chromaprint |
+| :--- | ---: | :--- |
+| PRE [20, 180] | **-2171.84 ms** | 0.7635 → **-18 pts** = -2250 ms |
+| POST [200, 360] | **-3004.08 ms** | 0.9558 → **-24 pts** = -3000 ms |
+| **step** | **832.24 ms** | **6 points = 750 ms** |
+
+**Both answers, from one measurement.** 832.24 agrees with ci's 837 and the log's
+833.5 to within 5 ms; 750 agrees with forensic's 750 exactly.
+
+The whole gap is **one plateau misquantised by 0.63 of a point**. True PRE is
+17.37 points and chromaprint read 18 — 78 ms high, which is *more* than half a
+quantum and so a genuine misread rather than rounding. It compresses the step from
+6.66 points to 6. And the misquantised plateau is the low-confidence one: 0.7635
+against 0.9558.
+
+**So forensic's instrument is doing what it does and its number is right for a
+quantised measurement.** The finding is not a defect in anyone's grid; it is that
+**a step must be reported as points plus the quantum, never as a bare millisecond
+figure** — the same rule that governs exchanging offsets with dev-2, and the same
+one that caught my own short-window bias an hour earlier. Three separate occasions,
+one rule.
+
+### And id 108 has TWO change points, with the offset returning
+
+`vmsam-dev-2` profiled its first 260 s:
+
+```
+[  0,  52)  -950.0     r 0.37-0.65
+[ 52,  58)  TRANSITION 1        <- previously unreported
+[ 58, 146)  -1453.9    r 0.79-0.94
+[146, 148)  TRANSITION 2        <- ci's bisection and my bracket, reproduced exactly
+[148, 260)  -952.9     r 0.42-0.59
+```
+
+Its transition-2 bracket reproduces ci's exactly from a third instrument, which is
+what makes transition 1 credible. **Carry dev-2's hedges:** one instrument, the
+outer regions correlate weakly (0.32-0.65) so -950 rests on consistency across
+twelve windows rather than any strong reading, brackets limited by a 2 s step
+rather than bisected, and nothing looked at past 260 s.
+
+**This corrects two things I said.**
+
+1. I told dev-2 and the Lead that a container delay on 108 *"would be wrong by
+   500 ms for the first 146 seconds"*. Measured, -950 is **correct** for [0, 55)
+   and after 148 s, and wrong only inside **[55, 147)**. dev-2's reading is right
+   that this is *worse* rather than better: a 0.5 s desync that appears a minute in
+   and resolves itself ninety seconds later is the kind of fault a listener
+   dismisses rather than reports.
+2. **The blind spot is worse than I stated.** I had it that both change points sit
+   in the head and are therefore invisible to the ten-window geometry. The sharper
+   form is dev-2's: **because the offset returns, any window spanning both reads
+   constant**, so they are invisible to each other's absence too. A head scan
+   looking for *a* step would find the pair and report nothing — a constraint on
+   the fix, not merely a reason for it.
+
+**And the quantisation cost is now concrete.** My chromaprint points give -1500 and
+-1000 where the true offsets are -1453.9 and -952.9: **46 and 47 ms out, each more
+than a third of a point and each larger than a video frame at 23.976 fps.** A plan
+built from quantised plateaus would be a frame out on both segments before any
+splice error. That makes the sub-quantum refinement part of the head-scan work
+rather than a later improvement.
+
 ## 2026-09-03 — RETRACTION, and the locator's head blind spot: the first ~227 s are structurally invisible
 
 **I retract the entry below.** Its headline — *stage 2 is wrong where stage 1 is
