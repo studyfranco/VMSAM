@@ -708,6 +708,40 @@ adds stage 2's **unquantised** value to stage 1's, and 84.5 ms is precisely what
 stage 2 exists to measure. **The offset is invisible to stage 1, not to the pipeline;
 it never reaches stage 2 because stage 1 refuses it first.**
 
+### Goal 3p — the first deploy carrying actual code, and the cold-build figure measured
+
+Every earlier deploy carried documents only. `4ebc55d` carries **2009 insertions
+across 8 files**. Prediction frozen first; **all five points held** — hook
+`SUCCESS 0` in 37.9 s, `/health` on the target with `mode test`, queue idle and empty,
+and `/errors` still **315 entries / 38 folders with identical id sets**.
+
+**The commit→image time was ≈1.9 minutes**, for a change of that size. This **refines**
+the documented ~10 min rather than replacing it: only the final `COPY src/` layer is
+invalidated by a pure-Python change, while apt, the Rust build and the vmaf compile
+stay cached. **The ~10 min figure belongs to a change touching the `Dockerfile`,
+`Cargo.toml` or a dependency — still unmeasured.** Push time is unknown, so 1.9 min is
+an upper bound.
+
+**A job was killed deliberately to make room.** Error id 12 had been processing 137
+minutes, the only job ever to reach stage 2. Its question — whether the stage-2
+variance behaviour reproduces on deployed code — had by then been **answered better by
+direct bisection**, which established those files carry real change points rather than
+bad windows. Cost of killing it in test mode is one artefact and no library risk
+(`flock` releases on process death); cost of not killing it was leaving 2009 lines
+untested while three agents waited. **Forfeited, not lost**, and it left no artefact.
+
+**What the deploy does NOT establish, by my own earlier finding.** HTTP 200 on
+`GET /fusion` does **not** prove the worker started — `get_internal_fusion_status`
+carries no `fusion_enabled` guard and reports an idle queue either way. That matters
+more on this build than any before it, because it is the first to change `config.ini`,
+which is baked into the image, and the worker refuses to start when
+`VMSAM_TEST_OUTPUT_DIR` is empty. **The decisive probe is the first `POST /fusion`;
+a 503 there is a deploy finding, not a failure of whoever asked.**
+
+**`compileall` now reports zero failures** — `frame_compare.py` compiles for the first
+time since `da1c191`, so `WRITE_ZONES.MD` §5.4's one permitted failure is gone and any
+future failure is ours.
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
