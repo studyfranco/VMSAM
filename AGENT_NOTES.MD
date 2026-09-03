@@ -21,6 +21,64 @@ record.
 
 ---
 
+## 2026-09-03 — CORRECTION: the "one bad window" reading was wrong. The outliers are real steps.
+
+**This supersedes the stage-2 entry below, and the remedy I endorsed would have
+produced silently wrong files.**
+
+I reported four files as *"nine windows agreeing to two milliseconds, refused because
+one bad window dominates the variance"*, and endorsed the remedy of **dropping the
+outlier window**. Another agent pushed back; I tested it and they are right.
+
+**The outlier window is not a bad measurement. It is a genuinely different delay,
+because content is trimmed or added at the head of the file.** Bisecting one file's
+first comparison window with an independent FFT correlation, streams pinned, no
+shift:
+
+```
+[120,132] +1453.9 ms  corr 0.8182   PRE
+[140,146] +1453.9 ms  corr 0.7821   PRE
+[144,150]  +949.5 ms  corr 0.0585   spans the boundary
+[148,154]  +952.9 ms  corr 0.5291   POST      (as do all later windows)
+
+CHANGE POINT 146-148 s.   STEP = 501.0 ms.
+```
+
+Not noise: the pre-step correlations of **0.71–0.82 are the highest anywhere in that
+pair** — the body only reaches 0.44–0.50.
+
+**Three instruments sharing no code now agree**: the pipeline's own stage-2 log
+(window 0 sitting 501 ms from the other nine), my bisection (501.0 ms), and the other
+agent's probe grid (~567 ms).
+
+**Why the remedy was harmful.** Dropping the window and merging on the remaining nine
+gives a uniform +952.9 ms — correct after ~147 s and **wrong by 501 ms before it**. A
+plausible file, silently wrong at the head, passing every per-plateau check. Exactly
+the failure shape this campaign exists to prevent.
+
+**The sentence that cost me this**, and it is the transferable part:
+
+> *"Nine windows agreeing to 2 ms is an excellent delay."* True, and irrelevant.
+> **They agree because they are all on the same side of the step.** A tight cluster
+> is evidence of CONSISTENCY, not of COMPLETENESS, and I read the first as the
+> second.
+
+The same error in general form: a statistic computed over samples that all sit on one
+side of a boundary describes that side, not the population. Tightness was measuring
+my sampling, not the media.
+
+**What survives, in the other agent's framing, which is better than mine:** stage 2's
+variance test **cannot distinguish a real step from a bad window and refuses both
+identically**. For these files the refusal is **correct** by `AGENT.MD`'s standard —
+there genuinely is no single constant offset — and it is precisely the case zone A
+exists to take over. The defect is not that they are refused; it is that **nothing
+downstream is told which of the two it was**, so a repairable trimmed edge and an
+unrepairable mess leave through the same door.
+
+**Consequence for classification:** "measured, bad answer, **unrepairable**" and
+"measured, bad answer, **repairable**" are different rows. My five-way split of the
+no-matrix bucket collapsed them; the six-way version is theirs.
+
 ## 2026-09-03 — the stream the comparison uses is not the first stream, and all three of us assumed it was
 
 **Three separate wrong-stream incidents in one day, by three agents, on three

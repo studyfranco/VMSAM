@@ -559,7 +559,34 @@ one — more, because nobody re-opens a closed question.**
 **Rule:** resolve which stream the engine would compare, and pin it, before
 measuring anything about "the audio". Two `ffprobe` calls.
 
-### Goal 3l — measured: stage 2 overruled a correct stage 1 and refused the file
+### Goal 3l-CORRECTED — the outliers are REAL STEPS, and the remedy I endorsed was harmful
+
+**Supersedes the reading below.** I reported four files as *"nine windows agreeing to
+2 ms, refused because one bad window dominates the variance"* and endorsed **dropping
+the outlier window**. Another agent pushed back; I tested it and they are right.
+
+Bisecting one file's first comparison window with an independent FFT correlation,
+streams pinned, no shift: `[120,146]` aligns at **+1453.9 ms** (corr 0.71–0.82, the
+highest anywhere in that pair), `[148,154]` and every later window at **+952.9 ms**.
+**Change point at 146–148 s; step 501.0 ms.** Three instruments sharing no code agree:
+the pipeline's own log, my bisection, and the other agent's probe grid.
+
+**Why the remedy was harmful.** Merging on the remaining nine windows gives a uniform
++952.9 ms — correct after ~147 s and **wrong by 501 ms before it**: a plausible file,
+silently wrong at the head, passing every per-plateau check.
+
+**The sentence that cost me this:** *"nine windows agreeing to 2 ms is an excellent
+delay"* — true and irrelevant. **They agree because they are all on the same side of
+the step.** A tight cluster is evidence of *consistency*, not *completeness*.
+Tightness was measuring my sampling, not the media.
+
+**What survives, in their framing:** stage 2's variance test cannot distinguish a real
+step from a bad window and refuses both identically. The refusal is **correct** —
+there genuinely is no single constant offset — and it is exactly the case zone A
+exists to take over. The defect is that **nothing downstream is told which of the two
+it was.**
+
+### Goal 3l (superseded reading) — stage 2 overruled a correct stage 1 and refused the file
 
 `AGENT.MD` states stage 2 exists to **correct** stage 1's ±250 ms fingerprint errors.
 On one file, measured absolutely and unshifted by another agent: **stage 1 was right
