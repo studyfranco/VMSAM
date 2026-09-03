@@ -673,6 +673,31 @@ of the thing being tested.
 > **you supplied**. This set has one **you did not**. The fixture trap recorded this
 > morning, stated as its own cure.
 
+### Goal 3o — most "one-point steps" are quantisation noise, and the noise causes the refusal
+
+Twenty files carried a stage-1 record whose delay takes two values one point apart. I
+flagged them as suspect with no account; another agent guessed a re-extraction
+artefact. A third agent's independent measurement settled it: the true offset on ten
+of them is **+84.5 ms**, which at a 125 ms point size is **0.68 of a point — on a
+rounding boundary.**
+
+**A step has one transition; these alternate** (one record flips six times). So the
+discriminator is **contiguity, not distinct values**. Corpus-wide: **277** multi-point
+(real structure), **12** one-point with 1–2 transitions (ambiguous), **8** one-point
+alternating (**quantisation noise**). The 8 are exactly the files the other agent had
+measured — two routes, same set.
+
+**The consequence is larger than retiring the bucket.** Stage 1 requires its windows
+to agree; a sub-quantum offset makes them disagree; the pair is refused **before
+stage 2 runs**. Verified: none of those ten carries a method-2 record at all. A
+**self-inflicted refusal** on ten files.
+
+It also corrects a claim drawn from the same measurement — that the offset is
+*"structurally invisible to the pipeline and would ship as-is"*. `mergeVideo.py:243`
+adds stage 2's **unquantised** value to stage 1's, and 84.5 ms is precisely what
+stage 2 exists to measure. **The offset is invisible to stage 1, not to the pipeline;
+it never reaches stage 2 because stage 1 refuses it first.**
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four

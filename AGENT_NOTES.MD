@@ -21,6 +21,57 @@ record.
 
 ---
 
+## 2026-09-03 — most "one-point steps" are not steps: a sub-quantum offset causes its own refusal
+
+Twenty files carried a stage-1 record whose delay takes two values one point apart. I
+had them flagged as suspect with no account; another agent guessed a re-extraction
+artefact. **Both were wrong, and a third agent's independent measurement supplied the
+answer before I looked.**
+
+They measured the true offset on ten of them at **+84.5 ms**. The point size is
+125 ms, so that is **0.68 of a point — near a rounding boundary.**
+
+The records are then unmistakable:
+
+```
+id 6   [0, -125, 0, -125, -125, -125, -125, -125, -125, -125]
+id 7   [-125, 0, -125, 0, 0, -125, -125, 0, 0, -125]      <- alternates six times
+id 19  [0, 0, 0, 125, 125, 0, 125, 125, 0, 0]
+```
+
+**A step has ONE transition. These alternate.** Each window rounds a sub-quantum
+offset up or down on its own noise.
+
+> **The discriminator is CONTIGUITY, not the number of distinct values.** Count
+> transitions. One transition is a step; three or more is quantisation noise.
+
+Corpus-wide, applying it to every varying stage-1 record:
+
+| | n |
+| :--- | ---: |
+| multi-point — real structure | 277 |
+| one-point, 1–2 transitions — ambiguous | 12 |
+| **one-point, alternating — quantisation noise** | **8** |
+
+The 8 are precisely the files the other agent had measured. Two routes, same set.
+
+### The part that matters more than retiring the bucket
+
+The inconsistent rounding **is itself what refuses the file.** Stage 1 requires its
+windows to agree; a sub-quantum offset makes them disagree; the pair is dropped
+before stage 2 ever runs. **Verified: none of those ten has a method-2 record in its
+log at all.**
+
+**So a self-inflicted refusal.** And it corrects a claim made from the same
+measurement — that 84.5 ms is *"structurally invisible to the pipeline and would ship
+as-is"*. `mergeVideo.py:243` is
+`calculated_delay = delay_first_method + delay_second_method*1000`, and stage 2 is an
+unquantised FFT: 84.5 ms is exactly what it exists to measure, and it is **added**.
+
+> The offset is invisible **to stage 1**, not to the pipeline. It never reaches stage 2
+> because stage 1's rounding disagreement refuses it first. Those are different
+> statements and only the first is supported.
+
 ## 2026-09-03 — a linear fit cannot tell a drift from a step, and three of us produced a spurious rate on one file within an hour
 
 **Three independent agents, three instruments, same file, same hour, same wrong
