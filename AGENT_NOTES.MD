@@ -21,6 +21,68 @@ record.
 
 ---
 
+## 2026-09-03 — a measurement taken where there is no signal is not a measurement
+
+Comparing the repaired track of error id 266 against a hand-built target, the head
+region reported **−170.69 ms with r = 0.82** — a confident-looking disagreement.
+It was noise correlated against noise: the first seconds of that programme are
+near-silent, RMS **1 × 10⁻⁵** of full scale. With signal in the window the same
+comparison reads **−0.19 ms at r = 0.974**.
+
+**This is the most insidious member of the "control that cannot fail" family** the
+campaign keeps meeting, because there is no construction to inspect. The window
+was real, the instrument ran, a number came back with a plausible correlation.
+Only the *content* was missing — and a high correlation is no defence, because
+silence correlates with silence.
+
+**Decision:** every verification probe now measures the RMS of both windows and
+reports `no_signal` instead of a lag when either is below **1 × 10⁻⁴** of full
+scale. If *no* probe on a track carries signal the track's outcome is **`skipped`
+— unverified, not verified.**
+
+*Where the threshold comes from:* the measured gap on this file, silence at
+1 × 10⁻⁵ against content at 2.4 × 10⁻³ to 2.9 × 10⁻². It sits an order of
+magnitude above the silence and an order below the quietest content. It is a
+measured spread, not a curve (`docs/AUDIO_SPEED_POLICY.MD`: "every threshold must
+come from measured spread").
+
+*Why not use the correlation instead:* it does not work. The silent window scored
+0.82–0.93, higher than several windows that were genuinely aligned. Loudness is
+the discriminator here, not agreement.
+
+*Why a per-probe outcome rather than dropping the probe silently:* dropping it
+would leave a track verified on fewer probes than it appears to be. The count of
+windows without signal is reported alongside the count measured.
+
+`vmsam-dev-1` reports the same defect in its own locator — its narrowing scan
+probes at fixed positions and would bisect across a silent stretch with nothing
+checking for content.
+
+## 2026-09-03 — a hand-built target needs verifying as much as the code does
+
+`AGENT.MD` § Target-first says to build the expected file by hand, first, then
+compare. On error id 266 the target was **wrong**, and the code was right.
+
+Every region of the comparison reported an identical −170.69 ms. A constant lag
+across gaps *and* plateaus means a **uniform shift**, not misplaced pieces — so
+the question became which of the two objects was moving, and the way to settle it
+was to correlate the *target* against the master. The target read +162 ms; the
+produced track did not. Its first piece measured 1.829 s instead of 2.000, because
+`-ss 0` on an AAC track drops the decoder's priming samples, and every later piece
+inherited the shift.
+
+**Decision:** build targets in exact sample counts rather than trusting ffmpeg's
+`-t`, and correlate the target itself against the reference before believing a
+disagreement with the code.
+
+*Why this is a finding and not just a mistake:* `AGENT.MD` requires the target and
+requires the comparison, and says nothing about verifying the target. On this
+evidence it should, because a wrong target produces a **confident false failure** —
+and, in the symmetric case, would produce a confident false pass. The whole weight
+of § Target-first rests on an artefact that is currently assumed correct because a
+human made it. `vmsam-dev-1` independently proposed the same addition after seeing
+this. A finding for the owner (`AGENT.MD` § Documents), never an edit.
+
 ## 2026-09-03 — a fixture built from one file cannot test what depends on two files differing
 
 `vmsam-ci` said it before I hit it: a control whose two arms are one file and a
