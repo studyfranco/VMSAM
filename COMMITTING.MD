@@ -69,17 +69,119 @@ rule needs **is not in the object at all** and no choice of field recovers it
 inert, and did not ship it; the agent with the strongest stake in weakening this rule
 is the one that refused to weaken it on an untested fix).
 
-**So the obligation lands on whoever rewrites history, which is the architect.** A
-squash must carry the author date of one of its constituent commits — otherwise the
-compression silently charges its own timestamp to an agent who was not committing. And
-if a rewrite has displaced your commits, the rule does not apply to you until you have
-re-landed what it moved.
+**And that fix is refuted too — by the same test, from the other end.** Reproduced
+independently in a scratch repository: three commits authored 2020-01-01/-02/-03,
+squashed by the usual soft-reset recipe, and the result's **author** date came out as
+*now*. Both fields reset. `git commit --amend --date=` can put one back, so preserving
+a constituent's author date is implementable — and it is **the wrong repair**. *Which*
+constituent? Preserve the first and the number means "when the earliest batched
+document was written"; preserve the last and it means "when the newest was". **Neither
+is the quantity the rule names**, and a different quantity wearing the same name is this
+campaign's most-repeated defect, reintroduced by its own fix (`vmsam-forensic`).
+
+**The cause is not the squash. It is the batching, and the squash only made it
+visible.** Documentation is batched at the lead, which commits another agent's document
+with `--author=<agent>` **at the lead's moment, not the agent's**. From that point on,
+*"when did this agent last document"* **is not a property of the branch at all** — no
+field can carry it, because the agent did not make the commit. The six blocks began
+after the first flatten and not before, and the defect had been there since batching
+began with nothing to surface it.
+
+    we both had it as:  the rule reads the wrong field
+    corrected to:       the rule reads a field whose content was destroyed
+    the test says:      the rule reads an object that never carried the quantity
+
+**So the clock does not live in a timestamp at all. The rule is expressed in commits,
+not in hours.**
+
+    git rev-list --count <last documentation-only commit>..origin/dev-AI
+
+**At least N commits between documentation-only promotions.** A documentation-only
+commit is identified from its **paths**, and that reading classified 12 of 12 recent
+commits correctly with no metadata read at all (`vmsam-forensic`).
+
+This is what the rule always meant. *"Accumulate and travel together — with the next
+code change if one is coming"* is a statement about **work**, and the hour was only ever
+a fallback timer standing in for it. Expressed in commits it survives everything that
+destroyed the timestamp versions:
+
+| | |
+|---|---|
+| **authorship** | nobody writes it. Derived from the tree — no step to skip, no value to fill in |
+| **visibility** | any clone holding the branch computes the same number |
+| **rewrites** | it is not a stored quantity a rewrite can destroy. It is **recomputed from current content**, so a squash turning 26 commits into 5 legitimately lowers it — there genuinely is less distinct work on the branch |
+
+**Two clocks were proposed before this one and both were wrong; the record of why is
+above, and it is shorter than the argument would be.** A file beside the lead is
+authored by the party it guards and permits when it is missing. The reflog closes
+authorship — git writes it as a side effect of the ref moving, and a rewrite appends
+rather than edits — but it is **local to one clone**, so nobody but the lead can read
+the clock.
+
+**And the retrospective audit that was supposed to cover that gap is defeated by
+measurement.** This document claimed the branch's own shape audits the outcome even if
+nobody can read the clock. Counted on the branch: **three documentation-only commits
+attributed to the lead, against thirty-two it actually made.** Nine of them became one.
+The branch does not record an author's cadence; **it records the squashes' cadence**,
+and an auditor counting would have found the lead exemplary. Both parties reasoned
+about what the branch *would* show and neither looked at what it *does*.
+
+**Two caveats that belong in the rule rather than in its history.**
+
+- **It fails toward permitting, in one specific way.** A squash that merges a
+  documentation commit into a code commit makes it no longer documentation-only, so the
+  anchor moves backwards and the count *grows*. Wrong direction; know it is there.
+- **The path classifier is now the load-bearing part, so spell it the way
+  `tools.py` spells subtitles and not the way `audioRules` is spelled.** `*.MD`, `*.md`,
+  `docs/` is an allow-list with no `else`, which is the exact defect reported against
+  `audioRules` the same day. Every path lands in a named class, and **the default when
+  nothing matches is "not documentation-only"** — the strict side, because the failure
+  above already leans permissive.
+
+**The rule assumes an agent's output is commits, and one agent's output is
+measurements.** A gate keyed on commits cannot see work that lands in a directory git
+does not watch — **not to throttle it, and not to credit it**. Within an hour of the
+checker shipping it blocked the campaign's only measurement of the silently-accepted
+population (0 of 48, Wilson 95 % upper limit 7.4 %, 23 unmeasurable and carried), which
+is the layer the refused corpus cannot reach by any method; and a second agent's whole
+evening of measurements was invisible until the lead thought to ask where it went. **One
+hit it as a block, the other would have hit it as a silence.**
+
+**That work is already excepted — the exception is a hundred lines below, under a
+different heading, and nobody found it.** See *"work that legitimately produces no
+repository change"*: a verification whose harness lives outside the repository, a
+measurement that confirms something is inert. **It earns one commit saying what was
+established**, and the checker must implement it, not only the counting rule above it.
+An agent offered the obvious workaround — committing an unrelated deliverable to buy
+the slot — and refused it on its own: *committing a document to unblock a tool that
+blocks documentation commits would be routing around the rule with the rule's own
+subject matter.*
+
+**Claim the exception in the commit message, naming what was established and where the
+harness lives.** Only the author knows whether work produced no repository change, so
+the claim is self-granted — but written in the branch it is visible and attributable
+forever, which a timestamp was not. **The architect failed to find this exception with
+a grep while looking for it, one hour after publishing the rule that a grep against
+these hard-wrapped documents under-reports by construction.** A rule a hundred lines
+from the rule it excepts is a rule nobody holds.
+
+**What no version of this rule audits, and it is what the guard is actually worth.**
+Its value today was not preventing branch noise. It stopped a ruling that was withdrawn
+twenty minutes later, and held a record until a correction arrived: **it prevented
+prematurity, and no count of commits can see a statement that never landed.** That is
+not covered by anything here, on a rewritten branch or a clean one, and saying so is
+better than a third claim that it is.
+
+**The guard stays, and the reason is the lead's own.** Both of those delays improved
+what landed. The agent this rule constrains most argued *against* replacing it with its
+own discretion, and disclosed its stake before relaying an argument that favoured it.
+**Whatever guards this must still be able to stop the lead, and must not rest on the
+lead's judgement about its own output** — that is the one check nobody has.
 
 **Three history rewrites in one day is itself the defect, and it was the architect's.**
 This is also the second time this rule has starved the actor it was least meant for,
 and both times the cost fell on someone who could not grant themselves an exception.
-The guard is still right: it stopped that same agent committing a ruling it withdrew
-twenty minutes later, and held a record until a correction arrived. It should measure
+The guard is still right, for the reason given above. It should measure
 the quantity it names.
 
 **It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as

@@ -101,6 +101,56 @@ one audio track rebuilt, whose subtitles carried the marker, and **whose audio t
 was the master's, correlating 1.0000 with it.** Forty-two measured repairs could not
 speak to it, because they measured tracks and the deliverable is a file.
 
+**A corpus file cannot isolate one variable, because everything else about it also
+differs. For *"does X alone cause Y"*, construct the case.** A container-offset
+hypothesis was first tested on a real corpus file drawn from the affected list; it
+returned a quality score of ~9 out of 100, because that file is from a *different cuts*
+folder and the two sides are not two encodes of one programme. **The verdict did not
+flip, and the test could not have detected a flip if one had existed** — caught only
+because the absolute value was absurd, not because the file had been checked as
+suitable. The synthetic control — one file and a copy of itself given a 21 ms offset by
+`-c copy -output_ts_offset`, content bit-identical, 1517 packets each — should have been
+the first run and the corpus file the confirmation (`vmsam-dev-1`, reporting the order
+it got wrong alongside the result).
+
+**A caveat in a docstring is read once, by its author. A caveat printed with the number
+is read by whoever holds the number.** The cadence checker prints its
+fails-toward-permitting limitation on **every run** rather than documenting it, and
+names its unclassified paths with a count rather than absorbing them silently — so the
+classifier's gaps are visible to whoever runs it instead of to whoever wrote it
+(`vmsam-ci`). **A caveat travels with the number or it does not travel.**
+
+**A grep against these documents is a measurement, and it under-reports by
+construction.** The governing files are hard-wrapped, so **any phrase spanning a line
+break fails a line-oriented search** — and the phrases worth checking are the long ones.
+Reproduced on this revision:
+
+    line-grep 0   normalised 1   "a hypothesis wearing an observation's label"
+    line-grep 1   normalised 1   "observation from a run or a reading of the code"
+    line-grep 1   normalised 1   "A labelled hypothesis beats silence"
+
+The first is a rule the lead had quoted verbatim to the agent that then grepped zero
+for it and reported the rule missing. **Normalise the whitespace before matching:**
+
+```sh
+cat *.MD | tr '\n' ' ' | tr -s ' ' | grep -o "<the phrase>"
+```
+
+**And search for the rule's own words, not your paraphrase of them.** The same report
+grepped three restatements of a rule — none of them quotations — and concluded it was
+absent, forty lines after writing *"a grep is not a reading"* about frozen code
+(`vmsam-dev-1`, reporting its own miss). **A confident negative about a document,
+reached through a proxy for reading it, is the same class as an audit reporting zero
+missing rows against a denominator it could not recover.** If the answer matters, open
+the file.
+
+**A name that fits two objects will be read as the nearer one.** *"`b4c829d` carries
+dev-1's four locator commits and dev-2's three repair fixes"* — true of the **range**
+ending there, false of the **object**, which is one file and 68 lines. Nothing wrong had
+landed and the range was right; an auditor opening the SHA would have found a single
+documentation file. Self-reported by its author hours after it began relaying other
+people's instances of the same class, which is how often this one recurs.
+
 **And a reading of the code is not a run of it.** The span was read and pronounced
 safe — *"nothing between the attach and the muxer looks at where the track came
 from"*, hedged honestly as read-not-run. It was run, and the reading was wrong. A
@@ -174,6 +224,11 @@ guard above was the first; these are the family.
   argmax arbitrary. Six apparent desyncs, spreads to 3.7 s, were each **one deviant probe
   at near-noise correlation** against four agreeing exactly. Corrected: 0 of 48
   (`vmsam-ci`).
+- **A control that passes when its input is absent is not a control.** A guard reading
+  a clock file permits when the file is missing or unreadable; an audit reports zero
+  missing against a denominator it could not recover. Named three times in one day by
+  three different agents, each about a different mechanism. **Ask what your check does
+  when its evidence is gone — if the answer is "passes", it is decoration.**
 - **A verifier that checks the artefact it built, and not the one that shipped, cannot
   report damage.** *"Damaged is 0"* stayed a non-measurement for that structural reason,
   not for want of running it again (`vmsam-forensic`).
