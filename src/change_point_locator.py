@@ -521,14 +521,42 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             continue
         kept_runs.add(position)
         by_stream = per_stream[position]
+        # A SEGMENT SHORTER THAN ONE PROBE WINDOW HAS NO CLEAN PROBE IN IT.
+        #
+        # Every window overlapping such a segment also overlaps a transition, and
+        # a peak-picking correlator on a straddling window does not return a blend
+        # of the two offsets — it returns a DISPLACED PEAK, arbitrary in sign and
+        # unbounded by the sampling grid. So the offset below is a number this
+        # instrument produced but did not measure.
+        #
+        # Measured on error id 266, whose first segment spans 29 s against a 60 s
+        # window: an independent video instrument put its true offset at segment
+        # 2's value to within 1.3 ms, meaning the reported -819.41 ms was ~168 ms
+        # wrong and the change point at ~30 s did not exist at all. The repair
+        # consumed that segment and its verifier could not see the error, because
+        # 29 s is 2 % of the file and six spread probes never sampled it.
+        #
+        # FLAGGED, NOT DROPPED. Declining the pair would throw away three
+        # corroborated change points to protect one bad plateau — the same scope
+        # error that dropped four good segments on this very file. The caller
+        # decides whether to splice a flagged segment or fill it from the master.
+        span_ms = end_ms - start_ms
+        unverified = span_ms < PROBE_WINDOW_SECONDS * 1000.0
+        if unverified:
+            _log(f"segment {position} spans {span_ms / 1000.0:.1f}s, shorter than the "
+                 f"{PROBE_WINDOW_SECONDS:.0f}s probe window: no probe in it can be "
+                 f"clean, so its offset is unverified")
         segments.append({
             "master_start_ms": round(start_ms, 2),
             "master_end_ms": round(end_ms, 2),
+            "master_span_ms": round(span_ms, 2),
             "candidate_offset_ms": round(offset_ms, 2),
             "candidate_offset_points": int(round(offset_ms / quantum_ms)),
             "candidate_offset_ms_by_stream": {s: round(v, 2) for s, v in by_stream.items()},
             "candidate_offset_points_by_stream": {s: int(round(v / quantum_ms))
                                                   for s, v in by_stream.items()},
+            "probes_in_segment": len(run["members"]),
+            "offset_unverified": unverified,
         })
 
     if not segments:
@@ -571,4 +599,8 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # a step below MIN_STEP_MS. It is NOT a warrant for applying this
             # offset as a container delay.
             "segments_dropped_unusable": dropped_segments,
+            # Surfaced at the top level so a consumer does not have to scan the
+            # segment list to discover that part of the plan is unverified.
+            "segments_offset_unverified": sum(1 for seg in segments
+                                              if seg["offset_unverified"]),
             "constant_floor_ms": MIN_STEP_MS if len(segments) == 1 else None}
