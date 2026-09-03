@@ -75,27 +75,37 @@ track has a readable offset at all, never that two tracks are the same recording
 
 ## What was measured
 
-| outcome | n |
-| :--- | ---: |
-| error files carrying >= 2 same-language audio tracks — the population at risk | **77** |
-| of those, files where the pipeline measured >= 2 of *their own* tracks against a shared reference | **21** |
-| **LISTED** — the error file's own two tracks disagree by more than one quantum | **0** |
-| rejected — measured, tracks agree within one quantum (in sync) | 21 |
-| **COULD NOT MEASURE** — at risk, but the pipeline never measured two of their tracks | **56** |
+**THE LIST: zero error files.** Not "none exist" — zero of the 28 whose own tracks were
+actually measured, with 59 of the 77 at-risk files unmeasurable. The list is empty AND
+incomplete, and those are different statements.
 
-**The answer is not "zero".** It is zero of the 21 measured, and 56 not measured.
-Recording those 56 as "no affected files" would be `RESTART.MD` §3.3's error exactly —
-an instrument that did not run, written where a finding about the file is read.
+| | n | share of 315 |
+| :--- | ---: | ---: |
+| error files carrying >= 2 same-language audio tracks — the population at risk | **77** | 24.4 % |
+| of those, **measured**, and the file's own tracks agree | **28** | 8.9 % |
+| **LISTED — own tracks out of sync** | **0** | 0 % |
+| **STILL UNMEASURED** | **59** | 18.7 % |
 
-**What the same measurement found instead: 11 library files.** Eleven error files'
-**masters** each carry two same-language tracks, stable across all ten windows at
-fidelity ~0.92, differing by exactly **250 ms** — error ids 6, 7, 10, 11, 14, 15, 16,
-17, 18, 19, 24, all one show, one per episode. That is the defect this task hunts, on
-the master side, in files already published in the library. It is also the measured
-cause of those files' refusal: two stable delays 250 ms apart leave
-`len(delay_detected) == 2` beyond the `< 127` reconciliation window at
-`mergeVideo.py:315`. They are outside this task's literal scope, so they are reported
-rather than listed; whether they join the re-download set is the owner's call.
+The 28 come from two independent instruments — the pipeline's stage-1 matrix (21 files) and
+my differential re-measurement (17), overlapping on 10 — and they agree on every file in the
+overlap. Largest intra-file spread found anywhere among the 28: **80.2 ms**, against a
+listing threshold of one quantum (~125 ms).
+
+The 59 unmeasured split into two different outcomes, not one:
+- **28** where my instrument ran and fewer than two of the file's tracks gave a confident,
+  stable offset;
+- **31** never attempted, because the master carries no track in the duplicated language, so
+  a differential measurement is impossible by construction.
+
+**What I can hand over instead: 11 library files, master side.** The same defect on the
+other side of the comparison — error ids 6, 7, 10, 11, 14, 15, 16, 17, 18, 19, 24, one show,
+one per episode. The id names the error record; the defective file is its master, already in
+the library. Measured on one of the eleven: **126-138 ms**. The other ten rest on the log's
+bound of [125, 375] ms. **The "250 ms" I circulated earlier was never measured** — it is the
+difference of two readings quantized to a 125 ms grid.
+
+Full deliverable, with the criterion, the per-id evidence and the unmeasured id list, is in
+the private notes beside the repository.
 
 ## What was dropped
 
