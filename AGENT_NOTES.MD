@@ -21,6 +21,66 @@ record.
 
 ---
 
+## 2026-09-03 — measured: the speed detector's margin does not carry from PAL to NTSC
+
+`docs/AUDIO_SPEED_POLICY.MD` is frozen and its ruling **stands**: `asetrate`, not
+`rubberband`, for a naive speed transfer. This entry **extends** it by measurement
+and is a finding for the owner, not an edit.
+
+The corpus family is **NTSC (`1001/1000`), not PAL.** Measured on error ids 33 and
+31, whose recorded delays are monotone decreasing with a 124 ms gcd. Regressing
+delay against window centre gives `speed_ratio` = master/candidate of **1.000993**
+and **1.000994**, ~95 % `[1.000953, 1.001034]`. `1001/1000` = 1.001000 lies inside
+both; PAL's 1.042709 is excluded by four orders of magnitude. `1001/1000` and
+`24/23.976` are the **same** relation — 23.976 rounds 24000/1001 — not two
+candidates. This corroborates `vmsam-forensic`'s finding on two files, and its
+hedge travels with it: 2.5 % is a **floor**, not a count, since a PAL-rate file
+collapses to weak correlation and is structurally invisible to the method that
+found these.
+
+Residual scatter about the linear fit is 38.3 and 41.0 ms against **124/√12 =
+35.8 ms** predicted by pure quantisation, so the residuals are almost entirely the
+quantum and no staircase is hiding under the slope.
+
+**The verdict, by the document's own three-arm method** (1200 s window, because
+0.099 % drifts only 0.41 s over the pipeline's 418 s):
+
+| arm | id 33 | id 31 |
+| :--- | ---: | ---: |
+| uncorrected (control) | 0.7411 | 0.7374 |
+| **asetrate CORRECT** | **0.9588** | **0.9551** |
+| asetrate WRONG (sign control) | 0.6569 | 0.6562 |
+| rubberband | 0.9484 | 0.9453 |
+
+The wrong-direction arm lands **0.084 below the uncorrected control** — it makes
+things worse, as a doubled error must. Weakness 3 records a sweep that used `* r`
+for `/ r` and had rubberband win 33 of 33 with nothing internal able to catch it;
+that column now exists and the direction is demonstrated rather than asserted.
+
+**The finding.** The document measures rubberband paying a **~0.109** handicap and
+losing by 0.278-0.313 against real masters. **Here the gap is 0.0104 and 0.0098** —
+an order of magnitude smaller. This is consistent with the document, which already
+records that against a real master `asetrate` reaches only 0.94-0.98 *"because real
+pairs carry content and codec differences no correction removes"*: both arms press
+on that ceiling and the distance between them compresses. At 4.27 % the losing arm
+had far to fall; at 0.099 % it does not.
+
+So **the margin that would detect an inverting case in this corpus is ~0.010, not
+~0.109**, and a detector built to the document's expected separation could miss
+one. The 0.85 bar and the three-outcomes-and-a-decline design both survive; what
+does not carry is the expected margin, which was taken from a 4.27 % corpus.
+
+**Two files agreeing in direction and magnitude is evidence the margin is real. It
+is not a rate and is not reported as one.**
+
+*Why the alternative lost:* handing dev-2 the bare coefficient. The document is
+explicit that a bare number is applied as `asetrate` by default and an inverting
+case passes undetected — so the verdict, not the coefficient, is the deliverable.
+dev-2 is given `1001/1000` as the **exact rational** rather than my point estimate:
+my measurement is consistent with it and *less precise than it*, and propagating
+measurement noise into a file when the true relation is a known rational would be
+strictly worse.
+
 ## 2026-09-03 — measured: `first_delay_test`'s second pass measures on misaligned fingerprint grids, and manufactures one-point steps
 
 **A one-point step in `delayFirstMethodAbort` can be an artefact of the pipeline's
