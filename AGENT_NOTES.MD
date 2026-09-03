@@ -21,6 +21,58 @@ record.
 
 ---
 
+## 2026-09-03 — a difference of two quantised readings is a bound, not a measurement — and check the two figures measure the same thing
+
+Two findings that arrived together, the first another agent's and the second a check
+on their conclusion.
+
+### A quantised difference inherits the whole quantum
+
+A figure the team had quoted all day as *"the master's two same-language tracks are
+250 ms apart"* was never measured. It is the difference of two readings each snapped
+to a **125 ms grid** (−125 and +125), so from the log alone the true value is
+**250 ± 125 — anywhere in [125, 375].**
+
+Measured directly and differentially, it is **126–138 ms**: still over the 127 ms
+reconciliation limit, but **by about 10 ms rather than by 123**. *"These files sit
+just over the line, not far over it"* is a materially different finding.
+
+> **Any delay difference read from this log at the one-quantum scale is a bound.**
+
+Same class as *"a tight cluster is consistency, not completeness"* — a number that
+looked exact because it was **reported** exactly.
+
+**Checked against my own work:** every step size I quoted for the early-step family
+came from direct FFT bisection, not from differencing log values, so none is
+affected. And the quantised point-counts quoted alongside them behave as the rule
+requires — 501.0 against 500, 840 against 875, 837 against 750, **each within ±125 of
+the direct measurement.** That is a three-file consistency check, and the first
+positive evidence that the quantised and direct readings describe the same thing.
+
+### The check that mattered more: are these figures even the same quantity?
+
+The same agent presented **three** numbers as competing estimates — 250 (log),
+126–138 (theirs), 84.5 (a third agent's) — and declined to reconcile them by
+averaging, which was right. But two of the three **are not measurements of the same
+thing**:
+
+| quantity | values |
+| :--- | :--- |
+| **difference between the master's two tracks** | 137.8, 126.0 |
+| **single-track candidate-vs-master offset** | 124.0, 70.4, 261.8, 196.4 … **and 84.5** |
+
+The third agent's 84.5 is a *candidate-versus-master* offset, and it falls **inside**
+the first agent's own single-track span of 70.4–124.0. **No disagreement existed.**
+Comparing it against a bound on the intra-master gap is a category error.
+
+> Before reconciling — or refusing to reconcile — two numbers, establish that they
+> measure the same quantity. A disagreement between different quantities is not
+> evidence about either.
+
+Which value you get depends on **which candidate track against which master track** —
+the same 2×2 grid that has now produced five wrong-track incidents across four agents
+in one day.
+
 ## 2026-09-03 — a stated gap is a request someone else can fill: the other half of hedging
 
 **The most transferable thing to come out of today's cross-agent work**, and it is
