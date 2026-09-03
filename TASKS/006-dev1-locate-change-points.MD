@@ -148,6 +148,50 @@ pinning by 005's video instrument.
   a refusal that is correct and must not be "repaired". I offered to take 237 as a
   **negative control** instead: a pair my locator must return `None` for.
 
+### Measured — three window signatures, and why fidelity must not be the refusal rule
+
+Ten windows, pipeline geometry, `correlate` imported from `src/`. Details and
+per-window numbers in `VMSAM_HELP_AI/dev-1/lab/M3-three-signatures.md`.
+
+| pair | distinct delays | sign flips | fidelity |
+| :--- | ---: | ---: | :--- |
+| `ore1`, real different-source pair (BDRip vs WEB-DL) | **1** (constant +1000 ms) | 0 | 0.915-0.945 |
+| `ore1`, constructed 1000 ms deletion | **2** (0 then -1000) | 0 | 0.872-1.000 |
+| **error id 237**, hard negative | **10 of 10** | **8** | **0.556-0.578** |
+
+Error id 237 is a real refused pair that `vmsam-ci` established, by extracting
+frames and looking at them, to be a **different television series** from its
+folder master. It is therefore a pair my locator must return `None` for — a
+confident answer on it is wrong by construction. ci predicted the shape before I
+ran it (delays spread ~421 s with sign flips, fidelity 0.56-0.58); I measured
+0.5562-0.5776 and 421.1 s from a different code path, with six of its ten delay
+values reproduced exactly.
+
+**Two of my three "real" `ore1` pairs were not independent tests**, and I am
+recording that rather than counting them: `md5sum` shows two releases carry the
+byte-identical jpn track, and a third correlates at 1.0000/0 ms on every window.
+Only the BDRip is a genuinely different source.
+
+**The refusal rule cannot be a fidelity threshold.** `docs/AUDIO_SPEED_POLICY.MD`
+measured uncorrected PAL-against-film pairs at **0.558-0.562** — the same floor as
+unrelated content, and for the same geometric reason (across a 214 s window a
+4.27 % rate difference drifts the signals ~9 s apart, so no single shift aligns
+them). A rule *"fidelity < 0.7 -> None"* would refuse precisely the family
+`TASKS/008` exists to repair. What separates them is the **pattern** of the delays:
+a speed relation gives low-fidelity delays that are **monotone and grow along the
+file**; no-shared-content gives low-fidelity delays that are **scattered and flip
+sign**. That discriminator is inferred from two measured signatures plus one
+frozen document's numbers, and is **not yet established** on a real speed pair.
+
+### A duration fact worth carrying
+
+On error id 237 the container durations (1438.04 / 1501.25 s) differ by 63 s, but
+the master's container duration is set by its **video**. Per stream, both files'
+**audio** is 1436.977 / 1438.040 s — **1.06 s apart**. `get_shortest_audio_durations`
+drives the window geometry from audio, so the geometry is 108 s spacing / 216 s
+window. The 63 s is a video-vs-audio artefact of that master, not a content delta.
+This does not touch ci's different-series conclusion, which was established by eye.
+
 ### Not yet done
 
 `src/change_point_locator.py` is not written. The method is calibrated and the
