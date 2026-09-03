@@ -337,6 +337,64 @@ Localising id 147's two change points, two independent window lengths each:
 - brackets each change point to **2.5-5 s**, consistent across window lengths;
 - **does not reach a frame.** 2.5 s is ~60 frames at 23.976 fps.
 
+### Two defects found by dev-2 consuming the block on a real file — and both are blocked from being fixed
+
+**This is what the module freeze costs, stated concretely.** `src/change_point_locator.py`
+is being consumed right now; it has two measured defects; the checker refuses every
+edit to it (`§1 frozen file modified`, verified on my own file).
+
+**Defect 1 — out of bounds at `master_start_ms = 0`.** With a negative offset the
+first segment reads the candidate at a negative time. dev-2's bounds check refused
+the whole plan: *"segment reads the candidate at [-2000, 627000) ms, outside its
+1430048 ms"*. The fix is arithmetic: first segment `master_start_ms = max(0,
+-offset_ms)`; last segment `master_end_ms = min(end, candidate_duration_ms -
+offset_ms)`. Master `[0, 2000)` is a **leading gap** and is filled from the master,
+which is correct rather than a compromise. It fires on every file whose first
+plateau has a negative offset — most of them.
+
+**Defect 2 — one offset per language, but every stream of that language is
+rebuilt.** `audios[language][0]` is the first stream only. Measured on id 266, the
+error file has **two jpn streams and they are 27.5 ms apart**:
+
+| probe | err a:0 (eac3) | err a:1 (aac) | diff |
+| ---: | ---: | ---: | ---: |
+| 300 s | +1991.25 (r 0.961) | +1963.73 (r 0.961) | +27.52 |
+| 500 s | +1989.25 | +1961.42 | +27.83 |
+| 900 s | +2989.92 | +2962.75 | +27.17 |
+| 1300 s | +3992.25 | +3964.73 | +27.52 |
+
+So one of dev-2's two rebuilt jpn tracks would take an offset 27.5 ms wrong.
+**0.66 of a frame** — under the frame quantum the merge snaps to, and inside
+dev-2's 100 ms verifier tolerance, so **it would ship silently.** This is
+`CAMPAIGN.MD`'s per-language-delay question appearing *within* a language, and the
+fourth time this corpus has shown two same-language tracks of one file a constant
+distance apart (ids 20-23 at 125 ms, forensic's eleven at 250 ms, this at 27.5 ms).
+
+### The 29 ms disagreement, settled — and neither of us was wrong
+
+dev-2 measured the true offsets ~29 ms below mine and read it as my quantisation
+error. It was not. **We measured different streams**: their numbers match a:1 (aac)
+to within 0.1 ms, mine match a:0 (eac3).
+
+Settled three ways at master 300 s on the eac3 stream:
+
+| hypothesis | `second_correlation` residual |
+| ---: | ---: |
+| -2000.0 (my quantised plateau) | +8.93 ms |
+| **-1991.1** | **+0.05 ms** |
+| -1962.0 (dev-2's figure) | -29.07 ms |
+
+and an independent numpy cross-correlation with no pre-shift reads **+1991.07 at
+both 300 s and 500 s**. So my quantised -2000 is 8.9 ms off, which *is*
+quantisation and well under half a quantum.
+
+**Consequence for the design split:** dev-2 must **not** absorb a uniform residual
+into `delay_same_md5_audio`. On this file the residual is not one number — +8.9 ms
+for one track and -18.6 ms for the other — so a single absorbed value fixes one and
+breaks the other. **Sub-quantum refinement is mine**, and it works:
+`second_correlation` lands the residual at +0.05 ms on the correct hypothesis, so
+refined offsets can be emitted and nothing needs absorbing.
+
 ### Still blocked
 
 **A real exemplar with a multi-point step at good fidelity** — the shape least
