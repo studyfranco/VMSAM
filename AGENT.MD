@@ -545,8 +545,13 @@ method. Do not remove that call.
 Validate your code with files in `/config/example/`. Each folder is a couple of files to sync together. Save your tests file in `/config/output` and yout temporary files in `/tmp`
 Rust compilation via `cargo build` / `cargo check` is allowed and recommended.
 
-`python3 -m compileall -q src -x '__pycache__'` must fail on exactly one file:
-`frame_compare.py`, pre-existing since `da1c191`. Any second failure is yours.
+`python3 -m compileall -q src -x '__pycache__'` **must now pass cleanly.** It used to
+fail on `frame_compare.py`, broken since `da1c191`; campaign 2 repaired it, so the
+allowance is gone and **any failure at all is yours**.
+
+Reported by `vmsam-dev-1`, whose fix made this paragraph false — which is the
+mechanism working: a rule that stops being true is a finding for the owner, not an
+edit by the agent that outgrew it.
 
 **A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
 pieces of code — a guard, a refined measurement, a policy branch, an order check, a
