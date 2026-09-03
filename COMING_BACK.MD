@@ -48,12 +48,15 @@ agents' finished, correct code to a usage limit for want of it.
 neither touching the index, and a rewritten branch is exactly when you need them:
 
 ```sh
-D=../VMSAM_HELP_AI/wip/$(date -u +%Y%m%dT%H%M%SZ) && mkdir -p "$D"
+D=/home/vmsam/src/VMSAM_HELP_AI/wip/$(date -u +%Y%m%dT%H%M%SZ) && mkdir -p "$D"
 git diff HEAD --binary > "$D/tracked.patch"
 git ls-files --others --exclude-standard | tar czf "$D/untracked.tgz" -T -
 ```
 
-Restore with `git apply` and `tar xzf`. This costs seconds and makes a destructive
+Restore with `git apply` and `tar xzf`. **The path is absolute on purpose**: a
+relative `../` resolves differently from a `VMSAM_WIP/<agent>/` clone than from the
+main one, so the snapshots would scatter into per-clone directories nobody looks in.
+Found by `vmsam-dev-1`. This costs seconds and makes a destructive
 resync reversible — which is the whole difference between an instruction someone can
 safely obey and one they have to be trusted with.
 

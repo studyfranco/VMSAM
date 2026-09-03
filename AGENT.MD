@@ -295,15 +295,28 @@ through git stopped on the conflict and preserved it.
 # promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
 git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
 
-# promote VMSAM_WIP -> campaign branch : keep the history, CI needs the pushes
-git fetch <wip-clone> <branch> && git merge FETCH_HEAD && git push
+# promote VMSAM_WIP -> campaign branch : ONE commit per promotion
+git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit && git push
 
 # campaign branch -> master : one commit, whatever the history behind it
 git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
 ```
 
-`--squash` is what makes `AGENT.MD` § Commits structural instead of a rule to
-remember: the command cannot produce two commits.
+`--squash` is what makes § Commits structural instead of a rule to remember: the
+command cannot produce two commits.
+
+**It is used at two hops, and the second one is why.** Campaign 2's first day put 79
+commits on the branch, 73 of them documentation alone — and an audit found that
+**nobody had broken a rule**. Commits are free in the tiers above, correctly; the
+promotion preserved history, also correctly; and the two compose into a branch where
+six real pieces of work sit among seventy-three entries about thinking. Two correct
+rules composing badly is not fixed by asking anyone to try harder. Squashing at the
+promotion fixes it structurally: **one commit per promotion**, and you promote when
+you have something worth testing, so the branch reads as a list of increments. The
+granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
+
+Found by `vmsam-ci`, which checked this section rather than accepting a claim that
+someone had misbehaved.
 
 **Pull down often, push up rarely.** Sync the tier above *into* the one below
 before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
