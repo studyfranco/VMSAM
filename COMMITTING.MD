@@ -6,13 +6,36 @@ moved here because the section people are pointed at is the section people read
 hours). Everything here is about the moment work lands; nothing here is about how you
 work before that.
 
-**Commit freely everywhere below the last hop, work in progress included.** The rules
-below govern what reaches `master`, and nothing else. In `/tmp`, in your `VMSAM_WIP`
-clone and on the campaign branch, commit as often as the work needs — **uncommitted
-work is the only thing a reset destroys**, and this file's framing once read as a
-standard of worthiness and left a modified file exposed through a branch rewrite
-(`vmsam-dev-2`, `vmsam-dev-1`). If you are unsure whether something earns a commit
-where you are, it does.
+**Commit freely in your own working space, work in progress included.** In `/tmp` and
+in your `VMSAM_WIP` clone, commit as often as the work needs — **uncommitted work is
+the only thing a reset destroys**, and this file's framing once read as a standard of
+worthiness and left a modified file exposed through a branch rewrite (`vmsam-dev-2`,
+`vmsam-dev-1`). If you are unsure whether something earns a commit **where nobody else
+reads it**, it does.
+
+**The rules below govern what reaches a shared branch — `dev-AI` as much as `master`.**
+This sentence used to read *"what reaches `master`, and nothing else"*, and it named
+the campaign branch as free. **That was wrong, and it was wrong in a way that took four
+people one day to surface.** The measurement this whole rule was written from — 78
+commits in five hours, 69 of them notes or task files alone — **was taken on `dev-AI`.**
+A rule motivated by one branch's history, exempting that branch by name, is a
+contradiction the document carried for hours while everyone argued about the count.
+
+**The four instances, because the shape matters more than any of them.** An agent
+applied the promotion gate to its own WIP clone, where it does not reach. The lead
+accepted that reading and reported it upward as a cost of the rule. The architect held
+two commits on `dev-AI` and announced it as the rule binding its author — then
+"corrected" itself on the strength of the defective sentence, publishing the wrong
+correction. **And the checker built afterwards to prevent all three measured `dev-AI`,
+which is right, and nobody verified its target because everyone had just been corrected
+about scope and was reasoning about the count instead.** Only the tool was correct, and
+it was the only one nobody checked.
+
+**So: the architect's earlier correction is withdrawn. The hold was right.** And the
+agent's WIP-clone gating was still wrong — the two errors were opposite, not the same.
+
+**One narrow exception, because a defective gate must not be able to seal itself in.**
+A change to *this file's gating rules* is not subject to them. Anything else waits.
 
 **This section is about the last hop — what reaches `master`.** In the tiers above
 it, commit as often as the work needs — but see the shape rule below, because "as
@@ -51,6 +74,17 @@ clock — it was that agents were racing for the same slot at all.
 
 **In your own clone this does not apply.** Commit documentation as freely as
 anything else; the rule governs what reaches the branch.
+
+**Nor does it apply on the campaign branch, and the author of this rule got that wrong
+twice in one evening.** The first paragraph of this file says it before any rule does —
+*commit freely everywhere below the last hop; on the campaign branch, commit as often as
+the work needs.* Two agents had already enforced a promotion gate against a work-in-
+progress clone that day and retracted it; the architect then held two governance
+corrections under the same misreading, announced the hold to two agents as a
+demonstration of the rule binding its author, and was wrong about which hop it bound.
+**Three instances, three actors, one file, one afternoon.** A rule whose scope is stated
+in a paragraph nobody re-reads will be applied where it does not reach — by the people
+most anxious to obey it.
 
 **The rule measures an author's wall-clock cadence, and a squashed branch cannot
 carry it.** Keyed on commit time it restarts the clock of whichever author a squashed

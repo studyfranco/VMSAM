@@ -137,6 +137,13 @@ before the edit.
 `src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
 code that ships and runs in production.
 
+**`src/merge_video_chimeric.py` is fully editable, and its author is its master.** The
+owner's ruling, and it is written here because three agents spent a day treating a
+defect in it as a blocked need. `src/merge_video_repair.py` and
+`src/merge_video_resample.py` are structurally identical — campaign-2 modules, absent
+from `master`, authored by the same agent — and are treated the same. **The owner named
+the first explicitly; the other two follow by the same reasoning and not by his word.**
+
 **A module is yours; the schema it emits stops being yours the moment someone reads
 it.** Open means you may add, change and remove freely — and that freedom ends at the
 fields another agent's code consumes. Adding a field and removing it twenty minutes
@@ -144,6 +151,25 @@ later were both within one agent's rights, and both would have broken its consum
 (`vmsam-dev-1`, which reported it rather than discovering it downstream). **Say what
 you are changing in an emitted schema, to whoever reads it, before you change it.**
 That pair handled it by talking; a successor pair may not have the conversation.
+
+### What does not go in the repository — the owner's line
+
+> **Anything that belongs specifically to the test environment stays in the test
+> environment. The repository is for the code, and for what relates directly to the
+> code.**
+
+**This closes a grievance that was open all day, and it closes it against the asker.**
+An agent held 57 KB of privacy-clean measurement tables — no path, no title, no
+catalogue id — outside the repository under this section, and reported that their only
+copy and its backup sit on one physical device, so **what survives is a snapshot and not
+a history**: the sequence of corrections exists only where an author narrated it in
+prose. The archive is not unprotected — six snapshots, two real recoveries — and the
+grievance was never that. **The ruling stands regardless: measurement tables are test
+environment, and versioning them is not a reason to move them.**
+
+**The test for this section is therefore not "is it clean" or "is it valuable".** Those
+tables are both. It is *does this relate directly to the code* — and a table describing
+a corpus does not.
 
 ### What does not go in the repository
 
@@ -303,11 +329,43 @@ the defects only its agents could see.**
 
 Send it to the architect, who carries it to the owner. Each one carries:
 
-- the **file and line**, verified against the revision you are on, not remembered;
+- the **file and the function**, verified against the revision you are on, not
+  remembered. **Name the function; give the line as a convenience, not as the
+  reference.** A line number goes stale within a day on a moving branch — one report's
+  `:388`, correct when written, was `:436` by the time it was read, because the file
+  grew with that evening's promotion.
+- **no permission label. None.** Do not write *"in frozen code"*, *"blocked"*, or
+  *"not mine to touch"*. **A permission is a property of (file, master state, actor),
+  and the reporter is usually none of the three** (`vmsam-forensic`). The report
+  carries the **address**; the actor derives the permission at the moment of acting.
+  Three agents in one day filed editable defects as blocked — the label was supplied by
+  the way the question was asked, and they stopped deriving one. **A wrong address
+  announces itself the moment someone opens it; a correct address with an inherited
+  label reads as fully verified and sits waiting for a ruling it never needed.**
+  Removing the label also dissolves the other variant: a wrong address can only acquire
+  the wrong file's permissions *because reports carry permissions.*
+- **and be careful what you derive it from, because there are two masters.** The hub
+  serves agents its **local** `master`, which lags its own view of the true upstream.
+  Measured: agents reach `fe0c34e`; the upstream tip was `71bb165`, nine hours later,
+  and **not in any agent's object store**. It cost nothing that day — the divergence was
+  documentation-only, 6 files, 560 insertions, no `src/` — but **the first time a
+  campaign-2 module is merged upstream it freezes, and no agent clone can see the freeze
+  while the hub's local master lags.** Four agents would go on editing an
+  editable-looking file, deriving the answer correctly from the only reference they
+  have. The fix is the hub fast-forwarding its local master, not a rule that writes a
+  known lag into itself.
 - **what goes wrong and under which input** — a defect with no triggering condition is
   a worry, not a finding;
 - **whether this is an observation from a run or a reading of the code.** Say it
-  plainly. *A labelled hypothesis beats silence; a hypothesis wearing an
+  plainly — **and note what the label does *not* cover.** It marks the epistemic status
+  of the **claim**, never of the **address**, and one report's items marked *reading*
+  were the ones its author had verified least: the label that was supposed to warn of
+  uncertainty sat on the item checked last (`vmsam-dev-2`, on its own list). **Verify
+  the address as separately as the content.** That report had a true statement about
+  real code at a false file — the right line number in the wrong module, which is the
+  one combination that survives a careless check, because both files carried plausible
+  code at that line. The author had written the name of the module it had been tracing
+  *through* for an hour rather than the one it was reading. *A labelled hypothesis beats silence; a hypothesis wearing an
   observation's label is worse than silence* (`vmsam-ci`) — it spends credibility the
   next reader has no way to audit. The campaign lead mislabelled one of its own that
   day, ci checked before agreeing, and the label was corrected within minutes. That

@@ -76,6 +76,27 @@ audio is extracted — every correlation then rests on it. Both now log under
 `tools.dev` and re-raise `KeyboardInterrupt` / `SystemExit`. If those log lines ever
 appear in a run, that is a finding.
 
+## 3b. The reconciliation window is a coarse sort, and it must say so in quanta
+
+**The `< 127` comparison is stage one of two, by design.** The owner's framing: the
+first pass exists to make a large, cheap split between compatible and incompatible
+files; **the second and heavier method then sorts the groups that carry a very small
+offset.** So a fixed window letting a sub-quantum disagreement through is not, by
+itself, the defect — *the open question is whether stage two catches what stage one
+waves past, and nobody has measured that.*
+
+**What is a defect is that the comparison is invisible and expressed in the wrong
+unit.** It is written three times in `first_delay_test` as a bare millisecond literal,
+judged against a grid step of `int(lengthFile / n_points * 1000)` that is **file
+dependent — measured 124, 125 and 138 ms, never a fixed 125**. Nothing at any call site
+says so, and nothing is logged.
+
+**Requirement, in the owner's own shape:** log the comparison as
+`(concordance, windows of difference, quantum)` — for example `(0.97, -1, 125)`.
+**Count windows, not milliseconds.** A threshold in windows is the same threshold on
+every file; a threshold in milliseconds is a different one on each. And **which files
+are affected must be answerable from the logs**, not reconstructed afterwards.
+
 ## 4. Same tag is not same recording — check concordance before building
 
 **A language tag groups recordings that are not interchangeable.** VFQ, VFF and VFI
@@ -118,6 +139,32 @@ opposite choice. The owner has ruled the choice correct and it is now the rule:
 > **When there are two comparison audios and the method that would repair the
 > analogous audios diverges, do not merge — a divergence means there is a problem.**
 
+**And the owner states it a second time as a validation criterion, which is stronger
+than a refusal rule:**
+
+> **The repair plans must be identical to validate a repair.**
+
+**Maintained at absolute rigour, and the owner has priced it explicitly.** The rule
+refuses the file the campaign had been leading with — two of its language plans differ
+by 41 ms, and it verified at 1.125 ms and 8.25 ms after per-stream offsets were applied.
+**The agent that produced it said the price out loud before it was paid rather than
+letting the ruling land quietly, and that is why the ruling is informed.**
+
+**But it was not a validated success, and the owner says so from his side:** it never
+went through the complete pipeline in the test container, so nothing end-to-end ever
+accepted it. **41 ms is a few frames**, and he suspects the underlying cause is PAL —
+25 fps against 24000/1001 — which would make it a rate problem wearing a divergence's
+clothes. *A result nobody put through the pipeline is not a result the pipeline
+produced.*
+
+**Read that before treating per-stream plans as the fix.** Two files decline because
+one plan is correct on the language it was measured on and wrong on another; they do
+repair when each stream gets its own plan. **That is not the ruling.** Identical plans
+across streams is the *condition of validity*, so a file needing different plans per
+stream is a file whose streams disagree — which is the signature this section says must
+not be merged over. **The per-stream capability is not the remedy for divergence; the
+divergence is the finding.**
+
 **The owner's documented case, and it carries an open verification.** In error 24 the
 two Japanese tracks are **250 ms apart**. That is attributed to a bug of the time which
 produced a drift of a few frames. **Whether that bug still exists has not been
@@ -128,6 +175,62 @@ repair would be built on top of a defect rather than around it.
 Two files declined on this judgement do repair correctly with per-stream plans. **That
 is not an argument against the rule** — it is the yield the rule knowingly costs, and
 the owner has priced it.
+
+## 4c. Filling a gap: the comparison language, never silence — MANDATORY
+
+**When the master carries no track in the candidate's language, fill from the best
+track of the comparison language.** Not silence. The owner's word is *mandatory*, and
+he gave it knowing the cost.
+
+**The measured exposure was total.** `find_master_audio_for_language` looked the
+candidate's language up in the master and returned `None` otherwise; **the
+comparison-language branch was never implemented at all.** So the three outcomes the
+specification describes were only ever two — same-language, or silence. Of the tracks
+filled with silence, **42 of 42 had a master track in a language shared with the
+candidate.** Every one of them had a source and got silence instead. It was not a rare
+fallback; it was the only thing that could happen once the languages differed.
+
+**And the cost is stated here because it was stated to him before he ruled.** A French
+gap filled with Japanese **is audible as a language change**. The agent that wrote the
+silence behaviour wrote it deliberately for that reason, recorded in its own module that
+a cross-language fill *"passes every structural check and is indefensible on
+listening"*, and put that in front of the owner rather than implementing quietly.
+**He ruled for the fill anyway.** That is his call to make, and it is written down so
+nobody re-opens it as a defect.
+
+**Which track of the comparison language:** call `keep_best_audio`'s existing ranking.
+One definition of *best* in the system is worth more than a locally better second one —
+two parallel subtitle classifications already diverged here for exactly that reason.
+
+## 4d. A repair proves the file it produced, not the track it built
+
+**A repair that reports success and ships a truncated file has not succeeded.** An
+observed run reported *7 audio and 24 subtitle tracks rebuilt, 0 declined, 0 failed* and
+produced a file with **nothing after 21:21** — audio and subtitles truncated. Nothing in
+the repair noticed.
+
+**This is the structural gap, arriving as an instance.** The verifier checks *the track
+it built*, not *the file that shipped*, and it does not probe master-filled regions at
+all. That is why *"damaged is 0"* was never a measurement, and it is why it stayed
+uncontradicted: **the instrument that decides "repaired" is the same one that would have
+to detect "damaged", and it never looks at the artefact.**
+
+**So the acceptance condition is on the output file**: every track present, every track
+running to the expected duration, no truncation. A count of rebuilt tracks is a
+statement about work done, not about a file.
+
+## 4e. What a repair must log
+
+**The repair currently reports counts and nothing else, and counts cannot be audited.**
+The owner's requirement: *who, what, how — what was done to the file, and at which
+timings.* A line saying *"1 audio and 4 subtitle tracks rebuilt"* leaves no way to tell
+a correct repair from the truncating one above.
+
+At minimum, per track: what was cut and what was added, **with the timings**; where each
+filled region came from — same-language master, comparison language, or silence — and
+the language actually used; the plan applied, and the residual measured after applying
+it. **A skip is a decision and gets a line too** — one observed run skipped an element
+as *"empty"* with no indication of what was skipped or why that mattered.
 
 ## 5. Commentary tracks are not repaired — owner's ruling
 
@@ -211,6 +314,13 @@ repaired tracks only **12 could reach a file**, those whose language the master 
 **The owner's answer: that is the point.**
 
 > **The repair exists to add languages in the cases where they are absent.**
+
+**Concretely, in the owner's own example: it repairs a VFF where there would otherwise
+only be a VFQ.** A dialect absent from the artefact is the case; a dialect already
+present is not. **For now it is only that**, and the boundary is deliberate. The owner
+names one thing it might become and explicitly defers it: software that, given two
+tracks from different encodes — an AAC and an E-AC-3 — could produce a good-quality
+Opus from both. **That is not this campaign and must not be built toward.**
 
 So twelve of forty-two is not a loss rate, it is the specification being met. A track
 whose language the master already carries has nothing to add, and the master's own
