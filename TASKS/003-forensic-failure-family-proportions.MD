@@ -62,17 +62,29 @@ are PAL speed mismatches.
 | family | n | share | campaign 1 (unverified) |
 | :--- | ---: | ---: | ---: |
 | different cuts | 189 | 60.0 % | 57 % |
-| weak correlation | 34 | 10.8 % | 10 % |
 | trimmed edges | 31 | 9.8 % | 18 % |
-| **constant offset — refused anyway** (not in `CAMPAIGN.MD`'s table) | 24 | 7.6 % | — |
-| speed mismatch — **PAL** 25/23.976 | 19 | 6.0 % | *(11 % for speed overall)* |
+| **content mismatch — wrong series** (not repairable) | 27 | 8.6 % | — |
+| **constant offset — refused anyway** | 24 | 7.6 % | — |
+| speed mismatch — **PAL** 25/23.976 | 20 | 6.3 % | *(11 % for speed overall)* |
 | speed mismatch — **NTSC** 1000/1001 | 8 | 2.5 % | |
 | no shared language | 7 | 2.2 % | 2 % |
+| weak correlation | 4 | 1.3 % | 10 % |
+| **content mismatch — wrong episode** (not repairable) | 2 | 0.6 % | — |
 | *instrument did not run — no measurement exists* | 2 | 0.6 % | — |
 | *unclassifiable — measured, shape fits nothing* | 1 | 0.3 % | — |
 
-Speed, both relations, is 27 files = 8.6 %. Four of campaign 1's five figures now agree
-closely; `trimmed edges` (9.8 % against 18 %) is the outstanding gap and I have not
+Speed, both relations, is 28 = 8.9 %. Content mismatch, both kinds, is 29 = 9.2 % and
+**none of it is repairable** — a repair that "succeeded" on one would splice the wrong
+programme into the library.
+
+**`weak correlation` began at 53 files (16.8 %) and ends at 4 (1.3 %).** Everything else
+in it had a name: 20 PAL speed relations, 27 wrong-series files, 2 wrong-episode files.
+Campaign 1's table gives that bucket 10 %; measured, it was almost entirely **not a sync
+problem at all**. "No confident peak" is a symptom shared by at least four unrelated
+causes and is not a family. That is the largest structural difference from campaign 1's
+table, larger than any of the individual numbers.
+
+`trimmed edges` at 9.8 % against 18 % is the remaining unexplained gap and I have not
 investigated it.
 
 The last two lines are counted separately and are never folded into a family.
