@@ -21,6 +21,166 @@ record.
 
 ---
 
+## 2026-09-03 — measured: the chromaprint point is 124–142 ms, not 125, and ten gates hardcode 125
+
+`BRIEF_COMMON.md` and `TASKS/006`/`008` state *"One point = 125 ms, the chromaprint
+frame. Every delay you see is a multiple of it."* **Measured, that is true for a
+band of episode lengths and false outside it.** This changed the `TASKS/005`
+ruling: it is why the video instrument must return a frame displacement rather
+than a refined time, so it is recorded here and not only as a number.
+
+`audioCorrelation.py:132` computes the quantum **per call**,
+`int(lengthFile/len(fingerprint_source)*1000)`. It is not the chromaprint frame,
+which is `(4096/3)/11025` = 123.84 ms; `n_items` falls short of
+`lengthFile/0.12384` by a near-constant ~20 items, which lifts the ratio above the
+frame by an amount depending on `lengthFile`.
+
+```sh
+# window from the ore1 example pair; items counted from fpcalc, int(L/n*1000)
+ffmpeg -v error -y -ss 60 -t 700 -i <one file of the pair> -vn -ac 2 -ar 44100 \
+       -acodec pcm_s16le w7.wav
+for L in 20 24 40 60 100 160 214 288 436 700; do
+  n=$(fpcalc -raw -length $L w7.wav | sed -n 's/^FINGERPRINT=//p' | tr ',' '\n' | wc -l)
+  python3 -c "print($L, $n, int($L/$n*1000))"
+done
+```
+
+| `lengthFile` L (s) | 20 | 24 | 40 | 60 | 100 | 160 | 214 | 288 | 436 | 700 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| quantum (ms) | 142 | 139 | 132 | 129 | 127 | **125** | **125** | 124 | 124 | 124 |
+
+Sweeping L in 4 s steps: **125 ms exactly for L ∈ [160, 286]**, 126+ below, 124 at
+and above 288. The pipeline passes `lengthFile = lenghtTime*2` with
+`lenghtTime = int((shortest_audio_duration−240)/11)` above 540 s, so 125 ms holds
+for **shortest audio duration ∈ [1120 s, 1824 s)** — about 18.7 to 30.4 minutes.
+Our example corpus is 1420 s, inside the band. A 45-minute episode gives L = 436
+and **124 ms**; a short file on the `> 60 s` branch reads 132–142.
+
+**Campaign 1 found this first and I am carrying their hedge, not hardening it.**
+`CAMPAIGNS/01-dev-AI/DOMAIN_INVARIANTS.MD` §7: *"~125 ms typically, **138 ms
+observed**"*. `WORKLOG.MD`: *"917 of 933 delay vectors have a self-consistent
+ms-per-frame, **859 of them at 125 ms** … three files in this library have a 138 ms
+frame."* My sweep gives 139 ms at L = 24 s, which is the mechanism behind their
+138 and is consistent with it. What is new here is the **exact band** and that it
+is a function of episode duration.
+
+**The blocked need.** `first_delay_test` compares millisecond values against a
+hardcoded `127`/`128` at ten sites — `mergeVideo.py:270, 316, 345, 401, 416, 445,
+496, 956, 961, 969`. Those constants encode *"within one fingerprint frame"* only
+when the frame is 125 ms. At 124 ms the gate is harmlessly loose; at 132–142 ms
+(short files) an ordinary adjacent-frame disagreement measures more than the
+constant and is misread as a real timing conflict, so the pair is discarded before
+stage 2 — the only stage that resolves below fingerprint resolution.
+
+Campaign 1 diagnosed exactly this and wrote the fix — `is_within_one_fingerprint_frame()`
+and `are_residuals_within_one_frame()`, comparing frame indices directly, which is
+exact for every quantum. **Neither exists in this tree**
+(`grep -rn is_within_one_fingerprint_frame src/` → nothing). It is one of the
+pieces that did not survive the campaign.
+
+**What was done instead: nothing, deliberately.** `first_delay_test` is in
+`mergeVideo.py` **outside every tagged zone**, so by `WRITE_ZONES.MD` rule 1 it is
+frozen and this is a finding (§6), not an edit. Nothing in objectives 2 and 3 is
+blocked by it: we consume the refusal, we do not need to prevent it. It becomes
+blocking the day someone wants fewer false refusals rather than better repairs of
+real ones.
+
+## 2026-09-03 — `da1c191` stripped every `[0]` subscript from two files; `get_cut_time.py` retired
+
+`WRITE_ZONES.MD` §4, `FILE_MAP.MD` and `TASKS/005` all describe the damage as a
+list literal lost from three initialisers of `frame_compare.py`. **Measured, the
+corruption is larger and of a different kind:**
+
+```sh
+$ for f in src/*.py; do echo "$(grep -o '\[0\]' $f | wc -l)  $(wc -l < $f)  $f"; done
+0   220   src/frame_compare.py
+0   564   src/get_cut_time.py
+107  2118  src/mergeVideo.py
+60   1144  src/video.py
+```
+
+`[0]` occurs **zero** times in both dormant files, while `[1]` and `[2]` survive
+normally inside them (ten occurrences in `get_cut_time.py`) and comparable live
+files carry many. `da1c191` touched these two files and nothing else. Three sites
+are syntax errors; **eight more compile and raise at runtime**, in
+`_detect_time_drift` (the drift regression) and `_summarize_segments` (the
+per-window fidelity summary) — the two functions objectives 006 and 008 would have
+been built on. They have never run.
+
+**Decision (`TASKS/005`): repair the pHash front end, reject the alignment back
+end, retire `get_cut_time.py`.**
+
+*Why repairing the whole of `frame_compare` lost.* `_align_and_find_gap`
+aggregates `costs[best_j] += best_d` — cost lands only on target frames that some
+reference frame chose as its best match. Content **inserted** in the target is
+chosen by nothing, so it accumulates cost 0, and the function returns the argmax
+of the cost array. An insertion is precisely a run of `hits == 0`, and `hits` is
+computed and never read (`grep -n hits src/frame_compare.py` → 110, 126 only). The
+array carrying the signal is built and discarded. It also truncates to the first
+`max_search_frames` — 30 % of the window as its caller configures it — and still
+answers confidently, and it returns a region rather than a signed displacement,
+which fits neither consumer. Restoring `[0]` fixes none of that.
+
+*Why adopting `get_cut_time.py` lost.* `second_correlation` returns
+`(file, offset_in_seconds)`; all four callers there divide that offset by the frame
+rate — wrong by ~24× — under a comment asserting a project convention the project
+does not use. The correct usage is in the tree:
+`mergeVideo.get_delay_second_method_thread.run` uses `result[1]` directly and reads
+`result[0]`, the filename, to recover **the sign**. `get_cut_time` ignores
+`result[0]` everywhere, so it cannot know the sign of anything it measures.
+
+*Why its eight `[0]` sites were deliberately left broken.* Repairing
+`frame_compare` makes `import get_cut_time` succeed where it used to fail at import
+time, so the repair makes the retired file **more** likely to be picked up. A file
+that raises is safer than one that runs and is wrong by a factor of 24 with no
+sign. It carries a RETIRED banner naming the four defect classes instead. Deletion
+is an owner decision, not ours.
+
+*Consequence for the frozen documents.* `python3 -m compileall -q src -x '__pycache__'`
+now exits **0**. `AGENT.MD` § Testing (*"must fail on exactly one file"*) and
+`WRITE_ZONES.MD` §5 check 4 both still expect one failure. That was `TASKS/005`'s
+stated acceptance condition, so the change is intended — and reported here rather
+than edited into either document.
+
+## 2026-09-03 — finding: `delayFirstMethodAbort` is not uniformly rebased, so its zero cannot be trusted
+
+`SPEC_ZONE_A.MD` §1 offers `video_obj.delayFirstMethodAbort[best_video.filePath]`
+as the reason *"you do not need to re-run the correlation that just failed."* That
+holds for the **structure** of the delays and not for their **absolute value**.
+
+`first_delay_test` shifts the candidate mid-function —
+`recreate_files_for_delay_adjuster(delayUse)`, `mergeVideo.py:333` — so every later
+measurement is a residual against an already-shifted candidate.
+`get_delays_dict(values, delayUse)` exists precisely to add `delayUse` back. Five
+of the seven recording sites do so correctly: `:319` with 0 (before any shift),
+`:391`, `:409`, `:478` with `delayUse`. **Two do not** — `:489` and `:502` pass
+`delayUse=0` explicitly, after the shift.
+
+So at two of seven sites the recorded delays are short by `delayUse`, and nothing
+in the recorded `[1|2, delays]` structure says which site produced them. In the
+staircase case `delayUse` is typically 125 ms — one point, the same size as the
+step being located.
+
+**What was done instead.** `first_delay_test` is outside every tagged zone, so this
+is a finding, not an edit. Objectives 2 and 3 proceed by treating the abort record
+as reliable **relative** structure — where the steps are and how large each step is
+— and re-establishing the absolute zero independently on one window. That costs one
+correlation, not twelve, so §1's promise is mostly preserved.
+
+**Two smaller corrections to frozen documents, recorded for the owner:**
+
+- **Windows are 10, not 12.** `video.number_cut = 10` (`video.py:21`);
+  `generate_cut_with_begin_length` loops `range(0, number_cut)` and
+  `get_delay_fidelity` loops `range(0, video.number_cut)`. `BRIEF_COMMON.md`,
+  `dev-1/BRIEF.md` and `TASKS/006` all say the record is *"filled at 12 points"*.
+  The rest of the geometry in those documents is correct: window length is twice
+  the spacing (`length_time_converted = gmtime(length_time*2)`,
+  `mergeVideo.py:756`), and coverage runs 120 s to duration−120 s, ~83 %.
+- **`SPEC_ZONE_A.MD` §1 cites `mergeVideo.py:1426`** for
+  `delay_same_md5_audio + delay_to_put`. In this tree it is **`:1446`**. The
+  requirement it supports — that the field must be a `Decimal` — is unaffected and
+  correct.
+
 ## 2026-09-03 — `check_write_zones.py`: the rules get an instrument, and it lives outside the repository
 
 `WRITE_ZONES.MD` §2 rule 2 says a zone is real only if it is checked, and lists
