@@ -82,6 +82,103 @@ relative — about 15 ms over the same episode. Going up to 8× first divides th
 by eight, which is where the 1.981 ms comes from. The residual is stated before
 the run, not discovered after it.
 
+### The speed path now runs end to end — T15
+
+`vmsam-forensic` corrected its own earlier finding: there are **19 PAL files** in
+the corpus, roughly twice the NTSC population, so the `asetrate` path is exercised
+at 1.0427 and not only at 1.001. It also warned that those 19 carry **no usable
+delay measurement** — a 4.27 % relation destroys correlation, so stage 1, its own
+prominence measure and `vmsam-dev-1`'s locator all find nothing, and the duration
+ratio is the evidence. That reshaped the orchestrator: a **speed-only plan carries
+no segments**, and demanding one would have made the intended case look like a
+failure. One full-coverage segment is now synthesised instead.
+
+Fixture built as a real naive PAL transfer would be — sped up **with the pitch
+rising with it**, which `docs/AUDIO_SPEED_POLICY.MD` says is industry practice and
+is exactly what makes `asetrate` the exact inverse rather than merely the
+best-scoring option. Master 600.023 s of real audio, candidate 575.458 s.
+
+| | |
+| :--- | :--- |
+| outcome | **repaired**, 2 audio tracks |
+| marker | **`resampled:1.042698`** — and correctly **not** `chimeric`, because there is no splice |
+| requested ratio | 1.042698412698412698… |
+| **applied ratio** | **1.042698010657508578…** |
+| verification | **aligned, worst 0.9 ms** |
+
+Probes at 72.5 / 217.5 / 362.5 / 507.5 s read **0.00 / −0.88 / −0.25 / −0.75 ms**.
+Flat across the file is the point: a residual coefficient error shows as a lag
+that *grows* with position, so four spread probes reading flat is what says the
+speed relation was removed rather than merely shifted.
+
+**The probes had to be spread for that to be true.** With a speed-only plan there
+is one segment, and the original probe rule took a single sample at its midpoint —
+which is where a residual drift is *smallest*. That was measuring the error where
+it is least visible. Probes are now distributed across a single long segment.
+
+### The wrong direction, as its own column
+
+`docs/AUDIO_SPEED_POLICY.MD` weakness 3 requires it: a sweep that applied `× r`
+instead of `÷ r` produced `rubberband` winning 33 files of 33, and nothing inside
+that run could have caught it.
+
+Run: **declined**, and by the *bounds* check rather than the verifier —
+`segment reads the candidate at [0, 600016) ms, outside its 551893 ms`. Inverting
+the ratio makes the resampled candidate 551.9 s against a 600 s master, so the
+plan cannot be executed at all and is refused before any work is done.
+
+So the sign error is covered **twice, at different stages**: the bounds check when
+the wrong direction makes the candidate too short, and the alignment verifier when
+it does not — the latter demonstrated on `TASKS/007`'s fixture 2, where a wrong
+sign that *did* fit was caught at 16 145.9 ms.
+
+### A guard fired where it should not have, which is why they are fired
+
+The first attempt at T15 was **declined** by the constant-offset refusal written
+for objective 2: a speed-only plan is one full-coverage segment at offset zero,
+which is indistinguishable from a pure container shift *unless you know a resample
+is being applied*. The refusal now exempts that case. Caught on the first real
+run of the speed path, by a guard doing its job in the wrong place — which is the
+argument for firing guards rather than reading them.
+
+### What `vmsam-dev-1` delivered, and what is carried rather than restated
+
+Verdict `asetrate` on ids 33 and 31, with all four arms:
+
+| arm | id 33 | id 31 |
+| :--- | ---: | ---: |
+| uncorrected (control) | 0.7411 | 0.7374 |
+| **`asetrate` correct** | **0.9588** | **0.9551** |
+| `asetrate` wrong sign | 0.6569 | 0.6562 |
+| `rubberband` | 0.9484 | 0.9453 |
+
+The wrong-direction arm lands **below the uncorrected control** on both files, so
+the direction is demonstrated rather than asserted.
+
+`vmsam-dev-1` instructs using **1001/1000 exactly** rather than its point estimate
+of 1.000993: the exact rational lies inside its interval and is more precise than
+the measurement, so propagating measurement noise into a file would be strictly
+worse. Its interval `[1.000953, 1.001034]` and `ratio_precision: 3` are carried in
+the **repair report**, never in the tag — the tag states the transformation
+applied, the report states the confidence, and merging them would make the tag
+mean two things.
+
+**Its warning, carried with its framing, not hardened.** `AUDIO_SPEED_POLICY.MD`
+measures `rubberband` losing to `asetrate` by 0.278–0.313; here the gap is
+**0.0104 and 0.0098**, an order of magnitude smaller. That is consistent with the
+document rather than against it — the document already records that against a real
+master `asetrate` reaches only 0.94–0.98, and at 0.099 % the losing arm has far
+less room to fall. The ruling stands, and its justification is physical rather
+than statistical. But **the margin that would detect an inverting case in this
+corpus is ~0.010, not ~0.109**, so a detector built to the document's expected
+separation could miss one. `vmsam-dev-1` will send the four scores with every
+future verdict so the separation is visible rather than taken on trust.
+
+`vmsam-dev-1` also measured that the residual scatter about the linear fit is
+38.3 and 41.0 ms against 35.8 ms predicted by pure quantisation of a 124 ms step,
+so **no staircase hides under the slope** on those two files: plain
+`resampled:<factor>` is correct for them, not `chimeric+resampled`.
+
 ### What was dropped
 
 - **Trusting the requested ratio as the tag value.** It is wrong in the sixth
