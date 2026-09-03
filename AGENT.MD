@@ -305,6 +305,16 @@ git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
 `--squash` is what makes § Commits structural instead of a rule to remember: the
 command cannot produce two commits.
 
+**But it only fixes the mechanism, not the cadence.** Campaign 2 promoted three times
+in twenty-six minutes, each promotion correctly one commit — and two of the three
+were halves of a single increment: the locator fixed, then sixteen minutes later the
+locator wired to its consumer. The letter held and the intent did not; the
+granularity had simply moved from commits to promotions.
+
+**Promote when the branch needs to carry it** — when it must be tested in the
+container, or when another agent needs it to proceed. Not per fix, and never on a
+rhythm. If your next promotion continues the last one, it was one promotion.
+
 **It is used at two hops, and the second one is why.** Campaign 2's first day put 79
 commits on the branch, 73 of them documentation alone — and an audit found that
 **nobody had broken a rule**. Commits are free in the tiers above, correctly; the
