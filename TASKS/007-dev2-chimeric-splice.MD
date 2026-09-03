@@ -53,4 +53,131 @@ one dead code cannot fake.
 - a container run, through `vmsam-ci` — and state what you expect before it runs
 
 ## What changed / measured / dropped / blocked
-*(fill as you go)*
+
+**State: the path is built and lands a repaired track in a real merge. It has
+NOT yet run on a real error file** — that is what still separates this from
+`SPEC_ZONE_A.MD` §2.
+
+### What changed — commit `3747488`
+
+| file | zone | what |
+| :--- | :--- | :--- |
+| `src/mergeVideo.py` | zone A only | the call, and one guard fix (below) |
+| `src/merge_video_chimeric.py` | new module | the assembly on the master's timeline |
+| `src/merge_video_resample.py` | new module | the `asetrate` chain (serves 009) |
+| `src/merge_video_repair.py` | new module | the orchestrator, five outcomes |
+
+**The guard fix is the important half of the zone A change.**
+`len(dict_file_path_obj) < 2` raised one line *after* the repair attaches its
+object, and `fusion.py:286` calls `merge_videos` with exactly **two** files — the
+master and the file in error. So on the path this campaign exists to fix, the
+repair would have been killed every single time, and so would anything built on
+dev-1's measurement. That is the campaign-1 defect shape reproduced exactly:
+code written, reviewed, tested green, reached by nothing. The guard now stands
+unless something was actually repaired.
+
+### What was measured
+
+Each against a target built by hand **before** the run.
+
+| # | what | result |
+| :--- | :--- | :--- |
+| T1 | `VMSAM_FABRICATED` survives ffmpeg pass 1, pass 2, `mkvmerge --no-global-tags` and the final `mkvmerge`; mediainfo returns it under the track's `extra` dict | holds at all four stages |
+| T3 | a candidate cut from the master's own samples, re-spliced | **byte-identical** to the target: 3 840 000 bytes, md5 `6cd624c1432422610c657d2f0e46cefd`. Sample-exact, not close |
+| T4 | six subtitle cues, expected values computed by hand | all six land; 4 kept, 2 dropped as predicted |
+| T5 | every guard fired with literals, each paired with a case proving the other answer | **37 checks, exit 0** |
+| T8-A | control: flag shut | merge still dies at "useless to merge files"; outcome recorded `disabled` |
+| T8-B | flag open, real merge, real audio | merged mkv produced; 2 audio + 2 subtitle tracks rebuilt, 0 declined, 0 failed; the final mkv carries `VMSAM_FABRICATED=chimeric` on audio **and** subtitle streams |
+| T9 | is the repaired track on the master's timeline? | **−1.2, −0.2, +1.0, −0.4 ms** at 100/250/350/500 s, r = 0.993–0.998 |
+| T9 control | the same instrument on the *unrepaired* candidate | −0.9, −0.4 ms before the cut, **+8000.2, +7999.8 ms** after |
+
+The T9 control is what makes T9 mean anything: without it, "0 ms everywhere"
+could equally have meant the correlator measures nothing. The correlator is
+numpy cross-correlation, deliberately **not** `audioCorrelation` — otherwise the
+instrument would be testing itself.
+
+Fixture: a 600 s extract of a real example file with 8 s of content removed at
+t = 300 s, so the ground truth is known before the code runs. Built by
+`lab/t6_build_fixture.sh` in the private laboratory. Details in the private notes
+beside the repository.
+
+### Findings that are not mine to fix
+
+1. **`keep_best_audio`'s `fabricated` rule cannot fire, and the harm it exists to
+   prevent is now measured.** Both call sites (`mergeVideo.py:1853`, and `:998`
+   via `:1861`) iterate the audio dicts of `out_video_metadata` — a fresh object
+   built from the merged split file at `:1822` and populated by `get_mediadata()`
+   at `:1823`, which never writes a `fabricated` key. The marker comes back from
+   the file under `extra['VMSAM_FABRICATED']` instead. So `SPEC_ZONE_A.MD` §4's
+   *"it activates by itself the day the repair sets the key"* does not hold as
+   written. **Measured consequence:** in T8-B the split file carried all four
+   audio tracks — the master's two intact and my two fabricated — and the final
+   mkv kept **only the fabricated ones**. A fabricated track evicted an intact
+   one, which is the exact sentence the rule was written to prevent.
+2. **A re-encode cannot be made to lose a bitrate comparison against its own
+   source, so that comparison is not a safe discriminator** — the general form of
+   finding 1. First run: the encoder was left to pick its own bitrate and chose
+   132 300 = 2 × 44 100 × 1.5, above the master's 127 997 / 127 999. That part
+   was my defect and is fixed — the bitrate is now resolved from the source by
+   four routes and the origin of the number is recorded. **The fix did not cure
+   the eviction.** Re-run with `-b:a 130 741` / `130 271` resolved by an exact
+   copy pass: my intermediates measure 135 672 / 134 749 bps (the AAC encoder
+   overshoots its target by ~4 %), `keep_best_audio` still sees 132 300 against
+   127 997, and the fabricated tracks still evict the intact ones. I have **not**
+   established where mediainfo's 132 300 comes from — it is identical for two
+   tracks encoded at different targets, so it is not a measurement of my output.
+   What is established is that it is the number the rule compares, that it is
+   above the intact track's, and that the fabricated track wins. Making a rebuild
+   lose this comparison reliably would mean deliberately degrading it, which is
+   gaming a rule rather than repairing a file. Only finding 1's rule can decide
+   this correctly.
+3. **`main.py` is broken under Python 3.14.** It calls neither
+   `set_start_method` nor `tools.load_merge_runtime_from_env`, the default start
+   method is `forkserver`, so a Pool worker sees `tools.software == {}` and every
+   ffmpeg call raises `KeyError: 'ffmpeg'`. Measured on a plain two-file merge,
+   before any repair code ran. `main_gestionar_show.py:432` already carries the
+   one-line fix (`set_start_method('fork', force=True)`); `main.py` is frozen, so
+   this is a finding. `run.sh` reaches it through `software=main`.
+4. `not_compatible_video_list` (`mergeVideo.py:32`) is written at `:811` and read
+   nowhere. Observation only; left untouched.
+
+### What was dropped
+
+- **WAV intermediates per spliced piece.** First design cut each piece to WAV and
+  concatenated. Dropped for a single `filter_complex` per track: a 5.1 24-bit
+  episode is ~1.2 GB of intermediates and `/tmp` is RAM shared by four agents.
+  The cost is a constraint that is now enforced rather than assumed — the plan
+  must read the candidate **monotonically**, or `concat` would make ffmpeg buffer
+  an episode. A backwards read is refused, not worked around.
+- **Encoding every chimeric track to FLAC.** Rejected precisely because finding 1
+  makes the `fabricated` rule inert: a lossless rebuild of a lossy source would
+  beat an intact track on the codec rules. The module now never upgrades a lossy
+  source, and declines a codec it cannot re-encode in family (`dts`) by name.
+- **Letting the encoder choose its bitrate.** That is what produced finding 2's
+  132 300 bps. Replaced by a four-route resolution — `video.get_bitrate`,
+  `BitRate_Maximum`, `StreamSize/Duration`, then an exact `-c copy -f null` pass
+  (0.46 s for 592 s of AAC) — and a **decline** if all four fail, rather than a
+  plausible invented number (`SPEC_ZONE_A.MD` §3).
+
+### What stays blocked
+
+1. **The `[features]` flag cannot be committed.** `src/config.ini` has no
+   trailing newline, so *any* append renders as a `-` line in `git diff -U0` and
+   `check_write_zones.py` refuses it under §3, although no existing value
+   changes. Measured in a throwaway clone: exit 1, `§3 src/config.ini: line
+   removed or altered: audio_sync=...`. "Additions only" is unsatisfiable on that
+   file as it stands. Owner/Lead call.
+2. **A new runtime module cannot be modified after its creating commit.** The
+   checker classifies `src/<new>.py` as frozen and exempts only git status `A`.
+   Measured both ways: creating exits 0, modifying exits 1 with `§1 frozen file
+   modified`. `WRITE_ZONES.MD` §4 opens "new runtime modules"; the instrument
+   opens only their first commit. **This is now blocking a correctness fix**, not
+   a hypothesis: the bitrate work in finding 2 is written and verified in the
+   working tree and cannot be committed.
+3. **A real error file.** Needs an exemplar id from `vmsam-forensic` and a
+   container run from `vmsam-ci`. Error id 237 is ruled out — `vmsam-ci` found it
+   is a different series from its folder master.
+4. **Where does a test live?** `WRITE_ZONES.MD` §4 sends verification harnesses
+   outside the repository and the checker allows new files only at `src/*.py`, so
+   the test that `AGENT.MD` requires to pin the call site cannot travel with the
+   code it pins. Everything above lives in the private laboratory instead.

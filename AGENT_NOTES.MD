@@ -21,6 +21,90 @@ record.
 
 ---
 
+## 2026-09-03 — the repair is reachable only because one guard in zone A was moved
+
+`remove_not_compatible_video` ended with `if len(dict_file_path_obj) < 2: raise`.
+`fusion.py:286` calls `merge_videos` with exactly **two** files — the master and
+the file in error. A refusal removes one, one remains, and that line raised —
+one statement *after* the repair had attached its object to
+`best_video.sameAudioMD5UseForCalculation`.
+
+So on the fusion path, which is the path this campaign exists to fix, a repair
+would have been killed every single time, and so would anything built on the
+measurement half. Written, reviewed, tested green, reached by nothing: the
+campaign-1 shape, in the guard structure itself.
+
+**Decision:** the guard now stands unless something was actually repaired. A
+repaired object makes the merge useful on its own — verified by reading the
+downstream path with a single-entry `dict_file_path_obj`:
+`dict_with_video_quality_logic` is `{master:{}}`, `set_bad_video` is empty,
+`best_video` resolves to the master, and the `sameAudioMD5UseForCalculation`
+loop at `mergeVideo.py:1780` adds the repaired track. Then verified by running
+it: a merged mkv is produced and carries the repaired tracks.
+
+**Why not widen it further** — e.g. drop the guard altogether: with nothing
+repaired, one file left really is useless to merge, and the exception is the
+correct outcome. The control run with the flag shut still dies there, which is
+what makes the new branch a gate rather than a deletion.
+
+## 2026-09-03 — finding: `keep_best_audio`'s `fabricated` rule cannot fire, and the harm it prevents is now measured
+
+`SPEC_ZONE_A.MD` §4 says the branch *"activates by itself the day the repair sets
+the key"*. It does not, as written.
+
+Both call sites — `mergeVideo.py:1853`, and `:998` reached through `:1861` —
+iterate `out_video_metadata.audios`, and `out_video_metadata` is a **fresh**
+`video` object built from the merged split file at `:1822` and populated by
+`get_mediadata()` at `:1823`. `get_mediadata` never writes a `fabricated` key.
+The key the repair sets in memory is on a different dict object, which nothing
+downstream reads.
+
+The marker does survive to that point, but under another name. Measured: a
+`VMSAM_FABRICATED` track tag survives ffmpeg pass 1 (`-c copy -map_metadata 0`),
+pass 2, `mkvmerge --no-global-tags` and the final `mkvmerge`, and `get_mediadata`
+returns it as `audio['extra']['VMSAM_FABRICATED']` — never as
+`audio['fabricated']`.
+
+**The consequence is not hypothetical.** In a real merge the split file carried
+four audio tracks — two intact from the master, two fabricated by the repair —
+and the final file kept **only the fabricated ones**. A fabricated track evicted
+an intact one of the same language, which is the exact sentence §4 was written
+to prevent.
+
+**What was done instead.** Nothing, because both repairs are frozen:
+`keep_best_audio` carries no marker in the tree (see the entry below, 2026-09-03)
+and `get_mediadata` lives in `video.py` outside its two tagged functions. The
+repair sets the in-memory key anyway — it is the contract — and states plainly
+that no consumer reads it. Recorded rather than resolved: `AGENT.MD` § Documents,
+being right about a rule does not make it ours to change. The fix is one line in
+either place and both are the owner's.
+
+**A tempting non-fix, rejected.** The eviction could be dodged by encoding the
+rebuilt track at a lower bitrate so it loses the codec comparison. That games a
+broken rule at the cost of the track, and it would hide the finding. Measured
+that it would not even work reliably: with the source bitrate resolved and
+passed to the encoder, AAC still overshoots its target by ~4 % and the fabricated
+track still compares higher.
+
+## 2026-09-03 — finding: `main.py` is broken under Python 3.14, and the fix already exists ten files away
+
+A plain two-file merge through `main.py` dies with `KeyError: 'ffmpeg'` raised
+inside a `Pool` worker, before any campaign-2 code runs.
+
+Cause, and `AGENT.MD` § Runtime environment already names the mechanism: Python
+3.14 defaults to `forkserver`, so a pool child sees only module defaults and
+`tools.software` is `{}` there. `main_gestionar_show.py:432` calls
+`set_start_method('fork', force=True)` and `internal_api.py:45` calls
+`tools.load_merge_runtime_from_env()`; **`main.py` calls neither.** `run.sh`
+reaches `main.py` through `software=main` and `infinite_wrapper.py`.
+
+`main.py` is frozen (`WRITE_ZONES.MD` §1), so this is a finding. Practical cost
+to us: the CLI path cannot validate anything, and any agent reproducing locally
+through `main.py` will hit this first and may read it as a defect of their own
+work. The campaign-2 harness drives `merge_videos` through its own entry point
+that forces `fork`, and says in its docstring that it is a workaround and not a
+fix.
+
 ## 2026-09-03 — `check_write_zones.py`: the rules get an instrument, and it lives outside the repository
 
 `WRITE_ZONES.MD` §2 rule 2 says a zone is real only if it is checked, and lists
