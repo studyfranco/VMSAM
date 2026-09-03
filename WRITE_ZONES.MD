@@ -197,51 +197,6 @@ consequence — **the code read 18 `VMSAM_` names and the image set two** — so
 feature built to a ruling that day was unreachable by construction. `config.ini`
 additions are allowed by §3; a scaffolding flag left behind at the end is not.
 
-### What does not go in the repository
-
-This repository holds **VMSAM's code**. Nothing else. Batch scripts, verification
-harnesses, corpus sweeps, forensic reports, per-agent state files, task archives,
-scratch analysis: `VMSAM_HELP_AI/`, beside the repository, never inside it.
-
-Campaign 1 is the measurement. It left behind, under `src/`:
-
-| directory | files | lines |
-| :--- | ---: | ---: |
-| `diagnostics/` | 624 | 88 394 |
-| `tools_batch/` | 173 | 47 349 |
-| `task_archive/` | 101 | 13 030 |
-| **total** | **898** | **148 773** |
-
-VMSAM itself is 7 225 lines of Python and 569 of Rust. The scaffolding outweighed
-the program **nineteen to one**, and someone opening the repository could no longer
-tell what VMSAM *is*.
-
-The test, applied to every file you are about to create: **would this still matter
-to someone running VMSAM in production?** If it exists to help *you* work — to
-measure, to sweep, to remember, to report — it goes beside the repository.
-
-### Files with no importer
-
-Open like the rest, listed because their state is not obvious from reading them.
-
-| file | state |
-| :--- | :--- |
-| `frame_compare.py` | pHash/DCT frame comparison. **Does not compile** — `frame_compare.py:109`, pre-existing since `da1c191`. |
-| `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
-| `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
-
-New capability goes in **its own module**, called from a tagged zone, behind a
-flag that is **off by default**, with a test that pins the call site.
-
-**The flag goes in `config.ini`, not in the environment.** `run.sh` passes no
-`--config` and the image bakes its variables into the `Dockerfile`, which is frozen
-— so a new `VMSAM_<NAME>` variable is absent at runtime and there is no way to turn
-it on without editing a file you may not touch. A default-off env flag is therefore
-permanently off: not a gate, a deletion. Campaign 1 measured the consequence — **the
-code read 18 `VMSAM_` names and the image set two**, so every feature built to a
-ruling that day was unreachable by construction. Add a `[features]` key instead
-(§3 allows additions), and let the environment override it if it happens to be set.
-
 ## 5. Verification
 
 **Run the write-zone checker** — `VMSAM_HELP_AI/tools/check_write_zones.py`, one
