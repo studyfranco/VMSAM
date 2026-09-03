@@ -393,8 +393,12 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
 def mark_audio_dicts(repaired_obj, marker):
     if not len(marker):
         return
-    for holder in (repaired_obj.audios, repaired_obj.commentary,
-                   repaired_obj.audiodesc):
+    # PAS LES COMMENTAIRES: l'assemblage n'en construit plus, donc en marquer un
+    # serait ecrire "fabrique" sur une piste copiee -- un enregistrement de
+    # provenance FAUX, ce qui est pire qu'aucun. L'audio-description reste
+    # marquee tant que le proprietaire n'a pas tranche; l'incoherence est
+    # voulue et documentee.
+    for holder in (repaired_obj.audios, repaired_obj.audiodesc):
         for language, audios in holder.items():
             for audio in audios:
                 audio["fabricated"] = marker

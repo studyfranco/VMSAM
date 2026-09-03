@@ -59,18 +59,23 @@ audio_encoder_by_codec = {
 # couvrait que 6 noms sur ~19 de la classe texte et appelait "bitmap" tout le
 # reste -- une etiquette presentee comme un diagnostic. On accepte donc toute la
 # classe texte, et on refuse le bitmap PAR SON NOM.
-subtitle_text_codecs_to_ass = frozenset(["ass", "ssa"])
-subtitle_text_codecs_to_srt = frozenset([
-    "subrip", "srt", "text", "mov_text", "webvtt", "ttml", "microdvd", "sami",
-    "jacosub", "mpl2", "pjs", "realtext", "stl", "subviewer", "subviewer1",
-    "vplayer", "hdmv_text_subtitle",
-])
-subtitle_bitmap_codecs = frozenset([
-    "dvd_subtitle", "hdmv_pgs_subtitle", "dvb_subtitle", "xsub",
-])
-subtitle_stream_codecs = frozenset([
-    "arib_caption", "dvb_teletext", "eia_608", "ivtv_vbi",
-])
+# LA CLASSIFICATION DES SOUS-TITRES N'EST PLUS ICI. Elle vit dans `tools` et ce
+# module la LIT -- decision du proprietaire, docs/SUBTITLE_CODECS.MD. Il y avait
+# deux ensembles a tenir d'accord et ils avaient DEJA diverge dans les deux
+# sens: `tools` connait s_hdmv/pgs, pgs, vobsub, s_vobsub que ce module
+# ignorait; ce module connaissait dvb_subtitle et xsub que `tools` ignore. Deux
+# copies d'une meme verite, maintenues separement.
+#
+# ON REFUSE PAR EXCLUSION, JAMAIS PAR LISTE BLANCHE: un codec absent d'une liste
+# blanche est jete en silence et rapporte comme une image, alors qu'un codec
+# absent d'une liste d'exclusion est TENTE et echoue bruyamment sur un vrai
+# defaut.
+#
+# BESOIN BLOQUE, A REMONTER ET NON A CONTOURNER: `dvb_subtitle` et `xsub` sont
+# des sous-titres bitmap et ne sont dans AUCUN ensemble de `tools`. Sous cette
+# regle ils seront donc tentes comme du texte et echoueront. La ligne qui
+# devrait les porter -- tools.py:207 -- est GELEE. On ne garde pas de
+# supplement local: ce supplement est exactement la copie qui a diverge.
 
 
 class chimeric_error(Exception):
@@ -222,8 +227,26 @@ def get_audio_stream_parameters(audio):
     return str(sample_rate), int(channels), str(layout)
 
 
+def get_stream_start_ms(audio):
+    """Le `start_time` du conteneur pour ce flux, en ms.
+
+    mediainfo l'expose aussi comme `Delay` avec `Delay_Source = Container`; on
+    lit ffprobe, qui est la meme valeur et celle que les filtres voient.
+    """
+    if audio == None:
+        return Decimal("0")
+    value = (audio.get("ffprobe") or {}).get("start_time")
+    if value == None:
+        return Decimal("0")
+    try:
+        return Decimal(str(value)) * Decimal("1000")
+    except Exception:
+        return Decimal("0")
+
+
 def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
-                            sample_rate, layout, speed_chain=None):
+                            sample_rate, layout, speed_chain=None,
+                            candidate_start_ms=None, master_start_ms=None):
     '''Une seule commande ffmpeg par piste: pas de WAV intermediaire.
 
     Les morceaux sont tires dans l'ordre par le filtre concat, et chaque source
@@ -257,6 +280,29 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
         chains.append(f"[1:{master_stream_order}]asplit={len(master_pieces)}"
                       + "".join(f"[{label}]" for label in master_split))
 
+    # LE MORCEAU DE TETE EST PLUS COURT QUE LA PLACE QU'IL OCCUPE quand la piste
+    # commence apres zero. `atrim=start=0` sur un flux dont le `start_time` vaut
+    # 1.103 s ne rend pas 1.103 s de contenu inexistant: il commence a 1.103.
+    # `asetpts=PTS-STARTPTS` le remet a zero et `concat` colle bout a bout, DONC
+    # TOUT CE QUI SUIT REMONTE DE 1.103 s. Mesure le 2026-09-03: un morceau
+    # demande a [0, 120] rend 118.900 s, et l'erreur de la piste produite vaut
+    # exactement le `start_time` DU MAITRE -- 1103.4 contre 1103.0 sur un
+    # fichier, 887.6 contre 887.0 sur un autre.
+    #
+    # On rembourre donc la tete du morceau du silence qui manque. Ce n'est pas
+    # une invention: il n'y a REELLEMENT pas de son avant `start_time`, et le
+    # silence est ce que le lecteur entend deja la.
+    pads = []
+
+    def head_pad(source_start_ms, stream_start_ms, sink):
+        if stream_start_ms == None:
+            return ""
+        missing = Decimal(str(stream_start_ms)) - Decimal(str(source_start_ms))
+        if missing <= 0:
+            return ""
+        sink.append(missing)
+        return f",adelay={int(missing)}:all=1"
+
     candidate_index = 0
     master_index = 0
     for i, piece in enumerate(pieces):
@@ -271,7 +317,8 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
                 entry = candidate_entry
             candidate_index += 1
             chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
-                          f"asetpts=PTS-STARTPTS,"
+                          f"asetpts=PTS-STARTPTS"
+                          f"{head_pad(piece['source_start_ms'], candidate_start_ms, pads)},"
                           f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
                           f"[{label}]")
         elif piece["source"] == "master" and master_stream_order != None:
@@ -283,7 +330,8 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
                 entry = f"[1:{master_stream_order}]"
             master_index += 1
             chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
-                          f"asetpts=PTS-STARTPTS,"
+                          f"asetpts=PTS-STARTPTS"
+                          f"{head_pad(piece['source_start_ms'], master_start_ms, pads)},"
                           f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
                           f"[{label}]")
         else:
@@ -295,7 +343,7 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
 
     chains.append("".join(f"[{label}]" for label in labels)
                   + f"concat=n={len(labels)}:v=0:a=1[aout]")
-    return ";".join(chains)
+    return ";".join(chains), sum(pads) if len(pads) else Decimal("0")
 
 
 def resolve_source_bitrate(audio, source_path, timeout=120):
@@ -386,8 +434,23 @@ def get_encoder_arguments(audio, codec_name, source_path=None):
 
 
 def find_master_audio_for_language(master_obj, language):
-    '''La piste du maitre qui remplira les trous, ou None.'''
-    for holder in (master_obj.audios, master_obj.commentary, master_obj.audiodesc):
+    '''La piste du maitre qui remplira les trous, ou None.
+
+    PAS UN COMMENTAIRE DU MAITRE: remplir le trou d'une piste principale avec
+    un commentaire produirait un fichier qui passe tout controle structurel et
+    qui est indefendable a l'ecoute. Meme decision que ci-dessus, cote
+    remplissage.
+
+    `holder[language][0]` est LE PREMIER flux de cette langue, pas le meilleur,
+    et sur un maitre qui en porte deux c'est un choix arbitraire. `vmsam-forensic`
+    a mesure 126 a 138 ms d'ecart entre deux pistes de meme langue d'un meme
+    maitre, et a verifie que ce n'est PAS un artefact de `start_time` (dix
+    maitres a 0.0 ms d'ecart, un a 16 ms contre un ecart de 126-138). Le cout
+    n'est nul que si le remplissage et l'alignement retombent sur le MEME
+    indice; c'est note comme une condition a verifier, pas comme un defaut
+    mesure ici.
+    '''
+    for holder in (master_obj.audios, master_obj.audiodesc):
         if language in holder and len(holder[language]):
             return holder[language][0]
     return None
@@ -416,9 +479,14 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
         import merge_video_resample
         speed_chain, applied_ratio, _, _ = \
             merge_video_resample.build_speed_filter_chain(sample_rate, speed_ratio)
-    filtergraph = build_audio_filtergraph(
+    # Le `start_time` du CANDIDAT suit la relation de vitesse: apres
+    # reechantillonnage la piste commence `ratio` fois plus tard.
+    candidate_start_ms = get_stream_start_ms(audio)
+    if speed_ratio != None:
+        candidate_start_ms = candidate_start_ms * Decimal(str(speed_ratio))
+    filtergraph, head_pad_ms = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
-        speed_chain)
+        speed_chain, candidate_start_ms, get_stream_start_ms(master_audio))
 
     command = [tools.software["ffmpeg"], "-y", "-nostdin",
                "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -457,6 +525,10 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
             "gap_filled_ms": str(filled),
+            # Le silence ajoute EN TETE parce que la source ne commence pas a
+            # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
+            # il ne doit pas se confondre avec le remplissage depuis le maitre.
+            "head_pad_ms": str(head_pad_ms),
             "silence_filled_ms": str(silence_ms),
             "silence_fraction": str((silence_ms / total).quantize(Decimal("0.000001")))
                                 if total > 0 else "0",
@@ -464,15 +536,13 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
 
 
 def classify_subtitle(codec_name):
-    if codec_name in subtitle_text_codecs_to_ass:
-        return "ass"
-    if codec_name in subtitle_text_codecs_to_srt:
-        return "srt"
-    if codec_name in subtitle_bitmap_codecs:
+    """Trois issues, par EXCLUSION, depuis `tools` et non depuis une copie."""
+    name = (codec_name or "").lower()
+    if name in tools.sub_type_not_encodable:
         return "bitmap"
-    if codec_name in subtitle_stream_codecs:
-        return "stream"
-    return "unknown"
+    if name in tools.sub_type_near_srt:
+        return "srt"
+    return "ass"
 
 
 def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
@@ -525,12 +595,11 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
         raise chimeric_error(
             f"codec {codec_name} is a bitmap subtitle: its timestamps live "
             f"inside binary segments, cue rewriting cannot reach them")
-    if target == "stream":
-        raise chimeric_error(
-            f"codec {codec_name} carries its timing in a transport stream, not "
-            f"in discrete cues")
-    if target == "unknown":
-        raise chimeric_error(f"codec {codec_name} is not a known subtitle codec here")
+    # Plus de branche "stream" ni "unknown": sous la regle d'exclusion, un codec
+    # que `tools` ne nomme pas est TENTE. S'il n'est pas convertible, ffmpeg
+    # echoue et le compte-rendu porte un ECHEC nomme -- un vrai defaut, visible.
+    # L'ancienne branche "unknown" le declarait "pas un codec de sous-titre
+    # connu ici", ce qui est une etiquette presentee comme un diagnostic.
 
     out_path = path.join(work_dir, f"sub_{index}.{target}")
     command = [tools.software["ffmpeg"], "-y", "-nostdin",
@@ -583,8 +652,24 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 
 
 def iterate_candidate_audios(candidate_obj):
-    for holder in (candidate_obj.audios, candidate_obj.commentary,
-                   candidate_obj.audiodesc):
+    """Les pistes que la reparation a le droit de reconstruire.
+
+    PAS LES COMMENTAIRES -- decision du proprietaire, SPEC_ZONE_A.MD s4. La
+    reparation repose sur "ce qui a ete fait au fichier a ete fait a tous ses
+    flux": vrai d'une coupe, vrai d'un reechantillonnage, et c'est cette
+    premisse qui autorise a appliquer a chaque flux un plan mesure sur une
+    seule langue. UN COMMENTAIRE EST UN ENREGISTREMENT SEPARE SUR LA MEME
+    IMAGE, pas une traduction de l'audio du programme: il n'herite ni de la
+    premisse ni du plan, le maitre peut n'avoir aucun commentaire pour remplir
+    un trou, et rien ne dit que ses points de montage soient ceux de la piste
+    principale.
+
+    L'AUDIO-DESCRIPTION EST DELIBEREMENT LAISSEE OUVERTE. Meme forme, et ce
+    n'est PAS ce sur quoi le proprietaire a statue: "Raise it rather than
+    extend this by analogy." Cela paraitra incoherent dans le code et c'est
+    correct tant que la question n'est pas tranchee.
+    """
+    for holder in (candidate_obj.audios, candidate_obj.audiodesc):
         for language, audios in holder.items():
             for audio in audios:
                 yield language, audio
