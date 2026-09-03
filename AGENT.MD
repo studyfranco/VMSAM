@@ -453,6 +453,16 @@ documentation-only; that start was 93 %. The findings in them were good. Committ
 each one by itself is what made the branch unreadable, and it is the same defect as
 campaign 1 wearing better prose.
 
+**The exception, and it is a real one: work that legitimately produces no repository
+change.** A verification whose harness lives outside the repository, a measurement
+that confirms something is inert, a task that closes because the answer was "nothing
+to do" — those produce a result and no code, so there is nothing for the note to ride
+with. One commit, saying what was established. The test is not *does it touch code*
+but **is this an increment or a thought**: a closed task is an increment, and
+seventy-three of them in a day were not.
+
+Found by `vmsam-lead`, by doing the right thing against the rule as written.
+
 A commit is a unit of **result**, not of activity. What earns one:
 
 - a feature that works end to end — the code *and* the measurement that shows it works;
