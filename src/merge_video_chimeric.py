@@ -978,7 +978,33 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             produced_index += 1
             continue
         probes = []
+        # LE VERIFICATEUR AVAIT LE MEME DEFAUT DE TETE QUE L'ASSEMBLEUR. Il lit
+        # la reference par recherche PTS: demander la position 0 sur une piste
+        # maitre qui commence a 1.103 s rend du contenu qui commence a 1.103,
+        # donc la reference elle-meme est decalee et la piste produite parait
+        # fausse d'exactement ce `start_time`. Mesure le 2026-09-03 sur un
+        # fichier dont le corps venait de tomber a -5 ms apres la correction de
+        # l'assemblage, pendant que la sonde de tete restait a -1103 ms.
+        #
+        # Une position anterieure au debut du flux maitre N'A PAS DE REFERENCE.
+        # On l'avance jusqu'au debut du flux quand la fenetre tient encore dans
+        # le meme morceau, sinon on le DIT -- quatrieme issue de sonde, et
+        # surtout pas une mesure.
+        master_start_ms = get_stream_start_ms(master_audio)
         for piece_index, start in probe_plan:
+            probe_start = start
+            if master_start_ms > start:
+                piece_end = pieces[piece_index]["master_end_ms"]
+                shifted = Decimal(str(master_start_ms))
+                if shifted + window_ms <= Decimal(str(piece_end)):
+                    probe_start = shifted
+                else:
+                    probes.append({"master_position_ms": str(start),
+                                   "piece": piece_index, "outcome": "no_reference",
+                                   "reason": f"the master's track starts at "
+                                             f"{master_start_ms} ms, after this probe"})
+                    continue
+            start = probe_start
             reference = read_mono_samples(master_obj.filePath,
                                           f"0:{int(master_audio['StreamOrder'])}",
                                           start, window_ms, verify_probe_rate)
