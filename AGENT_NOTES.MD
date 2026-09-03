@@ -82,8 +82,45 @@ by three, cause of the other two unknown.** ci independently reproduced my id 12
 RMS figures from its own extraction at a different sample rate (4165.3 against
 1330-2010, versus my 4306.9 against 1400-2084).
 
-**What survives the refutation is the part that matters**, and it rests on id 12
-alone without needing the family: stage 1 was right in all ten windows, stage 2 was
+**UPDATE, same day: the inversion now holds on TWO files.** id 108 measured
+absolutely and unshifted, both instruments, streams pinned (master a:1 jpn):
+
+| h | window | FFT | chromaprint | RMS master |
+| ---: | :--- | ---: | :--- | ---: |
+| **0** | [120.0, 334.0] | **-1453.83 ms** | 0.9047 / **-1000** | 2150.6 |
+| 1-9 | … | **-949.98 to -952.27** | 0.926-0.939 / -1000 | 1202-3833 |
+
+Windows 1-9 agree to **2 ms**; window 0's FFT is off by **502 ms**; chromaprint
+holds -1000 on all ten. And **ci's RMS refutation is confirmed from my side**:
+window 0 is 2150.6 while the best-behaved windows 6-8 sit at 3751-3833, so the
+failing window is well *below* the loudest. Peak amplitude does not rescue it
+either — 27167 at window 0 against 32768 (clipping) in the loud windows.
+
+**The reconstruction of ci's recorded residuals now matches to 0.1 ms.** Its
+values were taken after a shift by `delayUse` = chromaprint's -1000:
+
+```
+windows 1-9:   -950   - (-1000) =  +50.0 ms    ci recorded +47.8 to +49.9
+window 0:    -1453.8  - (-1000) = -453.8 ms    ci recorded -453.9
+```
+
+Together with id 12's +808 against ci's +788, two agents on two extraction paths.
+
+**And it kills my own third hypothesis.** I had wondered whether the outlier was
+manufactured by `recreate_files_for_delay_adjuster`'s shifted re-extraction, which
+would have tied this family to the one-point-step artefact. It is not: my
+measurement involves **no shift at all** and the outlier still appears. The outlier
+is in the media as the FFT sees it.
+
+So the two claims separate cleanly, and only one generalises:
+
+| claim | status |
+| :--- | :--- |
+| **the inversion** — stage 1 right on every window, stage 2 wrong on exactly one, that one value refusing the file | **holds on ids 12 and 108** |
+| **the cause** — FFT dragged by the loudest passage | **holds on id 12 only**; refuted on 108, and 13 fits neither |
+
+**What survives the refutation is the part that matters**, and it rests on ids 12
+and 108 without needing the family: stage 1 was right in all ten windows, stage 2 was
 wrong in one by 850 ms, and that single value refused the file. The inversion of
 `AGENT.MD`'s stated design intent is real and measured, whatever explains the other
 two.
