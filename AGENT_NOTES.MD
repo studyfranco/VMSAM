@@ -38,10 +38,31 @@ ill-defined, and the two resolved the ambiguity differently: chromaprint by
 majority (188 s against 26 s), the FFT by the short strong segment, because the
 pre-step 26 s correlate at 0.8 while the post-step 188 s correlate at 0.45.
 
-I have marked **id 12 unverified** rather than carrying the claim there. Its window
-0 may hold a real step by the same mechanism, and my RMS explanation for it may
-have been explaining the wrong thing — a real step produces that outlier whether or
-not the window is loud.
+**id 12 now measured, and it is the same thing.** Scanning its head region with
+both window lengths:
+
+| | last OLD | first NEW | bracket |
+| :--- | ---: | ---: | :--- |
+| W = 30 s (q 135) | p = 142.5 | p = 145.0 | **T ∈ (157.5, 160.0)** |
+| W = 15 s (q 150) | p = 150.0 | p = 152.5 | **T ∈ (157.5, 160.0)** |
+
+Identical brackets. The step is **5 → 12 points = 7 points**, which is 875 ms at
+that pair's pipeline quantum of 125 ms — against forensic's 861 ms and the direct
+FFT difference of 850 ms (-567 against -1417). So **id 12 holds a real early step
+too, and my RMS explanation for it was wrong twice over**: it was never about
+energy, and the outlier was never a bad measurement.
+
+All three of ci's family-B files (12, 13, 108) are therefore early-step cases, and
+**every one of them sits inside the head blind spot**.
+
+**One thing I could not resolve and am flagging rather than choosing.** In the
+post-step region [152, 220] the short windows read **12 points**, while the
+ten-window scan reads **11 points** (-1375 at q=125) over [227, 1066] and the FFT
+reads -1417 there. One to two points apart, which is more than quantisation
+explains. Either a further change point sits between 220 and 227, or short-window
+point counts are biased in a way I have not characterised. **Unresolved.** It does
+not touch the location, which two window lengths agree on exactly, nor the step
+size in points, which is 7 at both.
 
 **The remedy ci and I had converged on would have shipped a defect.** Dropping the
 outlier window and merging on the remaining nine gives a uniform offset that is
