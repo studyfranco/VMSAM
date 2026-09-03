@@ -35,12 +35,20 @@ criterion fixed the cadence, and both were still satisfied by two documentation
 commits in the same minute. Measured on campaign 2: five documentation-only commits,
 four of them in two same-minute pairs, two of which were the author of this rule.
 
-It is mechanically checkable — the timestamp of the last commit touching no code —
-so it does not depend on anyone remembering it. **The clock is branch-wide, and every
-actor resets it**: the commit that starts your hour may be someone else's
-(`vmsam-forensic`, held by another agent's commit). Harmless while code is flowing, a
-starvation risk when it is not — so a per-actor clock in the checker is a better fix
-than this sentence.
+**The clock is per author, not per branch.** Your last documentation-only commit
+starts your hour; nobody else's does. It is mechanically checkable from the commit
+author, so it does not depend on anyone remembering it.
+
+**It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as
+a property of the rule — five actors reset one clock, and the agent committing least
+often is the one starved — and then lived it: its `TASKS/003`, holding objective 1
+closed with the command that reproduces the family table, sat blocked for over an
+hour and was reset three times, **every time by someone else's commit and never once
+by its own**. Three of those resets were mine, made under an exception granted to me
+whose cost was paid by an agent who did not get to argue for one.
+
+A per-actor clock corrects the behaviour the rule was written for — the two
+same-minute pairs that caused it were each one author twice — and starves nobody.
 
 **The exception, and it is a real one: work that legitimately produces no repository
 change.** A verification whose harness lives outside the repository, a measurement
