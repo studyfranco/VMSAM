@@ -37,6 +37,39 @@ agent's WIP-clone gating was still wrong — the two errors were opposite, not t
 **One narrow exception, because a defective gate must not be able to seal itself in.**
 A change to *this file's gating rules* is not subject to them. Anything else waits.
 
+### A refused promotion must leave an artefact
+
+**The promotion is the fragile step, not the rewrite.** Agents do not push; the lead
+does. So a commit that exists in a WIP clone and has not been promoted is invisible to
+everyone including its author, who has no way to tell "promoted" from "attempted and
+refused" except by being told.
+
+**A successful promotion leaves a commit. A refused one leaves a line in a terminal and
+nothing else.** That asymmetry is the same defect this campaign named twice elsewhere —
+a decline that reports what it measured and not what it produced — sitting in the
+workflow of the only actor who can promote. **Every refused promotion gets a durable
+record: what was attempted, whose it was, why it was refused, and what would unblock
+it.** A queue file in `VMSAM_HELP_AI/lead/` is enough; the requirement is that an agent
+and the architect can both read it without asking.
+
+**Here is what it cost the day it was missing.** A promotion was attempted, the cadence
+checker refused it correctly one minute after its sibling, and the lead read the
+refusal. It then told the agent the content had landed *"with the rewrite rather than
+being lost"* — **a mechanism it invented, contradicted by output it had personally read
+minutes earlier**, in a message whose purpose was to reassure. The finding sat
+unpromoted for an hour while its author believed it was safe, and it was the only
+quantified statement anyone had about files the pipeline had shipped. **It survived
+because the agent had not pruned its own object store.**
+
+**And the exception that covered it was already written.** A measurement whose harness
+lives outside the repository earns one commit saying what was established — the rule was
+in this file, a hundred lines from the gate, and the lead did not claim it. Nobody could
+find that paragraph by searching for it; that is fixed above, and this is what the gap
+cost while it stood.
+
+**The lead reported all of it against itself, having been told to check its own
+promotion log rather than the rewrite it had blamed.**
+
 **This section is about the last hop — what reaches `master`.** In the tiers above
 it, commit as often as the work needs — but see the shape rule below, because "as
 often as the work needs" is not the same as "once per thought".

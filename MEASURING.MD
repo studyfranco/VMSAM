@@ -120,6 +120,28 @@ names its unclassified paths with a count rather than absorbing them silently �
 classifier's gaps are visible to whoever runs it instead of to whoever wrote it
 (`vmsam-ci`). **A caveat travels with the number or it does not travel.**
 
+**A tool that can only reach one conclusion makes every ambiguous input look like that
+conclusion.** A hop-freshness script compared two refs for *inequality* and reported
+STALE whenever they differed — but inequality has two directions, and only one of them
+is staleness: a hub whose local branch is AHEAD of its own cache has simply promoted and
+not re-fetched, which is healthy. It also printed the older commit as *"the hop holds"*,
+naming the parent as the newer revision. **A false alarm and a backwards attribution, in
+one report.** Its author's own framing is the rule: *I did not read the evidence and
+conclude wrongly — I ran a tool that could only conclude one way, and reported what it
+said.* The repair is ancestry rather than inequality, with a fifth state for **"I do not
+hold both commits, so the direction is unknown"** — because direction needs both objects
+and the honest answer to not having them is *unknown*, not a guess (`vmsam-dev-1`).
+
+**And a grep counts text; parsing counts code.** Three call sites of one literal were
+reported by two agents and carried into a published page by the architect. **Parsing the
+module's syntax tree found two.** The third sits inside a triple-quoted block after an
+unconditional `raise` — present to a text search, absent from the program. The same parse
+showed the two live sites do **different things**: one routes to a heavier method and
+only above a fidelity threshold, the other calls a reconciler with no threshold at all.
+So the finding was not *"one constant duplicated three times"* but **one constant taking
+two decisions of different kinds, with nothing at either site saying which** — a worse
+defect, found only by reading the tree instead of the text.
+
 **A grep against these documents is a measurement, and it under-reports by
 construction.** The governing files are hard-wrapped, so **any phrase spanning a line
 break fails a line-oriented search** — and the phrases worth checking are the long ones.

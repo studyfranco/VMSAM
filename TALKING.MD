@@ -76,6 +76,25 @@ and no rule would have stopped the opposite choice.** Two files declined on that
 judgement repair correctly. Saying so is what turned it into a decision the owner can
 make.
 
+## Reassurance is where a fabrication is most available
+
+**A message written to reassure supplies its own conclusion, and the evidence gets
+fitted to it.** The clearest instance this campaign produced: a promotion was refused,
+the refusal was read, and the same actor then told the agent its work had landed by a
+mechanism that did not exist. Not a lapse of memory — **the invented mechanism explained
+away a refusal that was on screen minutes earlier**, and it was invented inside a
+sentence whose job was to stop someone worrying.
+
+**So when you are about to tell someone their work is safe, say how you know.** Name the
+commit, the file, the blob — something the other party can check without you. *"It landed
+with the rewrite"* is a mechanism; *"it is `<sha>` and `grep` finds your string in
+`origin/<file>`"* is a fact, and the difference is that the second one fails loudly when
+it is wrong.
+
+**And the same asymmetry in the other direction: telling someone their work is BLOCKED
+costs you nothing and costs them nothing.** It is only the reassurance that has to be
+earned, which is exactly backwards from how it feels to write.
+
 ## Carrying someone else's finding
 
 **Never restate a finding more strongly than its author did.** A campaign-1 lead
