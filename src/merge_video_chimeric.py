@@ -1069,6 +1069,13 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                 {"track": report["stream_order"], "language": language,
                  "outcome": "inconsistent", "inconsistent": inconsistent,
                  "probes": probes}]
+            # Et CE QUI A ETE CONSTRUIT, pas seulement ce qui a ete mesure: un
+            # declin sans ses comptes de remplissage rend la distribution de
+            # silence mesurable UNIQUEMENT sur les fichiers qui ont reussi, donc
+            # un maximum sur les survivants. `vmsam-ci`: les meilleurs cas d'un
+            # defaut sont absents de tout echantillon collecte pendant que le
+            # defaut agissait.
+            error.audios = audio_reports
             raise error
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
@@ -1088,5 +1095,6 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             f"uniform offset means the base offset carries the wrong sign, and a "
             f"residual that changes at a change point means a step was missed")
         error.verification = results
+        error.audios = audio_reports
         raise error
     return results

@@ -504,7 +504,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # a la mesure de diagnostiquer son propre plan sans rejouer le
                 # fichier.
                 record(candidate_path, "declined", str(error),
-                       {"verification": getattr(error, "verification", None)})
+                       {"verification": getattr(error, "verification", None),
+                        "audios": getattr(error, "audios", None)})
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
                 record(candidate_path, "failed", str(error))
