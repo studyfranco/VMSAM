@@ -6,10 +6,10 @@ knowledge to consult, not instructions to follow. It is all that survives of it:
 **nothing outside this repository is a source you can go and read.**
 
 **No line budget, deliberately.** This file declared 450 lines and stood at 654 —
-45 % over, unenforced (`vmsam-forensic`), and *a ceiling nobody honours teaches that
-ceilings are decorative*. The number also caused harm: **a rule squeezed to fit names
-its mechanism and drops its consequence, which is exactly what makes it fail**
-(`vmsam-dev-1`). Four failures today were rules whose mechanism was written and whose
+45 % over and unenforced, and *a ceiling nobody honours teaches that ceilings are
+decorative*. The number also caused harm: **a rule squeezed to fit names its
+mechanism and drops its consequence, which is exactly what makes it fail.** Four
+failures in a single day were rules whose mechanism was written down and whose
 consequence was not.
 
 So the test is not length. **A rule earns its lines by naming what goes wrong when it
@@ -39,21 +39,6 @@ included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
 agent that may rewrite what binds it eventually rewrites itself out of it.
-
-**A finding against a frozen document carries a severity, and the classes do not
-queue behind each other.** *"This document currently instructs the reader to do the
-wrong thing"* interrupts; *"this figure is imprecise"* accumulates. The freeze has no
-latency budget of its own, and its cost is real: `WRITE_ZONES.MD` §4 stood duplicated
-with a superseded ruling at its end, so anyone reading it through got the overruled
-instruction — the exact failure the freeze exists to prevent, caused by the freeze's
-latency rather than by careless editing (`vmsam-ci`).
-
-**And an instruction can be correct about the world and wrong about you.** `vmsam-ci`
-was told four times to rewrite 24 commits to remove a privacy leak, verified each
-time, and refused: it had removed the leak 22 commits earlier, and 45 commits carried
-it in three *other* clones. **A true observation attached to the wrong target.**
-Complying would have destroyed its own history and left the real leak in place.
-Verify the premise, not the plausibility.
 
 So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** is a
 **finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
@@ -261,12 +246,11 @@ You are free on the method. You are not free on knowing what a correct result is
 
 1. **Build the expected file by hand, first — and state what it shares with the code
    under test before believing any agreement.** *A target that shares an input with
-   the code under test cannot disagree with it* (`vmsam-dev-2`, `vmsam-dev-1`,
-   reached separately from both sides). That is checkable in advance, which
+   the code under test cannot disagree with it*. That is checkable in advance, which
    "build it independently" is not. Campaign 2 met every clause of
    `SPEC_ZONE_A.MD` §2 on a real file and proved nothing, because the hand-built
-   target came from the same plan as the splice; `vmsam-dev-2` refused the claim on
-   its own result rather than let it stand. Whatever the change, produce the
+   target came from the same plan as the splice; the claim was refused on its own
+   result rather than left to stand. Whatever the change, produce the
    output you say the code should produce — manually, with whatever tools you like
    — and check it yourself. This is the target, and it exists before the code does.
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
@@ -361,9 +345,6 @@ rules composing badly is not fixed by asking anyone to try harder. Squashing at 
 promotion fixes it structurally: **one commit per promotion**, and you promote when
 you have something worth testing, so the branch reads as a list of increments. The
 granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
-
-Found by `vmsam-ci`, which checked this section rather than accepting a claim that
-someone had misbehaved.
 
 **Pull down often, push up rarely.** Sync the tier above *into* the one below
 before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
@@ -518,7 +499,7 @@ saw it. It would have shipped in silence.
 **So: a field whitelist in a transport is a defect by construction.** It makes every
 future extension of the format inert, and the only symptom is that nothing changes —
 which is the one symptom nobody investigates. Carry the whole structure and let the
-consumer ignore what it does not need. Found by `vmsam-dev-2`.
+consumer ignore what it does not need.
 
 **Which rules deserve to be mechanical, and it is not the important ones.** The rules
 that survived today are the ones whose violation produces an immediate, local,
@@ -530,8 +511,7 @@ symptom in the writer's world, which is why no wording fixes it.
 
 **So: mechanise the rules whose failure is silent in the actor's own frame — not the
 ones that matter most, the ones the actor cannot feel going wrong.** Everything else
-can be a sentence. Found by `vmsam-dev-sandbox`, and it explains the day better than
-any of the individual corrections did.
+can be a sentence.
 
 **And an armed guard that has never fired is indistinguishable from a working one.**
 Campaign 1's success metric sat in the third branch of a function nothing reached:
