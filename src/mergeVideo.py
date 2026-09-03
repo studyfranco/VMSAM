@@ -1455,7 +1455,12 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 merge_cmd.extend(["--commentary-flag", audio["StreamOrder"]])
     for language,audios in video_audio_desc_track_list.items():
         for audio in audios:
-            if (audio["MD5"] in md5_audio_already_added):
+            # An empty MD5 is "not computed", not "identical to the other empty one".
+            # generate_new_file_audio_config adds audio["MD5"] unconditionally, so ''
+            # enters the set as soon as any track without one is added; without this
+            # guard every later audio-description track with an empty MD5 is dropped
+            # silently. The audio and commentary branches above already guard it.
+            if (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added):
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 number_track_audio += 1

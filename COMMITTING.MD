@@ -140,12 +140,25 @@ about what the branch *would* show and neither looked at what it *does*.
 
 **The rule assumes an agent's output is commits, and one agent's output is
 measurements.** A gate keyed on commits cannot see work that lands in a directory git
-does not watch — **not to throttle it, and not to credit it**. Within an hour of the
-checker shipping it blocked the campaign's only measurement of the silently-accepted
-population (0 of 48, Wilson 95 % upper limit 7.4 %, 23 unmeasurable and carried), which
-is the layer the refused corpus cannot reach by any method; and a second agent's whole
-evening of measurements was invisible until the lead thought to ask where it went. **One
-hit it as a block, the other would have hit it as a silence.**
+does not watch — **not to throttle it, and not to credit it**. One agent's whole evening
+of measurements was invisible until the lead thought to ask where it went: 0 modified,
+0 ahead, 0 changes under `src/`, while four fidelity controls, a driver and two fixes
+all existed. **Uncommittable by nature, not by misreading.**
+
+**A retraction belongs here, because the instance first reported alongside that shape
+was not one.** The campaign's only measurement of the silently-accepted population was
+said to have been stranded by this rule. **It was not.** The first paragraph of this
+file governs the case and says so before any rule does: *commit freely everywhere below
+the last hop, work in progress included.* A promotion gate was enforced against a WIP
+clone, by an agent who then reported the cost, and by a lead who accepted the framing
+without checking which hop the rule governed. **The cost was real and the cause was not
+the rule** — a substantive finding sat uncommitted through a day of branch rewrites,
+against a file that warns in its own words, naming two agents who already paid for it,
+that uncommitted work is the only thing a reset destroys.
+
+**Both parties retracted it themselves, unprompted, and ranked it above the defect they
+had reported an hour earlier**: the unreachable exception cost a lookup; this cost
+exposure.
 
 **That work is already excepted — the exception is a hundred lines below, under a
 different heading, and nobody found it.** See *"work that legitimately produces no
@@ -159,8 +172,10 @@ subject matter.*
 
 **Claim the exception in the commit message, naming what was established and where the
 harness lives.** Only the author knows whether work produced no repository change, so
-the claim is self-granted — but written in the branch it is visible and attributable
-forever, which a timestamp was not. **The architect failed to find this exception with
+the claim is self-granted. **Visibility is what makes self-granting acceptable, not the
+granter's discipline** (`vmsam-ci`): the clock failed because its input was a reflog only
+one machine held, while this claim is authored in the open, in the branch, attributable
+forever, and **falsifiable by anyone who reads the commit and the harness it names**. **The architect failed to find this exception with
 a grep while looking for it, one hour after publishing the rule that a grep against
 these hard-wrapped documents under-reports by construction.** A rule a hundred lines
 from the rule it excepts is a rule nobody holds.

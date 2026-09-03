@@ -107,6 +107,28 @@ Until the fabricated rule is conditioned on sameness, the concordance test is no
 optimisation but a guard: **not building a track the tag-blind rule would delete is
 the only thing keeping the variant.**
 
+## 4b. When the streams of one file disagree, refuse — owner's ruling
+
+**Ratified.** `SPEC_ZONE_A` defined the contract for a *track* and said nothing about
+a file carrying several. Faced with that silence an agent chose to **decline repair
+when a file's streams disagree**, knowing it was the cautious reading and that it cost
+yield, and reported that no rule had asked for it and no rule would have stopped the
+opposite choice. The owner has ruled the choice correct and it is now the rule:
+
+> **When there are two comparison audios and the method that would repair the
+> analogous audios diverges, do not merge — a divergence means there is a problem.**
+
+**The owner's documented case, and it carries an open verification.** In error 24 the
+two Japanese tracks are **250 ms apart**. That is attributed to a bug of the time which
+produced a drift of a few frames. **Whether that bug still exists has not been
+established, and establishing it is a task, not an assumption.** Until it is, a
+divergence between streams is exactly the signature that must not be merged over: the
+repair would be built on top of a defect rather than around it.
+
+Two files declined on this judgement do repair correctly with per-stream plans. **That
+is not an argument against the rule** — it is the yield the rule knowingly costs, and
+the owner has priced it.
+
 ## 5. Commentary tracks are not repaired — owner's ruling
 
 **No chimeric version of an audio track tagged as commentary.** Pass it through
@@ -172,10 +194,33 @@ An output whose tracks were rebuilt and which carries no such tag is a defect, n
 a detail: campaign 1 spent real work dating 67 outputs by mtime because nothing in
 them said what produced them.
 
-### The consumer that already exists
+### The consumer that already exists — and it is not a defect
 
 `keep_best_audio` prefers an untouched track over a fabricated one of the same
 language, before any codec rule applies — a FLAC assembled from three sources must
 not evict an intact AAC. The branch is already in place and inert: with the key
 absent everywhere, `.get()` returns `False` on both sides and the current behaviour
 is unchanged. It activates by itself the day the repair sets the key.
+
+**This was reported as the campaign's largest finding and the owner has ruled it a
+design intention. It is closed.** Measured first: `keep_best_audio` ranks on codec,
+channels, sample rate and bitrate, and alignment is not in the comparison — a master
+DTS 6ch at 1509 kbps beats a repaired E-AC-3 2ch at 224 kbps, so of 42 correctly
+repaired tracks only **12 could reach a file**, those whose language the master lacks.
+
+**The owner's answer: that is the point.**
+
+> **The repair exists to add languages in the cases where they are absent.**
+
+So twelve of forty-two is not a loss rate, it is the specification being met. A track
+whose language the master already carries has nothing to add, and the master's own
+recording is the better artefact — it is also the timeline everything else is measured
+against. **Do not "fix" this, and do not put alignment into the ranking.** The owner
+adds two facts that follow from it: **a chimeric VFQ is kept against a VFF** — a
+different dialect is not the same language for this purpose — and a chimeric audio is
+generally integrated **under the comparison language**.
+
+**What this changes for whoever reports next:** an observation of a repaired track
+losing to the master's own track is *the system working*, not evidence of a defect.
+That distinction was already made once here — observations consistent with a defect
+are not evidence of it — and this is the case it was made for.
