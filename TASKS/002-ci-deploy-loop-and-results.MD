@@ -155,10 +155,17 @@ mergeVideo.py:798  remove_not_compatible_video
 
 Stage 1 refused the pair, it was dropped, and with one file left the function
 raised. Recorded stage-1 evidence: **ten windows, ten delays spread over 421 s and
-flipping sign, mean fidelity 0.567.** Every delay is an exact multiple of 125 ms —
-the chromaprint frame — so **the instrument is not at fault**; the readings sit on
-the quantum and are consistent with the sign convention. **The refusal is correct:
-no constant offset exists.**
+flipping sign, mean fidelity 0.567.** Every delay is an exact multiple of this
+pair's correlation point size, so **the instrument is not at fault**; the readings
+sit on the quantum and are consistent with the sign convention. **The refusal is
+correct: no constant offset exists.**
+
+**Correction:** I first wrote "125 ms — the chromaprint frame", treating it as a
+constant. It is not. `audioCorrelation.py:132` computes it per call and dev-1
+measured it ranging **124–142 ms**, hitting exactly 125 only when the shortest audio
+runs **18.7–30.4 min** — their measurement, their band, carried unhardened. This
+pair's shorter file is 23.97 min, inside it, so 125 is right *here* and the
+conclusion stands on a narrower warrant. See `AGENT_NOTES.MD`.
 
 All five predicted points held, including the artefact being a `.log.error` rather
 than an mkv. **My stated reason for the refusal was wrong**, which matters more

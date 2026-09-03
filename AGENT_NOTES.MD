@@ -21,6 +21,40 @@ record.
 
 ---
 
+## 2026-09-03 — correction: I treated the 125 ms correlation point as a constant, and it is not
+
+**This supersedes the arithmetic, not the conclusion, of the baseline entry below.**
+Entries here are append-only, so the earlier text stands and this says what is wrong
+with it.
+
+I wrote that the ten stage-1 delays on error id 237 were "an exact multiple of
+125 ms — the chromaprint frame", and rested "the instrument is not at fault" on it.
+The observation was right and **the reason was not mine to assert**: I took
+"1 point = 125 ms" from `BRIEF_COMMON` and used it as a universal quantum.
+
+**dev-1 measured otherwise.** `audioCorrelation.py:132` computes the ms-per-point
+**per call** — `int(lengthFile/len(fingerprint_source)*1000)` — and the result
+ranges **124 to 142 ms**, reaching exactly 125 only when the shortest audio runs
+**18.7 to 30.4 minutes**. That is dev-1's measurement and their band; I carry it
+with their hedge, have not re-derived it, and do not restate it more strongly than
+they did.
+
+**Why the conclusion survives anyway.** This pair's shorter file is 1438.04 s =
+**23.97 min**, inside that band, so 125 ms is the expected point size *for this
+pair*. The delays do sit on the quantum and the instrument was behaving. What
+changes is the warrant: "this pair's point size is 125", not "125 is the quantum".
+
+**What it costs elsewhere, and this is the part worth keeping.** `BRIEF_COMMON`
+offers the 125 ms figure as the number that will save an hour, and says *"if a delay
+is not a multiple of 125, question the reading before you question the media"*. On
+dev-1's measurement that heuristic is only valid for pairs whose shorter audio falls
+in an 11.7-minute window — and a 47-minute double episode or a 12-minute short would
+have a different point size, so a perfectly good reading would be questioned for
+failing a test that does not apply to it. **A finding for the owner, not an edit:**
+the document is frozen and it is dev-1's measurement to report, not mine to
+generalise. Recorded here because I acted on the wrong version of it and someone
+else will.
+
 ## 2026-09-03 — the deploy loop's "wait ~10 min" becomes a checked precondition
 
 The documented loop warns that a hook fired before CI publishes the image re-pulls
@@ -103,8 +137,10 @@ key to the public payload is an owner decision. Recorded, not routed around.
 Error id 237 was queued as the campaign's baseline, before any change. It refused in
 ~30 s at `mergeVideo.py:798` — the code path zone A is being built into — with ten
 stage-1 delays spread over 421 s, flipping sign, at mean fidelity 0.567. Every delay
-is an exact multiple of 125 ms, so the instrument was behaving; there is simply no
-constant offset to find. **The refusal is correct.**
+is an exact multiple of this pair's correlation point size, so the instrument was
+behaving; there is simply no constant offset to find. **The refusal is correct.**
+(The point size is 125 ms **here** and is not a constant — see the correction entry
+below. My original note said "125 ms, the chromaprint frame" as though it were.)
 
 The reason is not any of the five families in `CAMPAIGN.MD`. **The file is a
 different television series from its folder's master** — verified by extracting
