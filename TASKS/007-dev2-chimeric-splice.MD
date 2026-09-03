@@ -477,9 +477,74 @@ twelve windows rather than any single strong reading; brackets are limited by a
 2 s step, not bisected; and nothing past 260 s was examined at this resolution, so
 this is not a claim that there are only two.
 
-**Not proposed as a repair target.** Its master carries jpn FLAC *and* eng FLAC
-while the candidate carries only jpn AAC, so a repair contributes nothing the
-master does not already have better. It would test the splice, not improve a file.
+**Run as a path test, at `vmsam-dev-1`'s request and labelled as one** — two
+change points with one in the head is structural coverage the id 266 result does
+not have, and the plan was built by hand from my own numbers while the splice is a
+different instrument, so neither could fail in the same direction as the other.
+
+| | |
+| :--- | :--- |
+| outcome | **repaired**, marker `chimeric` |
+| rebuilt | 1 audio (`aac`→`aac` @127 998), **5 subtitle tracks**, 0 declined, 0 failed |
+| gap fill | **master**, 14.411 s filled, 0 silence |
+| bitrate route | **"measured by a copy pass"** — the fourth fallback, exercised on a real file for the first time |
+| verification | **aligned, worst 2.8 ms**, 3 probes measured, 0 without signal |
+
+| probe | region | lag | corr |
+| ---: | :--- | ---: | ---: |
+| 17.5 s | **head segment** | +2.62 ms | 0.403 |
+| 92.3 s | the middle island | −0.12 ms | 0.977 |
+| 774.5 s | body | −2.75 ms | 0.585 |
+
+**The head probe is the whole point.** Under the previous ⅛-to-⅞ layout the first
+probe would have fallen near 178 s, past both change points, and the head segment
+would have gone unchecked on the one file built to exercise it. The low
+correlations at 17.5 s and 774.5 s are the outer plateaus of this pair, which my
+earlier profile measured at 0.32–0.65 against 0.79–0.94 on the island — consistent,
+and the lag is what the verification tests.
+
+**A correction to my own assessment.** I called 108 "a poor repair candidate,
+contributing nothing the master does not already have better", and predicted the
+rebuilt AAC would be evicted by the master's FLAC. The eviction happened and is
+correct — `Flac>AAC`, an intact lossless track beating a rebuilt lossy one. But
+**5 re-timed subtitle tracks carrying `VMSAM_FABRICATED` survived into the final
+file**, and the master did not have them. So the repair's contribution here is its
+subtitles, and I was wrong to say it contributes nothing. It is still not a file
+worth choosing as a repair target, and this is still a path test — but the reason
+I gave was too strong.
+
+### Is the "constant offset" population really constant? Zero of eleven are not
+
+`vmsam-ci` said of the head-island mode: *"any island entirely inside the head, or
+spanned by every window, lands in my constant buckets wrongly. I do not know how
+many; the record cannot tell me."* Answerable, with the error tree and a head
+profiler, so it was answered.
+
+Scanned `vmsam-forensic`'s eleven sixth-population ids over `[0, 280)` s — **from
+zero, not from the 120 s where the pipeline's windows begin** — with a 20 s window
+at 10 s steps and the same near-silence refusal the verifier now uses.
+
+**All eleven constant.** 26 or 27 usable windows each, correlations 0.95–0.97, ten
+at a single plateau of +84 to +85 ms and one at 0 ms with r = 1.000 throughout.
+No islands.
+
+Two things fall out that are worth more than the headline:
+
+- **+84.5 ms is below one chromaprint point**, so stage 1 reads those pairs as
+  *zero* points — perfectly aligned — when they are about two video frames out. Not
+  a refusal cause and not a defect in any instrument, but a real offset the
+  pipeline is structurally unable to see, on ten files.
+- **id 24 reads 0.0 ms at r = 1.000 on all 27 windows.** That is not "well
+  aligned", it is *the same audio* — a candidate contributing nothing at all.
+
+**Hedges, because a negative result is easy to over-read.** Eleven of the
+twenty-four — the ones whose refusal cause was already measured, not the thirteen
+sharing only the symptom. Only `[0, 280)` s, so an island later in the file spanned
+by every window stays as invisible to this as to anything else. One instrument.
+And ten of the eleven are one show, so this is nearer two observations than
+eleven. The honest statement is *the head-island mode is real, demonstrated on one
+file, and absent from the eleven where it could most plausibly have hidden* — not
+"the buckets are clean".
 
 ### Findings that are not mine to fix
 
