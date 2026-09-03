@@ -21,6 +21,62 @@ record.
 
 ---
 
+## 2026-09-03 — the stage-1 record is structurally blind to the first ~227 s of every episode
+
+dev-1's computation, checked against my parse of all 315 logs. **The most
+consequential structural finding of the day, and it invalidates a class of
+conclusion rather than a number.**
+
+The ten-window geometry starts at `begin_in_second` = 120 s and each window is twice
+the spacing. A step is visible only if some window is majority-pre-change while the
+next is majority-post — which requires `T > begin + L/2`:
+
+| shortest audio | first visible change point |
+| ---: | ---: |
+| 1195.7 s | **206.0 s** |
+| 1420.1 s | **227.0 s** |
+| 2545.5 s | **329.0 s** |
+
+So the first ~227 seconds of a 24-minute episode are **structurally invisible** to
+stage 1 — the 120 s before any window starts, plus the first half of window 0. **A
+trimmed head is precisely a change point near the start.**
+
+**Checked in the records**, parsing all 315 stage-1 matrices with window order kept:
+
+```
+294  step somewhere in the body (fully visible)
+  4  flat, no step visible at all
+  2  WINDOW 0 ONLY differs from a constant rest
+  1  last window only differs
+```
+
+**Two files corpus-wide** show the head-step signature. That is implausibly few for a
+family another agent measures at ~10 % — and the reason is that the signature mostly
+*cannot appear*.
+
+**The decisive detail.** The three files whose head steps were independently measured
+(501, 750, 861 ms) appear **nowhere** in that count, because their logs carry **no
+stage-1 matrix at all**: they were refused at stage 2, so the dump was never written.
+Their step is visible only in the stage-2 residual's window 0.
+
+**The consequence, and it is the reusable part:** *any corpus classification built on
+the stage-1 delay matrix inherits a blind spot over the head of every episode.* Mine
+did. It cannot be fixed by reading the record more carefully, because the record does
+not contain the information. Only an instrument with its own geometry — a probe grid,
+a bisection — can see these.
+
+**Stated as a hypothesis, not a result:** this would undercount *trimmed edges*
+specifically, by construction rather than by chance, which is the direction of the one
+gap another agent flagged as uninvestigated. **I have not counted how many trimmed
+heads exist and cannot**, from a record that structurally cannot show them — which is
+the whole point. The direction is explained; the magnitude is not.
+
+**Why this entry exists rather than a number:** I spent the day building
+classifications on that record, and three separate findings of mine rested on it. The
+finding is not "the count is wrong" but "a whole region of every file was never
+sampled, and nothing in the record says so." A reader who trusts the matrix has no way
+to discover that from the matrix.
+
 ## 2026-09-03 — CORRECTION: the "one bad window" reading was wrong. The outliers are real steps.
 
 **This supersedes the stage-2 entry below, and the remedy I endorsed would have

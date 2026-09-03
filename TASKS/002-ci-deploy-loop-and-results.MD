@@ -607,6 +607,36 @@ established for one file, symptom shared by three, cause of the other two unknow
 
 `mergeVideo.py:582–594`, outside every tagged zone — **a finding for the owner.**
 
+### Goal 3m — the stage-1 record is structurally blind to the head of every episode
+
+The ten-window geometry starts at 120 s and each window is twice the spacing, so a
+step is visible only if `T > begin + L/2`. First visible change point: **206 s** for a
+20-minute audio track, **227 s** for a 24-minute one, **329 s** for a 42-minute one.
+**The head of every episode is never sampled** — and a trimmed head is exactly a
+change point near the start.
+
+Checked against all 315 stage-1 matrices with window order preserved: **294** show a
+step in the body, **2** show the head-step signature, 4 are flat, 1 is a tail step.
+Two corpus-wide is implausibly few for a family measured elsewhere at ~10 %, and the
+reason is that the signature mostly cannot appear.
+
+**Decisive:** the three files whose head steps were independently measured (501, 750,
+861 ms, agreed by up to four instruments) appear **nowhere** in that count, because
+their logs carry **no stage-1 matrix at all** — refused at stage 2, so the dump was
+never written. Their step survives only in the stage-2 residual's window 0.
+
+**Consequence:** any corpus classification built on the stage-1 matrix inherits this
+blind spot. Mine did. It cannot be fixed by reading the record more carefully, because
+the record does not contain the information — only an instrument with its own geometry
+can see these files.
+
+**Hypothesis, not result:** this would undercount *trimmed edges* specifically, by
+construction, which is the direction of the one family gap another agent flagged as
+uninvestigated. **I have not counted how many trimmed heads exist and cannot**, from a
+record that structurally cannot show them. Direction explained; magnitude not.
+
+Geometry is `video.generate_begin_and_length_by_segment` — frozen. **A finding.**
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
