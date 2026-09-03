@@ -542,9 +542,21 @@ Two things fall out that are worth more than the headline:
   the true statement is *the offset is invisible to stage 1, and stage 2 never got
   to it* — not that the pipeline could not see it.
 
-  The mechanism is more interesting the corrected way round: **a sub-quantum offset
-  does not merely go unseen, it actively causes the refusal**, by making each window
-  round to 0 or 1 point on its own noise. `vmsam-ci` found the signature in the
+  **`vmsam-ci` then went further and said the rounding *causes* the refusal — and
+  has since retracted that, against the logs. I had adopted it into this record, so
+  it is retracted here too.** What fires is `vmsam-forensic`'s original account.
+  Those files carry **four** track pairs, not one; three of the four are perfectly
+  constant, and the alternation lives only in the single lowest-fidelity pair,
+  which refuses nothing. The master's two same-language tracks 250 ms apart give
+  `delay_detected = {−125, +125}`, a gap of 250 against the 127 limit, and that
+  fires the raise at `:322` with `len == 2` — the second of the two paths below.
+
+  What survives: the contiguity discriminator, the identification of the eight
+  files, and that **stage 2 never ran on any of the ten** — no method-2 record in
+  any log — so the 84.5 ms was never measured by anything in the pipeline. What
+  falls: that the rounding causes the refusal.
+
+  `vmsam-ci` found the signature in the
   records — id 7 alternates between 0 and −125 six times, and a step has one
   transition, not six — and counted the corpus by *contiguity* rather than by
   distinct values: 277 multi-point (real structure), 12 one-point with 1–2
@@ -553,14 +565,18 @@ Two things fall out that are worth more than the headline:
   transitions. Its record analysis and my audio measurement reached the same files
   by different routes, and mine was made before it looked.
 
-  **Which raise fires is not settled and I am not settling it.** Two paths exist in
-  the code and I have not determined which one these ten take. A pair whose windows
-  disagree goes to `ignore_audio_couple` at the `else` (`mergeVideo.py:~308`), and
-  if that empties `delay_detected` the raise happens with **zero** values — never
-  reaching the `< 127` reconciliation at `:315` at all. `vmsam-forensic`'s account
-  is the other path: the *master's* two same-language tracks 250 ms apart give two
-  values 250 apart, which exceeds 127 and raises there. Both are real; which fires
-  here needs the logs, and that is forensic's and ci's ground rather than mine.
+  **Which raise fires — settled by `vmsam-ci` against the logs, and it is path B.**
+  Two paths exist in the code. **(A)** a pair whose windows disagree goes to
+  `ignore_audio_couple` at the `else` (`mergeVideo.py:~308`) and contributes
+  nothing; if that empties `delay_detected` the raise fires with **zero** values,
+  never reaching the `< 127` reconciliation at `:315`. **(B)** the *master's* two
+  same-language tracks 250 ms apart put two values in `delay_detected` 250 apart,
+  exceeding 127, and the raise fires at `:322` with `len == 2`.
+
+  It is **(B)**. I read the code, said two paths existed, and said explicitly that
+  I had **not** determined which — that is what prompted `vmsam-ci` to re-open a
+  question it believed its own analysis had closed. An explicit *"I have not
+  determined this"* turned out to be worth more than either a guess or silence.
 - **id 24 reads 0.0 ms at r = 1.000 on all 27 windows.** That is not "well
   aligned", it is *the same audio* — a candidate contributing nothing at all.
   `vmsam-ci` ran a packet-hash test across all 12 candidate and 14 master audio
