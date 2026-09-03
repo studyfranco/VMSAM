@@ -788,13 +788,48 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
         """
         BEGIN: AGENT modification ok
         """
-
-
+        # La reparation a lieu ICI, au moment du refus, contre best_video --
+        # pas avant le merge, pas pendant (SPEC_ZONE_A.MD s1). Elle tourne avant
+        # la boucle de suppression ci-dessous, tant que dict_file_path_obj tient
+        # encore les objets video des fichiers refuses.
+        #
+        # Import tardif, et non en tete de module: le tete de mergeVideo.py est
+        # hors zone taguee. Effet de bord voulu -- un deploiement partiel ou le
+        # module manque ne peut pas empecher le demarrage.
+        #
+        # Le except est etroit par sa portee, pas par son type: la reparation est
+        # une capacite fermee par defaut, greffee sur un chemin qui allait de
+        # toute facon rejeter le fichier. Elle n'a pas le droit de faire tomber
+        # un merge qui marchait. Elle inscrit elle-meme laquelle de ses cinq
+        # issues s'est produite, par fichier, dans tools.logs.
+        repaired_videos = []
+        try:
+            import merge_video_repair
+            repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video)
+        except Exception as e:
+            sys.stderr.write(f"The repair raised and was abandoned: {e}\n")
+            tools.logs.append(f"The repair raised and was abandoned: {e}\n")
         not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:
                 del dict_file_path_obj[not_compatible_video]
-        if len(dict_file_path_obj) < 2:
+        # `len(dict_file_path_obj) < 2` seul rendait la reparation INATTEIGNABLE
+        # sur le chemin qui la justifie. fusion.py:286 appelle merge_videos avec
+        # DEUX fichiers -- le maitre et le fichier en erreur. Le refus en retire
+        # un, il en reste un, et cette ligne levait juste apres que la
+        # reparation ait raccroche son objet. C'est exactement la forme du
+        # defaut de la campagne 1: du code ecrit, relu, teste vert, que rien
+        # n'atteint jamais.
+        #
+        # Un objet repare rend le merge utile a lui seul: il est accroche a
+        # best_video.sameAudioMD5UseForCalculation et
+        # generate_launch_merge_command le consomme sans passer par la
+        # machinerie de delai. Verifie: avec dict_file_path_obj a une entree,
+        # dict_with_video_quality_logic vaut {maitre:{}}, set_bad_video est
+        # vide, best_video est bien le maitre, et la boucle
+        # sameAudioMD5UseForCalculation (mergeVideo.py:1780) ajoute la piste
+        # reparee.
+        if len(dict_file_path_obj) < 2 and not len(repaired_videos):
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
         """
         END: AGENT modification
