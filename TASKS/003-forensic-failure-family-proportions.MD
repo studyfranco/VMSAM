@@ -254,9 +254,30 @@ so the discriminator is calibrated on one confirmed positive, not on a populatio
   `weak correlation` files is the test; it is running and unfinished.
 - **The corpus-wide misfiled-content count.** Corroborated in folder 103 only; 37
   folders unchecked by ci and not yet swept by me.
-- **Why 13 of the 24 `constant offset` files were refused.** Only 11 have the
-  two-track mechanism shown; the other 13 have a single measured pair and share only
-  the symptom.
+- ~~Why 13 of the 24 `constant offset` files were refused.~~ **ANSWERED.** 17 of the 22
+  now have a measured mechanism and all of it is inter-track or per-language divergence:
+  11 master-side, 4 with a constant split between language groups (id 22 measured across
+  all TEN shared languages -- eight at -124.3 ms, eng and jpn at -0.3 ms, every language
+  individually flat to 0.0 ms), and 2 where one language steps mid-file (id 100's jpn
+  steps +124 ms at t~790-850 s, exactly where the pipeline saw it). The refusal path:
+  two pairs one quantum apart -> adjuster_chroma_bugged runs stage 2 at their mean ->
+  bimodal residual ~132 ms wide -> variance 4.2-4.6e-3 just over the 0.004 threshold.
+  sqrt(0.004) = 63.25 ms, so the gate passes clusters closer than 126.5 ms while the
+  ambiguity it arbitrates is one 124-125 ms quantum: **it sits 1.5 ms above the thing it
+  exists to resolve.** This is CAMPAIGN.MD's own per-language open question firing as an
+  outright refusal. All five that kept the old label are now measured too: **318, 319, 320** are a clean constant
+-501 ms (18/18 probes) refused because their quantum is **138 ms** on a 191 s file while the
+reconciliation window at mergeVideo.py:315 is the literal `< 127` -- a one-quantum jitter
+refused without an attempt at reconciliation, and corroboration of dev-1's 124-142 ms range at
+its upper end. **id 5** is not a constant offset at all: three change points, range 60.4 s,
+reclassified `different cuts`. **id 71** is constant at 0.0 ms; its 248 ms range is an
+ALTERNATING +124/-124 region, which is ci's discriminator (a real step has one transition,
+rounding alternates) -- the pipeline's 220 s windows turn that alternation into an apparent
+step. **Unexplained is now 5 of 315 (1.6 %): 112, 693 (instrument did not run), 196, 307
+(partial overlap), 45 (unclassifiable).**
+- **A limitation of my own profiler, found by this:** it tests ONE language pair per file
+  (`common[0]` in master order). Every "positively flat" verdict was flat on one of up to
+  ten languages, and silent about the rest.
 - **What ffmpeg failed on for error ids 112 and 693.** Both files' media probe fine
   under ffprobe 9.0.1 here, so the failure was in the pipeline's environment rather
   than necessarily in the file — but which, I have not shown. Recorded as *the
