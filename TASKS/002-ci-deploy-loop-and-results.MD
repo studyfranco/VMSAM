@@ -430,6 +430,39 @@ defect was real and its effect on the published numbers was nil. It did explain 
 can hold comparisons at different window geometries, so a folder containing a
 short release yields two different quanta in the same file.
 
+### Goal 3g — correction: two visual verifications withdrawn, and a third family
+
+I supplied nine visual verifications to another agent as ground truth. **Two were
+wrong**, both the same way, and were caught because that agent challenged rather
+than adopted them.
+
+I had recorded one verification as *"the same scenes moments apart"* — scene-level —
+and another as *"same setting and character designs"* — **series-level, which holds
+for any episode of that show** — and treated them as equally strong. Both were
+written down as the word "same".
+
+Re-tested by extracting the candidate at three timestamps and the master at **both**
+alignments the other agent's audio had matched: **not one scene matched at either.**
+Same series, different episode. A second file behaved identically.
+
+**This names a third family.** Both files sit in one folder at consecutive episodes:
+wrong **series** filed into a folder (26 entries), wrong series with a lying filename
+(1), and **right series with the wrong EPISODE paired** (2 verified). The third is
+invisible to every instrument built this campaign — names, series and character
+designs all match, and only the scenes and dialogue audio disagree. A *theme-only*
+audio signature (shared opening/ending music, zero dialogue correlation) is the
+sharpest detector for it.
+
+It belongs with misfiled content, not weak correlation: no constant offset exists,
+no repair can succeed, and an apparent success would splice **the wrong episode**
+into the library. How many more exist is **unmeasured** — two verified, no sweep.
+
+**The rule this produces:** record a verdict's **evidence level** beside its
+conclusion, not just the conclusion. "Same series" and "same scene" are different
+claims; written as "same" they are indistinguishable a day later, including to their
+author. This is the one instrument failure of the day that was judgement rather than
+code.
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four

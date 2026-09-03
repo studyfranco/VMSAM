@@ -21,6 +21,57 @@ record.
 
 ---
 
+## 2026-09-03 — correction: two of my visual verifications were wrong, and "same" hid the reason
+
+I gave another agent nine visual verifications as ground truth for their classifier.
+**Two were wrong.** They challenged them instead of adopting them, which is the only
+reason it was caught.
+
+**The error.** For one file I had written *"the same scenes moments apart, an
+elevator interior in both, the same character against the same background"* —
+**scene-level**, and unambiguous. For another I wrote *"same setting and character
+designs across three timestamps"* — **series-level**, which holds for *any* episode
+of that show. I gave the two the same weight. Both came out as the word **"same"**.
+
+Re-tested by extracting the candidate at three timestamps and the master at **both**
+alignments the other agent's audio had matched: **not one scene matched at either**.
+Same series, different episode. A second file behaved identically.
+
+**A third family, previously unnamed.** Both files are the same folder, consecutive
+episodes:
+
+| what is wrong | |
+| :--- | ---: |
+| wrong **series** filed into a folder | 26 |
+| wrong **series**, filename also lies | 1 |
+| **right series, wrong EPISODE paired** | 2 verified |
+
+*Same series, different episode* is invisible to every instrument built this
+campaign: the names match, the series matches, the character designs match. Only the
+scenes and the dialogue audio disagree. The other agent's **theme-only** signature —
+shared opening and ending music with zero dialogue correlation — is the sharpest
+detector anyone has for it, because that is exactly what two episodes of one series
+look like.
+
+**Why it belongs with misfiled content and not with weak correlation:** no constant
+offset exists, no repair can succeed, and a repair that appeared to succeed would
+splice **the wrong episode** into the library. *Weak correlation* means same content
+that is hard to correlate — the opposite handling. How many more exist is
+**unmeasured**; two are verified and nothing has swept for the pattern.
+
+**The decision this produces**, and it is the one instrument failure today that was
+my own judgement rather than code:
+
+> **Record a verdict's evidence LEVEL beside its conclusion, not just the
+> conclusion.** "Same series" and "same scene" are different claims. Written down as
+> "same", they are indistinguishable a day later — including to the person who wrote
+> them.
+
+Had each verification been labelled `scene-level` or `series-level` when it was
+made, the weak ones would have been visible without anyone having to challenge them.
+The other agent's classifier scores 9 of 9 against the corrected set; both
+"conflicts" were mine.
+
 ## 2026-09-03 — a correct observation generalised one step too far deleted the instrument that would have caught the next error
 
 The sharpest failure mode any of us hit today, and the hardest to see, because the
