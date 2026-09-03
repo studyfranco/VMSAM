@@ -124,3 +124,61 @@ def describe(source_rate, speed_ratio, duration_ms):
             "filter": chain,
             "residual_drift_ms": str(get_drift_after_correction_ms(
                 effective, speed_ratio, duration_ms))}
+
+def iter_audio_dicts(video_obj):
+    """Toutes les pistes audio de l'objet, dans l'ordre du conteneur."""
+    audios = []
+    for holder in (video_obj.audios, video_obj.commentary, video_obj.audiodesc):
+        for language, tracks in holder.items():
+            for audio in tracks:
+                audios.append(audio)
+    return sorted(audios, key=lambda a: int(a["StreamOrder"]))
+
+
+def build_resampled_candidate(candidate_obj, speed_ratio, out_path, timeout=3600):
+    '''Le candidat ENTIER avec son audio deja reechantillonne, ecrit comme fichier.
+
+    POURQUOI CETTE FONCTION EXISTE. La mesure ne peut pas produire de plan sur
+    la paire d'ORIGINE: a 4.27 % le correlateur s'effondre, ce qui est
+    exactement pourquoi les pas de coupe du dossier 110 sont restes invisibles
+    jusqu'au 2026-09-03. L'ordre pour un fichier a relation de vitesse est donc
+    reechantillonner, PUIS localiser, PUIS assembler -- et localiser demande un
+    FICHIER, pas un graphe de filtres interne. `vmsam-dev-1` prend celui-ci
+    comme candidat et son module ne change pas.
+
+    Video et sous-titres sont COPIES: seul l'audio subit la relation, et le
+    reechantillonnage se fait en FLAC pour ne pas ajouter une generation de
+    codec a une mesure. Les etiquettes de langue survivent par `-map 0`.
+
+    Renvoie (chemin, facteur applique, liste des pistes vues).
+    '''
+    audios = iter_audio_dicts(candidate_obj)
+    if not len(audios):
+        raise resample_error("the candidate carries no audio track to resample")
+    command = [tools.software["ffmpeg"], "-y", "-nostdin",
+               "-analyzeduration", "1000M", "-probesize", "1000M",
+               "-i", candidate_obj.filePath, "-map", "0",
+               "-c", "copy", "-c:a", "flac"]
+    applied = None
+    seen = []
+    for index, audio in enumerate(audios):
+        rate = audio.get("SamplingRate")
+        if rate == None:
+            raise resample_error(
+                f"stream {audio.get('StreamOrder')} has no sampling rate: "
+                f"the applied factor could not be stated for it")
+        chain, effective, _, _ = build_speed_filter_chain(rate, speed_ratio)
+        # Le facteur EFFECTIF depend de la frequence source, donc deux pistes a
+        # des frequences differentes ne subissent pas exactement le meme
+        # coefficient. On le dit plutot que d'en écrire un seul.
+        if applied == None:
+            applied = effective
+        elif effective != applied:
+            applied = None if applied == "mixed" else "mixed"
+        command.extend([f"-filter:a:{index}", chain])
+        seen.append({"stream_order": int(audio["StreamOrder"]),
+                     "sampling_rate": str(rate),
+                     "applied_factor": format_factor(effective)})
+    command.append(out_path)
+    tools.launch_cmdExt_with_timeout_reload(command, 2, timeout)
+    return out_path, applied, seen

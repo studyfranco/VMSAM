@@ -784,20 +784,23 @@ def choose_probe_positions(pieces, window_seconds):
     by_length = sorted(indexed, key=lambda x: x[1]["master_end_ms"] - x[1]["master_start_ms"],
                        reverse=True)
     by_position = sorted(indexed, key=lambda x: x[1]["master_start_ms"])
-    if len(indexed) == 1:
-        chosen = indexed
-    else:
-        # La PREMIERE et la DERNIERE tranche d'abord, puis les plus longues.
-        # Trier par longueur seule ecarte une tranche de tete courte, qui est
-        # justement celle qu'un pas pres du debut produit.
-        chosen = [by_position[0], by_position[-1]]
-        for item in by_length:
-            if len(chosen) >= verify_max_probes:
-                break
-            if item not in chosen:
-                chosen.append(item)
+    # TOUTES les tranches, pas les quatre plus longues. Une tranche COURTE est
+    # precisement celle dont le decalage n'a pas pu etre mesure proprement: la
+    # mesure sonde sur une fenetre de 60 s, donc une tranche plus courte que
+    # cela ne contient aucune sonde propre et son decalage vient d'un pic
+    # DEPLACE. Mesure de vmsam-dev-1 sur l'erreur 266: une tranche de 29 s a
+    # porte un decalage faux de 168 ms, emis sans drapeau.
+    #
+    # L'ancienne selection -- premiere, derniere, puis les plus longues jusqu'a
+    # quatre -- pouvait sauter une tranche courte AU MILIEU, c'est-a-dire
+    # exactement celle qui risque d'etre fausse. Sauter la plus suspecte pour
+    # sonder deux fois la plus sure est un controle qui ne peut pas echouer.
+    chosen = by_position
 
-    per_piece = max(2, verify_max_probes // max(1, len(chosen)))
+    # deux sondes par tranche quand elle est assez longue pour en porter deux --
+    # c'est le desaccord ENTRE elles qui revele une frontiere non modelisee --
+    # et une seule sinon, qui reste une borne plutot qu'une mesure.
+    per_piece = 2
     positions = []
     for index, piece in chosen:
         span = piece["master_end_ms"] - piece["master_start_ms"] - window_ms
@@ -939,11 +942,23 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
         if len(inconsistent):
             detail = "; ".join(f"piece {c['piece']} probes disagree by "
                                f"{c['spread_ms']:.1f} ms {c['lags_ms']}" for c in inconsistent)
-            raise chimeric_error(
+            # LE REFUS EMPORTE SES MESURES. Sans cela, la seule chose qui
+            # survit d'un declin est une phrase: les sondes qui l'expliquent --
+            # morceau, position maitre, lag, correlation -- sont construites
+            # puis jetees. `vmsam-dev-1` a demande ces quatre nombres pour
+            # localiser un facteur 23 entre son plan et ma mesure, et il a fallu
+            # rejouer le fichier pour les produire. Un refus qui ne peut pas
+            # etre diagnostique coute plus cher que le refus lui-meme.
+            error = chimeric_error(
                 f"the plan says one alignment holds across a piece and the track "
                 f"says otherwise: {detail}. That is a change point the measurement "
                 f"missed, not a splice error -- the track may be correctly aligned "
                 f"on both sides of a boundary nobody modelled")
+            error.verification = results + [
+                {"track": report["stream_order"], "language": language,
+                 "outcome": "inconsistent", "inconsistent": inconsistent,
+                 "probes": probes}]
+            raise error
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
                         "outcome": outcome, "worst_lag_ms": worst,
@@ -956,9 +971,11 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     if len(misaligned):
         detail = "; ".join(f"track {r['track']} ({r['language']}) off by "
                            f"{r['worst_lag_ms']:.1f} ms" for r in misaligned)
-        raise chimeric_error(
+        error = chimeric_error(
             f"the rebuilt track is not on the master's timeline: {detail}. "
             f"Tolerance {tolerance_ms} ms. The plan is wrong, not the splice: a "
             f"uniform offset means the base offset carries the wrong sign, and a "
             f"residual that changes at a change point means a step was missed")
+        error.verification = results
+        raise error
     return results

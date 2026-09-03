@@ -21,6 +21,139 @@ record.
 
 ---
 
+## 2026-09-03 — pHash IS resolution-independent, and both my corpus controls for 010 were the wrong controls
+
+Two results from `TASKS/010`, the second more useful than the first.
+
+### The `CAMPAIGN.MD` open question, answered
+
+*"nor how it behaves between sources of different resolution"* — measured, before
+any cross-resolution result was trusted. One source at three heights, frames hashed
+by `frame_compare`'s own front end (32x32 grey, 64-bit DCT pHash), 200 frames each:
+
+| | mean Hamming /64 | max |
+| :--- | ---: | ---: |
+| 1080 vs 720 | **0.46** | 4 |
+| 1080 vs 480 | **0.61** | 4 |
+| control, self vs self | **0.00** | 0 |
+| control, vs shuffled frames of the same programme | **28.69** | — |
+
+**Resolution-independent to within 0.61 bits of 64 across a 2.25x scale change**,
+against ~29 for unrelated content — a separation of about 47x, so a threshold
+anywhere between 4 and 28 works and the choice is not delicate. Both controls
+fired. **Limits:** 480p is the lowest tested; all three arms are one encode
+re-scaled, so this measures the scale part and not codec differences on top.
+
+### Both controls I chose from the corpus were wrong, and running them is what showed it
+
+**id 108 as a positive control found nothing** — median distance 2.0, zero points
+over threshold. Two reasons, both mine. `SEARCH=6` frames at 10 fps is ±0.6 s of
+slack against a 503 ms island, so **the search absorbed exactly the structure it
+was meant to detect** — a control that cannot fail, in my own harness, for the
+second time today. And worse: **108 was never a control for modality blindness at
+all.** Its island is a *timing* difference and it is audio-visible; my own locator
+finds both transitions. I picked a control for the wrong blind spot, and a null
+result would have been indistinguishable from a broken instrument.
+
+**id 266 as a negative control was mislabelled.** It has four real change points,
+so one constant offset cannot align it and high video distance is *correct*.
+
+### The control that works had to be constructed, and that is not a weakness
+
+A pair whose video differs while its audio does not is **precisely what the run is
+hunting**, so no corpus example can be known in advance. Constructed: 120 s of real
+video with **video 40-60 s replaced and the audio left untouched**, verified
+**byte-identical** by `cmp` on decoded PCM — so the audio path cannot see it.
+
+| | |
+| :--- | :--- |
+| audio offset measured | **-0.00 ms** |
+| coverage | [0.0, 118.0], 20/20 readable |
+| median distance | **0.0** |
+| over threshold | **43, 49, 55 s — 3/3 inside the planted [40, 60]**, distance 26-31 |
+
+Detected at both `SEARCH=6` and `SEARCH=2`, so it does not rest on the slack.
+
+**This is the fixture rule pointing the other way.** All day the lesson has been
+that a constructed fixture proves less than a real one. Here the reverse holds: for
+a blind spot defined by *nobody having seen an instance*, the constructed case is
+the only one whose answer is known before the run, and the corpus cases are the
+ones that cannot serve as controls.
+
+### On waits, and a document that named the wrong consequence
+
+I wedged ten shells on `until ! pgrep -f <script>` — the pattern matches the shell
+running the loop, so the predicate can never become false. `COMING_BACK.MD` §3
+already warns that `pgrep -f` matches its own shell, and I had read it. It warns
+against **misreading** the answer; the failure that costs hours is **blocking** on
+it. A rule that names a defect by the wrong consequence inoculates the reader
+against noticing the right one.
+
+The general form, which covers `ci`'s six-hour wait on a file whose producer had
+died and which my version would not have prevented: **a wait needs a timeout, and a
+check that the thing it waits for can still happen.** Wait on a handle you own —
+`kill -0 $PID` on a pid you captured — never on a name, a pattern, or a file
+someone else produces; bound it; report the timeout as an outcome distinct from
+success; and print progress, because a silent wait and a dead wait look identical.
+## 2026-09-03 — "repaired" is not one thing, and the corpus says so where two exemplars did not
+
+The splice was validated on ids 266 and 108, which land within ~1 ms of the
+master. Over the first twelve repaired files of the corpus sweep the worst lag
+runs **1.50, 5.88, 10.62, 17.50, 21.00, 24.25, 32.62, 33.00, 52.38, 61.25, 63.25,
+65.00 ms** — median 27, top three at one and a half video frames. Every one is
+inside the 100 ms tolerance, so every one counts as `repaired`.
+
+**Decision: the tolerance is not moved.** It is the only thing standing between
+`repaired` and `damaged`, and adjusting it after seeing the distribution destroys
+the distinction the sweep exists to measure. Its value was derived before any of
+this from measured spread — correct plans 0.5–2.8 ms, a missed change point
+503 ms, an inverted sign 16 146 ms — and that derivation does not change because
+the corpus is untidier than the exemplars.
+
+*Why the exemplars misled:* they were screened for cleanliness before being
+chosen. A sample selected for being easy to measure tells you what the method does
+at its best, not what it does.
+
+**Second decision: report master fill as a column beside the count.** Measured
+over the same twelve: median **8.4 %** of the produced track is master content,
+min 1.2 %, max **43.9 %**. Zero files where the master supplies more than half. A
+file at 1.2 % and a file at 43.9 % are both `repaired` and they are not the same
+result, and a count that hides that is a count nobody can act on.
+
+*Why no threshold:* no measurement justifies one. Inventing a cutoff here is the
+defect `SPEC_ZONE_A.MD` §3 records about `get_less_channel_number` fabricating
+`"2"` and `"44100"` — a plausible number is indistinguishable from a measured one
+downstream. The distribution is reported; the owner can set a cutoff against it,
+and cannot un-see a number never reported.
+
+## 2026-09-03 — the fast path failed nine times and only the log knew
+
+`audio_sync`, the Rust stage-2 binary, returned `empty input for correlation` nine
+times during the sweep. All nine on **one** file, id 49 — not nine files.
+`audioCorrelation.py:262-280` catches it and falls through to the Python
+implementation, so a measurement was produced every time and no repair was built
+on nothing. `AGENT.MD` is explicit that the Rust rewrite buys memory, not
+accuracy, so the fallback answer is the same answer more slowly.
+
+**The finding is not the failure, it is its invisibility.** A bare
+`except Exception` treats a genuine binary fault and a transient identically, and
+the only record either leaves is one stderr line — on a stream both this agent and
+the Lead had classified as instrument chatter when the sweep was set up. Nine
+failures, invisible to every consumer.
+
+*What was nearly concluded instead:* that a repaired track had been built where
+stage 2 gave nothing. That would have been the most serious finding of the sweep
+and it is false. It came from an attribution error of mine — an `awk` that named
+the last result line printed, when results print *after* a file completes, so it
+named the previous file. Checking the line numbers rather than trusting the
+attribution is what corrected it.
+
+*The real lead is the file, not the binary.* id 49's candidate runs 918.4 s
+against a 1452.4 s master — **534 seconds, 37 % missing** — with nine E-AC-3
+master tracks against one candidate track. It is the only file of the fourteen
+shaped like that, and it is classified `different cuts`. Relayed to
+`vmsam-forensic`, whose classification it bears on.
+
 ## 2026-09-03 — 006 is green on committed code, and the 26.6% it leaves behind is my defect
 
 `vmsam-dev-2` ran error id 266 through `change_point_locator` on committed code —
@@ -2573,3 +2706,77 @@ would have put the two processes' locks in different trees, silently, while
 Write zones were declared and the first tags placed. The rule that governs them —
 *a unit test cannot tell you that nothing calls the unit* — comes from campaign 1
 shipping five pieces of code that were reviewed, tested green, and never called.
+
+---
+
+## 2026-09-03 — the locator has been checked against an instrument that shares nothing with it, and it agreed to 8 ms
+
+`TASKS/010` set out to bound the audio path's blind spot with a video instrument.
+It produced something better than the bound, and the reason is worth more than the
+number.
+
+### The two files, and the agreement
+
+Both were drawn from a list of files the deployed audio path called *flat*. A
+pHash video probe, aimed by an audio offset and scanned +/-40 s for the delta that
+best matches, said content was displaced by multiple seconds over part of each
+file. `change_point_locator` was then run on the same pairs, blind to that:
+
+| | video says | locator says | apart |
+| :--- | :--- | :--- | ---: |
+| **id 144** | +5.00 s over [75.7, 605.5], delta 0 at 908.2 and 1210.9 | one change point, step **-5008.01 ms**, T in [600, 700] s | **8 ms** |
+| **id 151** | -5.00 s from 833.1 on, delta 0 at 302.9 | one change point, step **-5004.82 ms**, T in [760, 860] s | **5 ms** |
+
+In both cases the video's boundary between clean and displaced positions falls
+**inside** the locator's bracket, and the video's first clean point falls before it.
+The magnitudes agree to 8 ms and 5 ms against a video resolution of 500 ms.
+
+### Why this is the check the locator never had
+
+Everything that has validated the locator until now shared its physics: a
+chromaprint offset checked against another chromaprint offset, a plan checked
+against a target built from that plan. That is the control-that-cannot-fail, and
+this campaign has now found nine of them.
+
+**pHash on decoded video frames shares no code, no library, no signal and no
+failure mode with a chromaprint correlator on PCM.** For the two instruments to
+land 8 ms apart on a 5-second displacement by coincidence is not a thing that
+happens. This is ground truth that exists independently of the thing being tested,
+which is the only cure this campaign has found for that defect.
+
+### What 010's deliverable turned into, and why the original one is void
+
+The blind-spot rate cannot be computed and I am not going to report one.
+`vmsam-ci` has retracted the `flat` labels the sample was drawn from: its first
+scan searched +/-3000 ms, 64 of 100 files have a true offset outside that window,
+and **a correlator whose true peak lies outside its search span saturates at the
+edge and returns the same wrong value on every probe** — which is indistinguishable
+from a flat file by every summary statistic. Its eligible-flat count is now zero,
+not the ~27 the artefact produced.
+
+So the denominator is void. **What survives is not weaker than what was planned, it
+is differently aimed**: the sample was arbitrary, but the comparison inside each
+file is self-contained, and it validates the locator rather than bounding the path.
+
+### Three instrument defects found by their own controls, all in one afternoon
+
+1. **My verdict rule had no failure class.** On 2 of 10 files the video probe's
+   median distance was 21 and 24 bits of 64 — M9 calibrates same content at <= 4
+   and unrelated at ~29, so those probes were reading uncorrelated video at *most*
+   positions. The rule as shipped would have called that VIDEO STRUCTURE. **An
+   independent instrument aimed by a dependent one is not independent, and the
+   median is the check that the aiming worked.** Those two files are, on ci's new
+   finding, very likely the saturated ones.
+2. **A superset was about to be reported as the answer.** Video content differing
+   at a position is not the same as the timeline differing there — two releases
+   with different logo cards differ in content and share a timeline exactly. The
+   discriminator is whether the content is *displaced* or *absent*.
+3. **argmin over a tie set is not a measurement.** On static or repetitive scenes
+   many deltas reach distance 0 and the minimum is arbitrary; two of my controls
+   returned a confident wrong displacement that way. Reporting the width of the tie
+   set converts those into "undetermined", which is an honest third answer. Both
+   files above have `ties = 1` on every point quoted.
+
+The controls killed the file I had predicted would be the headline result (id 85,
+control absent at a known-clean position) and saved two I had not. That asymmetry
+is the only evidence I have that the rules were not fitted to the answer.

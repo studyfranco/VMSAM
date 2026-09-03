@@ -221,6 +221,38 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     return change_point_locator.locate_change_points(best_video, candidate_obj, language)
 
 
+def drop_unverified_segments(segments):
+    """Une tranche dont le decalage n'a pas pu etre mesure proprement devient un
+    TROU, et le trou est rempli depuis le maitre.
+
+    `vmsam-dev-1` marque `offset_unverified` quand la tranche est plus courte que
+    sa fenetre de sonde: aucune sonde propre n'y tient, toute fenetre qui la
+    recouvre franchit la transition, et un correlateur a pic sur une fenetre a
+    cheval rend un pic DEPLACE -- de signe arbitraire et non borne par la grille.
+    Sur l'erreur 266 cela valait 168 ms, mais 168 n'est pas un plafond: il n'y a
+    rien a comparer a ma tolerance de 100 ms, donc la verification ne peut pas
+    rattraper le cas.
+
+    Coller du contenu candidat a un decalage non borne et non verifie est
+    exactement le cas de DEGAT. Le contenu du maitre dans un trou de la timeline
+    du maitre est correct par definition, et le cout est la duree de la tranche
+    elle-meme -- 29 s sur 1428 pour 266, environ 2 %. On paie ce cout et on le
+    DECLARE dans la colonne de remplissage.
+
+    On ne refuse PAS la paire: jeter trois points de changement confirmes pour en
+    proteger un seul mauvais est le mauvais echange, et `vmsam-dev-1` a eu raison
+    de ne pas le faire dans son module.
+    """
+    kept, dropped_ms = [], Decimal("0")
+    for segment in segments:
+        if segment.get("offset_unverified"):
+            span = Decimal(str(segment["master_end_ms"])) - Decimal(str(segment["master_start_ms"]))
+            dropped_ms += span
+            continue
+        kept.append(segment)
+    return kept, dropped_ms
+
+
 def clamp_segments_to_master(segments, master_obj):
     """Coupe le plan a la duree VIDEO du maitre, et jette ce qui tombe apres.
 
@@ -241,6 +273,52 @@ def clamp_segments_to_master(segments, master_obj):
         if end > limit:
             segment = dict(segment)
             segment["master_end_ms"] = limit
+        clamped.append(segment)
+    return clamped
+
+
+# Un decalage est mesure a un QUANTUM pres -- 124 a 142 ms selon l'appel chez
+# `vmsam-dev-1`. Une tranche dont le debut cote candidat tombe juste avant zero
+# est donc du bruit de mesure, pas un plan qui lit hors du fichier. On rogne
+# jusqu'a un quantum (borne haute de la plage mesuree); au-dela on REFUSE,
+# parce qu'un debut negatif d'une seconde n'est plus une precision, c'est un
+# plan faux.
+head_clamp_max_ms = Decimal("150")
+
+
+def clamp_segments_to_candidate_head(segments, stream_order=None):
+    """Rogne une tranche qui commence juste AVANT le debut du candidat.
+
+    Symetrique de `clamp_segments_to_master`, qui coupe a l'autre bout. Trouve
+    le 2026-09-03 sur le premier plan chimeric+resampled reel: la premiere
+    tranche partait de master 1876 ms avec un decalage de -1876.36 ms, soit un
+    debut candidat de -0.36 MS, et l'assemblage refusait le fichier entier pour
+    trois dixiemes de milliseconde.
+
+    On avance le DEBUT MAITRE du depassement plutot que de bricoler le
+    decalage: on perd le fragment qui n'existe pas dans le candidat, et le
+    maitre le remplit -- ce que l'assemblage fait deja pour tout trou. Aucune
+    seconde n'est inventee.
+    """
+    import merge_video_chimeric
+    clamped = []
+    for segment in segments:
+        # LE MINIMUM SUR TOUS LES FLUX, pas le repli. Le rognage vaut pour
+        # TOUTES les pistes -- une seule borne de morceau -- donc il doit
+        # proteger la piste la plus negative. `vmsam-dev-1` a demande que la
+        # garantie vive ici: son emetteur ne promet PAS que le decalage de repli
+        # soit le plus negatif, c'est simplement la langue sur laquelle l'appel
+        # a ete fait. Dependre de cette propriete serait dependre de quelque
+        # chose que personne n'a promis.
+        offsets = [merge_video_chimeric.get_segment_offset(segment, stream_order)]
+        by_stream = segment.get("candidate_offset_ms_by_stream") or {}
+        offsets.extend(Decimal(str(v)) for v in by_stream.values())
+        offset = min(offsets)
+        start = Decimal(str(segment["master_start_ms"]))
+        candidate_start = start + Decimal(str(offset))
+        if candidate_start < 0 and -candidate_start <= head_clamp_max_ms:
+            segment = dict(segment)
+            segment["master_start_ms"] = start - candidate_start
         clamped.append(segment)
     return clamped
 
@@ -268,13 +346,27 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
                      "candidate_offset_ms": Decimal(str(plan.get("base_offset_ms", 0)))}]
     else:
         segments = parse_segments(segments)
+    segments, unverified_ms = drop_unverified_segments(segments)
+    if not len(segments):
+        raise merge_video_chimeric.chimeric_error(
+            "every segment's offset is unverified (each shorter than the "
+            "measurement's probe window); nothing can be spliced at a bounded offset")
     marker = get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj)
     assembly = merge_video_chimeric.assemble_on_master_timeline(
         candidate_obj, master_obj,
-        clamp_segments_to_master(segments, master_obj),
+        clamp_segments_to_candidate_head(
+            clamp_segments_to_master(segments, master_obj)),
         work_dir, out_path, marker,
         speed_ratio=speed_ratio,
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
+
+    # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la
+    # cite dans son entree "repaired", et elle etait jusqu'ici une locale d'ici,
+    # donc invisible la-bas -- toute reparation REUSSIE levait un NameError,
+    # apres avoir deja accroche l'objet a best_video. Trouve le 2026-09-03 en
+    # branchant le balayage sur cette fonction plutot que sur l'assembleur:
+    # aucun test ne parcourait la branche de succes de l'orchestrateur.
+    assembly["unverified_segment_ms"] = unverified_ms
 
     repaired_obj = video.video(path.dirname(out_path), path.basename(out_path))
     # `generate_new_file` ne verifie pas qu'il reste une piste audio: le
@@ -404,28 +496,49 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # serait justement celle qui porte une raison.
             import merge_video_chimeric
             if isinstance(error, merge_video_chimeric.chimeric_error):
-                record(candidate_path, "declined", str(error))
+                # Le declin porte ses sondes quand il en a: c'est ce qui permet
+                # a la mesure de diagnostiquer son propre plan sans rejouer le
+                # fichier.
+                record(candidate_path, "declined", str(error),
+                       {"verification": getattr(error, "verification", None)})
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
                 record(candidate_path, "failed", str(error))
                 sys.stderr.write(f"repair: failed for {candidate_path}: {error}\n")
             continue
 
-        best_video.sameAudioMD5UseForCalculation.append(repaired_obj)
-        repaired.append(candidate_path)
-        record(candidate_path, "repaired",
-               f"{len(assembly['audios'])} audio and "
-               f"{len(assembly['subtitles'])} subtitle track(s) rebuilt, "
-               f"{len(assembly['declined'])} declined, "
-               f"{len(assembly['failed'])} failed",
-               {"plan_source": plan_source,
-                "coarse_brackets": [c for c in plan.get("change_points", [])
-                                    if c.get("narrowed") is False],
-                "marker": assembly["marker"], "path": assembly["path"],
-                "audios": assembly["audios"], "subtitles": assembly["subtitles"],
-                "declined": assembly["declined"], "failed": assembly["failed"],
-                "verification": assembly["verification"]})
-        coarse = [c for c in plan.get("change_points", []) if c.get("narrowed") is False]
+        # ORDRE, ET NON GARDE. Tout ce qui suit la reparation peut lever, et la
+        # mutation etait EN TETE: `best_video.sameAudioMD5UseForCalculation` etait
+        # deja accroche quand la levee partait. La zone A attrape
+        # (mergeVideo.py:808) et journalise "The repair raised and was
+        # abandoned", et `repaired_videos` reste vide parce que le `return` n'a
+        # jamais eu lieu. Le journal dit donc QU'IL NE S'EST RIEN PASSE pendant
+        # que l'objet repare est accroche -- et a trois fichiers ou plus, le
+        # garde `len(dict_file_path_obj) < 2` ne se declenche pas, la fusion
+        # continue, et mergeVideo.py:1815 parcourt cette liste SANS consulter
+        # `repaired_videos`. Le fichier produit porterait une piste fabriquee
+        # que le compte rendu declare inexistante -- la panne de provenance que
+        # SPEC_ZONE_A.MD s4 existe pour empecher, arrivee par le chemin d'erreur.
+        #
+        # On calcule donc TOUT ce qui peut lever d'abord, on raconte, et on
+        # mute en dernier. `plan.get("change_points", [])` rend None quand la
+        # cle existe a None -- ce que la mesure produit -- et `for c in None`
+        # est une TypeError: c'etait une levee REELLE juste apres la mutation.
+        # Trouve par l'architecte en lisant le correctif precedent plutot que
+        # le code corrige.
+        coarse = [c for c in (plan.get("change_points") or [])
+                  if c.get("narrowed") is False]
+        detail = {"plan_source": plan_source,
+                  "unverified_segment_ms": str(assembly["unverified_segment_ms"]),
+                  "coarse_brackets": coarse,
+                  "marker": assembly["marker"], "path": assembly["path"],
+                  "audios": assembly["audios"], "subtitles": assembly["subtitles"],
+                  "declined": assembly["declined"], "failed": assembly["failed"],
+                  "verification": assembly["verification"]}
+        reason = (f"{len(assembly['audios'])} audio and "
+                  f"{len(assembly['subtitles'])} subtitle track(s) rebuilt, "
+                  f"{len(assembly['declined'])} declined, "
+                  f"{len(assembly['failed'])} failed")
         if len(coarse):
             # `narrowed: false` = les deux longueurs de fenetre ont diverge et la
             # mesure est retombee sur un intervalle d'une inter-fenetre, ~108 s.
@@ -437,4 +550,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             tools.logs.append(f"repair: {len(coarse)} coarse bracket(s) for {candidate_path}\n")
         sys.stdout.write(f"\tRepaired {candidate_path} as {assembly['path']} "
                          f"({assembly['marker']})\n")
+        # DERNIER, ET ADJACENT. Plus rien entre le compte rendu et la mutation:
+        # soit les deux ont lieu, soit aucun des deux, et le journal ne peut plus
+        # etre en desaccord avec l'etat partage. L'accrochage a `best_video` est
+        # la toute derniere instruction parce que c'est la seule que l'appelant
+        # peut voir apres une levee.
+        record(candidate_path, "repaired", reason, detail)
+        repaired.append(candidate_path)
+        best_video.sameAudioMD5UseForCalculation.append(repaired_obj)
     return repaired

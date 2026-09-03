@@ -82,9 +82,37 @@ the private notes beside the repository.
 | tag factor | `1.042710`, not the 1.042709 requested; residual 1.981 ms per episode |
 | **id 266, locator-driven** | **repaired**; both jpn tracks **aligned at 1.12 and 1.00 ms**, six probes each |
 | **id 266, point 3** | matches a target built from **my own** boundaries at 13 positions incl. all three gaps: **0.00–2.31 ms, r 0.900–0.999** |
+| **id 266, the plan itself** | independently confirmed by `vmsam-dev-1`'s pHash **video** probe — cumulative displacement across the staircase agrees to **3.17 ms** |
 | id 108, two change points one in the head | repaired, aligned 0.5 ms; the same plan minus one transition **declined at 503.0 ms** |
 | **id 237, negative fixture** | **declined on the measurement** — `fid 0.576, 31 points, 18 flips`; zero output; ten stage-1 delays identical to ci's deployed-build baseline |
 | guards | 43 structural + 18 orchestrator branches, each refusal paired with its opposite |
+
+### The weak joint in the §2 claim, and what closed it
+
+Both targets built for id 266 — the piece-by-piece one and the one from my own
+full-file profile — were compared against a track built from a plan, and the
+second shared no numbers with the plan but the *comparison* still only ever tested
+the splice's fidelity to boundaries nothing outside the audio correlator had seen.
+
+`vmsam-dev-1` closed it with a **pHash video probe**: decoded frames, 64-bit DCT
+hash, sharing no code, library, signal or failure mode with the chromaprint
+correlator the plan comes from. Holding one segment's offset fixed and asking the
+video what displacement it measured at five positions, the **cumulative
+displacement across the staircase agrees to 3.17 ms**.
+
+**Its limits, carried as it stated them, not generously.** Four steps confirmed,
+not five — the −168 ms step at ~30 s is below the video's floor at either
+resolution, so **segment 1 is not independently confirmed** and the staircase is
+confirmed from 60 s on. Three determined readings carry it, not five: two
+positions were undetermined by tie width and one match quality sits exactly at its
+threshold. The two apparent step errors, −248 and +251 ms, cancel exactly — the
+arithmetic of one misread position rather than two wrong steps — and a re-run of
+that segment alone at 125 ms quantum put all three determined readings within one
+quantum.
+
+So the honest form is: the splice is faithful to its plan, and **the plan's
+staircase is now corroborated from 60 s on by an instrument outside the one that
+produced it.** Not "the boundaries are right", and not confirmed at the head.
 
 ### What was dropped
 
