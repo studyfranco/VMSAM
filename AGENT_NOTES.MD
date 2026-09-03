@@ -21,6 +21,62 @@ record.
 
 ---
 
+## 2026-09-03 — the recurring defect of this campaign: a control whose pass is guaranteed by its construction
+
+Seven instances in one day, three of them pre-dating this campaign and sitting in
+documents we treat as authority. Recorded as a pattern because it is worth more
+than any of the individual defects, and because every instance was found by
+**running** the control somewhere new, never by reading it.
+
+**The shape.** A control is built to prove something works. Its construction
+quietly guarantees it passes whatever the thing under test does. It then reports
+success forever, and the success is a statement about the harness rather than
+about the world.
+
+**The question that catches all seven, and it takes one sentence:** *if the thing
+under test were broken in the way I most fear, would this control produce a
+different result?* If the answer is no, it is not a control.
+
+| # | control | why its pass was guaranteed | whose |
+| ---: | :--- | :--- | :--- |
+| 1 | sparse-frame pHash, validated on a pair at **zero offset** | with any offset the sampled frames never coincide — the zero-offset case is the only one that cannot expose the flaw | `vmsam-ci` |
+| 2 | edge bisection with `lo`/`hi` passed reversed | `while hi - lo > tol` exits immediately and returns its own input bounds; it printed "-600 ms", which was **the instrument not running** | dev-1 |
+| 3 | clean-edge estimator requiring correlation to reach **1.00000** | only a file against a *copy of itself* reaches 1.0; real encodes cap at 0.93-0.96, so it could never fire on a real pair | dev-1 |
+| 4 | repair fixture built as **one file against a copy of itself** | its base offset is zero, so a sign error in deriving the base offset is invisible — it later cost a uniform +16146 ms track | dev-2 |
+| 5 | post-repair probe at the **midpoint of a single segment** | a residual coefficient error grows with position and is smallest exactly at the midpoint | dev-2 |
+| 6 | speed sweep with **no wrong-direction column** | `* r` where `/ r` was meant; rubberband won 33 of 33 and *"nothing internal to the run could have caught it"* | `docs/AUDIO_SPEED_POLICY.MD` weakness 3 |
+| 7 | *"a file where `asetrate` leaves fidelity worse than no correction"* | the uncorrected arm is pinned near the floor **by geometry**, so almost any correction beats it — the document names this itself | `AUDIO_SPEED_POLICY.MD` |
+
+Campaign 1's own headline defect is the same shape one level up: `final_status`'s
+success metric sat in a third branch nothing reached, and `Resolved: 0` was read as
+*nothing qualifies* when it meant *nothing reached the check*.
+
+**What actually caught them**, in every case: running the control in a context it
+was not built in. #3 died on the first real error file after passing a constructed
+one. #5 died when a speed-only plan produced a single segment. #4 died against a
+second fixture with a non-zero base offset. **None was caught by review**, and
+several had been reviewed — including by their author, in writing, after stating
+the convention as an equation.
+
+**The practical rules that fall out**, all of them paid for today:
+
+- **A fixture built by copying one file cannot test anything that depends on the
+  two files being *different*.** It has zero offset, identical content, and a
+  correlation ceiling of 1.0, and all three flatter the instrument.
+- **A directional correction must carry the wrong direction as its own column**,
+  so a sign error reads as the floor instead of as a finding.
+- **Probe where the error is largest, not where the answer is tidiest** — the ends
+  of a segment, not its midpoint.
+- **Assert a control's bracket before trusting its output.** #2 would have been
+  caught by one `assert f(lo) <= threshold and f(hi) > threshold`.
+- **"I could not measure" and "I measured X" are different answers.** #2 printed a
+  number that was neither.
+
+`AGENT.MD` already states the general form — *an armed guard that has never fired
+is indistinguishable from a working one* — and every instance above is that
+sentence being learned again at cost. The addition this campaign can make is that
+**firing a guard is not enough: it must be fired somewhere it could fail.**
+
 ## 2026-09-03 — blocked need: a new runtime module is open by the rules and frozen by the checker
 
 `WRITE_ZONES.MD` §4 lists **"new runtime modules"** among the open paths. The
