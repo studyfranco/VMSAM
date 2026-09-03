@@ -637,6 +637,42 @@ record that structurally cannot show them. Direction explained; magnitude not.
 
 Geometry is `video.generate_begin_and_length_by_segment` — frozen. **A finding.**
 
+### Goal 3n — family B closed: three early-step files, ground truth from four instruments
+
+What I first reported as *"nine windows agreeing to 2 ms, refused by one bad window"*,
+then corrected to *"real steps"*, is now measured end to end.
+
+| id | change point | step | instruments agreeing |
+| ---: | :--- | ---: | ---: |
+| A | **146–148 s** | **501 ms** | 4 |
+| B | **158–160 s** | **840–875 ms** | 4 |
+| C | not bisected | ~750 ms | 2 |
+
+The probe that spans a boundary collapses to correlation **0.267** while its
+neighbours sit at 0.89–0.92 — the same signature on both bisected files, and
+independent confirmation that the transition is **sharp**, not gradual.
+
+**A loose end resolved as instrument bias, not a second step.** Another agent flagged
+that their short-window reading of one file's post-step region disagreed with their
+ten-window scan by one to two points, and named two candidates — a second change point,
+or a bias in their short windows — rather than picking one. Probing straight across the
+disputed boundary and well past it: **every probe from 160 s to 760 s reads within
+16 ms**, at correlations 0.86–0.97. **No second step.** Their ten-window value was
+right and their short-window absolute was 83 ms high. Their own rule had protected
+them: the *location* and the *step in points* agreed at both window lengths; only the
+absolute value was biased — which is exactly what they had already warned another agent
+never to exchange across window lengths.
+
+**Why the set matters more than the three files.** All three sit inside the head blind
+spot, so the committed locator returns `kind="constant"` on every one — confidently
+wrong. That makes them the best acceptance test available for the change-point work,
+**because** the current code fails on them and the expected answers exist independently
+of the thing being tested.
+
+> A constructed fixture — a file against a copy of itself — has an expected answer
+> **you supplied**. This set has one **you did not**. The fixture trap recorded this
+> morning, stated as its own cure.
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
