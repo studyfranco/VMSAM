@@ -21,6 +21,42 @@ record.
 
 ---
 
+## 2026-09-03 — no correlation instrument can separate "different content" from "speed mismatch", and three of us proved it
+
+**A speed relation destroys correlation by construction**, so a genuinely
+repairable speed pair reads exactly like unrelated media. Three agents hit this in
+one day with three different instruments, and it nearly cost the campaign a whole
+repair family.
+
+| instrument | verdict it gave | what was true |
+| :--- | :--- | :--- |
+| the pipeline's own stage-1 fidelity | a 0.558–0.562 floor | `docs/AUDIO_SPEED_POLICY.MD` records that exact band for **uncorrected PAL** — the same floor unrelated content sits on |
+| my full-file chromaprint peak | 18 of 45 floor rows "different content" | **speed pairs**, caught only because another agent warned me before I published |
+| the forensic agent's 60 s-chunk prominence, 12 probes, two independent languages | one folder's 11 files at 0/12, "no shared audio" | **speed pairs — verified visually** |
+
+**The decision, and it is nearly free:** compute the **duration ratio** before
+concluding "different content" from any correlation measure. One `ffprobe` per
+file. PAL/film is 25/23.976 = **1.042709**; the eleven flagged files all sat within
+0.001 of it, while every correctly-behaving file beside them sat at ~1.002. The
+observation offered as evidence of missing content — "runs ~53 s shorter than its
+master" — *is* the arithmetic of a 4.27 % speedup.
+
+**Why the obvious defences do not work.** A longer correlation window makes it
+worse, not better: at 4.27 % a 60 s chunk accumulates 2.56 s of internal drift and
+can align with no position in the master. And testing a second language does not
+help — a French dub and an English dub of a sped episode are *both* sped, so both
+read as absent. That control tests for a dub, not for a speed relation.
+
+**Verified the way the rest of this was verified**, by a prediction stated before
+looking: if it is a speed relation of the same content, the candidate at `t` must
+show the same frame as the master at `t × 1.042709`, and the master at a naive `t`
+must not. It did — the scaled frame was identical, the naive one a different shot.
+
+**What it cost to nearly miss.** The corpus figure would have been ~14 % instead of
+8.6 %, and eleven files that the speed-repair task exists to fix would have been
+written off as junk. The cross-check that caught it was one agent telling another
+that their floor might not mean what they thought.
+
 ## 2026-09-03 — the pattern behind three instrument failures in one day: a fixture that cannot fail
 
 Two agents, three refuted instruments before midday, and they share one form. Worth

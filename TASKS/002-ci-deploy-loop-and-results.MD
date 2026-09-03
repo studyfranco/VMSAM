@@ -353,6 +353,62 @@ opened. `mixed` (51) and `no-matrix` (14) were not individually examined, so **2
 is a floor, not a ceiling**. The 30 speed candidates are identified by duration
 ratio alone and none has been shown to correct.
 
+### Goal 3e — the deployed engine reproduces the historical logs exactly
+
+Queued error id 147 with the prediction frozen first, because four agents were all
+reasoning from refusal logs written by an **older revision through a different
+entry point** and nobody had tested that shared dependency.
+
+| | per-window delays | fidelity |
+| :--- | :--- | :--- |
+| historical log (old revision, integration loop) | plateaus at three levels | 0.860–0.977 |
+| **this run** (deployed commit, fusion path) | the **same per-window sequence** | **0.860–0.977** |
+
+Not merely the same plateaus — the same per-window values and the same fidelity
+band to three decimals, across a revision change and an entry-point change. The
+traceback confirms the deployed line numbers ran.
+
+**So the refusal logs are usable evidence about the deployed engine, and no agent
+needs a container run merely to obtain recorded delays.** All six predicted points
+held.
+
+Limits stated rather than left to inference: one file is one file, and I chose the
+largest cleanest signal in the corpus precisely so a mismatch could not be
+dismissed — which is also the case most likely to reproduce. It reproduces the
+*residual*, artefact included; it says nothing about correctness. And it tests no
+agent's change, since none is deployed.
+
+Incidentally: the reproduction being exact means stage 1 is **deterministic** here.
+A fidelity difference between two runs of the same file should therefore be read as
+real, not as run-to-run noise.
+
+### Goal 3f — a repair family nearly written off, and the rule that saved it
+
+**No correlation-based instrument can separate "different content" from "speed
+mismatch"** — a speed relation destroys correlation by construction. Three agents
+hit this in one day with three different instruments, including the pipeline's own
+fidelity, and in each case the flagged files were **same content, repairable**.
+
+One folder's 11 flagged entries all sat within 0.001 of the PAL/film ratio
+25/23.976 = 1.042709, while every correctly-behaving file beside them sat at
+~1.002. Verified by a prediction stated before looking: the candidate at `t` shows
+the same frame as the master at `t × 1.042709`, and the master at a naive `t` does
+not. It did.
+
+**The rule, and it costs one `ffprobe` per file: compute the duration ratio before
+concluding "different content" from any correlation measure.** Without it the
+corpus figure would have read ~14 % instead of 8.6 %, and eleven files the
+speed-repair task exists to fix would have been discarded as junk.
+
+Also fixed here: my log parser read only the **first** stage-1 message per file,
+and 73 of 315 logs carry more (up to four) because one merge compares several
+releases pairwise. Re-parsed selecting the message that names *this* pair —
+**275 of 301 matched by filename, and no row's classification changed**, so the
+defect was real and its effect on the published numbers was nil. It did explain a
+1 ms quantum discrepancy another agent and I had both guessed wrong about: one log
+can hold comparisons at different window geometries, so a folder containing a
+short release yields two different quanta in the same file.
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
