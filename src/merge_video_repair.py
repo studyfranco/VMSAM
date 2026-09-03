@@ -362,6 +362,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
         # dont on SAIT qu'elle est calee sur le plan, et on le sait par mesure
         # et non par deduction: le plan a ete produit contre elle.
         reference_stream=plan.get("reference_stream"),
+        # LA LANGUE DE COMPARAISON: celle sur laquelle la mesure a ete prise, et
+        # le repli de remplissage quand le maitre ne porte pas la langue de la
+        # piste (SPEC_ZONE_A.MD s4c, decision du proprietaire).
+        comparison_language=plan.get("language"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
 
     # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la

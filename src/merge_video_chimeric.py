@@ -473,6 +473,44 @@ def find_master_audio_for_language(master_obj, language, reference_stream=None):
     return None
 
 
+def find_fill_audio(master_obj, language, reference_stream=None,
+                    comparison_language=None):
+    """La piste du maitre qui remplira les trous de CETTE piste.
+
+    Regle du proprietaire, `SPEC_ZONE_A.MD` s4c: la piste de MEME LANGUE du
+    `best_video` comble le trou, et A DEFAUT LA MEILLEURE AUDIO DE LA LANGUE DE
+    COMPARAISON. Le silence n'est plus le repli normal -- il ne reste que quand
+    le maitre ne porte NI l'une NI l'autre.
+
+    Mesure qui a motive la regle: sur 42 pistes remplies de silence, LES 42
+    avaient une langue partagee disponible sur le maitre. Le code n'avait qu'une
+    branche la ou la regle en a deux, et le remplissage inter-langue n'existait
+    pas du tout.
+
+    CECI EST UNE FONCTION SEPAREE ET PAS UN PARAMETRE DE PLUS SUR
+    `find_master_audio_for_language`. Cette derniere sert AUSSI au verificateur,
+    qui cherche la reference contre laquelle comparer une piste: y ajouter un
+    repli inter-langue ferait comparer une piste francaise a du japonais et
+    rendrait un "aligned" qui ne veut rien dire. Les deux usages ont l'air
+    identiques et ne le sont pas.
+
+    LE PROPRIETAIRE A STATUE EN SACHANT QUE C'EST AUDIBLE. Un trou francais
+    comble en japonais s'entend comme un changement de langue; je l'ai signale
+    avant d'implementer et la regle a ete confirmee. `fill_language` porte la
+    langue REELLEMENT utilisee pour que le journal le dise.
+    """
+    same = find_master_audio_for_language(master_obj, language, reference_stream)
+    if same != None:
+        return same, language
+    if comparison_language in (None, "", language):
+        return None, None
+    other = find_master_audio_for_language(master_obj, comparison_language,
+                                           reference_stream)
+    if other != None:
+        return other, comparison_language
+    return None, None
+
+
 def pick_best_master_audio(tracks):
     """The BEST stream of that language, not the first.
 
@@ -526,14 +564,15 @@ def pick_best_master_audio(tracks):
 
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                           out_path, timeout, speed_ratio=None,
-                          reference_stream=None):
+                          reference_stream=None, comparison_language=None):
     '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.'''
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     encoder_arguments, family, bitrate_origin = get_encoder_arguments(
         audio, codec_name, candidate_obj.filePath)
     sample_rate, channels, layout = get_audio_stream_parameters(audio)
 
-    master_audio = find_master_audio_for_language(master_obj, language, reference_stream)
+    master_audio, fill_language = find_fill_audio(
+        master_obj, language, reference_stream, comparison_language)
     master_stream_order = None
     if master_audio != None:
         master_stream_order = int(master_audio["StreamOrder"])
@@ -548,9 +587,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # comparaison, LA LIGNE DE JOURNAL SERA DEJA JUSTE. Ajouter le champ apres
     # le changement ferait decrire par ce champ quelque chose deja livre sans
     # journal, ce que l'exigence existe precisement pour empecher.
-    fill_language = None
-    if fill == "master" and master_audio != None:
-        fill_language = master_audio.get("Language") or language
+    if fill != "master":
+        fill_language = None
 
     speed_chain = None
     applied_ratio = None
@@ -788,7 +826,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                                 out_path, marker_value, timeout=3600,
                                 verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
-                                speed_ratio=None, reference_stream=None):
+                                speed_ratio=None, reference_stream=None,
+                                comparison_language=None):
     '''Point d'entree du module.
 
     Renvoie un compte-rendu: ce qui a ete construit, ce qui a ete REFUSE et
@@ -825,7 +864,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 stream_order=int(audio["StreamOrder"]))
             audio_reports.append(build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
-                timeout, speed_ratio, reference_stream))
+                timeout, speed_ratio, reference_stream, comparison_language))
         except chimeric_error as error:
             declined.append({"kind": "audio",
                              "stream_order": int(audio["StreamOrder"]),
