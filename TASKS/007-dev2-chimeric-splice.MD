@@ -219,6 +219,63 @@ is held by `repair_chimeric`. The verification is not a further capability; it i
 what stops the repair delivering a silently wrong track, and a safety you have to
 remember to arm is not one.
 
+### An uncertain change point costs master content, not correctness
+
+`vmsam-dev-1` measured that audio brackets a change point to about **2.5 s**, not
+to a frame, and asked whether it should build a video refiner to pin one. Neither
+of the two options it offered was needed.
+
+**Given a bracket, I do not choose a change point — I replace the bracket with
+master content.** For a bracket `(lo, hi)` with offset `A` before and `B` after:
+
+| case | safe gap | why |
+| :--- | :--- | :--- |
+| offset decreases, `D = A − B` — the master has content the candidate lacks | `[lo, hi + D)` | every `m < lo` is certainly before `T`; every `m ≥ hi + D` is certainly past `T + D` |
+| offset increases — the candidate has content the master lacks | `[lo, hi)` | no master gap exists, so one is created and the candidate's extra content is dropped |
+
+Everything inside the gap comes from the master, which is **correct by
+definition** — not "inaudibly wrong". `vmsam-dev-1` supplies the gap already
+computed, plus the raw bracket and step so the arithmetic stays checkable; any
+margin **beyond** that is mine, because it depends on whether the fill is master
+audio or silence, which is resolved per track at splice time.
+
+**Verified rather than accepted.** Re-derived from the convention independently,
+checked against fixture 1 where the answer was already known by another route
+(`A=0`, `B=−8000`, `T=300000` → `[300000, 308000)`, which is the plan that had
+already run), then swept 2001 values of `T` per bracket confirming
+`g0 ≤ T` and `T + D ≤ g1` for every one, in both the deletion and insertion cases.
+
+**The cost, and why the video refiner is not needed.** On id 266, two change
+points with 1000 ms steps:
+
+| bracket | substituted | share of the episode |
+| :--- | ---: | ---: |
+| `vmsam-dev-1`'s measured 2.5 s | 7.0 s | **0.49 %** |
+| the ~108 s I had assumed | 218.0 s | 15.24 % |
+
+At 0.49 % the substitution is not the deciding cost even if every gap is silence.
+So the recommendation is *do not build the video refiner* — not "build it if the
+silence population is large". It would only matter on a file with roughly twenty
+change points, where silence reaches 5 % of a track.
+
+**One asymmetry, stated because it is unwelcome:** when the fill is silence the
+gap **cannot be narrowed** to reduce the cost — narrowing takes candidate content
+from the wrong side of the change point, which is a real error rather than a
+cosmetic one. On a silence-fill track the gap is a hard cost: accept it, or
+decline the track. There is no middle.
+
+Each rebuilt track therefore reports `gap_filled_ms`, `silence_filled_ms` and
+`silence_fraction`, so the population and its cost come out of real runs as
+numbers. A `repair_max_silence_fraction` exists and is **unset by default**: no
+one has measured how much silence makes a track unusable, and putting a figure
+there would be the plausible invented value `SPEC_ZONE_A.MD` §3 records about
+`get_less_channel_number` fabricating `"2"` and `"44100"`.
+
+Note for reading the first real result: `vmsam-forensic` reports that id 266
+shares **jpn only**, master-only eng/por/spa, candidate-only none — so both
+rebuilt tracks fill from the master and **nothing on that file exercises the
+silence path**.
+
 ### Findings that are not mine to fix
 
 1. **`keep_best_audio`'s `fabricated` rule cannot fire, and the harm it exists to
