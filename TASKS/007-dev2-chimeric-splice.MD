@@ -336,13 +336,39 @@ silence path**.
 
 ### What stays blocked
 
-1. **The `[features]` flag cannot be committed.** `src/config.ini` has no
-   trailing newline, so *any* append renders as a `-` line in `git diff -U0` and
-   `check_write_zones.py` refuses it under §3, although no existing value
-   changes. Measured in a throwaway clone: exit 1, `§3 src/config.ini: line
-   removed or altered: audio_sync=...`. "Additions only" is unsatisfiable on that
-   file as it stands. Owner/Lead call.
-2. **A new runtime module cannot be modified after its creating commit.** The
+1. ~~The `[features]` flag cannot be committed.~~ **Resolved — and I had the
+   diagnosis wrong.** `src/config.ini` has no trailing newline, so an **append**
+   rewrites the last line: git records `audio_sync=…` (no newline) removed and
+   `audio_sync=…` (newline) added. The checker was not refusing my addition; it
+   was correctly catching a real modification of a frozen line, which §3 does
+   forbid. My append genuinely altered an existing line, just not in the way I
+   intended.
+
+   `vmsam-dev-1` found the fix and tested it on its own clone: **insert, do not
+   append.** Placing `[features]` before `[software]` leaves the final line
+   byte-identical. Verified independently here: pure addition with no `-` line,
+   last 40 bytes identical, checker exit 0. And verified for meaning, which the
+   checker explicitly does **not** do — parsing before and after gives identical
+   `[mergerules]` and `[software]` sections, `repair_chimeric` reads shut,
+   `repair_verify` reads open, and the silence budget reads unset.
+
+   **One ambiguity, recorded rather than resolved.** §3 says existing variables
+   are frozen — "not their value, not their name, not their **position**".
+   Inserting a section above shifts every existing line's *number*, though no
+   variable moves relative to another or changes section, and INI section order
+   is semantically irrelevant. I read "position" as ordering rather than line
+   number, and the rule's stated purpose supports that — it exists because "the
+   merge rules encode measured codec relationships; changing one silently changes
+   every merge", and none changes here. But the owner may read it the other way,
+   and it is a finding rather than something for me to settle.
+
+   **A trap left for the next person:** `config.ini` still has no trailing
+   newline, so anyone who *appends* hits exactly this again.
+2. **A new runtime module cannot be modified after its creating commit — now the
+   only blocker, and independently confirmed.** `vmsam-dev-1` reproduced it on its
+   own clone by appending one comment line to its already-committed
+   `src/change_point_locator.py`: `§1 frozen file modified`, exit 1. It cannot fix
+   a defect in its own locator either. The
    checker classifies `src/<new>.py` as frozen and exempts only git status `A`.
    Measured both ways: creating exits 0, modifying exits 1 with `§1 frozen file
    modified`. `WRITE_ZONES.MD` §4 opens "new runtime modules"; the instrument
