@@ -271,19 +271,23 @@ Comparing a produced artefact against a target you built proves the path ran.
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
 
-## 🏗️ Where you work — three clones, one commit
+## 🏗️ Where you work — four tiers, one published commit
 
-You do not edit the main repository directly. Three tiers, each a **git clone** of
-the one below it:
+You do not edit `master` directly. Each tier is a **git clone** of the one above it:
 
 | tier | what it is for | commits |
 | :--- | :--- | :--- |
 | `/tmp/…` | experiments — try things, break things | as many as you like |
 | `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
-| the main repository | what is finished | **one per feature** |
+| the **campaign branch** | what CI builds and the test instance runs | as many as you like — **a deploy requires a push** |
+| `master` | the published history | **one per feature**, by squash |
+
+**The campaign branch is a tier, not the record.** § Commits binds the last hop
+only: testing costs a push, and a rule that made you hesitate to test would be
+worse than a noisy branch. Commit there as freely as the work needs.
 
 **Clones, never copies.** A promotion by `cp` overwrites without warning, and the
-owner commits to the main repository while you work — measured on this repository:
+owner commits while you work — measured on this repository:
 a copy silently erased an owner change to the same file, while the same promotion
 through git stopped on the conflict and preserved it.
 
@@ -291,14 +295,17 @@ through git stopped on the conflict and preserved it.
 # promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
 git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
 
-# promote VMSAM_WIP -> main : one commit, whatever the history behind it
+# promote VMSAM_WIP -> campaign branch : keep the history, CI needs the pushes
+git fetch <wip-clone> <branch> && git merge FETCH_HEAD && git push
+
+# campaign branch -> master : one commit, whatever the history behind it
 git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
 ```
 
 `--squash` is what makes `AGENT.MD` § Commits structural instead of a rule to
 remember: the command cannot produce two commits.
 
-**Pull down often, push up rarely.** Sync the main repository *into* `VMSAM_WIP`
+**Pull down often, push up rarely.** Sync the tier above *into* the one below
 before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
 is cheap to resolve daily and expensive to resolve once.
 
@@ -306,9 +313,12 @@ is cheap to resolve daily and expensive to resolve once.
 second. Discovering at the last hop that half your work sits outside a tagged zone
 is how a campaign ends up negotiating its own rules.
 
-Never write the main repository's path in a tracked file — Privacy, below.
+Never write a tier's filesystem path in a tracked file — Privacy, below.
 
 ## 📦 Commits — what earns one
+
+**This section is about the last hop — what reaches `master`.** In the tiers above
+it, commit as often as the work needs.
 
 A commit is a unit of **result**, not of activity. What earns one:
 
