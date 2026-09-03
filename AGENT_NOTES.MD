@@ -21,6 +21,62 @@ record.
 
 ---
 
+## 2026-09-03 — blocked need: a new runtime module is open by the rules and frozen by the checker
+
+`WRITE_ZONES.MD` §4 lists **"new runtime modules"** among the open paths. The
+checker disagrees, and the checker is what gates the commit.
+
+**Measured.** One comment line appended to `src/change_point_locator.py`, a module
+I created and committed myself:
+
+```sh
+$ python3 .../check_write_zones.py --repo .
+WRITE_ZONES violations (staged changes):
+  §1  frozen file modified: src/change_point_locator.py
+CHECKER_EXIT=1
+```
+
+So a new module is **write-once in practice**: the creating commit is allowed and
+every subsequent edit to it is a §1 violation. The cause is structural rather than
+a bug in the logic — the checker carries a fixed allow-list of open paths, and a
+file that did not exist when that list was written cannot be on it.
+
+**Why this blocks rather than annoys.** Neither I nor `vmsam-dev-2` can fix a
+defect in our own modules. `vmsam-dev-2` reports 007's and 009's implementations
+sitting in a 400-plus-line patch beside the repository for this reason, with its
+commits recording only what they did and measured. My locator is committed and I
+cannot correct it if its first real run finds anything.
+
+**What was done instead: nothing, deliberately.** The checker lives in
+`VMSAM_HELP_AI/tools/`, outside the repository, and is the shared instrument that
+enforces the rules on all four agents. Changing it to admit my own file is exactly
+the case `AGENT.MD` names — being right about a rule does not make it mine to
+change — and an agent that edits its own gate has no gate. Reported to the Lead
+and recorded here.
+
+**The fix is small and is the owner's or the checker author's to make:** treat a
+path that is untracked at `HEAD` and added by the staged diff as open under §4,
+or add an explicit open-list entry per new module.
+
+### A second claim tested and NOT confirmed
+
+`vmsam-dev-2` also reported that a `config.ini` `[features]` flag *"cannot ship at
+all"*. **It can.** `src/config.ini` has **no trailing newline**, so any *append*
+rewrites its final line and the checker correctly reports
+
+```
+§3  src/config.ini: line removed or altered: audio_sync=/home/vmsam/audio_sync
+```
+
+That is the rule catching a genuine modification of an existing line, which §3 does
+forbid. **Inserting** the new section before an existing one instead leaves the
+final line byte-identical and passes clean, with `git diff --cached` showing no
+removed lines — verified on this clone, then reverted, since the flag belongs to
+`vmsam-dev-2` under the territory rule.
+
+Worth carrying: the missing trailing newline will catch the next person who
+appends to that file.
+
 ## 2026-09-03 — measured: the speed detector's margin does not carry from PAL to NTSC
 
 `docs/AUDIO_SPEED_POLICY.MD` is frozen and its ruling **stands**: `asetrate`, not
