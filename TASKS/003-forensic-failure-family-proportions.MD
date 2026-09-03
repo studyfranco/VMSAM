@@ -254,9 +254,21 @@ so the discriminator is calibrated on one confirmed positive, not on a populatio
   `weak correlation` files is the test; it is running and unfinished.
 - **The corpus-wide misfiled-content count.** Corroborated in folder 103 only; 37
   folders unchecked by ci and not yet swept by me.
-- **Why 13 of the 24 `constant offset` files were refused.** Only 11 have the
-  two-track mechanism shown; the other 13 have a single measured pair and share only
-  the symptom.
+- ~~Why 13 of the 24 `constant offset` files were refused.~~ **ANSWERED.** 17 of the 22
+  now have a measured mechanism and all of it is inter-track or per-language divergence:
+  11 master-side, 4 with a constant split between language groups (id 22 measured across
+  all TEN shared languages -- eight at -124.3 ms, eng and jpn at -0.3 ms, every language
+  individually flat to 0.0 ms), and 2 where one language steps mid-file (id 100's jpn
+  steps +124 ms at t~790-850 s, exactly where the pipeline saw it). The refusal path:
+  two pairs one quantum apart -> adjuster_chroma_bugged runs stage 2 at their mean ->
+  bimodal residual ~132 ms wide -> variance 4.2-4.6e-3 just over the 0.004 threshold.
+  sqrt(0.004) = 63.25 ms, so the gate passes clusters closer than 126.5 ms while the
+  ambiguity it arbitrates is one 124-125 ms quantum: **it sits 1.5 ms above the thing it
+  exists to resolve.** This is CAMPAIGN.MD's own per-language open question firing as an
+  outright refusal. Five files keep the old label with no mechanism: 5, 71, 318, 319, 320.
+- **A limitation of my own profiler, found by this:** it tests ONE language pair per file
+  (`common[0]` in master order). Every "positively flat" verdict was flat on one of up to
+  ten languages, and silent about the rest.
 - **What ffmpeg failed on for error ids 112 and 693.** Both files' media probe fine
   under ffprobe 9.0.1 here, so the failure was in the pipeline's environment rather
   than necessarily in the file — but which, I have not shown. Recorded as *the
