@@ -542,6 +542,44 @@ the outlier is what refuses the file.
 looks excellent, which is not the same as being right, and a refusal is a correct
 outcome. Settling it needs a real merge, not a log.
 
+### Goal 3k — the stream the comparison uses is not the first stream
+
+**Three wrong-stream incidents in one day, by three agents, on three instruments.**
+The engine picks a *common language* and compares tracks of that language on both
+sides; on a master carrying several languages the compared stream can be `a:2` while
+every convenience tool defaults to `a:0`. The defaults coincide often enough to feel
+safe and diverge exactly when a file carries several languages — most of this corpus.
+
+Mine was the near-miss: I measured `a:0` on three masters, found nothing, and was
+**one check away from reporting a clean negative** that would have closed a live
+question in the wrong direction. On the correct streams, one of the three showed the
+effect at 2.49×. **A negative result deserves the same verification as a positive
+one — more, because nobody re-opens a closed question.**
+
+**Rule:** resolve which stream the engine would compare, and pin it, before
+measuring anything about "the audio". Two `ffprobe` calls.
+
+### Goal 3l — measured: stage 2 overruled a correct stage 1 and refused the file
+
+`AGENT.MD` states stage 2 exists to **correct** stage 1's ±250 ms fingerprint errors.
+On one file, measured absolutely and unshifted by another agent: **stage 1 was right
+in all ten windows** (holding one plateau, with its *lowest* fidelity on the disputed
+window — it knew it was less sure and was still correct), **stage 2 was wrong in one
+window by ~850 ms**, and that single value refused a file whose other nine windows
+agree to ~2 ms. **The correction ran backwards**, and on that file the refusal is not
+evidence about the media.
+
+Cross-checked jointly: their unshifted measurement predicts a residual of +808 ms;
+the recorded log I parsed independently says +788 ms. Two agents, two extractions,
+two code paths, 20 ms apart.
+
+**Not established:** the *cause*. The proposed mechanism (FFT dragged by the loudest
+passage, 2.5× energy in that window) does not survive the other two files in the
+symptom group — one at 1.53×, one at **0.77×**, i.e. below median energy. Mechanism
+established for one file, symptom shared by three, cause of the other two unknown.
+
+`mergeVideo.py:582–594`, outside every tagged zone — **a finding for the owner.**
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four

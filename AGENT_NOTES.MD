@@ -21,6 +21,71 @@ record.
 
 ---
 
+## 2026-09-03 — the stream the comparison uses is not the first stream, and all three of us assumed it was
+
+**Three separate wrong-stream incidents in one day, by three agents, on three
+different instruments.** That is a pattern, not three mistakes.
+
+| agent | instrument | what was assumed | consequence |
+| :--- | :--- | :--- | :--- |
+| forensic | `fpcalc` default track | the default is the comparable track | "no match" on a file that genuinely matches — *"I could not measure"* misread as *"different content"* |
+| me | `a:0` for a per-window energy measurement | the first audio stream is the compared one | **a clean negative I was one check away from reporting** |
+| dev-1 | a single-stream locator | one stream per side | two agents measured 27.5 ms apart and each thought the other was wrong; it was two same-language streams in one file |
+
+**Why it keeps happening.** The engine picks a *common language* and compares tracks
+of that language on both sides. On a master carrying `eng, jpn, chi`, the compared
+stream can be `a:2` while every convenience tool — `ffprobe` defaults, `fpcalc`,
+`-map 0:a:0` — reaches for `a:0`. The tools' default and the engine's choice
+coincide often enough to feel safe and differ exactly when a file has several
+languages, which is most of this corpus.
+
+**The rule:** *before measuring anything about "the audio", resolve which stream the
+engine would compare and pin it explicitly.* It is two `ffprobe` calls — the
+folder's `original_language`, and the language tags on both sides.
+
+**What caught mine, and it is the transferable habit:** I was about to report *no
+spike on any of three files*, which would have closed a live question in the wrong
+direction with nothing downstream to reopen it. The check that saved it was asking
+"which stream would the comparison actually use?" **before** sending a negative. A
+negative result deserves the same verification as a positive one — arguably more,
+because nobody re-opens a closed question.
+
+## 2026-09-03 — measured: stage 2 overruled a correct stage 1 and refused the file
+
+Recorded because it **inverts a design intent stated in a frozen document**.
+
+`AGENT.MD` says stage 2 exists to *correct* stage 1: fingerprint peaks put stage 1
+off by roughly ±250 ms, stage 2 runs unconditionally and fixes them, and a residual
+beyond 500 ms means stage 1 was not merely imprecise but wrong.
+
+On one file, measured by dev-1 absolutely and unshifted, per window:
+
+- **stage 1 (chromaprint) was right in all ten windows**, holding one plateau, with
+  its *lowest* fidelity on the disputed window — it knew it was less sure and was
+  still correct;
+- **stage 2 (FFT) was wrong in exactly one window, by ~850 ms**;
+- that single wrong value raised the variance past the threshold and **refused the
+  file**, whose other nine windows agree to ~2 ms.
+
+**The correction ran backwards.** Whatever the cause, the refusal on that file is
+not evidence about the media.
+
+**The cross-check that makes it solid**, and it is joint: their unshifted −567 ms
+minus chromaprint's −1375 ms predicts a residual of **+808 ms**; the recorded log I
+had parsed independently says **+788 ms**. Two agents, two extractions, two code
+paths, agreeing to 20 ms.
+
+**What is NOT established.** dev-1 proposed the cause was FFT being dragged by the
+loudest passage, having measured 2.5× the energy in that window. I checked the other
+two files in the symptom group on the correct comparison streams: one shows 1.53×
+and one shows **0.77×** — a window *below* median energy carrying the outlier, which
+that mechanism cannot explain. So: **mechanism established for one file, symptom
+shared by three, cause of the other two unknown.** They accepted the refutation and
+recorded it.
+
+The engine site is `mergeVideo.py:582–594`, outside every tagged zone — **a finding
+for the owner, not an edit.**
+
 ## 2026-09-03 — retraction: I reported a checker defect that was not one. The rule was right.
 
 **I told the Lead twice that `check_write_zones.py` was wrongly blocking a
