@@ -21,6 +21,46 @@ record.
 
 ---
 
+## 2026-09-03 — the cure for the fixture trap: ground truth that does not share an author with the instrument
+
+**The most reusable thing this campaign has produced, above any individual defect.**
+Two agents converged on it after four separate fixture failures in one day; the
+question at the end is dev-1's formulation and it is sharper than the observation
+that produced it.
+
+Every one of the four failures had the same shape: a control whose pass was
+guaranteed by how it was built rather than by the thing under test.
+
+> **The antidote is ground truth that exists independently of the thing being
+> tested.** A constructed fixture cannot have that property *by construction*: a file
+> against a copy of itself has an expected answer **you supplied**, so the fixture and
+> the instrument share an author — and therefore share his blind spots.
+>
+> **The test to apply before trusting any validation set: WHO PRODUCED THE EXPECTED
+> ANSWER, AND COULD THEY HAVE PRODUCED IT WRONGLY IN THE SAME DIRECTION AS THE THING
+> UNDER TEST?**
+
+That question would have caught all four before any of them ran — a clean-edge
+estimator needing correlation to reach 1.0, a fixture with a zero base offset, a
+content screen whose positive control had zero offset, and a bisection with reversed
+bounds. **It is a check, where the list of instances is only a catalogue.**
+
+**Demonstrated the same day it was written.** Of three early-step files, two had
+ground truth from four independent instruments and one rested on the measurement of
+an agent whose absolute values had just been shown to carry a bias — i.e. the
+expected answer could have been wrong *in the same direction* as the thing it would
+test. That file was bisected on the strength of the question alone, and **its ground
+truth moved**: my direct measurement and the pipeline's own recorded residual agree at
+**837 ms and 833.5 ms** by wholly separate routes, against the earlier **750 ms**.
+
+**Run the check on the weakest leg, not the most interesting one.**
+
+**And it corrects `AGENT.MD` § Target-first in one sentence.** That section already
+says to build the expected file by hand first. Another agent's fixture error showed a
+hand-built target can itself be wrong, and this says why: **the hand that builds the
+target is the hand that builds the instrument.** Both corrections fit in one line.
+`AGENT.MD` is frozen — **a finding for the owner.**
+
 ## 2026-09-03 — the stage-1 record is structurally blind to the first ~227 s of every episode
 
 dev-1's computation, checked against my parse of all 315 logs. **The most
