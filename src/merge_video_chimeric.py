@@ -541,6 +541,16 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     fill = "none"
     if needs_master:
         fill = "master" if master_stream_order != None else "silence"
+    # LA LANGUE REELLEMENT UTILISEE POUR REMPLIR, pas celle de la piste.
+    # `SPEC_ZONE_A.MD` s4e l'exige nommement, et le champ est ajoute AVANT que le
+    # remplissage inter-langue existe: aujourd'hui il vaut toujours la langue de
+    # la piste, et le jour ou le remplissage ira chercher la langue de
+    # comparaison, LA LIGNE DE JOURNAL SERA DEJA JUSTE. Ajouter le champ apres
+    # le changement ferait decrire par ce champ quelque chose deja livre sans
+    # journal, ce que l'exigence existe precisement pour empecher.
+    fill_language = None
+    if fill == "master" and master_audio != None:
+        fill_language = master_audio.get("Language") or language
 
     speed_chain = None
     applied_ratio = None
@@ -589,7 +599,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     silence_ms = filled if fill == "silence" else Decimal("0")
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
             "codec": codec_name, "encoder": encoder_arguments[1],
-            "family": family, "gap_fill": fill, "path": out_path,
+            "family": family, "gap_fill": fill, "fill_language": fill_language,
+            "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
@@ -871,6 +882,15 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
                       timeout)
 
+    # L'ACCEPTATION PORTE SUR LE FICHIER ET ELLE PASSE AVANT L'ALIGNEMENT.
+    # `SPEC_ZONE_A.MD` s4d. Verifier l'alignement d'une piste tronquee sonde des
+    # positions qui existent encore et rend "aligned" sur un fichier ampute --
+    # c'est exactement ce qui a rapporte "7 audio et 24 sous-titres
+    # reconstruits, 0 refuse, 0 en echec" sur un fichier sans rien apres 21:21.
+    output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
+                                      subtitle_reports,
+                                      output_duration_tolerance_ms)
+
     verification = None
     if verify:
         verification = verify_on_master_timeline(
@@ -880,6 +900,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     return {"path": out_path, "pieces": pieces, "audios": audio_reports,
             "subtitles": subtitle_reports, "declined": declined,
             "failed": failed, "marker": marker_value,
+            "output_check": output_check,
             "verification": verification}
 
 
@@ -1009,6 +1030,227 @@ def measure_lag_ms(reference, produced, rate, search_ms):
     norm = numpy.linalg.norm(reference) * numpy.linalg.norm(produced)
     return (float(lags[peak]) * 1000.0 / rate,
             float(correlation[peak] / norm) if norm > 0 else 0.0)
+
+
+# TOLERANCE DE DUREE DE SORTIE, POSEE APRES MESURE. 86 fichiers, 350 pistes
+# audio, duree lue sur l'etiquette Matroska:
+#
+#     p50 +21.0 ms   p90 +22.0 ms   max +42.0 ms      <- le mode ordinaire
+#     p10 -1968 ms   min -86400 ms                    <- l'autre mode
+#     75 pistes sur 350 au-dela de +/-100 ms
+#
+# LA DISTRIBUTION EST BIMODALE et les deux modes sont separes de DEUX ORDRES DE
+# GRANDEUR: +42 ms au pire du mode normal contre -1968 ms au dixieme centile de
+# l'autre. N'IMPORTE QUELLE BORNE ENTRE 100 ms ET 1 s LES SEPARE. 500 ms est
+# choisi parce que les donnees laissent un intervalle de deux decades, pas
+# parce que le nombre est rond.
+output_duration_tolerance_ms = Decimal("500")
+
+# CE N'EST PAS UN DRAPEAU DE CAPACITE ET LA DISTINCTION COMPTE. Le proprietaire a
+# statue qu'une reparation conditionnee a un parametre n'est pas une reparation,
+# et la reparation reste inconditionnelle: ce qui est etage ici, c'est un REFUS
+# NOUVEAU dont on mesure l'incidence avant de le rendre bloquant.
+#
+# A False le controle MESURE ET INSCRIT SON VERDICT, et ne refuse pas. Raison,
+# et si le fait change la decision change: rien n'est livre cette nuit -- pas de
+# boucle de production, pas de demon, et les sorties de la file sont supprimees
+# apres verification. La valeur protectrice du refus est donc nulle cette nuit,
+# et son cout en information est reel: refuser arrete les etapes suivantes sur
+# un cinquieme du corpus, alors que MESURER donne le meme taux de refus PLUS
+# tout ce qui se trouve en aval.
+#
+# Passe a True des que le balayage du corpus est termine, ou immediatement si
+# quoi que ce soit doit etre produit pour de vrai avant cela.
+output_check_enforcing = False
+
+
+def probe_output_streams(file_path):
+    """Ce que le FICHIER dit de lui-meme: par flux, type, langue et duree.
+
+    On lit le fichier PRODUIT, pas le compte-rendu de ce qu'on croit avoir
+    construit. `SPEC_ZONE_A.MD` s4d: un compte de pistes reconstruites est un
+    enonce sur le TRAVAIL FAIT, pas sur un fichier.
+    """
+    import json as _json
+    command = [tools.software["ffprobe"], "-v", "error",
+               "-show_entries", "stream=index,codec_type:"
+                                "stream_tags=language,DURATION:format=duration",
+               "-of", "json", file_path]
+    data = _json.loads(subprocess.run(command, check=True,
+                                      stdout=subprocess.PIPE).stdout)
+    ends = None
+    streams = []
+    for entry in data.get("streams", []):
+        index = entry.get("index")
+        tags = entry.get("tags") or {}
+        # LA DUREE PAR FLUX EST UNE ETIQUETTE MATROSKA, PAS LE CHAMP `duration`.
+        # `stream=duration` rend N/A sur toutes les pistes d'un mkv;
+        # `stream_tags=DURATION` les porte. Mesure sur un fichier produit: sept
+        # pistes, sept N/A d'un cote et sept horodatages de l'autre, DONT LA
+        # PISTE COURTE. Trouve par `vmsam-ci`, qui avait ecrit sa sonde contre
+        # un vrai fichier et change la REQUETE quand le champ est revenu vide,
+        # la ou j'avais change d'INSTRUMENT.
+        #
+        # Le dernier paquet reste en repli pour un conteneur sans l'etiquette --
+        # il SOUS-ESTIME la fin de 34 ms ici et de 42 a 85 ms chez ci, et cette
+        # erreur VARIE d'une piste a l'autre, donc elle ne se soustrait pas.
+        # C'est pourquoi elle est un repli et pas la mesure, ET POURQUOI CHAQUE
+        # FLUX DIT LAQUELLE DES DEUX A SERVI.
+        duration_ms, source = parse_duration_tag(tags.get("DURATION")), "matroska tag"
+        if duration_ms == None:
+            if ends == None:
+                ends = last_audio_packet_ms(file_path)
+            duration_ms = ends.get(index)
+            source = "last packet (under-reads by one packet)" if duration_ms != None else None
+        streams.append({"index": index,
+                        "codec_type": entry.get("codec_type"),
+                        "language": tags.get("language"),
+                        "duration_ms": duration_ms,
+                        "duration_source": source})
+    container = (data.get("format") or {}).get("duration")
+    return streams, (Decimal(str(container)) * 1000 if container not in (None, "N/A") else None)
+
+
+def parse_duration_tag(value):
+    """`00:23:51.993000000` -> ms. None quand l'etiquette est absente."""
+    if value in (None, "", "N/A"):
+        return None
+    try:
+        hours, minutes, seconds = str(value).split(":")
+        return ((Decimal(hours) * 3600 + Decimal(minutes) * 60 + Decimal(seconds))
+                * 1000)
+    except Exception:
+        return None
+
+
+def last_audio_packet_ms(file_path):
+    """La fin REELLE de chaque piste audio, lue sur son dernier paquet.
+
+    MATROSKA NE PORTE PAS DE DUREE PAR FLUX: `ffprobe -show_entries
+    stream=duration` rend `N/A` sur toutes les pistes d'un mkv. Mesure sur un
+    fichier produit -- sept pistes, sept `N/A`. Un controle de duree ecrit sur
+    ce champ N'AURAIT MESURE AUCUN FICHIER: il aurait marque chaque piste
+    `unmeasured` et refuse tout, ce qui est le miroir d'un controle qui ne peut
+    pas echouer.
+
+    On lit donc l'horodatage du DERNIER PAQUET de chaque flux, ce qui est la
+    seule quantite par piste que le conteneur fournit reellement.
+    `-read_intervals 99%` ne lit que la fin du fichier.
+
+    La valeur rendue sous-estime la fin de la piste de la duree d'un paquet --
+    13 a 17 ms mesures -- ce qui est bien en deca de toute tolerance
+    defendable, et c'est un BIAIS CONNU DANS UNE SEULE DIRECTION plutot qu'une
+    incertitude.
+    """
+    command = [tools.software["ffprobe"], "-v", "error", "-select_streams", "a",
+               "-show_entries", "packet=stream_index,pts_time",
+               "-of", "csv=p=0", "-read_intervals", "99%", file_path]
+    try:
+        output = subprocess.run(command, check=True,
+                                stdout=subprocess.PIPE).stdout.decode()
+    except Exception:
+        return {}
+    ends = {}
+    for line in output.splitlines():
+        parts = line.split(",")
+        if len(parts) < 2 or parts[1] in ("", "N/A"):
+            continue
+        try:
+            index, value = int(parts[0]), Decimal(parts[1]) * 1000
+        except Exception:
+            continue
+        if index not in ends or value > ends[index]:
+            ends[index] = value
+    return ends
+
+
+def verify_output_file(out_path, master_duration_ms, audio_reports,
+                       subtitle_reports, tolerance_ms):
+    """L'ACCEPTATION PORTE SUR LE FICHIER, pas sur le compte de pistes.
+
+    `SPEC_ZONE_A.MD` s4d, apres qu'une reparation a rapporte "7 audio et 24
+    sous-titres reconstruits, 0 refuse, 0 en echec" ET LIVRE UN FICHIER
+    TRONQUE. Le verificateur d'alignement ne pouvait pas le voir: il compare la
+    piste qu'il a CONSTRUITE au maitre, sonde a quelques positions choisies, et
+    ne regarde jamais la fin du fichier.
+
+    LA REFERENCE EST LA DUREE VIDEO DU MAITRE, et le choix compte. C'est ce que
+    le merge impose (`generate_new_file` passe `-t` sur cette valeur), c'est ce
+    que l'assemblage vise, ET C'EST LE SEUL CANDIDAT QUE LA REPARATION N'A PAS
+    CALCULE: verifier contre la fin de la derniere tranche du plan ferait
+    approuver un plan lui-meme tronque -- le controle serait d'accord avec le
+    defaut.
+
+    LES SOUS-TITRES SONT VERIFIES PRESENTS ET PAS EN DUREE: la duree d'une
+    piste de sous-titres est celle de sa DERNIERE REPLIQUE, qui finit
+    legitimement avant le fichier.
+    """
+    streams, container_ms = probe_output_streams(out_path)
+    audio = [s for s in streams if s["codec_type"] == "audio"]
+    subtitle = [s for s in streams if s["codec_type"] == "subtitle"]
+    problems = []
+    if len(audio) != len(audio_reports):
+        problems.append(f"{len(audio_reports)} audio track(s) were built and "
+                        f"{len(audio)} are in the file")
+    if len(subtitle) != len(subtitle_reports):
+        problems.append(f"{len(subtitle_reports)} subtitle track(s) were built and "
+                        f"{len(subtitle)} are in the file")
+    short, unmeasured = [], []
+    for stream in audio:
+        duration = stream["duration_ms"]
+        if duration == None:
+            # ON NE SUBSTITUE PAS LA DUREE DU CONTENEUR. `vmsam-ci` a mesure que
+            # `format=duration` d'ffprobe differe de la duree du FLUX video et
+            # de mediainfo de 31 a 883 ms sur cinq fichiers -- flux video et
+            # mediainfo identiques 5 fois sur 5, conteneur different des deux.
+            # C'est une TROISIEME quantite, pas une approximation de celle-ci,
+            # et la glisser ici ferait exactement ce que les trois vocabulaires
+            # de noms de codec ont fait ce matin.
+            #
+            # Un flux sans duree declaree est donc NON MESURE, pas suppose
+            # correct et pas suppose faux.
+            unmeasured.append({"index": stream["index"],
+                               "language": stream["language"],
+                               "reason": "the stream declares no duration; the "
+                                         "container's is a different quantity "
+                                         "and is not substituted"})
+            continue
+        delta = duration - Decimal(str(master_duration_ms))
+        if tolerance_ms != None and abs(delta) > Decimal(str(tolerance_ms)):
+            short.append({"index": stream["index"], "language": stream["language"],
+                          "duration_ms": str(duration), "delta_ms": str(delta)})
+    if len(short):
+        problems.append("track(s) not running to the master's duration: "
+                        + "; ".join(f"stream {s['index']} ({s['language']}) "
+                                    f"{s.get('delta_ms', s.get('reason'))}" for s in short))
+    if len(unmeasured):
+        problems.append("track(s) whose duration the file does not state: "
+                        + "; ".join(f"stream {u['index']} ({u['language']})"
+                                    for u in unmeasured))
+    report = {"unmeasured": unmeasured,
+              "expected_duration_ms": str(master_duration_ms),
+              "expected_duration_source": "master video Duration (mediainfo)",
+              "container_duration_ms": str(container_ms) if container_ms != None else None,
+              "audio_built": len(audio_reports), "audio_in_file": len(audio),
+              "subtitles_built": len(subtitle_reports), "subtitles_in_file": len(subtitle),
+              "tolerance_ms": str(tolerance_ms) if tolerance_ms != None else None,
+              "streams": [{"index": s["index"], "codec_type": s["codec_type"],
+                           "language": s["language"],
+                           "duration_ms": str(s["duration_ms"]) if s["duration_ms"] != None else None}
+                          for s in streams],
+              "problems": problems}
+    # LE VERDICT EST INSCRIT, PAS SEULEMENT LA MESURE. `would_refuse` dit ce que
+    # le controle FERAIT, pour que le comportement de demain se lise sur
+    # l'artefact d'aujourd'hui sans le recalculer contre un seuil que quelqu'un
+    # peut avoir change entre-temps. Un verdict recalcule derive.
+    report["would_refuse"] = bool(len(problems))
+    report["enforcing"] = bool(output_check_enforcing)
+    if len(problems) and output_check_enforcing:
+        error = chimeric_error("the produced file does not match what was built: "
+                               + "; ".join(problems))
+        error.output_check = report
+        raise error
+    return report
 
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,

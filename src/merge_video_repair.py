@@ -371,6 +371,14 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
     # branchant le balayage sur cette fonction plutot que sur l'assembleur:
     # aucun test ne parcourait la branche de succes de l'orchestrateur.
     assembly["unverified_segment_ms"] = unverified_ms
+    # LE JOURNAL EST ECRIT ICI, avant que l'objet video soit construit: si la
+    # relecture du fichier produit echoue, on veut quand meme savoir ce qui a
+    # ete fait a chaque piste. Un journal ecrit seulement en cas de succes ne
+    # documente jamais les cas qui en avaient besoin.
+    try:
+        log_assembly(candidate_obj.filePath, assembly, plan)
+    except Exception as error:
+        tools.logs.append(f"repair: could not write the per-track log: {error}\n")
 
     repaired_obj = video.video(path.dirname(out_path), path.basename(out_path))
     # `generate_new_file` ne verifie pas qu'il reste une piste audio: le
@@ -406,6 +414,96 @@ def mark_audio_dicts(repaired_obj, marker):
         for language, audios in holder.items():
             for audio in audios:
                 audio["fabricated"] = marker
+
+
+def quanta(value_ms, quantum_ms):
+    """Un ecart exprime en FENETRES, pas en millisecondes.
+
+    `SPEC_ZONE_A.MD` s5: un seuil en fenetres est le meme seuil sur tous les
+    fichiers; en millisecondes c'en est un different sur chacun, parce que le
+    quantum de la mesure varie d'un appel a l'autre -- 124 a 142 ms mesures.
+    """
+    if value_ms == None or quantum_ms in (None, 0):
+        return None
+    try:
+        return round(float(Decimal(str(value_ms)) / Decimal(str(quantum_ms))), 2)
+    except Exception:
+        return None
+
+
+def log_assembly(candidate_path, assembly, plan):
+    """CE QUI A ETE FAIT AU FICHIER, PISTE PAR PISTE, AVEC LES TIMINGS.
+
+    `SPEC_ZONE_A.MD` s4e. Un compte de pistes reconstruites est un enonce sur le
+    travail fait et pas sur un fichier: une reparation a rapporte "7 audio et 24
+    sous-titres reconstruits, 0 refuse, 0 en echec" ET LIVRE UN FICHIER TRONQUE.
+    Ce que ces lignes doivent permettre, et que des comptes ne permettent pas:
+    dire QUELS fichiers sont concernes en lisant le journal, sans reconstruire.
+
+    UN SAUT EST UNE DECISION ET A SA LIGNE. Une piste refusee ou en echec est
+    ecrite avec sa raison, pas omise: une omission se lit comme "il n'y en avait
+    pas".
+    """
+    quantum_ms = plan.get("quantum_ms") if plan else None
+    pieces = assembly.get("pieces") or []
+    spans = []
+    for piece in pieces:
+        start = Decimal(str(piece["master_start_ms"]))
+        end = Decimal(str(piece["master_end_ms"]))
+        spans.append(f"{piece['source'][0]}{int(start)}-{int(end)}")
+    tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
+                      f"quantum={quantum_ms} pieces={' '.join(spans)}\n")
+
+    verification = {}
+    for entry in assembly.get("verification") or []:
+        verification[entry.get("track")] = entry
+
+    for report in assembly.get("audios") or []:
+        checked = verification.get(report["stream_order"], {})
+        worst = checked.get("worst_lag_ms")
+        line = (f"repair: audio track {report['stream_order']} "
+                f"lang={report['language']} "
+                f"fill={report['gap_fill']}"
+                f"{'/' + str(report['fill_language']) if report.get('fill_language') else ''} "
+                f"filled_ms={report['gap_filled_ms']} "
+                f"silence_ms={report['silence_filled_ms']} "
+                f"head_pad_ms={report['head_pad_ms']} "
+                f"speed={report.get('speed_ratio_applied')} "
+                f"verify={checked.get('outcome')} "
+                f"residual=({checked.get('probes_measured')},"
+                f"{quanta(worst, quantum_ms)},{quantum_ms})\n")
+        tools.logs.append(line)
+
+    for report in assembly.get("subtitles") or []:
+        tools.logs.append(f"repair: subtitle track {report['stream_order']} "
+                          f"lang={report['language']} format={report.get('format')} "
+                          f"kept_cues={report.get('kept_cues')} "
+                          f"dropped_cues={report.get('dropped_cues')}\n")
+
+    # UN SAUT EST UNE DECISION.
+    # LE PREFIXE DISTINGUE UN SAUT D'UNE PISTE CONSTRUITE. Ecrites comme
+    # "repair: audio track N ...", les deux se comptent ensemble: un lecteur ou
+    # un grep qui compte les pistes construites compterait aussi les sautees.
+    # C'est la meme forme que le compte de pistes "reconstruites" qui a decrit
+    # un fichier tronque -- une phrase vraie dont une moitie dit autre chose que
+    # ce qu'on en lit. Trouve en ecrivant le controle, pas apres.
+    for entry in assembly.get("declined") or []:
+        tools.logs.append(f"repair: SKIPPED {entry.get('kind')} track "
+                          f"{entry.get('stream_order')} DECLINED: "
+                          f"{entry.get('reason')}\n")
+    for entry in assembly.get("failed") or []:
+        tools.logs.append(f"repair: SKIPPED {entry.get('kind')} track "
+                          f"{entry.get('stream_order')} FAILED: "
+                          f"{entry.get('reason')}\n")
+
+    check = assembly.get("output_check")
+    if check:
+        tools.logs.append(f"repair: output file audio {check['audio_in_file']}/"
+                          f"{check['audio_built']} subtitles "
+                          f"{check['subtitles_in_file']}/{check['subtitles_built']} "
+                          f"expected_ms={check['expected_duration_ms']} "
+                          f"source={check['expected_duration_source']} "
+                          f"tolerance_ms={check['tolerance_ms']}\n")
 
 
 def record(candidate_path, outcome, reason, detail=None):
