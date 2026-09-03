@@ -71,6 +71,51 @@ Repository-side: this file and `AGENT_NOTES.MD`.
 5. **Objective 2 waits on the owner's re-download** and has not been started.
 6. **No inbound message has ever been delivered to this session.** Outbound works; every
    instruction acted on today arrived by relay.
+7. **A broken instrument produced false CLEANLINESS, not noise — and it propagated.**
+   The first whole-file scan searched offsets within ±3000 ms of zero; 64 of 100 sampled
+   files carry a recorded delay outside that span. Outside its window the correlation
+   saturates at the edge and returns the *same wrong value every probe*, so the classifier
+   saw a constant sequence and correctly called it flat. That run reported 28 % flat.
+   The corrected run reports **zero eligible-flat in the first 35** — every flat file is a
+   master-side pair, and 247 of 315 corpus files are already `within-step` in the record,
+   so a large flat population was never plausible.
+   Noise would have been discarded in a minute. Saturation yields stable, repeatable,
+   confident agreement that no summary statistic separates from a clean file — and the
+   clean set is the worst place for it, because clean is what everyone else samples *from*.
+   The defect damaged another agent's plan, silently, through a list.
+8. **The miss rate must be scored as a JOIN, not a marginal count.** The sample is drawn
+   from the *refused* corpus, so a measured step is usually the very step the record shows.
+   Counting labels would have reported ~48 % as a "miss rate" — a large, quotable number
+   that counts the record's successes as its failures. A miss requires both halves: the
+   record blind **and** structure found. Estimand, decision boundary and the two defects
+   found while scoring are frozen in `VMSAM_HELP_AI/ci/runs/SCANA3-PREDICTION.md`.
+
+9. **The miss rate is bounded: 2 of 88 = 2.3 %, Wilson 95 % [1.3 %, 7.2 %].** 98-file
+   seeded sample of the refused corpus, uniform 30-probe instrument, manifest written
+   before the first probe; estimand and a 10 % refutation condition frozen in advance.
+   **Not refuted.** Two of three frozen predictions were wrong and are recorded as wrong.
+   **The sentence that must travel with it: 2.3 % is the rate of FILES the record was
+   wholly blind to, not the rate of STRUCTURE it missed.** One sampled file carries a
+   confirmed 24.7 ms sub-quantum step and scores as *agreement*, because its other,
+   larger step is visible. The second number is larger and this sample does not bound it.
+10. **The repair's verifier checks the track it built, not the track that shipped.**
+    Two container runs on the current build, predictions frozen first:
+    error id 144 **declined** with its own measurement — *rebuilt track off by 1103.4 ms,
+    tolerance 100 ms* — on a file whose correct answer is known from three independent
+    directions. That is the decline path working as `SPEC_ZONE_A` requires.
+    Error id 352 **logged `1 audio and 4 subtitle track(s) rebuilt, 0 declined`**, and the
+    artefact carries the four subtitles tagged while **no audio track carries the marker**;
+    the output's audio is the master's at correlation 1.0000. **A track reported as rebuilt
+    is absent from the artefact, and the verifier cannot see that** — it runs before the
+    merge. Owned jointly with the repair's author; the mechanism is not yet settled.
+11. **Freezing a prediction does not protect the interpretation.** The id 144 refutation
+    table said *"no mkv → over-conservative"*. There was no mkv, and the reading was wrong:
+    the decline was correct because the built track really was off. **The rows were
+    verdicts, not observations, and pre-registering a reading makes it harder to revise
+    because it carries the authority of having been frozen.** Freeze the observation and
+    the decision rule; never the conclusion — and check the rule can come out both ways on
+    the space actually searched.
 
 Narrative, method and the day's corrections: `AGENT_NOTES.MD`, and
 `VMSAM_HELP_AI/ci/` (full archive at `002-full-narrative-archive.MD`).
+Method write-up for the algorithms index: `VMSAM_HELP_AI/ci/sections/SCANNER.md`.
