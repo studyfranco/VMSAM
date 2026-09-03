@@ -2780,3 +2780,71 @@ file is self-contained, and it validates the locator rather than bounding the pa
 The controls killed the file I had predicted would be the headline result (id 85,
 control absent at a known-clean position) and saved two I had not. That asymmetry
 is the only evidence I have that the rules were not fitted to the answer.
+
+---
+
+## 2026-09-03 — an ffmpeg PTS seek silently absorbs `start_time`, and three modules hit it independently
+
+**Not three defects. One property of an interface, found three times by people who
+were not looking for each other's version of it.**
+
+### The property
+
+`ffmpeg -ss T -i file` seeks by **presentation timestamp**. A stream whose first
+packet is stamped 1.103 s does not have audio at T = 0, so a probe there does not
+fail and does not warn — **it returns the stream's opening and reports the
+`start_time` as though it were the quantity being measured.**
+
+Container `start_time` is not exotic. **65 of this corpus's 315 master files carry a
+nonzero one on a shared language**, and the values are not noise: 21, 42, 63 and
+84 ms are one, two, three and four multiples of 21.33 ms — **a single AAC frame at
+48 kHz.** They are whole frames of encoder priming.
+
+### The three instances, in three modules, each found separately
+
+| module | what it did | how it showed up |
+| :--- | :--- | :--- |
+| `change_point_locator._probe` | probed at t=0 on a stream starting at 1.103 s | reported +1003 ms against a body of +22; the run splitter read a change point at the very start, the zero-width first segment was dropped, and the plan began at master 100 s instead of 0 |
+| dev-2's verifier | fetched master reference audio by PTS seek | probe at master 0 asked for audio that does not exist; read -1002.75 ms on a track that was fine |
+| dev-2's assembler | ended each piece with `asetpts=PTS-STARTPTS` | produced track starts at PTS 0 while the master's starts at its own `start_time`; four declines matched the master's value to under 5 ms across three distinct values |
+
+**None of the three was found by looking for the other two**, and the first two
+compound: the locator's blind spot manufactured exactly the configuration the
+assembler's blind spot needed — a plan not beginning at master 0, which makes a head
+master-fill piece, which is cut from the master at source 0.
+
+### What to do about it
+
+**Ask, of any code that seeks: what does this return when asked for a time before
+the stream begins?** The honest answers are an error or the `start_time`. **ffmpeg
+gives the second silently.**
+
+Two measurements of the same stream disagreeing by ~1 s, where one decodes from the
+beginning and one seeks, is this and not a media property. **The two quantities are
+both correct and neither is wrong; they are different, and nothing in either name
+says so.**
+
+### The part worth more than the fix
+
+**My own log had been printing the diagnosis all afternoon and I never read the line:**
+
+    [change_point_locator] segment 0 unusable (offset 1003 ms, master [0.0,0.0]);
+                           dropped, not declining
+
+Four instrument defects were caught today by measurements built to catch them. **This
+one was sitting in emitted output nobody read.** A diagnostic that is emitted and not
+read is not a control — it is a control that cannot fail arriving from a third
+direction, and it is cheaper to miss than either of the other two, because it looks
+like diligence.
+
+### And a rule for the next plausible fix
+
+I was confident this was inaccurate input seeking, implemented a two-stage accurate
+seek, re-ran the identical test, and **got identical numbers to two decimal places.
+Reverted.** The change that did work moves two files, **leaves two unchanged**, has
+a log line naming the mechanism, and has a consequence a consumer wanted
+independently.
+
+**The difference between the two was never confidence. It was whether anything
+measurable moved** — and the half that makes it a fix rather than a shift is the
+files that stayed the same.
