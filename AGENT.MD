@@ -323,6 +323,23 @@ indistinguishable from silence from a dead session — campaign 2 lost its first
 to exactly that, four agents parked while the lead worked on, each side waiting for
 the other.
 
+**How, concretely — and this is the part that is always assumed rather than said.**
+Your plain text output is **not visible to anyone else**. Writing "task 006 done" in
+your own transcript reaches nobody: the only thing that transmits is the
+`SendMessage` tool. If you did not call it, you did not report.
+
+- **Address by session name**, exactly as `ListAgents` prints it — your lead is a row
+  in that list like any other. `ListAgents` also tells you who exists and whether
+  each one is busy or idle right now.
+- **To answer an incoming message**, copy its `from` attribute into your `to`. That
+  always works, including when you do not know who the sender is.
+- **Messages queue; they never interrupt.** They arrive at the recipient's next tool
+  round. So a message costs the recipient nothing while it waits, and **silence is
+  never refusal** — it usually means mid-turn.
+- **The first line is the preview** a human sees before expanding. Make it a
+  self-contained sentence saying what this is about, not a greeting.
+- Do not poll in a loop, and never send "are you done?". Read `ListAgents` instead.
+
 Report **unprompted**, at four moments:
 
 | when | what it must contain |
