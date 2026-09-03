@@ -21,6 +21,69 @@ record.
 
 ---
 
+## 2026-09-03 — a linear fit cannot tell a drift from a step, and three of us produced a spurious rate on one file within an hour
+
+**Three independent agents, three instruments, same file, same hour, same wrong
+answer shape.**
+
+| who | what their fit reported | what it actually was |
+| :--- | :--- | :--- |
+| another agent | *"POST drift −92.77 ms over 1000 s = 9.28 % of playback"* | an 89 ms **step** at 1170 s |
+| me | +34.6 ms per 1000 s, looked like support for a drift hypothesis | the same step |
+| a third agent | 45 ms of "drift" across the episode | almost certainly the same step |
+
+> **A rate fitted across a range containing a step becomes a spurious slope. The fit
+> cannot distinguish them; only the RESIDUALS can.**
+
+What saved me was noticing the **residual spread (23.9 ms) was the same size as the
+total effect (34.6 ms)**. Refitting without the one probe carrying it gave −7.45 ms
+per 1000 s, spread 6.4 ms — flat.
+
+**And it makes an existing measurement trustworthy for a stated reason rather than
+by luck.** The speed coefficients in the campaign's speed work come from exactly this
+kind of fit over ten windows. They survive because their author checked **residual
+scatter against the quantisation floor**: 38.3 and 41.0 ms measured against
+`124/√12 = 35.8 ms` predicted by pure quantisation. **Residuals AT the floor mean
+nothing structural is hiding under the slope.** Had a multi-step file been in that
+set, its residuals would have blown well past it. The check was load-bearing, not
+decoration — and nobody could have said so this morning.
+
+## 2026-09-03 — the geometry's blind spot has TWO conditions, not one
+
+The position condition was recorded earlier: a step is invisible unless
+`T > begin + L/2`, so the head of every episode is unsampled.
+
+**There is a second condition, in MAGNITUDE, that neither of us had written down.**
+A step must also exceed roughly **half a quantum** to change any window's reading at
+all. The transition found at 1170 s is 89 ms — **0.7 of a point** — so every 194 s
+window reads the same plateau on both sides of it. It fails the magnitude condition,
+not the position one.
+
+> **A step is visible only if it is both late enough AND large enough.** The head was
+> never the special thing; it was just the part noticed first, because the windows
+> start at 120 s.
+
+Together the two conditions mean a family count from the stage-1 record has **two
+independent unbounded error terms**, and neither is estimable from the record.
+
+## 2026-09-03 — my own run duration is not a duration: the box was 2.8x oversubscribed
+
+The first container job to reach stage 2 has run **over 70 minutes**, against under a
+minute for every job that refused inside stage 1. I was about to record that as the
+stage-2 cost for the run service.
+
+Measured before doing so: **load average 46.88 on 17 cores**, with four agents
+running concurrent `ffmpeg` decodes and FFT correlations — **including me**, doing
+heavy bisection work on the same box throughout the run.
+
+> **A duration measured under 2.8x CPU oversubscription is not a duration**, and I
+> caused part of the contention I would have been measuring.
+
+So the run-service table still says *stage-2 cost: unmeasured*. What is recorded
+instead is the **only** safe reading: stage 2 is the expensive stage, by a factor of
+at least tens, and a clean figure needs a quiet box. Quoting 70 minutes would have
+put a number into a document that the next agent would have planned around.
+
 ## 2026-09-03 — "single step near the head" was an artefact of everyone probing near the head
 
 **The three files this campaign adopted as its change-point acceptance set are not
