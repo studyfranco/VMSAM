@@ -32,6 +32,14 @@ to state it. This section exists because the author of these documents spent an
 afternoon messaging four agents directly, received nothing, and was right to receive
 nothing: he had no standing in their chain, and had never thought to define one.
 
+## Carrying someone else's finding
+
+**Never restate a finding more strongly than its author did.** A campaign-1 lead
+turned an agent's *"unsupported"* into *"false"* and dispatched thirteen files on the
+stronger claim; the agent retracted and the premise was wrong. If you are reporting
+someone else's measurement, **carry their hedges with it** — a hedge dropped in
+transit is indistinguishable from a claim that never had one.
+
 ## Staying visible — the lead cannot see you
 
 **Nothing announces that you started, finished, or stopped.** Messages are push-only:

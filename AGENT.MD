@@ -482,18 +482,16 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🧪 Testing and Execution
+## 🧪 Believing a result
 
-Validate your code with files in `/config/example/`. Each folder is a couple of files to sync together. Save your tests file in `/config/output` and yout temporary files in `/tmp`
-Rust compilation via `cargo build` / `cargo check` is allowed and recommended.
+**Which paths hold test material, where outputs go and what survives a restart are
+facts about the machine, not about VMSAM** — they change without the code changing,
+and a stale path in a tracked file is worse than none. They live outside the
+repository, with the rest of the environment. `cargo` and `compileall` belong to the
+pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
 
-`python3 -m compileall -q src -x '__pycache__'` **must now pass cleanly.** It used to
-fail on `frame_compare.py`, broken since `da1c191`; campaign 2 repaired it, so the
-allowance is gone and **any failure at all is yours**.
-
-Reported by `vmsam-dev-1`, whose fix made this paragraph false — which is the
-mechanism working: a rule that stops being true is a finding for the owner, not an
-edit by the agent that outgrew it.
+What is left here is the part that stays true whatever machine you are on: **the ways
+a result can look sound and be worthless.** Each of these was paid for.
 
 **A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
 pieces of code — a guard, a refined measurement, a policy branch, an order check, a
@@ -536,7 +534,3 @@ Campaign 1's success metric sat in the third branch of a function nothing reache
 meant *nothing reached the check*. Fire every guard deliberately, with literals,
 plus a case proving it can return the **other** answer.
 
-**Never restate a finding more strongly than its author did.** A campaign-1 lead
-turned an agent's *"unsupported"* into *"false"* and dispatched thirteen files on
-the stronger claim; the agent retracted and the premise was wrong. If you are
-reporting someone else's measurement, carry their hedges with it.

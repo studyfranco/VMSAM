@@ -253,11 +253,17 @@ git diff --cached -U0 -- src/mergeVideo.py src/tools.py
 # 3. config.ini: additions only, no changed or removed line
 git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be empty
 
-# 4. the tree still compiles
+# 4. the tree still compiles -- cleanly, no allowance
 python3 -m compileall -q src -x '__pycache__'
+# 5. Rust, when you touched it
+cargo check && cargo clippy && cargo fmt --check
 ```
 
-Checks 1b and 3 must print nothing. Check 4 fails on `frame_compare.py` until someone
+Checks 1b and 3 must print nothing. **Check 4 must pass cleanly**: it used to be
+allowed one failure on `frame_compare.py`, broken since `da1c191`, and campaign 2
+repaired it — so any failure at all is now yours. `vmsam-dev-1`'s fix is what made
+the old allowance false, reported as a finding rather than edited out by the agent
+that outgrew it. Check 4 fails on `frame_compare.py` until someone
 fixes it; that failure is expected and is the only one allowed.
 
 ## 6. Reporting a blocked need
