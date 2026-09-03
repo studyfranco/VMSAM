@@ -21,6 +21,81 @@ record.
 
 ---
 
+## 2026-09-03 — measured: on one file, stage 2 is WRONG where stage 1 is right, which inverts the design assumption
+
+`AGENT.MD` records the owner's design intent: fingerprint peaks put stage 1 off by
+roughly ±250 ms, **stage 2 runs unconditionally and corrects them**, and a residual
+beyond 500 ms means stage 1 was not merely imprecise but wrong. On error id 12 the
+opposite is measured.
+
+`vmsam-ci` found four files refused by stage 2's variance test whose recorded
+evidence is 8-9 of 10 windows agreeing to 1.16-2.18 ms with one wild outlier. It
+asked whether the outlier window is the same window that steps in stage 1. I
+measured id 12 directly — absolute, unshifted, both instruments, same windows:
+
+| h | window | `second_correlation` | chromaprint | RMS master |
+| ---: | :--- | ---: | :--- | ---: |
+| **0** | [120.0, 292.0] | **-567.01 ms** | 0.8555 / **-1375** | **4306.9** |
+| 1 | [206.0, 378.0] | -1417.66 | 0.9236 / -1375 | 2016.9 |
+| 2-9 | … | -1412 to -1428 | 0.919-0.934 / -1375 | 1398-2084 |
+
+**Chromaprint gets window 0 right** — the same -1375 plateau as every other window,
+at the lowest fidelity of the ten (0.8555), so it registers its own reduced
+confidence without being wrong. **The FFT is the instrument that fails**, by about
+850 ms.
+
+The master's RMS in window 0 is **4306.9 against 1398-2084 elsewhere** — two to
+three times the energy. FFT cross-correlation is dominated by the loudest passage
+in its window, so a loud passage that differs between two releases (a different
+music bed, a different mix) drags the peak. Chromaprint normalises per frame and is
+not dragged.
+
+**This reproduces ci's recorded residuals**, which were taken after the candidate
+was shifted by `delayUse` = chromaprint's -1375:
+
+```
+windows 1-9:  -1417 - (-1375) =  -42 ms     ci recorded -56 to -57
+window 0:      -567 - (-1375) = +808 ms     ci recorded +788
+```
+
+Two extractions, two agents, same numbers to within 20 ms.
+
+**Consequence.** For that family the refusal is not evidence about the media. It is
+stage 2 failing in a loud passage and overruling a stage 1 that was correct in all
+ten windows. `test_if_constant_good_delay` then reads the disagreement as *stage 1
+was wrong* and refuses the pair — the exact inverse of what happened.
+
+**Hedged deliberately: one file, one window.** I have not checked ids 13 and 108,
+and ci's own classification splits the nine stage-2 variance files three ways
+(a real change point seen by both stages; a first-window-only outlier with stage 1
+silent; degenerate). This entry covers the second group only, and one member of it.
+
+Also confirmed for ci, from the code rather than assumed: **window index 0 is
+chronologically first** — `generate_cut_with_begin_length` increments
+`begin_in_second` by `length_time` each iteration and `get_delay_by_second_method`
+appends in `h` order. But **window 0 starts at `begin_in_second`, which is 120 s**
+for any file over 540 s, so logos, black frames and opening credits are *before*
+every comparison window and cannot explain anything about window 0.
+
+**Not an edit.** `second_delay_test` and `test_if_constant_good_delay` are in
+`mergeVideo.py` outside every tagged zone.
+
+### `max_delay_variance_second_method`: one constant, two units
+
+Found by `vmsam-ci`, verified here. `mergeVideo.py:25` sets it to `0.004`, and it
+is compared against two dimensionally different quantities in one function:
+
+```
+:582   variance(list_delay) < 0.004          variance of SECONDS  -> s^2
+:584   abs(first - last)    < 0.004          a plain difference   -> s
+:594   variance(delay_detected) > 0.004      variance again       -> s^2
+```
+
+`second_correlation` returns seconds, so at :582 and :594 the constant is an s²
+budget implying **√0.004 = 63.2 ms of standard deviation**, while at :584 it is
+**4 ms** flat. `AGENT.MD`'s description — *"its own variance tolerance,
+`max_delay_variance_second_method` = 0.004 s"* — matches :584 only.
+
 ## 2026-09-03 — the recurring defect of this campaign: a control whose pass is guaranteed by its construction
 
 Seven instances in one day, three of them pre-dating this campaign and sitting in
