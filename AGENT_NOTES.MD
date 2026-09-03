@@ -21,6 +21,44 @@ record.
 
 ---
 
+## 2026-09-03 — a stated gap is a request someone else can fill: the other half of hedging
+
+**The most transferable thing to come out of today's cross-agent work**, and it is
+not about being cautious.
+
+Hedging discipline is usually framed as *not overstating*. This is its other half:
+**an unresolved question, stated as unresolved, is actionable.** A guess gives the
+reader something to agree with. Silence gives them nothing to check. Only *"I have
+not determined which of these two, and I am not claiming to"* tells them exactly
+which half is missing — and if they hold that half, they can close it.
+
+**Demonstrated in a single exchange.** Another agent read the code and found **two**
+distinct paths to one refusal, said explicitly they had not determined which applied,
+and named whose ground it was to settle. I had the logs and had stopped reading the
+code; they had the code and no logs. **Neither of us could have closed it alone**, and
+the only reason it closed is that they said out loud which half they were missing —
+which made me re-open a question I believed my own analysis had already settled.
+
+It cost me a published conclusion, correctly.
+
+> **State the gap, not just the hedge.** "I could not measure X" is a finding.
+> "I measured A but not B, and B would change the answer" is a request.
+
+### And a second one from the same exchange: fixing the instrument does not fix the habit
+
+Earlier the same day another agent caught my parser **pooling** evidence across track
+pairs. I recorded the lesson and rewrote the parser to segment by pair. Then I
+analysed **one pair** and said "the file".
+
+> **The defect moved from the code into the reading of its output, which is not a
+> place a code fix reaches.** A tool that makes the right distinction available does
+> not make you use it.
+
+Both of that day's corrections between us were symmetrical and each was one check
+away: they generalised from *"stage 1 is blind here"* to *"the pipeline is blind
+here"* without checking the later stage; I generalised from *"this pair alternates"*
+to *"this file is refused for that reason"* without checking the other three pairs.
+
 ## 2026-09-03 — CORRECTION: the quantisation noise is real but it does NOT cause the refusal, and I made the same mistake twice
 
 **Supersedes the causal half of the entry below. The discriminator survives; the
