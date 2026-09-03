@@ -263,6 +263,18 @@ different result?* If the answer is no, it is not a control.
 | 6 | speed sweep with **no wrong-direction column** | `* r` where `/ r` was meant; rubberband won 33 of 33 and *"nothing internal to the run could have caught it"* | `docs/AUDIO_SPEED_POLICY.MD` weakness 3 |
 | 7 | *"a file where `asetrate` leaves fidelity worse than no correction"* | the uncorrected arm is pinned near the floor **by geometry**, so almost any correction beats it — the document names this itself | `AUDIO_SPEED_POLICY.MD` |
 
+| 8 | **agreement between two windows that both span the same step** | both are dominated by the same side of it, so they agree — and the thing they would have to disagree with is outside both fields of view | dev-2 / dev-1 |
+
+**#8 is the sharpest form and it arrived last.** dev-2's statement of it: *a window
+spanning a change point returns a well-formed number that belongs to neither side,
+so a per-window disagreement is not the only failure mode — AGREEMENT can be the
+failure mode.* That is exactly the locator's head blind spot: window 0 and window 1
+agree on id 108 not because the offset is constant but because both are dominated
+by the post-step side. **A control that cannot fail because what would refute it is
+outside its field of view** is the general form, and it subsumes several of the
+rows above — #1's zero offset, #4's zero base offset and #5's midpoint probe are
+all fields of view chosen so the error cannot appear in them.
+
 Campaign 1's own headline defect is the same shape one level up: `final_status`'s
 success metric sat in a third branch nothing reached, and `Resolved: 0` was read as
 *nothing qualifies* when it meant *nothing reached the check*.
