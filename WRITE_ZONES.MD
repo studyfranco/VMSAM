@@ -170,6 +170,66 @@ Open like the rest, listed because their state is not obvious from reading them.
 | `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
 | `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
 
+New capability goes in **its own module**, called from a tagged zone, with a test
+that pins the call site.
+
+**It must not be conditioned on a parameter.** VMSAM runs with nobody watching —
+that is the premise the whole design rests on, and it is why a wrong automated
+decision is destructive. A repair that waits for a human to switch it on is not a
+repair: it is a feature that will never run, on a service where nobody is there to
+run it. Campaign 2 measured its own version of this without naming it — *"zone A is
+measurably inert with its flag off"* is a true statement about work that reaches no
+library.
+
+**The gate is the measurement, not a setting.** A capability decides for itself, from
+what it measured, whether it should act — and when it cannot establish that it
+should, it **declines**, which is already a correct outcome here. That is the
+difference between a decision procedure and a deferral to somebody who is not
+present. The campaign has the example: error id 237 was refused on a median fidelity
+of 0.576 with 18 sign flips, not on a flag.
+
+**A flag may exist while a capability is being built**, so that half-finished
+behaviour does not reach a library — and **removing it is part of finishing**. It
+belongs in `config.ini`, never in the environment: `run.sh` passes no `--config` and
+the image bakes its variables into the frozen `Dockerfile`, so a new `VMSAM_<NAME>`
+is absent at runtime and cannot be turned on at all. Campaign 1 measured the
+consequence — **the code read 18 `VMSAM_` names and the image set two** — so every
+feature built to a ruling that day was unreachable by construction. `config.ini`
+additions are allowed by §3; a scaffolding flag left behind at the end is not.
+
+### What does not go in the repository
+
+This repository holds **VMSAM's code**. Nothing else. Batch scripts, verification
+harnesses, corpus sweeps, forensic reports, per-agent state files, task archives,
+scratch analysis: `VMSAM_HELP_AI/`, beside the repository, never inside it.
+
+Campaign 1 is the measurement. It left behind, under `src/`:
+
+| directory | files | lines |
+| :--- | ---: | ---: |
+| `diagnostics/` | 624 | 88 394 |
+| `tools_batch/` | 173 | 47 349 |
+| `task_archive/` | 101 | 13 030 |
+| **total** | **898** | **148 773** |
+
+VMSAM itself is 7 225 lines of Python and 569 of Rust. The scaffolding outweighed
+the program **nineteen to one**, and someone opening the repository could no longer
+tell what VMSAM *is*.
+
+The test, applied to every file you are about to create: **would this still matter
+to someone running VMSAM in production?** If it exists to help *you* work — to
+measure, to sweep, to remember, to report — it goes beside the repository.
+
+### Files with no importer
+
+Open like the rest, listed because their state is not obvious from reading them.
+
+| file | state |
+| :--- | :--- |
+| `frame_compare.py` | pHash/DCT frame comparison. **Does not compile** — `frame_compare.py:109`, pre-existing since `da1c191`. |
+| `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
+| `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
+
 New capability goes in **its own module**, called from a tagged zone, behind a
 flag that is **off by default**, with a test that pins the call site.
 
