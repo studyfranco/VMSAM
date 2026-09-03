@@ -687,10 +687,20 @@ discriminator is **contiguity, not distinct values**. Corpus-wide: **277** multi
 alternating (**quantisation noise**). The 8 are exactly the files the other agent had
 measured — two routes, same set.
 
-**The consequence is larger than retiring the bucket.** Stage 1 requires its windows
-to agree; a sub-quantum offset makes them disagree; the pair is refused **before
-stage 2 runs**. Verified: none of those ten carries a method-2 record at all. A
-**self-inflicted refusal** on ten files.
+**CORRECTED — the rounding does NOT cause the refusal.** I claimed it did (a
+"self-inflicted refusal" on ten files). Another agent pointed out two code paths reach
+that raise; I checked the logs and it is the other one. Those files have **four** track
+pairs and **three are perfectly constant**; one file carries two same-language tracks
+**250 ms apart**, giving a gap of 250 against a 127 limit, and that fires the raise.
+The alternation sits in the single lowest-fidelity pair and refuses nothing.
+
+**How I got it wrong is the reusable part:** I read one track pair and generalised to
+the file — the *same* defect I had been corrected on hours earlier, when my parser
+pooled triples across pairs. I fixed the instrument and kept the habit. **A conclusion
+about a file drawn from a subset of its evidence is a conclusion about the subset.**
+
+Stage 2 still never ran on these (no method-2 record in any of the ten), so the offset
+was never measured — but the refusal cause is the 250 ms track split, not the rounding.
 
 It also corrects a claim drawn from the same measurement — that the offset is
 *"structurally invisible to the pipeline and would ship as-is"*. `mergeVideo.py:243`

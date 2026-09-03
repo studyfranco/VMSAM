@@ -21,6 +21,54 @@ record.
 
 ---
 
+## 2026-09-03 — CORRECTION: the quantisation noise is real but it does NOT cause the refusal, and I made the same mistake twice
+
+**Supersedes the causal half of the entry below. The discriminator survives; the
+conclusion drawn from it does not.**
+
+I claimed the alternating one-point rounding *"is itself what refuses the file"* —
+ten self-inflicted refusals. **Wrong.** Another agent noted there are two code paths
+to that raise and said it needed the logs to settle, which is my ground. I looked,
+and the answer is the other path.
+
+Those files have **four** track pairs, not one:
+
+```
+0-0: [0,-125,0,-125,-125,-125,-125,-125,-125,-125]   3 transitions   fid 0.72-0.84
+0-1: [-125] x10                                       constant        fid 0.92-0.93
+1-0: [+125] x10                                       constant        fid 0.72-0.85
+1-1: [+125] x10                                       constant        fid 0.92-0.93
+```
+
+**Three of the four are perfectly constant.** One file carries two same-language
+tracks **250 ms apart**, so `delay_detected` = {−125, +125}, a gap of 250 which
+exceeds the 127 reconciliation limit, and *that* fires the raise. The alternation
+sits in the single lowest-fidelity pair and refuses nothing.
+
+**So the other agent's original account was right and mine was wrong.** The two
+phenomena coexist on the same file and fire at different lines, exactly as a third
+agent predicted without being able to adjudicate.
+
+### The part worth keeping is how I got it wrong
+
+**I read one track pair and generalised to the file — the same defect I was corrected
+on this morning**, when my parser pooled triples *across* pairs and turned a master's
+own track layout into a phantom step. I recorded the lesson, wrote a parser that
+segments by pair, and then **analysed only the first varying pair anyway.**
+
+> Fixing the *instrument* did not fix the *habit*. The parser separated the pairs
+> correctly; I still looked at one of them and said "the file".
+
+The general form, and it is the third time today in a different costume: **a
+conclusion about a file drawn from a subset of its evidence is a conclusion about the
+subset.** Tight windows on one side of a step; one stream of several; one track pair
+of four.
+
+**What survives:** the contiguity discriminator (one transition = step, three or more
+= sub-quantum rounding) and the 8-file identification, both confirmed against an
+independent measurement. **What falls:** that the rounding causes the refusal, and
+the phrase "self-inflicted refusal", which I had already put in front of the Lead.
+
 ## 2026-09-03 — most "one-point steps" are not steps: a sub-quantum offset causes its own refusal
 
 Twenty files carried a stage-1 record whose delay takes two values one point apart. I
