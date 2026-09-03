@@ -251,6 +251,63 @@ failed"* holds for knowing **that** a pair failed and roughly where; it does not
 hold for the numbers the repair needs. Reading the record is free and would have
 produced a chimeric splice for two files that need a single `--sync` of 552 ms.
 
+### A real change point, located — and my calibrated estimator refuted on the way
+
+ci withdrew ids 20-23 and re-ranked its 157 by step size in points, treating
+one-point steps as suspect. Its suspect-20 contains **all four** files I had
+measured absolutely, by an independent route. Measured absolutely (own extraction,
+common-language stream pinned both sides):
+
+| id | absolute sequence | fid | delta |
+| ---: | :--- | :--- | ---: |
+| 6 | **-125 constant x10** | 0.940-0.949 | +0.000 s |
+| 90 | `[0,0,0,0,0,-125,-125,-125,-250,-125]` | 0.910-0.973 | -0.192 s |
+| 224 | `[750 x5, 625, 500 x4]` | 0.893-0.952 | +0.694 s |
+
+**id 6 is the strongest corroboration of the shift artefact, and it is ci's file,
+not mine:** ci had verified that pair **frame-identical at 700 s by eye**, its
+duration delta is +0.000 s, and its log records a one-point step. Absolutely it is
+a constant -125 ms with no step. Three files now (318, 319, 6).
+
+**My M2 clean-edge estimator was REFUTED on the first real pair.** It asks whether
+correlation reaches 1.00000, which happens only when aligned content is
+*identical*. On real different encodes, aligned content reads 0.93-0.96 and never
+1.0, so the two competing offsets differed by 0.003 against 0.03 of content
+variation — not separable. **A copy-of-itself fixture cannot expose this**, which
+is precisely the limit I wrote into the calibration and could not test there.
+
+**Replacement method: scan the local offset with no shift on either side**, so the
+fingerprint grids stay aligned. On id 224 at three window lengths:
+
+| | W=60 (q=129) | W=30 (q=135) | W=15 (q=150) |
+| :--- | ---: | ---: | ---: |
+| before | 774 = **6 pts** | 810 = **6 pts** | 900 = **6 pts** |
+| after | 516 = **4 pts** | 540 = **4 pts** | 600 = **4 pts** |
+
+**The point count is portable across window lengths; the millisecond value is
+not.** An offset must therefore be exchanged as *points + the quantum that
+produced them*, and converted to ms at the pipeline's own window length. For
+id 224 that is 125 ms, so the plateaus are 750 and 500 ms and the step is exactly
+**-250 ms, 2 points**.
+
+Locating T by majority (a window reads the old plateau while `T > p + W/2`):
+
+| W | last OLD | first NEW | implies |
+| ---: | ---: | ---: | :--- |
+| 30 s | 762.5 | 775.0 | T ∈ (777.5, 790.0) |
+| 15 s | 772.5 | 777.5 | T ∈ (780.0, 785.0) |
+
+**Two window lengths agree: T ∈ (780, 785) s.**
+
+### The limit this establishes, and it is the point of 005
+
+**Audio narrows a real change point from one window spacing (108 s) to about 5 s.
+It does not reach a frame** — 5 s is ~120 frames at 23.976 fps, nowhere near
+enough to place a splice. The `TASKS/005` ruling argued *audio brackets, video
+pins to a frame*; that is now measured on real media rather than reasoned. The
+video instrument is not an optimisation for objective 2, it is the half that
+produces a usable cut point.
+
 ### Still blocked
 
 **A real exemplar with a multi-point step at good fidelity** — the shape least
