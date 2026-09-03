@@ -90,6 +90,10 @@ Each against a target built by hand **before** the run.
 | T8-B | flag open, real merge, real audio | merged mkv produced; 2 audio + 2 subtitle tracks rebuilt, 0 declined, 0 failed; the final mkv carries `VMSAM_FABRICATED=chimeric` on audio **and** subtitle streams |
 | T9 | is the repaired track on the master's timeline? | **−1.2, −0.2, +1.0, −0.4 ms** at 100/250/350/500 s, r = 0.993–0.998 |
 | T9 control | the same instrument on the *unrepaired* candidate | −0.9, −0.4 ms before the cut, **+8000.2, +7999.8 ms** after |
+| T9b | the same, at 44 100 Hz with parabolic interpolation (0.0227 ms/sample) | repaired: **−0.000, −0.000, +0.998 ms**; candidate: −0.658, +7999.252, +8000.998 ms |
+
+T9's ±1.2 ms was the 8 kHz correlator's own quantisation, not error: at full
+rate the repaired track is sub-millisecond at two of three positions.
 
 The T9 control is what makes T9 mean anything: without it, "0 ms everywhere"
 could equally have meant the correlator measures nothing. The correlator is
@@ -97,9 +101,45 @@ numpy cross-correlation, deliberately **not** `audioCorrelation` — otherwise t
 instrument would be testing itself.
 
 Fixture: a 600 s extract of a real example file with 8 s of content removed at
-t = 300 s, so the ground truth is known before the code runs. Built by
-`lab/t6_build_fixture.sh` in the private laboratory. Details in the private notes
-beside the repository.
+t = 300 s. Built by `lab/t6_build_fixture.sh` in the private laboratory. Details
+in the private notes beside the repository.
+
+**"Known by construction" had to be checked, and the obvious check is the wrong
+one here.** `vmsam-dev-1` warned that a filter-based cut can silently remove the
+wrong amount — its own first fixture used `aselect`, which cuts on audio *frame*
+boundaries, and removed 1021.678 ms instead of 1000. Checked: mine uses `atrim`
+on seconds, and the decoded sample counts are 26 491 904 against 26 139 648, a
+difference of **7987.664 ms**, not 8000. That is **not** a cut error. The
+candidate's audio is re-encoded, and 12.3 ms of AAC priming and trailing padding
+sits between the duration difference and the content offset. The content offset
+measures 8000 ms to within 1 ms (T9b). So the general rule holds — never trust
+"known by construction" — but **the instrument must match the fixture**: a byte
+count is ground truth for a PCM-exact fixture and is wrong by 12 ms on a
+re-encoded one, where correlation is the only honest measure.
+
+### On what the flag-shut control does and does not prove
+
+`vmsam-ci` raised this and it is right. My T8-A control runs on a
+**content-matched** pair, so shut-versus-open separates "the gate is shut" from
+"the gate is open" on a file where repair is genuinely possible. It would prove
+nothing on a file where refusal is the correct final answer — error id 237 is
+such a file, and the same exception fires there for reasons unrelated to the
+gate. A control taken on an unrepairable file cannot distinguish *repair
+declined* from *repair impossible*.
+
+### What an unrepairable refusal looks like, from a real one
+
+From `vmsam-ci`'s baseline on error id 237 (details in the private notes beside
+the repository), carried with its author's framing: stage 1 raised, ten windows,
+delays `{−209625, −211000, −195125, −200500, +210125, −191250, −199375, −207375,
++208375, +203000}` ms, spread 421 s, **sign flipping between windows**, fidelity
+flat at 0.5590–0.5781 with no window standing out. `vmsam-ci` established by
+extracting and looking at frames — not from the filename — that the file is a
+different television series from its folder master. So this is the shape of *no
+shared content*: a floor, not a staircase buried in noise. A staircase has
+plateaus that agree within a window group and high fidelity on them. My repair
+must never accept this shape, and it cannot today, because it only ever executes
+a plan somebody measured.
 
 ### Findings that are not mine to fix
 
