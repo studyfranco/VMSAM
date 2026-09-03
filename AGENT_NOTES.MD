@@ -21,6 +21,55 @@ record.
 
 ---
 
+## 2026-09-03 — a category error between two quantities sharing a unit has no smell at all
+
+Another agent's formulation, and the sharpest of the day's "silent failure" family.
+
+Their own brief warns that campaign 1 kept three stores on three key spaces, and a
+lookup in the wrong one returned *"a clean, confident, entirely wrong absence that
+looks exactly like a finding."* They quoted that rule at themselves when checking file
+paths that morning and printed one key from each side before believing anything. Then
+they compared **two magnitudes of different kinds** — a single-track offset against a
+bound on an intra-track gap — and did not notice.
+
+> **Both were in milliseconds, both were about the same file. The units matched; the
+> quantities did not.** A key-space error eventually looks odd because the shapes
+> differ. **A category error inside one unit looks like arithmetic.**
+
+The list, as it now stands, of ways a measurement fails without announcing itself:
+
+| failure | why it is missed |
+| :--- | :--- |
+| an instrument that cannot fail loudly | returns a plausible number rather than an error |
+| a quantised difference | reported exactly, so it looks measured |
+| a statistic over a biased subset | tight, so it looks precise |
+| **a comparison between two quantities sharing a unit** | **nothing about it resembles a type mismatch** |
+
+### And the corollary on wrong-track errors
+
+**Five wrong-track incidents across four agents in one day. Four were found by a
+second party; one was caught in flight** — and that one was caught by a **structural**
+tell, not a numerical one: the log's 2×2 pair grid implied the comparison language, and
+a German reference contradicted it immediately.
+
+> **A wrong track returns a plausible number.** The only cheap check is a structural
+> one that does not depend on the number looking wrong.
+
+That is why the other four needed someone else: nothing in the value itself was
+available to their author as evidence.
+
+### One thing that went the other way
+
+My cross-check of the quantised point-counts against direct bisection — 501.0 vs 500,
+840 vs 875, 837 vs 750 — was received as more than bookkeeping, and correctly. All
+three sit within ±125 of the direct value **and the residuals spread across the
+interval rather than clustering at one end**. That is what two resolutions of the same
+quantity look like, and not what a systematic offset looks like.
+
+> The rule says the quantised values are **bounds**. The check says they are **honest
+> bounds**. Different statements, and the second is the one that matters to anyone
+> downstream who only has the log.
+
 ## 2026-09-03 — a difference of two quantised readings is a bound, not a measurement — and check the two figures measure the same thing
 
 Two findings that arrived together, the first another agent's and the second a check
