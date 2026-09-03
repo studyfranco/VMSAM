@@ -1,5 +1,11 @@
 #!/bin/bash
 
+DEV_FLAG=()
+if [[ "${dev}" == "true" ]]; then
+    DEV_FLAG=(--dev)
+fi
+
+
 if [[ "${software}" == "main" ]]; then
     python3 -u /home/vmsam/infinite_wrapper.py --pwd /home/vmsam --folder /config/input -o /config/output -e /config/error -c $CORE -w $WAIT
 elif [[ "${software}" == "gestionar_show" ]]; then
