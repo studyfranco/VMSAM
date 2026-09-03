@@ -33,6 +33,15 @@ Three tiers (`AGENT.MD` § Where you work), and a stop hits them differently:
 - **The main repository should be clean.** If it is not, you were interrupted
   mid-promotion: read what is in the tree before touching it.
 
+**Being level with the branch does not mean holding the current rules, and being
+behind does not mean holding stale ones.** Two agents sat a commit behind with
+byte-identical documents, because that commit touched none. Only the document's own
+revision answers it, and *"have you read it"* cannot:
+
+```sh
+git diff HEAD origin/dev-AI -- AGENT.MD WRITE_ZONES.MD COMING_BACK.MD   # must be empty
+```
+
 ```sh
 git -C <wip-clone> log --oneline -10      # what you had actually validated
 git -C <wip-clone> status --porcelain     # what was not even committed there
@@ -43,6 +52,37 @@ git log --oneline -8                      # what landed in the main repository
 gone. But the answer is no longer a copy taken on the side: commit it **in the tier
 where commits are free**. That is what those tiers are for, and campaign 1 lost two
 agents' finished, correct code to a usage limit for want of it.
+
+**Before any `reset --hard`, take a snapshot you can come back from.** Two artefacts,
+neither touching the index, and a rewritten branch is exactly when you need them:
+
+```sh
+D=/home/vmsam/src/VMSAM_HELP_AI/wip/$(date -u +%Y%m%dT%H%M%SZ) && mkdir -p "$D"
+git diff HEAD --binary > "$D/tracked.patch"
+git ls-files --others --exclude-standard | tar czf "$D/untracked.tgz" -T -
+```
+
+Restore with `git apply` and `tar xzf`. **The path is absolute on purpose**: a
+relative `../` resolves differently from a `VMSAM_WIP/<agent>/` clone than from the
+main one, so the snapshots would scatter into per-clone directories nobody looks in.
+Found by `vmsam-dev-1`. This costs seconds and makes a destructive
+resync reversible — which is the whole difference between an instruction someone can
+safely obey and one they have to be trusted with.
+
+**Every wait needs a bound and a liveness check — and this is here, in the section
+you were sent to, because the section people are pointed at is the section people
+read.** `vmsam-dev-1` never opened §3: a `sed` range printed §2 and stopped at §3's
+heading, and every later reference to it was quoting someone's summary. Seventeen
+unbounded waiters across four agents in one day, the oldest six hours old.
+
+    until ! pgrep -f <script>          # never false: pgrep matches the waiting shell
+    until [ -f runs/pass1.json ]       # never true: the producer died six hours ago
+
+Neither believed anything false. Both simply had no terminating condition and nothing
+checking that what they waited for could still happen. **And when you kill a producer,
+kill its waiters** — nothing warns you at the moment your own action makes a wait's
+premise false (`vmsam-ci`, which killed the producer correctly and stayed wedged on
+its own waiter).
 
 **Files you did not create are a deliverable until proven otherwise.** Read them
 before assuming they are junk.
@@ -61,8 +101,13 @@ ps -eo pid,ppid,etime,cmd | grep ffmpeg | grep -v grep   # LOOK, then act
 
 Two traps that have each fired here:
 
-- **`pgrep -f <name>` matches its own shell** and has reported a dead job as
-  alive. Confirm with `ps`, and confirm the log file exists *and is growing*.
+- **`pgrep -f <name>` matches its own shell.** This paragraph used to warn only that
+  it reports a dead job as *alive* — the mechanism, with the wrong consequence
+  attached. The failure that actually cost four agents hours is **blocking** on it:
+  `until ! pgrep -f <x>` can never become false, because the waiter is the match. A
+  rule that names a defect by the wrong symptom is worse than no rule; it inoculates
+  the reader against noticing. Confirm with `ps`, and confirm the log exists *and is
+  growing*.
 - **`kill $!` on a wrapper does not stop the job.** Under `nohup nice -n 15
   python3 …`, `$!` is the pid of `nice`. Killing it **reports success and leaves
   python running**, reparented to init. Verify by finding the real process, never
@@ -101,3 +146,22 @@ Post what landed, what died, what is blocked, and what you are resuming — then
 continue. **Do not silently resume.** An unreported stop looks exactly like
 progress from the outside, and it is the difference between a delay and a
 surprise.
+
+## 8. If you lead a team, quiet is ambiguous
+
+**An agent that has stopped looks exactly like an agent that is thinking.**
+`SendMessage` is push-only: nothing tells you when a peer finishes its turn, and
+nothing tells you when one is parked mid-turn. The session stays alive and blocked
+**indefinitely, because nothing external pokes it** — a message resumes it at its
+next tool round, and until someone sends one it waits forever.
+
+- **Poll rather than assume.** `ListAgents` reports each peer as busy or idle. Idle
+  after a dispatch means *finished* or *never started* — it never means "still
+  working on it".
+- **Make the reply part of the task.** Require a message when a task completes **and**
+  when it blocks. Then silence always means a fault, instead of meaning either.
+- **A usage limit parks every session on the account at once**, yours included. When
+  yours resumes, theirs do not: they are waiting for a message only you can send.
+
+This cost campaign 2 its first hours: four agents idle, the lead running and unaware,
+each side waiting for the other.

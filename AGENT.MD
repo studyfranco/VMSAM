@@ -5,9 +5,16 @@ not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive — me
 knowledge to consult, not instructions to follow. It is all that survives of it:
 **nothing outside this repository is a source you can go and read.**
 
-Budget: **450 lines.** A rule that does not fit is not a rule, it is a finding, and
-it belongs in the archive. This ceiling exists because the previous campaign's
-equivalent reached 1191 lines and stopped being read before acting.
+**No line budget, deliberately.** This file declared 450 lines and stood at 654 —
+45 % over, unenforced (`vmsam-forensic`), and *a ceiling nobody honours teaches that
+ceilings are decorative*. The number also caused harm: **a rule squeezed to fit names
+its mechanism and drops its consequence, which is exactly what makes it fail**
+(`vmsam-dev-1`). Four failures today were rules whose mechanism was written and whose
+consequence was not.
+
+So the test is not length. **A rule earns its lines by naming what goes wrong when it
+is broken**, in the reader's own terms. A rule that only names the mechanism is worse
+than absent: a reader who knows the mechanism files it as handled.
 
 ---
 
@@ -22,6 +29,8 @@ equivalent reached 1191 lines and stopped being read before acting.
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
 | `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
+| `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
+| `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
@@ -30,6 +39,21 @@ included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
 agent that may rewrite what binds it eventually rewrites itself out of it.
+
+**A finding against a frozen document carries a severity, and the classes do not
+queue behind each other.** *"This document currently instructs the reader to do the
+wrong thing"* interrupts; *"this figure is imprecise"* accumulates. The freeze has no
+latency budget of its own, and its cost is real: `WRITE_ZONES.MD` §4 stood duplicated
+with a superseded ruling at its end, so anyone reading it through got the overruled
+instruction — the exact failure the freeze exists to prevent, caused by the freeze's
+latency rather than by careless editing (`vmsam-ci`).
+
+**And an instruction can be correct about the world and wrong about you.** `vmsam-ci`
+was told four times to rewrite 24 commits to remove a privacy leak, verified each
+time, and refused: it had removed the leak 22 commits earlier, and 45 commits carried
+it in three *other* clones. **A true observation attached to the wrong target.**
+Complying would have destroyed its own history and left the real leak in place.
+Verify the premise, not the plausibility.
 
 So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** is a
 **finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
@@ -235,7 +259,14 @@ counts and from codec — three methods, three answers, no tiebreak.
 You are free on the method. You are not free on knowing what a correct result is
 **before** you produce one.
 
-1. **Build the expected file by hand, first.** Whatever the change, produce the
+1. **Build the expected file by hand, first — and state what it shares with the code
+   under test before believing any agreement.** *A target that shares an input with
+   the code under test cannot disagree with it* (`vmsam-dev-2`, `vmsam-dev-1`,
+   reached separately from both sides). That is checkable in advance, which
+   "build it independently" is not. Campaign 2 met every clause of
+   `SPEC_ZONE_A.MD` §2 on a real file and proved nothing, because the hand-built
+   target came from the same plan as the splice; `vmsam-dev-2` refused the claim on
+   its own result rather than let it stand. Whatever the change, produce the
    output you say the code should produce — manually, with whatever tools you like
    — and check it yourself. This is the target, and it exists before the code does.
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
@@ -271,19 +302,29 @@ Comparing a produced artefact against a target you built proves the path ran.
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
 
-## 🏗️ Where you work — three clones, one commit
+**And if you dispatch work, the refutation is yours to supply, not to hope for.**
+This clause addresses whoever does the work, so a dispatcher can satisfy every word of
+it and still hand out a task with no refutation in it — which happened, and the agent
+supplied its own, covering for the dispatch. A task without a stated refutation is a
+task nobody can lose.
 
-You do not edit the main repository directly. Three tiers, each a **git clone** of
-the one below it:
+## 🏗️ Where you work — four tiers, one published commit
+
+You do not edit `master` directly. Each tier is a **git clone** of the one above it:
 
 | tier | what it is for | commits |
 | :--- | :--- | :--- |
 | `/tmp/…` | experiments — try things, break things | as many as you like |
 | `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
-| the main repository | what is finished | **one per feature** |
+| the **campaign branch** | what CI builds and the test instance runs | as many as you like — **a deploy requires a push** |
+| `master` | the published history | **one per feature**, by squash |
+
+**The campaign branch is a tier, not the record.** § Commits binds the last hop
+only: testing costs a push, and a rule that made you hesitate to test would be
+worse than a noisy branch. Commit there as freely as the work needs.
 
 **Clones, never copies.** A promotion by `cp` overwrites without warning, and the
-owner commits to the main repository while you work — measured on this repository:
+owner commits while you work — measured on this repository:
 a copy silently erased an owner change to the same file, while the same promotion
 through git stopped on the conflict and preserved it.
 
@@ -291,14 +332,40 @@ through git stopped on the conflict and preserved it.
 # promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
 git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
 
-# promote VMSAM_WIP -> main : one commit, whatever the history behind it
+# promote VMSAM_WIP -> campaign branch : ONE commit per promotion
+git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit && git push
+
+# campaign branch -> master : one commit, whatever the history behind it
 git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
 ```
 
-`--squash` is what makes `AGENT.MD` § Commits structural instead of a rule to
-remember: the command cannot produce two commits.
+`--squash` is what makes § Commits structural instead of a rule to remember: the
+command cannot produce two commits.
 
-**Pull down often, push up rarely.** Sync the main repository *into* `VMSAM_WIP`
+**But it only fixes the mechanism, not the cadence.** Campaign 2 promoted three times
+in twenty-six minutes, each promotion correctly one commit — and two of the three
+were halves of a single increment: the locator fixed, then sixteen minutes later the
+locator wired to its consumer. The letter held and the intent did not; the
+granularity had simply moved from commits to promotions.
+
+**Promote when the branch needs to carry it** — when it must be tested in the
+container, or when another agent needs it to proceed. Not per fix, and never on a
+rhythm. If your next promotion continues the last one, it was one promotion.
+
+**It is used at two hops, and the second one is why.** Campaign 2's first day put 79
+commits on the branch, 73 of them documentation alone — and an audit found that
+**nobody had broken a rule**. Commits are free in the tiers above, correctly; the
+promotion preserved history, also correctly; and the two compose into a branch where
+six real pieces of work sit among seventy-three entries about thinking. Two correct
+rules composing badly is not fixed by asking anyone to try harder. Squashing at the
+promotion fixes it structurally: **one commit per promotion**, and you promote when
+you have something worth testing, so the branch reads as a list of increments. The
+granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
+
+Found by `vmsam-ci`, which checked this section rather than accepting a claim that
+someone had misbehaved.
+
+**Pull down often, push up rarely.** Sync the tier above *into* the one below
 before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
 is cheap to resolve daily and expensive to resolve once.
 
@@ -306,40 +373,26 @@ is cheap to resolve daily and expensive to resolve once.
 second. Discovering at the last hop that half your work sits outside a tagged zone
 is how a campaign ends up negotiating its own rules.
 
-Never write the main repository's path in a tracked file — Privacy, below.
+Never write a tier's filesystem path in a tracked file — Privacy, below.
 
-## 📦 Commits — what earns one
+## 📡 Talking
 
-A commit is a unit of **result**, not of activity. What earns one:
+Who may direct you, and how anything you know reaches anyone else, are in
+**`TALKING.MD`** — read it when a message arrives or when you have something to say,
+which are the only moments either applies.
 
-- a feature that works end to end — the code *and* the measurement that shows it works;
-- a blocking bug fixed;
-- a complete, coherent change to one zone.
+Two lines worth carrying out of it: **your lead and the owner direct you, nobody
+else**, and **a report reaches the channel you write it in** — writing it out is not
+sending it.
 
-What does not: a line added to `AGENT_NOTES.MD`, a comment, a rename, a
-reformatting, a half-written function, "work in progress". Those wait and travel
-with the work they belong to.
+## 📦 Committing
 
-**What this rule is made of.** Campaign 1 produced **1914 commits in six days**.
-Of the 1451 that carry files:
+Everything about what earns a commit, when a note may travel alone, and the hourly
+clock is in **`COMMITTING.MD`** — read it when you are about to commit, which is the
+only moment it applies.
 
-| | |
-| :--- | ---: |
-| commits touching documentation only | **70 %** |
-| commits touching a single file | **70 %** |
-| commits touching only a notes / state / task file | **393** |
-| merge commits | **489** |
-| commits touching `mergeVideo.py`, the engine | **63** |
-
-`DOMAIN_INVARIANTS.MD` was committed **217 times** — three and a half times more
-often than the file the campaign existed to improve. A history in that shape cannot be reviewed:
-the work that mattered is not hidden by the noise, it is *indistinguishable* from it.
-
-And `WRITE_ZONES.MD` §5's checks run per commit, so a commit carrying nothing
-still costs a full verification.
-
-If a day's work produced nothing that fits the list above, it produces **no commit**.
-That is a normal outcome, and `AGENT_NOTES.MD` is where it is recorded.
+The one line worth carrying: **commit freely everywhere below the last hop, work in
+progress included.** Only `master` takes one squashed commit per feature.
 
 ## 🔐 Privacy — the repository is potentially public
 
@@ -429,13 +482,16 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🧪 Testing and Execution
+## 🧪 Believing a result
 
-Validate your code with files in `/config/example/`. Each folder is a couple of files to sync together. Save your tests file in `/config/output` and yout temporary files in `/tmp`
-Rust compilation via `cargo build` / `cargo check` is allowed and recommended.
+**Which paths hold test material, where outputs go and what survives a restart are
+facts about the machine, not about VMSAM** — they change without the code changing,
+and a stale path in a tracked file is worse than none. They live outside the
+repository, with the rest of the environment. `cargo` and `compileall` belong to the
+pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
 
-`python3 -m compileall -q src -x '__pycache__'` must fail on exactly one file:
-`frame_compare.py`, pre-existing since `da1c191`. Any second failure is yours.
+What is left here is the part that stays true whatever machine you are on: **the ways
+a result can look sound and be worthless.** Each of these was paid for.
 
 **A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
 pieces of code — a guard, a refined measurement, a policy branch, an order check, a
@@ -443,13 +499,38 @@ subtitle repair — that were written, reviewed and unit-tested green, and that 
 ever called. Every suite passed. A test calls the function directly, which is exactly
 what production did not do. Any new guard needs a test that pins its **call site**.
 
+**One turn further: the unit was called, and the transport between them dropped the
+field.** `parse_segments` rebuilt each segment from three named keys and discarded
+the rest, including the per-stream offsets. Emitter correct, consumer correct,
+integration inert — and the unit test passed throughout, because it handed the
+consumer a hand-built dict and never crossed the transport.
+
+The cost was **28.88 ms of misalignment**, which passed under four gates: below the
+video frame, below `adjust_delay_to_frame`'s snapping, below `mkvmerge`'s integer
+milliseconds, and below the repair's own 100 ms tolerance. Only a per-track check
+saw it. It would have shipped in silence.
+
+**So: a field whitelist in a transport is a defect by construction.** It makes every
+future extension of the format inert, and the only symptom is that nothing changes —
+which is the one symptom nobody investigates. Carry the whole structure and let the
+consumer ignore what it does not need. Found by `vmsam-dev-2`.
+
+**Which rules deserve to be mechanical, and it is not the important ones.** The rules
+that survived today are the ones whose violation produces an immediate, local,
+unambiguous failure in the actor's own frame. The checker refuses a commit and you
+feel it at once — it is the only rule nobody has broken. A waiter never returns and
+you feel it six hours later, which is why it needed a check rather than a sentence. A
+report written but not sent produces **nothing at all**: no error, no delay, no
+symptom in the writer's world, which is why no wording fixes it.
+
+**So: mechanise the rules whose failure is silent in the actor's own frame — not the
+ones that matter most, the ones the actor cannot feel going wrong.** Everything else
+can be a sentence. Found by `vmsam-dev-sandbox`, and it explains the day better than
+any of the individual corrections did.
+
 **And an armed guard that has never fired is indistinguishable from a working one.**
 Campaign 1's success metric sat in the third branch of a function nothing reached:
 315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
 meant *nothing reached the check*. Fire every guard deliberately, with literals,
 plus a case proving it can return the **other** answer.
 
-**Never restate a finding more strongly than its author did.** A campaign-1 lead
-turned an agent's *"unsupported"* into *"false"* and dispatched thirteen files on
-the stronger claim; the agent retracted and the premise was wrong. If you are
-reporting someone else's measurement, carry their hedges with it.

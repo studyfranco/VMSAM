@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -170,19 +170,70 @@ Open like the rest, listed because their state is not obvious from reading them.
 | `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
 | `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
 
-New capability goes in **its own module**, called from a tagged zone, behind a
-flag that is **off by default**, with a test that pins the call site.
+New capability goes in **its own module**, called from a tagged zone, with a test
+that pins the call site.
 
-**The flag goes in `config.ini`, not in the environment.** `run.sh` passes no
-`--config` and the image bakes its variables into the `Dockerfile`, which is frozen
-— so a new `VMSAM_<NAME>` variable is absent at runtime and there is no way to turn
-it on without editing a file you may not touch. A default-off env flag is therefore
-permanently off: not a gate, a deletion. Campaign 1 measured the consequence — **the
-code read 18 `VMSAM_` names and the image set two**, so every feature built to a
-ruling that day was unreachable by construction. Add a `[features]` key instead
-(§3 allows additions), and let the environment override it if it happens to be set.
+**It must not be conditioned on a parameter.** VMSAM runs with nobody watching —
+that is the premise the whole design rests on, and it is why a wrong automated
+decision is destructive. A repair that waits for a human to switch it on is not a
+repair: it is a feature that will never run, on a service where nobody is there to
+run it. Campaign 2 measured its own version of this without naming it — *"zone A is
+measurably inert with its flag off"* is a true statement about work that reaches no
+library.
+
+**The gate is the measurement, not a setting.** A capability decides for itself, from
+what it measured, whether it should act — and when it cannot establish that it
+should, it **declines**, which is already a correct outcome here. That is the
+difference between a decision procedure and a deferral to somebody who is not
+present. The campaign has the example: error id 237 was refused on a median fidelity
+of 0.576 with 18 sign flips, not on a flag.
+
+**A sub-option of an unconditional capability is a condition on it.** The ruling
+above names a capability and its flag; it says nothing about the options *inside* a
+capability whose flag is already gone, and every key removed after the two headline
+ones was of that kind. Anything that can make the capability **not act, or act
+unchecked**, is the same defect one level down — a plan supplied by a human is the
+deferral in different clothes, a switch disabling the only source makes the capability
+inert, and a verifier you can turn off is not a safety. Found by `vmsam-dev-2`, which
+applied the ruling's reason one level down three times while the document merely
+failed to contradict it.
+
+**A flag may exist while a capability is being built**, so that half-finished
+behaviour does not reach a library — and **removing it is part of finishing**. It
+belongs in `config.ini`, never in the environment: `run.sh` passes no `--config` and
+the image bakes its variables into the frozen `Dockerfile`, so a new `VMSAM_<NAME>`
+is absent at runtime and cannot be turned on at all. Campaign 1 measured the
+consequence — **the code read 18 `VMSAM_` names and the image set two** — so every
+feature built to a ruling that day was unreachable by construction. `config.ini`
+additions are allowed by §3; a scaffolding flag left behind at the end is not.
+
+**A removed `config.ini` line is judged against `origin/master`**: a line master
+carries stays frozen, a line this campaign added is this campaign's to take back out.
+That satisfies §3 and §4 both rather than overriding one — found while removing the
+flags, and it is why the removal needed no ruling.
 
 ## 5. Verification
+
+**Run the write-zone checker** — `VMSAM_HELP_AI/tools/check_write_zones.py`, one
+command with one exit status, and **exit 2 means it could not run, which is not a
+pass**. It is the authority; the snippets below are what it replaced, kept because
+knowing what they missed is the point.
+
+**Why reading a diff by eye is not enough.** `git diff --cached -U0` shows changed
+lines, and a reader maps them onto the zones of the file **as it now is**. A pure
+deletion has no new-side line at all — so removing a frozen line *above* a zone reads
+as "nothing added outside a zone" and passes. Removals have to be mapped onto the
+**old** blob's zones and additions onto the new one's, separately. Two further holes
+close the same way: moving an `END` marker down swallows a line into a zone while the
+diff lands inside it and looks legal, and a fresh marker pair grants a zone that §2
+reserves to the owner — so any change in marker count fails.
+
+Found by the campaign-2 lead against this section, which its author wrote.
+
+**The snippets below are not the procedure and nobody runs them** — every agent runs
+the checker instead, and the document did not notice the divergence (`vmsam-ci`). They
+are kept as the reasoning, not as the steps: an agent following them literally would
+do weaker checks and believe it had done the campaign's.
 
 Before every commit:
 
@@ -192,7 +243,8 @@ git diff --cached --name-only
 
 # 1b. no governance document rewritten
 git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
-       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD docs/ CAMPAIGNS/   # must be empty
+       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD COMMITTING.MD TALKING.MD \
+       docs/ CAMPAIGNS/   # must be empty
 
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)
@@ -201,11 +253,17 @@ git diff --cached -U0 -- src/mergeVideo.py src/tools.py
 # 3. config.ini: additions only, no changed or removed line
 git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be empty
 
-# 4. the tree still compiles
+# 4. the tree still compiles -- cleanly, no allowance
 python3 -m compileall -q src -x '__pycache__'
+# 5. Rust, when you touched it
+cargo check && cargo clippy && cargo fmt --check
 ```
 
-Checks 1b and 3 must print nothing. Check 4 fails on `frame_compare.py` until someone
+Checks 1b and 3 must print nothing. **Check 4 must pass cleanly**: it used to be
+allowed one failure on `frame_compare.py`, broken since `da1c191`, and campaign 2
+repaired it — so any failure at all is now yours. `vmsam-dev-1`'s fix is what made
+the old allowance false, reported as a finding rather than edited out by the agent
+that outgrew it. Check 4 fails on `frame_compare.py` until someone
 fixes it; that failure is expected and is the only one allowed.
 
 ## 6. Reporting a blocked need
