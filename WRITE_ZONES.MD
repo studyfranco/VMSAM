@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -188,6 +188,16 @@ difference between a decision procedure and a deferral to somebody who is not
 present. The campaign has the example: error id 237 was refused on a median fidelity
 of 0.576 with 18 sign flips, not on a flag.
 
+**A sub-option of an unconditional capability is a condition on it.** The ruling
+above names a capability and its flag; it says nothing about the options *inside* a
+capability whose flag is already gone, and every key removed after the two headline
+ones was of that kind. Anything that can make the capability **not act, or act
+unchecked**, is the same defect one level down — a plan supplied by a human is the
+deferral in different clothes, a switch disabling the only source makes the capability
+inert, and a verifier you can turn off is not a safety. Found by `vmsam-dev-2`, which
+applied the ruling's reason one level down three times while the document merely
+failed to contradict it.
+
 **A flag may exist while a capability is being built**, so that half-finished
 behaviour does not reach a library — and **removing it is part of finishing**. It
 belongs in `config.ini`, never in the environment: `run.sh` passes no `--config` and
@@ -233,7 +243,8 @@ git diff --cached --name-only
 
 # 1b. no governance document rewritten
 git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
-       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD docs/ CAMPAIGNS/   # must be empty
+       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD COMMITTING.MD \
+       docs/ CAMPAIGNS/   # must be empty
 
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)
