@@ -463,6 +463,41 @@ claims; written as "same" they are indistinguishable a day later, including to t
 author. This is the one instrument failure of the day that was judgement rather than
 code.
 
+### Goal 3h — a refused file that is not damaged, not misfiled and not desynced
+
+The forensic agent's sharpest unexplained case, diagnosed end to end. It is a
+**metadata** defect, not a synchronisation one.
+
+The video is **frame-identical at zero delay** — candidate and master at the same
+four timestamps show the same frames, and the audio durations agree to **13 ms**. The
+correct delay is exactly 0.
+
+My first hypothesis — that the engine compared mismatched languages by index — was
+**wrong**, and I checked the code before testing it: the engine selects a common
+language and compares tracks of that language on both sides. Both files carry the
+original language. It should have compared like with like.
+
+The measurement that settled it, chromaprint over every stream pair: the candidate's
+own two audio streams score **1.0000 against each other** while both score 0.2845
+against the master. **The candidate carries one audio track duplicated under two
+language labels.** There is no genuine original-language audio in it, so the engine
+correctly selected that language on both sides and thereby compared a dub against an
+original — no confident peak, spurious delays, refusal. 0.2845 is exactly the
+dub-versus-original signature: above chance, far below same-content, because the two
+share only a music-and-effects bed.
+
+**Why it matters more than its count.** `CAMPAIGN.MD`'s *no shared language* row is
+already defined as *"no audio language in common, or the tags lie"* — so this is the
+second half of an existing family, and the halves have **opposite** remedies. Genuinely
+no shared language is unfixable; this file is **trivially mergeable at delay 0**. It is
+refused because its metadata is wrong and the correct answer is unreachable through
+audio correlation by construction.
+
+**A cheap detector, offered and not swept:** if two audio streams within one file are
+identical but carry different language tags, at least one tag is false. A single-file
+test needing no master, and the engine already does MD5 audio grouping so the
+primitive exists. **One file measured; no count claimed.**
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
