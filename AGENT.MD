@@ -5,9 +5,16 @@ not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive — me
 knowledge to consult, not instructions to follow. It is all that survives of it:
 **nothing outside this repository is a source you can go and read.**
 
-Budget: **450 lines.** A rule that does not fit is not a rule, it is a finding, and
-it belongs in the archive. This ceiling exists because the previous campaign's
-equivalent reached 1191 lines and stopped being read before acting.
+**No line budget, deliberately.** This file declared 450 lines and stood at 654 —
+45 % over, unenforced (`vmsam-forensic`), and *a ceiling nobody honours teaches that
+ceilings are decorative*. The number also caused harm: **a rule squeezed to fit names
+its mechanism and drops its consequence, which is exactly what makes it fail**
+(`vmsam-dev-1`). Four failures today were rules whose mechanism was written and whose
+consequence was not.
+
+So the test is not length. **A rule earns its lines by naming what goes wrong when it
+is broken**, in the reader's own terms. A rule that only names the mechanism is worse
+than absent: a reader who knows the mechanism files it as handled.
 
 ---
 
@@ -30,6 +37,21 @@ included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
 agent that may rewrite what binds it eventually rewrites itself out of it.
+
+**A finding against a frozen document carries a severity, and the classes do not
+queue behind each other.** *"This document currently instructs the reader to do the
+wrong thing"* interrupts; *"this figure is imprecise"* accumulates. The freeze has no
+latency budget of its own, and its cost is real: `WRITE_ZONES.MD` §4 stood duplicated
+with a superseded ruling at its end, so anyone reading it through got the overruled
+instruction — the exact failure the freeze exists to prevent, caused by the freeze's
+latency rather than by careless editing (`vmsam-ci`).
+
+**And an instruction can be correct about the world and wrong about you.** `vmsam-ci`
+was told four times to rewrite 24 commits to remove a privacy leak, verified each
+time, and refused: it had removed the leak 22 commits earlier, and 45 commits carried
+it in three *other* clones. **A true observation attached to the wrong target.**
+Complying would have destroyed its own history and left the real leak in place.
+Verify the premise, not the plausibility.
 
 So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** is a
 **finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
@@ -235,7 +257,12 @@ counts and from codec — three methods, three answers, no tiebreak.
 You are free on the method. You are not free on knowing what a correct result is
 **before** you produce one.
 
-1. **Build the expected file by hand, first.** Whatever the change, produce the
+1. **Build the expected file by hand, first — and derive it independently of the
+   thing under test.** A target computed from the plan the code is executing cannot
+   disagree with it, so it tests nothing. Campaign 2 met every clause of
+   `SPEC_ZONE_A.MD` §2 on a real file and proved nothing, because the hand-built
+   target came from the same plan as the splice; `vmsam-dev-2` refused the claim on
+   its own result rather than let it stand. Whatever the change, produce the
    output you say the code should produce — manually, with whatever tools you like
    — and check it yourself. This is the target, and it exists before the code does.
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
@@ -270,6 +297,12 @@ Comparing a produced artefact against a target you built proves the path ran.
 
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
+
+**And if you dispatch work, the refutation is yours to supply, not to hope for.**
+This clause addresses whoever does the work, so a dispatcher can satisfy every word of
+it and still hand out a task with no refutation in it — which happened, and the agent
+supplied its own, covering for the dispatch. A task without a stated refutation is a
+task nobody can lose.
 
 ## 🏗️ Where you work — four tiers, one published commit
 
@@ -351,6 +384,13 @@ Your plain text output is **not visible to anyone else**. Writing "task 006 done
 your own transcript reaches nobody: the only thing that transmits is the
 `SendMessage` tool. If you did not call it, you did not report.
 
+- **A report reaches the channel you write it in.** If the person who needs it is on
+  another channel, it has not moved. This is not self-deception: your lead may arrive
+  in your session as a user turn, so a section headed *"Report to the Lead"* really is
+  a reply — to the one correspondent who can read your screen, and to none of the peer
+  sessions who cannot. Two correspondents wearing one name (`vmsam-dev-1`). If a named
+  agent asked for it, is waiting on it, or would act differently for having it, it goes
+  in a `SendMessage` **whether or not you have also written it out**.
 - **Address by session name**, exactly as `ListAgents` prints it — your lead is a row
   in that list like any other. `ListAgents` also tells you who exists and whether
   each one is busy or idle right now.
@@ -415,6 +455,15 @@ had asked about.** State the pair, or expect to be checked against the wrong hal
 The same rule inverts usefully: **a difference is not a loss until you look at what
 differs.** Finding that two trees disagree is the start of the question.
 
+**Provenance in the artefact beats both a timestamp and a memory.** `vmsam-forensic`
+had a claim about the order two files were written in, found that the file times
+contradicted its own recollection, and refused to settle it by picking whichever
+supported it. What survived was neither: its `CRITERIA.md` carries a criterion struck
+through as withdrawn, with the refutation condition marked as having fired — and a
+document written *after* the results would not contain a condition those results
+violated. Build the record so its own shape testifies, because mtime and recollection
+both fail silently.
+
 **And the rule that depends on nobody's discipline: when a fact is observable,
 observe it.** Reports say *why*; they must never be your only source of *what*. Has
 an agent pushed? `git` knows, and it cannot forget to answer. Is a session alive?
@@ -476,7 +525,11 @@ commits in the same minute. Measured on campaign 2: five documentation-only comm
 four of them in two same-minute pairs, two of which were the author of this rule.
 
 It is mechanically checkable — the timestamp of the last commit touching no code —
-so it does not depend on anyone remembering it.
+so it does not depend on anyone remembering it. **The clock is branch-wide, and every
+actor resets it**: the commit that starts your hour may be someone else's
+(`vmsam-forensic`, held by another agent's commit). Harmless while code is flowing, a
+starvation risk when it is not — so a per-actor clock in the checker is a better fix
+than this sentence.
 
 **The exception, and it is a real one: work that legitimately produces no repository
 change.** A verification whose harness lives outside the repository, a measurement
@@ -641,6 +694,19 @@ saw it. It would have shipped in silence.
 future extension of the format inert, and the only symptom is that nothing changes —
 which is the one symptom nobody investigates. Carry the whole structure and let the
 consumer ignore what it does not need. Found by `vmsam-dev-2`.
+
+**Which rules deserve to be mechanical, and it is not the important ones.** The rules
+that survived today are the ones whose violation produces an immediate, local,
+unambiguous failure in the actor's own frame. The checker refuses a commit and you
+feel it at once — it is the only rule nobody has broken. A waiter never returns and
+you feel it six hours later, which is why it needed a check rather than a sentence. A
+report written but not sent produces **nothing at all**: no error, no delay, no
+symptom in the writer's world, which is why no wording fixes it.
+
+**So: mechanise the rules whose failure is silent in the actor's own frame — not the
+ones that matter most, the ones the actor cannot feel going wrong.** Everything else
+can be a sentence. Found by `vmsam-dev-sandbox`, and it explains the day better than
+any of the individual corrections did.
 
 **And an armed guard that has never fired is indistinguishable from a working one.**
 Campaign 1's success metric sat in the third branch of a function nothing reached:

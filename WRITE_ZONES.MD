@@ -197,6 +197,11 @@ consequence — **the code read 18 `VMSAM_` names and the image set two** — so
 feature built to a ruling that day was unreachable by construction. `config.ini`
 additions are allowed by §3; a scaffolding flag left behind at the end is not.
 
+**A removed `config.ini` line is judged against `origin/master`**: a line master
+carries stays frozen, a line this campaign added is this campaign's to take back out.
+That satisfies §3 and §4 both rather than overriding one — found while removing the
+flags, and it is why the removal needed no ruling.
+
 ## 5. Verification
 
 **Run the write-zone checker** — `VMSAM_HELP_AI/tools/check_write_zones.py`, one
@@ -214,6 +219,11 @@ diff lands inside it and looks legal, and a fresh marker pair grants a zone that
 reserves to the owner — so any change in marker count fails.
 
 Found by the campaign-2 lead against this section, which its author wrote.
+
+**The snippets below are not the procedure and nobody runs them** — every agent runs
+the checker instead, and the document did not notice the divergence (`vmsam-ci`). They
+are kept as the reasoning, not as the steps: an agent following them literally would
+do weaker checks and believe it had done the campaign's.
 
 Before every commit:
 
