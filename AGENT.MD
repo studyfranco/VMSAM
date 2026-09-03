@@ -605,6 +605,22 @@ subtitle repair — that were written, reviewed and unit-tested green, and that 
 ever called. Every suite passed. A test calls the function directly, which is exactly
 what production did not do. Any new guard needs a test that pins its **call site**.
 
+**One turn further: the unit was called, and the transport between them dropped the
+field.** `parse_segments` rebuilt each segment from three named keys and discarded
+the rest, including the per-stream offsets. Emitter correct, consumer correct,
+integration inert — and the unit test passed throughout, because it handed the
+consumer a hand-built dict and never crossed the transport.
+
+The cost was **28.88 ms of misalignment**, which passed under four gates: below the
+video frame, below `adjust_delay_to_frame`'s snapping, below `mkvmerge`'s integer
+milliseconds, and below the repair's own 100 ms tolerance. Only a per-track check
+saw it. It would have shipped in silence.
+
+**So: a field whitelist in a transport is a defect by construction.** It makes every
+future extension of the format inert, and the only symptom is that nothing changes —
+which is the one symptom nobody investigates. Carry the whole structure and let the
+consumer ignore what it does not need. Found by `vmsam-dev-2`.
+
 **And an armed guard that has never fired is indistinguishable from a working one.**
 Campaign 1's success metric sat in the third branch of a function nothing reached:
 315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
