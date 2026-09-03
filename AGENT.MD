@@ -402,7 +402,12 @@ Container and tooling paths are fine: `/config`, `/config/output`, `/tmp`,
 - the media library root, or the error/sync trees that mirror it;
 - **any media filename** — a real title with `.mkv`/`.mka`/`.mp4`/`.ass`/`.srt`.
   Names the pipeline generates for its own temp files are fine;
-- show titles, season/episode names, release-group identifiers.
+- show titles, season/episode names, release-group identifiers;
+- **extracted frames, thumbnails or any image of the content.** A filename still
+  needs a search to resolve; a frame identifies the work at a glance. Extract them
+  when a question needs them — they stay in `/tmp`, are never committed, never
+  attached to a message, and are described by what they show structurally: *end
+  credits*, *dialogue scene*, *black frames*. Never by what is in the picture.
 
 Use `<LIBRARY_ROOT>`, `<ERROR_TREE>`, `<TEST_OUTPUT>`, `<show>`, `<season>`,
 `<episode>`, and keep real values outside the repository. Need the path of a file in
