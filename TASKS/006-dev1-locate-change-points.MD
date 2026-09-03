@@ -243,3 +243,60 @@ tracked the input on the pair that does not.
 identical error fits any constant. **A clustered input predicting a clustered error
 that tracks it file by file, across three distinct values, is the evidence** — and
 it was available the whole time in the numbers I had already measured.
+
+
+---
+
+## A probe before the master stream begins reads a spurious offset
+
+**Found by `vmsam-dev-2` asking a question I could not answer without looking**: its
+two defect terms are separable per file only when the plan begins at master 0,
+because otherwise it emits a head master-fill piece whose own term equals the
+verifier's. **The plan's first-segment start is my output**, so which files are
+decidable was mine to determine.
+
+**Two of the four I checked did not begin at 0, and the reason was mine.**
+
+`_probe` seeks by presentation timestamp. On a stream whose first packet is stamped
+1.103 s, a probe at t=0 cannot return audio from t=0 — there is none — so it returns
+the stream's opening against a candidate window that really does start at 0, and
+reports the `start_time` rather than the relation being measured.
+
+    [change_point_locator] segment 0 unusable (offset 1003 ms, master [0.0,0.0]);
+                           dropped, not declining
+
+The head probe read +1003 ms against a body of +22, the run splitter read that as a
+change point at the very start, and the zero-width first segment was dropped — so
+the plan began at master **100000 ms** instead of 0.
+
+**The cure: start the grid where the reference stream actually begins.** Everything
+before that is a region no probe can measure.
+
+### Fired both ways on real media
+
+| id | lang | master start_time | plan start BEFORE | plan start AFTER |
+| ---: | :--- | ---: | ---: | ---: |
+| 144 | jpn | 1103 ms | **100000 ms**, segment dropped | **0**, nothing dropped |
+| 375 | jpn | 74 ms | **100000 ms**, segment dropped | **0**, nothing dropped |
+| 144 | eng | 48 ms | 0 | 0 |
+| 173 | jpn | 42 ms | 0 | 0 |
+
+**The two that were wrong are fixed and the two that were right are unchanged.**
+
+### What it does downstream
+
+- **Removes 100 s of master fill** on each affected file — that content is now
+  candidate audio.
+- **Makes dev-2's two defect terms separable on those files**, because there is no
+  head master piece for the assembler term to act on.
+- **Changes emitted offsets only where the master reference stream has a nonzero
+  `start_time`** — 65 of 315 pairs. Files at 0.0, including id 46 and id 266, are
+  untouched, so nothing already repaired or claimed moves.
+
+### Why this one was worth making and the seek change was not
+
+Both were plausible. **This one has two files that change and two that do not**, a
+log line naming the mechanism, and a predicted downstream consequence that was
+independently wanted. The accurate-seek change had a good argument and produced
+identical numbers to two decimal places — so it was reverted. **The difference is
+not confidence, it is whether anything measurable moved.**

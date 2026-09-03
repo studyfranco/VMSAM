@@ -391,6 +391,7 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     master_path = best_video.filePath
     candidate_path = candidate_video.filePath
     reference_stream = master_streams[0]
+    reference_start_ms = _start_times_ms(master_path).get(reference_stream)
     primary_stream = candidate_streams[0]
 
     # --- coarse scan: the WHOLE file, no privileged region -------------------
@@ -398,8 +399,34 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # PROBE_STEP_SECONDS of TAIL unscanned — measured at 39 s in the worst case.
     # That is the head blind spot again at the other end, and a trimmed tail is
     # exactly a change point there. So the last probe is anchored to the END.
+    # A PROBE BEFORE THE MASTER STREAM'S OWN START READS A SPURIOUS OFFSET.
+    #
+    # `_probe` seeks by presentation timestamp. On a stream whose first packet is
+    # stamped 1.103 s, a probe at t=0 cannot return audio from t=0 -- there is none
+    # -- so it returns the stream's opening against a candidate window that really
+    # does start at 0, and the offset it reports is the start_time rather than the
+    # relation being measured.
+    #
+    # Measured on error ids 144 and 375. The head probe reported +1003 and +1090 ms
+    # against a body of +22 and +1014, the run splitter read that as a change point
+    # at the very start, and the resulting zero-width first segment was dropped:
+    #
+    #     segment 0 unusable (offset 1003 ms, master [0.0,0.0]); dropped, not declining
+    #
+    # So the plan began at master 100000 ms instead of 0. That is not merely a lost
+    # 100 s: vmsam-dev-2 emits a master-fill piece for [0, first_segment_start), and
+    # that piece is cut from the master stream at source 0, so it carries the same
+    # defect one level down. On id 173, whose plan does begin at 0, none of this
+    # happens.
+    #
+    # The cure is to start the grid where the reference stream actually begins.
+    # Everything before that is a region no probe can measure.
+    first_measurable = max(0.0, (reference_start_ms or 0.0) / 1000.0)
+    if first_measurable > 0:
+        _log(f"master reference stream begins at {first_measurable * 1000:.0f} ms; "
+             f"probing starts there, not at 0")
     starts = []
-    start_seconds = 0.0
+    start_seconds = first_measurable
     while start_seconds + PROBE_WINDOW_SECONDS <= shortest:
         starts.append(start_seconds)
         start_seconds += PROBE_STEP_SECONDS
@@ -601,8 +628,6 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # A change point is only meaningful between two segments that both survived.
     change_points = [cp for index, cp in enumerate(change_points)
                      if index in kept_runs and (index + 1) in kept_runs]
-
-    reference_start_ms = _start_times_ms(master_path).get(reference_stream)
 
     return {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
             "master_path": master_path,
