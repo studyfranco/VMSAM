@@ -358,6 +358,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
             clamp_segments_to_master(segments, master_obj)),
         work_dir, out_path, marker,
         speed_ratio=speed_ratio,
+        # LE FLUX MAITRE SUR LEQUEL LA MESURE A ETE PRISE. C'est la seule piste
+        # dont on SAIT qu'elle est calee sur le plan, et on le sait par mesure
+        # et non par deduction: le plan a ete produit contre elle.
+        reference_stream=plan.get("reference_stream"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
 
     # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la

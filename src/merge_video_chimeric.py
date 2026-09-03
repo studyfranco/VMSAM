@@ -433,7 +433,7 @@ def get_encoder_arguments(audio, codec_name, source_path=None):
     return arguments, family, bitrate_origin
 
 
-def find_master_audio_for_language(master_obj, language):
+def find_master_audio_for_language(master_obj, language, reference_stream=None):
     '''La piste du maitre qui remplira les trous, ou None.
 
     PAS UN COMMENTAIRE DU MAITRE: remplir le trou d'une piste principale avec
@@ -456,6 +456,19 @@ def find_master_audio_for_language(master_obj, language):
             continue
         if len(tracks) == 1:
             return tracks[0]
+        # THE ONE TRACK KNOWN TO BE ALIGNED WITH THE PLAN, and known by
+        # MEASUREMENT rather than by inference: the measurement was taken
+        # against it, and `change_point_locator` emits it as
+        # `reference_stream`. Codec, channels and bitrate are not alignment --
+        # ranking on them is principled on a dimension the repair does not care
+        # about, and on a master whose same-language tracks disagree it trades
+        # one wrong answer for another that is harder to predict. This prefers
+        # the dimension that matters and falls back to quality only when the
+        # measured stream is not a candidate for THIS language.
+        if reference_stream != None:
+            for track in tracks:
+                if str(track.get("StreamOrder")) == str(reference_stream):
+                    return track
         return pick_best_master_audio(tracks)
     return None
 
@@ -512,14 +525,15 @@ def pick_best_master_audio(tracks):
 
 
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
-                          out_path, timeout, speed_ratio=None):
+                          out_path, timeout, speed_ratio=None,
+                          reference_stream=None):
     '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.'''
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     encoder_arguments, family, bitrate_origin = get_encoder_arguments(
         audio, codec_name, candidate_obj.filePath)
     sample_rate, channels, layout = get_audio_stream_parameters(audio)
 
-    master_audio = find_master_audio_for_language(master_obj, language)
+    master_audio = find_master_audio_for_language(master_obj, language, reference_stream)
     master_stream_order = None
     if master_audio != None:
         master_stream_order = int(master_audio["StreamOrder"])
@@ -763,7 +777,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                                 out_path, marker_value, timeout=3600,
                                 verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
-                                speed_ratio=None):
+                                speed_ratio=None, reference_stream=None):
     '''Point d'entree du module.
 
     Renvoie un compte-rendu: ce qui a ete construit, ce qui a ete REFUSE et
@@ -800,7 +814,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 stream_order=int(audio["StreamOrder"]))
             audio_reports.append(build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
-                timeout, speed_ratio))
+                timeout, speed_ratio, reference_stream))
         except chimeric_error as error:
             declined.append({"kind": "audio",
                              "stream_order": int(audio["StreamOrder"]),
@@ -1025,7 +1039,8 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     produced_index = 0
     for report in audio_reports:
         language = report["language"]
-        master_audio = find_master_audio_for_language(master_obj, language)
+        master_audio = find_master_audio_for_language(master_obj, language,
+                                                     reference_stream)
         if master_audio == None:
             results.append({"track": report["stream_order"], "language": language,
                             "outcome": "skipped",
