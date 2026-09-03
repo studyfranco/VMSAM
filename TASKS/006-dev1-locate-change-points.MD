@@ -344,6 +344,53 @@ likely to be an artefact. id 271 has the step but sits at 0.65-0.73. Asked ci fo
 rows whose within-track-pair step is >= 2 points *and* fidelity >= 0.90;
 computable from the log matrices without touching media.
 
+### The module, and its branch test
+
+`src/change_point_locator.py`. One caller, dev-2's repair path, behind its
+off-by-default `config.ini` `[features]` key. It re-measures absolutely and
+unshifted; it never reads `delayFirstMethodAbort`, never writes a track, never
+touches `sameAudioMD5UseForCalculation`.
+
+**Every branch fired, both answers, on real corpus files** — not on constructed
+inputs (`VMSAM_HELP_AI/dev-1/lab/M7-locator-branch-test.txt`):
+
+| file | expected | got |
+| :--- | :--- | :--- |
+| error id 237 (different series, verified by eye) | `None` | **`None`** — *"fidelity at the floor with scattered delays"*, 10 distinct, 8 sign flips, fid 0.562 |
+| error id 318 (constant offset) | `constant` | **`constant`**, +4 pts = +552 ms, quantum **138 ms** |
+| error id 147 (two 8-point steps) | 2 change points | **`piecewise_constant`**, brackets [383.0, 385.5] and [822.5, 825.0], both `narrowed=True` |
+
+The id 147 brackets reproduce my manual measurement — (382.5, 385.0) and
+(822.5, 825.0) by hand, (383.0, 385.5) and (822.5, 825.0) from the module, the
+difference being the 5 s scan granularity. The quantum is detected per pair: 138 ms
+on the 190-second file, 125 ms on the others.
+
+**This is not "it works".** `AGENT.MD` and `SPEC_ZONE_A.MD` §2 are explicit that a
+green test on my side is exactly the evidence campaign 1's five dead pieces had.
+dev-2 has set the standard and I have adopted it: the locator is working when it
+has produced a track dev-2's post-mux verifier accepts, and not before.
+
+### Dropped — the video refiner, on dev-2's measurement
+
+`TASKS/005` named a frame-level refiner as the instrument that pins a change point
+to a frame. **It is not being built**, and the reason is dev-2's, measured:
+
+Its repair does not need a point T at all. It marks the whole bracket as a gap and
+fills it from the master, which is correct *by definition* rather than
+approximately — master content on the master's timeline. So my bracket width
+becomes a cost, not a correctness question. On id 266 that cost is
+
+| bracket | gap per change point | as % of a 24-min episode |
+| :--- | ---: | ---: |
+| my measured 2.5 s | 3.5 s | **0.49 %** |
+| the ~108 s dev-2 had assumed | 109 s | 15.24 % |
+
+At 0.49 % the fill type stops being the deciding cost even when the fill is
+silence. The trigger for revisiting is therefore not *"silence is a real
+population"* but *"a file with many change points"* — about twenty, at which point
+silence reaches 5 % of a track. Left unbuilt, which is the right state for an
+instrument with no consumer.
+
 ### Not yet done
 
 `src/change_point_locator.py` is not written. The method is calibrated and the
