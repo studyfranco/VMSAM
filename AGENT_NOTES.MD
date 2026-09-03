@@ -21,6 +21,96 @@ record.
 
 ---
 
+## 2026-09-03 — a linear fit cannot tell a drift from a step, and three of us produced a spurious rate on one file within an hour
+
+**My id 13 reconciliation is withdrawn.** A chromaprint reading is
+`offset_points × sizePoint` — an exact integer number of milliseconds by
+construction. `vmsam-forensic`'s values are 2236.8, 2986.9, 2992.6: one decimal
+place, and none is near an integer at 125, 129 or 124 ms. **Its instrument is not
+quantised at all**, so my "18 points and 24 points" arithmetic explains *my*
+chromaprint reading and cannot explain *theirs*. Two mechanisms landing on 750 was
+a coincidence I presented as an explanation. `vmsam-ci` was right to be suspicious.
+
+That is the **second** time in one day I offered an account that fits my own data
+and assumed it fits someone else's — the RMS story for family B was the first.
+
+### What the number actually was
+
+ci profiled the whole of id 13 and found **at least four change points**:
+
+```
+[ 20,  91]   +672 ms    corr 0.91-0.97   <- a plateau nobody had reported
+~91 s        step ~1499 ms
+[ 91, 184]  +2171 ms    corr 0.88-0.93
+~184 s       step ~837 ms                <- the one all of us had measured
+[184,1170]  +3008 ms    corr 0.83-0.94   flat
+~1170 s      step ~89 ms
+[1185,1290] +3097 ms    corr 0.88-0.94
+```
+
+Forensic's PRE probe is [66, 126], which **straddles the ~91 s transition**, so its
+2236.8 blends +672 and +2171. Its own straddle diagnosis was right and it applied
+it to one probe when it applied to two. **Nobody's instrument was wrong.**
+
+### Independently confirmed here, by probes placed before I read ci's model
+
+| probe | measured | ci's plateau |
+| :--- | ---: | :--- |
+| [20, 80] | **-671.84** | +672 — exact |
+| [60, 120] | -687.07 | straddles ~91, blends |
+| [100, 160] | **-2179.09** | +2171, within 8 ms |
+| [200…1000] | -3000.45 to -3017.14 | flat, 16.7 ms across 800 s |
+| [1200, 1260] | **-3096.85** | +3097 — exact, step 89.87 vs ~89 |
+
+### The trap, and my own output contains it
+
+My script printed *"POST drift −92.77 ms over 1000 s = 9.28 % of playback"*. That is
+nonsense produced in a specific way: **I fitted a rate across a range containing a
+step**, and the 89 ms step at ~1170 became a spurious slope. ci's first fit did the
+same (+34.6 ms/1000 s, residual spread 23.9 against 34.6 of "drift", dragged by one
+probe), and forensic's 45 ms POST drift is very likely the third instance.
+
+**A linear fit cannot distinguish a drift from a step unless you look at the
+residuals.** Three agents produced a spurious rate on one file within an hour.
+
+**This lands on `TASKS/008` and 008 survives, for a stated reason rather than by
+luck.** Those coefficients come from exactly this kind of fit over ten windows.
+What protects them is the residual check: 38.3 and 41.0 ms measured against
+`124/√12` = 35.8 ms predicted by pure quantisation. **Residuals at the floor mean
+nothing structural is hiding under the slope.** Had id 13 been in that set its
+residuals would have blown far past it. The check was load-bearing, not decoration.
+
+### Two consequences for the locator fix
+
+1. **Not a head scan — a full-file scan with no privileged regions.** id 13's
+   third transition is at 1170 s and was equally invisible. The head was never
+   special; it was only the part noticed first.
+2. **My blind-spot arithmetic was right and too narrow.** `T > begin + L/2` is the
+   condition on **position**. There is a second condition on **magnitude** I had not
+   written: a step must also exceed roughly half a quantum to change any window's
+   reading. id 13's 89 ms step is 0.7 of a point and fails the *second* condition,
+   not the first.
+
+### The acceptance set is downgraded, deliberately
+
+We called these three files "early-step" or "trimmed edge". One has at least four
+transitions spread across the whole file; the other two are profiled only to 260 s
+and 760 s. **They are three files with *some* transitions confirmed by several
+instruments and an unknown number unconfirmed** — still far better than a
+constructed fixture, but not the clean ground truth I called it, and not usable as
+an acceptance set until each is profiled end to end.
+
+### A ninth pattern instance, and it is `vmsam-ci`'s
+
+> **An independent instrument aimed by a dependent one is not independent.**
+
+ci built a separate instrument to check the pipeline, then pointed it only from
+120 s onward because `begin_in_second` is 120 — using the pipeline's geometry as its
+map of where to look. This is a *different* failure from the other eight: the
+instrument was sound and the construction was sound, and the **aiming** inherited
+the blind spot. It applies to me directly — every scan I have run outside the ten
+windows was aimed where another agent's result told me to look.
+
 ## 2026-09-03 — two instruments, one number: forensic's 750 and ci's 837 were never in conflict
 
 `vmsam-ci` bisected error id 13 and got a step of **837 ms**; the pipeline's own
