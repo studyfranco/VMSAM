@@ -308,6 +308,35 @@ pins to a frame*; that is now measured on real media rather than reasoned. The
 video instrument is not an optimisation for objective 2, it is the half that
 produces a usable cut point.
 
+### The method generalises — four real staircases, four different sources
+
+| id | folder | absolute sequence | fid | step |
+| ---: | ---: | :--- | :--- | :--- |
+| 224 | 103 | `[750 x5, 625, 500 x4]` | 0.893-0.952 | 2 pts |
+| 90 | 54 | `[0 x5, -125 x3, -250, -125]` | 0.910-0.973 | 2 pts |
+| 267 | 172 | `[1000 x3, 1250 x7]` | 0.873-0.984 | 2 pts |
+| 147 | 153 | `[-1000 x2, -2000 x4, -3000 x4]` | 0.872-0.979 | 8 pts |
+
+**All four reproduce the step recorded in the log, and every one has a step of
+>= 2 points.** That is the boundary: 2-point-and-larger steps survive direct
+absolute measurement; the one-point steps (318, 319, 6) did not.
+
+Localising id 147's two change points, two independent window lengths each:
+
+| step | W = 30 s | W = 15 s | intersection |
+| :--- | :--- | :--- | :--- |
+| 1 | (380.0, 385.0) | (382.5, 387.5) | **(382.5, 385.0)** |
+| 2 | (820.0, 825.0) | (822.5, 827.5) | **(822.5, 825.0)** |
+
+2.5 s brackets, against 5 s on id 224 — larger steps discriminate more sharply.
+
+### What the audio half of 006 delivers, and what it does not
+
+- detects plateaus and steps reliably at **>= 2 points**;
+- returns the step **exactly**, as a point count plus the pipeline's quantum;
+- brackets each change point to **2.5-5 s**, consistent across window lengths;
+- **does not reach a frame.** 2.5 s is ~60 frames at 23.976 fps.
+
 ### Still blocked
 
 **A real exemplar with a multi-point step at good fidelity** — the shape least
