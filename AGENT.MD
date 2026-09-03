@@ -352,20 +352,24 @@ your own transcript reaches nobody: the only thing that transmits is the
 - **The first line is the preview** a human sees before expanding. Make it a
   self-contained sentence saying what this is about, not a greeting.
 - Do not poll in a loop, and never send "are you done?". Read `ListAgents` instead.
-- **A message does not wake anyone.** It drains at the recipient's *next tool round*,
-  and a session that has finished its turn takes no further rounds until something
-  external pokes it. Delivery is not attention: the message is there, waiting for an
-  event that will not arrive on its own.
+- **A message between sessions in different permission-mode classes is held for
+  approval, not delivered.** Measured: sessions started with
+  `--dangerously-skip-permissions` are a different class from one that was not, and
+  a message across that boundary waits in the recipient's session until a human
+  approves it. Nothing tells the sender. This cost campaign 2 a day, during which
+  eleven messages sat unread while five sessions each reported themselves as waiting
+  on the sender. Within one class — the fleet talking to its lead — delivery is
+  normal.
 
-**So the two channels have two different jobs, and confusing them cost this campaign
-a day.** `SendMessage` carries content and can be answered. `tmux` carries the
-wake-up and cannot — it is one-way, so a lead that broadcasts through it looks
-silent from the other side while believing it has spoken.
+**The two channels have two different jobs, and confusing them cost a day as well.**
+`SendMessage` carries content and can be answered. `tmux send-keys` cannot be
+answered — it is one-way, so a lead that broadcasts through it looks silent from the
+other side while believing it has spoken.
 
-**Waking a parked agent is the lead's job**, because the lead is the only one holding
-both the roster and the sessions. Read `ListAgents`; for anyone idle who owes you
-something, send the message first — so the content is queued — then poke the session
-so it is read:
+**Noticing that an agent has stalled is the lead's job**, because the lead is the
+only one holding both the roster and the sessions — whatever the cause turns out to
+be. Read `ListAgents`; for anyone idle who owes you something, send the message
+first — so the content is queued — then poke the session:
 
 ```sh
 tmux send-keys -t <session> -- 'check your messages'
