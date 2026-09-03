@@ -432,6 +432,55 @@ family.
 id 266's positions are provably identical under the new rule, so its verified
 result stands without re-running.
 
+### A measured correction to the team's model of error id 108
+
+Not my file to own — relayed to `vmsam-dev-1` and `vmsam-ci`, who are building a
+head-scan fix against it — but measured here while looking for a second real
+target, so it is recorded with the work that produced it.
+
+**Error id 108 has two change points, not one, and the offset returns to where it
+started.** Profiled over the first 260 s with a 20 s window at 10 s steps, then
+each transition bracketed with an 8 s window at 2 s steps; independent numpy
+cross-correlation, master jpn FLAC against candidate jpn AAC.
+
+| master region | offset | corr |
+| :--- | ---: | ---: |
+| `[0, 52)` s | −950.0 | 0.37–0.65 |
+| `[52, 58)` s | **transition 1** — not previously reported | |
+| `[58, 146)` s | **−1453.9** | 0.79–0.94 |
+| `[146, 148)` s | **transition 2** — `vmsam-ci`'s | |
+| `[148, 260)` s | −952.9 | 0.42–0.59 |
+
+Transition 2's bracket **reproduces `vmsam-ci`'s bisection exactly** from a
+different instrument, which is what makes transition 1 worth stating at all. The
+step measures 503.4 ms against ci's 501.0.
+
+**Why it matters beyond that file.** A file whose offset departs and returns looks
+**constant** to any window spanning both transitions — and every window the
+pipeline's geometry produces starts at 120 s, past the first. So the ten windows
+*agree*, and the agreement is the symptom rather than the reassurance. This is the
+eighth member of the family, in its sharpest form yet: **a control that cannot
+fail because what would refute it lies outside its field of view.**
+
+It also corrects a warning in the team's favour but differently: a container delay
+of −950 is *correct* for `[0, 55)` and for everything after 148 s, and wrong by
+~503 ms only inside `[55, 147)`. Smaller damage than "wrong for the first 146 s",
+and harder to notice for exactly that reason.
+
+**Quantisation is large here.** Points give −1500 and −1000; the true offsets
+measure −1453.9 and −952.9 — 46 and 47 ms out, both over a third of a 125 ms point
+and both larger than a video frame.
+
+**Hedges, carried:** one instrument; the outer regions correlate at 0.32–0.65
+against 0.79–0.94 on the middle plateau, so −950 rests on consistency across
+twelve windows rather than any single strong reading; brackets are limited by a
+2 s step, not bisected; and nothing past 260 s was examined at this resolution, so
+this is not a claim that there are only two.
+
+**Not proposed as a repair target.** Its master carries jpn FLAC *and* eng FLAC
+while the candidate carries only jpn AAC, so a repair contributes nothing the
+master does not already have better. It would test the splice, not improve a file.
+
 ### Findings that are not mine to fix
 
 1. **`keep_best_audio`'s `fabricated` rule cannot fire, and the harm it exists to
