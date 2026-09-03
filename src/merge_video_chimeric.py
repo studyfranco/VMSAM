@@ -451,9 +451,64 @@ def find_master_audio_for_language(master_obj, language):
     mesure ici.
     '''
     for holder in (master_obj.audios, master_obj.audiodesc):
-        if language in holder and len(holder[language]):
-            return holder[language][0]
+        tracks = holder.get(language)
+        if tracks == None or not len(tracks):
+            continue
+        if len(tracks) == 1:
+            return tracks[0]
+        return pick_best_master_audio(tracks)
     return None
+
+
+def pick_best_master_audio(tracks):
+    """The BEST stream of that language, not the first.
+
+    THE RANKING IS NOT MINE TO INVENT: `keep_best_audio` already defines "best"
+    for this system, and a second definition would diverge -- we watched two
+    subtitle classifications do exactly that today.
+
+    BUT `keep_best_audio` IS A MUTATOR, NOT A SELECTOR. It sets keep=False on
+    the losers IN PLACE, and the dicts passed here are the master's REAL audio
+    dicts, which the merge reads afterwards. Calling it directly would make a
+    repair mutate state the merge owns. So it runs on COPIES and the survivor is
+    mapped back by StreamOrder.
+
+    TWO PRECONDITIONS THIS MODULE DOES NOT ESTABLISH, checked rather than
+    assumed: `tools.mergeRules` must be loaded and every dict must carry `keep`.
+    Either missing -> fall back to the first track, which is today's behaviour.
+
+    A TIE IS NOT A DECISION. If the ranking leaves zero or several survivors it
+    has not chosen, and no tie-break is invented to make the function look
+    decisive: it returns the first track, exactly the current behaviour.
+
+    Why: `vmsam-forensic` measured that 22.6 % of masters carry more than one
+    normal track of a language, up to four, and 126-138 ms between two of them
+    on one master -- verified NOT to be a `start_time` artefact. Taking the
+    first was an arbitrary choice that carried that gap into the repair.
+    """
+    import copy
+    try:
+        import mergeVideo
+        rules = mergeVideo.decript_merge_rules(tools.mergeRules['audio'])
+    except Exception:
+        return tracks[0]
+    candidates = []
+    for track in tracks:
+        clone = copy.deepcopy(track)
+        clone["keep"] = True
+        candidates.append(clone)
+    try:
+        mergeVideo.keep_best_audio(candidates, rules)
+    except Exception:
+        return tracks[0]
+    survivors = [c for c in candidates if c.get("keep")]
+    if len(survivors) != 1:
+        return tracks[0]
+    order = survivors[0].get("StreamOrder")
+    for track in tracks:
+        if track.get("StreamOrder") == order:
+            return track
+    return tracks[0]
 
 
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
