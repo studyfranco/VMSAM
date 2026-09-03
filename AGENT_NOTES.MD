@@ -21,6 +21,117 @@ record.
 
 ---
 
+## 2026-09-03 — the deploy loop's "wait ~10 min" becomes a checked precondition
+
+The documented loop warns that a hook fired before CI publishes the image re-pulls
+the previous image and redeploys the *old* commit — a success-looking deploy that
+silently invalidates the test. The brief names it the single failure mode that will
+waste the most of this campaign's time.
+
+**The instruction was a duration, and a duration cannot be checked.** The published
+image can be: it carries the commit it was built from, in the OCI label
+`org.opencontainers.image.revision` and in its baked `VMSAM_GIT_COMMIT` — the very
+value `/health` will later report. Both are readable before anything is fired.
+
+So `VMSAM_HELP_AI/ci/deploy.py` waits until the published image **is** the target
+and refuses to fire the hook otherwise. **Why the alternative lost:** sleeping ten
+minutes is wrong in both directions — it wastes nine minutes on a cached build and
+is still too short for a cold one, and in neither case does it *know*. The registry
+answers the actual question.
+
+Measured while confirming it: a documents-only push published in **~90 s**. That is
+a cache artefact, not a new figure for CI — a real `src/` change rebuilds layers,
+and a cold build remains unmeasured. Recorded so nobody quotes 90 s back.
+
+**Where it lives:** beside the repository. `WRITE_ZONES.MD` §4's test — would this
+still matter to someone running VMSAM in production? — says no for a deploy
+harness, the same ruling as `check_write_zones.py`.
+
+## 2026-09-03 — finding: `git_commit` has two unverifiable states, and the documents describe one
+
+`tools.py:226` returns `os.environ.get("VMSAM_GIT_COMMIT", "").strip() or "unknown"`,
+while `Dockerfile:137` declares `ARG VMSAM_GIT_COMMIT="IDK"`. So:
+
+- an image built **without** `--build-arg VMSAM_GIT_COMMIT` carries the ARG default
+  and `/health` reports **`IDK`** — fix belongs in CI;
+- `unknown` is only reachable when the variable arrives **empty or absent** at
+  runtime, which `Dockerfile:163` already does and the compose file overrides — fix
+  belongs in compose.
+
+Both the private deployment note and the campaign brief say `unknown` means the
+build arg was not injected. Read against the code, that case produces `IDK`.
+
+**Consequence: none for correctness of results.** Both states are *unverifiable*,
+and the rule that matters — no result obtained in that state proves anything — is
+unchanged. The distinction is worth carrying because the two have different causes
+and different fixes, and a reader who sees `IDK` will otherwise search the compose
+file for a variable that is not the problem.
+
+Neither state has been observed on this instance. Both are coded from the source
+and fired with literals, not from a sighting — an armed guard that has never fired
+is indistinguishable from a working one.
+
+**This is a finding for the owner, not an edit.** The documents concerned are the
+owner's private notes and the brief; being right about them does not make them
+mine.
+
+## 2026-09-03 — finding: `fusion_enabled` is computed one hop away and dropped
+
+`internal_api.get_internal_health` returns `fusion_enabled`, which is `False`
+exactly when the worker refused to start because `VMSAM_TEST_OUTPUT_DIR` was empty
+in test mode (`internal_api.py:52`). The public `GET /health` calls that endpoint
+and keeps only `is_running` (`api.py:359-366`).
+
+From outside the instance, therefore, **`is_running: false` with an idle queue means
+either "the worker is healthy and has nothing to do" or "the worker never started"**
+— and `GET /fusion` cannot separate them either, because
+`get_internal_fusion_status` carries no `fusion_enabled` guard and reports an idle
+queue in both cases.
+
+This is the campaign's recurring shape: a reader with two outcomes describing a
+world with three, and the missing outcome is *the instrument did not run*.
+
+**Not blocking, and what was done instead.** The worker is running — proven
+positively by a fusion job reaching `apply_test_outcome` and depositing an artefact.
+The cheap probe when in doubt is `POST /fusion`, which answers 503
+`Fusion is disabled: VMSAM_TEST_OUTPUT_DIR is not set in test mode` in the disabled
+case. `src/gestionar_show/` is frozen in full (`WRITE_ZONES.MD` §1), so adding one
+key to the public payload is an owner decision. Recorded, not routed around.
+
+## 2026-09-03 — the first baseline run refused correctly, for a reason nobody had listed
+
+Error id 237 was queued as the campaign's baseline, before any change. It refused in
+~30 s at `mergeVideo.py:798` — the code path zone A is being built into — with ten
+stage-1 delays spread over 421 s, flipping sign, at mean fidelity 0.567. Every delay
+is an exact multiple of 125 ms, so the instrument was behaving; there is simply no
+constant offset to find. **The refusal is correct.**
+
+The reason is not any of the five families in `CAMPAIGN.MD`. **The file is a
+different television series from its folder's master** — verified by extracting
+frames from both at the same timestamps and looking at them, not inferred from the
+release name. Two different programmes have no true correlation peak, which is
+exactly the signature observed.
+
+And it is systematic: of the 49 error entries in that folder, **26 name themselves
+as the other series in a contiguous 26-episode run** — 8.3 % of the whole 315-entry
+corpus — with no folder registered anywhere for them. One file verified visually;
+the other 25 attributed from the naming pattern. The other 37 folders are unchecked,
+and how campaign 1 classified any of this is unknown to me and not asserted.
+
+**Why this is a decision and not just a measurement.** The repair fires at the
+moment of refusal, and these files refuse. `SPEC_ZONE_A.MD` as drafted does not
+distinguish *two cuts of one episode that need reassembly* from *two different
+episodes that must never be spliced*: both arrive as "stage 1 found no constant
+offset". No repair exists yet and its authors may well plan a guard — the point is
+that the family most needing one is absent from the table the campaign is working
+from, and it stayed invisible until a real file was actually run. That is the case
+for baselines before changes, made concretely.
+
+Error id 237 is therefore offered as a **negative fixture**: a real corpus file,
+reproducible in ~30 s, whose correct outcome is *refuse*. Any repair should be run
+against it to show it can still say no. Details in the private notes beside the
+repository.
+
 ## 2026-09-03 — `check_write_zones.py`: the rules get an instrument, and it lives outside the repository
 
 `WRITE_ZONES.MD` §2 rule 2 says a zone is real only if it is checked, and lists
