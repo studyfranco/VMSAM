@@ -228,7 +228,100 @@ Self-imposed: one job at a time; **no deploy while the queue is busy** (recreati
 the container under a live merge kills it mid-write); the SHA is verified before
 *and* after every job, and a run whose SHA moved is discarded rather than reported.
 
+### Goal 3b — the corpus-wide misfiling sweep (the Lead's priority)
+
+**Answer: real, and NOT corpus-wide. 96 % of it is one folder.**
+
+| | entries | |
+| :--- | ---: | :--- |
+| folder id 103 | **26** | three independent methods agree on the same ids |
+| the other **37 folders** | **1** | confirmed by looking at frames |
+| **total** | **27** | **8.6 % of 315** |
+
+The 8 % survives and its operational meaning inverts: it is **one contaminated
+folder plus one stray entry**, not a distributed family. Folder 103 holds 49 of
+the 315 entries and more than half are junk; its other **23 entries are genuine
+repair targets** (high fidelity, clean plateaus). Clean that folder and the family
+essentially disappears.
+
+**Why the folder-103 number is trustworthy — three methods, one answer.** Release
+names plus video frames (mine); audio fidelity from the pipeline's own refusal
+logs (the forensic agent, independently, never reading a filename or a frame); and
+delay-pattern shape (mine, after the fact). The first two produced the **identical
+26-id set** without either seeing the other's inputs.
+
+**Two methods refuted before use, each against a case whose truth I already knew:**
+
+- **filenames** — folders legitimately mix title conventions for one work (a
+  romaji-named folder holding an English- or Chinese-titled release). Mostly false
+  positives.
+- **durations** — in folder 103 the misfiled and correctly-named entries show the
+  *same* delta against their master. Different cuts produce duration mismatch too.
+- **sparse frame pHash** — I built it, it separated my controls cleanly, and it was
+  **wrong**: 20 frames over 22 min is 66 s apart, so any offset makes the samples
+  miss. Its positive control had a **zero** offset — the one case that cannot
+  expose the flaw. A control whose pass was guaranteed by the setup.
+
+**The error this nearly produced.** `floor-scatter` (every window at chance,
+delays scattered) looks exactly like "no shared content", and there are 45 such
+rows — reporting them as misfiled gives ~14 %. **18 of the 45 are PAL-ratio speed
+pairs**: same content, and precisely what `TASKS/008` exists to repair. dev-1
+predicted this before I measured it, citing `docs/AUDIO_SPEED_POLICY.MD`'s
+**0.558–0.562** for uncorrected PAL — the same floor a different-series pair sits
+on. Verified at the source. **Fidelity level cannot separate "different content"
+from "speed mismatch"**; the separators are the duration ratio and the delay
+pattern. Reporting the floor as misfiling would have told dev-2 to stop repairing
+18 files that are its target.
+
+**My own screen produced three false positives out of four.** Of the four
+non-speed floor-scatter rows outside folder 103, three are the same content on
+inspection — one of them scoring low on a language-matched pair. Only one is
+genuinely different, and its *own filename claims the same title as its master*,
+so no naming heuristic could have found it. **The screen narrows candidates; the
+eye decides.** Every "different content" count above was confirmed by looking.
+
+### Goal 3c — recorded delays already exist for the whole corpus
+
+A `.log.error` sits beside **every** error file, **315/315**, each carrying the
+pipeline's own per-window `(fidelity, offset_points, delay_ms)` matrix. The
+forensic agent found this; I verified it independently and extracted all 315.
+
+**I had told a developer the opposite** — that delays exist only where a fusion has
+run — and corrected it directly. **No container run is needed to obtain recorded
+per-window delays for any error entry.** That materially changes what the queue is
+for: it is needed to test *new code*, not to observe *existing behaviour*.
+
+Three caveats travel with every figure from these logs: they were written by an
+**older revision** (their traceback reads `mergeVideo.py:818/:946/:2050`, the
+deployed commit reads `:798/:919/:2057`), through the **integration loop** rather
+than the fusion path, and the candidate path inside them is sometimes historical.
+The delays measure the media, which has not changed; they do not measure the code
+under test.
+
+Corpus shape from those matrices — `step` 157 (49.8 %), `mixed` 51, `monotone-drift`
+48, `floor-scatter` 45, `no-matrix` 14, of which **2 are `cmd_error`: the instrument
+did not run**, kept on their own line and never folded into a family. PAL-ratio
+speed candidates: **30 (9.5 %)**. These sit near `CAMPAIGN.MD`'s campaign-1 shape,
+but **I do not claim to have reproduced campaign 1's classification** — the buckets
+are mine, and 16 % sits in `mixed`, which its table has no equivalent for.
+
+**What is still not established.** 25 of the 26 folder-103 files are attributed
+from the release name, the contiguous run and the fidelity floor — only one was
+opened. `mixed` (51) and `no-matrix` (14) were not individually examined, so **27
+is a floor, not a ceiling**. The 30 speed candidates are identified by duration
+ratio alone and none has been shown to correct.
+
 ## What was dropped
+- **My own chromaprint screen as a corpus-wide detector.** It was validated on
+  three eye-verified controls and still produced three false positives out of four
+  checked. Kept as a candidate-narrower, dropped as a verdict. The corpus-wide run
+  was killed part-way once that was known — it was consuming CPU shared with two
+  other agents for a number I had shown I could not trust.
+- **The container-duration table.** `format=duration` is set by the longest stream,
+  usually video: on one master the container reads 1501.25 s while every audio
+  stream reads 1436.977 s. dev-1 caught it. Re-probed on the audio axis, recording
+  which of three sources answered, since Matroska usually leaves the per-stream
+  `duration` field empty and uses a tag.
 
 - **Waiting a fixed ten minutes after a push.** Replaced by polling the registry
   for the target commit. The timer cannot distinguish "image ready" from "build
