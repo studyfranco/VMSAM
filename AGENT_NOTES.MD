@@ -21,6 +21,65 @@ record.
 
 ---
 
+## 2026-09-03 — correction: my step classifier pooled track pairs, and I shipped exemplars from it
+
+**Supersedes the classification in the misfiling entry below, not its conclusion.**
+
+My first parser of the recorded stage-1 matrices flattened every
+`(fidelity, offset_points, delay_ms)` triple into one list **across all track
+pairs**. On four files each track pair was internally *constant* and the two
+values were the **master's own two audio tracks sitting 125 ms apart** — a property
+of the master's track layout, not a change point in the media. Pooled, that reads
+as a textbook step, and **I recommended those four to the measurement agent as the
+best change-point exemplars.** dev-1 caught it by parsing per track pair.
+
+**Why the alternative lost, and it was not a judgement call — it was a bug.** There
+was no reason to pool; the log already carries the structure, keyed by track pair.
+I flattened because a flat list was easier to classify, and in doing so I destroyed
+the one distinction that decides whether a delay difference is in the media or in
+the file's own track layout. A repair driven off those four would have been
+repairing something that is not there — campaign 1's defect in a new costume.
+
+**The fix strengthened the result it was meant to threaten.** With track pairs
+separated, the contaminated folder splits *perfectly* — every misfiled entry at the
+noise floor, every correctly-named one showing a step — where the flawed parse left
+three unclassified. The misfiling answer never depended on the step classifier: it
+rests on the fidelity floor, on three independent methods agreeing, and on frames I
+looked at. That is the only reassuring thing here, and it is an argument for
+resting a headline on evidence that does not share a code path with the thing most
+likely to be wrong.
+
+## 2026-09-03 — dev-1's finding: the recorded stage-1 delays are residuals, not absolute offsets
+
+Carried as **their** measurement, with their hedge, because it changes how every
+recorded delay in the corpus must be read.
+
+`first_delay_test` calls `recreate_files_for_delay_adjuster` (`mergeVideo.py:333`),
+which re-extracts the candidate's windows shifted by stage 1's own answer. Every
+measurement after that point is a **residual against an already-shifted candidate**.
+The shift is an arbitrary millisecond value and almost never a whole multiple of the
+chromaprint hop (`4096/3/11025` = 123.840 ms), and a fractional-hop shift misaligns
+the two fingerprint grids.
+
+Their controlled measurement on one pair, varying only the shift: whole-hop shifts
+hold fidelity at 0.967–0.975, while the pipeline's own fractional shift drops it to
+0.918–0.936 — the exact band that file's log records.
+
+**Two consequences.** A one-point step in the recorded residuals may be an artefact
+of the re-extraction rather than a real change point; and the recorded fidelities
+are depressed by the instrument, not only by the media.
+
+**Their hedge, kept:** measured absolutely on **4 files** — two artefacts, one real,
+one unreadable. Four files is not a rate. The consequence carried is only that the
+recorded data **cannot distinguish** a one-point step from a shift artefact, so
+one-point steps are ranked suspect rather than counted or discarded.
+
+**What was done instead of re-deriving it:** ranked every step by size in points,
+using each file's own recovered point size. Three independent corroborations that
+the suspect bucket is right — dev-1's two measured artefacts and their unreadable
+case all land in it, and so does a file I had separately confirmed
+**frame-identical by eye**, which is exactly the predicted artefact.
+
 ## 2026-09-03 — correction: I treated the 125 ms correlation point as a constant, and it is not
 
 **This supersedes the arithmetic, not the conclusion, of the baseline entry below.**

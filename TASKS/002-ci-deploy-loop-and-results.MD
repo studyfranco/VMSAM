@@ -298,10 +298,52 @@ than the fusion path, and the candidate path inside them is sometimes historical
 The delays measure the media, which has not changed; they do not measure the code
 under test.
 
-Corpus shape from those matrices — `step` 157 (49.8 %), `mixed` 51, `monotone-drift`
-48, `floor-scatter` 45, `no-matrix` 14, of which **2 are `cmd_error`: the instrument
+Corpus shape, **after the correction below**: `within-step` 247, `floor-scatter`
+50, `no-matrix` 12, `between-pair-offset` 4, and **2 `cmd-error`: the instrument
 did not run**, kept on their own line and never folded into a family. PAL-ratio
-speed candidates: **30 (9.5 %)**. These sit near `CAMPAIGN.MD`'s campaign-1 shape,
+speed candidates: **30 (9.5 %)**.
+
+### Goal 3d — correction: my shape classifier had a defect, and the headline survived it
+
+dev-1 found two faults. Both recorded rather than edited away; the second is a trap
+for anyone who reads these logs.
+
+**Fault 1, mine.** My first parser pooled every `(fidelity, offset, delay)` triple
+**across track pairs**. On four files each track pair was internally *constant* and
+the two values were the **master's own two audio tracks 125 ms apart** — not a
+change point at all. Flattened, they read as a clean step, and **I recommended
+those exact four as the best change-point exemplars.** A repair driven off that
+would have repaired something that is not there. The rewritten parser separates
+within-pair from between-pair variation and identifies exactly the four dev-1
+named, reached independently.
+
+**That correction made the misfiling answer stronger.** Folder 103 now splits
+**perfectly** — 26 at the noise floor, 23 showing a step — where the flawed parse
+gave 23 plus 3 unclassified. **27 of 315 stands.**
+
+**Fault 2, dev-1's measurement.** The recorded delays are **residuals, not absolute
+offsets**: `first_delay_test` re-extracts the candidate shifted by stage 1's own
+answer (`mergeVideo.py:333`), and that shift is almost never a whole multiple of
+the chromaprint hop (123.840 ms). A fractional-hop shift misaligns the fingerprint
+grids. Their controlled measurement on one pair, varying only the shift, shows
+whole-hop shifts holding fidelity at 0.967–0.975 while the pipeline's own
+fractional shift drops it to 0.918–0.936 — the exact band that file's log records.
+**So a one-point step may be an artefact of the instrument, and the recorded
+fidelities are depressed by it rather than by the media.**
+
+That is **4 files of 247** — two artefacts, one real, one unreadable. **Four files
+is not a rate and is not carried as one.** The consequence carried is narrower:
+the recorded data *cannot distinguish* a one-point step from a shift artefact.
+
+So steps are now **ranked, not counted**: 20 are one-point (suspect), 17 are two
+points, 23 are 3–5, and 187 are larger. Three independent corroborations that the
+suspect bucket is the right one — dev-1's two measured artefacts and their
+unreadable case all fall in it, and so does the file I had confirmed
+**frame-identical by eye**, which is precisely the predicted artefact.
+
+**What it did not touch.** The misfiling answer rests on the fidelity floor, on
+three agreeing methods, and on frames I looked at — not on the step classifier. A
+defect there could not move it, which is the one reassuring thing in the episode. These sit near `CAMPAIGN.MD`'s campaign-1 shape,
 but **I do not claim to have reproduced campaign 1's classification** — the buckets
 are mine, and 16 % sits in `mixed`, which its table has no equivalent for.
 
