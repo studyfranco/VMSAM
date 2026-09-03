@@ -17,9 +17,17 @@ during it. Contract: `SPEC_ZONE_A.MD`.
 
 ## What is refused today, and why
 
-Measured on campaign 1's corpus of 315 diagnosed error files.
+**These proportions are campaign 1's and have not been re-measured.** They are read
+from that campaign's documents, over a corpus of 315 files that has since grown —
+new errors keep arriving. Treat the table as the **shape** of the problem, never as
+a count: it says which failures exist and what they look like, not how many there
+are today.
 
-| family | share | shape of the failure |
+Re-establishing them from zero is the forensic agent's first job, and its report
+lands in `VMSAM_HELP_AI/`. Until it does, a figure taken from this table into any
+other document is a figure with no measurement behind it.
+
+| family | share (campaign 1) | shape of the failure |
 | :--- | ---: | :--- |
 | different cuts | **57 %** | the offset is piecewise-constant — a staircase. Content one side has and the other does not |
 | trimmed edges | 18 % | the same, with a single step at one end |
@@ -31,8 +39,8 @@ Measured on campaign 1's corpus of 315 diagnosed error files.
 slope near a constant (`CAMPAIGNS/01-dev-AI/FINDINGS.MD` §15). A repair that only handles speed
 addresses a tenth of the problem.
 
-Two files out of 315 were proven genuinely unrepairable: one truncated at source,
-one encrypted. The ceiling is far away.
+Two files were proven genuinely unrepairable: one truncated at source, one
+encrypted. Whatever the corpus size turns out to be, the ceiling is far away.
 
 ## What campaign 1 established, and what it did not
 
