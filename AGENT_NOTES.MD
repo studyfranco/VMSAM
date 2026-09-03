@@ -65,7 +65,31 @@ stage 2 failing in a loud passage and overruling a stage 1 that was correct in a
 ten windows. `test_if_constant_good_delay` then reads the disagreement as *stage 1
 was wrong* and refuses the pair — the exact inverse of what happened.
 
-**Hedged deliberately: one file, one window.** I have not checked ids 13 and 108,
+**REFUTED FOR THE FAMILY, 2026-09-03, by `vmsam-ci`.** The RMS mechanism above
+does **not** generalise. ci measured master per-window RMS on the *correct*
+comparison streams for all three:
+
+| id | window 0 / median(1-9) | |
+| ---: | ---: | :--- |
+| 12 | **2.49x** | spike — the mechanism holds |
+| 13 | 1.53x | elevated, but two other windows are as loud and produced no outlier |
+| **108** | **0.77x** | **window 0 is QUIETER than the median, and still carries the outlier** |
+
+id 108 refutes it outright: *"loudest passage drags the peak"* cannot explain an
+outlier in a window 23 % below median energy, and that file's loud windows (5-9)
+are the ones that behave. So: **mechanism established for one file, symptom shared
+by three, cause of the other two unknown.** ci independently reproduced my id 12
+RMS figures from its own extraction at a different sample rate (4165.3 against
+1330-2010, versus my 4306.9 against 1400-2084).
+
+**What survives the refutation is the part that matters**, and it rests on id 12
+alone without needing the family: stage 1 was right in all ten windows, stage 2 was
+wrong in one by 850 ms, and that single value refused the file. The inversion of
+`AGENT.MD`'s stated design intent is real and measured, whatever explains the other
+two.
+
+**Hedged deliberately: one file, one window.** ids 13 and 108 do not share the
+cause,
 and ci's own classification splits the nine stage-2 variance files three ways
 (a real change point seen by both stages; a first-window-only outlier with stage 1
 silent; degenerate). This entry covers the second group only, and one member of it.
