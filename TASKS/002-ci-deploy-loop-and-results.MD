@@ -395,10 +395,31 @@ One folder's 11 flagged entries all sat within 0.001 of the PAL/film ratio
 the same frame as the master at `t × 1.042709`, and the master at a naive `t` does
 not. It did.
 
-**The rule, and it costs one `ffprobe` per file: compute the duration ratio before
-concluding "different content" from any correlation measure.** Without it the
-corpus figure would have read ~14 % instead of 8.6 %, and eleven files the
-speed-repair task exists to fix would have been discarded as junk.
+**The rule, and it costs one `ffprobe` per file.** As first published it was
+one-directional and invited the opposite error; the forensic agent supplied the
+missing half:
+
+> 1. a collapsed correlation does **not** imply different content — check the ratio;
+> 2. a speed-like ratio does **not** imply a speed relation — check the correlation
+>    actually collapsed. Content differences change duration too.
+>
+> Call it a speed pair only when **both** hold.
+
+Without part 1 the corpus figure reads ~14 % instead of 8.6 %, and eleven
+repairable files are discarded. Without part 2 my own count was over-inclusive:
+I reported **30** speed candidates at a loose tolerance and the guard corrects it to
+**19** — exactly the other agent's set, independently reached. The instructive loss
+is a nine-file cluster sitting *tightly* at a consistent ratio, which looks like a
+rate but correlates at 0.95+; their duration difference is content, not rate. **A
+tight ratio cluster is not by itself a speed signature.**
+
+That agent's spread test is now a **fourth independent leg** under the misfiling
+finding, and one I had not thought to make: a speed relation is one rate, so it
+clusters. The speed folder spans 0.00127 in ratio; the misfiled folder spans
+0.0458, thirty-six times wider, and cannot be a speed population.
+
+Their corrected corpus figure is **27 (8.6 %)** — the same number as mine, reached
+from fidelity and ratio rather than from names and frames.
 
 Also fixed here: my log parser read only the **first** stage-1 message per file,
 and 73 of 315 logs carry more (up to four) because one merge compares several

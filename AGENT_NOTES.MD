@@ -21,6 +21,63 @@ record.
 
 ---
 
+## 2026-09-03 — a correct observation generalised one step too far deleted the instrument that would have caught the next error
+
+The sharpest failure mode any of us hit today, and the hardest to see, because the
+mistake was **evidence-based**.
+
+The forensic agent had measured that duration ratio is unreliable as a speed
+indicator: on the NTSC files, durations differ by 4.7–6.9 % while the content
+drifts only 0.1 %. **That observation is correct.** They then generalised it into a
+blanket withdrawal of the duration ratio as a speed indicator — and thereby deleted
+the one cheap instrument that would have caught the error they made next, reading
+eleven PAL-sped files as having no shared content.
+
+**The correct scope, which they have now reinstated:** the ratio is usable for PAL,
+where the 4.27 % rate difference is large against a few percent of content noise,
+and useless for NTSC, where 0.1 % sits far below it.
+
+**Why this is not the fixture trap** recorded above. That one was a control whose
+pass was guaranteed by construction. This one is a *true measurement*, correctly
+made, whose scope was widened by one step — and the widening removed a defence
+rather than adding a false claim. Nothing in the reasoning looks wrong when read
+back; only the boundary of the claim is.
+
+**The decision it produces:** when a measurement retires an instrument, record the
+**scope** in which it retires it, not the instrument. A withdrawal is a claim like
+any other and inherits the limits of the evidence behind it.
+
+## 2026-09-03 — the duration-ratio rule needs both directions, and my own count was over-inclusive
+
+I published: *compute the duration ratio before concluding "different content" from
+any correlation measure.* One-directional, and it invited the opposite error.
+
+The forensic agent supplied the missing half. Both are needed:
+
+> 1. **A collapsed correlation does not imply different content** — a speed relation
+>    destroys correlation by construction, so check the ratio.
+> 2. **A speed-like ratio does not imply a speed relation** — content differences
+>    change duration too, so check that the correlation *actually collapsed*.
+>
+> Call it a speed pair only when **both** hold.
+
+**Applied to my own numbers it corrected them.** I had reported 30 speed candidates
+at a ratio tolerance of 0.004; with the guard, **19** — exactly the other agent's
+set, reached independently, with no disagreement in either direction.
+
+The instructive loss is a nine-file cluster sitting *tightly* at a consistent
+ratio, which looks precisely like a rate — but correlating at 0.95+. A genuine rate
+difference of that size could not do that, so the duration difference is **content**
+(Blu-ray against streaming, where opening and ending lengths differ). **A tight
+ratio cluster is not by itself a speed signature**, which is the caveat my
+one-directional rule invited someone to miss.
+
+**And the same agent's spread test became a fourth independent leg under my
+misfiling finding**, which I had not thought to make: a speed relation is *one
+rate*, so a speed population clusters. The PAL folder spans 0.00127; the folder I
+identified as misfiled spans 0.0458, thirty-six times wider. It cannot be a speed
+population.
+
 ## 2026-09-03 — no correlation instrument can separate "different content" from "speed mismatch", and three of us proved it
 
 **A speed relation destroys correlation by construction**, so a genuinely
