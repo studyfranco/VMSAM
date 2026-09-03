@@ -352,6 +352,27 @@ your own transcript reaches nobody: the only thing that transmits is the
 - **The first line is the preview** a human sees before expanding. Make it a
   self-contained sentence saying what this is about, not a greeting.
 - Do not poll in a loop, and never send "are you done?". Read `ListAgents` instead.
+- **A message does not wake anyone.** It drains at the recipient's *next tool round*,
+  and a session that has finished its turn takes no further rounds until something
+  external pokes it. Delivery is not attention: the message is there, waiting for an
+  event that will not arrive on its own.
+
+**So the two channels have two different jobs, and confusing them cost this campaign
+a day.** `SendMessage` carries content and can be answered. `tmux` carries the
+wake-up and cannot — it is one-way, so a lead that broadcasts through it looks
+silent from the other side while believing it has spoken.
+
+**Waking a parked agent is the lead's job**, because the lead is the only one holding
+both the roster and the sessions. Read `ListAgents`; for anyone idle who owes you
+something, send the message first — so the content is queued — then poke the session
+so it is read:
+
+```sh
+tmux send-keys -t <session> -- 'check your messages'
+tmux send-keys -t <session> Enter          # always a second call
+```
+
+Never the reverse order: a poke with nothing queued spends a turn on nothing.
 
 Report **unprompted**, at four moments:
 
