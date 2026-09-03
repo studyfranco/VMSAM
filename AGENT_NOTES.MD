@@ -21,6 +21,109 @@ record.
 
 ---
 
+## 2026-09-03 — measured: `first_delay_test`'s second pass measures on misaligned fingerprint grids, and manufactures one-point steps
+
+**A one-point step in `delayFirstMethodAbort` can be an artefact of the pipeline's
+own re-extraction, not a property of the media.** This supersedes nothing, but it
+sharpens the 2026-09-03 entry on rebasing: I said the record gives reliable
+*relative* structure and only an unreliable zero. At the one-point level the
+relative structure is not reliable either.
+
+`recreate_files_for_delay_adjuster` (`mergeVideo.py:333`) re-extracts the
+candidate's windows at `begin + delayUse/1000` seconds. `delayUse` is an arbitrary
+millisecond value and essentially never a whole multiple of the chromaprint hop,
+`4096/3/11025` = **123.840 ms**, so the two fingerprint grids end up misaligned.
+
+Measured on error id 318 — same pair, same windows, **only the shift changing**:
+
+| shift | in hops | fidelity | residual |
+| ---: | ---: | :--- | ---: |
+| 0.000 ms | 0.000 | 0.968-0.975 | +552 |
+| 495.360 ms | **4.000** | 0.967-0.974 | 0 |
+| **552.000 ms** | **4.457** | **0.918-0.936** | **-138** |
+| 619.200 ms | **5.000** | 0.967-0.974 | -138 |
+| 743.040 ms | **6.000** | 0.967-0.974 | -276 |
+
+Whole-hop shifts hold fidelity at 0.967-0.975; the fractional shift costs ~0.05.
+**0.918-0.936 is exactly the band that file's `.log.error` records (0.906-0.923)**,
+so the recorded fidelities are depressed by the instrument rather than the media.
+
+Direct absolute measurement of four exemplars (own extraction, pipeline geometry,
+`correlate` imported from `src/`, verified unchanged under `loudnorm`):
+
+| id | absolute | fid | recorded |
+| ---: | :--- | :--- | :--- |
+| 318 | **552 constant** | 0.968-0.975 | `[0, 138 x9]` |
+| 319 | **552 constant** | 0.960-0.976 | `[138 x7, 0, 0, 138]` |
+| 271 | `[-250 x5, -500 x5]` real step | 0.652-0.726 | `[-250 x4, -375 x6]` |
+| 316 | `6250 x9` + one `6125` | 0.582-0.683 | `[6125 x7, 6250 x3]` |
+
+**Measured:** the offsets above, and the shift/fidelity table.
+**Inferred:** that the recorded steps in 318 and 319 are produced by the
+degradation. Well supported, not demonstrated — I have not driven the pipeline to
+produce the artefact on demand.
+**Not established:** any rate. **Four files, not a proportion.**
+
+**Decision for `TASKS/006`: `locate_change_points` re-measures absolute offsets
+itself, unshifted.** It does not derive segments from `delayFirstMethodAbort`.
+`SPEC_ZONE_A.MD` §1's *"you do not need to re-run the correlation that just
+failed"* holds for knowing **that** a pair failed and roughly where, and not for
+the numbers the repair needs. Ten correlations per pair is the price.
+
+*Why the alternative lost:* reading the record is free and would have produced a
+chimeric splice for two files that need a single `--sync` of 552 ms.
+
+**Blocked need, unchanged and now with a mechanism:** all of this is in
+`first_delay_test`, outside every tagged zone. Recorded, not edited.
+
+## 2026-09-03 — measured on 315 recorded refusals: the quantum model predicts 297 of 299, and three files are refused by a constant
+
+Corpus-wide confirmation of the quantum entry below, from **production data**
+rather than a constructed sweep, and at no run cost. `vmsam-forensic` found and
+`vmsam-ci` extracted a `.log.error` beside every error file, each carrying the
+per-window `(fidelity, offset_points, delay_ms)` triples.
+
+`delay_ms = -offset_points x sizePoint` (`audioCorrelation.py:118`), so the quantum
+is recoverable as `-delay_ms/offset_points` wherever the offset is non-zero:
+
+| quantum | rows |
+| ---: | ---: |
+| 125 ms | 269 |
+| 124 ms | 27 |
+| 138 ms | 3 |
+| self-inconsistent | 2 |
+
+Campaign 1 reported *"859 of 933 at 125 ms … three files in this library have a
+138 ms frame"*. **The three 138 ms files reappear here**, and they are 190.0 s of
+audio, which is why: `L = 2*int((190-45)/11) = 26`.
+
+Predicting the quantum from audio duration alone, using
+`n = L/0.1238397 - 21.6` and `int(L/n*1000)`, matches **297 of 299** rows; both
+misses are off by exactly 1 ms at a band edge, where the fitted constant rounds the
+other way. The mechanism is established, not merely the correlation.
+
+**The two "self-inconsistent" rows are not inconsistent — they are per-track-pair.**
+Their logs carry 30 and 50 triples, i.e. 3 and 5 audio *track pairs* x 10 windows,
+and the quantum differs **between track pairs of the same file** (125 vs 126). So
+campaign 1's `DOMAIN_INVARIANTS.MD` §7 *"per-pair, not a constant"* is right and
+one level too coarse: it is per **call**, and two audio tracks of one file can
+carry different quanta.
+
+**Three real files are refused by the hardcoded constant.** ids 318, 319, 320
+(folder 181) record delay sets differing by **138**. Every reconciliation gate in
+`first_delay_test` compares against `127` or `128` (`mergeVideo.py:270, 316, 345,
+401, 416, 445, 496`), and `mergeVideo.py:496` tests each delay's magnitude against
+128 rather than their difference — 138 exceeds all of them, so **no gate can
+fire**. The log confirms the branch: *"Multiple delay found with the method 1 and
+in test 3"*. At a 125 ms quantum the identical one-point difference reads `{0,125}`
+and passes. **Carry the hedge:** the right outcome for these three is not
+necessarily *merge* — their absolute offset is a constant 552 ms but their duration
+delta is 1.030 s, so something differs outside the window coverage. What is
+established is that the gate decides on a threshold that is a function of episode
+duration rather than of the media.
+
+Still a finding, not an edit: outside every tagged zone.
+
 ## 2026-09-03 — measured: the chromaprint point is 124–142 ms, not 125, and ten gates hardcode 125
 
 `BRIEF_COMMON.md` and `TASKS/006`/`008` state *"One point = 125 ms, the chromaprint

@@ -192,6 +192,72 @@ drives the window geometry from audio, so the geometry is 108 s spacing / 216 s
 window. The 63 s is a video-vs-audio artefact of that master, not a content delta.
 This does not touch ci's different-series conclusion, which was established by eye.
 
+### Measured on real error files — and it refuted my own plan
+
+`vmsam-forensic` found and `vmsam-ci` extracted a `.log.error` beside every error
+file, 315 of 315, carrying the per-window `(fidelity, offset_points, delay_ms)`
+triples. No container run needed. Two things came out of using them.
+
+**1. The recorded delays are residuals, and a one-point "step" in them can be an
+artefact of the pipeline's own re-extraction.** Absolute offsets measured directly
+(own extraction, pipeline geometry, `correlate` imported from `src/`):
+
+| id | my absolute | fid | recorded in the log |
+| ---: | :--- | :--- | :--- |
+| 318 | **552 ms constant x10** | 0.968-0.975 | `[0, 138 x9]` |
+| 319 | **552 ms constant x10** | 0.960-0.976 | `[138 x7, 0, 0, 138]` |
+| 271 | `[-250 x5, -500 x5]` — a real step | 0.652-0.726 | `[-250 x4, -375 x6]` |
+| 316 | `6250 x9` + one `6125` | 0.582-0.683 | `[6125 x7, 6250 x3]` |
+
+318 and 319 have **no step**. Unchanged under the pipeline's `loudnorm`, so
+normalisation is not the difference. Mechanism, measured — same pair, only the
+shift changing, where `recreate_files_for_delay_adjuster` shifts by
+`delayUse/1000` s and the chromaprint hop is 123.840 ms:
+
+| shift | hops | fidelity | residual |
+| ---: | ---: | :--- | ---: |
+| 0.000 ms | 0.000 | 0.968-0.975 | +552 |
+| 495.360 ms | **4.000** | 0.967-0.974 | 0 |
+| **552.000 ms** | **4.457** | **0.918-0.936** | **-138** |
+| 619.200 ms | **5.000** | 0.967-0.974 | -138 |
+| 743.040 ms | **6.000** | 0.967-0.974 | -276 |
+
+Whole-hop shifts hold 0.967-0.975; the fractional one costs ~0.05 — and
+0.918-0.936 is exactly the band that file's log records (0.906-0.923).
+
+**Carry the hedge: four files, not a proportion.** Two artefacts, one real step,
+one at the correlation floor and unreadable. I have not driven the pipeline to
+produce the artefact on demand, so the causal claim is inference.
+
+**2. ci's four recommended exemplars are the four that are not staircases.**
+Parsing the logs per **track pair** rather than flattened, ids 20/21/22/23 are the
+only four of 157 whose two delay values live *between* track pairs:
+
+```
+id 23:  '0-0' = [0 x10]    fid 0.993-0.997
+        '1-0' = [125 x10]  fid 0.981-0.984
+```
+
+Each track pair perfectly constant — that is the **master's own two audio tracks
+125 ms apart**, the shape forensic found at 250 ms in 11 files, not a change point.
+Re-classified: 143 within, 4 between, 10 both.
+
+### Decision this forced
+
+**`locate_change_points` re-measures absolute offsets itself, unshifted, and does
+not derive segments from `delayFirstMethodAbort`.** Ten correlations per pair.
+`SPEC_ZONE_A.MD` §1's *"you do not need to re-run the correlation that just
+failed"* holds for knowing **that** a pair failed and roughly where; it does not
+hold for the numbers the repair needs. Reading the record is free and would have
+produced a chimeric splice for two files that need a single `--sync` of 552 ms.
+
+### Still blocked
+
+**A real exemplar with a multi-point step at good fidelity** — the shape least
+likely to be an artefact. id 271 has the step but sits at 0.65-0.73. Asked ci for
+rows whose within-track-pair step is >= 2 points *and* fidelity >= 0.90;
+computable from the log matrices without touching media.
+
 ### Not yet done
 
 `src/change_point_locator.py` is not written. The method is calibrated and the
