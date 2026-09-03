@@ -89,6 +89,8 @@ from os import path, remove
 from statistics import median
 
 import tools
+import json
+import subprocess
 import audioCorrelation
 
 # One chromaprint fingerprint item, seconds. frame 4096, hop frame/3, rate 11025.
@@ -136,6 +138,38 @@ REFINE_STEP_SECONDS = 4.0
 def _log(message):
     if tools.dev:
         tools.logs.append(f"\t\t[change_point_locator] {message}\n")
+
+
+def _start_times_ms(source_path):
+    """Container `start_time` per stream, in milliseconds, keyed by stream index.
+
+    This is the quantity `ffmpeg -ss t -i file` silently absorbs: it seeks by
+    presentation timestamp, so a stream whose first packet is stamped 1.103 s is
+    entered 1.103 s later than a consumer decoding it from its first sample.
+
+    Returns {} when ffprobe is unavailable or the field is absent, and the caller
+    emits None rather than a guess -- a converter with a wrong start_time is worse
+    than one that knows it cannot convert.
+    """
+    probe = tools.software.get("ffprobe")
+    if not probe:
+        ffmpeg = tools.software.get("ffmpeg", "")
+        probe = ffmpeg[:-6] + "ffprobe" if ffmpeg.endswith("ffmpeg") else "ffprobe"
+    try:
+        completed = subprocess.run(
+            [probe, "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=index,start_time", "-of", "json", source_path],
+            capture_output=True, text=True, timeout=60)
+        streams = json.loads(completed.stdout).get("streams", [])
+    except Exception:                                  # noqa: BLE001 — absence is a valid answer
+        return {}
+    out = {}
+    for entry in streams:
+        try:
+            out[int(entry["index"])] = round(float(entry["start_time"]) * 1000.0, 3)
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
 
 
 def _extract(source_path, stream_order, start_seconds, length_seconds, out_path):
@@ -568,6 +602,23 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     change_points = [cp for index, cp in enumerate(change_points)
                      if index in kept_runs and (index + 1) in kept_runs]
 
+    # WHAT THE OFFSETS ARE MEASURED AGAINST, and the value needed to convert.
+    # `_probe` seeks by presentation timestamp, so each stream's container
+    # `start_time` is absorbed into its offset. A consumer reading the stream from
+    # its first sample measures a different quantity, and the difference is exactly
+    # what is emitted below. Agreed with vmsam-dev-2, which converts on its side:
+    # without the VALUE it would have to re-derive start_time from the container and
+    # hope it read the same stream, which is the assumption that produced the defect.
+    master_starts = _start_times_ms(master_path)
+    candidate_starts = _start_times_ms(candidate_path)
+    reference_start_ms = master_starts.get(reference_stream)
+    absorbed_by_stream = {}
+    for stream in candidate_streams:
+        stream_start = candidate_starts.get(stream)
+        absorbed_by_stream[stream] = (
+            None if reference_start_ms is None or stream_start is None
+            else round(reference_start_ms - stream_start, 3))
+
     return {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
             "master_path": master_path,
             "candidate_path": candidate_path,
@@ -598,22 +649,18 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # [0, shortest] at PROBE_WINDOW_SECONDS resolution and cannot resolve
             # a step below MIN_STEP_MS. It is NOT a warrant for applying this
             # offset as a container delay.
-            # WHICH QUANTITY THE OFFSETS ARE. `_probe` extracts with `ffmpeg -ss t
-            # -i file`, which seeks by PRESENTATION TIMESTAMP and therefore absorbs
-            # each stream's container `start_time`. A consumer that reads a stream
-            # decoded from its beginning is measuring sample position, and the two
-            # differ by exactly the master-minus-candidate start_time difference.
-            #
             # Measured on error id 144: master jpn start_time 1.103 s against the
-            # candidate's 0.120 s, and the two measurements of that same stream
-            # disagree by 982.5 ms against a start_time difference of 983 ms. A
-            # corpus scan finds 112 of 315 pairs carry a mismatch -- 25 above 100 ms
-            # and 77 between 20 and 100 ms, which is under the repair's tolerance and
-            # would not be noticed.
+            # candidate's 0.120 s, and two measurements of that same stream disagree
+            # by 982.5 ms. A corpus scan finds 112 of 315 pairs carry a mismatch --
+            # 25 above 100 ms, and 77 between 20 and 100 ms, which is under the
+            # repair's tolerance and would ship unnoticed.
             #
             # Both framings are defensible. An implicit one is not: the same number
-            # meant two things depending on who read it. So the frame is a key.
-            "offset_reference_frame": "presentation_timestamp",
+            # meant two things depending on who read it. So the frame is a key, and
+            # the value to convert it travels beside it.
+            "offset_reference": "pts",
+            "start_time_ms_by_stream": absorbed_by_stream,
+            "master_reference_start_time_ms": reference_start_ms,
             "segments_dropped_unusable": dropped_segments,
             # Surfaced at the top level so a consumer does not have to scan the
             # segment list to discover that part of the plan is unverified.
