@@ -21,6 +21,66 @@ record.
 
 ---
 
+## 2026-09-03 — an independent instrument aimed by a dependent one is not independent
+
+**My own blind spot, one layer above the one I had just finished documenting.**
+
+I built an FFT bisection specifically to check the pipeline's measurements from
+outside it. Then I probed a file **only from 120 s onward — because 120 s is
+`begin_in_second`, where the pipeline's own windows start.** Another agent profiled
+the same file from zero and found a change point at ~56 s that I had walked past.
+
+The instrument was independent. **Its aim was not.** I used the pipeline's geometry
+as my map of where the interesting parts were, and so inherited exactly the blind
+spot I had spent the afternoon documenting in someone else's module.
+
+> **Independence of method does not survive dependence of aim.** Ask separately: is
+> my instrument independent, and is my *search* independent?
+
+**And the file was worse than either of us thought.** It has **two** change points and
+**the offset returns to where it started** — plateau A, an island of ~91 s at a
+different offset, then plateau A again. Confirmed by bisection from both sides;
+transition 1 narrowed to a 4-second bracket, transition 2 to two seconds, the step
+501 ms at both.
+
+**The consequence is the sharp one:** a file whose offset departs and returns reads
+**constant** to any window spanning both transitions — and every window the pipeline
+produces starts after the first one. So **window agreement is evidence about the
+windows, not about the media.** Two of my own classification buckets
+(`constant-offset`, `floor-constant`) were built on exactly that inference and are
+unreliable wherever the geometry cannot resolve the region.
+
+That is a second, independent reason the corpus record cannot be read as a census —
+not only are head regions unsampled, but a returning offset is actively invisible.
+
+## 2026-09-03 — an instrument that cannot fail loudly will fail quietly
+
+Four instrument defects in one day, three another agent's and one mine, with a single
+shape: **the instrument returned a plausible number rather than an error.**
+
+| defect | what it returned |
+| :--- | :--- |
+| a rounding limit stored to 4 decimals | "ratio exactly zero" — meaning *cannot see a ramp*, read as *no ramp* |
+| a CSV parse tripping on trailing commas | plausible durations |
+| a packet-count cap misread as a stream ending | **49 defective masters**, of which the dense files were all false positives |
+| mine: a 4 s probe with a 4 s max-lag, slicing out of bounds | correlation exactly `0.0000` at every probe, lag pinned at the search bound |
+
+**Mine was the easy one** — eight identical zeros are not a plausible measurement.
+Theirs were expensive precisely because the numbers looked reasonable.
+
+**The defence that worked in every case was the same: a cross-check that could
+contradict the instrument.** They distrusted their 49 because their own probes had
+earlier found matches *past* where the sweep claimed the audio stopped — two of their
+own results could not both be true. That is what caught it, not inspection.
+
+> **Build at least one path to the same fact that does not share code with the
+> instrument, and compare them before believing either.**
+
+And a retraction that arrives **before** the other agent acts is worth more than a
+correct result that arrives late: I would have started extracting frames from eight
+masters, found audio exactly where the sweep said there was none, and might have
+concluded my *frame method* was unreliable rather than their sweep.
+
 ## 2026-09-03 — the cure for the fixture trap: ground truth that does not share an author with the instrument
 
 **The most reusable thing this campaign has produced, above any individual defect.**
