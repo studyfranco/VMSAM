@@ -1,7 +1,36 @@
 # -*- coding: utf-8 -*-
 """
-get_cut_time.py — détection multi-plages, offset global, dérive, raffinement (phash/scene/audio),
-construction de chimères audio sécurisée. Compatible avec le style du projet.
+get_cut_time.py — RETIRED. Do not import, do not build on this file.
+
+Ruled dead weight by TASKS/005 (vmsam-dev-1, campaign 2). It has no importer and
+must not acquire one. Four defect classes, none of them cosmetic:
+
+1. `da1c191` stripped every `[0]` subscript from this file. Eight sites compile
+   and raise at runtime, all needing a `[0]` restored:
+     `_detect_time_drift`     - the four regression sums and the residual term
+     `_summarize_segments`    - `delay_fidelity_values[keys]`, `float(v)`
+     `_find_all_bad_ranges`   - `list_cut_begin_length[seg]` is `[begin, length]`,
+                                so `_hhmmss_to_seconds` receives a list, not a str
+   `_detect_time_drift` and `_summarize_segments` have therefore never run. They
+   are deliberately NOT repaired: a file that raises is safer than one that runs
+   and is wrong.
+2. `second_correlation` returns `(file, offset_in_SECONDS)`. All four callers
+   here — `_detect_global_offset`, `_detect_time_drift`,
+   `_refine_conflicting_offsets`, `_refine_cut_audio` — divide that offset by the
+   frame rate, wrong by a factor of ~24, under a comment asserting a project
+   convention the project does not use. The correct usage is
+   `mergeVideo.get_delay_second_method_thread.run`, which also reads `result[0]`
+   to recover the SIGN — ignored at all four sites here.
+3. It re-runs the correlation that `SPEC_ZONE_A.MD` §1 says is already recorded
+   in `delayFirstMethodAbort`, and re-runs it differently: on un-normalised audio
+   (the pipeline correlates at -23 LUFS) and with `lenghtTime` where the live
+   caller passes `lenghtTime*2` — a different window length is a different
+   fingerprint quantum.
+4. `_build_chimeric_audios` hardcodes a 5.0 s tail and `_build_final_mkv` writes
+   its own container, bypassing zone A's requirement to rejoin the merge through
+   `best_video.sameAudioMD5UseForCalculation`.
+
+Reasoning and measurements: TASKS/005. Deletion is an owner decision.
 """
 
 import os

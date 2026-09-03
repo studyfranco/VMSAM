@@ -51,4 +51,406 @@ pair this with 007 before either is declared done.
 - a container run, through `vmsam-ci` — never directly
 
 ## What changed / measured / dropped / blocked
-*(fill as you go)*
+
+**State: calibration passed on constructed ground truth. Not yet run on a real
+error file — that is what closes this task, and it is pending an exemplar.**
+
+### Interface — agreed with dev-2 before building, both directions confirmed
+
+`VMSAM_HELP_AI/dev-2/INTERFACE_dev1_dev2.md` v1 plus my four corrections. dev-2
+has confirmed the signature, the `None` contract and `quantum_ms`:
+
+```python
+# src/change_point_locator.py  -- one caller, and it is dev-2's zone-A path
+def locate_change_points(best_video, candidate_video, language): ...
+```
+
+Returns a partition of the master's timeline under
+`candidate_time_ms = master_time_ms + candidate_offset_ms`, or **`None`** meaning
+*I could not measure* — never *the files are compatible*. dev-2 maps `None` to its
+`no_plan` outcome and the refusal stands untouched. It reports five outcomes
+(`disabled / no_plan / declined / repaired / failed`), so the third answer is not
+lost at its end either.
+
+### Measured — the sign, which was the one that could have destroyed the output
+
+Constructed pair: one real audio track from `/config/example/ore1`, and a copy with
+**exactly 1000.000 ms removed at exactly 700.000 s** (sample-exact via `atrim` +
+`concat`, verified by byte count: 88200 bytes = 44100 samples). Instrument:
+`audioCorrelation.correlate` **imported from `src/`**, not reimplemented.
+
+Ten windows at the pipeline's own geometry (`number_cut=10`, spacing 107 s,
+window 214 s, first at 120 s):
+
+| h | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| corr | 1.0000 | 1.0000 | 1.0000 | 1.0000 | **0.8724** | **0.8966** | 0.9859 | 0.9865 | 0.9861 | 0.9866 |
+| delay_ms | 0 | 0 | 0 | 0 | 0 | **-1000** | -1000 | -1000 | -1000 | -1000 |
+
+**Negative control** (master against itself): all ten windows 1.0000 / 0 ms.
+
+Every prediction in `VMSAM_HELP_AI/dev-1/lab/M2-change-point-prediction.md` held
+and **no refutation fired**. The one that mattered was R1, the sign: the post-cut
+plateau is **negative**, matching the derivation from the source. dev-2 confirmed
+the same convention independently by numpy cross-correlation from the opposite
+direction, having caught its own sign error with a control first.
+
+The straddling windows behave as the task describes: correlation stays high while
+the offset steps by whole points. The bracket from the window data alone is the
+disagreement region **[655, 762]** — one spacing, 107 s — and it contains the true
+700, so `BRIEF_COMMON.md`'s one-spacing bracket claim is confirmed rather than
+assumed.
+
+### Measured — a constraint on refinement that was not predicted
+
+**The same physical 1000 ms cut reads -1000 ms at a 214 s window and -1080 ms at a
+30 s window.** The quantum is 125 ms at L=214 and ~135 ms at L=30, and 8 x 135 =
+1080. So: **the offset must be read at the pipeline's own window length. Short
+windows may locate a boundary; they may never re-measure a step.** This is the
+`AGENT_NOTES.MD` quantum finding appearing as a wrong number in a real measurement.
+
+### Measured — chromaprint is blind to the tail of every window
+
+`fpcalc` emits ~20.6 fewer items than `W/0.12384`, and the shortfall is at the
+**end**: ~2.55 s of every window is fingerprinted weakly or not at all. Measured
+consequence: a probe window whose *tail* is contaminated stays at correlation
+1.00000 until 500-800 ms of wrong content has accumulated.
+
+So boundary probes must be **head-anchored**. The gap start needs the audio
+**reversed** so that its edge becomes a head:
+
+| edge | probe | measured | truth | error |
+| :--- | :--- | ---: | ---: | ---: |
+| gap END | head-anchored, forward | 700.886 | 701.000 | **-115 ms** |
+| gap START | tail-anchored, forward | 700.526 | 700.000 | +526 ms — **rejected** |
+| gap START | head-anchored, **reversed** | 700.046 | 700.000 | **+46 ms** |
+
+Both accepted errors are within one fingerprint item (124 ms). **Both biases point
+inward**, so the recovered gap is systematically narrow — 840 ms against a true
+1000. dev-2 has been told: a narrow gap makes the splice take more from the
+candidate than it should, so the gap wants widening by one item per side, or
+pinning by 005's video instrument.
+
+### Dropped
+
+- **Tail-anchored boundary probes.** Blind for ~2.5 s, for the measured reason
+  above. Replaced by reversed head-anchored probes.
+- **Refining the step with a short window.** It changes the quantum and therefore
+  the answer.
+
+### Blocked
+
+- **A real error file.** This task closes on one, not on constructed ground truth,
+  and I will not report the calibration as more than it is. Asked
+  `vmsam-forensic` for an exemplar and `vmsam-ci` whether a given exemplar is
+  misfiled content first — its error id 237 is a **different series** from its
+  folder master, with 26 of that folder's 49 entries named the same way, which is
+  a refusal that is correct and must not be "repaired". I offered to take 237 as a
+  **negative control** instead: a pair my locator must return `None` for.
+
+### Measured — three window signatures, and why fidelity must not be the refusal rule
+
+Ten windows, pipeline geometry, `correlate` imported from `src/`. Details and
+per-window numbers in `VMSAM_HELP_AI/dev-1/lab/M3-three-signatures.md`.
+
+| pair | distinct delays | sign flips | fidelity |
+| :--- | ---: | ---: | :--- |
+| `ore1`, real different-source pair (BDRip vs WEB-DL) | **1** (constant +1000 ms) | 0 | 0.915-0.945 |
+| `ore1`, constructed 1000 ms deletion | **2** (0 then -1000) | 0 | 0.872-1.000 |
+| **error id 237**, hard negative | **10 of 10** | **8** | **0.556-0.578** |
+
+Error id 237 is a real refused pair that `vmsam-ci` established, by extracting
+frames and looking at them, to be a **different television series** from its
+folder master. It is therefore a pair my locator must return `None` for — a
+confident answer on it is wrong by construction. ci predicted the shape before I
+ran it (delays spread ~421 s with sign flips, fidelity 0.56-0.58); I measured
+0.5562-0.5776 and 421.1 s from a different code path, with six of its ten delay
+values reproduced exactly.
+
+**Two of my three "real" `ore1` pairs were not independent tests**, and I am
+recording that rather than counting them: `md5sum` shows two releases carry the
+byte-identical jpn track, and a third correlates at 1.0000/0 ms on every window.
+Only the BDRip is a genuinely different source.
+
+**The refusal rule cannot be a fidelity threshold.** `docs/AUDIO_SPEED_POLICY.MD`
+measured uncorrected PAL-against-film pairs at **0.558-0.562** — the same floor as
+unrelated content, and for the same geometric reason (across a 214 s window a
+4.27 % rate difference drifts the signals ~9 s apart, so no single shift aligns
+them). A rule *"fidelity < 0.7 -> None"* would refuse precisely the family
+`TASKS/008` exists to repair. What separates them is the **pattern** of the delays:
+a speed relation gives low-fidelity delays that are **monotone and grow along the
+file**; no-shared-content gives low-fidelity delays that are **scattered and flip
+sign**. That discriminator is inferred from two measured signatures plus one
+frozen document's numbers, and is **not yet established** on a real speed pair.
+
+### A duration fact worth carrying
+
+On error id 237 the container durations (1438.04 / 1501.25 s) differ by 63 s, but
+the master's container duration is set by its **video**. Per stream, both files'
+**audio** is 1436.977 / 1438.040 s — **1.06 s apart**. `get_shortest_audio_durations`
+drives the window geometry from audio, so the geometry is 108 s spacing / 216 s
+window. The 63 s is a video-vs-audio artefact of that master, not a content delta.
+This does not touch ci's different-series conclusion, which was established by eye.
+
+### Measured on real error files — and it refuted my own plan
+
+`vmsam-forensic` found and `vmsam-ci` extracted a `.log.error` beside every error
+file, 315 of 315, carrying the per-window `(fidelity, offset_points, delay_ms)`
+triples. No container run needed. Two things came out of using them.
+
+**1. The recorded delays are residuals, and a one-point "step" in them can be an
+artefact of the pipeline's own re-extraction.** Absolute offsets measured directly
+(own extraction, pipeline geometry, `correlate` imported from `src/`):
+
+| id | my absolute | fid | recorded in the log |
+| ---: | :--- | :--- | :--- |
+| 318 | **552 ms constant x10** | 0.968-0.975 | `[0, 138 x9]` |
+| 319 | **552 ms constant x10** | 0.960-0.976 | `[138 x7, 0, 0, 138]` |
+| 271 | `[-250 x5, -500 x5]` — a real step | 0.652-0.726 | `[-250 x4, -375 x6]` |
+| 316 | `6250 x9` + one `6125` | 0.582-0.683 | `[6125 x7, 6250 x3]` |
+
+318 and 319 have **no step**. Unchanged under the pipeline's `loudnorm`, so
+normalisation is not the difference. Mechanism, measured — same pair, only the
+shift changing, where `recreate_files_for_delay_adjuster` shifts by
+`delayUse/1000` s and the chromaprint hop is 123.840 ms:
+
+| shift | hops | fidelity | residual |
+| ---: | ---: | :--- | ---: |
+| 0.000 ms | 0.000 | 0.968-0.975 | +552 |
+| 495.360 ms | **4.000** | 0.967-0.974 | 0 |
+| **552.000 ms** | **4.457** | **0.918-0.936** | **-138** |
+| 619.200 ms | **5.000** | 0.967-0.974 | -138 |
+| 743.040 ms | **6.000** | 0.967-0.974 | -276 |
+
+Whole-hop shifts hold 0.967-0.975; the fractional one costs ~0.05 — and
+0.918-0.936 is exactly the band that file's log records (0.906-0.923).
+
+**Carry the hedge: four files, not a proportion.** Two artefacts, one real step,
+one at the correlation floor and unreadable. I have not driven the pipeline to
+produce the artefact on demand, so the causal claim is inference.
+
+**2. ci's four recommended exemplars are the four that are not staircases.**
+Parsing the logs per **track pair** rather than flattened, ids 20/21/22/23 are the
+only four of 157 whose two delay values live *between* track pairs:
+
+```
+id 23:  '0-0' = [0 x10]    fid 0.993-0.997
+        '1-0' = [125 x10]  fid 0.981-0.984
+```
+
+Each track pair perfectly constant — that is the **master's own two audio tracks
+125 ms apart**, the shape forensic found at 250 ms in 11 files, not a change point.
+Re-classified: 143 within, 4 between, 10 both.
+
+### Decision this forced
+
+**`locate_change_points` re-measures absolute offsets itself, unshifted, and does
+not derive segments from `delayFirstMethodAbort`.** Ten correlations per pair.
+`SPEC_ZONE_A.MD` §1's *"you do not need to re-run the correlation that just
+failed"* holds for knowing **that** a pair failed and roughly where; it does not
+hold for the numbers the repair needs. Reading the record is free and would have
+produced a chimeric splice for two files that need a single `--sync` of 552 ms.
+
+### A real change point, located — and my calibrated estimator refuted on the way
+
+ci withdrew ids 20-23 and re-ranked its 157 by step size in points, treating
+one-point steps as suspect. Its suspect-20 contains **all four** files I had
+measured absolutely, by an independent route. Measured absolutely (own extraction,
+common-language stream pinned both sides):
+
+| id | absolute sequence | fid | delta |
+| ---: | :--- | :--- | ---: |
+| 6 | **-125 constant x10** | 0.940-0.949 | +0.000 s |
+| 90 | `[0,0,0,0,0,-125,-125,-125,-250,-125]` | 0.910-0.973 | -0.192 s |
+| 224 | `[750 x5, 625, 500 x4]` | 0.893-0.952 | +0.694 s |
+
+**id 6 is the strongest corroboration of the shift artefact, and it is ci's file,
+not mine:** ci had verified that pair **frame-identical at 700 s by eye**, its
+duration delta is +0.000 s, and its log records a one-point step. Absolutely it is
+a constant -125 ms with no step. Three files now (318, 319, 6).
+
+**My M2 clean-edge estimator was REFUTED on the first real pair.** It asks whether
+correlation reaches 1.00000, which happens only when aligned content is
+*identical*. On real different encodes, aligned content reads 0.93-0.96 and never
+1.0, so the two competing offsets differed by 0.003 against 0.03 of content
+variation — not separable. **A copy-of-itself fixture cannot expose this**, which
+is precisely the limit I wrote into the calibration and could not test there.
+
+**Replacement method: scan the local offset with no shift on either side**, so the
+fingerprint grids stay aligned. On id 224 at three window lengths:
+
+| | W=60 (q=129) | W=30 (q=135) | W=15 (q=150) |
+| :--- | ---: | ---: | ---: |
+| before | 774 = **6 pts** | 810 = **6 pts** | 900 = **6 pts** |
+| after | 516 = **4 pts** | 540 = **4 pts** | 600 = **4 pts** |
+
+**The point count is portable across window lengths; the millisecond value is
+not.** An offset must therefore be exchanged as *points + the quantum that
+produced them*, and converted to ms at the pipeline's own window length. For
+id 224 that is 125 ms, so the plateaus are 750 and 500 ms and the step is exactly
+**-250 ms, 2 points**.
+
+Locating T by majority (a window reads the old plateau while `T > p + W/2`):
+
+| W | last OLD | first NEW | implies |
+| ---: | ---: | ---: | :--- |
+| 30 s | 762.5 | 775.0 | T ∈ (777.5, 790.0) |
+| 15 s | 772.5 | 777.5 | T ∈ (780.0, 785.0) |
+
+**Two window lengths agree: T ∈ (780, 785) s.**
+
+### The limit this establishes, and it is the point of 005
+
+**Audio narrows a real change point from one window spacing (108 s) to about 5 s.
+It does not reach a frame** — 5 s is ~120 frames at 23.976 fps, nowhere near
+enough to place a splice. The `TASKS/005` ruling argued *audio brackets, video
+pins to a frame*; that is now measured on real media rather than reasoned. The
+video instrument is not an optimisation for objective 2, it is the half that
+produces a usable cut point.
+
+### The method generalises — four real staircases, four different sources
+
+| id | folder | absolute sequence | fid | step |
+| ---: | ---: | :--- | :--- | :--- |
+| 224 | 103 | `[750 x5, 625, 500 x4]` | 0.893-0.952 | 2 pts |
+| 90 | 54 | `[0 x5, -125 x3, -250, -125]` | 0.910-0.973 | 2 pts |
+| 267 | 172 | `[1000 x3, 1250 x7]` | 0.873-0.984 | 2 pts |
+| 147 | 153 | `[-1000 x2, -2000 x4, -3000 x4]` | 0.872-0.979 | 8 pts |
+
+**All four reproduce the step recorded in the log, and every one has a step of
+>= 2 points.** That is the boundary: 2-point-and-larger steps survive direct
+absolute measurement; the one-point steps (318, 319, 6) did not.
+
+Localising id 147's two change points, two independent window lengths each:
+
+| step | W = 30 s | W = 15 s | intersection |
+| :--- | :--- | :--- | :--- |
+| 1 | (380.0, 385.0) | (382.5, 387.5) | **(382.5, 385.0)** |
+| 2 | (820.0, 825.0) | (822.5, 827.5) | **(822.5, 825.0)** |
+
+2.5 s brackets, against 5 s on id 224 — larger steps discriminate more sharply.
+
+### What the audio half of 006 delivers, and what it does not
+
+- detects plateaus and steps reliably at **>= 2 points**;
+- returns the step **exactly**, as a point count plus the pipeline's quantum;
+- brackets each change point to **2.5-5 s**, consistent across window lengths;
+- **does not reach a frame.** 2.5 s is ~60 frames at 23.976 fps.
+
+### Two defects found by dev-2 consuming the block on a real file — and both are blocked from being fixed
+
+**This is what the module freeze costs, stated concretely.** `src/change_point_locator.py`
+is being consumed right now; it has two measured defects; the checker refuses every
+edit to it (`§1 frozen file modified`, verified on my own file).
+
+**Defect 1 — out of bounds at `master_start_ms = 0`.** With a negative offset the
+first segment reads the candidate at a negative time. dev-2's bounds check refused
+the whole plan: *"segment reads the candidate at [-2000, 627000) ms, outside its
+1430048 ms"*. The fix is arithmetic: first segment `master_start_ms = max(0,
+-offset_ms)`; last segment `master_end_ms = min(end, candidate_duration_ms -
+offset_ms)`. Master `[0, 2000)` is a **leading gap** and is filled from the master,
+which is correct rather than a compromise. It fires on every file whose first
+plateau has a negative offset — most of them.
+
+**Defect 2 — one offset per language, but every stream of that language is
+rebuilt.** `audios[language][0]` is the first stream only. Measured on id 266, the
+error file has **two jpn streams and they are 27.5 ms apart**:
+
+| probe | err a:0 (eac3) | err a:1 (aac) | diff |
+| ---: | ---: | ---: | ---: |
+| 300 s | +1991.25 (r 0.961) | +1963.73 (r 0.961) | +27.52 |
+| 500 s | +1989.25 | +1961.42 | +27.83 |
+| 900 s | +2989.92 | +2962.75 | +27.17 |
+| 1300 s | +3992.25 | +3964.73 | +27.52 |
+
+So one of dev-2's two rebuilt jpn tracks would take an offset 27.5 ms wrong.
+**0.66 of a frame** — under the frame quantum the merge snaps to, and inside
+dev-2's 100 ms verifier tolerance, so **it would ship silently.** This is
+`CAMPAIGN.MD`'s per-language-delay question appearing *within* a language, and the
+fourth time this corpus has shown two same-language tracks of one file a constant
+distance apart (ids 20-23 at 125 ms, forensic's eleven at 250 ms, this at 27.5 ms).
+
+### The 29 ms disagreement, settled — and neither of us was wrong
+
+dev-2 measured the true offsets ~29 ms below mine and read it as my quantisation
+error. It was not. **We measured different streams**: their numbers match a:1 (aac)
+to within 0.1 ms, mine match a:0 (eac3).
+
+Settled three ways at master 300 s on the eac3 stream:
+
+| hypothesis | `second_correlation` residual |
+| ---: | ---: |
+| -2000.0 (my quantised plateau) | +8.93 ms |
+| **-1991.1** | **+0.05 ms** |
+| -1962.0 (dev-2's figure) | -29.07 ms |
+
+and an independent numpy cross-correlation with no pre-shift reads **+1991.07 at
+both 300 s and 500 s**. So my quantised -2000 is 8.9 ms off, which *is*
+quantisation and well under half a quantum.
+
+**Consequence for the design split:** dev-2 must **not** absorb a uniform residual
+into `delay_same_md5_audio`. On this file the residual is not one number — +8.9 ms
+for one track and -18.6 ms for the other — so a single absorbed value fixes one and
+breaks the other. **Sub-quantum refinement is mine**, and it works:
+`second_correlation` lands the residual at +0.05 ms on the correct hypothesis, so
+refined offsets can be emitted and nothing needs absorbing.
+
+### Still blocked
+
+**A real exemplar with a multi-point step at good fidelity** — the shape least
+likely to be an artefact. id 271 has the step but sits at 0.65-0.73. Asked ci for
+rows whose within-track-pair step is >= 2 points *and* fidelity >= 0.90;
+computable from the log matrices without touching media.
+
+### The module, and its branch test
+
+`src/change_point_locator.py`. One caller, dev-2's repair path, behind its
+off-by-default `config.ini` `[features]` key. It re-measures absolutely and
+unshifted; it never reads `delayFirstMethodAbort`, never writes a track, never
+touches `sameAudioMD5UseForCalculation`.
+
+**Every branch fired, both answers, on real corpus files** — not on constructed
+inputs (`VMSAM_HELP_AI/dev-1/lab/M7-locator-branch-test.txt`):
+
+| file | expected | got |
+| :--- | :--- | :--- |
+| error id 237 (different series, verified by eye) | `None` | **`None`** — *"fidelity at the floor with scattered delays"*, 10 distinct, 8 sign flips, fid 0.562 |
+| error id 318 (constant offset) | `constant` | **`constant`**, +4 pts = +552 ms, quantum **138 ms** |
+| error id 147 (two 8-point steps) | 2 change points | **`piecewise_constant`**, brackets [383.0, 385.5] and [822.5, 825.0], both `narrowed=True` |
+
+The id 147 brackets reproduce my manual measurement — (382.5, 385.0) and
+(822.5, 825.0) by hand, (383.0, 385.5) and (822.5, 825.0) from the module, the
+difference being the 5 s scan granularity. The quantum is detected per pair: 138 ms
+on the 190-second file, 125 ms on the others.
+
+**This is not "it works".** `AGENT.MD` and `SPEC_ZONE_A.MD` §2 are explicit that a
+green test on my side is exactly the evidence campaign 1's five dead pieces had.
+dev-2 has set the standard and I have adopted it: the locator is working when it
+has produced a track dev-2's post-mux verifier accepts, and not before.
+
+### Dropped — the video refiner, on dev-2's measurement
+
+`TASKS/005` named a frame-level refiner as the instrument that pins a change point
+to a frame. **It is not being built**, and the reason is dev-2's, measured:
+
+Its repair does not need a point T at all. It marks the whole bracket as a gap and
+fills it from the master, which is correct *by definition* rather than
+approximately — master content on the master's timeline. So my bracket width
+becomes a cost, not a correctness question. On id 266 that cost is
+
+| bracket | gap per change point | as % of a 24-min episode |
+| :--- | ---: | ---: |
+| my measured 2.5 s | 3.5 s | **0.49 %** |
+| the ~108 s dev-2 had assumed | 109 s | 15.24 % |
+
+At 0.49 % the fill type stops being the deciding cost even when the fill is
+silence. The trigger for revisiting is therefore not *"silence is a real
+population"* but *"a file with many change points"* — about twenty, at which point
+silence reaches 5 % of a track. Left unbuilt, which is the right state for an
+instrument with no consumer.
+
+### Not yet done
+
+`src/change_point_locator.py` is not written. The method is calibrated and the
+interface agreed; the module follows, and it is deliberately not written before a
+real exemplar has shown the method survives real content.

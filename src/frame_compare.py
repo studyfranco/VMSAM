@@ -106,8 +106,8 @@ class FrameComparer:
         tgt = tgt_hashes[:m]
 
         band = self.band_width
-        costs =  * m
-        hits =  * m
+        costs = [0] * m
+        hits = [0] * m
 
         # Pour chaque i (ref), chercher le j (tgt) dans la bande [i-band, i+band] minimisant la distance
         for i in range(n):
@@ -127,7 +127,7 @@ class FrameComparer:
 
         # lisser par fenêtre glissante (~0.33 s)
         window = max(3, self.fps // 3)
-        smoothed =  * m
+        smoothed = [0] * m
         run = 0
         for j in range(m):
             run += costs[j]

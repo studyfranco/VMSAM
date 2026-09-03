@@ -1168,6 +1168,887 @@ Error id 237 is therefore offered as a **negative fixture**: a real corpus file,
 reproducible in ~30 s, whose correct outcome is *refuse*. Any repair should be run
 against it to show it can still say no. Details in the private notes beside the
 repository.
+## 2026-09-03 — a linear fit cannot tell a drift from a step, and three of us produced a spurious rate on one file within an hour
+
+**My id 13 reconciliation is withdrawn.** A chromaprint reading is
+`offset_points × sizePoint` — an exact integer number of milliseconds by
+construction. `vmsam-forensic`'s values are 2236.8, 2986.9, 2992.6: one decimal
+place, and none is near an integer at 125, 129 or 124 ms. **Its instrument is not
+quantised at all**, so my "18 points and 24 points" arithmetic explains *my*
+chromaprint reading and cannot explain *theirs*. Two mechanisms landing on 750 was
+a coincidence I presented as an explanation. `vmsam-ci` was right to be suspicious.
+
+That is the **second** time in one day I offered an account that fits my own data
+and assumed it fits someone else's — the RMS story for family B was the first.
+
+### What the number actually was
+
+ci profiled the whole of id 13 and found **at least four change points**:
+
+```
+[ 20,  91]   +672 ms    corr 0.91-0.97   <- a plateau nobody had reported
+~91 s        step ~1499 ms
+[ 91, 184]  +2171 ms    corr 0.88-0.93
+~184 s       step ~837 ms                <- the one all of us had measured
+[184,1170]  +3008 ms    corr 0.83-0.94   flat
+~1170 s      step ~89 ms
+[1185,1290] +3097 ms    corr 0.88-0.94
+```
+
+Forensic's PRE probe is [66, 126], which **straddles the ~91 s transition**, so its
+2236.8 blends +672 and +2171. Its own straddle diagnosis was right and it applied
+it to one probe when it applied to two. **Nobody's instrument was wrong.**
+
+### Independently confirmed here, by probes placed before I read ci's model
+
+| probe | measured | ci's plateau |
+| :--- | ---: | :--- |
+| [20, 80] | **-671.84** | +672 — exact |
+| [60, 120] | -687.07 | straddles ~91, blends |
+| [100, 160] | **-2179.09** | +2171, within 8 ms |
+| [200…1000] | -3000.45 to -3017.14 | flat, 16.7 ms across 800 s |
+| [1200, 1260] | **-3096.85** | +3097 — exact, step 89.87 vs ~89 |
+
+### The trap, and my own output contains it
+
+My script printed *"POST drift −92.77 ms over 1000 s = 9.28 % of playback"*. That is
+nonsense produced in a specific way: **I fitted a rate across a range containing a
+step**, and the 89 ms step at ~1170 became a spurious slope. ci's first fit did the
+same (+34.6 ms/1000 s, residual spread 23.9 against 34.6 of "drift", dragged by one
+probe), and forensic's 45 ms POST drift is very likely the third instance.
+
+**A linear fit cannot distinguish a drift from a step unless you look at the
+residuals.** Three agents produced a spurious rate on one file within an hour.
+
+**This lands on `TASKS/008` and 008 survives, for a stated reason rather than by
+luck.** Those coefficients come from exactly this kind of fit over ten windows.
+What protects them is the residual check: 38.3 and 41.0 ms measured against
+`124/√12` = 35.8 ms predicted by pure quantisation. **Residuals at the floor mean
+nothing structural is hiding under the slope.** Had id 13 been in that set its
+residuals would have blown far past it. The check was load-bearing, not decoration.
+
+### Two consequences for the locator fix
+
+1. **Not a head scan — a full-file scan with no privileged regions.** id 13's
+   third transition is at 1170 s and was equally invisible. The head was never
+   special; it was only the part noticed first.
+2. **My blind-spot arithmetic was right and too narrow.** `T > begin + L/2` is the
+   condition on **position**. There is a second condition on **magnitude** I had not
+   written: a step must also exceed roughly half a quantum to change any window's
+   reading. id 13's 89 ms step is 0.7 of a point and fails the *second* condition,
+   not the first.
+
+### The acceptance set is downgraded, deliberately
+
+We called these three files "early-step" or "trimmed edge". One has at least four
+transitions spread across the whole file; the other two are profiled only to 260 s
+and 760 s. **They are three files with *some* transitions confirmed by several
+instruments and an unknown number unconfirmed** — still far better than a
+constructed fixture, but not the clean ground truth I called it, and not usable as
+an acceptance set until each is profiled end to end.
+
+### A ninth pattern instance, and it is `vmsam-ci`'s
+
+> **An independent instrument aimed by a dependent one is not independent.**
+
+ci built a separate instrument to check the pipeline, then pointed it only from
+120 s onward because `begin_in_second` is 120 — using the pipeline's geometry as its
+map of where to look. This is a *different* failure from the other eight: the
+instrument was sound and the construction was sound, and the **aiming** inherited
+the blind spot. It applies to me directly — every scan I have run outside the ten
+windows was aimed where another agent's result told me to look.
+
+## 2026-09-03 — two instruments, one number: forensic's 750 and ci's 837 were never in conflict
+
+`vmsam-ci` bisected error id 13 and got a step of **837 ms**; the pipeline's own
+stage-2 log gives **833.5 ms** by a wholly separate route; `vmsam-forensic`'s probe
+grid gives **750 ms**. ci was about to report the 87 ms gap to forensic as a
+discrepancy. **It is not one.**
+
+Measured here on one pair of probes with one decode, using **160 s windows so the
+quantum is 125 ms** — the pipeline's own, avoiding the short-window bias ci had
+just caught in me:
+
+| | FFT (unquantised) | chromaprint |
+| :--- | ---: | :--- |
+| PRE [20, 180] | **-2171.84 ms** | 0.7635 → **-18 pts** = -2250 ms |
+| POST [200, 360] | **-3004.08 ms** | 0.9558 → **-24 pts** = -3000 ms |
+| **step** | **832.24 ms** | **6 points = 750 ms** |
+
+**Both answers, from one measurement.** 832.24 agrees with ci's 837 and the log's
+833.5 to within 5 ms; 750 agrees with forensic's 750 exactly.
+
+The whole gap is **one plateau misquantised by 0.63 of a point**. True PRE is
+17.37 points and chromaprint read 18 — 78 ms high, which is *more* than half a
+quantum and so a genuine misread rather than rounding. It compresses the step from
+6.66 points to 6. And the misquantised plateau is the low-confidence one: 0.7635
+against 0.9558.
+
+**So forensic's instrument is doing what it does and its number is right for a
+quantised measurement.** The finding is not a defect in anyone's grid; it is that
+**a step must be reported as points plus the quantum, never as a bare millisecond
+figure** — the same rule that governs exchanging offsets with dev-2, and the same
+one that caught my own short-window bias an hour earlier. Three separate occasions,
+one rule.
+
+### And id 108 has TWO change points, with the offset returning
+
+`vmsam-dev-2` profiled its first 260 s:
+
+```
+[  0,  52)  -950.0     r 0.37-0.65
+[ 52,  58)  TRANSITION 1        <- previously unreported
+[ 58, 146)  -1453.9    r 0.79-0.94
+[146, 148)  TRANSITION 2        <- ci's bisection and my bracket, reproduced exactly
+[148, 260)  -952.9     r 0.42-0.59
+```
+
+Its transition-2 bracket reproduces ci's exactly from a third instrument, which is
+what makes transition 1 credible. **Carry dev-2's hedges:** one instrument, the
+outer regions correlate weakly (0.32-0.65) so -950 rests on consistency across
+twelve windows rather than any strong reading, brackets limited by a 2 s step
+rather than bisected, and nothing looked at past 260 s.
+
+**This corrects two things I said.**
+
+1. I told dev-2 and the Lead that a container delay on 108 *"would be wrong by
+   500 ms for the first 146 seconds"*. Measured, -950 is **correct** for [0, 55)
+   and after 148 s, and wrong only inside **[55, 147)**. dev-2's reading is right
+   that this is *worse* rather than better: a 0.5 s desync that appears a minute in
+   and resolves itself ninety seconds later is the kind of fault a listener
+   dismisses rather than reports.
+2. **The blind spot is worse than I stated.** I had it that both change points sit
+   in the head and are therefore invisible to the ten-window geometry. The sharper
+   form is dev-2's: **because the offset returns, any window spanning both reads
+   constant**, so they are invisible to each other's absence too. A head scan
+   looking for *a* step would find the pair and report nothing — a constraint on
+   the fix, not merely a reason for it.
+
+**And the quantisation cost is now concrete.** My chromaprint points give -1500 and
+-1000 where the true offsets are -1453.9 and -952.9: **46 and 47 ms out, each more
+than a third of a point and each larger than a video frame at 23.976 fps.** A plan
+built from quantised plateaus would be a frame out on both segments before any
+splice error. That makes the sub-quantum refinement part of the head-scan work
+rather than a later improvement.
+
+## 2026-09-03 — RETRACTION, and the locator's head blind spot: the first ~227 s are structurally invisible
+
+**I retract the entry below.** Its headline — *stage 2 is wrong where stage 1 is
+right* — is **backwards on id 108**, and unverified on id 12. `vmsam-ci` found it
+by bisection and `vmsam-forensic` reached it independently by another instrument.
+
+**What is actually there.** id 108's window 0 spans [120, 334] and contains a
+**real 500 ms step at ~146 s** — 26 s of the window pre-step, 188 s post-step.
+Stage 2's window-0 value of +1453.9 ms is the **correct** offset for the content at
+the start of that window. Chromaprint returned -1000 on all ten windows and **did
+not detect the step at all**.
+
+**Neither instrument is broken.** A single number for a window that spans a step is
+ill-defined, and the two resolved the ambiguity differently: chromaprint by
+majority (188 s against 26 s), the FFT by the short strong segment, because the
+pre-step 26 s correlate at 0.8 while the post-step 188 s correlate at 0.45.
+
+**id 12 now measured, and it is the same thing.** Scanning its head region with
+both window lengths:
+
+| | last OLD | first NEW | bracket |
+| :--- | ---: | ---: | :--- |
+| W = 30 s (q 135) | p = 142.5 | p = 145.0 | **T ∈ (157.5, 160.0)** |
+| W = 15 s (q 150) | p = 150.0 | p = 152.5 | **T ∈ (157.5, 160.0)** |
+
+Identical brackets. The step is **5 → 12 points = 7 points**, which is 875 ms at
+that pair's pipeline quantum of 125 ms — against forensic's 861 ms and the direct
+FFT difference of 850 ms (-567 against -1417). So **id 12 holds a real early step
+too, and my RMS explanation for it was wrong twice over**: it was never about
+energy, and the outlier was never a bad measurement.
+
+All three of ci's family-B files (12, 13, 108) are therefore early-step cases, and
+**every one of them sits inside the head blind spot**.
+
+**RESOLVED by `vmsam-ci`: explanation (b), short-window bias.** It probed straight
+across the 220-230 boundary I named and well past it — ten probes from 160 s to
+760 s all read **+1412 to +1428 ms**, a 16 ms spread across ten minutes at
+correlations 0.86-0.97. **There is no second step.** So my short-window absolute
+read of 12 points was ~83 ms high against a true 11.3 points, and the ten-window
+scan's 11 was right.
+
+The bias is in the **absolute value only**. The location was identical at both
+window lengths and the step was 7 points at both — and the step in points matches
+ci's 840 ms (6.7 points) to within a rounding. So the rule I had already given
+dev-2 — *exchange point counts and locations, never absolute milliseconds across
+window lengths* — protected me from my own defect before I knew I had it. Standing
+constraint for the module: **do not quote an absolute offset from a window of
+30 s or less.**
+
+ci's full 8 s bisection also closes id 12's ground truth: change point **158-160 s**
+against my bracket of (157.5, 160.0), step **840 ms** against my 875, forensic's
+861 and the direct FFT's 850 — four figures within 35 ms. Its boundary-spanning
+probe collapses to **0.267 correlation** between neighbours at 0.89-0.92, the same
+signature id 108 showed, which is independent evidence the transition is sharp
+rather than gradual.
+
+**One thing I could not resolve and flagged rather than choosing.** In the
+post-step region [152, 220] the short windows read **12 points**, while the
+ten-window scan reads **11 points** (-1375 at q=125) over [227, 1066] and the FFT
+reads -1417 there. One to two points apart, which is more than quantisation
+explains. Either a further change point sits between 220 and 227, or short-window
+point counts are biased in a way I have not characterised. **Unresolved.** It does
+not touch the location, which two window lengths agree on exactly, nor the step
+size in points, which is 7 at both.
+
+**The remedy ci and I had converged on would have shipped a defect.** Dropping the
+outlier window and merging on the remaining nine gives a uniform offset that is
+correct after the step and **wrong by 500 ms before it** — a plausible file,
+silently wrong at the head, with every per-plateau check passing.
+
+### The defect this exposed in `change_point_locator.py`, and it is the worst of the four
+
+On id 108 my ten-window scan reads **-1000 on all ten**, so the locator returns
+`kind: "constant"` with no change point. **Confidently wrong**, where the other
+three defects merely refuse.
+
+Pointed at the region, my own method finds it — **fourth instrument, agreeing**:
+
+| | last OLD | first NEW | bracket |
+| :--- | ---: | ---: | :--- |
+| W = 30 s (q 135) | p = 130.0 | p = 132.5 | **T ∈ (145.0, 147.5)** |
+| W = 15 s (q 150) | p = 137.5 | p = 140.0 | **T ∈ (145.0, 147.5)** |
+
+Both lengths give the same bracket; ci's FFT bisection says 146-148 s, forensic's
+probe grid ~567 ms, the pipeline's own stage-2 log 501 ms. Step **12 → 8 points =
+4 points**, which is exactly 500 ms at the pipeline's 125 ms quantum — and 540 ms
+at W=30, 600 ms at W=15, the point count portable and the millisecond not.
+
+**The blind spot is exactly computable, not incidental.** A window reads the old
+plateau while more than half of it is pre-change, so a step is visible only if some
+window is majority-pre while the next is majority-post. **Window 0 is the first, so
+nothing can be majority-pre before it.** A step is invisible unless
+`T > begin + L/2`:
+
+| shortest audio | begin | window L | first visible T |
+| ---: | ---: | ---: | ---: |
+| 1195.7 s | 120 | 172 | **206.0 s** |
+| 1420.1 s | 120 | 214 | **227.0 s** |
+| 2545.5 s | 120 | 418 | **329.0 s** |
+
+So on a 24-minute episode the **first ~227 seconds** are invisible: the 120 s before
+any window starts, plus the first half of window 0. `CAMPAIGN.MD` puts **trimmed
+edges at 18 %** of the corpus, and a trimmed head *is* a change point near the
+start — the blind spot sits squarely on the second-largest failure family.
+
+**Fix: scan `[0, begin + L/2]` explicitly**, with the same two-window-length
+agreement test. Same code path, pointed at a region the pipeline's geometry never
+covers. Fourth on the list of fixes the module freeze blocks.
+
+**Told dev-2**: treat `kind: "constant"` as *unverified in the head*. It means "no
+step visible to a scan that cannot see the first ~227 s", not "the offset is
+constant". Applying it as a container delay on id 108 would be wrong by 500 ms for
+146 seconds.
+
+### What survives from the retracted entry
+
+Only the narrow, measured fact, and it belongs to ci and forensic rather than to my
+interpretation: **stage 2's variance test cannot distinguish a real step from a bad
+window, and refuses both identically.** For these files the refusal is *correct* by
+`AGENT.MD`'s standard — there genuinely is no single constant offset — and it is
+exactly the case zone A exists to take over. The defect is not the refusal; it is
+that nothing downstream is told which of the two it was.
+
+## 2026-09-03 — measured: on one file, stage 2 is WRONG where stage 1 is right, which inverts the design assumption
+
+`AGENT.MD` records the owner's design intent: fingerprint peaks put stage 1 off by
+roughly ±250 ms, **stage 2 runs unconditionally and corrects them**, and a residual
+beyond 500 ms means stage 1 was not merely imprecise but wrong. On error id 12 the
+opposite is measured.
+
+`vmsam-ci` found four files refused by stage 2's variance test whose recorded
+evidence is 8-9 of 10 windows agreeing to 1.16-2.18 ms with one wild outlier. It
+asked whether the outlier window is the same window that steps in stage 1. I
+measured id 12 directly — absolute, unshifted, both instruments, same windows:
+
+| h | window | `second_correlation` | chromaprint | RMS master |
+| ---: | :--- | ---: | :--- | ---: |
+| **0** | [120.0, 292.0] | **-567.01 ms** | 0.8555 / **-1375** | **4306.9** |
+| 1 | [206.0, 378.0] | -1417.66 | 0.9236 / -1375 | 2016.9 |
+| 2-9 | … | -1412 to -1428 | 0.919-0.934 / -1375 | 1398-2084 |
+
+**Chromaprint gets window 0 right** — the same -1375 plateau as every other window,
+at the lowest fidelity of the ten (0.8555), so it registers its own reduced
+confidence without being wrong. **The FFT is the instrument that fails**, by about
+850 ms.
+
+The master's RMS in window 0 is **4306.9 against 1398-2084 elsewhere** — two to
+three times the energy. FFT cross-correlation is dominated by the loudest passage
+in its window, so a loud passage that differs between two releases (a different
+music bed, a different mix) drags the peak. Chromaprint normalises per frame and is
+not dragged.
+
+**This reproduces ci's recorded residuals**, which were taken after the candidate
+was shifted by `delayUse` = chromaprint's -1375:
+
+```
+windows 1-9:  -1417 - (-1375) =  -42 ms     ci recorded -56 to -57
+window 0:      -567 - (-1375) = +808 ms     ci recorded +788
+```
+
+Two extractions, two agents, same numbers to within 20 ms.
+
+**Consequence.** For that family the refusal is not evidence about the media. It is
+stage 2 failing in a loud passage and overruling a stage 1 that was correct in all
+ten windows. `test_if_constant_good_delay` then reads the disagreement as *stage 1
+was wrong* and refuses the pair — the exact inverse of what happened.
+
+**REFUTED FOR THE FAMILY, 2026-09-03, by `vmsam-ci`.** The RMS mechanism above
+does **not** generalise. ci measured master per-window RMS on the *correct*
+comparison streams for all three:
+
+| id | window 0 / median(1-9) | |
+| ---: | ---: | :--- |
+| 12 | **2.49x** | spike — the mechanism holds |
+| 13 | 1.53x | elevated, but two other windows are as loud and produced no outlier |
+| **108** | **0.77x** | **window 0 is QUIETER than the median, and still carries the outlier** |
+
+id 108 refutes it outright: *"loudest passage drags the peak"* cannot explain an
+outlier in a window 23 % below median energy, and that file's loud windows (5-9)
+are the ones that behave. So: **mechanism established for one file, symptom shared
+by three, cause of the other two unknown.** ci independently reproduced my id 12
+RMS figures from its own extraction at a different sample rate (4165.3 against
+1330-2010, versus my 4306.9 against 1400-2084).
+
+**UPDATE, same day: the inversion now holds on TWO files.** id 108 measured
+absolutely and unshifted, both instruments, streams pinned (master a:1 jpn):
+
+| h | window | FFT | chromaprint | RMS master |
+| ---: | :--- | ---: | :--- | ---: |
+| **0** | [120.0, 334.0] | **-1453.83 ms** | 0.9047 / **-1000** | 2150.6 |
+| 1-9 | … | **-949.98 to -952.27** | 0.926-0.939 / -1000 | 1202-3833 |
+
+Windows 1-9 agree to **2 ms**; window 0's FFT is off by **502 ms**; chromaprint
+holds -1000 on all ten. And **ci's RMS refutation is confirmed from my side**:
+window 0 is 2150.6 while the best-behaved windows 6-8 sit at 3751-3833, so the
+failing window is well *below* the loudest. Peak amplitude does not rescue it
+either — 27167 at window 0 against 32768 (clipping) in the loud windows.
+
+**The reconstruction of ci's recorded residuals now matches to 0.1 ms.** Its
+values were taken after a shift by `delayUse` = chromaprint's -1000:
+
+```
+windows 1-9:   -950   - (-1000) =  +50.0 ms    ci recorded +47.8 to +49.9
+window 0:    -1453.8  - (-1000) = -453.8 ms    ci recorded -453.9
+```
+
+Together with id 12's +808 against ci's +788, two agents on two extraction paths.
+
+**And it kills my own third hypothesis.** I had wondered whether the outlier was
+manufactured by `recreate_files_for_delay_adjuster`'s shifted re-extraction, which
+would have tied this family to the one-point-step artefact. It is not: my
+measurement involves **no shift at all** and the outlier still appears. The outlier
+is in the media as the FFT sees it.
+
+So the two claims separate cleanly, and only one generalises:
+
+| claim | status |
+| :--- | :--- |
+| **the inversion** — stage 1 right on every window, stage 2 wrong on exactly one, that one value refusing the file | **holds on ids 12 and 108** |
+| **the cause** — FFT dragged by the loudest passage | **holds on id 12 only**; refuted on 108, and 13 fits neither |
+
+**What survives the refutation is the part that matters**, and it rests on ids 12
+and 108 without needing the family: stage 1 was right in all ten windows, stage 2 was
+wrong in one by 850 ms, and that single value refused the file. The inversion of
+`AGENT.MD`'s stated design intent is real and measured, whatever explains the other
+two.
+
+**Hedged deliberately: one file, one window.** ids 13 and 108 do not share the
+cause,
+and ci's own classification splits the nine stage-2 variance files three ways
+(a real change point seen by both stages; a first-window-only outlier with stage 1
+silent; degenerate). This entry covers the second group only, and one member of it.
+
+Also confirmed for ci, from the code rather than assumed: **window index 0 is
+chronologically first** — `generate_cut_with_begin_length` increments
+`begin_in_second` by `length_time` each iteration and `get_delay_by_second_method`
+appends in `h` order. But **window 0 starts at `begin_in_second`, which is 120 s**
+for any file over 540 s, so logos, black frames and opening credits are *before*
+every comparison window and cannot explain anything about window 0.
+
+**Not an edit.** `second_delay_test` and `test_if_constant_good_delay` are in
+`mergeVideo.py` outside every tagged zone.
+
+### `max_delay_variance_second_method`: one constant, two units
+
+Found by `vmsam-ci`, verified here. `mergeVideo.py:25` sets it to `0.004`, and it
+is compared against two dimensionally different quantities in one function:
+
+```
+:582   variance(list_delay) < 0.004          variance of SECONDS  -> s^2
+:584   abs(first - last)    < 0.004          a plain difference   -> s
+:594   variance(delay_detected) > 0.004      variance again       -> s^2
+```
+
+`second_correlation` returns seconds, so at :582 and :594 the constant is an s²
+budget implying **√0.004 = 63.2 ms of standard deviation**, while at :584 it is
+**4 ms** flat. `AGENT.MD`'s description — *"its own variance tolerance,
+`max_delay_variance_second_method` = 0.004 s"* — matches :584 only.
+
+## 2026-09-03 — the recurring defect of this campaign: a control whose pass is guaranteed by its construction
+
+Seven instances in one day, three of them pre-dating this campaign and sitting in
+documents we treat as authority. Recorded as a pattern because it is worth more
+than any of the individual defects, and because every instance was found by
+**running** the control somewhere new, never by reading it.
+
+**The shape.** A control is built to prove something works. Its construction
+quietly guarantees it passes whatever the thing under test does. It then reports
+success forever, and the success is a statement about the harness rather than
+about the world.
+
+**The question that catches all seven, and it takes one sentence:** *if the thing
+under test were broken in the way I most fear, would this control produce a
+different result?* If the answer is no, it is not a control.
+
+| # | control | why its pass was guaranteed | whose |
+| ---: | :--- | :--- | :--- |
+| 1 | sparse-frame pHash, validated on a pair at **zero offset** | with any offset the sampled frames never coincide — the zero-offset case is the only one that cannot expose the flaw | `vmsam-ci` |
+| 2 | edge bisection with `lo`/`hi` passed reversed | `while hi - lo > tol` exits immediately and returns its own input bounds; it printed "-600 ms", which was **the instrument not running** | dev-1 |
+| 3 | clean-edge estimator requiring correlation to reach **1.00000** | only a file against a *copy of itself* reaches 1.0; real encodes cap at 0.93-0.96, so it could never fire on a real pair | dev-1 |
+| 4 | repair fixture built as **one file against a copy of itself** | its base offset is zero, so a sign error in deriving the base offset is invisible — it later cost a uniform +16146 ms track | dev-2 |
+| 5 | post-repair probe at the **midpoint of a single segment** | a residual coefficient error grows with position and is smallest exactly at the midpoint | dev-2 |
+| 6 | speed sweep with **no wrong-direction column** | `* r` where `/ r` was meant; rubberband won 33 of 33 and *"nothing internal to the run could have caught it"* | `docs/AUDIO_SPEED_POLICY.MD` weakness 3 |
+| 7 | *"a file where `asetrate` leaves fidelity worse than no correction"* | the uncorrected arm is pinned near the floor **by geometry**, so almost any correction beats it — the document names this itself | `AUDIO_SPEED_POLICY.MD` |
+
+| 8 | **agreement between two windows that both span the same step** | both are dominated by the same side of it, so they agree — and the thing they would have to disagree with is outside both fields of view | dev-2 / dev-1 |
+
+**#8 is the sharpest form and it arrived last.** dev-2's statement of it: *a window
+spanning a change point returns a well-formed number that belongs to neither side,
+so a per-window disagreement is not the only failure mode — AGREEMENT can be the
+failure mode.* That is exactly the locator's head blind spot: window 0 and window 1
+agree on id 108 not because the offset is constant but because both are dominated
+by the post-step side. **A control that cannot fail because what would refute it is
+outside its field of view** is the general form, and it subsumes several of the
+rows above — #1's zero offset, #4's zero base offset and #5's midpoint probe are
+all fields of view chosen so the error cannot appear in them.
+
+Campaign 1's own headline defect is the same shape one level up: `final_status`'s
+success metric sat in a third branch nothing reached, and `Resolved: 0` was read as
+*nothing qualifies* when it meant *nothing reached the check*.
+
+**What actually caught them**, in every case: running the control in a context it
+was not built in. #3 died on the first real error file after passing a constructed
+one. #5 died when a speed-only plan produced a single segment. #4 died against a
+second fixture with a non-zero base offset. **None was caught by review**, and
+several had been reviewed — including by their author, in writing, after stating
+the convention as an equation.
+
+**THE CURE, and it is `vmsam-ci`'s framing.** The antidote to every row above is
+**ground truth that exists independently of the thing being tested.** A constructed
+fixture cannot have that property by construction: a file against a copy of itself
+has an expected answer *you supplied*, so the fixture and the instrument share an
+author and share his blind spots. ci's three early-step files each carry an
+expected answer established by three or four instruments that know nothing about my
+locator — and my committed module fails all three. That is what makes them a real
+acceptance test and my fixtures not one.
+
+Stated as a test to apply before trusting any validation set: **who produced the
+expected answer, and could they have produced it wrongly in the same direction as
+the thing under test?**
+
+**The practical rules that fall out**, all of them paid for today:
+
+- **A fixture built by copying one file cannot test anything that depends on the
+  two files being *different*.** It has zero offset, identical content, and a
+  correlation ceiling of 1.0, and all three flatter the instrument.
+- **A directional correction must carry the wrong direction as its own column**,
+  so a sign error reads as the floor instead of as a finding.
+- **Probe where the error is largest, not where the answer is tidiest** — the ends
+  of a segment, not its midpoint.
+- **Assert a control's bracket before trusting its output.** #2 would have been
+  caught by one `assert f(lo) <= threshold and f(hi) > threshold`.
+- **"I could not measure" and "I measured X" are different answers.** #2 printed a
+  number that was neither.
+
+`AGENT.MD` already states the general form — *an armed guard that has never fired
+is indistinguishable from a working one* — and every instance above is that
+sentence being learned again at cost. The addition this campaign can make is that
+**firing a guard is not enough: it must be fired somewhere it could fail.**
+
+## 2026-09-03 — blocked need: a new runtime module is open by the rules and frozen by the checker
+
+`WRITE_ZONES.MD` §4 lists **"new runtime modules"** among the open paths. The
+checker disagrees, and the checker is what gates the commit.
+
+**Measured.** One comment line appended to `src/change_point_locator.py`, a module
+I created and committed myself:
+
+```sh
+$ python3 .../check_write_zones.py --repo .
+WRITE_ZONES violations (staged changes):
+  §1  frozen file modified: src/change_point_locator.py
+CHECKER_EXIT=1
+```
+
+So a new module is **write-once in practice**: the creating commit is allowed and
+every subsequent edit to it is a §1 violation. The cause is structural rather than
+a bug in the logic — the checker carries a fixed allow-list of open paths, and a
+file that did not exist when that list was written cannot be on it.
+
+**Why this blocks rather than annoys.** Neither I nor `vmsam-dev-2` can fix a
+defect in our own modules. `vmsam-dev-2` reports 007's and 009's implementations
+sitting in a 400-plus-line patch beside the repository for this reason, with its
+commits recording only what they did and measured. My locator is committed and I
+cannot correct it if its first real run finds anything.
+
+**What was done instead: nothing, deliberately.** The checker lives in
+`VMSAM_HELP_AI/tools/`, outside the repository, and is the shared instrument that
+enforces the rules on all four agents. Changing it to admit my own file is exactly
+the case `AGENT.MD` names — being right about a rule does not make it mine to
+change — and an agent that edits its own gate has no gate. Reported to the Lead
+and recorded here.
+
+**The fix is small and is the owner's or the checker author's to make:** treat a
+path that is untracked at `HEAD` and added by the staged diff as open under §4,
+or add an explicit open-list entry per new module.
+
+### A second claim tested and NOT confirmed
+
+`vmsam-dev-2` also reported that a `config.ini` `[features]` flag *"cannot ship at
+all"*. **It can.** `src/config.ini` has **no trailing newline**, so any *append*
+rewrites its final line and the checker correctly reports
+
+```
+§3  src/config.ini: line removed or altered: audio_sync=/home/vmsam/audio_sync
+```
+
+That is the rule catching a genuine modification of an existing line, which §3 does
+forbid. **Inserting** the new section before an existing one instead leaves the
+final line byte-identical and passes clean, with `git diff --cached` showing no
+removed lines — verified on this clone, then reverted, since the flag belongs to
+`vmsam-dev-2` under the territory rule.
+
+Worth carrying: the missing trailing newline will catch the next person who
+appends to that file.
+
+## 2026-09-03 — measured: the speed detector's margin does not carry from PAL to NTSC
+
+`docs/AUDIO_SPEED_POLICY.MD` is frozen and its ruling **stands**: `asetrate`, not
+`rubberband`, for a naive speed transfer. This entry **extends** it by measurement
+and is a finding for the owner, not an edit.
+
+The corpus family is **NTSC (`1001/1000`), not PAL.** Measured on error ids 33 and
+31, whose recorded delays are monotone decreasing with a 124 ms gcd. Regressing
+delay against window centre gives `speed_ratio` = master/candidate of **1.000993**
+and **1.000994**, ~95 % `[1.000953, 1.001034]`. `1001/1000` = 1.001000 lies inside
+both; PAL's 1.042709 is excluded by four orders of magnitude. `1001/1000` and
+`24/23.976` are the **same** relation — 23.976 rounds 24000/1001 — not two
+candidates. This corroborates `vmsam-forensic`'s finding on two files, and its
+hedge travels with it: 2.5 % is a **floor**, not a count, since a PAL-rate file
+collapses to weak correlation and is structurally invisible to the method that
+found these.
+
+Residual scatter about the linear fit is 38.3 and 41.0 ms against **124/√12 =
+35.8 ms** predicted by pure quantisation, so the residuals are almost entirely the
+quantum and no staircase is hiding under the slope.
+
+**The verdict, by the document's own three-arm method** (1200 s window, because
+0.099 % drifts only 0.41 s over the pipeline's 418 s):
+
+| arm | id 33 | id 31 |
+| :--- | ---: | ---: |
+| uncorrected (control) | 0.7411 | 0.7374 |
+| **asetrate CORRECT** | **0.9588** | **0.9551** |
+| asetrate WRONG (sign control) | 0.6569 | 0.6562 |
+| rubberband | 0.9484 | 0.9453 |
+
+The wrong-direction arm lands **0.084 below the uncorrected control** — it makes
+things worse, as a doubled error must. Weakness 3 records a sweep that used `* r`
+for `/ r` and had rubberband win 33 of 33 with nothing internal able to catch it;
+that column now exists and the direction is demonstrated rather than asserted.
+
+**The finding.** The document measures rubberband paying a **~0.109** handicap and
+losing by 0.278-0.313 against real masters. **Here the gap is 0.0104 and 0.0098** —
+an order of magnitude smaller. This is consistent with the document, which already
+records that against a real master `asetrate` reaches only 0.94-0.98 *"because real
+pairs carry content and codec differences no correction removes"*: both arms press
+on that ceiling and the distance between them compresses. At 4.27 % the losing arm
+had far to fall; at 0.099 % it does not.
+
+So **the margin that would detect an inverting case in this corpus is ~0.010, not
+~0.109**, and a detector built to the document's expected separation could miss
+one. The 0.85 bar and the three-outcomes-and-a-decline design both survive; what
+does not carry is the expected margin, which was taken from a 4.27 % corpus.
+
+**Two files agreeing in direction and magnitude is evidence the margin is real. It
+is not a rate and is not reported as one.**
+
+*Why the alternative lost:* handing dev-2 the bare coefficient. The document is
+explicit that a bare number is applied as `asetrate` by default and an inverting
+case passes undetected — so the verdict, not the coefficient, is the deliverable.
+dev-2 is given `1001/1000` as the **exact rational** rather than my point estimate:
+my measurement is consistent with it and *less precise than it*, and propagating
+measurement noise into a file when the true relation is a known rational would be
+strictly worse.
+
+## 2026-09-03 — measured: `first_delay_test`'s second pass measures on misaligned fingerprint grids, and manufactures one-point steps
+
+**A one-point step in `delayFirstMethodAbort` can be an artefact of the pipeline's
+own re-extraction, not a property of the media.** This supersedes nothing, but it
+sharpens the 2026-09-03 entry on rebasing: I said the record gives reliable
+*relative* structure and only an unreliable zero. At the one-point level the
+relative structure is not reliable either.
+
+`recreate_files_for_delay_adjuster` (`mergeVideo.py:333`) re-extracts the
+candidate's windows at `begin + delayUse/1000` seconds. `delayUse` is an arbitrary
+millisecond value and essentially never a whole multiple of the chromaprint hop,
+`4096/3/11025` = **123.840 ms**, so the two fingerprint grids end up misaligned.
+
+Measured on error id 318 — same pair, same windows, **only the shift changing**:
+
+| shift | in hops | fidelity | residual |
+| ---: | ---: | :--- | ---: |
+| 0.000 ms | 0.000 | 0.968-0.975 | +552 |
+| 495.360 ms | **4.000** | 0.967-0.974 | 0 |
+| **552.000 ms** | **4.457** | **0.918-0.936** | **-138** |
+| 619.200 ms | **5.000** | 0.967-0.974 | -138 |
+| 743.040 ms | **6.000** | 0.967-0.974 | -276 |
+
+Whole-hop shifts hold fidelity at 0.967-0.975; the fractional shift costs ~0.05.
+**0.918-0.936 is exactly the band that file's `.log.error` records (0.906-0.923)**,
+so the recorded fidelities are depressed by the instrument rather than the media.
+
+Direct absolute measurement of four exemplars (own extraction, pipeline geometry,
+`correlate` imported from `src/`, verified unchanged under `loudnorm`):
+
+| id | absolute | fid | recorded |
+| ---: | :--- | :--- | :--- |
+| 318 | **552 constant** | 0.968-0.975 | `[0, 138 x9]` |
+| 319 | **552 constant** | 0.960-0.976 | `[138 x7, 0, 0, 138]` |
+| 271 | `[-250 x5, -500 x5]` real step | 0.652-0.726 | `[-250 x4, -375 x6]` |
+| 316 | `6250 x9` + one `6125` | 0.582-0.683 | `[6125 x7, 6250 x3]` |
+
+**Measured:** the offsets above, and the shift/fidelity table.
+**Inferred:** that the recorded steps in 318 and 319 are produced by the
+degradation. Well supported, not demonstrated — I have not driven the pipeline to
+produce the artefact on demand.
+**Not established:** any rate. **Four files, not a proportion.**
+
+**Decision for `TASKS/006`: `locate_change_points` re-measures absolute offsets
+itself, unshifted.** It does not derive segments from `delayFirstMethodAbort`.
+`SPEC_ZONE_A.MD` §1's *"you do not need to re-run the correlation that just
+failed"* holds for knowing **that** a pair failed and roughly where, and not for
+the numbers the repair needs. Ten correlations per pair is the price.
+
+*Why the alternative lost:* reading the record is free and would have produced a
+chimeric splice for two files that need a single `--sync` of 552 ms.
+
+**Blocked need, unchanged and now with a mechanism:** all of this is in
+`first_delay_test`, outside every tagged zone. Recorded, not edited.
+
+## 2026-09-03 — measured on 315 recorded refusals: the quantum model predicts 297 of 299, and three files are refused by a constant
+
+Corpus-wide confirmation of the quantum entry below, from **production data**
+rather than a constructed sweep, and at no run cost. `vmsam-forensic` found and
+`vmsam-ci` extracted a `.log.error` beside every error file, each carrying the
+per-window `(fidelity, offset_points, delay_ms)` triples.
+
+`delay_ms = -offset_points x sizePoint` (`audioCorrelation.py:118`), so the quantum
+is recoverable as `-delay_ms/offset_points` wherever the offset is non-zero:
+
+| quantum | rows |
+| ---: | ---: |
+| 125 ms | 269 |
+| 124 ms | 27 |
+| 138 ms | 3 |
+| self-inconsistent | 2 |
+
+Campaign 1 reported *"859 of 933 at 125 ms … three files in this library have a
+138 ms frame"*. **The three 138 ms files reappear here**, and they are 190.0 s of
+audio, which is why: `L = 2*int((190-45)/11) = 26`.
+
+Predicting the quantum from audio duration alone, using
+`n = L/0.1238397 - 21.6` and `int(L/n*1000)`, matches **297 of 299** rows; both
+misses are off by exactly 1 ms at a band edge, where the fitted constant rounds the
+other way. The mechanism is established, not merely the correlation.
+
+**The two "self-inconsistent" rows are not inconsistent — they are per-track-pair.**
+Their logs carry 30 and 50 triples, i.e. 3 and 5 audio *track pairs* x 10 windows,
+and the quantum differs **between track pairs of the same file** (125 vs 126). So
+campaign 1's `DOMAIN_INVARIANTS.MD` §7 *"per-pair, not a constant"* is right and
+one level too coarse: it is per **call**, and two audio tracks of one file can
+carry different quanta.
+
+**Three real files are refused by the hardcoded constant.** ids 318, 319, 320
+(folder 181) record delay sets differing by **138**. Every reconciliation gate in
+`first_delay_test` compares against `127` or `128` (`mergeVideo.py:270, 316, 345,
+401, 416, 445, 496`), and `mergeVideo.py:496` tests each delay's magnitude against
+128 rather than their difference — 138 exceeds all of them, so **no gate can
+fire**. The log confirms the branch: *"Multiple delay found with the method 1 and
+in test 3"*. At a 125 ms quantum the identical one-point difference reads `{0,125}`
+and passes. **Carry the hedge:** the right outcome for these three is not
+necessarily *merge* — their absolute offset is a constant 552 ms but their duration
+delta is 1.030 s, so something differs outside the window coverage. What is
+established is that the gate decides on a threshold that is a function of episode
+duration rather than of the media.
+
+Still a finding, not an edit: outside every tagged zone.
+
+## 2026-09-03 — measured: the chromaprint point is 124–142 ms, not 125, and ten gates hardcode 125
+
+`BRIEF_COMMON.md` and `TASKS/006`/`008` state *"One point = 125 ms, the chromaprint
+frame. Every delay you see is a multiple of it."* **Measured, that is true for a
+band of episode lengths and false outside it.** This changed the `TASKS/005`
+ruling: it is why the video instrument must return a frame displacement rather
+than a refined time, so it is recorded here and not only as a number.
+
+`audioCorrelation.py:132` computes the quantum **per call**,
+`int(lengthFile/len(fingerprint_source)*1000)`. It is not the chromaprint frame,
+which is `(4096/3)/11025` = 123.84 ms; `n_items` falls short of
+`lengthFile/0.12384` by a near-constant ~20 items, which lifts the ratio above the
+frame by an amount depending on `lengthFile`.
+
+```sh
+# window from the ore1 example pair; items counted from fpcalc, int(L/n*1000)
+ffmpeg -v error -y -ss 60 -t 700 -i <one file of the pair> -vn -ac 2 -ar 44100 \
+       -acodec pcm_s16le w7.wav
+for L in 20 24 40 60 100 160 214 288 436 700; do
+  n=$(fpcalc -raw -length $L w7.wav | sed -n 's/^FINGERPRINT=//p' | tr ',' '\n' | wc -l)
+  python3 -c "print($L, $n, int($L/$n*1000))"
+done
+```
+
+| `lengthFile` L (s) | 20 | 24 | 40 | 60 | 100 | 160 | 214 | 288 | 436 | 700 |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| quantum (ms) | 142 | 139 | 132 | 129 | 127 | **125** | **125** | 124 | 124 | 124 |
+
+Sweeping L in 4 s steps: **125 ms exactly for L ∈ [160, 286]**, 126+ below, 124 at
+and above 288. The pipeline passes `lengthFile = lenghtTime*2` with
+`lenghtTime = int((shortest_audio_duration−240)/11)` above 540 s, so 125 ms holds
+for **shortest audio duration ∈ [1120 s, 1824 s)** — about 18.7 to 30.4 minutes.
+Our example corpus is 1420 s, inside the band. A 45-minute episode gives L = 436
+and **124 ms**; a short file on the `> 60 s` branch reads 132–142.
+
+**Campaign 1 found this first and I am carrying their hedge, not hardening it.**
+`CAMPAIGNS/01-dev-AI/DOMAIN_INVARIANTS.MD` §7: *"~125 ms typically, **138 ms
+observed**"*. `WORKLOG.MD`: *"917 of 933 delay vectors have a self-consistent
+ms-per-frame, **859 of them at 125 ms** … three files in this library have a 138 ms
+frame."* My sweep gives 139 ms at L = 24 s, which is the mechanism behind their
+138 and is consistent with it. What is new here is the **exact band** and that it
+is a function of episode duration.
+
+**The blocked need.** `first_delay_test` compares millisecond values against a
+hardcoded `127`/`128` at ten sites — `mergeVideo.py:270, 316, 345, 401, 416, 445,
+496, 956, 961, 969`. Those constants encode *"within one fingerprint frame"* only
+when the frame is 125 ms. At 124 ms the gate is harmlessly loose; at 132–142 ms
+(short files) an ordinary adjacent-frame disagreement measures more than the
+constant and is misread as a real timing conflict, so the pair is discarded before
+stage 2 — the only stage that resolves below fingerprint resolution.
+
+Campaign 1 diagnosed exactly this and wrote the fix — `is_within_one_fingerprint_frame()`
+and `are_residuals_within_one_frame()`, comparing frame indices directly, which is
+exact for every quantum. **Neither exists in this tree**
+(`grep -rn is_within_one_fingerprint_frame src/` → nothing). It is one of the
+pieces that did not survive the campaign.
+
+**What was done instead: nothing, deliberately.** `first_delay_test` is in
+`mergeVideo.py` **outside every tagged zone**, so by `WRITE_ZONES.MD` rule 1 it is
+frozen and this is a finding (§6), not an edit. Nothing in objectives 2 and 3 is
+blocked by it: we consume the refusal, we do not need to prevent it. It becomes
+blocking the day someone wants fewer false refusals rather than better repairs of
+real ones.
+
+## 2026-09-03 — `da1c191` stripped every `[0]` subscript from two files; `get_cut_time.py` retired
+
+`WRITE_ZONES.MD` §4, `FILE_MAP.MD` and `TASKS/005` all describe the damage as a
+list literal lost from three initialisers of `frame_compare.py`. **Measured, the
+corruption is larger and of a different kind:**
+
+```sh
+$ for f in src/*.py; do echo "$(grep -o '\[0\]' $f | wc -l)  $(wc -l < $f)  $f"; done
+0   220   src/frame_compare.py
+0   564   src/get_cut_time.py
+107  2118  src/mergeVideo.py
+60   1144  src/video.py
+```
+
+`[0]` occurs **zero** times in both dormant files, while `[1]` and `[2]` survive
+normally inside them (ten occurrences in `get_cut_time.py`) and comparable live
+files carry many. `da1c191` touched these two files and nothing else. Three sites
+are syntax errors; **eight more compile and raise at runtime**, in
+`_detect_time_drift` (the drift regression) and `_summarize_segments` (the
+per-window fidelity summary) — the two functions objectives 006 and 008 would have
+been built on. They have never run.
+
+**Decision (`TASKS/005`): repair the pHash front end, reject the alignment back
+end, retire `get_cut_time.py`.**
+
+*Why repairing the whole of `frame_compare` lost.* `_align_and_find_gap`
+aggregates `costs[best_j] += best_d` — cost lands only on target frames that some
+reference frame chose as its best match. Content **inserted** in the target is
+chosen by nothing, so it accumulates cost 0, and the function returns the argmax
+of the cost array. An insertion is precisely a run of `hits == 0`, and `hits` is
+computed and never read (`grep -n hits src/frame_compare.py` → 110, 126 only). The
+array carrying the signal is built and discarded. It also truncates to the first
+`max_search_frames` — 30 % of the window as its caller configures it — and still
+answers confidently, and it returns a region rather than a signed displacement,
+which fits neither consumer. Restoring `[0]` fixes none of that.
+
+*Why adopting `get_cut_time.py` lost.* `second_correlation` returns
+`(file, offset_in_seconds)`; all four callers there divide that offset by the frame
+rate — wrong by ~24× — under a comment asserting a project convention the project
+does not use. The correct usage is in the tree:
+`mergeVideo.get_delay_second_method_thread.run` uses `result[1]` directly and reads
+`result[0]`, the filename, to recover **the sign**. `get_cut_time` ignores
+`result[0]` everywhere, so it cannot know the sign of anything it measures.
+
+*Why its eight `[0]` sites were deliberately left broken.* Repairing
+`frame_compare` makes `import get_cut_time` succeed where it used to fail at import
+time, so the repair makes the retired file **more** likely to be picked up. A file
+that raises is safer than one that runs and is wrong by a factor of 24 with no
+sign. It carries a RETIRED banner naming the four defect classes instead. Deletion
+is an owner decision, not ours.
+
+*Consequence for the frozen documents.* `python3 -m compileall -q src -x '__pycache__'`
+now exits **0**. `AGENT.MD` § Testing (*"must fail on exactly one file"*) and
+`WRITE_ZONES.MD` §5 check 4 both still expect one failure. That was `TASKS/005`'s
+stated acceptance condition, so the change is intended — and reported here rather
+than edited into either document.
+
+## 2026-09-03 — finding: `delayFirstMethodAbort` is not uniformly rebased, so its zero cannot be trusted
+
+`SPEC_ZONE_A.MD` §1 offers `video_obj.delayFirstMethodAbort[best_video.filePath]`
+as the reason *"you do not need to re-run the correlation that just failed."* That
+holds for the **structure** of the delays and not for their **absolute value**.
+
+`first_delay_test` shifts the candidate mid-function —
+`recreate_files_for_delay_adjuster(delayUse)`, `mergeVideo.py:333` — so every later
+measurement is a residual against an already-shifted candidate.
+`get_delays_dict(values, delayUse)` exists precisely to add `delayUse` back. Five
+of the seven recording sites do so correctly: `:319` with 0 (before any shift),
+`:391`, `:409`, `:478` with `delayUse`. **Two do not** — `:489` and `:502` pass
+`delayUse=0` explicitly, after the shift.
+
+So at two of seven sites the recorded delays are short by `delayUse`, and nothing
+in the recorded `[1|2, delays]` structure says which site produced them. In the
+staircase case `delayUse` is typically 125 ms — one point, the same size as the
+step being located.
+
+**What was done instead.** `first_delay_test` is outside every tagged zone, so this
+is a finding, not an edit. Objectives 2 and 3 proceed by treating the abort record
+as reliable **relative** structure — where the steps are and how large each step is
+— and re-establishing the absolute zero independently on one window. That costs one
+correlation, not twelve, so §1's promise is mostly preserved.
+
+**Two smaller corrections to frozen documents, recorded for the owner:**
+
+- **Windows are 10, not 12.** `video.number_cut = 10` (`video.py:21`);
+  `generate_cut_with_begin_length` loops `range(0, number_cut)` and
+  `get_delay_fidelity` loops `range(0, video.number_cut)`. `BRIEF_COMMON.md`,
+  `dev-1/BRIEF.md` and `TASKS/006` all say the record is *"filled at 12 points"*.
+  The rest of the geometry in those documents is correct: window length is twice
+  the spacing (`length_time_converted = gmtime(length_time*2)`,
+  `mergeVideo.py:756`), and coverage runs 120 s to duration−120 s, ~83 %.
+- **`SPEC_ZONE_A.MD` §1 cites `mergeVideo.py:1426`** for
+  `delay_same_md5_audio + delay_to_put`. In this tree it is **`:1446`**. The
+  requirement it supports — that the field must be a `Decimal` — is unaffected and
+  correct.
 
 ## 2026-09-03 — `check_write_zones.py`: the rules get an instrument, and it lives outside the repository
 
