@@ -602,22 +602,7 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     change_points = [cp for index, cp in enumerate(change_points)
                      if index in kept_runs and (index + 1) in kept_runs]
 
-    # WHAT THE OFFSETS ARE MEASURED AGAINST, and the value needed to convert.
-    # `_probe` seeks by presentation timestamp, so each stream's container
-    # `start_time` is absorbed into its offset. A consumer reading the stream from
-    # its first sample measures a different quantity, and the difference is exactly
-    # what is emitted below. Agreed with vmsam-dev-2, which converts on its side:
-    # without the VALUE it would have to re-derive start_time from the container and
-    # hope it read the same stream, which is the assumption that produced the defect.
-    master_starts = _start_times_ms(master_path)
-    candidate_starts = _start_times_ms(candidate_path)
-    reference_start_ms = master_starts.get(reference_stream)
-    absorbed_by_stream = {}
-    for stream in candidate_streams:
-        stream_start = candidate_starts.get(stream)
-        absorbed_by_stream[stream] = (
-            None if reference_start_ms is None or stream_start is None
-            else round(reference_start_ms - stream_start, 3))
+    reference_start_ms = _start_times_ms(master_path).get(reference_stream)
 
     return {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
             "master_path": master_path,
@@ -649,17 +634,19 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # [0, shortest] at PROBE_WINDOW_SECONDS resolution and cannot resolve
             # a step below MIN_STEP_MS. It is NOT a warrant for applying this
             # offset as a container delay.
-            # Measured on error id 144: master jpn start_time 1.103 s against the
-            # candidate's 0.120 s, and two measurements of that same stream disagree
-            # by 982.5 ms. A corpus scan finds 112 of 315 pairs carry a mismatch --
-            # 25 above 100 ms, and 77 between 20 and 100 ms, which is under the
-            # repair's tolerance and would ship unnoticed.
+            # THE MASTER REFERENCE STREAM'S OWN start_time. Emitted because it
+            # predicts a real failure and not because of any framing question --
+            # a consumer that rebuilds a track starting at PTS 0 is misaligned from
+            # the master's track by exactly this, and vmsam-dev-2's four release-32
+            # declines match it to under 5 ms across three distinct values:
+            # 1103.4 vs 1103.0, 1103.8 vs 1103.0, 1059.4 vs 1055.0, 887.6 vs 887.0.
             #
-            # Both framings are defensible. An implicit one is not: the same number
-            # meant two things depending on who read it. So the frame is a key, and
-            # the value to convert it travels beside it.
-            "offset_reference": "pts",
-            "start_time_ms_by_stream": absorbed_by_stream,
+            # An `offset_reference` key and the master-minus-candidate difference
+            # were emitted here for twenty minutes and are gone: dev-2 tested PTS
+            # seek against the `atrim` its assembler uses and got 0.0 ms apart on a
+            # stream with a 120 ms start_time, so there was no second frame and no
+            # conversion to name. A key naming a distinction that does not exist is
+            # a second thing to keep true and a second thing to get wrong.
             "master_reference_start_time_ms": reference_start_ms,
             "segments_dropped_unusable": dropped_segments,
             # Surfaced at the top level so a consumer does not have to scan the

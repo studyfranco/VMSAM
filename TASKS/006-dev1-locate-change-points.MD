@@ -183,3 +183,63 @@ apart. Every episode of that release carries the same jpn `start_time`, so the s
 983 ms enters each identically. **An explanation that also accounts for a regularity
 you were not trying to account for is a different class of evidence from one that
 fits the case in front of you.**
+
+
+---
+
+## Correction: there was no second frame, and one field survives
+
+The section above says the plan carries `offset_reference_frame` because a
+presentation-timestamp probe and a sample-position consumer measure different
+quantities. **`vmsam-dev-2` tested that directly rather than inferring it — PTS seek
+against the `atrim` its assembler actually uses, same file, same stream, same
+window, on a stream with a 120 ms `start_time`: 0.0 ms apart over 20 s.** Same frame.
+There was never a conversion to do between the plan and the assembly.
+
+**So the key is withdrawn**, along with the master-minus-candidate difference emitted
+beside it. A key naming a distinction that does not exist is not hygiene: it is a
+second thing to keep true and a second thing to get wrong.
+
+**One field survives, because it measures something that predicts a failure.**
+`master_reference_start_time_ms` — the master reference stream's own `start_time`. A
+consumer that rebuilds a track starting at PTS 0 is misaligned from the master's
+track by exactly this amount, and dev-2's four release-32 declines match it to under
+5 ms across three distinct values:
+
+    id 144   decline 1103.4 ms   master jpn start_time 1103.0   apart 0.4 ms
+    id 157           1103.8                            1103.0         0.8
+    id 174           1059.4                            1055.0         4.4
+    id 225            887.6                             887.0         0.6
+
+### The corpus, re-sliced on the quantity that matters
+
+The first scan counted master-minus-candidate mismatches. **That was the wrong
+column.** Re-sliced on the master's own `start_time`, 315 pairs, ffprobe only:
+
+| band | files | consequence |
+| :--- | ---: | :--- |
+| master `start_time` nonzero on a shared language | **65** (21 %) | |
+| >= 100 ms | **25** | visible: declines. **24 of 25 are one release** |
+| 20 - 100 ms | **33** | under a 100 ms tolerance — would not be noticed |
+| < 20 ms | 7 | |
+
+The earlier figures of 112 and 77 were mismatches and are superseded.
+
+### And "identical" was too strong — my own scan says so
+
+I wrote that *every episode of release 32 carries the same jpn `start_time`, so the
+same 983 ms enters each identically*. **The 24 episodes carry ten distinct values
+spanning 216 ms:**
+
+    887 892 892 892 911 959 959 983 983 983 983 988 1031 1055
+    1079 1079 1079 1079 1103 1103 1103 1103 1103 1103
+
+I had this data when I wrote the sentence. **Two of the four files dev-2 declined
+sit at 1103 and the other two at 1055 and 887** — so the errors did not agree to
+0.4 ms across the release; they agreed across the pair that shares a value, and
+tracked the input on the pair that does not.
+
+**That is a better test than the one I claimed.** An identical input predicting an
+identical error fits any constant. **A clustered input predicting a clustered error
+that tracks it file by file, across three distinct values, is the evidence** — and
+it was available the whole time in the numbers I had already measured.
