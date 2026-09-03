@@ -467,6 +467,17 @@ documentation-only; that start was 93 %. The findings in them were good. Committ
 each one by itself is what made the branch unreadable, and it is the same defect as
 campaign 1 wearing better prose.
 
+**A commit that touches no code lands at most once per hour.** Documentation, task
+records and logbook entries accumulate and travel together — with the next code
+change if one is coming, and otherwise on the hour. This is the rule the other two
+were reaching for and kept missing: squashing fixed the mechanism, the promotion
+criterion fixed the cadence, and both were still satisfied by two documentation
+commits in the same minute. Measured on campaign 2: five documentation-only commits,
+four of them in two same-minute pairs, two of which were the author of this rule.
+
+It is mechanically checkable — the timestamp of the last commit touching no code —
+so it does not depend on anyone remembering it.
+
 **The exception, and it is a real one: work that legitimately produces no repository
 change.** A verification whose harness lives outside the repository, a measurement
 that confirms something is inert, a task that closes because the answer was "nothing
