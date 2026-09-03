@@ -21,6 +21,61 @@ record.
 
 ---
 
+## 2026-09-03 — the pattern behind three instrument failures in one day: a fixture that cannot fail
+
+Two agents, three refuted instruments before midday, and they share one form. Worth
+one entry because the pattern is reusable and the three instances are not.
+
+> **A fixture built by copying one file cannot test anything that depends on the
+> two files being different.**
+
+| instance | the control | why its pass was guaranteed by construction |
+| :--- | :--- | :--- |
+| my sparse-frame content screen | a pair that was **frame-identical at zero offset** | sparse sampling only fails when there IS an offset; the control had none |
+| dev-1's clean-edge estimator | a file against a copy of itself with a cut | it tested for correlation reaching **1.00000**, which only identical content can reach. On a real pair of different encodes, aligned content reads 0.93–0.96 and the competing hypotheses were not separable. Refuted on the first real file |
+| dev-1's gap-start bisection | reversed `lo`/`hi` bounds | returned its own input bounds; caught because the number was implausible, not because the code objected |
+
+Each guard fired, returned both answers, and was believed. Each was then wrong on
+real input.
+
+**The decision this produces**, and it is why the entry exists rather than three
+apologies: `AGENT.MD` says *an armed guard that has never fired is
+indistinguishable from a working one*. That is necessary and not sufficient. The
+corollary we paid three times to learn:
+
+> **A guard fired only on the easy case is indistinguishable from one that works.
+> Before believing a control, ask what property of the FIXTURE guarantees the pass,
+> and whether real input has that property.**
+
+For a content or alignment instrument the property is almost always the same one:
+the two sides being genuinely different encodes rather than one file and a copy.
+
+**Why the alternatives lost.** More controls would not have helped — my screen had
+two, both answers, a wide margin. A stricter threshold would not have helped
+either. The only thing that would have caught any of the three is asking what the
+fixture made impossible, which costs one sentence and no compute.
+
+## 2026-09-03 — an instrument's answer is worth more when it does not share a code path with the thing it checks
+
+Recorded as a decision because it changed what I chose to rest a headline on.
+
+The misfiling conclusion could have been drawn from the recorded delay matrices
+alone — they were available for all 315 files, they were free, and they agreed. It
+was instead rested on three sources with **no shared code path**: release names and
+video frames I looked at; audio fidelity computed by another agent from the
+pipeline's own logs without reading a filename or a frame; and my own delay-shape
+classifier.
+
+That turned out to matter. **My delay-shape classifier had a defect** (it pooled
+track pairs) and **the recorded delays themselves turned out to be residuals rather
+than absolute offsets**, so two of the three legs were compromised within hours of
+being used — and the answer did not move, because the leg that carried it was
+frames on a screen.
+
+**The rule:** when a headline number is going to be quoted by other people, do not
+let its evidence share an implementation with the part of the analysis most likely
+to be wrong. Cheap redundancy is not redundancy.
+
 ## 2026-09-03 — correction: my step classifier pooled track pairs, and I shipped exemplars from it
 
 **Supersedes the classification in the misfiling entry below, not its conclusion.**
