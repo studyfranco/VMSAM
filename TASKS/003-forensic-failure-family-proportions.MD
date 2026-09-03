@@ -128,9 +128,13 @@ The last two lines are counted separately and are never folded into a family.
    **CORRECTED: the "250 ms" was never measured.** It is the difference of two readings
    quantized to a 125 ms grid, each carrying +-62.5 ms, so the log bounds the true value
    only to [125, 375] ms. Measured independently on one file, each master track against
-   the same candidate track: **126-138 ms**. `vmsam-dev-2` independently measured 84.5 ms.
-   Three figures, not all agreeing. Solid: the tracks are not in sync. Not solid: by how
-   much. Any delay difference read off this log at the one-quantum scale is a bound.
+   the same candidate track: **126-138 ms** — inside the bound, at its low end. So the
+   refusal follows by about 10 ms, not by 123.
+   I first reported `vmsam-dev-2`'s 84.5 ms as a third, disagreeing figure. **That was a
+   category error of mine, corrected by ci:** 84.5 is a candidate-against-master
+   SINGLE-TRACK offset, not the intra-master gap, and it sits inside my own single-track
+   readings (70.4-124.0 ms for the same master track). Two quantities, not three figures.
+   Any delay difference read off this log at the one-quantum scale is a bound.
 3. **`weak correlation` is not one phenomenon, and at least 41 files (13.0 %) share no
    measurable audio with their master.** `vmsam-ci` measured that error id 237 is a
    different television series from its folder's master. **ci's hedges, carried: ONE file
