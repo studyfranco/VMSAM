@@ -115,6 +115,43 @@ recovered per file, never in a fixed millisecond figure.
 Usable-per-family counts: different cuts 186/189, trimmed edges 28/31, constant offset
 24/24, speed mismatch 2/8, weak correlation **0/53**, no shared language 0/7.
 
+**Independently verified, 27 files.** A second instrument — one fingerprint of the
+whole track per side, sliding a 60 s chunk against the *entire* master fingerprint at
+12 probe positions of my choosing, so a different grid and a different search span from
+the pipeline's ten fixed windows. Sample: a seeded random 10 drawn before their verdicts
+were looked at, plus 17 targeted at the rare families.
+
+First pass scored **21/27 = 78 %**, below the 80 % I had committed to. Inspecting all
+six disagreements rather than adjusting anything found a defect in **my own tool**: a
+linear ramp on every curve, caused by computing seconds-per-point as
+`duration / len(fingerprint)` per side, which drifts wherever the two sides round
+differently. Confirmed quantitatively — predicted ramp against observed: id 67 -538.8 vs
+-517.6, id 163 +92.7 vs +91.8, id 266 +269.8 vs +251.9 ms/probe; every file with an spp
+ratio of exactly 0 shows no ramp. Removing a diagnosed instrument error is not moving a
+threshold, so the corrected figure is reported, but the 78 % is recorded too.
+
+**Agreement after correction: 26/27 = 96 %.** The single disagreement, error id 5, has a
+stated cause: its two edge probes (at 5 % and 95 % of the file) land on content with no
+counterpart in the master given the ~16 s offset; interior probes 1-10 give the same
+offset as the log to within 190 ms.
+
+Three things this established:
+- the shape families are in the media, not in the window placement or in the parser —
+  step positions and magnitudes reproduce under a different grid (log 250 ms -> measured
+  232-244; log 625 -> 620);
+- **the speed family is confirmed as NTSC by both instruments.** All eight have an spp
+  ratio of exactly 0, so their drift is not the artefact: independent 0.0998-0.1075 %
+  against log-based 0.0982-0.1022 %, R2 >= 0.998 on both;
+- a **prominence** discriminator (best similarity minus the best outside a neighbourhood
+  of the peak) separates shared content from none with no overlap: 25 of 27 files score
+  0.367-0.448 at 11-12 of 12 confident probes, while the two `weak correlation` files
+  score **0.004-0.009 at 0/12**. One of the two is error id 237, the file `vmsam-ci`
+  verified visually as a different series — so the instrument gives the right answer on
+  the one case with independent ground truth.
+
+Hedge: the sample holds only **two** `weak correlation` files and both are folder 103,
+so the discriminator is calibrated on one confirmed positive, not on a population.
+
 ## What was dropped
 
 - **Corroborating a speed slope with the container duration ratio.** It was in my
