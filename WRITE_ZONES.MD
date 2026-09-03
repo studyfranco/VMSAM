@@ -184,6 +184,22 @@ ruling that day was unreachable by construction. Add a `[features]` key instead
 
 ## 5. Verification
 
+**Run the write-zone checker** — `VMSAM_HELP_AI/tools/check_write_zones.py`, one
+command with one exit status, and **exit 2 means it could not run, which is not a
+pass**. It is the authority; the snippets below are what it replaced, kept because
+knowing what they missed is the point.
+
+**Why reading a diff by eye is not enough.** `git diff --cached -U0` shows changed
+lines, and a reader maps them onto the zones of the file **as it now is**. A pure
+deletion has no new-side line at all — so removing a frozen line *above* a zone reads
+as "nothing added outside a zone" and passes. Removals have to be mapped onto the
+**old** blob's zones and additions onto the new one's, separately. Two further holes
+close the same way: moving an `END` marker down swallows a line into a zone while the
+diff lands inside it and looks legal, and a fresh marker pair grants a zone that §2
+reserves to the owner — so any change in marker count fails.
+
+Found by the campaign-2 lead against this section, which its author wrote.
+
 Before every commit:
 
 ```sh
