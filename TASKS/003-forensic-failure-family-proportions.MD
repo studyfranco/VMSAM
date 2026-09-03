@@ -62,30 +62,38 @@ are PAL speed mismatches.
 | family | n | share | campaign 1 (unverified) |
 | :--- | ---: | ---: | ---: |
 | different cuts | 189 | 60.0 % | 57 % |
-| trimmed edges | 31 | 9.8 % | 18 % |
+| trimmed edges | 32 | 10.2 % | 18 % |
 | **content mismatch — wrong series** (not repairable) | 27 | 8.6 % | — |
-| **constant offset — refused anyway** | 24 | 7.6 % | — |
+| **constant offset — refused anyway** | 22 | 7.0 % | — |
 | speed mismatch — **PAL** 25/23.976 | 20 | 6.3 % | *(11 % for speed overall)* |
 | speed mismatch — **NTSC** 1000/1001 | 8 | 2.5 % | |
 | no shared language | 7 | 2.2 % | 2 % |
-| weak correlation | 4 | 1.3 % | 10 % |
+| **defective master (audio truncated)** | 2 | 0.6 % | — |
 | **content mismatch — wrong episode** (not repairable) | 2 | 0.6 % | — |
+| weak correlation | 2 | 0.6 % | 10 % |
 | *instrument did not run — no measurement exists* | 2 | 0.6 % | — |
-| *unclassifiable — measured, shape fits nothing* | 1 | 0.3 % | — |
+| *unclassifiable* | 1 | 0.3 % | — |
+| **no shared language — TAGS LIE** | 1 | 0.3 % | — |
 
 Speed, both relations, is 28 = 8.9 %. Content mismatch, both kinds, is 29 = 9.2 % and
 **none of it is repairable** — a repair that "succeeded" on one would splice the wrong
 programme into the library.
 
-**`weak correlation` began at 53 files (16.8 %) and ends at 4 (1.3 %).** Everything else
+**`weak correlation` began at 53 files (16.8 %) and ends at 2 (0.6 %).** Everything else
 in it had a name: 20 PAL speed relations, 27 wrong-series files, 2 wrong-episode files.
 Campaign 1's table gives that bucket 10 %; measured, it was almost entirely **not a sync
 problem at all**. "No confident peak" is a symptom shared by at least four unrelated
 causes and is not a family. That is the largest structural difference from campaign 1's
 table, larger than any of the individual numbers.
 
-`trimmed edges` at 9.8 % against 18 % is the remaining unexplained gap and I have not
-investigated it.
+`trimmed edges` at 10.2 % against 18 % CANNOT BE DEFENDED FROM THE RECORD, and neither can
+campaign 1's figure. dev-1 and ci established that the stage-1 geometry cannot see a step in
+the first ~120+L/2 seconds of any episode, and ci then showed the head is a special case: it
+cannot see a step smaller than its ~194 s window resolution anywhere in the file. ci profiled
+error id 13 end to end and found FOUR change points, one at 1170 s with a step of 89 ms,
+where the record shows nothing. My own whole-file profiler has the same disease at a finer
+scale and did not find that step either. The family is undercounted by construction and
+neither instrument bounds the error.
 
 The last two lines are counted separately and are never folded into a family.
 
