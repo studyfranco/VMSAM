@@ -35,9 +35,22 @@ criterion fixed the cadence, and both were still satisfied by two documentation
 commits in the same minute. Measured on campaign 2: five documentation-only commits,
 four of them in two same-minute pairs, two of which were the author of this rule.
 
-**The clock is per author, not per branch.** Your last documentation-only commit
-starts your hour; nobody else's does. It is mechanically checkable from the commit
-author, so it does not depend on anyone remembering it.
+**One documentation-only commit per hour on the branch, and it carries everyone's.**
+The lead does not promote a documentation-only change on its own: it holds it until
+another agent's documentation change or a code change joins it, and promotes them
+together. So no agent competes for a slot, and the branch takes one such commit an
+hour rather than one per actor.
+
+**Both simpler rules were tried and both were wrong.** A branch-wide clock with
+agents committing directly starves whoever commits least often — one agent's finished
+work sat blocked over an hour, reset three times, every time by someone else's commit
+and never once by its own. A per-author clock removes the starvation and produces
+five commits an hour instead of one: four landed in six minutes, each compliant.
+Batching at the lead fixes both, because the thing that was scarce was never the
+clock — it was that agents were racing for the same slot at all.
+
+**In your own clone this does not apply.** Commit documentation as freely as
+anything else; the rule governs what reaches the branch.
 
 **It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as
 a property of the rule — five actors reset one clock, and the agent committing least

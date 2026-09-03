@@ -188,6 +188,30 @@ difference between a decision procedure and a deferral to somebody who is not
 present. The campaign has the example: error id 237 was refused on a median fidelity
 of 0.576 with 18 sign flips, not on a flag.
 
+**Reimplement an idea; do not copy the code.** Comparable projects exist and reading
+them is encouraged — the search strategies are worth having. But an idea described in
+a README and implemented yourself is unencumbered, and copied lines are not.
+
+**If you do copy anything, say so in a comment at the copy**, naming the project, the
+file, the revision, and its licence. That is required and it is not sufficient: a
+comment records provenance, it does not grant permission.
+
+Licences as declared by the projects surveyed:
+
+| project | licence |
+| :--- | :--- |
+| `ffsubsync` | MIT |
+| `tympanix/subsync` | Apache-2.0 |
+| `alass`, `sc0ty/subsync` | **GPL-3.0** |
+| `VideoDiff` | **GPL-2.0** |
+| `video-offset-finder` | **none declared** |
+
+The last row is the strictest, not the most permissive: **no licence means no
+permission to copy at all** by default. The two permissive ones still require their
+notice to travel with the code. And VMSAM carries no `LICENSE` file of its own, so
+what copied copyleft code would oblige is an owner question, not an agent's — which
+is the whole reason to reimplement instead and never reach it.
+
 **A sub-option of an unconditional capability is a condition on it.** The ruling
 above names a capability and its flag; it says nothing about the options *inside* a
 capability whose flag is already gone, and every key removed after the two headline
