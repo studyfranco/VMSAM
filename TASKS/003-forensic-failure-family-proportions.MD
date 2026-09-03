@@ -84,7 +84,35 @@ The last two lines are counted separately and are never folded into a family.
    `delay_detected` ends with two values beyond the `< 127` reconciliation window at
    `mergeVideo.py:315`. The candidate is refused for a defect in the file it is
    compared against. Error ids 6, 7, 10, 11, 14, 15, 16, 17, 18, 19, 24.
-3. **`weak correlation` contains 26 files that are not a sync failure at all.**
+3. **`weak correlation` is not one phenomenon, and at least 41 files (13.0 %) share no
+   measurable audio with their master.** `vmsam-ci` measured that error id 237 is a
+   different television series from its folder's master. **ci's hedges, carried: ONE file
+   verified visually, 25 attributed from the release name without being opened, 37
+   folders unchecked, no claim about campaign 1.**
+   - Folder 103, independently and without reading a filename, splits 26 / 23 in my
+     classification — 26 at fidelity 0.564–0.590 against a 0.50 chance floor, 23 with
+     real structure at 0.90–0.97. That is ci's partition from a method sharing no input
+     with ci's.
+   - Folder 110 — one of ci's 37 unchecked folders — **repeats the pattern, and this one
+     is measured by me**: all 11 of its weak files read 0 of 12 confident probes at
+     maximum prominence 0.033–0.056 against a whole-master search. Each is `[fre, eng]`
+     and ~53 s shorter than its master, alternating with non-weak files that match.
+     The innocent explanation is excluded: re-running ids 46, 51, 91 on the **English**
+     track as well gives 0/12 on both languages, and a different French dub of the same
+     episode would still share its music bed (campaign 1 measured that case at 0.987).
+   - Totals: 26 (folder 103, ci's attribution) + 11 (folder 110) + 4 (other folders)
+     = **41 files, 13.0 %**, with no measurable shared audio. A further 8 are marginal
+     and **cannot be separated from noise**, and 4 show genuine partial overlap that is
+     something else again.
+   - **My own hedges: I have verified ZERO files visually** — my instrument measures
+     audio only; the 0.10 confidence threshold was calibrated on two files and the wider
+     sweep shows noise reaching 0.141, so it is too low and the 8 marginal files sit
+     inside its error; and the 26 in folder 103 have not been through my prominence
+     instrument, only through the fidelity partition.
+   The consequence: `weak correlation` at 16.8 % must not be quoted as a single family.
+   A repair addressed to it would be addressed to nothing.
+
+   *(superseded note)* **`weak correlation` contains 26 files that are not a sync failure at all.**
    `vmsam-ci` measured that error id 237 is a different television series from its
    folder's master. Independently, and without reading any filename, folder id 103
    splits 26 / 23 in my classification: 26 at fidelity 0.564–0.590 (the 0.50 chance
