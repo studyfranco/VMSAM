@@ -55,7 +55,29 @@ energy, and the outlier was never a bad measurement.
 All three of ci's family-B files (12, 13, 108) are therefore early-step cases, and
 **every one of them sits inside the head blind spot**.
 
-**One thing I could not resolve and am flagging rather than choosing.** In the
+**RESOLVED by `vmsam-ci`: explanation (b), short-window bias.** It probed straight
+across the 220-230 boundary I named and well past it — ten probes from 160 s to
+760 s all read **+1412 to +1428 ms**, a 16 ms spread across ten minutes at
+correlations 0.86-0.97. **There is no second step.** So my short-window absolute
+read of 12 points was ~83 ms high against a true 11.3 points, and the ten-window
+scan's 11 was right.
+
+The bias is in the **absolute value only**. The location was identical at both
+window lengths and the step was 7 points at both — and the step in points matches
+ci's 840 ms (6.7 points) to within a rounding. So the rule I had already given
+dev-2 — *exchange point counts and locations, never absolute milliseconds across
+window lengths* — protected me from my own defect before I knew I had it. Standing
+constraint for the module: **do not quote an absolute offset from a window of
+30 s or less.**
+
+ci's full 8 s bisection also closes id 12's ground truth: change point **158-160 s**
+against my bracket of (157.5, 160.0), step **840 ms** against my 875, forensic's
+861 and the direct FFT's 850 — four figures within 35 ms. Its boundary-spanning
+probe collapses to **0.267 correlation** between neighbours at 0.89-0.92, the same
+signature id 108 showed, which is independent evidence the transition is sharp
+rather than gradual.
+
+**One thing I could not resolve and flagged rather than choosing.** In the
 post-step region [152, 220] the short windows read **12 points**, while the
 ten-window scan reads **11 points** (-1375 at q=125) over [227, 1066] and the FFT
 reads -1417 there. One to two points apart, which is more than quantisation
@@ -306,6 +328,19 @@ one. #5 died when a speed-only plan produced a single segment. #4 died against a
 second fixture with a non-zero base offset. **None was caught by review**, and
 several had been reviewed — including by their author, in writing, after stating
 the convention as an equation.
+
+**THE CURE, and it is `vmsam-ci`'s framing.** The antidote to every row above is
+**ground truth that exists independently of the thing being tested.** A constructed
+fixture cannot have that property by construction: a file against a copy of itself
+has an expected answer *you supplied*, so the fixture and the instrument share an
+author and share his blind spots. ci's three early-step files each carry an
+expected answer established by three or four instruments that know nothing about my
+locator — and my committed module fails all three. That is what makes them a real
+acceptance test and my fixtures not one.
+
+Stated as a test to apply before trusting any validation set: **who produced the
+expected answer, and could they have produced it wrongly in the same direction as
+the thing under test?**
 
 **The practical rules that fall out**, all of them paid for today:
 
