@@ -498,6 +498,50 @@ identical but carry different language tags, at least one tag is false. A single
 test needing no master, and the engine already does MD5 audio grouping so the
 primitive exists. **One file measured; no count claimed.**
 
+### Goal 3i — my "no stage-1 matrix" bucket held FIVE outcomes, and one is an engine finding
+
+Another agent corrected a claim of mine: I had called one file *"no stage-1 matrix —
+that is 'instrument did not run' shaped"*. **The instrument ran.** Its log carries a
+`first_delay_test` event with ten delays at mean fidelity 0.5726; only the
+`Multiple delay found` dump is absent, because the refusal exited by the stage-2
+disagreement path. I verified that myself rather than relaying it.
+
+That is exactly the axis `BRIEF_COMMON` warns about — *"I could not measure"* and *"I
+measured and the answer was bad"* are different answers — and my classifier had
+pooled them. Splitting all 14 files in that bucket by what their logs actually say:
+
+| outcome | n |
+| :--- | ---: |
+| **no common language** — a correct refusal, nothing to measure | **7** |
+| **stage-2 variance refusal** — measured | 4 |
+| **`ffmpeg` cmd error** — the instrument genuinely did not run | 2 |
+| stage-1 ran, no dump (different exit) — measured | 1 |
+
+Five outcomes where I had reported one. The 7 match the other agent's count for the
+*no shared language* row exactly.
+
+### Goal 3j — engine finding: one outlier window refuses an excellent measurement
+
+Nine files carry a stage-2 variance refusal. **Four of them have 8–9 of their 10
+windows agreeing to between 1.16 ms and 2.18 ms** — far better than the 41.7 ms frame
+quantum — and are refused because the variance is computed over the **whole** set
+including a single outlier hundreds of milliseconds away. The code itself notices,
+recording *"…but the first and last part have a similar delay"*.
+
+`mergeVideo.py:582–594`, **outside every tagged zone** — frozen. **A finding for the
+owner, not an edit.**
+
+A units nuance, offered because the figure appears in a frozen document:
+`max_delay_variance_second_method = 0.004` is compared against `statistics.variance`,
+which returns **seconds squared**, so the implied tolerance on spread is √0.004 ≈
+**63 ms of standard deviation**, not the 4 ms that *"0.004 s"* reads as. **No
+conclusion here depends on it** — under either reading the nine good windows pass and
+the outlier is what refuses the file.
+
+**Not claimed:** that these four would merge *correctly*. Their recorded measurement
+looks excellent, which is not the same as being right, and a refusal is a correct
+outcome. Settling it needs a real merge, not a log.
+
 ## What was dropped
 - **My own chromaprint screen as a corpus-wide detector.** It was validated on
   three eye-verified controls and still produced three false positives out of four
