@@ -598,6 +598,22 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # [0, shortest] at PROBE_WINDOW_SECONDS resolution and cannot resolve
             # a step below MIN_STEP_MS. It is NOT a warrant for applying this
             # offset as a container delay.
+            # WHICH QUANTITY THE OFFSETS ARE. `_probe` extracts with `ffmpeg -ss t
+            # -i file`, which seeks by PRESENTATION TIMESTAMP and therefore absorbs
+            # each stream's container `start_time`. A consumer that reads a stream
+            # decoded from its beginning is measuring sample position, and the two
+            # differ by exactly the master-minus-candidate start_time difference.
+            #
+            # Measured on error id 144: master jpn start_time 1.103 s against the
+            # candidate's 0.120 s, and the two measurements of that same stream
+            # disagree by 982.5 ms against a start_time difference of 983 ms. A
+            # corpus scan finds 112 of 315 pairs carry a mismatch -- 25 above 100 ms
+            # and 77 between 20 and 100 ms, which is under the repair's tolerance and
+            # would not be noticed.
+            #
+            # Both framings are defensible. An implicit one is not: the same number
+            # meant two things depending on who read it. So the frame is a key.
+            "offset_reference_frame": "presentation_timestamp",
             "segments_dropped_unusable": dropped_segments,
             # Surfaced at the top level so a consumer does not have to scan the
             # segment list to discover that part of the plan is unverified.

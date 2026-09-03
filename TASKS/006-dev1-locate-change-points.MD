@@ -111,3 +111,75 @@ deliberate:
 
 Narrative, measurement logs and the full history of what was refuted:
 `AGENT_NOTES.MD` and `VMSAM_HELP_AI/dev-1/lab/`.
+
+
+---
+
+## The offsets have a reference frame, and now they say so
+
+`_probe` extracts with `ffmpeg -ss t -i file`, which seeks by **presentation
+timestamp** and so absorbs each stream's container `start_time`. A consumer reading
+a stream decoded from its beginning measures **sample position**. The two differ by
+exactly the master-minus-candidate `start_time` difference.
+
+**Measured on error id 144:**
+
+    MASTER      idx 2 eac3 eng  start_time 0.048     idx 5 aac jpn  start_time 1.103
+    CANDIDATE   idx 1 aac  eng  start_time 0.000     idx 5 aac jpn  start_time 0.120
+
+    eng   probe  +14.85 ms   decode-from-zero   +66.35 ms   differ   51.5   (start_time  48)
+    jpn   probe  +20.32 ms   decode-from-zero +1002.81 ms   differ  982.5   (start_time 983)
+
+`vmsam-dev-2`'s verifier measured the produced file's ja track at **-1002.75 ms**,
+matching the decode-from-zero figure to 0.06 ms — **so the produced file behaves like
+sample position while the plan was expressed in presentation timestamps.** A frame
+mismatch across the join, not a wrong number on either side.
+
+**Corpus scan, ffprobe only, no decode — 315 pairs:**
+
+| band | files | consequence |
+| :--- | ---: | :--- |
+| any mismatch | **112** (36 %) | |
+| **>= 100 ms** | **25** | above the repair's tolerance: declines, visible. **24 of 25 are one release** |
+| **20 - 100 ms** | **77** | **under the tolerance: would ship silently**, median 21 ms, max 84 ms |
+| < 20 ms | 10 | |
+
+The 25 visible ones explain `vmsam-dev-2`'s four release-32 declines and predict
+twenty more from the same release. **The 77 are the ones that matter**, and they are
+the same shape as id 266's 27.5 ms per-stream split: real, wrong, and under every
+tolerance in the chain.
+
+**The files this campaign has repaired and measured on are clean**: ids 46, 266, 108
+and 237 all read 0.0 ms, so nothing already claimed rests on this.
+
+### What changed, and what deliberately did not
+
+**Changed:** the plan now carries `offset_reference_frame: "presentation_timestamp"`.
+Both framings are defensible; an implicit one is not — the same number meant two
+things depending on who read it. **A key, not a convention.**
+
+**Not changed: the numbers.** Making the probe ignore `start_time` would silently
+alter every offset this module has ever emitted, including plans already repaired
+against and the id 46 plan that verified at 1.125 ms. **Which framing the assembly
+wants is the repair's to say**, and changing the meaning of a shipping field on a
+guess is how a wrong number gets confirmed by everything downstream.
+
+### A hypothesis tested and reverted
+
+I was confident the cause was inaccurate input seeking — `-ss` before `-i` landing on
+a packet boundary. I implemented a two-stage accurate seek, re-ran the identical
+test, and **got identical numbers to two decimal places**. Reverted.
+
+**A defensible improvement with no evidence behind it is not a fix.** This campaign
+has already shipped five pieces of code that were reviewed green and never called; a
+sixth that was reviewed green and repaired nothing would be worse, because it would
+look like the repair.
+
+### Why this explanation is believed
+
+**It predicted a pattern it was not built to explain.** ids 144 and 157 decline at
+1103.4 and 1103.8 ms — agreeing to 0.4 ms — while their change points sit 330 s
+apart. Every episode of that release carries the same jpn `start_time`, so the same
+983 ms enters each identically. **An explanation that also accounts for a regularity
+you were not trying to account for is a different class of evidence from one that
+fits the case in front of you.**
