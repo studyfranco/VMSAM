@@ -69,8 +69,11 @@ Repository-side: this file and `AGENT_NOTES.MD`.
    (`T > begin + L/2`) and larger than roughly half a quantum. Two independent unbounded
    error terms, neither estimable from the record. Every family count inherits them.
 5. **Objective 2 waits on the owner's re-download** and has not been started.
-6. **No inbound message has ever been delivered to this session.** Outbound works; every
-   instruction acted on today arrived by relay.
+6. **Inbound peer messages now arrive directly** — this was recorded as never having
+   happened and that is no longer true. Corrected rather than left standing: most of
+   this task's later findings came from peer exchanges, and three of them (the fine-window
+   defect, the `keep_best_audio` mechanism, the fourth condition on a plan's first
+   segment) were **found by a peer and could not have been found from this side**.
 7. **A broken instrument produced false CLEANLINESS, not noise — and it propagated.**
    The first whole-file scan searched offsets within ±3000 ms of zero; 64 of 100 sampled
    files carry a recorded delay outside that span. Outside its window the correlation
@@ -115,6 +118,27 @@ Repository-side: this file and `AGENT_NOTES.MD`.
     because it carries the authority of having been frozen.** Freeze the observation and
     the decision rule; never the conclusion — and check the rule can come out both ways on
     the space actually searched.
+
+12. **A delivered repaired track carries silence where the master cannot fill it.**
+    Measured on one artefact: **21.7 %** of a shipped track is silent at points where
+    the source had audio, and **zero** points where the source was silent too. One gap
+    bisected to a change point. The structural reason follows from two separately
+    measured facts — a repaired track is dropped when the master shares its language,
+    and master fill is cut from the master's same-language stream — so **every repaired
+    track that survives to an artefact is one the master cannot fill.** *A track that
+    could be filled is dropped; a track that ships cannot be filled.*
+    Corpus distribution from the repair's own accounting: 14 tracks, median 12.9 %, max
+    24.5 %, with `silence_ms` equal to `gap_ms` **exactly** on all fourteen. Confirmed
+    from outside that accounting: sampling the delivered worst-case artefact gives
+    **23.4 %** against **24.5 %** — two methods sharing no code, one point apart.
+    Silence instead of misaligned audio is defensible; **the magnitude was unstated.**
+13. **A container `start_time` mismatch does not reach the audio.** A delivered artefact
+    carries a fabricated track at `0.000000` beside a master track at `0.042000`, and
+    the content aligns at **+0.50 ms**. Prediction was ~42 ms and is **refuted**; the
+    null branch, written out in advance, is the answer. **Scope: this is the metadata
+    question only** — a separate content defect measured by *length* was not exercised
+    by that file, and the artefact's provenance was established by object-store
+    reachability rather than by timestamps.
 
 Narrative, method and the day's corrections: `AGENT_NOTES.MD`, and
 `VMSAM_HELP_AI/ci/` (full archive at `002-full-narrative-archive.MD`).
