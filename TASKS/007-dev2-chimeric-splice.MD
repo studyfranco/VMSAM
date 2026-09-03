@@ -531,11 +531,43 @@ No islands.
 Two things fall out that are worth more than the headline:
 
 - **+84.5 ms is below one chromaprint point**, so stage 1 reads those pairs as
-  *zero* points — perfectly aligned — when they are about two video frames out. Not
-  a refusal cause and not a defect in any instrument, but a real offset the
-  pipeline is structurally unable to see, on ten files.
+  *zero* points — perfectly aligned — when they are about two video frames out.
+
+  **I first wrote that this is "a real offset the pipeline is structurally unable
+  to see, and it would ship as-is". That was wrong, and `vmsam-ci` corrected it.**
+  Stage 1 cannot see it; the *pipeline* is not stage 1. `mergeVideo.py:243` adds
+  stage 2's reading, which is an FFT at sample resolution and unquantised — 84.5 ms
+  is exactly what stage 2 exists to measure. `vmsam-ci` checked the logs: none of
+  the ten has a stage-2 record at all, because stage 1 refused the pair first. So
+  the true statement is *the offset is invisible to stage 1, and stage 2 never got
+  to it* — not that the pipeline could not see it.
+
+  The mechanism is more interesting the corrected way round: **a sub-quantum offset
+  does not merely go unseen, it actively causes the refusal**, by making each window
+  round to 0 or 1 point on its own noise. `vmsam-ci` found the signature in the
+  records — id 7 alternates between 0 and −125 six times, and a step has one
+  transition, not six — and counted the corpus by *contiguity* rather than by
+  distinct values: 277 multi-point (real structure), 12 one-point with 1–2
+  transitions (ambiguous), **8 one-point alternating (quantisation noise)**. Those
+  eight are ids 6, 7, 10, 11, 14, 17, 18, 19 — my set minus the two with fewer
+  transitions. Its record analysis and my audio measurement reached the same files
+  by different routes, and mine was made before it looked.
+
+  **Which raise fires is not settled and I am not settling it.** Two paths exist in
+  the code and I have not determined which one these ten take. A pair whose windows
+  disagree goes to `ignore_audio_couple` at the `else` (`mergeVideo.py:~308`), and
+  if that empties `delay_detected` the raise happens with **zero** values — never
+  reaching the `< 127` reconciliation at `:315` at all. `vmsam-forensic`'s account
+  is the other path: the *master's* two same-language tracks 250 ms apart give two
+  values 250 apart, which exceeds 127 and raises there. Both are real; which fires
+  here needs the logs, and that is forensic's and ci's ground rather than mine.
 - **id 24 reads 0.0 ms at r = 1.000 on all 27 windows.** That is not "well
   aligned", it is *the same audio* — a candidate contributing nothing at all.
+  `vmsam-ci` ran a packet-hash test across all 12 candidate and 14 master audio
+  streams and found **no** hash match, jpn included, so it is not a byte copy:
+  it is decoded-identical audio that was re-encoded or re-muxed. That is exactly
+  the class `vmsam-forensic` said its cheap hash test cannot catch, so this file
+  is a concrete instance of a limit they had stated but not demonstrated.
 
 **Hedges, because a negative result is easy to over-read.** Eleven of the
 twenty-four — the ones whose refusal cause was already measured, not the thirteen
