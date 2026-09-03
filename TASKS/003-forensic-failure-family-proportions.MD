@@ -118,10 +118,19 @@ The last two lines are counted separately and are never folded into a family.
 2. **A sixth population, 24 files (7.6 %), has a constant offset and was refused
    anyway** — delay spread ≤ 1 quantum across all ten windows at fidelity ≥ 0.85, 14
    of them with spread exactly 0 and fidelity to 0.995. For 11 of them the cause is
-   measured: two of the **master's** same-language tracks are stable 250 ms apart, so
+   measured: two of the **master's** same-language tracks are out of sync, so
    `delay_detected` ends with two values beyond the `< 127` reconciliation window at
    `mergeVideo.py:315`. The candidate is refused for a defect in the file it is
    compared against. Error ids 6, 7, 10, 11, 14, 15, 16, 17, 18, 19, 24.
+   The direction is code-grounded: `get_delay_fidelity` iterates `i` over `video_obj_1`
+   and the raise names `video_obj_1` first, and for all 11 the error file matches `p2`
+   while the varying index is `i` — so the master's.
+   **CORRECTED: the "250 ms" was never measured.** It is the difference of two readings
+   quantized to a 125 ms grid, each carrying +-62.5 ms, so the log bounds the true value
+   only to [125, 375] ms. Measured independently on one file, each master track against
+   the same candidate track: **126-138 ms**. `vmsam-dev-2` independently measured 84.5 ms.
+   Three figures, not all agreeing. Solid: the tracks are not in sync. Not solid: by how
+   much. Any delay difference read off this log at the one-quantum scale is a bound.
 3. **`weak correlation` is not one phenomenon, and at least 41 files (13.0 %) share no
    measurable audio with their master.** `vmsam-ci` measured that error id 237 is a
    different television series from its folder's master. **ci's hedges, carried: ONE file
