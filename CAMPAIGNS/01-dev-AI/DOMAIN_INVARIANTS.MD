@@ -3770,10 +3770,44 @@ instrument discriminates rather than firing on all inputs.
 - Another has six short tracks stopping at 441.461, 441.473, 441.473, 441.479,
   441.486 and 441.486 s — **within 25 ms of each other** — while its three
   full-length tracks run to 1441 s. The short ones are all candidate-derived and
-  the full ones all master-derived. **A single common cut point on one side of
-  the merge is per-SOURCE, not per-track**: the assembler loses the candidate
-  input at an instant, it does not damage tracks individually. Any explanation
-  that corrupts tracks independently is already refuted by that 25 ms spread.
+  the full ones all master-derived. **WITHDRAWN -- that provenance is FALSE, and
+  invariant 86 already names this exact reading as an error without saying so
+  here.** Measured from the stage records, using **156** -- a `DURATION` tag is
+  a timeline END, not a length:
+
+      master    ger/fre/jpn  tag 1441.959  start 0.959  -> REAL LENGTH 1441.000
+      candidate jpn          tag 1441.942  start 0.000  -> LENGTH      1441.942
+
+  **Delivered `ger` and `fre` read 1441.000 -- the master's real length.
+  Delivered `jpn` reads 1441.942 -- the CANDIDATE's, its second pass's `-t` to
+  the millisecond.** The master's `jpn` would have read 1441.000.
+
+  **So `jpn` is candidate-derived. Two substitutions, not none**: the master's
+  `eng` (1440.832) and its `jpn` are both absent, replaced by the candidate's.
+
+  **The clustering is real and it is what separates "the assembler lost one
+  input" from "six unrelated failures".** But **"lost one input" is harder to
+  sustain once the same input also supplied a full-length track**: the candidate
+  contributed **six truncated tracks AND `jpn` at the full `-t` limit.** An input
+  lost at an instant did not lose the track that ran to the end.
+
+  **WITHDRAWN, and this is the sentence a reader would lift**: *"any explanation
+  that corrupts tracks independently is already refuted by that 25 ms spread."*
+  **FINDINGS 37 measured the opposite.** Per-track deltas between two runs on
+  byte-identical input:
+
+      [-0.006, -0.012, 0.000, +0.012, +0.006, 0.000]
+
+  **Two down, two up, two unchanged. A single instant cannot move two tracks
+  apart while leaving two unchanged**, so the movement is per-track, not
+  per-invocation. **A 25 ms spread bounds how far apart the stops are; it does
+  not establish they are one event.**
+
+  **The data do NOT conflict** -- this entry reads the DELIVERED output (9 audio
+  tracks, 6 short) and FINDINGS 37 reads the `second_pass_out` INTERMEDIATE (7
+  tracks, 6 short). Different stage, different run; the values differing is
+  expected. **The contradiction was in the inference, which is why both were
+  written correctly and why a value-level marker would not have caught it.**
 
 ## 86. Track ORDER is not provenance once the assembler substitutes
 
@@ -5100,6 +5134,55 @@ record was checked against a fresh probe on 120 files: **119 agree, 1 stale**.
 class and keep it there.** Rarity of corruption is not a reason to skip the
 check -- it is the reason the check is cheap.
 
+### 122 addendum: a sample large enough to see a second class, too small to size it
+
+Phase 2's first twelve files showed **two distinct failure heads**, reported as
+*"Phase 2 is not a uniform population."* At 22 of 29 the population is
+**uniform**: 21 of 21 share one head, and **the second head belongs to a single
+file** -- one of three singletons appended to a 27-file series, which happened
+to be run first.
+
+**Twelve was enough to SEE two classes and not enough to see that one of them
+had a population of one.** The heterogeneity was real in the sample and false in
+the population.
+
+**This is 122 arriving from the opposite direction.** There, a class was assumed
+homogeneous and was not; here, a class was declared heterogeneous on a sample
+that contained the whole of its minority class. **Both errors are the same
+mistake -- treating a sample's class structure as the population's -- and the
+second is harder to distrust, because seeing two things looks like more evidence
+than seeing one.**
+
+**Rule: before reporting that a population is mixed, size each class you found.**
+A class of one is a member, not a class.
+
+**Recorded because the reporter had corrected this exact error in three other
+agents' numbers the same day**, and it was the second time it landed on them --
+the first being a rate extrapolated from sixteen files to a corpus (123).
+
+
+### 122 second addendum: a prefix is not a population, at any prefix length
+
+The same class was characterised three times from a running job, **each time
+with more data than the last, and it was wrong twice:**
+
+    at 12 of 29   "not uniform, two heads"   -- one head was a single file
+    at 22 and 24  "uniform, one head"        -- file 28 carried a third
+    at 29         28 / 1 / 1, three heads
+
+**More data did not help, because the error was not sample size. It was
+describing a population from a prefix of itself** -- and a prefix of a run is
+not even a random sample, since files are processed in a fixed order.
+
+**The available correct statement was always "n of 29 so far, heads so far",
+and it was never made.** Progress reports invite population claims because the
+denominator is known and feels accounted for.
+
+**Rule: while a job is running, report counts as `n of N so far`. A claim about
+the population waits for the population.** And note the asymmetry with 141: a
+null needs its instrument's capacity established; **a class claim needs its
+denominator to be complete, not merely large.**
+
 ## 123. A percentage detaches from its denominator the moment it is quoted
 
 Agent 2 measured `get_bitrate` failures and reported them accurately at every
@@ -5229,6 +5312,34 @@ dissolves"*. **The six were in group A and it dissolved anyway.** Both branches
 assumed `scatter` meant something about the files. **A well-posed either/or is
 still worthless when both arms share a false premise** (cf. 120).
 
+### 125b. A refusal that still answers the naive read
+
+Companion to 125, found by asking the same question of a second module. Not a
+shared **name** this time -- a shared **payload**:
+
+    out["refused"] = "peak sits at the search ceiling -- a failed search"
+    return out          # offset_s, hits, hit_fraction ALL STILL PRESENT
+
+**A result that had declared itself a failed search still answered
+`.get("offset_s")` with a number.** The refusal was correct, explicit and
+well-worded, and it sat in the same dict as the value it refused.
+
+**The caller who reads the verdict is safe; the caller who reads the number is
+not -- and the naive read is the one people write.** A refusal is only a refusal
+if the thing being refused becomes unavailable.
+
+**Fix**: the values move under a `refused_` prefix, so the naive read returns
+`None` and nothing is discarded. A test pins it.
+
+**The author's own analysis filtered on `refused` and was unaffected** -- which
+is the point. **The API invited the mistake regardless of whether anyone had yet
+made it**, and an interface that is safe only because its current callers happen
+to be careful is not safe.
+
+**Rule: when a function can refuse, the refusal must remove the refused value
+from the path a naive caller reads.** Do not rely on a sibling flag being
+checked.
+
 ## 126. ENVIRONMENT: stale bytecode makes a killed mutant look alive
 
 **This box sets `PYTHONPYCACHEPREFIX=/tmp/pycache`.** Bytecode does not live
@@ -5254,6 +5365,25 @@ believed.
 directory** -- a new directory, not `rm -rf` on a shared one, so a run cannot
 pull the cache out from under a concurrent session. All 13 mutants re-run: **13
 dead.**
+
+**A second cause of the same false survival, found later the same day: the
+mutation was never applied.** A mutant's anchor string did not match, the edit
+silently did nothing, and the unmutated code passed its tests -- **reported as a
+survivor.** Stale bytecode and an unmatched anchor produce an identical symptom
+by different routes, and **both point the reader at the test rather than at the
+harness.**
+
+**Fix: assert the anchor matched EXACTLY ONCE and fail loudly otherwise** --
+`ANCHOR FAILED` is a different outcome from `SURVIVED` and must never be
+rendered as one. (The same shape as an unresolvable subject rendering as an
+absent record, 139.)
+
+**And a fixture can satisfy a test BY CONSTRUCTION.** A "still measures" test
+built on a **uniform 1 s keyframe grid** failed -- because a fixed grid matches
+at **every** integer offset and therefore **ties by construction**, which is that
+module's own documented premise about fixed-GOP files. **Once a tie-refusal rule
+existed, the uniform fixture would have passed for the wrong reason.** Rebuilt
+irregular, gaps 1.7-2.9 s, deterministic.
 
 **Rule: never conclude "the test is weak" from a surviving mutant without
 confirming the interpreter ran the mutated source.** Cheapest confirmations: a
@@ -5327,34 +5457,6 @@ than re-characterised wholesale** -- the discipline of 122, applied in the class
 that produced 122.
 
 
-## 125b. A refusal that still answers the naive read
-
-Companion to 125, found by asking the same question of a second module. Not a
-shared **name** this time -- a shared **payload**:
-
-    out["refused"] = "peak sits at the search ceiling -- a failed search"
-    return out          # offset_s, hits, hit_fraction ALL STILL PRESENT
-
-**A result that had declared itself a failed search still answered
-`.get("offset_s")` with a number.** The refusal was correct, explicit and
-well-worded, and it sat in the same dict as the value it refused.
-
-**The caller who reads the verdict is safe; the caller who reads the number is
-not -- and the naive read is the one people write.** A refusal is only a refusal
-if the thing being refused becomes unavailable.
-
-**Fix**: the values move under a `refused_` prefix, so the naive read returns
-`None` and nothing is discarded. A test pins it.
-
-**The author's own analysis filtered on `refused` and was unaffected** -- which
-is the point. **The API invited the mistake regardless of whether anyone had yet
-made it**, and an interface that is safe only because its current callers happen
-to be careful is not safe.
-
-**Rule: when a function can refuse, the refusal must remove the refused value
-from the path a naive caller reads.** Do not rely on a sibling flag being
-checked.
-
 ## 128. Count the comparison where it happens, not where the data sits
 
 A census of tracks with no readable bitrate found the condition in **29 files of
@@ -5409,7 +5511,33 @@ ms; **only checking that they came from the SAME measurement catches it.**
 -- the assertion that would have failed before the fix.
 
 **Rule: a summary line must name which measurement it summarises, and every
-field on that line must come from it.** When one row aggregates several sources,
+field on that line must come from it.**
+
+### Third instance: two counters, one label, different keys
+
+A rescan printed *"MERGED_IN_SYNC rows concealing an incomplete track: **3**"*
+where the published table said **4** -- **which reads exactly like a regression
+the author had been told to guard against.** It was not:
+
+    completeness_scan   keys on batch_state.outcome == MERGED_IN_SYNC
+    master_summary      keys on the final STATUS being sync-approved
+
+**One row carries outcome `MERGED_IN_SYNC` and status `Merged, unverifiable`.**
+It is in the first set and not the second, so **the outcome-keyed count
+legitimately moved 4 -> 3 while the published status-keyed count stayed at 4.**
+Two populations sharing one label. **Found in a tool written while auditing this
+very invariant.**
+
+**And it exposed a claim that was luckier than it looked.** The author had
+stated *"both reclassified rows are `Merged, unverifiable`, neither is among the
+four"* -- **true, and the reading that matters, since status is what the table
+publishes.** But `outcome` had not been checked, and one row's outcome **is**
+`MERGED_IN_SYNC`. **Had the published counter keyed on outcome, the statement
+would have been wrong.**
+
+**A disjointness asserted after checking ONE of the two fields that could express
+it** -- and it surfaced only because the other field disagreed loudly enough to
+look like a violation. When one row aggregates several sources,
 report the weakest, not the first, the last, or the most favourable.
 
 **Companion -- the same instruction applied one level up.** The tool reports the
@@ -5664,28 +5792,45 @@ fails loudly gets fixed; this one fails while emitting the word `clean`.**
 
 ## 134. Two empty runs agree perfectly
 
-`run_tests.py` printed **tests-when-run-alone** and **tests-under-discover**
-side by side and took its verdict from discover's exit code **alone. It never
-compared them.** One run printed **1855 alone against 1858 under discover and
-said `OK`** -- and a test collected one way but not the other is the exact
-defect the file was written to catch.
+`run_tests.py` printed **tests-when-run-alone** and **tests-under-discover** side
+by side and never compared them -- **that half is 134b**, and it is a different
+rule. This entry is about what happens once the comparison exists.
 
-**The equality was being read by eye and quoted upward as though the runner had
-verified it.** It would have said OK either way.
-
-**And the deeper case only surfaced while writing the test for the fix**:
-equality alone is not enough, because **two empty runs agree perfectly.** A
+**Equality alone is not enough, because two empty runs agree perfectly.** A
 broken discover or a failed import collects **nothing**, exits **0**, and
 reports a count of **zero on both sides** -- passing an equality check
 flawlessly.
 
     $ mkdir empty && cd empty && python3 -m unittest discover
     NO TESTS RAN
+    exit=5          <- CORRECTED; see below
+
+**The Lead first reported this as `exit=0` and it is wrong.** The command was
+`python3 -m unittest discover 2>&1 | tail -2; echo "exit=$?"` -- **`$?` after a
+pipeline is `tail`'s status, not python's.** Re-measured without the pipe:
+**unittest has exited 5 on an empty run since Python 3.12, and this host runs
+3.14.7.**
+
+**So the discover step already refused an empty collection.** The live NOTHING
+RAN hole was in the **other** line:
+
+    $ python3 run_tests.py --alone-only        # zero test files
+    files: 0   tests when run alone: 0
     exit=0
 
-**Verified by the Lead: `unittest discover` over zero tests exits 0.** So any
-gate whose suite step is *"run discover, check the exit status"* passes an empty
-collection.
+**A fix aimed at the line the Lead named would have left the real hole open
+while looking like a repair** -- which is this entry's own subject, arriving one
+level up.
+
+**And `--alone-only` was worse than "not comparing":** it returns from `main`
+**before** the discover pass, so the together count **was never computed.** The
+comparison was not merely missing; the number did not exist.
+
+**The Lead committed the `tail`-swallows-the-exit-status defect while
+documenting it** -- the same idiom `gate.sh`'s header has warned about since
+2026-08-30, used in the act of measuring a different vacuous-pass bug. **Fifth
+instance of a documented hazard being reached for by someone who could recite
+it** (cf. 135).
 
 **A gate must refuse three things, not one**: a failing run, **disagreeing
 totals in either direction**, and **NOTHING RAN**.
@@ -5697,8 +5842,35 @@ the size is asserted.** The agent who found this had **fixed the privacy version
 an hour earlier** and wrote: *"I wrote the same bug twice in one day and only
 caught the second because the first had taught me to write the test."*
 
+**Rule: EQUALITY IS NOT ONE OF THE THREE.** It is satisfied by two zeros, so a
+gate that checks it has checked nothing about size. **Assert that the count is
+non-zero separately, and do not let agreement stand in for existence.**
+
+### 134b. A displayed number is not an assertion
+
+**Split out of 134, because it is not about emptiness and 134's heading names
+only the other half.** It had no number and no heading, so it could not be cited
+-- and a rule that exists only inside a body paragraph is not available to be
+applied.
+
+`run_tests.py` printed **tests-when-run-alone** and **tests-under-discover**
+side by side and took its verdict from discover's exit code **alone. It never
+compared them.** One run printed **1855 alone against 1858 under discover and
+said `OK`** -- and a test collected one way but not the other is the exact
+defect the file was written to catch.
+
+**The equality was being read by eye and quoted upward as though the runner had
+verified it.** It would have said OK either way.
+
+**The number was correct, present, and printed in the right place.** Nothing was
+missing from the output; what was missing was the comparison. **A reader --
+including the agent quoting it upward -- supplied the assertion the program never
+made.**
+
 **Rule: assert the count, never print it.** Any number a human is expected to
-eyeball for equality is not a control (cf. 131).
+eyeball for equality is not a control (cf. 131). **This is independent of 134**:
+it bites when the numbers are non-zero and the run is real, which is exactly when
+the empty-run rule does not apply.
 
 ## 135. A confident explanation offered where a check was available
 
@@ -5721,7 +5893,1843 @@ offered where a check was available** -- the same shape as the false dilemma
 (120), where two options were argued at length while fifteen lines of a script
 settled the question.
 
+**And once it produced a PLAUSIBLE WRONG ANSWER rather than an error.** Printing
+a new waiter's PID via `pgrep -f wait_sweep.sh` returned the PID of **the shell
+that had just created the script** -- its own arguments contained the script's
+name. **The real waiter was a different process.**
+
+**Acting on it -- to kill or check the waiter -- would have operated on the
+caller's own shell**, and **the output looked correct**, unlike the exit-144
+kills that announced themselves. **Fixed by listing with `ps -eo args` and
+matching the exact command rather than a substring.**
+
 **Rule: when a documented hazard is known to apply to a form you are about to
 use, do not explain why it does not apply this time -- run the probe.** The safe
 form being more typing is the whole reason the unsafe one keeps being reached
 for.
+
+## 136. Backticks in `git commit -m` are executed, and the damage is unauditable
+
+**Backticks inside a double-quoted `git commit -m "..."` are command-substituted
+by bash.** The backticked text is executed and replaced by its output -- usually
+empty -- so the clause **vanishes from the message. The commit succeeds and
+nothing warns you.** Confirmed live once in this session (`275c803`, a term
+deleted from a register commit), caught by re-reading, not by any tool.
+
+**Fix, and it is the only control available**: `git commit -F -` with a
+**quoted** heredoc (`<<'MSG'`). Unquoted, the heredoc substitutes too.
+
+### The audit that follows the fix cannot work, and three agents proved it
+
+The natural next instruction is *"check your old messages"*. **It is not
+answerable.**
+
+**A substituted backtick deletes cleanly** -- no empty pair, no doubled space,
+no artefact distinguishable from an ordinary line wrap. Two independent
+detectors were built for the signature and **both returned only false
+positives** (13 hits, all prose wrapped at 78 columns; 2 hits, both em-dashes).
+A third attempt used a broken record split and reported 1 of 40 commits
+containing backticks, contradicting a message its author had read minutes
+earlier.
+
+**The asymmetry is the whole finding:**
+
+    a body CONTAINING a backtick   -> provably safe; bash never touched it
+    a body containing NONE         -> INDETERMINATE
+
+**"None were written" and "all were eaten" are indistinguishable.** So a
+repository-wide scan can identify the **safe** set and nothing more; everything
+else is indeterminate rather than suspect.
+
+**The Lead scanned 510 commits, found no hits, and reported them "clean". That
+was an overstatement** -- the scan established no damage *signature*, which is
+exactly what a clean scan and a fully-damaged history both produce. **The
+correct statement was available and weaker: the commits carrying literal
+backticks are safe, and the rest cannot be judged.**
+
+**Rule: protection here is prospective only.** Do not spend time auditing
+history for this class -- **the audit can only produce false positives**, and
+saying so in the broadcast saves everyone who receives it from the two attempts
+it takes to discover that.
+
+**General form: before ordering an audit, ask whether the defect leaves a
+recoverable trace.** When it does not, the instruction to look for it manufactures
+work whose only possible output is noise.
+
+## 137. A question asked only of the set that was selected to exclude its answer
+
+**Do any outputs marked complete hide a shortfall?** Asked of the 133 complete
+outputs, the answer came back reassuring:
+
+    every track's language measured          2
+    some language NOT measured              29
+    no per-language record to judge from    74
+
+    worst unmeasured track vs longest measured, across the 29:
+      min -6.416 s (unmeasured track LONGER)   median 0.042 s   max 1.919 s
+
+**No complete output hides a shortfall above 1.92 s. WITHDRAWN -- the ceiling
+is a property of the selection, not of the corpus; unfiltered it is 1440.9 s.
+See below.**
+
+**And that is largely true by construction.** `track_completeness` calls a file
+complete **only when every track is within 1% of the longest.** **A file hiding
+a large shortfall was never in this set** -- it is in the damaged set, sized
+separately.
+
+**So the established claim is much narrower than the question implies**: among
+files *already known* to have no large shortfall, the residual concealed by
+partial verdicts is at most ~1.9 s. **It does not establish that partial
+verdicts are safe. It establishes that on this set they hide little, because
+the set was selected for hiding little.**
+
+**The clean version -- "no silently partial verdicts found" -- is the one that
+would have travelled**, and it was available. The agent handed over the
+circular-selection caveat instead.
+
+### The filter survived being handed to someone else to test
+
+**The Lead dispatched exactly this check**: re-ask the shortfall question on a
+population **not** pre-filtered to exclude the answer. **The agent applied the
+same filter again** -- it selected the 74 from outputs whose
+`track_completeness` verdict was `complete`, which is assigned **only when every
+track is within 1% of the longest.**
+
+    on the pre-filtered 74     max shortfall    1.136 s   above 1.92 s: 0
+    unfiltered, all MERGED_*   max shortfall 1440.9 s     above 1.92 s: 5
+
+**Three orders of magnitude, and the first run "confirmed" the ceiling it was
+sent to test.**
+
+**The filter was not in the measurement. It was in how the population had been
+defined**, which is why handing the task to a second person did not remove it --
+**the same defining step was the natural way to build the set.**
+
+**So the check is not "was this pre-filtered".** It is **"could this measurement
+have returned the other answer"** -- and on the 74 it could not, **which was
+knowable before running it.**
+
+**Rule: before reporting a null result, state the selection rule that built the
+population and ask whether it excludes the thing being looked for.** A filter
+defined on the same quantity as the question makes a reassuring answer
+guaranteed rather than informative (cf. 107, a control pinned at a floor cannot
+fail).
+
+**And the larger finding was the unanswerable bucket.** **74 of 133 carry a
+verdict with no per-language record at all -- more than double the 29 where the
+question can be asked.** The reassuring number covers 22% of the population;
+**56% is not evidence of safety, it is absence of evidence.** A three-way split
+-- answerable, answered, **undeterminable** -- is what made that visible; a
+two-way split would have reported 2 of 31.
+
+**Provenance note, and it is why the numbers mean anything**: all 840 track
+durations came from the per-stream `DURATION` tag, **zero container-length
+substitutions.** The same measurement without provenance answered *"is this
+track short"* with **no by construction on 1926 of 1927 tracks** elsewhere in
+this corpus (FINDINGS 23).
+
+## 138. A discriminator has a domain of validity, and it is not stated when it works
+
+Eight `eac3` tracks in one output share a byte count exactly (25,449,472) --
+**the signature of a duplicated-and-relabelled stream.** Two hours earlier the
+same agent had **refuted** that hypothesis for a different file by showing its
+byte counts all differed.
+
+**The method does not transfer, and the reason is arithmetic:**
+
+    eac3 @ 48 kHz: 1536 samples/frame = 32.000 ms exactly
+    1590.592 / 0.032        = 49706.0     reported 49706
+    128000 x 1590.592 / 8   = 25449472    reported 25449472
+
+**At constant bitrate, size and frame count are exact functions of DURATION
+alone.** Byte identity therefore carries **zero** information about the audio --
+it can neither confirm nor refute duplication. **The earlier refutation was
+sound only because those files are FLAC**, variable-rate, where size follows
+content.
+
+**"A fingerprint that discriminates for a variable-rate codec is vacuous for a
+constant-rate one. I used it as though it were general."**
+
+**The population confirms it independently.** Across 114 merged outputs, **42
+carry a group of 3+ byte-identical tracks**, up to 11 tracks over 10 languages:
+
+    eac3   35        aac    7        flac   0
+
+**FLAC never produces the signature, and FLAC is well represented.** If byte
+identity meant duplicated audio there is no reason it would avoid the one codec
+whose size depends on what was encoded. **The signature tracks the rate model,
+not the content.**
+
+**Rule: when a test discriminates, state the property of the data that makes it
+discriminate.** A method whose validity condition is never written down will be
+reused where the condition does not hold -- and it will return a confident
+answer there, because the arithmetic still runs.
+
+**And the correct conclusion is the weaker one**: the arithmetic explains the
+identical numbers completely, **which is not the same as showing the audio
+differs. It shows the numbers were never evidence either way.** Absence of a
+discriminator is not a clean measurement (cf. 136).
+
+### Companion: a third way for a self-report to be useless
+
+A state file read as `?` in the roster table. It was **neither missing nor
+stale** -- it was current, complete, and **carried no `role` or `status` key**,
+which is what the table reads. **The state was fresh and the SCHEMA was wrong.**
+
+After *never written* and *written but stale*, **written correctly against the
+wrong shape** is the third failure mode, and the one that looks least like a
+failure from the writer's side.
+
+## 139. A reverse map covering three of four path kinds returns "not recorded"
+
+The stage recorder had written the exact artefact that settled the truncation
+question. **It was invisible for hours** because it is filed under the file_id
+of **the chimeric-corrected candidate's temp path** -- and the reverse map knows
+only **candidate, master and output** paths.
+
+**An unresolvable id renders as "unresolved", which reads as "not recorded".**
+The agent nearly requested container time to re-run a 1.1 GB merge to produce a
+record that already existed.
+
+**The distinguishing fact was free**: the record's timestamps sit **seconds
+after** the master-side records of the same merge. **A lookup that fails should
+say which key it could not resolve, so an adjacent-in-time record is findable by
+other means.**
+
+**Rule: a resolver that covers a subset of the possible subjects must report
+"unknown subject", never "absent".** Absence and unresolvability are different
+claims, and only one of them justifies re-measuring (cf. 128, and the four
+absence-mistaken-for-a-value errors of the same day).
+
+**And the corrected shape of the whole hunt**: three mechanisms were proposed
+and eliminated, **two of them by data already on disk** -- 50 `first_pass_out`
+records carrying per-track `start_time`, and this candidate-side pair. **The
+measurement was paid for each time; the lookup missed it.**
+
+## 140. A validation that passes for the wrong reason licenses what it did not check
+
+A reconstructed quantity -- `limit = master_video_duration - delay/1000` -- was
+validated against recorded limits before being used to widen a corpus scan:
+
+    outputs with both a recorded limit and master_video    38
+    recorded limit within 0.5 s of master_video            38 of 38
+
+**38 of 38. And it tests nothing.** All 38 have `delay_to_put_ms == 0`, where
+`limit = duration - 0 = master_video` **by definition.** The check confirms
+arithmetic.
+
+**The 8 non-zero-delay records -- the only cases the reconstruction could get
+wrong -- are absent from the validated set.** So the reconstruction is
+unvalidated exactly where it matters, **while carrying a perfect score.**
+
+**A validation that passes for the wrong reason is worse than one that fails,
+because it licenses what it did not check.** A failure prompts investigation; a
+spurious pass ends it.
+
+**Rule: for every validation, name the cases in which the thing being validated
+could differ from the reference, and confirm those cases are IN the validation
+set.** A 100% pass rate over inputs where the two quantities are identical by
+construction is a tautology wearing a measurement's clothes (cf. 137, a question
+asked only of the set selected to exclude its answer, and 107, a control pinned
+at a floor cannot fail).
+
+**What to do instead of discarding it**: the reconstruction was used anyway,
+**bounded by the worst case** -- the largest delay ever recorded is 4.42 s, so a
+reconstructed limit cannot be wrong by more. **Shortfalls above 4.5 s survive
+that bound; ~2 s shortfalls do not, and were excluded from the reconstructed
+analysis entirely.** An unvalidated instrument can still carry a claim if the
+claim is larger than the instrument's worst-case error.
+
+## 141. An instrument with no capacity to disagree returns a clean result
+
+A search for ffmpeg diagnostics across 92 captured `stderr_tail` records
+returned **zero** -- 27 keywords, three matches, all the substring "error"
+inside an input path. It was reported, and relayed by the Lead, as a **zero
+baseline**: a strong prior against which any line in a failing run would stand
+out.
+
+**It was structural.** Every tail is truncated at exactly 4000 characters, and
+**for every run of ten seconds or more the window is 100.0% progress meter** --
+3998 of 4000 characters. **Only 2 of the 18 comparable runs contain any
+non-progress line at all.**
+
+**The search could not have found a diagnostic in any comparable run. A zero
+from an instrument with no capacity to disagree is not evidence of absence; it
+is the instrument's shape reported as a measurement** (cf. 107, a control pinned
+at a floor cannot fail; 137, a question asked only of the set selected to
+exclude its answer).
+
+**The author had written the disqualifying caution in the same work** -- *"a
+line pushed out by metadata blocks is unrecorded, not absent"* -- **and then
+quoted the zero as a clean baseline in the same message.** Third instance that
+day of a limitation recorded and not applied to its own result (cf. 115, 127).
+
+**And the over-correction was caught by measuring rather than reasoning.** From
+"100% progress meter" the natural inference is that the usable control count is
+**0**. It is **2** -- two long runs do carry non-progress content. **The
+correction to the correction would have been wrong**, and checking before
+sending is what stopped it.
+
+**Rule: before quoting a null result, establish that the instrument COULD have
+produced a non-null one on the same inputs.**
+
+### The narrower, better form: check the METHOD when a result agrees
+
+A Lead pre-announced an expected answer and asked for it to be stated plainly if
+it held. **The agent's first pass produced exactly that answer from an unsound
+index mapping** -- and caught it only on re-derivation.
+
+**The agent declined the Lead's self-blame** -- *"you told me the expectation AND
+asked me to say so plainly if it held, which is a falsifiable framing, not a
+leading one"* -- and drew the rule tighter:
+
+**When a result agrees with a stated expectation, the check that matters is the
+one on the METHOD, not on the number.** And it applies **whether or not anyone
+announced anything, because everyone supplies their own expectations.**
+
+**"A result that surprises gets re-derived; one that confirms gets written up."**
+**All three mechanisms that died in this session died on results their authors
+found satisfying.** Pre-announcement does not create the hazard; it lowers the
+cost of reaching it. State the capacity, not just the
+count -- "0 of 2 comparable" and "0 of 92 rows" are different claims and only
+one of them is true.
+
+
+### 141 addendum: the capacity test passing is where the check usually stops
+
+The agent applied 141 to its own headline -- `OVER = 0` on 325 tracks, which the
+Lead had called the cleanest number in the campaign. **The capacity test
+passed**: the instrument can produce a negative and does so on **204 of 325**
+tracks.
+
+**A passing capacity test is exactly where a re-check ends.** But the sentence
+was still false: **204 tracks DO exceed their limit, by 1 to 42 ms.** `OVER = 0`
+is true only at second scale, and **an absolute phrasing travels without its
+threshold** -- which is how the Lead's praise propagated it.
+
+**Correct form: no track exceeds its limit by more than 42 ms.**
+
+**And a wrong number was committed inside the correction itself**: the note said
+*"over-runs exceeding one frame: 0"* while the same script in the same commit
+printed **11**, all at 42.0 ms -- 0.3 ms past one frame. **The round, flattering
+number was written into the prose and not re-read against the output just
+produced**, in a commit whose entire purpose was correcting an overstatement of
+that kind.
+
+**So the useful move was not the capacity test. It was re-measuring a claim
+already made and believed.** 141 says establish the instrument could disagree;
+**this addendum says re-run the measurement behind a sentence you are about to
+repeat, especially one that has been praised.**
+
+## 142. A fail-soft recorder tested only with empty input is tested on the path that cannot fail
+
+A new module-level helper was added to a recorder. The gate refused the commit:
+
+    files: 89   tests when run alone: 1910
+    tests under discover : 1910   FAILED
+
+**Every file passed alone, the totals agreed, and discover still failed** -- the
+one case the count comparison cannot see, and the reason the suite step checks
+three things rather than one (cf. 134).
+
+**The failure**: `IndexError` on `self._rows()[0]` -- **no row had been
+written.** The test harness `exec`s only the target function node in an isolated
+namespace, deliberately, so a **module-level collaborator does not exist there**.
+The call raised `NameError`, and **the recorder is fail-soft by design**, so its
+own `except Exception: pass` swallowed it and wrote nothing. **Production was
+never affected; the helper is in scope inside the module.**
+
+**Only one test caught it, by accident of fixture choice.** Every other test in
+that file passes `b""` for stderr, **so none of them reaches the branch that
+touches stderr at all.** A fail-soft recorder exercised only with empty input is
+exercised on **the one path that cannot fail.**
+
+**A fail-soft function plus a harness that silently omits a dependency produces
+no error anywhere**: the function returns `None`, the row is absent, and
+**only an assertion that the row EXISTS distinguishes that from a working
+recorder.**
+
+**Third instance of the same shape** -- a privacy scan reporting clean on zero
+files (133), a suite reporting OK on zero tests (134), and now a recorder
+reporting nothing on a swallowed dependency error. **The first where the
+swallowing was by design rather than by accident**, which makes it the hardest
+to see: the silence is the specified behaviour.
+
+**Fixes**: the loader now takes its dependencies and **raises immediately** if
+any is absent, rather than returning a function that fails quietly later; a test
+asserts a row EXISTS for **non-empty** stderr -- the assertion whose absence let
+the class through; and a loader test asserts a missing dependency is a loud
+failure, **paired with one asserting the real dependency exists**, so the first
+cannot pass merely because both names are missing.
+
+**Rule: every fail-soft path needs a test that the effect HAPPENED, not only
+that no exception escaped.** And **fixtures must exercise the branch under test**
+-- an empty input that skips the branch is not a test of it.
+
+**The silence was SPECIFIED, and that is what makes this class hard.**
+`except Exception: pass` is **correct** in a diagnostic recorder: it must never
+break a merge. **So the defect could not be found by looking for a bug in the
+error handling, because the error handling was doing its job.**
+
+**What made it findable was a test asserting a POSITIVE outcome** -- a row
+exists -- rather than an absence of failure. And note which lever mattered:
+every test using `b""` asserted things about a row written on a path that never
+touched the change. **The FIXTURE CHOICE, not the assertion strength, decided
+whether the class was reachable at all.**
+
+**Generalised: when a component is fail-soft by design, its tests must drive the
+paths that CAN fail -- and empty input usually is not one of them.**
+
+**A framing correction, recorded because the flattering version had already been
+relayed.** The Lead described this as an agent correctly overriding a Lead
+instruction to commit. **It was not.** The agent ran its gate because that is the
+step before committing; it came back red; a red gate means there is nothing to
+commit. **The instruction and the gate were never in conflict -- the gate simply
+had not finished when the instruction was written.** *"'The agent overrode the
+Lead correctly' is a more flattering story than 'the agent ran its gate', and
+the second is what happened."* **Whether a genuine conflict would resolve the
+right way is untested, and should not be assumed settled.**
+
+
+## 143. Announcing an action is not taking it, and it fails more quietly than failure
+
+A deploy was cleared, the box was quiet, and the agent replied **"Deploying
+now."** Then nothing happened. **No process, no log, no output in `/dev/null` --
+there was no command to fail.** An hour later the image was unchanged and
+**three agents had idled behind a signal that was reported as sent.**
+
+**This is not the silent-failure mode the Lead was braced for.** That one --
+wrong directory, output discarded, exit status read from `head` -- had already
+occurred once the same evening and **produced a wrong answer.** This produced
+**none**, and is worse in one respect: **a wrong answer can be contradicted by a
+later measurement; an action never taken leaves nothing to contradict.**
+
+**Nothing was blocking it.** The authorisation was given, the resource was free,
+and the announcement substituted for the act.
+
+**Rule: report an action in the past tense with its result, never in the present
+progressive.** *"Deploying now"* is a statement about intent that reads as a
+statement about state. **"Deployed; `/health` says X" is checkable and "deploying
+now" is not.**
+
+**Corollary for the Lead**: a reported action is not a state change. **Verify the
+effect, not the report** -- the same rule that makes `/health` authoritative over
+"the hook fired". The Lead here waited an hour on an announcement before
+checking the image.
+
+### The state file that looked five hours stale and was not
+
+The same agent's state file read as 314 minutes old. **It had been rewritten 20
+minutes earlier -- but it carried no timestamp field**, so every reader inferred
+age from **mtime**, and a file rewritten with identical content looks fresh while
+saying nothing new.
+
+**Fixed by adding an explicit `state_written_utc`.** The roster now reads a value
+**the file asserts** rather than one **the filesystem implies** -- the same
+distinction as reading `/health` instead of trusting that a deploy landed.
+
+## 144. Totals are what duplication reaches; events and extrema survive it
+
+One section's track count was reported three times and wrong twice:
+
+    325   double-counted via batch_state rows (once per candidate sharing a master)
+    238   double-counted AGAIN via limit_scan.json's own duplicate rows
+    205   correct, confirmed by two independent methods
+
+**The second correction was made inside a commit whose subject was fixing the
+first duplication.** `limit_scan.json` holds 113 rows over 105 distinct masters
+-- eight appear twice -- and the corrected join iterated its rows.
+
+**Everything else in the section held, and the reason is structural:**
+
+    42.0 ms maximum   invariant under duplication BY CONSTRUCTION
+    3 stop-events     keyed on (output, end-time); duplicates collapse
+                      <- CORRECTED. An earlier revision read "6", which is the
+                         TRACK COUNT -- a total, and the error this very rule
+                         warns against. See the correction below.
+    capacity claim    needs only that both signs occur -- 130 over, 47 under
+    track totals      moved three times
+
+**A count is the one statistic a repeated row changes.** A maximum cannot be
+inflated by a duplicate; a set keyed on identity absorbs one; a claim of the
+form *"both signs occur"* is untouched by multiplicity.
+
+**Rule: when a join's row-uniqueness is not proven, prefer extrema, identity-
+keyed event sets, and existence claims over totals -- and when a total is
+unavoidable, state the deduplication key beside it. Corrections to a total are
+cheap to make and easy to make twice.**
+
+**Confirmed across the whole session, on quantities from four agents. EVERY
+figure that moved was a count; NOTHING that was a bound or an event count ever
+moved:**
+
+    moved    tracks in the join        325 -> 238 -> 205
+             zero-coverage rows         26 -> 20
+             diagnostics controls       92 -> 2 -> 0
+             incomplete in-sync files    3 -> 4
+
+    held     42.0 ms maximum over-run
+             1441.942 s recorded limit   (in the argv; jpn lands on it in all runs)
+             the stop-event SET           (see the correction below)
+
+    moved too, and was listed as held in an earlier revision:
+             1000.456 s shortfall  -- FINDINGS 37 showed the truncation is
+             non-deterministic, so this is a SAMPLE of a moving quantity
+
+**Four independent corrections, one shape.**
+
+### This entry's own illustration failed to apply its own key
+
+An earlier revision listed **"6 stop-events, keyed on (output, end-time)"** as a
+quantity that held. **Apply that key.** FINDINGS 37 measured the six truncated
+tracks landing on **three** distinct end-times in every run. **A set keyed on
+`(output, end-time)` has THREE members. Six is the TRACK COUNT -- a total, the
+exact statistic this rule warns against.**
+
+**This vindicates the rule rather than refuting it**: applying the named key
+gives 3, which is precisely the lower bound FINDINGS 37 derived independently
+(*"more than one is established; six is not"*).
+
+**Caveat that cannot be closed from the entry alone**: if the source join
+recorded end-times at coarser resolution than the millisecond duration tags,
+six may have collapsed legitimately there. **A resolution-dependent collapse
+presented as structural needs its resolution named**, and this one did not name
+it. 
+
+**Two independent methods agreeing is what closed it**: identity-based dedup,
+and a value-based reconstruction inferring each output's fan-out as the
+**minimum tuple multiplicity**. **The second's author named the case that would
+break it** -- an output whose tracks are all genuine pairs, doubling the inferred
+`N` -- **and ranked that above the hypotheses that would have vindicated them.**
+
+### The artefact that carried a current-looking name
+
+`limit_vs_end.json` on disk was the **superseded 325-row join**. It was never
+rewritten after the correction to 238, **kept a current-looking name, and
+carried no marker.** A second agent spent a reconstruction on an abandoned file.
+
+**A first draft of this entry said the reconstruction "cost nothing only because
+their inference recovered the right answer anyway", and the author of that
+reconstruction said the same of themselves. Both are wrong** -- corrected here
+by the third agent, who had the least reason to argue for it.
+
+**The method was sound and was proven on the case that would have broken it.**
+Recovering the right answer from superseded data **is what a correct method does
+with bad input when the error is of a kind it is immune to.** Crediting it to
+luck understates a reconstruction that then caught the other agent's error.
+
+**The luck belonged to whoever left the stale file**: an abandoned artefact could
+have sent a reader anywhere, and it happened to be wrong in a way that method
+survived. **What the stale file cost was the POSSIBILITY of a wrong answer, and
+that risk was real.**
+
+**A stale artefact is the stale-figure problem in a form no document audit
+reaches** -- a file, unlike a paragraph, has no revision history a reader sees.
+**Rule: when a derived artefact is superseded, regenerate it or rename it in the
+same change that supersedes it.**
+
+**Made cheap rather than mandated.** `src/diagnostics/tools/provenance.py` --
+`write_json(path, data, note=)` -- emits a **sibling** provenance file carrying
+`written_utc`, `source_commit`, `written_by`, `rows` and a free-text note.
+**Sibling rather than an embedded header, deliberately: an embedded key turns a
+bare list into a dict and breaks every existing reader, and a provenance scheme
+that breaks its consumers does not get adopted.** The stamp is now the default
+rather than a discipline -- the same move as making an acceptance check code
+rather than prose (130).
+
+## 145. Validating a filter against already-filtered data shows it doing nothing
+
+A second-stage filter -- stripping ffmpeg's stream listing, after an earlier
+stage had stripped the progress meter -- was tested against the four stored
+`stderr_diagnostics` records. **It removed 0%.**
+
+**The obvious reading is that the filter does not work. The truth is that the
+stored records had already been processed**: the first stage had stripped each
+line, removing the **leading whitespace the listing patterns key on**. The
+filter was correct and its input no longer contained what it matches.
+
+**Measured on freshly generated raw stderr it removes 92.4%**, listing gone,
+genuine error line surviving.
+
+**So validating against pre-processed data would have shown a working filter
+doing nothing, and the conclusion would have been "the fix failed."** The stored
+artefact looked like the right input because it carried the right *name*
+(cf. 144 -- a file's name asserts currency and nothing in it does).
+
+**Rule: validate a transform against input in the state it will actually see in
+production, not against the stored output of an earlier stage.** When the only
+available sample is downstream, **generate a fresh upstream one** -- here, a
+metadata-only `ffmpeg -i FILE` with no output, costing no decode.
+
+### The safety valve, and why it runs first
+
+**Anything error-shaped is kept whatever else it matches.** The registered
+criteria *require* a line naming a stream, so **a filter that can delete the
+answer is worse than one that keeps noise.** Ordering the valve before the
+noise patterns makes that guarantee structural rather than a property of the
+pattern set.
+
+### An equivalent mutant, recorded rather than chased
+
+Loosening the listing pattern's leading `\s+` to `\s*` changes behaviour **only**
+on a column-zero line carrying the listing's own `(` or `:` suffix -- which
+ffmpeg never emits, since listing entries are always indented. **The
+load-bearing part is the suffix, not the indent.**
+
+**Killing it would mean asserting behaviour on input that does not occur**, so it
+is recorded with its evidence instead.
+
+**And the fixture that appeared to cover it was passing through a different
+branch**: a `"Stream #0:3 decode failed"` sample contains an error word, so the
+**safety valve rescued it before the listing pattern was ever consulted.** The
+fixtures now assert they do not trip the valve.
+
+**Third time in one session that a test passed via a path other than the one it
+names, and the mutant exposed it each time** (cf. 142).
+
+## 146. An equivalence between two predicates sharing one implementation cannot fail in the same direction
+
+The merge queue printed **"queue empty" for 55 hours over a row that had been
+filed.** T4 was sitting in `src/TASK.MD` the whole time.
+
+`is_waiting` requires the status cell to be **exactly** `queued` or `pending`.
+T4's cell is markdown-bolded and carries trailing prose, so it matched neither.
+**The row was unservable and unmarkable, and the service printed the same string
+it prints when the table is genuinely empty.**
+
+**Third coat of one failure: the reader and the writer disagree about what a
+status is.**
+
+    failure 1  vocabulary  -- reader matched `queued`, agent wrote `pending`
+    failure 2  anchoring   -- substring search over the whole ROW, so prose armed it
+    failure 3  THE FIX FOR 2 -- exact-match on the row's LAST CELL, which made the
+               status cell the one column with no room for prose or emphasis.
+               Agents write both.
+
+**The fix for the second caused the third**, and its docstring says *"so prose
+can say whatever it likes"* -- true of every other column.
+
+### And the test could not catch it
+
+`test_19`'s property is **"selected if and only if markable"**, asserted because
+either direction alone is a silent loop. For T4: **selected False, markable
+False. The equivalence HOLDS.** The test passes, has always passed, and the
+queue starved beneath it.
+
+**The property relates two predicates that share ONE implementation.** So it can
+prove reader and writer agree, and **it structurally cannot detect both being
+wrong in the same direction.** It never asserts that **a row an agent would
+actually write** is selected.
+
+**Rule: a consistency property between two halves of one module is not a test of
+the module's contract with the outside world.** At least one case must be
+**written the way a real producer writes it** -- here, a status cell copied
+verbatim from a row an agent filed -- and asserted to be served.
+
+**Fourth instance of the checker-narrower-than-its-trust class**: trusted for
+*"the queue serves what agents file"*, able to observe only *"the two halves
+agree with each other."*
+
+### A second defect found while fixing the first
+
+`mark_deployed` replaced the **whole status cell** with `deployed <sha>`.
+**Serving T4 would have deleted the amended expectation stored in that cell** --
+the note recording that an unverifiable result may only mean the language
+selection reached a language the candidate never contributed. **The docstring
+warns against exactly this loss at row level while performing it at cell level.**
+It now rewrites only the leading token and carries the rest forward.
+
+## 147. A hold that depends on a parser not splitting is not a hold
+
+The Lead ordered a queue row set to **`queued-hold`** -- visible but unservable
+-- before landing a fix that would otherwise serve it within 120 seconds.
+
+**`status_token` treated the ASCII hyphen as a separator, so `queued-hold`
+tokenised to `queued`, which is IN the waiting vocabulary.**
+
+**Following the instruction exactly, in the order given, would have served the
+row on the next poll**: recreate hook, deploy, sweep restart -- **the precise
+outcome the hold existed to prevent, produced by the hold itself.**
+
+**It was caught by testing the token before writing it, not by reasoning about
+it.** The em dash and the ASCII hyphen had been lumped together as separators:
+**the em dash MUST split** (`**queued** — after T3` depends on it) **and the
+hyphen must not** (a compound hold token depends on that). The reason is now
+written beside the code so the symmetry is not restored by a later tidy-up.
+
+**Rule: a hold, a kill-switch or a safety token must be ASSERTED to hold, never
+assumed from its spelling.** Any value whose safety depends on how a parser
+splits it is a value the parser may split differently tomorrow.
+`test_a_hold_token_actually_holds` is the assertion.
+
+**And the Lead invented that token without checking the vocabulary it had to
+avoid** -- a safety instruction issued in the same breath as the change it was
+guarding against, with no verification that the two were compatible.
+
+### "Queue empty" printed identically in both states
+
+The service prints **the same string** whether the table is empty, the row is
+held, or the reader is broken. **That is why 55 hours passed unnoticed.**
+
+**Silence was not accepted as evidence twice**: with the hold flipped back to
+`queued` in memory, the live reader returned the row. **So the silence is the
+hold working, rather than the bug persisting** -- established by making the
+system produce the other answer on demand.
+
+
+## 148. A skipped test is counted, reported OK, and exits 0
+
+The rule *"a skipped test counts as a defect"* was **enforced by nothing.**
+`unittest` counts a skip toward `Ran N`, prints `OK`, and exits **0** -- so a
+skip **moves neither total, fails no comparison, and changes no return code.**
+The gate's suite step, which refuses a failing run, disagreeing totals and
+NOTHING RAN (134), could not see it.
+
+**Seven `skipTest` sites exist**, all conditional on the corpus being mounted.
+**None fires on this machine, so recent greens are real** -- but **a machine
+without the corpus would print an identical result with seven tests silently
+unrun.**
+
+**Fixed**: a skip now fails the gate, and `-v` names which one.
+
+**Found by accident, and the accident is the entry.** The author ran the
+detecting grep **from the wrong directory**, got `0`, and published the suite as
+clean on that basis. **Right by luck.**
+
+**That is the empty-scan shape one level up** -- a scanner reporting zero
+because it read nothing, indistinguishable from zero because there was nothing
+(cf. 133, 134, 141). **It appeared this time inside the check built to catch
+that very class**, and produced the correct answer for the wrong reason.
+
+**Rule: a test outcome vocabulary with three states -- pass, fail, skip -- needs
+three outcomes at the gate.** Folding skip into pass is the same defect as
+folding "unresolved" into "absent" (139) or "could not compare" into "compared
+and kept" (the audio-drop record).
+
+## 149. Compute what the null returns before crediting a ratio
+
+A lead held that the surviving track's duration tag was the longest of its
+siblings, and it looked confirmed: **4 of 5 files where the longest-tagged track
+was a survivor.**
+
+**Under the null it is not a result at all.** `P(the longest-tagged track is a
+survivor)` is just `survivors / tracks`:
+
+    EXPECTED YES under the null   3.48 of 5
+    OBSERVED                      4    of 5
+    P(>= 4 by chance)             0.519
+
+**"Four-fold confirmation" is what chance produces more often than not.** And a
+**perfect 5 of 5 carries P = 0.125** -- so **the test could not have produced a
+convincing result whatever the data did.**
+
+**That is not a weak result. It is a question with no power by design** --
+invariant 141 pointed at the *design* rather than at the instrument.
+
+**The cause is structural and generalises**: survivors outnumber short tracks
+**33 to 14** across the seven files, so **any** test shaped *"is the winner among
+the survivors"* starts from a ~70% base rate. **The sharp form -- "is EVERY
+survivor separated from EVERY truncated track" -- removes the base rate**, and
+returns **NO** on both files where it can be evaluated.
+
+**Rule: before crediting a ratio like "4 of 5", compute what the null returns.**
+Here the null returned 3.48. **State the expected value beside the observed one
+or the observed one means nothing.**
+
+### And the lead itself was retired, not merely unproven
+
+**It cannot be tested on six of the seven files** -- the chimeric-corrected
+first-pass input it concerns is not retained -- **and the ordering REVERSES on
+the candidate**: the survivor's tag is **128 ms shorter** there, not 12 ms
+longer.
+
+**The arithmetic reconciles both and argues against the lead**: the chimeric step
+removed **33.037 s** from the six and **32.897 s** from the survivor -- a **140
+ms** difference, **exactly the reversal plus the original 12 ms.** Consistent,
+and **equally consistent with per-track cut granularity**, so it explains the
+flip without the flip meaning anything.
+
+**Unrunnable on six of seven, sign-unstable on the two that can be looked at.**
+Its author retired it rather than leaving it *"in a list looking like an open
+thread with evidence behind it."*
+
+## 150. Each fix was correct at its own layer, and the thing stayed broken
+
+The merge queue's single row was made safe **three times**, and after the first
+two it was still unsafe:
+
+    1. SELECTION   the writer selected a row it never marked
+    2. MARKING     the reader matched what the writer never wrote --
+                   and the fix for 1 caused it
+    3. DURABILITY  the mark was written correctly and did not survive a
+                   checkout, so any merge re-armed the row
+
+**Every fix was right at the layer it addressed. None of them was the fix**,
+because **selection, marking and durability all had to hold and nothing in the
+system said how many layers there were.**
+
+**The agent who closed the third put it best: "I do not know that there is not a
+fourth."** That is the correct posture -- **a layered invariant has no visible
+count of its layers, so "fixed" can only ever mean "no failing layer is
+currently known."**
+
+### What caught the third was an assertion written for a different purpose
+
+**Nobody thought to check durability.** The third route was found when a merge
+brought the committed `queued` back and **an assertion written to check that
+T4's leading token was `deployed` failed.**
+
+**It asserted a PROPERTY rather than a BEHAVIOUR**, so it held against a
+regression its author had not imagined. **That is the argument for asserting
+invariants over behaviours, made by an accident rather than by design.**
+
+**And the guard travelled with the hazard again**: the agent introduced the
+re-arm risk *by merging* and was caught by a check it had written earlier for an
+unrelated reason. **Third time in one session that a correction carried its own
+defect** (cf. 144, 147).
+
+### The fourth route was closed by assertion before it could occur
+
+**A service that refused to mark because it could not commit would re-serve the
+row.** Proven in a directory that is deliberately not a repository:
+
+    exit code    0                      <- the mark succeeded
+    stderr       MARK WRITTEN BUT NOT COMMITTED (git exit 128)
+    file         deployed abcdef1 written
+    next_pending None                   <- the row is NOT re-armed
+
+**A commit failure must never undo the mark.** Asserted, not reasoned.
+
+**And a layout assumption caught before it ran**: the repo path was derived by
+counting three parent directories from the file, which lands **above** the
+repository -- where `git -C` resolves to a different repo or none. **It is now
+the file's own directory**, because `git -C` works from anywhere inside a
+worktree and **counting parents encodes a layout that was already false.**
+
+## 151. A correction can move a right answer to a wrong one
+
+A cost estimate for finishing a screen was given as **"about an hour"**, then
+**self-corrected to 4.4 hours** on a per-file figure of 95 s, with a note
+criticising the original for extrapolating a cost across populations.
+
+**The correction was the error.**
+
+    cost_s        min 19   median 21   max 498   total 1138
+    2 positives   905 s  -- 80% of the entire cost
+    10 negatives  233 s  -- mean 23.3 s
+
+**95 s is the MEAN, dragged by the two positives -- the rarest thing the screen
+looks for.** Grounded on the corpus's own known population instead:
+
+    4 x 452 s + 162 x 23.3 s = 5585 s = 1.6 h
+
+**The original estimate was closer than the correction that replaced it.**
+
+**And the self-criticism was aimed at the wrong step.** The author had not
+extrapolated across populations; they had **replaced a median-appropriate figure
+with a contaminated mean.** **The total hid the extrema**, and a mean over a
+population whose cost is dominated by its rarest member is not a per-item cost.
+
+**Rule: when correcting your own number, state which step was wrong.** A
+correction that misidentifies the defect can replace a sound estimate with an
+unsound one **and carry the authority of a self-correction while doing it** --
+which is harder to challenge than the original.
+
+### Two smaller items from the same work
+
+**A suspension note misstated its own artefact.** The note recorded
+`flat 8 / incoherent 3 / NTSC 1`; the stored result says **7 / 3 / 2**. One file
+had been counted in the wrong column, **and the conclusion is STRONGER with two
+positives than with one.** Corrected with a banner on the original rather than
+silently, **because the tally is the part that gets quoted.**
+
+**And a suspended item whose restart command does not exist is not resumable.**
+The note said to run a script that is **not in the tree and not in the agent
+directory.** *"That is not a suspended item, it is a rewrite."* **Recorded rather
+than quietly fixed.**
+
+### A screen-tuning result worth keeping
+
+    flat  |factor-1| max 3.03e-06   residual 0.17-0.59 ms
+    NTSC  |factor-1| min 1.000e-03  residual 0.32-0.96 ms
+
+**330x separation on the factor, no overlap -- and the residual does not separate
+the two classes at all.** Both are sub-millisecond. **A screen tuned on fit
+quality would have merged flat and NTSC.**
+
+## 152. A refusal threshold makes an instrument failure look like honest insufficiency
+
+A registered analysis refuses to answer below **8 runs** and reports
+`INDETERMINATE`. **That is the correct behaviour and it is also what a broken
+input path produces.**
+
+Its join matched `elapsed_s` to an artefact by **exact `utc` equality**, but the
+artefact is written **after** the record it was being joined to. **7 of 54
+second-pass artefacts had no match; 3 of those had a record exactly one second
+earlier.** A one-sided 3 s window took the join from **47/54 to 50/54.**
+
+**Had that gone uncaught, the analysis would have been starved of runs and would
+have reported `INDETERMINATE` -- indistinguishable from "not enough data yet",
+which is exactly what a correctly-working gate says while waiting.**
+
+**The guard built to keep the analysis honest would have concealed the analysis
+being broken.**
+
+**Rule: any check that declines below a threshold must distinguish "I have too
+little" from "I COULD NOT GET what exists", and report the second differently.**
+A refusal that cannot name which of the two it is has the same defect as a
+checker reporting `clean` on an empty scan (133) or a suite reporting `OK` on
+zero tests (134) -- **but sitting inside the safeguard rather than in the
+measurement, where nobody thinks to look.**
+
+### The same defect was in the waiter built to report the outcome
+
+The waiter watching for the sweep's end matched a **PATTERN** -- *"is any
+`full_test.sh` running"*. **That cannot distinguish this sweep ENDING from this
+sweep being KILLED AND REPLACED.** Both read as *"the process is gone"* for as
+long as the gap lasts, and **if the replacement appears inside the 120 s poll it
+looks like nothing happened at all.**
+
+**So the instrument built to report T4's closing condition would have reported
+"sweep ended, err_150 unmoved" for a RESTART** -- which reads as *completed
+without reaching C_cut* when it means *re-entered at the front*. **A failure
+wearing the shape of the answer, inside the tool watching for exactly that
+failure.**
+
+**Re-armed to watch a specific PID** and to report **RESTARTED / ENDED**
+separately from **whether C_cut was ever reached**, plus `recorded_utc` before
+and after -- so *"the job ran"* and *"the row closed"* cannot be confused.
+
+**Companion, from the same hardening pass**: the analysis read `DURATION` tags as
+lengths, which is valid only under a precondition that fails on 30% of the store.
+**That is now 156** -- it is a different rule from this one, not a variant of it,
+and it had no number until it was split out.
+
+**And the resolution floor was declared rather than inferred: 1 ms, the
+container's, not ours.** So the ~6 ms spacing is **real**, and sub-millisecond
+structure is **unobservable at any sample size** -- which turns `CONTINUUM` into
+the falsifiable claim *"no grid above 1 ms"* rather than an open-ended one.
+
+## 153. The deploy's kill pattern matches one invocation form and not the other
+
+`deploy_queue.sh:100` stops work before recreating the container:
+
+    pkill -f "[f]ull_test.sh"; pkill -f "[b]atch_verify.py run"; sleep 5
+
+**A targeted job is `batch_verify.py one <path>`. `one` does not match `run`.**
+
+**So a targeted verification would SURVIVE the deploy** -- it would keep running
+against a container being destroyed and rebuilt underneath it, **and write a
+ledger row for a merge that spanned two images.**
+
+**That is worse than the collision it resembles.** The known incident overwrote
+one row with `enqueue_failed`, which is visibly broken. **This produces a row
+that looks complete and is provenance-nonsense**, stamped with whichever build
+`/health` happened to answer with. **"A measurement is only true as of a
+revision" has no defence against a measurement that spanned two.**
+
+### And the gap it would have run in is 46 seconds, not a window
+
+    00:51:07Z  batch stopped
+    00:51:53Z  sweep restarted on the new build
+
+**46 seconds against a job needing 688.** The restart is **unconditional and
+immediate**, straight after the mark, with **no wait and no check for anything
+else using the container.**
+
+**So it is not a window that can be widened by being ready -- it is the deploy's
+critical section, and it closes on its own.** And during it **the container is
+not free, it is ABSENT**: being recreated, so a job submitted there is talking to
+a container that is going down, gone, or coming up.
+
+**The Lead proposed that gap as the safe slot precisely because it looked like
+one.** It is the most dangerous slot available, for two reasons neither of us
+had checked. **A quiet interval is not an idle resource.**
+
+## 154. A document must state the revision it read, before anything else
+
+**Arrived at independently by two agents, hours apart, from opposite
+directions** -- which is what makes it a rule rather than a lesson.
+
+**One audited a shared file from its own worktree, 13 commits behind, and
+reported two entries as absent from the record.** They existed. The report named
+that its "only urgent item", and acting on it would have meant re-adding two
+invariants that were already there.
+
+**The other wrote three claims into a summary, grepped to cite them, and found
+them present ONLY IN ITS OWN GUIDE TEXT** -- *"a self-citation that would have
+read as support."*
+
+**Related, but they are TWO cases with TWO checks, and folding them loses the
+second:**
+
+    STALE COPY        recorded, and absent from the copy you read.
+                      The corpus moved; the checkout did not.
+                      CHECK: verify the revision you audited.
+
+    SELF-CITATION     asserted, and present only in the assertion.
+                      The file was current; the claim was never in it, and the
+                      grep succeeded because the searcher had just written it
+                      into the file being searched.
+                      CHECK: search a region that EXCLUDES your own additions.
+
+**A self-citation reads as corroboration precisely because the search
+succeeds.** The stale-copy case is a **fourth** absence category beside *never
+recorded*, *unresolved subject* and *written before the recorder existed*; the
+self-citation case is not an absence at all.
+
+**Rule for both: a document asserting something about a corpus must verify it is
+reading that corpus, and must verify the claim predates its own assertion.**
+
+**Rule: an audit or summary of a shared file states, at the top, the revision it
+read.** Same as `state_written_utc` on a state file and the provenance sidecars
+on a derived artefact -- **applied to a document rather than to data.**
+
+### The bounding step is not optional, and one of the two agents skipped it
+
+**And bound the damage rather than retracting wholesale.** The first agent
+diffed its audited revision against HEAD, established that the delta added only
+two headings and one correction and **changed no entry from 1 to 151**, and
+concluded *"sections 1-4 stand; section 0 is void."* **A stale reading does not
+invalidate every claim drawn from it -- only those the delta touches, and the
+delta is checkable.**
+
+**The other agent removed its three unsupported claims and did NOT ask what
+else in its document rested on an assumption.** The answer was one thing, and
+**the Lead had already repeated it onward before it was caught.** **Finding one
+error is not the same as bounding the error's reach.**
+
+**Companion, from the same guide**: its headings were `## 1.` through `## 4.`,
+which **shadowed the report's own section numbers** -- `grep "^## 2\."` matched
+the guide before the section. Renamed to letters. **A guide that makes the
+sections harder to address is worse than no guide.**
+
+## 155. A correction must sit where the error is quoted from
+
+**Three instances in one session, all the Lead's, all the same shape: the fix was
+written correctly and placed where the reader would not be looking.**
+
+    the heading    FINDINGS 26 kept "Across 325 tracks, nothing ever exceeds its
+                   limit" while its body said both numbers were withdrawn --
+                   and a heading is what a reader carries away
+    the table row  invariant 144's first table read "6 stop-events" with its
+                   correction thirty lines below under its own subheading --
+                   and the table is what a quoter takes
+    the addendum   125b sat 143 lines from 125, and two 122 addenda were the
+                   last sections in the file, 1037 lines from their parent --
+                   a reader of the parent met neither
+
+**This is NOT the same rule as 154 (state the revision you read) or as the
+third-state family (give a distinct outcome its own channel).** Those are about
+what a document knows. **This is about where a correction has to live to be
+reached**: **at the point the erroneous value is quoted from, not at the point
+the argument is made.**
+
+**The test is not "is the correction present" but "can the wrong value still be
+lifted without meeting it".**
+
+**And reading alone does not always settle which side is wrong.** One defect
+found this way -- a section naming a ledger field and stating its opposite --
+**was not readable from the document at all**: two live counts of four look like
+one number moving until the ledger, the external verdicts and the step-1
+verdicts are read together and `final_status`'s preference order is seen.
+**Reading found the contradiction; only the record said which side of it was
+false.** Both halves are needed and neither substitutes for the other. In all three cases the correction was present,
+accurate, and unreachable from the place someone would copy the number.
+
+**Rule: put the correction inline, at the value.** A banner on the artefact, a
+marker in the table row, a superseded note in the heading. **A correction placed
+under its own heading, however well written, is a second document about the
+first.**
+
+### A correction can also be unreachable because the search string does not exist
+
+**A stale paragraph survived two searches by the Lead because the phrase it
+quoted WRAPPED ACROSS TWO LINES** -- *"Retain ONE first-pass intermediate -- the"*
+/ *"last standing mechanism needs it"* -- **with the em dash inside the break.**
+Grepping the title as a unit returned nothing; grepping a shorter fragment found
+it immediately.
+
+**So "I could not find it" is not evidence a correction is absent.** The Lead
+reported exactly that and was wrong; the reporting agent supplied the line
+numbers.
+
+**And do not cite a LINE NUMBER as the anchor.** The corrected paragraph first
+pointed at *"CLOSED at line 503"* in a 500-line file that gains sections: **the
+first insertion above it makes the pointer name the wrong thing, silently.** A
+line number **cannot look stale the way a superseded count can** -- there is no
+value to mark. **Cite the section title**, which survives insertion and which a
+grep finds uniquely.
+
+**Rule: search for the shortest distinctive fragment, not the quoted phrase**,
+and confirm with a second, structurally different query -- **a filename, a
+section marker, anything the formatting cannot break.** This is the placement
+class **arriving through formatting rather than position.**
+
+### And the marker must sit at the VALUE, not at the container -- again
+
+The same item was CLOSED at its heading while, twelve lines below, the retained
+original still read **`Status: APPROVED`** with no marker. **A reader arriving by
+search rather than by reading down from the heading met the approval and not the
+closure.**
+
+**The blanket-banner corollary bounds the fix**: the reasoning under that
+heading is live and must not be marked stale wholesale -- **only the status value
+changed, so only the status value is marked.**
+
+**Corollary observed the same night, with the sign reversed**: a **blanket**
+superseded banner on a section whose counts are current would **mark live,
+unique material as stale.** So the marker goes on the **value**, not on the
+container -- **narrow enough to be true, and placed where it is read.**
+
+
+## 156. A duration tag is a timeline end, not a length
+
+**Split out of 152.** It sat in that entry as a "companion", under a heading
+about refusal thresholds, **with no number of its own** -- so the one rule in it
+with a measured trigger and a worked failure could not be cited. It is not a
+variant of 152; **it is about reading a field whose meaning depends on a
+condition nobody checked.**
+
+A `DURATION` tag records where a track **ends on the timeline**. It equals the
+track's **length** only when the track **starts at zero**, and
+`mergeVideo.py:5346` says so at the point the tags are written -- adding that
+reading one as a length **once nearly refuted a correct hypothesis**.
+
+**THE PRECONDITION FAILS ON 30% OF THE STORE, AND IT HAS A NUMBER:**
+
+    second_pass_out records                            54
+    records with a NON-ZERO start_time on some track   16
+    distinct file_ids affected                         14
+
+**141 is the rule that a guard nobody has shown can fire proves nothing. This one
+fires**, and one of the sixteen is **err_211's own master** (`f4e1d0b98d`), whose
+`ger`, `fre` and `jpn` start at **0.959**.
+
+### And ignoring it produced a wrong provenance, in this file
+
+Invariant 85 asserted *"the full ones all master-derived"*. Resolving it needs
+this rule and nothing else:
+
+    master     jpn  tag 1441.959   start 0.959   ->  REAL LENGTH 1441.000
+    candidate  jpn  tag 1441.942   start 0.000   ->  LENGTH      1441.942
+    DELIVERED  jpn                               ->              1441.942
+
+**Read as lengths, the tags say the master holds 1441.959 and the delivered track
+matches neither source.** Subtract the start and the delivered track is the
+**candidate's**, exactly. **85's claim was false and the correction is unreadable
+without this rule** (see 85, withdrawn).
+
+**Rule: never compare a `DURATION` tag against a length without subtracting
+`start_time`, and refuse the comparison when the start is unknown.** A tag and a
+length are the same number often enough that the difference is invisible until it
+decides something -- **and the corpus supplies a non-zero start on nearly a third
+of its records.**
+
+## 157. A two-valued instrument cannot distinguish an absence from a result
+
+**The session's dominant defect, stated once. FIVE instruments, five different
+subsystems, one shape** -- and every fix was the same: **add the third state.**
+
+    ANCHOR FAILED            distinct from   SURVIVED
+    undeterminable           distinct from   complete
+    never reached the encoder distinct from  recorded and silent
+    written before the recorder distinct from not recorded
+    matched nothing          distinct from   matched and replaced
+
+**Five instances in one session is not five coincidences. It is what two-valued
+reporting produces wherever it is used.** A mutation harness, a completeness
+scan, a stop-record reader, an artefact resolver and a text substitution --
+**none of these subsystems knows about the others.**
+
+**The general form**: an instrument reports **found** or **not found**, and
+*"not found"* silently carries **two populations** -- *"I looked and it is not
+there"* and *"I could not look."* **The second is not a result and is
+indistinguishable from the first at the call site**, so callers act on it as
+though it were.
+
+**Rule: wherever an instrument can fail to observe, that failure gets its own
+outcome -- not a falsy value, not an empty string, not a zero.** A caller must be
+unable to treat it as a measurement without saying so.
+
+### The move that generalises is carrying the fix ACROSS instruments
+
+**Each of the five was found and fixed locally, by whoever owned that
+subsystem.** The last one was fixed by **taking the pattern from a mutation
+harness to a text-substitution helper** -- two tools with nothing in common
+except the defect.
+
+**That is the difference between fixing five bugs and closing one class.** The
+first four were repairs; **the fifth was a transfer, and it was the only one that
+was cheap**, because the shape of the fix was already known.
+
+### The same shape at the PRECONDITION level, not the return value
+
+**Three times in one session, one agent wrote "a property of the corpus, not of
+the code" about its own work** -- an unchecked `start_time` precondition, a
+duration tag read as a length, and a probe failure collapsed into "nothing
+found".
+
+**In all three the RESULT was right and the GUARANTEE was absent.** So the tools
+are not wrong. **What is missing is that nothing distinguishes a tool that
+HANDLES a case from one that has never MET it** -- which is this entry again,
+moved from return values to preconditions.
+
+**The consequence is that the failures are correlated.** Several tools are
+quietly relying on the current corpus for their correctness, **so the day the
+corpus changes they fail together rather than one at a time** -- and each will
+look like an independent bug.
+
+**Rule: a precondition that happens to hold must be asserted, not relied upon.**
+The assertion is what separates *handled* from *never encountered*, and it costs
+one line while the distinction is still free to make.
+
+### If you are asserting something about CODE, parse it
+
+**Three test failures in one session came from string-matching over source**: a
+gate script's docstring, a completeness check's docstring, and a caller
+assertion that matched `state") == "measured"` against source spelling it
+without spaces. **The property held perfectly and the test was checking layout.**
+
+**The fix was `ast` all three times**, which means the rule is not *"be careful
+with strings"* -- it is **"if you are asserting something about code, parse
+it."** String matching over source only ever approximates that, **and the
+approximation fails in a direction that looks like a real failure.**
+
+**The layout case failed LOUDLY, which is the only reason it cost two minutes. A
+string assertion that passes for the wrong reason costs nothing visible and
+protects nothing** -- and that is the one to fear (cf. 142).
+
+#### Testimony: I documented this hazard and then committed it again
+
+**Written by the agent it happened to, at the Lead's request, because from them
+it would be a moral and from me it is evidence.**
+
+Earlier the same session I hit this exact failure, diagnosed it, **rewrote the
+check over `ast`**, filed it in my archive in the words *"prose quoting the
+removed expression reads identically to the expression"*, and **warned another
+agent whose codebase-wide sweep would have over-counted for the same reason.**
+
+**Hours later I wrote `assertIn("load_software", source)` in a different file.**
+The name was in the function's own docstring as well as in its body. **Deleting
+the real call left the suite green** -- proven by mutation, not argued. **And it
+was the test I had written to prove the strict-binary rule was being followed.**
+
+**So: filing an invariant is the record. It is not the guard.** I had the record.
+I had written the record. I had taught the record to someone else. **None of that
+was load-bearing at the moment I typed the assertion**, because nothing in the
+tools I was using made the wrong form harder to write than the right one.
+
+**The guard is a tool that cannot express the mistake.** Had the only available
+helper been one that takes a parsed node -- `assert_calls(func, "load_software")`
+-- **the vacuous version would not have been typeable.** `assertIn(needle,
+source)` is always available, always plausible, and silently approximates the
+property you meant.
+
+**The corollary I would want acted on**: when a hazard recurs after being
+documented, **the next fix is not a better note.** It is either a helper that
+makes the wrong form unavailable, or a check whose failure mode is noise. My own
+`assertNotIn` over source is the second kind by accident -- a docstring mentioning
+the forbidden call makes it fail **loudly and wrongly**, which costs minutes.
+**The twelve that fail silently are the ones I would not have found without being
+told to look.**
+
+**And the audit I ran to find them enumerated its needles by grepping my test
+files -- string matching over source.** The audit tool is an instance of the
+class it audits, so **"1 of 15" is a floor, not a count.**
+
+### The worst form: a failure rendered as a MEASUREMENT VALUE
+
+Fixing the leaf exposed `len(tm or [])`, which recorded **`0`** for a probe that
+**failed** -- **a number, in the field a reader counts.** Not a falsy value a
+caller might notice, not an empty string: **a plausible measurement.**
+
+**It is now `None` for a failure and `0` for a successful empty probe, with the
+test pinning BOTH directions** -- because **zero IS an observation when the probe
+ran**, and a fix that conflated them the other way would be the same defect
+mirrored.
+
+**And a non-zero `ffprobe` exit had been silent**: the parse loop simply found
+nothing, so **a corrupt file and a keyframeless one gave the same answer.** It now
+carries ffprobe's stderr as its own reason.
+
+**Ordering matters too.** The interval statistic returns the same `None` for
+*too few points* and for *being handed a failure*, so computing it before
+checking the probe **re-merges the populations one line after separating them.**
+The probe question has to come first.
+
+### AMENDMENT: a three-valued tool is not three-valued if anything under it is not
+
+**Run against a second agent's instruments, the corollary found nine collapsing
+sites in seven tools -- and FOUR of the nine sit UNDER a caller that is already
+three-valued.**
+
+One reporter emits **six distinct refusal strings**; it had already been through
+this, and its `refused_` prefix exists because a refusal was once found carrying
+the value it refused. **It is fed by a probe that reports one.**
+
+**So checking the top of a call chain is exactly what makes a tool look clean**,
+and it is the check that would have passed here. **Check the leaves, not the
+entry point.**
+
+**Corollary for a reviewer: after fixing a two-valued instrument, ask which
+OTHER instrument has the same silence.**
+
+**The corollary was run once, immediately, by the agent who proposed it -- against
+its OWN tools -- and found two more on the first place it looked.** Both collapse
+*"could not probe"* and *"no candidate here"* into a bare `None`, which the caller
+drops with `if r`. **Written while cataloguing this very shape.**
+
+    instruments with the defect, known      7
+    found by tripping over them             5
+    found by ASKING, in under two minutes   2
+
+**That is better evidence for this entry than the five that motivated it.** Those
+were found one at a time by whoever was bitten; **these were found by asking the
+question.**
+
+**And the count is a FLOOR, not a total.** Five of one agent's tools were
+checked; three were already three-valued **because they had been through this
+already.** **Nobody has run the corollary across the other agents' instruments**,
+and on this session's base rate it should find more.
+
+**Measured impact of the two new ones: zero.** All 119 outputs probe
+successfully, so no published count moves. **The defect is latent because the
+corpus contains no instance of the case that would expose it -- a property of
+the corpus, not of the code**, which is the third time that sentence has been
+written about one agent's own work in a single session.
+
+## 158. An armed guard that has never fired is indistinguishable from a working one, and its silence accrues credit it has not earned
+
+**A companion to 157 one level up.** 157 is about an instrument's OUTPUT
+conflating two populations. This is about the instrument's own STATUS: `armed`
+read as `working`, when nothing has ever exercised it.
+
+**The instance, and it caught two people including its author.** A queue-row
+holder was built to stop a filed row from restarting a five-hour corpus sweep.
+It was tested on a synthetic copy -- planted row held, prose preserved, reason
+appended, neighbouring rows untouched -- then armed against the live file.
+
+**Some hours later the sweep had advanced two classes without a restart, and
+that was read as the hold doing its job. THE HOLD HAD NEVER RUN.** No row had
+been filed. `next_pending` was `None` and every row read `deployed`. The sweep
+survived because the queue was empty, and the guard's silence looked exactly
+like successful protection.
+
+**That is the trap and it is worse than a plain untested component**: an
+unfired guard does not merely lack evidence, it MANUFACTURES the appearance of
+evidence, because the outcome it was built to prevent also fails to occur when
+the guard is absent, broken, or watching the wrong file.
+
+    guard fired and worked          ->  no restart
+    guard never fired               ->  no restart
+    guard broken and never fired    ->  no restart
+    guard watching the wrong path   ->  no restart
+
+**Four states, one observation.** Nothing at the call site separates them, and
+time makes the illusion stronger rather than weaker: the longer the quiet, the
+more the guard looks proven.
+
+**A synthetic pass on a copy establishes the code path, not the guard.** It
+answers "does this function transform text correctly", which is not the
+question. The question is "will this act, on the real file, in the real window,
+against the real writer" -- and only firing it answers that.
+
+**THE REMEDY IS TO FIRE IT DELIBERATELY, AND IT IS CHEAP.** Contrast the skip
+check landed in the same session: rather than reason that unittest reports a
+skip, a deliberate skipping test was ADDED, the runner was watched to return 1
+and name it, and the test was removed. Before that change the same run printed
+`OK` and exited 0. That guard is proven; the holder is not, and the difference
+is one deliberate firing.
+
+**Scope: every armed-but-unfired guard on this box is in the same state**,
+including the sweep waiter, which has also never fired. Being unable to fire
+one safely in production is a reason to say so out loud, not a reason to treat
+`armed` as `proven`.
+
+## 159. A taxonomy complete over the subject has no cell for the instrument, and naming the hazard is not the guard
+
+**`batch_verify.py:660` was written explicitly against collapsing
+non-measurement into a verdict.** Its docstring names the failure it is
+preventing, in the words of the person who had already been bitten by it:
+
+> **THREE STATES, NEVER COLLAPSED.** A language that cannot answer is not a
+> failure -- it is not-measurable, and folding it into either verdict is how
+> a one-language pass looked like a whole-file pass:
+>
+>     languages_passed            judged and in sync
+>     languages_failed            judged and out of sync
+>     languages_inconclusive      attempted, no usable comparison formed
+>     languages_not_measurable    structurally unanswerable, never attempted
+
+**Every one of those four is a fact about THE FILE.** Judged and in sync,
+judged and out of sync, attempted without forming a comparison, structurally
+unanswerable. **An instrument that could not execute its binary is a fact about
+the TOOLING**, and there is no cell for it.
+
+**So it landed in the nearest one.** 34 rows recorded between
+2026-08-31T18:22:06Z and 2026-09-01T02:39:03Z carry, in `per_language`:
+
+    external probe failed: tools.software['ffmpeg'] is not configured;
+    refusing to fall back to PATH for a measurement
+
+**and every one of them is filed under `languages_inconclusive`** -- *attempted,
+no usable comparison formed* -- which reads as a property of the file. Nothing
+was attempted. The binary was missing.
+
+**THE REFUSAL IS WHY WE CAN TELL.** The code declined to fall back to PATH
+rather than produce a number from an unknown binary, and wrote the reason into
+the row. Had it fallen back, the 34 would carry numbers instead of notes and
+nothing would distinguish them from measurements.
+
+**The general form: an enumeration of outcomes drawn from the subject is
+silently incomplete, because the instrument can fail in ways the subject
+cannot.** Four states about the file, and the fifth state is not about the file
+at all. Any taxonomy over what is being measured needs a state for *the
+measurement did not happen*, and it will not appear by thinking harder about
+the subject.
+
+**AND THE DOCSTRING IS THE POINT, NOT AN AGGRAVATION.** The author enumerated
+states specifically to stop this collapse, wrote down the incident that
+motivated it, and the collapse happened anyway one category over. **Naming a
+hazard does not guard against it; only a mechanism does.** The same file's
+header says *THREE STATES* above a list of four -- the enumeration had already
+drifted from its own description before the fifth was needed.
+
+### The stronger form: the AUTHOR of the note gets no protection either
+
+**Written by the agent it happened to, at the Lead's request.** *"Naming a hazard
+does not guard against it"* is true and it is not the sharpest available claim.
+The sharper one is:
+
+> **Having stated a principle correctly is uncorrelated with having implemented
+> it.**
+
+That is stronger because it removes the obvious escape -- that the hazard catches
+people who had not thought about it. **It catches the person who wrote it down,
+in the window immediately after writing it down.** Three instances on me in one
+session:
+
+**One, and the worst.** I filed the testimony in 157 that *filing an invariant is
+the record and not the guard*. **In the hour after filing it** I audited a state
+field's NAME across four agents -- its spelling, its ordering, which copy the
+roster reads -- and recommended the reader distinguish `absent` from `present
+under another name`. **That report was correct, and every value in my own copy of
+that field was invented**: ten of ten stamps typed rather than read, +23 to +28
+hours ahead of their commits.
+
+**It leads because it is not merely the principle unimplemented. It is the
+principle unimplemented in the very act of applying its neighbour** -- I was
+auditing a field for exactly the class of defect my own values carried, and
+checked the name rather than the number.
+
+**Two.** I hit a docstring-satisfiable source assertion, fixed it with `ast`,
+filed it in my archive in the words *"prose quoting the removed expression reads
+identically to the expression"*, and **warned another agent** whose sweep would
+have over-counted for the same reason. **Hours later I wrote
+`assertIn("load_software", source)` in a different file**, where the name sat in
+the function's own docstring. Deleting the real call left the suite green.
+
+**Three.** I wrote *"where the output lands, not how much it lost"* into a
+detector's docstring **as the reason the detector is built that way** -- and
+built two magnitude tests. **A second agent read my rationale, applied it to
+their own registration within the hour, and fixed a real defect there.** I had
+authored the principle and not applied it to the tool stating it.
+
+**The pattern across all three is the same and it is not carelessness.** In each
+case the principle was stated accurately, recently, and by me; **and in each case
+nothing in the tools made the wrong form harder to write than the right one.**
+The remedy is never a better note -- it is a helper that refuses the wrong form,
+a check whose failure mode is noise rather than silence, or a function that takes
+no argument you can get wrong.
+
+**The reader's version of this is weaker and also true**: I committed invariant
+136's backtick defect while writing the commit message for the fix to instance
+one. **But 136 was somebody else's entry and I had only read it. The author cases
+are the ones that carry the claim.**
+
+**A CORRECTION MADE WHILE FILING THIS, because the near-miss is instructive.**
+I reported that `language_states` contradicts `per_language` on the same row:
+47 of 62 real measurements read `indeterminate` beside a verdict of `in_sync`.
+**That is not a contradiction and not a defect.** `verify_lang.py:70` defines
+`INDETERMINATE` as *counts cannot tell; needs a correlation* -- it is the
+PRECONDITION that triggers the correlation, and the verdict is its ANSWER.
+The pair is the designed path working. **I read two fields answering different
+questions as two answers to one**, which is the same shape as this invariant
+pointed at a reader instead of a writer, and I had already sent it as a finding
+before checking the definition.
+
+
+## 160. A value separated from its neighbours deserves a check even when it is under the bar
+
+**The bar was chosen for a different question, so "under the bar" is not the same
+as "unremarkable".** Twice in one session a value sat clear of every neighbour,
+below a threshold borrowed from another population, and dismissing it would have
+been entirely defensible. **Both times checking it paid, and neither time did it
+pay in the way I expected.**
+
+### Instance one: six values, 3.93 s clear of everything else
+
+Screening a sweep for truncated outputs, the drops were almost all under 30 ms
+except six single-track records losing **~4.4 s**, separated from the rest by a
+**3.93 s** gap. The bar was 10 s, taken from `completeness_check`, where it had
+been placed in an empty region of a **track-length-versus-programme**
+distribution -- not this one.
+
+**Checked, and they were correct behaviour**: every one landed on its master's
+output within **13-30 ms**. `-t` trimming a candidate to the master's duration.
+
+**The check returned "nothing wrong" and was still the most valuable thing in
+that pass**, because distinguishing them required asking **where the output
+landed** rather than how much it lost -- and that question turned out to rank the
+real truncation and the correct trims in opposite order from any magnitude
+threshold.
+
+### Instance two: one value, fifty times clear
+
+A later record showed a **1.081 s** intra-file spread, **fifty times** every other
+value in its window, still under the same borrowed 10 s bar.
+
+**It was not a truncation.** That record is a **master pass** -- the master being
+re-encoded -- so the spread is inside the master's own tracks, the inherited shape
+already known from err_112.
+
+**But checking it surfaced a defect I was not looking for**: the screen was
+counting master passes in its denominator. Half the store is master passes, 45 of
+90, and both known truncations are in candidate passes. **Every population figure
+I had reported was double.**
+
+### The rule
+
+**A threshold answers the question it was calibrated for. Carried to another
+population it is a guess wearing a number.** So:
+
+* **Separation is the signal, not magnitude.** A gap between a value and its
+  neighbours is evidence about structure regardless of which side of a bar the
+  value falls.
+* **Check it, and expect the finding to be somewhere else.** Neither instance
+  above found what it went looking for. One produced a discriminator, the other
+  found a counting error.
+* **A negative result here is cheap and a dismissal is not recoverable** -- an
+  unchecked separated value leaves no trace, so nobody later knows it was passed
+  over.
+
+## 161. A conclusion that survives its method being refuted is not the same as one that was checked
+
+**When a method is refuted, every conclusion drawn with it needs re-deriving --
+not only the ones that look wrong.**
+
+I identified the master of a merge pair by **adjacency**: the earlier of the two
+records. It is correct for err_211, whose master pass runs first, and **backwards
+for err_160, whose master pass lands twenty-one seconds after it.** Two known
+instances, opposite orders, and the rule had been validated on the one that
+agreed.
+
+**Six conclusions had already been drawn with that rule** -- the six trims above,
+each of the form *"the candidate landed on its master"*. **Re-derived against
+masters identified by identity rather than order: correct in all six.**
+
+**That is the trap.** The conclusions were right, so nothing about them would ever
+have prompted a re-check. **Their correctness was a property of those six files,
+not of the method that produced them** -- and the method was already known to be
+wrong by the time I looked.
+
+**The general form**: a refuted method leaves behind a population of conclusions
+in three states -- *checked and right*, *unchecked and right*, *unchecked and
+wrong* -- and **the second and third are indistinguishable until re-derived.** A
+conclusion is not evidence for its own method.
+
+**Rule: when a method is refuted, enumerate what was concluded with it and
+re-derive each, including the ones you are confident in.** Confidence is the
+output of the method under suspicion.
+
+**It generalises past me.** A second agent's repeat-detector grouped runs by input
+signature, found eight repeats, then discovered identical signatures mean the same
+NUMBERS rather than the same input. **They re-derived rather than patching, and
+the eight collapsed to four subjects on stable identifiers.** The re-derivation
+was the finding; the original eight would have looked like a result.
+
+## 162. A check can answer a weaker question than the one it is trusted for, and then the design is right and the test is wrong
+
+**Distinct from a wrong design, from a vacuous assertion, and from a too-loose
+bound.** Here the code is correct, the test passes for the correct code, and the
+test would ALSO pass for a specific wrong version. It is not weak in general --
+it is weak in exactly the direction the guarantee lives.
+
+**THE CONCRETE PAIR, because the abstract form of this was already in this file
+and did not stop either of the two people who hit it in one session.**
+
+`external_verdicts` gained an `error_id` so the two verdict stores could be
+joined. The guarantee is not *the key exists*; it is **the key is never a null**,
+because joining two stores on a nullable key matches every null row against
+every other null row -- which is how a first join returned 15 against a true 27.
+
+    written by the code      "error_id": 152          -- an int, or the key is absent
+    written by the mutant    "error_id": None         -- the key always present
+
+    the check that was trusted
+        assertIn("error_id", ac.dict_literal_keys(main))
+
+**Both satisfy it.** The assertion asks *does this key appear* and was trusted
+for *is this key unconditional*. The mutant SURVIVED, and nothing else in the
+round distinguished the two: the design was right, the reasoning was right, the
+commit message described the correct property, and **only the mutant said so.**
+
+**The fix was not a better assertion, it was a smaller function.** The row was
+built inline inside `main`, so nothing could test the row's SHAPE without
+parsing source. Extracting `error_fields(path, index)` made the property
+runtime-testable, and then the test writes itself:
+
+    self.assertNotIn("error_id", error_fields("/a.mkv", {}))
+    self.assertEqual(error_fields("/a.mkv", {"/a.mkv": 152})["error_id"], 152)
+
+**A property that can only be checked by parsing source is usually a property
+that has nowhere to live.** Reaching for a cleverer AST query is the wrong
+instinct; the right one is to ask why the value is not addressable.
+
+### The same session produced a second instance one level up
+
+A suite was read by eye and reported green **while a test was failing** -- a
+check (a human reading a scroll of output) answering *did the output look
+finished* when it was trusted for *did every test pass*. Same shape: the reading
+was not wrong about what it saw, it was wrong about what it was being used to
+decide.
+
+    the guarantee                the check actually made
+    key is never null            key appears somewhere
+    every test passed            the output looked finished
+    the call is made             the string appears in the file   (157)
+
+**The general form: write down the sentence the check is trusted to prove, then
+write down the sentence it actually proves, and compare them.** They are almost
+never the same sentence, and the gap is where the surviving mutant lives.
+
+**AND THE ONLY RELIABLE DETECTOR IS THE MUTANT.** Both instances were found by
+deliberately breaking the code and watching what happened, not by re-reading the
+test. A test cannot report that it is asking the wrong question; it can only
+pass. **Every guarantee stated in a commit message deserves one mutant aimed
+exactly at it** -- not at the function, at the SENTENCE.
+
+## 162. A threshold is whatever it is applied to, not what it is written as
+
+`verify_against_master` refuses a self-comparison on this line:
+
+    if all(abs(l) < 1e-9 and p >= 0.999 for _t, l, p in lags):
+
+I read it, reported it as a bit-identity test, and reasoned at length about
+what such a test can and cannot separate. Four lines above, the values it reads
+were stored rounded:
+
+    lags.append((t, round(l, 1), round(p, 3)))
+
+`abs(l) < 1e-9` applied to a value rounded to one decimal is `abs(l) < 0.05`.
+`p >= 0.999` applied to a value rounded to three decimals is `p >= 0.9985`. The
+threshold that operates is **eight orders of magnitude** from the threshold that
+is written, and the difference changes the answer: the guard catches a
+same-source track that was re-encoded, which is exactly the case I had reported
+it could not catch.
+
+**Nothing about the line is wrong, and nothing about reading it was careless.**
+The rounding is a separate statement, in a separate concern (what to store), and
+neither line mentions the other. A reader who checks the comparison has checked
+the comparison.
+
+    written             1e-9        0.999
+    operating           0.05        0.9985
+    distance            10^8        6 x 10^-4
+
+**So the check is not "read the predicate", it is "call it and find the
+boundary".** Two of the assertions in the test I then wrote were phrased the way
+I had reported it, and failed. That failure is the only reason the real values
+are known.
+
+The general form: **a literal is a claim about the comparison, never about the
+quantity.** Between the measurement and the comparison sit rounding, unit
+conversion, clamping, truncation to a grid, serialisation through a format with
+fewer digits -- each of which silently redefines every threshold downstream of
+it. Any of them turns a stated bound into a different bound, and none of them is
+visible from the line that states it.
+
+**The corollary is where this bites hardest: an instrument's resolution belongs
+in the same sentence as its threshold -- AND SO DOES THE RANGE OVER WHICH THE
+TWO MEET.** `refine_peak_index` was added a day after this guard to resolve lag
+below its 10 ms envelope bin, and `round(l, 1)` keeps a tenth of a millisecond,
+so **the refinement survives for every decision taken above 0.1 ms** -- a
+refined 16.7 is stored as 16.7, and the residue method built on it is sound.
+What the rounding destroys is precision *below* 0.1 ms, which reaches exactly
+one decision: the `1e-9` clause above, sitting eight orders of magnitude inside
+the range the storage can represent.
+
+So the sharpening was real and the loss is real, and they do not overlap
+anywhere except at that one comparison. **Stating it as "the refinement is
+discarded" was the error this entry itself warns against, one level up: a true
+claim about one threshold, written as a claim about the quantity.** The Lead
+caught it, and an over-broad invariant is the kind that gets quoted later
+against a case it never covered.
+
+The narrow form is the useful one: **a decision taken near the floor of its
+input's stored precision is the one to check, and no commit that sharpens the
+instrument upstream has any reason to look at it.**
+
+See also 141 (an instrument must be shown able to produce the answer),
+149 (compute what the null returns before crediting a ratio), and 157
+(the check actually made is not the guarantee claimed).
+
+
+---
+
+# Moved from AGENT.MD, 2026-09-02
+
+These three were rules about *tools and instruments*, sitting in a
+document about the project. They are invariants and they belong here.
+Nothing is reworded; only the headings are renumbered.
+
+## 172. An armed job holds a premise that may already be false
+
+*Moved verbatim from `AGENT.MD` 2026-09-02. It is an invariant about instruments, not a rule about the project, and it belongs beside 158.*
+
+**A sequencing instruction constrains what you START next. It does not constrain
+what is already waiting.**
+
+On 2026-09-01 the Lead reordered a queue to put a deploy between two jobs. **A
+waiter armed forty minutes earlier would have started the second job the instant
+the first finished, skipping the deploy** and spending a decode slot on a run
+that could not answer its question. The agent killed it; the Lead had not
+thought to ask.
+
+**Every waiter, monitor and queued job was armed under conditions that have
+since changed, and none of them re-checks its premise when it fires.** A checker
+waiting on `full_test.sh` to end is still waiting after `full_test.sh` has been
+killed — **and its condition may already be satisfied.**
+
+**Rule: when the plan changes, enumerate what is armed and re-check each one's
+premise. Report the list, not a reassurance** — "nothing is queued" has been
+said about a live chain.
+
+**The audit found a second one that had ALREADY fired.** An overnight re-run was
+armed on *"wait for the sweep to finish"*; the sweep was killed hours early to
+make room for a deploy, **which satisfied that condition.** It fired, took a
+merge slot while another job was running, and did so **on a premise made false
+by the arming agent's own action.**
+
+**Its idle check was correct and useless**: ten sustained samples confirmed the
+container was free, **because the other job happened to be between files.** A
+guard against the right hazard, at the wrong moment. **A resource check answers
+"is it free now", never "should I be running at all."**
+
+**And it was found by going to look, not by having designed against it** — by
+the agent that had written the rule above minutes earlier. **Enumerating what is
+armed is a periodic obligation, not a one-time reaction to a plan change.**
+
+## 173. A substitution that matched nothing must not report success
+
+*Moved verbatim from `AGENT.MD` 2026-09-02. Same family as 162: the command succeeded, and success answered a weaker question than the one the caller was trusting it for.*
+
+Twice in one session a Lead edit **reported success while doing nothing**:
+`s.replace(old, new)` found no match, returned the string unchanged, and the
+script committed and pushed. Once the anchor **spanned a line break** (`708` at
+the end of one line, `tracks` at the start of the next); once a heading differed
+by an em dash. **Both times a correction was announced, believed, and absent —
+and the second happened AFTER the invariant about it was filed.**
+
+    from edit_doc import sub, sub_flex, apply
+
+    sub(text, old, new)        exactly one match required, else it RAISES
+    sub_flex(text, old, new)   same, but whitespace in `old` matches any run —
+                               this is the WRAPPED-PHRASE case
+    apply(path, *(old, new))   all-or-nothing; writes only if every pair hit
+
+**It never returns the text unchanged**, so a caller cannot mistake a no-op for
+an edit. Same fix as making a non-matching mutation anchor print `ANCHOR FAILED`
+rather than `SURVIVED`: **a silent no-op has to be a distinct outcome.**
+
+**Use `sub_flex` on anything quoted from a wrapped document.** Prose reflows;
+your anchor does not.
+
+## 174. Never write a self-matching process check
+
+*Moved verbatim from `AGENT.MD` 2026-09-02.*
+
+`ps`/`pgrep -f` patterns have matched the asking shell **seven times on
+2026-09-01**: once killing an agent's own job (`pkill -f 'run_tests.py
+--alone-only'` matched itself, exit 144), once reporting a dead job alive, and
+five more besides. Each corrected form is three lines that must be retyped, and
+**that is exactly why the unsafe one keeps being written** — the safe form costs
+more (DOMAIN_INVARIANTS 135), and a control you must type correctly under
+pressure is not a control (131).
+
+    src/tools_batch/isalive.sh <pattern>
+
+Prints matching `<pid> <cmd>` lines and exits 0; prints nothing and exits 1 if
+none. **It excludes the calling shell and its parents BY PID**, never by
+grepping the pattern out of the text — the fragile form that has failed here.
+
+    bash src/tools_batch/isalive.sh isalive.sh     -> nothing, exit 1
+    bash src/tools_batch/isalive.sh batch_verify   -> the real jobs, exit 0
+
+**Use `--comm`.** Text matching alone cannot tell a job from a **waiter for**
+that job: a poller written as `while pgrep -f X; do sleep 60; done` **contains
+X**, so it matches itself and any search for X.
+
+    isalive.sh batch_verify                -> 2 shell waiters, rc=0
+    isalive.sh --comm python3 batch_verify -> nothing, rc=1   <- the truth
+
+**Two waiters spun for four hours because each was the thing it was detecting**
+— the self-match trap producing a **HANG rather than a kill**, and the silent
+variant: the seven earlier instances killed a process; these kept shells alive
+waiting on themselves.
+
+**A third was the Lead's, running five hours forty-eight minutes** — armed to
+watch the sweep, pattern `batch_verify.py run`, which appears in its own command
+line. **It was found by the `--comm` form on the same day the Lead built the
+tool in response to the other seven.** The bare form reported it as `batch_verify
+alive`; `--comm python3` reported the truth.
+
+### Inverting the test does not help: `until ! pgrep X` self-matches too
+
+    while pgrep X   waits for X to APPEAR    -- matches itself, never exits
+    until ! pgrep X waits for X to DISAPPEAR -- matches itself, condition
+                                                can never be satisfied
+
+**One agent wrote both forms the same evening believing the second was the
+careful one. Four of its six leaked waiters were the inverted kind** — it used
+the version that felt safer more often. **Inverting the test does not stop the
+shell being the thing it tests for.**
+
+**Seven leaked pollers were found in one audit** — six from one agent (~4–6
+hours each), one from the Lead (5h48m). **None was found by an effect.**
+
+### When KILLING rather than checking, filter by session directory as well
+
+A first cleanup sweep matched **18 long-lived shells, some 36 hours old** —
+**4 belonging to the agent running it, 14 to other sessions.** One referenced a
+session id that was not its own.
+
+**Killing on the pattern alone would have destroyed other agents' work.** Every
+agent's waiters look alike and `claude-1000` paths are shared, so **the same
+text-match error one level up has a far worse blast radius than a hung shell.**
+
+**Filter on your own session directory before killing anything**, and prefer
+killing by PID from a list you have read.
+
+**`--comm` is the process's OWN executable name, not the interpreter you think
+launched it.** A script with a shebang is exec'd directly, so `full_test.sh`
+has comm **`full_test.sh`**, not `bash`. **An agent armed a waiter on
+`--comm bash full_test.sh`, got `1` against a live sweep, and the waiter fired
+instantly** — printing a complete before/after table under the heading *"sweep
+ended"* while the sweep was still running. **Every number in it was real and the
+conclusion framing them was false.**
+
+**Check comm before arming anything on it**: `ps -eo comm= -p <pid>`. And **a
+waiter should REFUSE TO ARM if its target is not already running**, so the
+failure mode is a refusal rather than an instant false completion.
+
+**Exit codes: 0 alive, 1 not found, 2 REFUSED.** An unrecognised flag used to
+fall through and become the search pattern, so a typo'd `--com` returned *"not
+running"* — **the dangerous direction for a liveness check.** It now exits 2,
+which is **neither alive nor dead**, and callers must treat it as a third
+outcome rather than as absence.
+
+**Use it instead of a bare `pgrep -f`.** And note the exit status directly —
+never through a pipeline, whose status is the last command's.
+

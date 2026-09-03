@@ -1,10 +1,11 @@
 # VMSAM — AI Agent Context & Directives
 
-**This file governs `master`.** The `dev-AI` campaign had its own copy with its own
-rules; do not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive
-— measured knowledge to consult, not instructions to follow.
+**This file governs `master`.** Campaign 1 had its own copy with its own rules; do
+not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive — measured
+knowledge to consult, not instructions to follow. It is all that survives of it:
+**nothing outside this repository is a source you can go and read.**
 
-Budget: **250 lines.** A rule that does not fit is not a rule, it is a finding, and
+Budget: **450 lines.** A rule that does not fit is not a rule, it is a finding, and
 it belongs in the archive. This ceiling exists because the previous campaign's
 equivalent reached 1191 lines and stopped being read before acting.
 
@@ -21,6 +22,8 @@ equivalent reached 1191 lines and stopped being read before acting.
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
 | `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
+| `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
+| `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
 **These documents are frozen — `AGENT_NOTES.MD` and `TASKS/` excepted, and this file
 included.** Campaign 1's `AGENT.MD` carried the line *"You
@@ -36,16 +39,17 @@ believe is simply mistaken — being right does not make it yours to change.
 The freeze covers **tracked files** in this repository. Outside it, `VMSAM_HELP_AI/`
 is yours to organise as you like.
 
-Campaign 1's archive lives in `CAMPAIGNS/01-dev-AI/`. **Consult, do not follow:**
+Campaign 1's archive, in `CAMPAIGNS/01-dev-AI/`. **Consult, do not follow:**
 
 | file | what it actually contains |
 | :--- | :--- |
 | `RESTART.MD` | **start here.** The Lead's synthesis on the last day: the one-sentence diagnosis, what was achieved, the five findings a restart must inherit, and an explicit **discard** list of methods that produced confident wrong answers |
-| `FINDINGS.MD` | 23 measured findings — the most reliable of the three. 13 were withdrawn or superseded and say so |
+| `FINDINGS.MD` | measured findings — the most reliable of the three. Withdrawals are recorded in place, **including in a body whose own heading still asserts the withdrawn claim** (§15). Read the entry, never the title |
 | `DOMAIN_INVARIANTS.MD` | 136 entries, and the title oversells them: a **minority** are VMSAM domain rules (which file is the master, the delay sign convention, per-pair chromaprint resolution, "a constant offset is not the normal case in this corpus"); the **majority** are general research method. 15 were later corrected. Grep it, do not read it |
 | `MERGE_VIDEO_ARCHITECTURE.MD` | how the merge path is built — the most directly useful before touching the engine |
 | `PROVENANCE_PROPOSAL.MD` | the one design question the campaign ended on: what the merge knows and nothing writes down |
 | `PROVENANCE_DOWNGRADE_COSTING.MD` | what refusing that field would cost, counted in cells |
+| `WORKLOG.MD` | the campaign's dated worklog. The **only** record of some engine fixes — the sign inversion, the worker deadlock — that the syntheses above do not carry. Its last section is the 315-file summary table, keyed by error id |
 | `handovers/` | the four agent handovers `RESTART.MD` indexes, 2 586 lines |
 
 None of it is authority. It was written by agents under time pressure, and the
@@ -267,6 +271,43 @@ Comparing a produced artefact against a target you built proves the path ran.
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
 
+## 🏗️ Where you work — three clones, one commit
+
+You do not edit the main repository directly. Three tiers, each a **git clone** of
+the one below it:
+
+| tier | what it is for | commits |
+| :--- | :--- | :--- |
+| `/tmp/…` | experiments — try things, break things | as many as you like |
+| `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
+| the main repository | what is finished | **one per feature** |
+
+**Clones, never copies.** A promotion by `cp` overwrites without warning, and the
+owner commits to the main repository while you work — measured on this repository:
+a copy silently erased an owner change to the same file, while the same promotion
+through git stopped on the conflict and preserved it.
+
+```sh
+# promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
+git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
+
+# promote VMSAM_WIP -> main : one commit, whatever the history behind it
+git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
+```
+
+`--squash` is what makes `AGENT.MD` § Commits structural instead of a rule to
+remember: the command cannot produce two commits.
+
+**Pull down often, push up rarely.** Sync the main repository *into* `VMSAM_WIP`
+before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
+is cheap to resolve daily and expensive to resolve once.
+
+**Run `WRITE_ZONES.MD` §5 in `VMSAM_WIP`, not at the promotion.** The checks take a
+second. Discovering at the last hop that half your work sits outside a tagged zone
+is how a campaign ends up negotiating its own rules.
+
+Never write the main repository's path in a tracked file — Privacy, below.
+
 ## 📦 Commits — what earns one
 
 A commit is a unit of **result**, not of activity. What earns one:
@@ -336,7 +377,8 @@ startup.
 
 **Rust** (`audio_sync`) must pass `cargo check`, `cargo clippy`, `cargo fmt` cleanly before submitting any changes.
 
-**Database and configuration structures are frozen** — see `WRITE_ZONES.MD`.
+**Database and configuration structures are frozen** — see `WRITE_ZONES.MD`. The
+API is documented beside its code, in `src/gestionar_show/API_REFERENCE.MD`.
 
 ## 🪵 Logging — `tools.logs`
 
@@ -387,27 +429,6 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🌐 API architecture (`gestionar_show` — frozen)
-
-Two uvicorn instances, both forked by `main_gestionar_show.py`:
-
-| instance | bind | workers | owns |
-| :--- | :--- | :--- | :--- |
-| public | `0.0.0.0:8080` | 5 | external routes, database validation. Stateless. |
-| internal | `127.0.0.1:42085` | **1** | the fusion queue, the worker, execution settings |
-
-`workers=1` on the internal instance is **mandatory**: the queue lives in process
-memory, and at that setting uvicorn serves in-process so the app inherits the forked
-`tools` globals. Raising it splits the queue *and* empties `tools.software`.
-
-The public app must not import `fusion`, directly or transitively — it would pull
-`mergeVideo` → `audioCorrelation` → numpy/scipy into all five workers. Verify with an
-import-closure walk, not by grepping one file: the first violation hid one module
-deep, inside the proxy client.
-
-The proxy uses stdlib `urllib` with an **empty `ProxyHandler`** — the image ships no
-HTTP client library, and bare `urlopen` honours `http_proxy` even for loopback.
-
 ## 🧪 Testing and Execution
 
 Validate your code with files in `/config/example/`. Each folder is a couple of files to sync together. Save your tests file in `/config/output` and yout temporary files in `/tmp`
@@ -421,3 +442,14 @@ pieces of code — a guard, a refined measurement, a policy branch, an order che
 subtitle repair — that were written, reviewed and unit-tested green, and that nothing
 ever called. Every suite passed. A test calls the function directly, which is exactly
 what production did not do. Any new guard needs a test that pins its **call site**.
+
+**And an armed guard that has never fired is indistinguishable from a working one.**
+Campaign 1's success metric sat in the third branch of a function nothing reached:
+315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
+meant *nothing reached the check*. Fire every guard deliberately, with literals,
+plus a case proving it can return the **other** answer.
+
+**Never restate a finding more strongly than its author did.** A campaign-1 lead
+turned an agent's *"unsupported"* into *"false"* and dispatched thirteen files on
+the stronger claim; the agent retracted and the premise was wrong. If you are
+reporting someone else's measurement, carry their hedges with it.

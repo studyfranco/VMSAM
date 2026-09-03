@@ -5,13 +5,12 @@ restart on a new basis.** This is the Lead's synthesis of four agent handovers
 totalling 2586 lines. Read this first; it tells you which of them to open and
 why.
 
-> **Archived from `dev-AI:src/RESTART.MD` at `2714279`.** Content unchanged;
-> the handover paths in the table below were rewritten to their location here.
+> **Archived from campaign 1.** Content unchanged; the handover paths in the table
+> below were rewritten to their location here.
 >
-> Three references are deliberately **not** archived and stay on the branch:
-> `AGENT.MD` (the campaign's own 1191-line constitution — superseded rules, kept
-> out on purpose), `NEED_TOOLS.MD`, and `diagnostics/reports/step2_only_class.md`.
-> Read them at `dev-AI:src/` if a claim here turns on one.
+> Three documents this file cites are deliberately not archived: the campaign's own
+> `AGENT.MD` (1191 lines of superseded rules), a generated diagnostics report. Where a claim turns on one of them, treat the
+> claim as unsupported rather than going looking.
 
 | Document | Lines | Open it for |
 | :--- | ---: | :--- |
