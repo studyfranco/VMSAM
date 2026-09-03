@@ -55,28 +55,46 @@ task brief both state new errors keep arriving; measured, none have.
 
 **Proportions, 315 files, every file accounted for:**
 
-| family | n | share |
-| :--- | ---: | ---: |
-| different cuts | 189 | 60.0 % |
-| weak correlation | 53 | 16.8 % |
-| trimmed edges | 31 | 9.8 % |
-| **constant offset — refused anyway** (not in `CAMPAIGN.MD`'s table) | 24 | 7.6 % |
-| speed mismatch | 8 | 2.5 % |
-| no shared language | 7 | 2.2 % |
-| *instrument did not run — no measurement exists* | 2 | 0.6 % |
-| *unclassifiable — measured, shape fits nothing* | 1 | 0.3 % |
+**CORRECTED** after `vmsam-ci` refuted the first version's misfiled-content count with a
+duration-ratio test, verified independently here. 19 files I had called `weak correlation`
+are PAL speed mismatches.
+
+| family | n | share | campaign 1 (unverified) |
+| :--- | ---: | ---: | ---: |
+| different cuts | 189 | 60.0 % | 57 % |
+| weak correlation | 34 | 10.8 % | 10 % |
+| trimmed edges | 31 | 9.8 % | 18 % |
+| **constant offset — refused anyway** (not in `CAMPAIGN.MD`'s table) | 24 | 7.6 % | — |
+| speed mismatch — **PAL** 25/23.976 | 19 | 6.0 % | *(11 % for speed overall)* |
+| speed mismatch — **NTSC** 1000/1001 | 8 | 2.5 % | |
+| no shared language | 7 | 2.2 % | 2 % |
+| *instrument did not run — no measurement exists* | 2 | 0.6 % | — |
+| *unclassifiable — measured, shape fits nothing* | 1 | 0.3 % | — |
+
+Speed, both relations, is 27 files = 8.6 %. Four of campaign 1's five figures now agree
+closely; `trimmed edges` (9.8 % against 18 %) is the outstanding gap and I have not
+investigated it.
 
 The last two lines are counted separately and are never folded into a family.
 
 **Three results that change how the table should be read.**
 
-1. **`speed mismatch` drifts at 0.098–0.102 %, i.e. NTSC 1000/1001 — not PAL.** No
-   file in the corpus drifts at PAL's 4.271 %. `CAMPAIGN.MD` labels the family "PAL 25
-   fps against 23.976" while giving its rate as "~1 s per half-hour", which is the
-   NTSC rate; the number is right and the label is not. **This 2.5 % is a floor**: a
-   PAL-rate file drifts ~13 s inside one comparison window, so its correlation
-   collapses and it cannot present as a slope at all — the method structurally cannot
-   see one, and such a file lands in `weak correlation`.
+1. **Both speed relations are present: 8 NTSC (0.098–0.102 %) and 19 PAL (4.271 %).**
+   The first version of this task file said "no file in the corpus drifts at PAL's
+   4.271 %", with the hedge that my method structurally could not see one. **The hedge
+   was right and I failed to act on it.** `vmsam-ci` caught it with the duration ratio —
+   one division per file. The 19 PAL files are ids 46, 51, 59, 63, 70, 77, 83, 87, 91,
+   95, 98 (folder 110), 288, 289, 290, 293, 299, 300, 302 (folder 172), 101 (folder 54).
+   The test needs **both** conditions: ratio within 0.001 of 1.042708 **and** the
+   correlation actually collapsed — ids 135 and 190 have PAL-like ratios but correlate
+   at 0.94 and 0.91, which an uncorrected speed relation cannot do, so they stay
+   `different cuts`.
+   I also **withdrew the duration ratio as a speed indicator** in the first version, on
+   the strength of the NTSC files where duration difference is extra content. That
+   observation was right; generalising it was not, and it deleted the one cheap
+   instrument that would have caught the PAL population. Correct scope: usable for PAL
+   (4.27 %, large against the few-percent content noise), useless for NTSC (0.1 %, far
+   below it).
 2. **A sixth population, 24 files (7.6 %), has a constant offset and was refused
    anyway** — delay spread ≤ 1 quantum across all ten windows at fidelity ≥ 0.85, 14
    of them with spread exactly 0 and fidelity to 0.995. For 11 of them the cause is
@@ -136,7 +154,8 @@ recovered per file, never in a fixed millisecond figure.
 | :--- | :--- | :--- |
 | different cuts | **266**, **428**, **212** (then 202) | 266 is a clean 3-plateau staircase, 1000 ms per step, fidelity 0.938 |
 | trimmed edges | **267**, **69**, **76** | single step at the start; 76 carries 8 languages |
-| speed mismatch | **33**, **31** | both NTSC 1000/1001, not PAL |
+| speed mismatch — NTSC | **33**, **31** | both 1000/1001; only 2 of 8 pass dev-2's gates |
+| speed mismatch — PAL | **46**, **91**, **288** | 46 and 91 verified visually by ci; these carry **no usable delay measurement** — the ratio is the evidence, not a peak |
 | constant offset — refused anyway | **22**, **23**, **21** | ten identical zero delays at fidelity ≈ 0.99 |
 | weak correlation | **none usable** | nothing in it is a demonstrable sync problem |
 
