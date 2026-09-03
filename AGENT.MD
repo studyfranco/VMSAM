@@ -369,6 +369,17 @@ A task that runs long gets a progress line rather than silence — what you have
 measured so far, and what remains. **Never make the lead ask.** If it has to send
 "who is working on what", the answer arrives too late to route anything.
 
+**A claim of identity must name what it is identical to, and at which revision.**
+"The tree is unchanged" is not checkable; "`1ab2b97^{tree}` equals `73ffc60^{tree}`"
+is. The campaign's flatten was pinned by four parties against a baseline three
+commits older than the one the operation actually used, because the sentence they
+were given named no revision — so they measured a real difference, concluded work
+had been lost, and none had. **The difference was two documentation files nobody
+had asked about.** State the pair, or expect to be checked against the wrong half.
+
+The same rule inverts usefully: **a difference is not a loss until you look at what
+differs.** Finding that two trees disagree is the start of the question.
+
 **And the rule that depends on nobody's discipline: when a fact is observable,
 observe it.** Reports say *why*; they must never be your only source of *what*. Has
 an agent pushed? `git` knows, and it cannot forget to answer. Is a session alive?
