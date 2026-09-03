@@ -21,6 +21,45 @@ record.
 
 ---
 
+## 2026-09-03 — retraction: I reported a checker defect that was not one. The rule was right.
+
+**I told the Lead twice that `check_write_zones.py` was wrongly blocking a
+`config.ini` addition, and that was false.** I also told the agent affected that
+their reading "matches mine" and called it a checker artefact. I endorsed a
+diagnosis I had not tested.
+
+**What is actually true.** `src/config.ini` has **no trailing newline** — its last
+byte is `c`, the last line being the `audio_sync` entry. So an **append** rewrites
+that line: git records the old one removed and a newline-terminated copy added.
+`WRITE_ZONES.MD` §3 says existing variables are frozen — *not their value, not their
+name, not their position* — so a modified last line is a **real violation**, and the
+checker refusing it is the checker working.
+
+**Verified myself, in a throwaway clone, rather than taking anyone's word a second
+time:**
+
+| approach | checker | removed lines | last 40 bytes |
+| :--- | ---: | ---: | :--- |
+| append the new section | **exit 1** | 1 (`audio_sync=…`) | changed |
+| **insert before `[software]`** | **exit 0** | **0** | **byte-identical** |
+
+Parsing both files confirms the two existing sections are semantically unchanged and
+the new section is present. So the addition was always shippable; only the *method*
+was wrong. The fix came from another agent, was verified by the agent affected, and
+I then verified it a third time independently — which is the only reason this entry
+can state it as fact rather than as another relayed claim.
+
+**Why I got it wrong, and it is the reusable part.** The failure mode is the one I
+had already recorded twice today in other people's work: I accepted a plausible
+mechanism without running the two-line experiment that would have separated it from
+the alternative. Worse, I *amplified* it — a blocked agent's guess became, in my
+report, a defect in the campaign's own tooling. **A relayed diagnosis is not
+evidence, and passing it upward launders it into one.**
+
+**The rule I am taking from it:** before reporting that a shared instrument is
+wrong, reproduce the failure against the instrument yourself. The cost here was one
+throwaway clone and ninety seconds.
+
 ## 2026-09-03 — correction: two of my visual verifications were wrong, and "same" hid the reason
 
 I gave another agent nine visual verifications as ground truth for their classifier.

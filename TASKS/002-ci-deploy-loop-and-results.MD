@@ -527,6 +527,18 @@ primitive exists. **One file measured; no count claimed.**
 
 ## What stayed blocked
 
+0. **RETRACTED — the `config.ini` checker blocker was not a checker defect.** I
+   reported twice that the write-zone checker was wrongly refusing a `config.ini`
+   addition. **It was not.** The file has no trailing newline, so an *append*
+   rewrites its last line, and §3 forbids modifying an existing variable's line.
+   Verified in a throwaway clone: append → exit 1 with a genuinely removed line;
+   **insert before the next section → exit 0, zero removed lines, last 40 bytes
+   byte-identical**, both existing sections semantically unchanged. The addition was
+   always shippable; only the method was wrong. I had endorsed a blocked agent's
+   guess without testing it, and passing it upward turned their guess into a
+   reported defect in the campaign's own tooling. **A relayed diagnosis is not
+   evidence.**
+
 1. **`fusion_enabled` is computed and then discarded.** `/internal/health` returns
    it; the public `/health` fetches that payload and keeps only `is_running`
    (`api.py:359-366`). From outside, a healthy idle worker and one that never
