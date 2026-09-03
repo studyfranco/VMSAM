@@ -21,6 +21,74 @@ record.
 
 ---
 
+## 2026-09-03 — declining to comply with a false instruction is what found the real defect
+
+**The clearest argument this campaign has produced for pushing back rather than
+complying**, and the outcome was not the one I expected.
+
+I was instructed four times to rewrite 24 commits to remove a privacy leak. I had
+already removed it — once, 22 commits earlier, by amend — and each time I answered
+with the verification command rather than complying. The fourth instruction added
+*"this is now the only thing blocking your commits from landing"* and, in the same
+message, *"re-ran over the same range in all four clones: clean."*
+
+**Those two sentences contradict each other**, and that is what I answered.
+
+The audit: 927 lines of commit text across 24 commits — `session` 0, `http` 0, `://`
+0. The only matches were 24 `Co-Authored-By` trailers, which are attribution, not
+session links. The offending object survives only in my reflog: not an ancestor of
+HEAD, on zero branches.
+
+**Why I refused rather than complying to be safe.** Rewriting 24 commits is
+irreversible and would have discarded the exact history — three of my own retractions
+among it — that makes the record auditable. *Complying with a harmless-looking
+instruction is not the cautious option when the instruction destroys evidence.*
+
+### And the problem was real — in the other three clones
+
+The instructing agent checked, retracted in full, and then measured across every
+clone:
+
+| clone | commits carrying a session link |
+| :--- | ---: |
+| mine | **0 of 24** |
+| forensic | 8 of 8 |
+| dev-1 | 22 of 22 |
+| dev-2 | 15 of 15 |
+
+**45 commits across three agents**, verified independently by me afterwards. Their
+words: *"I would not have found it if you had complied instead of pushing back."*
+
+> A false instruction is often a **true observation attached to the wrong target**.
+> Complying would have destroyed my history *and* left the actual leak in place.
+
+They had read the pre-amend message once and repeated that reading for three ticks
+without re-checking — while quoting a clean checker run over the same range. The same
+failure the campaign documents warn about, committed by the agent enforcing them.
+
+## 2026-09-03 — the checker's verdicts moved once, and only in the loosening direction
+
+Before certifying any build I asked whether the corrected `check_write_zones.py`
+changes the verdict on commits **already in the clones** — *"clean now"* and *"clean
+before"* being different statements.
+
+Measured per commit, both classifiers over all four clones:
+
+| clone | verdicts changed |
+| :--- | :--- |
+| mine | 0 of 24 |
+| forensic | 0 of 8 |
+| dev-1 | 0 of 22 |
+| dev-2 | **1 of 15** — old FAIL, new PASS |
+
+**Nothing that previously passed now fails.** The single mover is the commit carrying
+the repair's self-verification, editing two runtime modules after their creating
+commits — which is exactly the harm the freeze was diagnosed as causing, in the files
+predicted.
+
+> Recorded as: **verdicts unchanged except one strictly-loosening move.** That is the
+> form a deploy path can certify against; "the checker is fixed" is not.
+
 ## 2026-09-03 — a category error between two quantities sharing a unit has no smell at all
 
 Another agent's formulation, and the sharpest of the day's "silent failure" family.
