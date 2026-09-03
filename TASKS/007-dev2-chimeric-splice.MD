@@ -388,6 +388,50 @@ objection stands too: a uniform residual is also the signature of a plan sign
 error, and absorbing it would have turned a loud failure into a plausible file.
 `vmsam-dev-1` takes the sub-quantum refinement instead; nothing needs absorbing.
 
+### The measurement is blind to the head, and so was my verifier
+
+`vmsam-dev-1` measured a fourth defect in its locator, and this one produces a
+**confidently wrong answer** rather than a refusal. Its ten-window scan can only
+see a step where one window is majority-pre-change and the next is
+majority-post — and window 0 is the first, so nothing can be majority-pre before
+it. A step is invisible unless `T > begin + L/2`, which on a 24-minute episode
+makes **the first ~227 seconds structurally unobservable**. On error id 108 a real
+500 ms step at ~146 s is reported as `kind="constant"`, confirmed by four
+independent instruments. `CAMPAIGN.MD` puts *trimmed edges* — a head change
+point — at 18 % of the corpus, so the blind spot sits on the second-largest
+family.
+
+**Two consequences here, both fixed.**
+
+1. **My decline message was a recommendation, and the recommendation can be
+   wrong.** It read *"this pair needs a container delay, not a rebuilt track"*.
+   On a file like 108 a container delay would be wrong by 500 ms for the first
+   146 seconds and right afterwards — plausible, silently wrong at the head.
+   A refusal message is what a reader acts on, so it must not carry advice the
+   measurement does not support. It now says there is nothing to splice, and
+   says explicitly that this is **not** a warrant for a container delay because
+   `constant` means *no step was visible*.
+
+2. **My verifier had a head blind spot of its own, from a different cause.** On a
+   single-segment plan the probes sat at ⅛…⅞ of the file, so nothing before
+   ~178 s of a 1428 s file was ever checked — the same region the measurement
+   cannot see. Probes now run **from the head to the tail** (0, ⅓, ⅔, 1 of the
+   usable span). And with several segments the selection was *longest first*,
+   which discards a **short head piece** — precisely what a step near the start
+   produces. It now always takes the first and last pieces, then the longest
+   remaining, and a piece is probeable once it holds **one** window rather than
+   two.
+
+| plan shape | probe positions (s) |
+| :--- | :--- |
+| single 1428 s segment | **0.0**, 469.3, 938.7, **1408.0** |
+| short head piece, step near the start | **10.0**, 361.5, 1055.5 |
+| id 266's real shape | 305.5, 850.5, 1250.2 — **unchanged** |
+| a piece too short to hold one window | 20.0, 482.7, 945.3, 1408.0 — correctly skipped |
+
+id 266's positions are provably identical under the new rule, so its verified
+result stands without re-running.
+
 ### Findings that are not mine to fix
 
 1. **`keep_best_audio`'s `fabricated` rule cannot fire, and the harm it exists to
