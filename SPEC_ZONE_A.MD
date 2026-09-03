@@ -76,7 +76,59 @@ audio is extracted — every correlation then rests on it. Both now log under
 `tools.dev` and re-raise `KeyboardInterrupt` / `SystemExit`. If those log lines ever
 appear in a run, that is a finding.
 
-## 4. Track marking — `fabricated`
+## 4. Same tag is not same recording — check concordance before building
+
+**A language tag groups recordings that are not interchangeable.** VFQ, VFF and VFI
+all carry `fre`. So do a dub and a redub. Two rules follow, and the second is a
+defect in the code today.
+
+**Before building, ask whether the master already carries the same recording.** If it
+does, the chimeric track is work that will be thrown away — `keep_best_audio` drops a
+fabricated track in favour of an intact one, which is the correct outcome and means
+the assembly was wasted. **Test for concordance on the two tracks rather than on
+their tags.** High correlation with the master's same-language track means the same
+recording: do not build.
+
+**And a fabricated track may only lose to an intact one carrying the SAME
+recording.** The rule in `keep_best_audio` fires before every codec, channel and
+bitrate comparison and asks nothing about content:
+
+    elif audio_1.get('fabricated') and (not audio_2.get('fabricated')):
+        audio_1['keep'] = False
+
+Its two call sites do not behave alike. One passes tracks already established
+compatible by a `validation` step; the other passes **every audio of one language,
+unvalidated**. On that second path a chimeric VFQ and the master's intact VFF are
+both `fre`, and the chimeric one is dropped — **losing a recording the output does
+not otherwise carry.** The rule was written to stop a fabricated track winning a
+codec comparison. It also silently destroys a variant, which was never intended.
+
+Until the fabricated rule is conditioned on sameness, the concordance test is not an
+optimisation but a guard: **not building a track the tag-blind rule would delete is
+the only thing keeping the variant.**
+
+## 5. Commentary tracks are not repaired — owner's ruling
+
+**No chimeric version of an audio track tagged as commentary.** Pass it through
+untouched or leave it out; never assemble one, and never mark one.
+
+The repair rests on *what was done to the file was done to all its streams* — true of
+a cut, true of a resample. **A commentary track is a separate recording over the same
+picture**, not a translation of the programme's own audio, so it inherits neither the
+premise nor the plan: the master may carry no commentary to fill from, and there is
+no reason its edit points sit where the main track's do.
+
+Three places in the current code walk `commentary` and each must stop:
+
+    iterate_candidate_audios   builds a chimeric track for every commentary stream
+    find_master_audio_for_language   would fill a gap from the master's commentary
+    mark_audio_dicts   stamps `fabricated` on commentary and audio-description alike
+
+**Audio description is the adjacent question and this ruling does not decide it.**
+It is the same shape — a separate recording over the same picture — and it is not
+what was ruled on. Raise it rather than extend this by analogy.
+
+## 6. Track marking — `fabricated`
 
 **Defined here, before the repair exists, so the repair implements a contract
 rather than inventing one.** Nothing sets it today; every consumer must therefore

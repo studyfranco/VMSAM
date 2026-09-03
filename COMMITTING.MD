@@ -35,9 +35,52 @@ criterion fixed the cadence, and both were still satisfied by two documentation
 commits in the same minute. Measured on campaign 2: five documentation-only commits,
 four of them in two same-minute pairs, two of which were the author of this rule.
 
-**The clock is per author, not per branch.** Your last documentation-only commit
-starts your hour; nobody else's does. It is mechanically checkable from the commit
-author, so it does not depend on anyone remembering it.
+**One documentation-only commit per hour on the branch, and it carries everyone's.**
+The lead does not promote a documentation-only change on its own: it holds it until
+another agent's documentation change or a code change joins it, and promotes them
+together. So no agent competes for a slot, and the branch takes one such commit an
+hour rather than one per actor.
+
+**Both simpler rules were tried and both were wrong.** A branch-wide clock with
+agents committing directly starves whoever commits least often — one agent's finished
+work sat blocked over an hour, reset three times, every time by someone else's commit
+and never once by its own. A per-author clock removes the starvation and produces
+five commits an hour instead of one: four landed in six minutes, each compliant.
+Batching at the lead fixes both, because the thing that was scarce was never the
+clock — it was that agents were racing for the same slot at all.
+
+**In your own clone this does not apply.** Commit documentation as freely as
+anything else; the rule governs what reaches the branch.
+
+**The rule measures an author's wall-clock cadence, and a squashed branch cannot
+carry it.** Keyed on commit time it restarts the clock of whichever author a squashed
+commit is attributed to. Measured on 2026-09-03: three rewrites in one day, the lead's
+campaign record **blocked six times, landing about four hours after its first
+attempt** — while the agent kept obeying a rule that was timing the architect's
+rewrites and calling them its own commits.
+
+**The obvious fix is refuted, and by measurement rather than by argument.** Reading
+`%ad` instead of `%cd` is right in general and changes nothing here: of eight commits
+on the branch, **exactly one carried a different author and commit time**, and that one
+had been *rebased*. **A rebase preserves the author date; a squash destroys it** — the
+new commit is authored when the squash ran, so on a squashed commit the quantity the
+rule needs **is not in the object at all** and no choice of field recovers it
+(`vmsam-dev-sandbox`, which reasoned its way to the `%ad` fix, measured it, found it
+inert, and did not ship it; the agent with the strongest stake in weakening this rule
+is the one that refused to weaken it on an untested fix).
+
+**So the obligation lands on whoever rewrites history, which is the architect.** A
+squash must carry the author date of one of its constituent commits — otherwise the
+compression silently charges its own timestamp to an agent who was not committing. And
+if a rewrite has displaced your commits, the rule does not apply to you until you have
+re-landed what it moved.
+
+**Three history rewrites in one day is itself the defect, and it was the architect's.**
+This is also the second time this rule has starved the actor it was least meant for,
+and both times the cost fell on someone who could not grant themselves an exception.
+The guard is still right: it stopped that same agent committing a ruling it withdrew
+twenty minutes later, and held a record until a correction arrived. It should measure
+the quantity it names.
 
 **It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as
 a property of the rule — five actors reset one clock, and the agent committing least

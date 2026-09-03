@@ -6,10 +6,10 @@ knowledge to consult, not instructions to follow. It is all that survives of it:
 **nothing outside this repository is a source you can go and read.**
 
 **No line budget, deliberately.** This file declared 450 lines and stood at 654 —
-45 % over, unenforced (`vmsam-forensic`), and *a ceiling nobody honours teaches that
-ceilings are decorative*. The number also caused harm: **a rule squeezed to fit names
-its mechanism and drops its consequence, which is exactly what makes it fail**
-(`vmsam-dev-1`). Four failures today were rules whose mechanism was written and whose
+45 % over and unenforced, and *a ceiling nobody honours teaches that ceilings are
+decorative*. The number also caused harm: **a rule squeezed to fit names its
+mechanism and drops its consequence, which is exactly what makes it fail.** Four
+failures in a single day were rules whose mechanism was written down and whose
 consequence was not.
 
 So the test is not length. **A rule earns its lines by naming what goes wrong when it
@@ -28,9 +28,10 @@ than absent: a reader who knows the mechanism files it as handled.
 | `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
-| `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
+| `TASKS/` | **finished reports** — one per closed group of actions: context, result, technical account. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/` | when a group of actions closes |
 | `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
 | `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
+| `MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
@@ -39,21 +40,6 @@ included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
 agent that may rewrite what binds it eventually rewrites itself out of it.
-
-**A finding against a frozen document carries a severity, and the classes do not
-queue behind each other.** *"This document currently instructs the reader to do the
-wrong thing"* interrupts; *"this figure is imprecise"* accumulates. The freeze has no
-latency budget of its own, and its cost is real: `WRITE_ZONES.MD` §4 stood duplicated
-with a superseded ruling at its end, so anyone reading it through got the overruled
-instruction — the exact failure the freeze exists to prevent, caused by the freeze's
-latency rather than by careless editing (`vmsam-ci`).
-
-**And an instruction can be correct about the world and wrong about you.** `vmsam-ci`
-was told four times to rewrite 24 commits to remove a privacy leak, verified each
-time, and refused: it had removed the leak 22 commits earlier, and 45 commits carried
-it in three *other* clones. **A true observation attached to the wrong target.**
-Complying would have destroyed its own history and left the real leak in place.
-Verify the premise, not the plausibility.
 
 So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** is a
 **finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
@@ -261,12 +247,11 @@ You are free on the method. You are not free on knowing what a correct result is
 
 1. **Build the expected file by hand, first — and state what it shares with the code
    under test before believing any agreement.** *A target that shares an input with
-   the code under test cannot disagree with it* (`vmsam-dev-2`, `vmsam-dev-1`,
-   reached separately from both sides). That is checkable in advance, which
+   the code under test cannot disagree with it*. That is checkable in advance, which
    "build it independently" is not. Campaign 2 met every clause of
    `SPEC_ZONE_A.MD` §2 on a real file and proved nothing, because the hand-built
-   target came from the same plan as the splice; `vmsam-dev-2` refused the claim on
-   its own result rather than let it stand. Whatever the change, produce the
+   target came from the same plan as the splice; the claim was refused on its own
+   result rather than left to stand. Whatever the change, produce the
    output you say the code should produce — manually, with whatever tools you like
    — and check it yourself. This is the target, and it exists before the code does.
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
@@ -362,9 +347,6 @@ promotion fixes it structurally: **one commit per promotion**, and you promote w
 you have something worth testing, so the branch reads as a list of increments. The
 granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
 
-Found by `vmsam-ci`, which checked this section rather than accepting a claim that
-someone had misbehaved.
-
 **Pull down often, push up rarely.** Sync the tier above *into* the one below
 before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
 is cheap to resolve daily and expensive to resolve once.
@@ -402,7 +384,12 @@ Container and tooling paths are fine: `/config`, `/config/output`, `/tmp`,
 - the media library root, or the error/sync trees that mirror it;
 - **any media filename** — a real title with `.mkv`/`.mka`/`.mp4`/`.ass`/`.srt`.
   Names the pipeline generates for its own temp files are fine;
-- show titles, season/episode names, release-group identifiers.
+- show titles, season/episode names, release-group identifiers;
+- **extracted frames, thumbnails or any image of the content.** A filename still
+  needs a search to resolve; a frame identifies the work at a glance. Extract them
+  when a question needs them — they stay in `/tmp`, are never committed, never
+  attached to a message, and are described by what they show structurally: *end
+  credits*, *dialogue scene*, *black frames*. Never by what is in the picture.
 
 Use `<LIBRARY_ROOT>`, `<ERROR_TREE>`, `<TEST_OUTPUT>`, `<show>`, `<season>`,
 `<episode>`, and keep real values outside the repository. Need the path of a file in
@@ -412,6 +399,12 @@ links and no host paths.
 ## 📜 Coding Directives
 
 **Naming Conventions**: STRICTLY use `snake_case` for all new functions, variables, and methods. Do NOT use `camelCase`. Exclusive use of `snake_case` is required for all new variables, functions, and classes. Do not reproduce the `camelCase` that might still exist in the older legacy code.
+
+**Comments, docstrings and commit messages are in English.** The code, the rules and
+every agent working on them are; a French comment is readable by two people, one of
+whom does not edit code. Campaign 2 has written 175 lines of French comment across
+four modules — convert them as you touch each file rather than in a sweep of their
+own, so the change travels with work instead of taking a commit.
 
 **Global state.** Route shared settings through `tools`, nowhere else.
 
@@ -482,55 +475,13 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🧪 Believing a result
+## 📏 Believing a result
 
-**Which paths hold test material, where outputs go and what survives a restart are
-facts about the machine, not about VMSAM** — they change without the code changing,
-and a stale path in a tracked file is worse than none. They live outside the
-repository, with the rest of the environment. `cargo` and `compileall` belong to the
-pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
+The ways a result can look sound and be worthless are in **`MEASURING.MD`** — read it
+when you hold a number and are about to act on it, which is the only moment any of
+them applies.
 
-What is left here is the part that stays true whatever machine you are on: **the ways
-a result can look sound and be worthless.** Each of these was paid for.
-
-**A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
-pieces of code — a guard, a refined measurement, a policy branch, an order check, a
-subtitle repair — that were written, reviewed and unit-tested green, and that nothing
-ever called. Every suite passed. A test calls the function directly, which is exactly
-what production did not do. Any new guard needs a test that pins its **call site**.
-
-**One turn further: the unit was called, and the transport between them dropped the
-field.** `parse_segments` rebuilt each segment from three named keys and discarded
-the rest, including the per-stream offsets. Emitter correct, consumer correct,
-integration inert — and the unit test passed throughout, because it handed the
-consumer a hand-built dict and never crossed the transport.
-
-The cost was **28.88 ms of misalignment**, which passed under four gates: below the
-video frame, below `adjust_delay_to_frame`'s snapping, below `mkvmerge`'s integer
-milliseconds, and below the repair's own 100 ms tolerance. Only a per-track check
-saw it. It would have shipped in silence.
-
-**So: a field whitelist in a transport is a defect by construction.** It makes every
-future extension of the format inert, and the only symptom is that nothing changes —
-which is the one symptom nobody investigates. Carry the whole structure and let the
-consumer ignore what it does not need. Found by `vmsam-dev-2`.
-
-**Which rules deserve to be mechanical, and it is not the important ones.** The rules
-that survived today are the ones whose violation produces an immediate, local,
-unambiguous failure in the actor's own frame. The checker refuses a commit and you
-feel it at once — it is the only rule nobody has broken. A waiter never returns and
-you feel it six hours later, which is why it needed a check rather than a sentence. A
-report written but not sent produces **nothing at all**: no error, no delay, no
-symptom in the writer's world, which is why no wording fixes it.
-
-**So: mechanise the rules whose failure is silent in the actor's own frame — not the
-ones that matter most, the ones the actor cannot feel going wrong.** Everything else
-can be a sentence. Found by `vmsam-dev-sandbox`, and it explains the day better than
-any of the individual corrections did.
-
-**And an armed guard that has never fired is indistinguishable from a working one.**
-Campaign 1's success metric sat in the third branch of a function nothing reached:
-315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
-meant *nothing reached the check*. Fire every guard deliberately, with literals,
-plus a case proving it can return the **other** answer.
-
+Three lines worth carrying out of it: **mechanise the rules whose failure is silent
+in the actor's own frame**, **evidence about an intermediate is not evidence about
+the deliverable**, and **independence of instruments is not independence of
+assumptions**.

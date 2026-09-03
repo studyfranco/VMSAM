@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `MEASURING.MD`, `LEAD.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -137,6 +137,14 @@ before the edit.
 `src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
 code that ships and runs in production.
 
+**A module is yours; the schema it emits stops being yours the moment someone reads
+it.** Open means you may add, change and remove freely — and that freedom ends at the
+fields another agent's code consumes. Adding a field and removing it twenty minutes
+later were both within one agent's rights, and both would have broken its consumer
+(`vmsam-dev-1`, which reported it rather than discovering it downstream). **Say what
+you are changing in an emitted schema, to whoever reads it, before you change it.**
+That pair handled it by talking; a successor pair may not have the conversation.
+
 ### What does not go in the repository
 
 This repository holds **VMSAM's code**. Nothing else. Batch scripts, verification
@@ -166,7 +174,7 @@ Open like the rest, listed because their state is not obvious from reading them.
 
 | file | state |
 | :--- | :--- |
-| `frame_compare.py` | pHash/DCT frame comparison. **Does not compile** — `frame_compare.py:109`, pre-existing since `da1c191`. |
+| `frame_compare.py` | pHash/DCT frame comparison. Compiles; the `da1c191` breakage was repaired in campaign 2. |
 | `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
 | `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
 
@@ -187,6 +195,30 @@ should, it **declines**, which is already a correct outcome here. That is the
 difference between a decision procedure and a deferral to somebody who is not
 present. The campaign has the example: error id 237 was refused on a median fidelity
 of 0.576 with 18 sign flips, not on a flag.
+
+**Reimplement an idea; do not copy the code.** Comparable projects exist and reading
+them is encouraged — the search strategies are worth having. But an idea described in
+a README and implemented yourself is unencumbered, and copied lines are not.
+
+**If you do copy anything, say so in a comment at the copy**, naming the project, the
+file, the revision, and its licence. That is required and it is not sufficient: a
+comment records provenance, it does not grant permission.
+
+Licences as declared by the projects surveyed:
+
+| project | licence |
+| :--- | :--- |
+| `ffsubsync` | MIT |
+| `tympanix/subsync` | Apache-2.0 |
+| `alass`, `sc0ty/subsync` | **GPL-3.0** |
+| `VideoDiff` | **GPL-2.0** |
+| `video-offset-finder` | **none declared** |
+
+The last row is the strictest, not the most permissive: **no licence means no
+permission to copy at all** by default. The two permissive ones still require their
+notice to travel with the code. And VMSAM carries no `LICENSE` file of its own, so
+what copied copyleft code would oblige is an owner question, not an agent's — which
+is the whole reason to reimplement instead and never reach it.
 
 **A sub-option of an unconditional capability is a condition on it.** The ruling
 above names a capability and its flag; it says nothing about the options *inside* a
@@ -230,41 +262,28 @@ reserves to the owner — so any change in marker count fails.
 
 Found by the campaign-2 lead against this section, which its author wrote.
 
-**The snippets below are not the procedure and nobody runs them** — every agent runs
-the checker instead, and the document did not notice the divergence (`vmsam-ci`). They
-are kept as the reasoning, not as the steps: an agent following them literally would
-do weaker checks and believe it had done the campaign's.
+**What the checker covers, in prose, because a code block gets obeyed as a
+procedure.** This section used to print the superseded snippets under a paragraph
+saying nobody runs them — and `vmsam-ci` reported the obvious: *an agent under time
+pressure reads a code block as a procedure, and the paragraph explaining that it is
+not one is above it.* So the reasoning stays and the block is gone. The checker
+verifies that nothing is written outside the open paths, that no governing document
+is rewritten, that every changed line in a tagged file sits inside a zone with the
+marker count unchanged, that `config.ini` only gains lines, and that the tree
+compiles.
 
-Before every commit:
+**The tree must compile cleanly — there is no allowance, and this paragraph used to
+say the opposite of itself.** It granted `frame_compare.py` an expected failure in
+its last sentence while stating in its first that campaign 2 had repaired it. Two
+other documents carried the same stale claim. Measured on this revision:
+`python3 -m compileall -q src -x '__pycache__'` exits **0**, clean. `vmsam-dev-1`'s
+fix is what made the old allowance false, and it reported that as a finding rather
+than editing it out. **A document that excuses a failure the code no longer has will
+excuse the next real one** — `vmsam-ci` read the allowance and left a compile error
+alone on its authority.
 
-```sh
-# 1. no write outside the open paths
-git diff --cached --name-only
-
-# 1b. no governance document rewritten
-git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
-       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD COMMITTING.MD TALKING.MD \
-       docs/ CAMPAIGNS/   # must be empty
-
-# 2. in the two tagged files, every changed line sits inside a zone
-#    (BEGIN: AGENT modification ok ... END: AGENT modification)
-git diff --cached -U0 -- src/mergeVideo.py src/tools.py
-
-# 3. config.ini: additions only, no changed or removed line
-git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be empty
-
-# 4. the tree still compiles -- cleanly, no allowance
-python3 -m compileall -q src -x '__pycache__'
-# 5. Rust, when you touched it
-cargo check && cargo clippy && cargo fmt --check
-```
-
-Checks 1b and 3 must print nothing. **Check 4 must pass cleanly**: it used to be
-allowed one failure on `frame_compare.py`, broken since `da1c191`, and campaign 2
-repaired it — so any failure at all is now yours. `vmsam-dev-1`'s fix is what made
-the old allowance false, reported as a finding rather than edited out by the agent
-that outgrew it. Check 4 fails on `frame_compare.py` until someone
-fixes it; that failure is expected and is the only one allowed.
+**Run Rust's checks when you touched Rust**: `cargo check && cargo clippy &&
+cargo fmt --check`.
 
 ## 6. Reporting a blocked need
 
@@ -272,3 +291,35 @@ A frozen file that stands in your way is a finding, not an obstacle to route
 around. Record what you wanted to change, why, and what you did instead. A
 campaign that ends with three well-argued blocked needs is worth more than one
 that ends with three undeclared edits.
+
+### A defect in code you may not write is a finding, and it has a route
+
+**Report it. Do not fix it, and do not keep it.** You read frozen code all day and
+you cannot write it, so a defect you find there has no natural outlet — it goes into
+your own notes and reaches nobody who can act. Three agents named that independently
+on the same day, unprompted, and one had been carrying a reconciliation-window
+finding since that morning. Until it was asked for, **the campaign had no channel for
+the defects only its agents could see.**
+
+Send it to the architect, who carries it to the owner. Each one carries:
+
+- the **file and line**, verified against the revision you are on, not remembered;
+- **what goes wrong and under which input** — a defect with no triggering condition is
+  a worry, not a finding;
+- **whether this is an observation from a run or a reading of the code.** Say it
+  plainly. *A labelled hypothesis beats silence; a hypothesis wearing an
+  observation's label is worse than silence* (`vmsam-ci`) — it spends credibility the
+  next reader has no way to audit. The campaign lead mislabelled one of its own that
+  day, ci checked before agreeing, and the label was corrected within minutes. That
+  is the mechanism working.
+- **observations consistent with a defect are not evidence of it.** Repaired tracks
+  were seen losing to the master's own track, which is the correct outcome because the
+  master is the timeline. Same observation, and it settles nothing about the defect
+  next to it.
+
+**Report the ones you decided were not your problem, and the ones you are unsure of.**
+Both categories produced real findings here. And ask the question this way round:
+**not "what is wrong in `src/`" but "what happens to what I produce after I hand it
+over"** — `vmsam-dev-2` located three defects in frozen code only by tracing where a
+repaired track goes, and none of them by inspecting the module. **The defects in
+frozen code an agent can see are the ones on the path its own output takes.**

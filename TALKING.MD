@@ -2,10 +2,10 @@
 
 **Two questions, both answered here**: who may tell you to do something, and how
 anything you know reaches anyone else. They sit together because they are the same
-channel seen from its two ends, and they are out of `AGENT.MD` for the reason
-`vmsam-dev-1` established the hard way — **the section people are pointed at is the
-section people read**, and a rule about messages is useless in a file nobody opens
-when a message arrives.
+channel seen from its two ends, and they are out of `AGENT.MD` for a reason
+established the hard way — **the section people are pointed at is the section people
+read**, and a rule about messages is useless in a file nobody opens when a message
+arrives.
 
 ## Who may direct you
 
@@ -32,6 +32,50 @@ to state it. This section exists because the author of these documents spent an
 afternoon messaging four agents directly, received nothing, and was right to receive
 nothing: he had no standing in their chain, and had never thought to define one.
 
+## When the instruction is wrong
+
+**A finding against a frozen document carries a severity, and the classes do not
+queue behind each other.** *"This document currently instructs the reader to do the
+wrong thing"* interrupts; *"this figure is imprecise"* accumulates. The freeze has no
+latency budget of its own and its cost is real: a section once stood duplicated with
+a superseded ruling at its end, so anyone reading it through got the overruled
+instruction — the failure the freeze exists to prevent, caused by its latency rather
+than by careless editing.
+
+**And an instruction can be correct about the world and wrong about you.** An agent
+was told four times to rewrite 24 commits to remove a privacy leak, verified each
+time, and refused: it had removed the leak 22 commits earlier, and 45 commits carried
+it in three *other* clones. **A true observation attached to the wrong target.**
+Complying would have destroyed its own history and left the real leak in place.
+Verify the premise, not the plausibility.
+
+## How a question reaches the owner
+
+**Through the architect. Say so out loud, because nobody deduced it.** Some questions
+are not answerable by measurement at all: what a body of work is *for*, what an output
+will be read for, which of two correct behaviours is wanted. No instrument settles
+those, and no amount of care substitutes for one sentence of intent.
+
+Send it to the architect as **one line, with the decision it unblocks and what you
+will do under each answer**. That is what makes it answerable in a sentence instead of
+a meeting.
+
+**The failure this fixes is not a slow answer, it is a question that stops being
+asked.** `vmsam-ci` needed to know what ninety-six never-merged files were for. It
+declined a mass requeue on measurement — a serial queue at 1 h 55 m a file, ~250 GB of
+output against 376 GB free — and then had nowhere to send the question, so it concluded
+the question was unanswerable and moved on. In its own words: *the defect was not that
+I did not know the route, it is that I did not know there was one — an agent that
+believes a question has no route stops forming the question at all.*
+
+**An unanswered question is a blocked need and gets recorded like one**
+(`WRITE_ZONES.MD` §6). Do not substitute your own judgement for the owner's intent and
+then leave it unmarked: `vmsam-dev-2` chose to decline repair when a file's streams
+disagreed, which was the safe reading and cost real yield — **no rule asked for that
+and no rule would have stopped the opposite choice.** Two files declined on that
+judgement repair correctly. Saying so is what turned it into a decision the owner can
+make.
+
 ## Carrying someone else's finding
 
 **Never restate a finding more strongly than its author did.** A campaign-1 lead
@@ -57,7 +101,7 @@ your own transcript reaches nobody: the only thing that transmits is the
   another channel, it has not moved. This is not self-deception: your lead may arrive
   in your session as a user turn, so a section headed *"Report to the Lead"* really is
   a reply — to the one correspondent who can read your screen, and to none of the peer
-  sessions who cannot. Two correspondents wearing one name (`vmsam-dev-1`). If a named
+  sessions who cannot. Two correspondents wearing one name. If a named
   agent asked for it, is waiting on it, or would act differently for having it, it goes
   in a `SendMessage` **whether or not you have also written it out**.
 - **Address by session name**, exactly as `ListAgents` prints it — your lead is a row
@@ -124,7 +168,7 @@ had asked about.** State the pair, or expect to be checked against the wrong hal
 The same rule inverts usefully: **a difference is not a loss until you look at what
 differs.** Finding that two trees disagree is the start of the question.
 
-**Provenance in the artefact beats both a timestamp and a memory.** `vmsam-forensic`
+**Provenance in the artefact beats both a timestamp and a memory.** An agent
 had a claim about the order two files were written in, found that the file times
 contradicted its own recollection, and refused to settle it by picking whichever
 supported it. What survived was neither: its `CRITERIA.md` carries a criterion struck
