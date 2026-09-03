@@ -138,6 +138,35 @@ decimal is already uncertain. dev-2 tags the factor it **applied** to full
 precision (`SPEC_ZONE_A.MD` §4, correct as written) and carries my interval in the
 repair report, where it can say what the tag cannot.
 
+### Strengthened to all eight files, from forensic's final table
+
+`forensic/data/classified_v2.json` classes **8** files as `speed mismatch`, all
+`family_v2 = "speed mismatch (NTSC)"`, **all folder 164**. Regressing delay on
+window centre, with the uncertainty floor taken from the **quantum** (`q/sqrt(12)`)
+rather than from the residuals alone — the floor my own quantum finding implies:
+
+| id | slope ms/s | ratio | resid sd | q-floor |
+| ---: | ---: | ---: | ---: | ---: |
+| 26 | -1.022438 | 1.001023 | 39.8 | 35.8 |
+| 27 | -1.014954 | 1.001016 | 55.2 | 35.8 |
+| 29 | -0.981684 | 1.000983 | 35.5 | 35.8 |
+| 31 | -0.993192 | 1.000994 | 41.0 | 35.8 |
+| 33 | -0.992431 | 1.000993 | 38.3 | 35.8 |
+| 35 | -1.015700 | 1.001017 | 39.2 | 35.8 |
+| 37 | -0.984921 | 1.000986 | 38.3 | 35.8 |
+| 113 | -0.995384 | 1.000996 | 38.0 | 35.8 |
+
+**Mean 1.001001, 95 % [1.000990, 1.001012].** `1001/1000` lands essentially dead
+centre; PAL's 1.042709 is excluded by four orders of magnitude.
+
+**Two caveats that travel with the number.** All eight are **one series**, so eight
+files are not eight independent observations — the family is one show's encoding
+habit seen eight times. And the **between-file scatter is 2.8x the pooled standard
+error**, so the eight disagree by more than quantisation explains: the honest
+interval is the scatter-based `[1.000990, 1.001012]`, not the tighter pooled one.
+Within each file the residual sd sits at or just above the 35.8 ms quantisation
+floor, so quantisation dominates there, as expected.
+
 ### Blocked
 
 Nothing. The measurement half of objective 3 is done on two files. It closes when
