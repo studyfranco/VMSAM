@@ -265,7 +265,16 @@ so the discriminator is calibrated on one confirmed positive, not on a populatio
   sqrt(0.004) = 63.25 ms, so the gate passes clusters closer than 126.5 ms while the
   ambiguity it arbitrates is one 124-125 ms quantum: **it sits 1.5 ms above the thing it
   exists to resolve.** This is CAMPAIGN.MD's own per-language open question firing as an
-  outright refusal. Five files keep the old label with no mechanism: 5, 71, 318, 319, 320.
+  outright refusal. All five that kept the old label are now measured too: **318, 319, 320** are a clean constant
+-501 ms (18/18 probes) refused because their quantum is **138 ms** on a 191 s file while the
+reconciliation window at mergeVideo.py:315 is the literal `< 127` -- a one-quantum jitter
+refused without an attempt at reconciliation, and corroboration of dev-1's 124-142 ms range at
+its upper end. **id 5** is not a constant offset at all: three change points, range 60.4 s,
+reclassified `different cuts`. **id 71** is constant at 0.0 ms; its 248 ms range is an
+ALTERNATING +124/-124 region, which is ci's discriminator (a real step has one transition,
+rounding alternates) -- the pipeline's 220 s windows turn that alternation into an apparent
+step. **Unexplained is now 5 of 315 (1.6 %): 112, 693 (instrument did not run), 196, 307
+(partial overlap), 45 (unclassifiable).**
 - **A limitation of my own profiler, found by this:** it tests ONE language pair per file
   (`common[0]` in master order). Every "positively flat" verdict was flat on one of up to
   ten languages, and silent about the rest.
