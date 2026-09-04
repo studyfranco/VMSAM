@@ -83,6 +83,55 @@ class chimeric_error(Exception):
     pass
 
 
+def delay_in_ms(track):
+    """`Delay` en millisecondes, AVEC SON UNITE VERIFIEE CONTRE UN SECOND OUTIL.
+
+    `mediainfo` rend `Delay` en SECONDES sur le binaire de cette image -- 0.083
+    contre un `start_time` de 0.083000, mesure par vmsam-dev-3 sur 13 cas non nuls,
+    zero correspondant a une lecture en millisecondes. Le `* 1000` d'ici est donc
+    correct.
+
+    MAIS C'EST UNE PROPRIETE DU BINAIRE, PAS DU SCHEMA JSON. Un build qui emettrait
+    des millisecondes rendrait cette ligne fausse d'un FACTEUR 1000, EN SILENCE, et
+    rien dans `src/` ne croisait une unite avec un second outil.
+
+    Or `ffprobe.start_time` est deja attache au MEME dict, en secondes par
+    definition, et dev-3 a mesure 291/291 accords sur les Delay de source
+    `Container`. Le controle est donc GRATUIT: on ne devine pas l'unite, on la
+    compare a une mesure qui n'en a qu'une.
+
+    Trois issues, et la troisieme n'est pas un defaut:
+        les deux concordent en secondes    -> on multiplie, unite confirmee
+        elles concordent si Delay est en ms -> ON LEVE. Le binaire a change d'unite
+                                               et tout ce qui suit serait faux de 1000.
+        pas de `start_time`                 -> on multiplie et on ne peut pas verifier;
+                                               c'est l'hypothese documentee, pas une mesure.
+    """
+    raw = track.get("Delay", 0) or 0
+    try:
+        seconds = Decimal(str(raw))
+    except Exception:
+        return Decimal("0")
+    probe = (track.get("ffprobe") or {}).get("start_time")
+    if probe not in (None, "", "N/A"):
+        try:
+            start = Decimal(str(probe))
+        except Exception:
+            return seconds * Decimal("1000")
+        # On ne compare que si l'un des deux est non nul: a zero les deux lectures
+        # sont identiques et le controle ne dit rien.
+        if seconds != 0 or start != 0:
+            as_seconds = abs(seconds - start)
+            as_ms = abs(seconds / Decimal("1000") - start)
+            if as_ms < as_seconds:
+                raise chimeric_error(
+                    f"mediainfo Delay {raw} matches ffprobe start_time {probe} only "
+                    f"if it is in MILLISECONDS, not seconds. This module multiplies "
+                    f"by 1000 and would be wrong by that factor. THIS IS A STATEMENT "
+                    f"ABOUT THE mediainfo BUILD, not about the media")
+    return seconds * Decimal("1000")
+
+
 def get_segment_offset(segment, stream_order=None):
     """Le decalage de CETTE tranche pour CETTE piste.
 
@@ -856,7 +905,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # seules Duration declare ja court de 1.99 s alors qu'il finit 1.0 s
             # avant en. L'erreur vaut le Delay, soit ici une seconde -- le meme
             # ordre qu'un residu fantome qui a ete cru par trois agents a la fois.
-            delay_ms = Decimal(str(master_audio.get("Delay", 0) or 0)) * Decimal("1000")
+            delay_ms = delay_in_ms(master_audio)
             fill_source_ms = (Decimal(str(master_audio["Duration"])) * Decimal("1000")
                               + delay_ms)
             furthest = max((p["master_end_ms"] for p in pieces
@@ -1905,13 +1954,46 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     for stream in audio:
         duration = stream["duration_ms"]
         if duration == None:
-            # ON NE SUBSTITUE PAS LA DUREE DU CONTENEUR. `vmsam-ci` a mesure que
-            # `format=duration` d'ffprobe differe de la duree du FLUX video et
-            # de mediainfo de 31 a 883 ms sur cinq fichiers -- flux video et
-            # mediainfo identiques 5 fois sur 5, conteneur different des deux.
-            # C'est une TROISIEME quantite, pas une approximation de celle-ci,
-            # et la glisser ici ferait exactement ce que les trois vocabulaires
-            # de noms de codec ont fait ce matin.
+            # ON NE SUBSTITUE PAS LA DUREE DU CONTENEUR.
+            #
+            # PREMIERE MESURE, vmsam-ci: `format=duration` d'ffprobe differe de la
+            # duree du FLUX video et de mediainfo de 31 a 883 ms sur cinq fichiers
+            # -- flux video et mediainfo identiques 5 fois sur 5, conteneur
+            # different des deux.
+            #
+            # CE CHIFFRE SOUS-ESTIME LE CAS D'UN FACTEUR 2470. vmsam-dev-3, audit
+            # de 60 fichiers sources et 1378 pistes:
+            #
+            #   conteneur moins max(video, audio), 60 fichiers
+            #     min 0.000    mediane 0.091    MAX 2179.937 SECONDES
+            #
+            #   un fichier declare 3600.000 s de conteneur pour 1420.063 s de
+            #   contenu -- un conteneur 2.5 fois plus long que tout ce qu'il porte.
+            #
+            # ET LE MECANISME A UN NOM. `format=duration` est le MAXIMUM SUR TOUS
+            # LES FLUX, et l'exces est un gabarit d'authoring de sous-titres:
+            #
+            #   fichiers ou le conteneur depasse max(video,audio) de >0.5 s      3
+            #   dont le conteneur egale max(sous-titre) a 0.5 s pres          3 / 3
+            #   les ecarts                     0.561 s, 59.901 s, 2179.937 s
+            #
+            # Sur un fichier a six pistes de sous-titres etiquetees
+            # `01:00:00.000000000`, la "duree du conteneur" EST ce gabarit.
+            #
+            # C'est une TROISIEME quantite, pas une approximation de celle-ci, et
+            # la glisser ici ferait exactement ce que les trois vocabulaires de
+            # noms de codec ont fait ce matin.
+            #
+            # LA JUSTIFICATION IMPORTE AUTANT QUE LA CONCLUSION: a 31-883 ms un
+            # lecteur peut raisonnablement conclure que la substitution est une
+            # commodite a petite erreur et la retablir. A 2180 s elle ne l'est
+            # sous aucune lecture. Le chiffre qui rend le garde inarguable est
+            # celui de dev-3, pas le mien.
+            #
+            # BORNE DE dev-3 SUR SES PROPRES CHIFFRES: 48 des 60 fichiers sources
+            # ne portent AUCUNE etiquette DURATION sur video ni audio, donc les
+            # statistiques a >0.5 s reposent sur 12 fichiers, et les 48 forment un
+            # bloc d'ids contigu -- un muxeur, pas 80 % au hasard.
             #
             # Un flux sans duree declaree est donc NON MESURE, pas suppose
             # correct et pas suppose faux.
@@ -1936,7 +2018,25 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     report = {"unmeasured": unmeasured,
               "expected_duration_ms": str(master_duration_ms),
               "expected_duration_source": "master video Duration (mediainfo)",
+              # CE CHAMP PEUT NE PAS ETRE UNE DUREE DE CONTENU. `format=duration`
+              # est le maximum sur TOUS les flux, sous-titres compris, et un
+              # gabarit d'authoring `01:00:00` le porte a 3600000 sur un fichier
+              # de 1420 s. Le garde ci-dessus empeche l'usage DANGEREUX -- on ne
+              # substitue jamais cette valeur a une duree de piste -- mais LE
+              # CHAMP EST EMIS, et un lecteur qui voit `container_duration_ms
+              # 3600000` a cote de `expected_duration_ms 1420002` n'a aucun champ
+              # qui dise que l'ecart est une etiquette de sous-titre plutot qu'un
+              # defaut du travail.
+              #
+              # On emet donc AUSSI le maximum sur les flux video et audio. Leur
+              # ECART nomme la situation sans que personne ait a la deviner, et il
+              # vaut zero sur un fichier ordinaire.
               "container_duration_ms": str(container_ms) if container_ms != None else None,
+              "max_av_stream_duration_ms": (
+                  str(max([s["duration_ms"] for s in streams
+                           if s["duration_ms"] != None
+                           and s["codec_type"] in ("video", "audio")] or [0]))
+                  if streams else None),
               "audio_built": len(audio_reports), "audio_in_file": len(audio),
               "subtitles_built": len(subtitle_reports), "subtitles_in_file": len(subtitle),
               "tolerance_ms": str(tolerance_ms) if tolerance_ms != None else None,
