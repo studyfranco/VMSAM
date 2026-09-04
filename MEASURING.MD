@@ -1138,3 +1138,93 @@ independent Gaussian per probe; real scatter from a 124 ms quantum is neither Ga
 independent between overlapping windows.* **So the table measures the OVERFITTING
 MECHANISM and not this corpus's failure rate** — and the distinction is what stops the
 81.7 % becoming a number someone quotes about real files.
+
+**A COUNT INFLATED BY A REPETITION NOBODY LOOKED FOR — AND THE DENOMINATOR RULE DOES NOT
+CATCH IT.** Four instances, two agents, one day:
+
+    six probes that were THREE        two positions collapsed because span == window
+    two folders that were ONE         a population reported as two observations
+    294 delays that are 37 DISTINCT   "29.6 % on the AAC grid" was three values --
+                                      21.0 x51, 42.0 x20, 63.0 x9 -- counted as
+                                      eighty observations. ON DISTINCT VALUES the
+                                      grid scores 1 of 37 = 2.7 % against a 4.8 %
+                                      chance rate -- BELOW CHANCE. Withdrawn.
+    four offsets whose n_effective    one displacement seen four times
+      is ONE
+
+**This file already says *a figure without its denominator in the same row will be read at
+its most flattering scope*, and the fix is *put the denominator in the row*.** *Every one
+of the four HAD its denominator in the row.* **294 was printed. 112 was printed.**
+
+> **THE DENOMINATOR WAS CORRECT AND THE NUMERATOR COUNTED THE SAME THING REPEATEDLY, SO
+> THE RATIO WAS WRONG WHILE BOTH ITS PARTS WERE RIGHT.** *That is a different failure and
+> the existing field cannot see it.*
+
+**And in every case the arithmetic was right, the population was inflated, and SOMEBODY
+ELSE COUNTED.** *Neither author caught it in their own data — one agent counted for
+another, that agent asked a third to count, and the third's own instance was found by a
+fourth.* **Four for four. Nobody has ever caught this one in their own numbers.**
+
+**THE GUARD, AND IT COSTS ONE FIELD:** *print `n_distinct` BESIDE `n`, in the artefact,
+**generated rather than asserted**.* **A row reading `294 values, 37 distinct` cannot be
+quoted as 294 independent observations by a tired reader at four in the morning** — and it
+**puts the inflation in front of whoever HOLDS the number rather than whoever wrote it**,
+which is the only position from which it has ever been caught.
+
+**And it is not one number: it is the distinct count AT EACH LEVEL THE DATA HAS.** *One
+agent's repetition lived at two levels — several tracks of one file, and several files of
+one release. It guarded the first and was caught by the second.* **Per track, per file,
+per release** (`vmsam-dev-3`, from four instances including two of its own).
+
+**AND THE RELEASE LEVEL HAS NOW BEEN MEASURED, BY THE AGENT WHOSE NUMBER IT DEFLATES:**
+
+    pairs whose master and candidate differ in container delay
+      n                                   96
+      n_distinct(difference)              21
+      n_releases                          12       <- NINETY-SIX PAIRS ARE TWELVE RELEASES
+      largest single release contributes  24 pairs <- a QUARTER of the sample
+      n_distinct( (release, difference) ) 27
+
+**An eightfold inflation if you count pairs, and nothing in `n = 96` says so**
+(`vmsam-dev-2`). *And it puts a live question on a number others are using: an
+equal-terms test at `n = 112` controls the TRACK level and may not control the RELEASE
+level — if it does not, its 4.2× is inflated by this mechanism one level up.*
+
+**THE MECHANISM, IN ITS AUTHOR'S WORDS, AND IT IS WHY INTENT CANNOT FIX IT:**
+
+> ***I compute the statistic before I count the population, and no statistic announces the
+> difference. `29.6 % of 294` and `29.6 % of 37 distinct values repeated to 294` print
+> identically.***
+
+**So the rule is a required FIELD and not a habit:** ***`n` alone is not a publishable
+population. `n_distinct` and the GROUPING LEVEL travel with it, in the artefact, generated
+rather than asserted.*** *It would have caught all three of one agent's instances and at
+least one of another's, mechanically, without anyone being more careful.*
+
+**AND ONE MECHANISM DID CATCH SOMETHING BEFORE IT TRAVELLED, EXACTLY ONCE ALL DAY.** A
+near-second family *looked* like a clean 24 ms arithmetic sequence and the sentence was
+already written. The real differences:
+
+    5  19  48  24  5  19  24  24  24  22  2  19  5  38
+
+> **A run of three identical values reads as a sequence, and everything else reads as
+> noise around it.**
+
+*It did not reach anyone only because its author was recomputing to answer someone else's
+unrelated question.* **The generalisation, and it is the only positive control in the whole
+day: ANSWER OTHER PEOPLE'S QUESTIONS WITH FRESH COMPUTATION RATHER THAN FROM NOTES** —
+*not because notes are unreliable, but because recomputing is the one occasion on which
+anybody looks at a population twice* (`vmsam-dev-2`, `vmsam-dev-3`).
+
+**THE GUARD'S OWN LIMIT, STATED BY ITS PROPOSER, AND IT IS WHY THE PROPOSAL IS
+TRUSTWORTHY.** `mkvmerge -J` reports **`codec_delay = 21333333 ns` on EVERY aac track**,
+including on an artefact whose seven tracks all carry `start_time` exactly 0. *`codec_delay`
+is a constant the decoder compensates and is independent of `start_time`.* **So 21.3333
+was never going to appear in the field either agent was reading:**
+
+> ***We fitted an audio-frame grid to a quantity that does not carry one.***
+
+**That is a better account of the failure than "the tolerance was too loose", and the
+distinct-count field would NOT have caught it.** *A guard presented as covering more than
+it does is exactly the defect this file collects — and its author said so while proposing
+it.*
