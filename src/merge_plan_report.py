@@ -1115,6 +1115,22 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                          kept_cues=fields.get("kept_cues"),
                          dropped_cues=fields.get("dropped_cues")))
 
+    # UNE MARQUE ABSENTE DOIT S'ANNONCER, exactement comme une cellule vide.
+    # C'est le meme defaut d'un cran au-dessus: la ou une cellule vide risquait
+    # de se lire comme `zero`, une MARQUE ENTIERE qui ne se dessine jamais
+    # risque de se lire comme `rien n'est jamais refuse`. Ce n'est PAS un manque
+    # -- `log_assembly` emet bien `repair: SKIPPED` -- c'est un cas que cet
+    # artefact n'exerce pas, et les deux ne partagent pas un blanc.
+    if not (job.get("refused") or []):
+        rows.append(_row("REFUSED_NONE", _redactor=redactor,
+                         count=0,
+                         producer="merge_video_repair.log_assembly emits "
+                                  "`repair: SKIPPED segment` for these",
+                         note="this artefact records no refused candidate "
+                              "segment, so the figure draws no dashed amber box. "
+                              "NOT EXERCISED, not missing -- and the mark has "
+                              "never been drawn against real refused material"))
+
     for entry in job.get("refused") or []:
         # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
         # region que la boite ambre pointillee marque, et pas un remplissage
@@ -1844,6 +1860,30 @@ def render_narrative(records):
         sentence.append("</p>")
         said.append("".join(sentence))
 
+    refused = [f for k, f in records if k == "REFUSED"]
+    none_row = next((f for k, f in records if k == "REFUSED_NONE"), None)
+    if refused:
+        total = sum(Decimal(f["dropped_ms"]) for f in refused
+                    if f.get("dropped_ms"))
+        said.append(
+            f"<p><b>{len(refused)} r\u00e9gion(s) du candidat ont \u00e9t\u00e9 "
+            f"REFUS\u00c9ES</b>, soit "
+            f"{_escape(seconds_fr(total, 1, signed=False))}\u00a0s\u00a0: le plan "
+            f"y avait un candidat et l\u2019a \u00e9cart\u00e9. Elles portent la "
+            f"bo\u00eete ambre en pointill\u00e9 sur la figure. C\u2019est autre "
+            f"chose qu\u2019un remplissage depuis le ma\u00eetre, et les deux "
+            f"marques coexistent.</p>")
+    elif none_row:
+        said.append(
+            "<p><b>Aucune r\u00e9gion du candidat n\u2019a \u00e9t\u00e9 "
+            "refus\u00e9e dans cet artefact</b>, donc la figure ne porte aucune "
+            "bo\u00eete ambre en pointill\u00e9. \u00c0 lire comme "
+            "\u00ab\u00a0ce cas ne s\u2019est pas produit ici\u00a0\u00bb et "
+            "non comme \u00ab\u00a0rien n\u2019est jamais refus\u00e9\u00a0\u00bb"
+            "\u00a0: le producteur \u00e9met bien ces lignes, et la marque "
+            "n\u2019a encore jamais \u00e9t\u00e9 dessin\u00e9e contre de la "
+            "mati\u00e8re r\u00e9ellement refus\u00e9e.</p>")
+
     gaps = [f for k, f in records if k == "GAP"]
     missing = [f for f in gaps if f.get("state") == NO_PRODUCER]
     if missing:
@@ -1913,6 +1953,14 @@ def render_report(job, artefact_id, source_name, caveats=()):
         'at the same scale, so its extent compares with what was kept — a length drawn on '
         'an axis that is not its own, said rather than assumed. A <code>~</code> before an '
         'offset means it was <b>derived</b> from other emitted fields, not read.</p>')
+    document.append(
+        '<p class="note">Dashed amber marks <b>candidate material that was '
+        'refused</b> \u2014 the plan had a candidate there and dropped it. That '
+        'is a different thing from the master-contribution bar under the '
+        'staircase, which shows what came <b>from the master</b>; a region can '
+        'be either, both or neither. <b>If no dashed box appears, this artefact '
+        'refused nothing</b> \u2014 a case not exercised here, and not a claim '
+        'that nothing is ever refused.</p>')
     document.append(f'<div class="diagram">{render_svg(records)}</div>')
 
     document.append("<h2>What was done to this file</h2>")
