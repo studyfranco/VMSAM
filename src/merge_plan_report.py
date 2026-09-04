@@ -1273,13 +1273,21 @@ def blank_cells(job):
         "address": "the seam: dev-1 emits it in a handoff JSON, "
                    "merge_video_repair.log_assembly has the conditional emitter, "
                    "nothing carries it between them",
-        "detail": "0 occurrences in 13 artefacts. AND WHEN IT ARRIVES, `NON "
-                  "EMISE` MUST BE CONDITIONED: dev-1 also emits "
-                  "speed_margin_absent_reason and decided_by, because a margin "
-                  "can be undefined while the decision was still decisive -- one "
-                  "hypothesis clearing the fidelity gate leaves no flatness "
-                  "margin, and printing that as unemitted would call a 0.36 "
-                  "fidelity separation margin-less"})
+        "detail": "0 occurrences in 13 artefacts. AND THE EMITTER WILL FAIL ON "
+                  "ARRIVAL, PRECISELY WHERE IT MATTERS: log_assembly emits the "
+                  "field CONDITIONAL ON ITS TRUTHINESS, and a margin that is "
+                  "undefined is None, which is falsy. So on exactly the files "
+                  "where the fidelity gate decided and no flatness margin "
+                  "exists, the line prints nothing and this report would say NON "
+                  "EMISE over a decision with a 0.3637 separation. "
+                  "speed_margin_absent_reason, fidelity_margin and decided_by "
+                  "need emitters OF THEIR OWN rather than riding on "
+                  "speed_margin's truthiness -- otherwise the reason never "
+                  "travels in the one case it exists to explain. NOTE for any "
+                  "caption: fidelity_margin is winner MINUS best hypothesis that "
+                  "did NOT clear the gate -- a separation across the selection "
+                  "boundary, not a spread among the accepted, and wording it as "
+                  "a spread would make it circular"})
     entries.append({
         "quantity": "verification_probe_positions",
         "state": COLLAPSED,
