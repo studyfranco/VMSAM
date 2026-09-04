@@ -526,16 +526,47 @@ a genuinely displaced window, measured confidently. So a confidence floor reject
 (`vmsam-dev-2`).
 
 **A FILTER CHOSEN TO REJECT NOISE REJECTS SIGNAL IDENTICALLY, AND NOTHING IN THE DESIGN
-DISTINGUISHES THEM.** Four mechanisms in this campaign, one class:
+DISTINGUISHES THEM.** Five mechanisms in this campaign — **and they are two classes, not
+one, with different severities:**
 
-    sampling gaps         a 20 s window every 40 s      rejects what falls in the gap
-    an averaged RMS       a span read as a point        rejects what is brief
-    a minimum-run filter  MIN_WINDOWS = 2               rejects what is short
-    a positives-only floor  no adversarial population   never asks
+    REJECTION -- the instrument reports an ABSENCE IT CANNOT SUPPORT
+      sampling gaps         a 20 s window every 40 s     rejects what falls in the gap
+      an averaged RMS       a span read as a point       rejects what is brief
+      a minimum-run filter  MIN_WINDOWS = 2              rejects what is short
+      a positives-only floor  no adversarial population  never asks
+      CONSEQUENCE: a defect goes unreported. Information is lost.
 
-**Every one is a rejection rule with no way to say what it rejected**, and all four
-therefore report an absence they cannot support (`vmsam-dev-2`, `vmsam-forensic`; the
-generalisation is `vmsam-dev-sandbox`'s, from dev-2's formulation of the third).
+    ABSORPTION -- the instrument reports a PRESENCE WRONG BY AN UNKNOWN AMOUNT
+      PLATEAU_TOLERANCE_MS = 50   an excursion under 50 ms never becomes its own
+                                  run: IT IS FOLDED INTO THE CURRENT PLATEAU AND
+                                  SHIFTS ITS MEAN
+      MIN_STEP_MS = 60            adjacent runs differing by less than this MERGE
+      COMBINED: any transition under 60 ms is invisible in the plan, at any
+      duration, supported by any number of probes.
+      CONSEQUENCE: A WRONG OFFSET SHIPS.
+
+**This split is the entry, and the first four entries in this file's history covered only
+the harmless half.** `vmsam-dev-1`, auditing its own module after being handed the
+rejection form:
+
+> ***One filter DELETES a one-window excursion. Mine AVERAGES IT IN. That is worse,
+> because deletion leaves the surviving numbers untouched while absorption moves the
+> plateau mean that every downstream offset is computed from. A small excursion does not
+> vanish from my plan; it slightly corrupts the segment it happened in.***
+
+**On a pipeline nobody checks by hand, those are not the same severity.** A rejection
+failure loses information; **an absorption failure produces a confident wrong number and
+puts it in the plan the repair executes.** *An audit prompted by the rejection framing
+alone will walk past every absorption filter it owns* — which is what this entry looked
+like before the fifth mechanism was found.
+
+**And the defect is not necessarily where the class was first seen.** `MIN_WINDOWS` was
+in a **lab instrument**; the production verifier's verdict is `max(abs(lag))` over probes
+marked `measured`, **with no run-length test and no confidence filter — and a `max()`
+cannot delete a signal** (`vmsam-dev-2`, who checked rather than let "third instance"
+imply the shipping code shared it). `PLATEAU_TOLERANCE_MS` **is in the plan the repair
+consumes.** *Name the tier the filter lives in, every time: a class membership is not an
+address.*
 
 The third is the worked case:
 
@@ -565,6 +596,30 @@ there*, because a probe at `r = 0.0834` can produce a large spurious lag and the
 weighs it exactly like one at `r = 0.9964`. **A hazard that has not fired is not a
 hazard that was disproved**, and the case where it looked like the cause is the case
 that made it easiest to stop looking.
+
+**A SUFFICIENT EXPLANATION FOUND IS A SEARCH TERMINATED.** An agent looked for the cause
+of a 34.76 ms step, found `MIN_STEP_MS = 60` fully accounting for the case in front of
+it, and stopped — **with an earlier gate, `PLATEAU_TOLERANCE_MS`, in the same function it
+had just read.** *I named the second gate and missed the first, in my own module.* It
+then withdrew its own account unprompted: **if 34.76 is a floor rather than the step,
+then "MIN_STEP_MS explains this exactly" is itself a floor claim** — the true step could
+be larger and still under 60, or larger and above it, in which case those parameters are
+not the explanation at all. **An explanation that accounts for the case is not an
+explanation that was searched for competitors** (`vmsam-dev-1`).
+
+**A good story is the most expensive kind of wrong answer.** *A low-confidence probe
+deciding a `max()` has a villain, a mechanism and a fix* — and it was false. **The thing
+that killed it was refusing to aggregate on the side that was trusted** (`vmsam-dev-2`).
+Prefer the account that is uglier and has a measurement behind it.
+
+**A design that is safe by accident has no reason to stay safe.** A rate detector scores
+on residual flatness at **raw probe positions** and never calls the plateau grouper, so
+it does not inherit the absorption defect — *and that is luck rather than foresight: raw
+probes were chosen because a rate is a property of the whole file, not because anyone had
+thought about what the filter discards.* **Reusing the plateau structure is the obvious
+later optimisation and the inheritance would arrive silently. A comment in the module is
+the only thing that turns an accident into a decision** (`vmsam-dev-1` naming its second
+lucky escape of one day as luck, `vmsam-dev-sandbox` requiring the comment).
 
 **A promotion happens in the relay, and the relay is the one join nobody audits.** An
 agent reported *a file I believe was wrongly refused*; one hop later the architect put
