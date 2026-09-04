@@ -125,6 +125,33 @@ def get_speed_ratio(plan):
                       "SPEC_ZONE_A.MD s4f requires escalation to scene detection "
                       "-- a different modality -- and a tie-break computed from "
                       "the same correlations is not a third opinion")
+    # LA CONVENTION DU RAPPORT, VERIFIEE CONTRE LES DUREES ET NON CONTRE UN NOM.
+    #
+    # vmsam-dev-1 a emis `speed_ratio` dans SA convention -- candidat/maitre --
+    # la ou `TASKS/009` definit maitre/candidat. RECIPROQUES. Sur l'id 70 cela
+    # aurait etire la piste de 0.9590 la ou il faut 1.0425: 8.7 % dans le MAUVAIS
+    # SENS. `AUDIO_SPEED_POLICY.MD` faiblesse 3 enregistre exactement ce defaut,
+    # et note que RIEN A L'INTERIEUR DU BALAYAGE NE POUVAIT L'ATTRAPER.
+    #
+    # Mes deux gardes -- bornes et verificateur -- l'attrapent quand le rapport
+    # est loin de 1. Elles NE L'ATTRAPENT PAS pres de l'unite: 0.999001 contre
+    # 1.000999 passe toute borne et toute tolerance, et c'est le cas DESTRUCTEUR.
+    #
+    # UN NOM DE CHAMP NE PORTE PAS SA CONVENTION. Les DUREES si. Quand le plan
+    # les porte, on demande laquelle de `r` ou `1/r` est proche du rapport des
+    # durees -- et on ne tranche que lorsque la reponse est nette.
+    #
+    # TROIS ETATS, parce que la verification n'est pas toujours possible: sur
+    # l'id 33 les durees sont dans un rapport de 1.0687 pour une relation de
+    # cadence de 1.001 -- LE CANDIDAT EST PLUS LONG PARCE QU'IL PORTE DU CONTENU
+    # DIFFERENT. Un rapport de durees N'EST PAS UNE CADENCE, et un controle qui
+    # l'oublierait refuserait l'id 33 a tort.
+    convention = check_ratio_convention(plan)
+    if convention != None:
+        return None, convention
+    labelled = check_ratio_labelled(plan)
+    if labelled != None:
+        return None, labelled
     if verdict == "rubberband":
         return None, ("the measurement says rubberband -- the inverting case, a "
                       "source already pitch-corrected at origin. Not implemented: "
@@ -518,6 +545,172 @@ def _track_shortfall_ms(assembly, report):
             return None
         return Decimal(str(expected)) - Decimal(str(stream["duration_ms"]))
     return None
+
+
+def check_ratio_convention(plan):
+    """`speed_ratio` est-il dans MA convention? Renvoie un refus, ou None.
+
+    Ma convention, `TASKS/009`: r = duree_maitre / duree_candidat, donc r > 1
+    veut dire que le candidat court VITE et doit etre RALENTI.
+
+    On ne decide que si la reponse est NETTE: le bon sens a moins de 1 % du
+    rapport des durees ET le sens inverse au-dela. Sinon on ne dit rien, parce
+    qu'un rapport de durees n'est une cadence que si les deux fichiers portent
+    la meme quantite de contenu -- ce qui est faux des qu'il y a une coupe.
+    """
+    ratio = plan.get("speed_ratio")
+    master_s = plan.get("duration_master_s")
+    candidate_s = plan.get("duration_candidate_s")
+    if ratio == None or master_s in (None, 0) or candidate_s in (None, 0):
+        return None
+    try:
+        r = Decimal(str(ratio))
+        expected = Decimal(str(master_s)) / Decimal(str(candidate_s))
+    except Exception:
+        return None
+    if r == 0:
+        return None
+    direct = abs(r - expected)
+    inverse = abs((Decimal(1) / r) - expected)
+    near = expected * Decimal("0.01")
+    if inverse <= near and direct > near:
+        return ("the speed_ratio looks like the RECIPROCAL of this module's "
+                "convention: TASKS/009 defines r = master_span / candidate_span, "
+                "and the value shipped matches candidate_span / master_span "
+                "against the durations in the same plan. Applying it would "
+                "resample in the WRONG DIRECTION")
+    return None
+
+
+# LA OU LES DUREES NE PEUVENT PAS TRANCHER, ET C'EST LE CAS DESTRUCTEUR.
+#
+# `check_ratio_convention` n'attrape l'inversion que LOIN de l'unite -- c'est-a-
+# dire exactement la ou mes bornes et mon verificateur l'attrapaient deja. Pres
+# de l'unite il ne dit rien, parce qu'un rapport de durees n'est pas une cadence
+# des qu'il y a une coupe: sur l'id 33 les durees sont dans un rapport de 1.0687
+# pour une cadence de 1.001.
+#
+# Or 0.999001 contre 1.000999 passe TOUTE borne et TOUTE tolerance. C'est 0.2 %
+# dans le mauvais sens, livrable en silence, et vmsam-dev-1 l'a nomme comme le
+# cas destructeur.
+#
+# DONC: pres de l'unite, un rapport SANS CONVENTION DECLAREE ne s'applique pas.
+# Ce n'est pas de la prudence, c'est la seule position defendable: aucun controle
+# de ce module ne peut distinguer les deux sens la, donc appliquer revient a
+# parier sur l'identite de l'agent qui a ecrit le champ.
+RATIO_CONVENTION = "master_span / candidate_span"
+CONVENTION_FREE_MARGIN = Decimal("0.01")
+
+
+def normalise_convention(stated):
+    """`mine` / `inverse` / `unknown`, en IGNORANT la forme.
+
+    PREMIERE VERSION: egalite de chaines apres suppression des espaces. Elle a
+    REFUSE le premier plan correctement etiquete que vmsam-dev-1 m'ait envoye,
+    parce que l'etiquette portait une glose:
+
+        "master_span / candidate_span  (dev-2's definition, TASKS/009)"
+
+    La convention est JUSTE. Seule la FORME differait. C'est la regle que j'ai
+    adoptee ce matin -- un controle qui echoue pour une raison de forme est un
+    controle qu'on eteint -- et je l'ai enfreinte quelques heures plus tard, dans
+    un controle ecrit pour empecher une inversion.
+
+    On lit donc l'ORDRE DES DEUX TERMES et rien d'autre: la glose, la casse, les
+    espaces et la ponctuation ne portent aucun sens ici.
+    """
+    text = str(stated).lower()
+    cut = text.find("(")
+    if cut != -1:
+        text = text[:cut]
+    master = text.find("master")
+    candidate = text.find("candidate")
+    if master == -1 or candidate == -1:
+        return "unknown"
+    return "mine" if master < candidate else "inverse"
+
+
+def check_ratio_labelled(plan):
+    """La convention est-elle DECLAREE, et est-ce la mienne? Refus, ou None."""
+    ratio = plan.get("speed_ratio")
+    if ratio == None:
+        return None
+    stated = plan.get("speed_ratio_convention")
+    if stated != None:
+        named = normalise_convention(stated)
+        if named == "mine":
+            return None
+        if named == "inverse":
+            return (f"the plan states its ratio convention as {stated!r}, which "
+                    f"is the RECIPROCAL of {RATIO_CONVENTION!r}; this module will "
+                    f"not reinterpret a coefficient whose meaning it did not define")
+        return (f"the plan states a ratio convention this module does not "
+                f"recognise ({stated!r}); it applies {RATIO_CONVENTION!r} and a "
+                f"convention it cannot read is not a convention it can trust")
+    try:
+        distance = abs(Decimal(str(ratio)) - Decimal(1))
+    except Exception:
+        return None
+    if distance < CONVENTION_FREE_MARGIN:
+        return ("the plan carries no speed_ratio_convention and the ratio is "
+                "within 1% of unity, where NEITHER the bounds check NOR the "
+                "verifier can tell the two directions apart. An unlabelled "
+                "near-unity coefficient is not applied")
+    return None
+
+
+def compare_plan_master(plan, best_video):
+    """Le plan a-t-il ete mesure contre CE maitre? Renvoie une raison, ou None.
+
+    TROIS ETATS ET NON DEUX, et le troisieme a ete trouve en faisant tourner ce
+    lecteur sur les VRAIS octets de vmsam-dev-1 plutot que sur le contrat:
+
+        absent          rien a comparer -- le plan ne nomme pas de maitre
+        egal            meme maitre
+        different       maitres differents  -> DECLIN, et c'est le controle
+        INCOMPARABLE    la valeur n'est pas un chemin: `WRITE_ZONES.MD` s8 dit
+                        de RETENIR plutot que d'assainir, et dev-1 emet donc un
+                        jeton opaque. `'opaque:...' != '/srv/...'` est VRAI, donc
+                        l'ancienne ligne declinait TOUT plan portant un jeton --
+                        en disant `mesure contre un autre maitre`, ce qui est
+                        FAUX. Une raison fausse est pire qu'un refus: elle envoie
+                        le lecteur chercher un desaccord de maitre qui n'existe
+                        pas.
+
+    ON DECLINE QUAND MEME dans le cas incomparable -- ne pas pouvoir verifier
+    l'identite du maitre n'autorise pas a l'assumer -- mais la raison DIT
+    laquelle des deux choses s'est produite. `AGENT.MD`: je n'ai pas pu mesurer
+    n'est pas un verdict sur le fichier.
+    """
+    # LE DIGEST D'ABORD QUAND IL EXISTE: c'est la seule forme comparable qui ne
+    # fait voyager aucun texte libre. `WRITE_ZONES.MD` s8.
+    #
+    # ET SA LIMITE SE DIT, parce que vmsam-dev-1 l'a nommee avant moi: un digest
+    # de CHEMIN prouve que deux agents ont recu la meme CHAINE, pas le meme
+    # FICHIER. Un lien symbolique, une barre finale, un prefixe de montage ou une
+    # normalisation unicode differente donnent un digest different pour les memes
+    # octets sur le disque. Un desaccord de digest n'est donc PAS une preuve de
+    # maitre different: c'est le meme etat `non verifie`, un cran plus bas.
+    digest = plan.get("master_path_digest")
+    if digest != None:
+        import hashlib
+        mine = hashlib.sha256(best_video.filePath.encode()).hexdigest()
+        if mine == digest:
+            return None
+        return ("the plan's master path digest does not match this master's. "
+                "NOTE: a path digest proves two agents were handed the same "
+                "STRING, not the same FILE -- a symlink, a mount prefix or a "
+                "different unicode normalisation differs here too, so this is "
+                "UNVERIFIED rather than proof of a different master")
+    stated = plan.get("master_path")
+    if stated == None or stated == best_video.filePath:
+        return None
+    if not str(stated).startswith("/"):
+        return ("the plan names its master with a token this reader cannot "
+                "compare to a filesystem path, so the master's identity is "
+                "UNVERIFIED -- this is not evidence of a different master")
+    return ("the plan was measured against a different master than the "
+            "one selected here")
 
 
 def _head_pad_summary(report):
@@ -928,15 +1121,14 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    f"the measurement returned neither a segment nor a speed "
                    f"relation ({plan_source})")
             continue
-        if plan.get("master_path") not in (None, best_video.filePath):
+        master_check = compare_plan_master(plan, best_video)
+        if master_check != None:
             # LA RAISON NE PORTE PAS LE CHEMIN. `record` ecrit deja le fichier
             # sur sa propre ligne; une RAISON, elle, se cite -- dans un rapport,
             # dans un message a un autre agent, dans un resume -- et une raison
             # qui contient un chemin media voyage avec lui. On redige avant que
             # l'extrait ne parte, pas apres.
-            record(candidate_path, "declined",
-                   "the plan was measured against a different master than the "
-                   "one selected here")
+            record(candidate_path, "declined", master_check)
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
