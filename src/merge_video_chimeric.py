@@ -947,6 +947,11 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             report["offset_measured"] = all(
                 offset_is_measured(segment, int(audio["StreamOrder"]))
                 for segment in segments)
+            if not report["offset_measured"] and refuse_borrowed_offset:
+                raise chimeric_error(
+                    "no offset was measured for this stream: it would carry "
+                    "another track's alignment, and a borrowed offset is not "
+                    "a measurement")
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
@@ -1187,6 +1192,41 @@ output_duration_tolerance_ms = Decimal("500")
 # Passe a True des que le balayage du corpus est termine, ou immediatement si
 # quoi que ce soit doit etre produit pour de vrai avant cela.
 output_check_enforcing = False
+
+# UN DECALAGE EMPRUNTE SE REFUSE-T-IL? PAS ENCORE, ET LA RAISON N'EST PAS LA
+# PRUDENCE: C'EST QUE "PAS D'ENTREE DANS LA TABLE" NE VEUT PAS ENCORE DIRE CE
+# QU'IL VOUDRA DIRE.
+#
+#   AUJOURD'HUI  le locator ne mesure que les flux de la langue du plan, donc
+#                une entree absente signifie "cette piste est d'une AUTRE
+#                langue" -- et `vmsam-dev-1` vient de mesurer que ces pistes
+#                sont parfaitement mesurables: 0.944 a 0.990 de fidelite contre
+#                un flux maitre de LEUR langue. Refuser maintenant jetterait des
+#                pistes dont le decalage est disponible, simplement pas demande.
+#
+#   APRES        quand la table sera construite par flux, chaque flux candidat
+#                apparie a son MEILLEUR flux maitre et l'appariement filtre par
+#                fidelite, une entree absente signifiera "aucun partenaire n'a
+#                passe la barre", c'est-a-dire VRAIMENT non mesurable. Refuser
+#                devient alors la seule reponse honnete.
+#
+# LA MEME CONDITION, DEUX SENS OPPOSES. Ce drapeau ne bascule donc PAS sur un
+# comptage d'artefacts: il bascule quand le contrat du locator change, et pas
+# avant. Le lier a un nombre serait mesurer la mauvaise chose avec assurance.
+#
+# En attendant, le repli reste, et il est VISIBLE: `offset=BORROWED` sur la
+# ligne de chaque piste concernee. Mesure: 14 a 32 ms d'erreur sur deux
+# fichiers, sous la tolerance de 100 ms du verificateur.
+#
+# Et le cas que ni dev-1 ni moi n'avions nomme, qui interdit la solution
+# evidente: sur ces deux fichiers, DEUX pistes candidates portent l'etiquette
+# eng et une seule est celle du maitre -- l'autre correle a 0.59 avec l'anglais
+# du maitre et 0.57 avec son francais. ELLE NE CORRESPOND A RIEN. Une regle qui
+# apparie PAR ETIQUETTE lui donnerait le decalage d'une piste avec laquelle elle
+# ne partage aucun contenu, et cela aurait l'air juste dans tous les journaux.
+# Une etiquette de langue est une AFFIRMATION sur une piste; la fidelite en est
+# une MESURE.
+refuse_borrowed_offset = False
 
 
 def probe_output_streams(file_path):
