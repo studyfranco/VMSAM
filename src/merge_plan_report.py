@@ -1971,13 +1971,28 @@ def blank_cells(job, corpus=None):
         # depuis, et mon propre lecteur la jetait jusqu'a ce qu'un repli des
         # lignes inconnues l'attrape.
         "state": PRESENT if job.get("build") else NO_PRODUCER,
-        "address": "gestionar_show.fusion (job log header)",
-        "detail": (f"no commit build version or image key occurs in any of the "
-                   f"{corpus['logs']} logs; " if corpus else
-                   "no commit build version or image key occurs on this "
-                   "artefact, and no population was supplied to say how many "
-                   "were checked; ")
-                  + "the log records what was done and not which build did it"})
+        # L'ADRESSE SUIT L'ETAT. Filee contre l'en-tete de journal; le
+        # producteur qui a repondu est la ligne `repair: build` de la
+        # reparation, et nommer l'ancienne adresse sur une cellule comblee
+        # enverrait le lecteur au mauvais endroit.
+        "address": ("merge_video_repair (repair: build line)" if job.get("build")
+                    else "gestionar_show.fusion (job log header)"),
+        # UN ETAT ET SA RAISON QUI DIVERGENT SONT PIRES QU'UNE CELLULE VIDE:
+        # un lecteur en croit une moitie. Ce detail disait encore `aucune cle de
+        # build` sous un `state=present`, deux heures apres que j'aie corrige
+        # exactement cela sur une autre cellule.
+        "detail": ("emitted as `repair: build <module>:<digest> ...`, per "
+                   "module, so this report can say which version produced the "
+                   "artefact it describes. It does NOT make the "
+                   "`not-exercised-here` cells datable: a build digest is not a "
+                   "date"
+                   if job.get("build") else
+                   (f"no commit build version or image key occurs in any of the "
+                    f"{corpus['logs']} logs; " if corpus else
+                    "no commit build version or image key occurs on this "
+                    "artefact, and no population was supplied to say how many "
+                    "were checked; ")
+                   + "the log records what was done and not which build did it")})
     return entries
 
 
