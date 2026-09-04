@@ -1346,7 +1346,23 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                     "5 of 5 -- was INHERITED, and there is no "
                                     "confirmed instance of the pipeline "
                                     "introducing one. Fidelity to a source is "
-                                    "not correctness of an output"))
+                                    "not correctness of an output",
+                             # LE SEUL NOMBRE DE CE RAPPORT QUE JE N'AI PAS
+                             # MESURE, donc le seul qui doit porter sa source et
+                             # son sens de derive. `5 sur 5` vient du Lead, pas
+                             # de mes octets, et il NE PEUT BOUGER QUE DANS UN
+                             # SENS: une seule instance de defaut introduit
+                             # l'invalide, et personne ne re-verifie un nombre
+                             # qui arrange. C'est la meme asymetrie que mon
+                             # compte de cellules vides qui ne pouvait que
+                             # baisser -- et je ne peux pas le dater, parce
+                             # qu'aucun artefact ne porte de champ de date.
+                             count_source="vmsam-lead, not measured here",
+                             count_direction="can only be invalidated, never "
+                                             "confirmed further: one introduced "
+                                             "defect ends it, and a number that "
+                                             "flatters is not re-checked",
+                             count_dated=NOT_MEASURED))
 
         # LE RYTHME, ET CE QUE `speed=` NE DIT PAS.
         rate = applied_ratio(fields)
