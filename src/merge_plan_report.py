@@ -108,14 +108,28 @@ def measure_corpus(log_paths, read=None):
     """
     reader = read or (lambda path: open(path, encoding="utf-8",
                                         errors="replace").read())
-    keys, logs = set(), 0
+    keys, logs, basis = set(), 0, {"digest": 0, "derived": 0, "master_only": 0}
     for path in log_paths:
         text = reader(path)
         if not is_job_log(text):
             continue
         logs += 1
         job = parse_job_log(text)
-        keys.add((job.get("master_opaque_id"), job.get("candidate_opaque_id")))
+        # LA QUALITE DE LA CLE VARIE DANS LE CORPUS ET SE DIT. Un digest emis est
+        # une LECTURE; un id derive du chemin par moi est une CONSTRUCTION; un
+        # maitre seul est une INFERENCE qui regroupe des cas distincts. Publier
+        # un compte unique sans dire de quoi chaque cle est faite serait la meme
+        # faute qu'un `n_distinct` sans unite.
+        if job.get("candidate_digest"):
+            basis["digest"] += 1
+            candidate = ("digest", job["candidate_digest"])
+        elif job.get("candidate_opaque_id"):
+            basis["derived"] += 1
+            candidate = ("derived", job["candidate_opaque_id"])
+        else:
+            basis["master_only"] += 1
+            candidate = None
+        keys.add((job.get("master_opaque_id"), candidate))
     # LA GARDE DE dev-2, GRATUITE: un compte de distincts ne peut jamais exceder
     # sa population. dev-2 a publie 12 releases pour 9 cas -- plus de releases
     # que de cas -- et l'a lu sans broncher parce que le nombre penchait du cote
@@ -126,9 +140,12 @@ def measure_corpus(log_paths, read=None):
     return {
         "logs": logs,
         "distinct_cases": len(keys),
-        "unit": "(master, candidate) opaque-id pair; a log naming no candidate "
-                "falls back to its master alone, so two candidates merged "
-                "toward one master would count as one",
+        "unit": "(master, candidate) pair",
+        "key_basis": f"{basis['digest']} from an emitted candidate_digest (read), "
+                     f"{basis['derived']} from a path digest I derive myself "
+                     f"(constructed), {basis['master_only']} from the master "
+                     f"alone (INFERRED: two candidates merged toward one master "
+                     f"would count as one)",
         "measured": "at render time, over the logs handed to this render",
         "caveat": "NOT an independent sample, and undatable from any artefact "
                   "-- no build or timestamp field is emitted anywhere",
@@ -304,6 +321,7 @@ def parse_job_log(text):
         "master_line_present": False,
         "master_opaque_id": None,
         "candidate_opaque_id": None,
+        "candidate_digest": None,
         "plan": None,
         "audios": {},
         "subtitles": [],
@@ -353,6 +371,15 @@ def parse_job_log(text):
         if body.startswith("master "):
             job["master_line_present"] = True
             job["master_opaque_id"] = opaque_id(body[len("master "):].strip())
+            continue
+
+        if body.startswith("candidate_digest "):
+            # LE CANDIDAT IDENTIFIE SANS ETRE NOMME. dev-2 ne pouvait pas emettre
+            # son chemin -- c'est exactement ce que s8 interdit -- donc mon unite
+            # de corpus retombait sur le maitre seul et deux candidats vers un
+            # meme maitre comptaient pour un. Le digest resout cela SANS emettre
+            # le chemin: la cle devient une lecture au lieu d'une inference.
+            job["candidate_digest"] = body[len("candidate_digest "):].strip()
             continue
 
         if body.startswith("plan "):
