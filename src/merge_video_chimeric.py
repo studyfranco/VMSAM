@@ -904,6 +904,24 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # un compte.
     filled_regions = []
     cut_regions = []
+    # CE QUE LA SORTIE PREND AU CANDIDAT, ET AVEC QUEL DECALAGE. C'est la
+    # MAJORITE de chaque fichier et elle n'avait aucune ligne: `ADDED` couvre le
+    # remplissage maitre, `CUT` couvre le candidat jete, et les regions
+    # reellement UTILISEES n'etaient nommees nulle part.
+    #
+    # vmsam-dev-4 recuperait le decalage en chainant les bornes des lignes CUT a
+    # travers les spans du plan -- 9 raccords a faire tomber juste, et surtout
+    # RECUPERABLE SEULEMENT SI LE PLAN A COUPE QUELQUE CHOSE. Un plan sans coupe
+    # n'emet aucune ligne CUT, donc le decalage devenait irrecuperable pour une
+    # raison qui ne concerne pas la piste. 2 journaux sur 10 portaient des
+    # lignes CUT. LA RECUPERABILITE ETAIT UNE PROPRIETE DU PLAN.
+    #
+    # Le decalage n'a de sens que sur un morceau venu du CANDIDAT: les morceaux
+    # maitre portent `source_start_ms = cursor`, une valeur de la timeline du
+    # MAITRE, et l'imprimer ailleurs afficherait un nombre qui ne veut rien dire.
+    # C'est pourquoi c'est une troisieme liste et pas un champ de plus sur les
+    # deux autres.
+    used_regions = []
     previous_candidate_end = None
     for piece in pieces:
         if piece["source"] == "master":
@@ -939,6 +957,15 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                     "candidate_end_ms": str(source_start),
                     "dropped_ms": str(source_start - previous_candidate_end),
                     "where": "interior"})
+            used_regions.append({
+                "master_start_ms": str(piece["master_start_ms"]),
+                "master_end_ms": str(piece["master_end_ms"]),
+                "candidate_start_ms": str(source_start),
+                "candidate_end_ms": str(source_end),
+                # candidate_time = master_time + offset. Par region, donc une
+                # piste dont le plan est piecewise_constant en montre plusieurs
+                # au lieu d'un seul `offset=measured` qui les ecrase tous.
+                "offset_ms": str(source_start - piece["master_start_ms"])})
             previous_candidate_end = source_end
     if previous_candidate_end != None and candidate_duration_ms != None:
         tail = Decimal(str(candidate_duration_ms)) - previous_candidate_end
@@ -975,6 +1002,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
             "gap_filled_ms": str(filled),
             "filled_regions": filled_regions, "cut_regions": cut_regions,
+            "used_regions": used_regions,
             # Le silence ajoute EN TETE parce que la source ne commence pas a
             # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
             # il ne doit pas se confondre avec le remplissage depuis le maitre.

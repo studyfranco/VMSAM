@@ -672,6 +672,22 @@ def log_assembly(candidate_path, assembly, plan):
         #
         # Prefixe ADDED, distinct de `repair: audio track`, pour qu'un grep qui
         # compte les pistes construites n'y compte pas les regions.
+        # CE QUE LA SORTIE PREND AU CANDIDAT. La majorite de chaque fichier
+        # n'avait aucune ligne de provenance: seuls le remplissage (ADDED) et le
+        # rejet (CUT) en avaient une. Prefixe DISTINCT de `audio track` pour la
+        # meme raison qu'ADDED -- un grep qui compte les pistes reconstruites ne
+        # doit pas compter les regions.
+        #
+        # `offset_ms` par region rend le decalage INCONDITIONNEL: il ne depend
+        # plus de l'existence d'une coupe, et une piste piecewise_constant montre
+        # ses decalages successifs au lieu du seul mot `measured` sur la ligne de
+        # piste, qui les ecrase.
+        for region in report.get("used_regions") or []:
+            tools.logs.append(
+                f"repair: USED audio track {report['stream_order']} "
+                f"master {region['master_start_ms']}-{region['master_end_ms']} "
+                f"candidate {region['candidate_start_ms']}-{region['candidate_end_ms']} "
+                f"offset_ms={region['offset_ms']}\n")
         for region in report.get("filled_regions") or []:
             tools.logs.append(
                 f"repair: ADDED audio track {report['stream_order']} "
