@@ -125,6 +125,33 @@ def get_speed_ratio(plan):
                       "SPEC_ZONE_A.MD s4f requires escalation to scene detection "
                       "-- a different modality -- and a tie-break computed from "
                       "the same correlations is not a third opinion")
+    # LA CONVENTION DU RAPPORT, VERIFIEE CONTRE LES DUREES ET NON CONTRE UN NOM.
+    #
+    # vmsam-dev-1 a emis `speed_ratio` dans SA convention -- candidat/maitre --
+    # la ou `TASKS/009` definit maitre/candidat. RECIPROQUES. Sur l'id 70 cela
+    # aurait etire la piste de 0.9590 la ou il faut 1.0425: 8.7 % dans le MAUVAIS
+    # SENS. `AUDIO_SPEED_POLICY.MD` faiblesse 3 enregistre exactement ce defaut,
+    # et note que RIEN A L'INTERIEUR DU BALAYAGE NE POUVAIT L'ATTRAPER.
+    #
+    # Mes deux gardes -- bornes et verificateur -- l'attrapent quand le rapport
+    # est loin de 1. Elles NE L'ATTRAPENT PAS pres de l'unite: 0.999001 contre
+    # 1.000999 passe toute borne et toute tolerance, et c'est le cas DESTRUCTEUR.
+    #
+    # UN NOM DE CHAMP NE PORTE PAS SA CONVENTION. Les DUREES si. Quand le plan
+    # les porte, on demande laquelle de `r` ou `1/r` est proche du rapport des
+    # durees -- et on ne tranche que lorsque la reponse est nette.
+    #
+    # TROIS ETATS, parce que la verification n'est pas toujours possible: sur
+    # l'id 33 les durees sont dans un rapport de 1.0687 pour une relation de
+    # cadence de 1.001 -- LE CANDIDAT EST PLUS LONG PARCE QU'IL PORTE DU CONTENU
+    # DIFFERENT. Un rapport de durees N'EST PAS UNE CADENCE, et un controle qui
+    # l'oublierait refuserait l'id 33 a tort.
+    convention = check_ratio_convention(plan)
+    if convention != None:
+        return None, convention
+    labelled = check_ratio_labelled(plan)
+    if labelled != None:
+        return None, labelled
     if verdict == "rubberband":
         return None, ("the measurement says rubberband -- the inverting case, a "
                       "source already pitch-corrected at origin. Not implemented: "
@@ -377,6 +404,74 @@ def clamp_segments_to_candidate_head(segments, stream_order=None):
     return clamped
 
 
+def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **kwargs):
+    """Assemble, et si l'assemblage REFUSE, ECRIT QUAND MEME LE JOURNAL DE PISTES.
+
+    UNE ENVELOPPE ET NON UNE GARDE. Elle ne rattrape rien: la levee repart
+    telle quelle, avec ses attributs. Ce qu'elle ajoute est que les lignes
+    `repair:` existent pour un fichier DECLINE.
+
+    Avant le passage de `output_check_enforcing` a True, la porte de duree
+    n'avait jamais fait lever cet appel sur un fichier reel; un declin venait
+    d'ailleurs et plus tot. Maintenant qu'elle leve, un fichier decline
+    n'emettait plus AUCUNE ligne -- ni `build`, ni `plan`, ni `ADDED`, ni `CUT`
+    -- et le lecteur de `vmsam-dev-4` rejette par structure un bloc sans ligne
+    `plan`. LE FICHIER DISPARAISSAIT DU RAPPORT AU LIEU D'Y APPARAITRE COMME
+    REFUSE, ce qui est la forme exacte du defaut que ce journal existe pour
+    empecher.
+
+    On ecrit ce qui a ete FAIT, pas ce qui a ete obtenu: `partial_assembly`
+    porte les pieces posees et les pistes construites au moment du refus.
+    """
+    # IMPORT LOCAL, comme partout ailleurs dans ce module: `merge_video_chimeric`
+    # n'est pas lie au niveau du module ici. `t58_unbound_names` l'a dit avant la
+    # premiere execution -- troisieme fois ce soir qu'il attrape un nom que je
+    # venais d'ecrire.
+    import merge_video_chimeric
+    try:
+        return merge_video_chimeric.assemble_on_master_timeline(*args, **kwargs)
+    except Exception as error:
+        # ON ATTRAPE `Exception` ET NON `chimeric_error`, ET C'EST LA QUESTION DE
+        # `vmsam-dev-4` QUI L'A OUVERT. Son lecteur consomme des LIGNES DE
+        # JOURNAL par prefixe et rien d'autre; il a demande si l'etat non livre
+        # atteint une ligne. Il n'y arrivait pas -- et pire, un `failed`
+        # n'emettait AUCUNE ligne, exactement le trou que ce bloc venait de
+        # boucher pour les declins. La panne d'outil sortait par une porte que
+        # la reparation ne venait pas de reparer.
+        partial = getattr(error, "partial_assembly", None)
+        if partial != None:
+            partial["unverified_segment_ms"] = unverified_ms
+            try:
+                log_assembly(logged_candidate.filePath, partial, plan)
+            except Exception as logging_error:
+                tools.logs.append("repair: could not write the per-track log for "
+                                  f"an UNDELIVERED file: {logging_error}\n")
+        # LA LIGNE TERMINALE EST INCONDITIONNELLE, meme sans assemblage partiel:
+        # sans elle, "pas de ligne DECLINED" se lirait comme "pas de declin", la
+        # lecture par omission que s4e interdit ailleurs.
+        #
+        # DEUX PREFIXES ET PAS UN, parce que les deux issues ne disent pas la
+        # meme chose et que le pilote les classe differemment: `chimeric_error`
+        # -> `declined` (le module a regarde et a dit non), tout le reste ->
+        # `failed` (une panne d'outil ou un defaut a nous). Un prefixe unique
+        # ferait absorber chaque echec d'ffprobe dans le cout de la porte.
+        if isinstance(error, merge_video_chimeric.chimeric_error):
+            tools.logs.append(f"repair: DECLINED {error}\n")
+        else:
+            tools.logs.append(f"repair: FAILED {type(error).__name__}: {error}\n")
+        # ET L'ETAT DE L'ARTEFACT ATTEINT UNE LIGNE, PAR CLE ET NON PAR PROSE.
+        # dev-4 lit par nom; `state=` et `path=` se lisent, "the file was
+        # renamed" ne se lit pas. Emise seulement quand un fichier a REELLEMENT
+        # ete marque: son ABSENCE dit "aucun artefact n'existait a marquer",
+        # ce qui est un troisieme fait et pas un defaut de journal.
+        marked = getattr(error, "undelivered_path", None)
+        if marked != None:
+            tools.logs.append(
+                f"repair: undelivered state={getattr(error, 'undelivered_state', 'unnamed')} "
+                f"path={marked}\n")
+        raise
+
+
 def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
     '''Construit le fichier repare et l'objet video qui va avec.
 
@@ -406,7 +501,8 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
             "every segment's offset is unverified (each shorter than the "
             "measurement's probe window); nothing can be spliced at a bounded offset")
     marker = get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj)
-    assembly = merge_video_chimeric.assemble_on_master_timeline(
+    assembly = assemble_or_log_the_decline(
+        candidate_obj, plan, unverified_ms,
         candidate_obj, master_obj,
         clamp_segments_to_candidate_head(
             clamp_segments_to_master(segments, master_obj)),
@@ -520,6 +616,460 @@ def _track_shortfall_ms(assembly, report):
     return None
 
 
+def check_ratio_convention(plan):
+    """`speed_ratio` est-il dans MA convention? Renvoie un refus, ou None.
+
+    Ma convention, `TASKS/009`: r = duree_maitre / duree_candidat, donc r > 1
+    veut dire que le candidat court VITE et doit etre RALENTI.
+
+    On ne decide que si la reponse est NETTE: le bon sens a moins de 1 % du
+    rapport des durees ET le sens inverse au-dela. Sinon on ne dit rien, parce
+    qu'un rapport de durees n'est une cadence que si les deux fichiers portent
+    la meme quantite de contenu -- ce qui est faux des qu'il y a une coupe.
+    """
+    ratio = plan.get("speed_ratio")
+    master_s = plan.get("duration_master_s")
+    candidate_s = plan.get("duration_candidate_s")
+    if ratio == None or master_s in (None, 0) or candidate_s in (None, 0):
+        return None
+    try:
+        r = Decimal(str(ratio))
+        expected = Decimal(str(master_s)) / Decimal(str(candidate_s))
+    except Exception:
+        return None
+    if r == 0:
+        return None
+    direct = abs(r - expected)
+    inverse = abs((Decimal(1) / r) - expected)
+    near = expected * Decimal("0.01")
+    if inverse <= near and direct > near:
+        return ("the speed_ratio looks like the RECIPROCAL of this module's "
+                "convention: TASKS/009 defines r = master_span / candidate_span, "
+                "and the value shipped matches candidate_span / master_span "
+                "against the durations in the same plan. Applying it would "
+                "resample in the WRONG DIRECTION")
+    return None
+
+
+# LA OU LES DUREES NE PEUVENT PAS TRANCHER, ET C'EST LE CAS DESTRUCTEUR.
+#
+# `check_ratio_convention` n'attrape l'inversion que LOIN de l'unite -- c'est-a-
+# dire exactement la ou mes bornes et mon verificateur l'attrapaient deja. Pres
+# de l'unite il ne dit rien, parce qu'un rapport de durees n'est pas une cadence
+# des qu'il y a une coupe: sur l'id 33 les durees sont dans un rapport de 1.0687
+# pour une cadence de 1.001.
+#
+# Or 0.999001 contre 1.000999 passe TOUTE borne et TOUTE tolerance. C'est 0.2 %
+# dans le mauvais sens, livrable en silence, et vmsam-dev-1 l'a nomme comme le
+# cas destructeur.
+#
+# DONC: pres de l'unite, un rapport SANS CONVENTION DECLAREE ne s'applique pas.
+# Ce n'est pas de la prudence, c'est la seule position defendable: aucun controle
+# de ce module ne peut distinguer les deux sens la, donc appliquer revient a
+# parier sur l'identite de l'agent qui a ecrit le champ.
+RATIO_CONVENTION = "master_span / candidate_span"
+CONVENTION_FREE_MARGIN = Decimal("0.01")
+
+
+def normalise_convention(stated):
+    """`mine` / `inverse` / `unknown`, en IGNORANT la forme.
+
+    PREMIERE VERSION: egalite de chaines apres suppression des espaces. Elle a
+    REFUSE le premier plan correctement etiquete que vmsam-dev-1 m'ait envoye,
+    parce que l'etiquette portait une glose:
+
+        "master_span / candidate_span  (dev-2's definition, TASKS/009)"
+
+    La convention est JUSTE. Seule la FORME differait. C'est la regle que j'ai
+    adoptee ce matin -- un controle qui echoue pour une raison de forme est un
+    controle qu'on eteint -- et je l'ai enfreinte quelques heures plus tard, dans
+    un controle ecrit pour empecher une inversion.
+
+    On lit donc l'ORDRE DES DEUX TERMES et rien d'autre: la glose, la casse, les
+    espaces et la ponctuation ne portent aucun sens ici.
+    """
+    text = str(stated).lower()
+    cut = text.find("(")
+    if cut != -1:
+        text = text[:cut]
+    master = text.find("master")
+    candidate = text.find("candidate")
+    if master == -1 or candidate == -1:
+        return "unknown"
+    return "mine" if master < candidate else "inverse"
+
+
+def check_ratio_labelled(plan):
+    """La convention est-elle DECLAREE, et est-ce la mienne? Refus, ou None."""
+    ratio = plan.get("speed_ratio")
+    if ratio == None:
+        return None
+    stated = plan.get("speed_ratio_convention")
+    if stated != None:
+        named = normalise_convention(stated)
+        if named == "mine":
+            return None
+        if named == "inverse":
+            return (f"the plan states its ratio convention as {stated!r}, which "
+                    f"is the RECIPROCAL of {RATIO_CONVENTION!r}; this module will "
+                    f"not reinterpret a coefficient whose meaning it did not define")
+        return (f"the plan states a ratio convention this module does not "
+                f"recognise ({stated!r}); it applies {RATIO_CONVENTION!r} and a "
+                f"convention it cannot read is not a convention it can trust")
+    try:
+        distance = abs(Decimal(str(ratio)) - Decimal(1))
+    except Exception:
+        return None
+    if distance < CONVENTION_FREE_MARGIN:
+        return ("the plan carries no speed_ratio_convention and the ratio is "
+                "within 1% of unity, where NEITHER the bounds check NOR the "
+                "verifier can tell the two directions apart. An unlabelled "
+                "near-unity coefficient is not applied")
+    return None
+
+
+def _margin_fields(plan):
+    """`speed_margin=` quand elle existe, la RAISON quand elle n'existe pas.
+
+    Quatre champs, chacun avec son propre emetteur, parce qu'ils repondent a
+    quatre questions et qu'un seul emetteur conditionnel les fait disparaitre
+    ensemble:
+
+        speed_margin                 la marge de platitude, en ms
+        speed_margin_absent_reason   pourquoi elle n'existe pas
+        fidelity_margin              une autre quantite, sans unite
+        decided_by                   quel critere a tranche
+
+    `NON EMISE` chez le consommateur ne doit se declencher que quand la marge est
+    absente ET qu'aucune raison ne l'accompagne -- c'est-a-dire quand le
+    producteur n'a rien dit. Aujourd'hui il se declenchait sur le cas INVERSE.
+    """
+    if not plan:
+        return ""
+    parts = []
+    margin = get_speed_margin(plan)
+    if margin != None:
+        parts.append(f"speed_margin={margin}")
+    else:
+        reason = plan.get("speed_margin_absent_reason")
+        if reason != None:
+            parts.append(f"speed_margin=absent({reason})")
+    fidelity = plan.get("fidelity_margin")
+    if fidelity != None:
+        parts.append(f"fidelity_margin={fidelity}")
+    decided = plan.get("decided_by")
+    if decided != None:
+        parts.append(f"decided_by={decided}")
+    return (" ".join(parts) + " ") if len(parts) else ""
+
+
+def compare_plan_master(plan, best_video):
+    """Le plan a-t-il ete mesure contre CE maitre? Renvoie une raison, ou None.
+
+    TROIS ETATS ET NON DEUX, et le troisieme a ete trouve en faisant tourner ce
+    lecteur sur les VRAIS octets de vmsam-dev-1 plutot que sur le contrat:
+
+        absent          rien a comparer -- le plan ne nomme pas de maitre
+        egal            meme maitre
+        different       maitres differents  -> DECLIN, et c'est le controle
+        INCOMPARABLE    la valeur n'est pas un chemin: `WRITE_ZONES.MD` s8 dit
+                        de RETENIR plutot que d'assainir, et dev-1 emet donc un
+                        jeton opaque. `'opaque:...' != '/srv/...'` est VRAI, donc
+                        l'ancienne ligne declinait TOUT plan portant un jeton --
+                        en disant `mesure contre un autre maitre`, ce qui est
+                        FAUX. Une raison fausse est pire qu'un refus: elle envoie
+                        le lecteur chercher un desaccord de maitre qui n'existe
+                        pas.
+
+    ON DECLINE QUAND MEME dans le cas incomparable -- ne pas pouvoir verifier
+    l'identite du maitre n'autorise pas a l'assumer -- mais la raison DIT
+    laquelle des deux choses s'est produite. `AGENT.MD`: je n'ai pas pu mesurer
+    n'est pas un verdict sur le fichier.
+    """
+    # LE DIGEST D'ABORD QUAND IL EXISTE: c'est la seule forme comparable qui ne
+    # fait voyager aucun texte libre. `WRITE_ZONES.MD` s8.
+    #
+    # ET SA LIMITE SE DIT, parce que vmsam-dev-1 l'a nommee avant moi: un digest
+    # de CHEMIN prouve que deux agents ont recu la meme CHAINE, pas le meme
+    # FICHIER. Un lien symbolique, une barre finale, un prefixe de montage ou une
+    # normalisation unicode differente donnent un digest different pour les memes
+    # octets sur le disque. Un desaccord de digest n'est donc PAS une preuve de
+    # maitre different: c'est le meme etat `non verifie`, un cran plus bas.
+    digest = plan.get("master_path_digest")
+    if digest != None:
+        import hashlib
+        mine = hashlib.sha256(best_video.filePath.encode()).hexdigest()
+        if mine == digest:
+            return None
+        return ("the plan's master path digest does not match this master's. "
+                "NOTE: a path digest proves two agents were handed the same "
+                "STRING, not the same FILE -- a symlink, a mount prefix or a "
+                "different unicode normalisation differs here too, so this is "
+                "UNVERIFIED rather than proof of a different master")
+    stated = plan.get("master_path")
+    if stated == None or stated == best_video.filePath:
+        return None
+    if not str(stated).startswith("/"):
+        return ("the plan names its master with a token this reader cannot "
+                "compare to a filesystem path, so the master's identity is "
+                "UNVERIFIED -- this is not evidence of a different master")
+    return ("the plan was measured against a different master than the "
+            "one selected here")
+
+
+def _head_pad_summary(report):
+    """De quoi le total de rembourrage de tete est-il fait.
+
+        unmeasured   le debut du flux n'a pas ete lu -- on ne sait pas
+        read_past    le flux commence apres zero et le plan lit deja au-dela:
+                     UN DECALAGE EXISTE et ne coute aucun rembourrage
+        none         le flux commence vraiment a zero
+        padded       du silence a ete ajoute, et combien
+
+    `head_pad_ms=0` ecrivait les trois premieres avec le meme chiffre. Une valeur
+    et son absence ne doivent pas imprimer le meme jeton -- et c'est pourquoi
+    aucune hypothese de decalage de conteneur n'etait ni confirmable ni
+    refutable depuis le journal.
+    """
+    decisions = report.get("head_decisions")
+    if decisions == None:
+        # NI ZERO NI VIDE: ce rapport vient d'un assembleur qui ne produisait pas
+        # encore le champ. Le dire evite qu'un lecteur compte une absence de
+        # format comme une absence de decision.
+        return "unreported(this assembly predates the field)"
+    if not len(decisions):
+        return "no-candidate-piece"
+    counts = {}
+    for decision in decisions:
+        counts[decision["outcome"]] = counts.get(decision["outcome"], 0) + 1
+    return ",".join(f"{name}={counts[name]}" for name in sorted(counts))
+
+
+def _shortfall_annotation(assembly, report):
+    """Ce que la source explique, ce que la piste a perdu, et le RESTE.
+
+    Etait une seule expression conditionnelle avec deux operateurs morse dedans.
+    Elle etait juste et illisible, et une ligne qu'on ne relit pas est une ligne
+    ou un signe se cache.
+
+    ET UN SIGNE S'Y CACHAIT. `UNEXPLAINED` etait emis SIGNE, donc un artefact
+    reel a 7 pistes portait `UNEXPLAINED -21.0 ms` sur chacune. Le calcul est
+    juste -- la piste a perdu 21 ms de MOINS que la source n'etait courte -- mais
+    le mot dit une PERTE, et une perte negative n'a pas de sens pour un lecteur.
+    Meme classe que `verify=skipped` sans cause: un champ exact et illisible.
+
+    `UNEXPLAINED` ne descend donc plus sous zero, et le sur-compte se DIT au lieu
+    d'etre encode dans un signe que personne n'attendait. La valeur n'est pas
+    perdue, elle est nommee.
+    """
+    lost = _track_shortfall_ms(assembly, report)
+    short = report.get("fill_short_by_ms")
+    if short:
+        if lost == None:
+            return "[FILL SOURCE SHORT BY " + str(short) + " ms; TRACK LOSS UNMEASURED]"
+        residual = Decimal(str(lost)) - Decimal(str(short))
+        if residual > 0:
+            tail = "UNEXPLAINED " + str(residual) + " ms"
+        else:
+            tail = ("UNEXPLAINED 0 ms (the fill shortfall over-accounts by "
+                    + str(-residual) + " ms)")
+        return ("[FILL SOURCE SHORT BY " + str(short) + " ms; TRACK LOST "
+                + str(lost) + " ms; " + tail + "]")
+    if lost != None and lost > 0:
+        return "[TRACK LOST " + str(lost) + " ms, NO SHORT FILL SOURCE -- UNEXPLAINED]"
+    return ""
+
+
+# LE CONDENSAT DES SOURCES QUI TOURNENT, CALCULE UNE FOIS PAR PROCESSUS.
+_sources_digest_cache = None
+
+# LA PORTEE EST CELLE DE L'IMAGE, PAS CELLE DU DEPOT, ET LES DEUX DIFFERENT.
+#
+#   Dockerfile:142  COPY src/*.ini src/*.py ...  -> /home/vmsam/
+#   Dockerfile:143  COPY src/gestionar_show      -> /home/vmsam/gestionar_show/
+#   Dockerfile:144  COPY src/gestionar_movie     -> /home/vmsam/gestionar_movie/
+#
+# `COPY src/*.py` N'EST PAS RECURSIF. Mesure de vmsam-ci: 17 fichiers a plat,
+# 7 dans gestionar_show, 3 dans gestionar_movie -- 27 EXPEDIES -- contre 28 pour
+# un `src/**.py` recursif. UN CONDENSAT A PLAT MANQUE DIX FICHIERS QUI PARTENT;
+# UN CONDENSAT RECURSIF EN INCLUT UN QUI NE PART PAS.
+#
+# Le vingt-huitieme est `src/tools/database.py`, 52 octets, une docstring sans
+# code, sans importateur, dans un repertoire sans `__init__.py`. Inoffensif --
+# et il ferait diverger un condensat recursif de l'image EN PERMANENCE, pour une
+# raison qu'aucun lecteur ne devinerait. C'est ce genre d'ecart inexplique qui
+# fait desactiver un bon controle.
+#
+# ON ENUMERE DONC LES TROIS CIBLES `COPY` et pas un motif recursif, ET ON PART DE
+# `__file__`: dans l'image la racine est `/home/vmsam`, dans une copie du depot
+# c'est `src/`. Enumerer les memes cibles depuis la racine du module fait que les
+# deux DOIVENT concorder -- et un desaccord devient une mesure au lieu d'un
+# artefact de chemin.
+SOURCE_SCOPE = ("*.py", "gestionar_show/**/*.py", "gestionar_movie/**/*.py")
+
+
+def sources_digest():
+    """Condensat du CODE DEPLOYE, lu sur le disque a l'execution.
+
+    CE QU'IL REPOND, ET QUE `org.opencontainers.image.revision` NE REPOND PAS:
+    `vmsam-ci` attend qu'une image annonce la revision visee et NE REGARDE JAMAIS
+    LES OCTETS. Or `Dockerfile:137 ARG VMSAM_GIT_COMMIT` et `Dockerfile:142 COPY`
+    sont poses INDEPENDAMMENT: une image construite depuis un arbre sale ou en
+    avance porte l'etiquette qu'on lui a passee et le controle passe. Ce soir
+    l'arbre du relais porte `validate_job` et la reference forgejo ne l'a pas --
+    DEUX IMAGES, MEME ETIQUETTE DE REVISION, CODE DIFFERENT.
+
+    A L'EXECUTION ET NON A LA CONSTRUCTION, et c'est la moitie qui compte: un
+    condensat calcule a la construction resume le CONTEXTE DE CONSTRUCTION et se
+    transmet exactement comme `VMSAM_GIT_COMMIT`. Celui-ci lit ce qui est
+    reellement dans l'image.
+
+    CE QU'IL N'IDENTIFIE PAS, ET LE CHAMP LE DIT: 27 fichiers `.py`. Pas
+    l'interprete, pas ffmpeg, pas mkvtoolnix -- installes NON EPINGLES depuis
+    Debian testing, ce que ci signale depuis le debut comme la moitie que
+    `image_git_commit` n'a jamais identifiee. UN CONDENSAT DONT LA COUVERTURE
+    N'EST PAS DITE REDEVIENT UNE ETIQUETTE.
+
+    `files=` accompagne le condensat parce qu'un condensat sur un ENSEMBLE ne
+    veut rien dire sans la taille de l'ensemble: un deploiement qui PERD un
+    fichier change le sha, et sans le compte on ne le distingue pas d'une
+    modification.
+    """
+    global _sources_digest_cache
+    if _sources_digest_cache != None:
+        return _sources_digest_cache
+    import glob, hashlib
+    root = path.dirname(path.abspath(__file__))
+    found = {}
+    for pattern in SOURCE_SCOPE:
+        for name in glob.glob(path.join(root, pattern), recursive=True):
+            if path.isfile(name):
+                found[path.relpath(name, root)] = name
+    per_file, rolled = [], hashlib.sha256()
+    # TRI PAR CHEMIN AVANT DE CONDENSER: contenu-et-nom, pas ordre de repertoire.
+    # `glob` ne garantit pas d'ordre, donc sans ceci le meme code rendrait des
+    # condensats differents selon le systeme de fichiers.
+    for relative in sorted(found):
+        try:
+            with open(found[relative], "rb") as handle:
+                payload = handle.read()
+        except OSError as error:
+            # UN FICHIER ILLISIBLE EST NOMME, PAS SAUTE. Le sauter rendrait le
+            # meme condensat qu'un deploiement ou il est absent, et les deux
+            # situations demandent des actions differentes.
+            digest = f"unreadable({type(error).__name__})"
+            rolled.update(relative.encode("utf-8") + b"\x00" + digest.encode("utf-8") + b"\n")
+            per_file.append({"path": relative, "sha12": digest})
+            continue
+        one = hashlib.sha256(payload).hexdigest()
+        rolled.update(relative.encode("utf-8") + b"\x00" + one.encode("utf-8") + b"\n")
+        per_file.append({"path": relative, "sha12": one[:12], "bytes": len(payload)})
+    _sources_digest_cache = {"sha12": rolled.hexdigest()[:12],
+                             "files": len(per_file),
+                             "scope": " + ".join(SOURCE_SCOPE),
+                             "root": root,
+                             "per_file": per_file}
+    return _sources_digest_cache
+
+
+def write_sources_manifest():
+    """Ecrit le detail par fichier UNE FOIS, et rend son chemin ou None.
+
+    LA LIGNE DE JOURNAL PORTE LE ROULE, LE MANIFESTE PORTE LE DETAIL. `vmsam-ci`
+    veut les deux et pas au meme endroit: 27 condensats sur chaque travail sont
+    un journal qu'il faudrait contourner, et le roule seul ne dit que "quelque
+    chose a bouge" la ou il faut "CES deux fichiers ont bouge".
+
+    LE MANIFESTE EST DESIGNE PAR LA LIGNE PLUTOT QUE RECOPIE DEDANS -- forme de
+    POINTEUR, adoptee par le Lead ce soir apres qu'une COPIE d'un compte rendu
+    et son original ont diverge de trois sections. Un pointeur ne peut pas etre
+    en desaccord avec ce qu'il designe; une copie l'a ete.
+    """
+    digest = sources_digest()
+    try:
+        # LE MANIFESTE EST ADRESSE PAR SON CONTENU, ET C'EST UNE CORRECTION.
+        #
+        # Premiere version: un nom FIXE, ecrit seulement s'il n'existait pas
+        # deja. Un fichier source change, le roule change, ET LE MANIFESTE
+        # RESTAIT CELUI D'AVANT -- la ligne pointait sur un detail qui ne
+        # correspondait plus a son propre condensat. C'est EXACTEMENT la
+        # divergence copie-contre-original que la forme pointeur existe pour
+        # empecher, reconstruite a l'interieur de la forme pointeur.
+        #
+        # Attrape par `t80`, par le controle qui verifie que le manifeste est
+        # D'ACCORD avec la ligne. Un test qui aurait seulement verifie que le
+        # fichier existe serait passe.
+        #
+        # Le nom porte donc le condensat: un manifeste perime est IMPOSSIBLE
+        # plutot qu'evite, et deux deploiements coexistent au lieu de s'ecraser.
+        target = path.join(tools.tmpFolder,
+                           f"vmsam_sources_{digest['sha12']}.json")
+        if not path.exists(target):
+            import json as _json
+            with open(target, "w") as handle:
+                _json.dump({"sha12": digest["sha12"], "files": digest["files"],
+                            "scope": digest["scope"], "root": digest["root"],
+                            "per_file": digest["per_file"]}, handle, indent=1)
+        return target
+    except Exception as error:
+        # UN MANIFESTE QU'ON NE PEUT PAS ECRIRE NE DOIT PAS EMPECHER LA LIGNE.
+        # Le roule est la donnee; le detail est un confort.
+        tools.logs.append(f"repair: the sources manifest could not be written: {error}\n")
+        return None
+
+
+def module_fingerprint():
+    """L'IDENTITE DU CODE QUI TOURNE, EMISE INCONDITIONNELLEMENT.
+
+    `build_identity` est une absence que vmsam-dev-4 a signalee le premier jour et
+    qui vient de couter une colonne a vmsam-forensic: aucun artefact ne dit par
+    quelle version il a ete produit, donc sa colonne `image` nomme une pointe de
+    branche que le conteneur ne fait peut-etre pas tourner. Mesure: mon `027feab`
+    est PROMU a 16:11 UTC et un artefact de 17:25 UTC ne porte pas son champ.
+    PROMU N'EST PAS EN COURS D'EXECUTION.
+
+    ET SA TENTATIVE DE REPARATION A ECHOUE POUR UNE RAISON QUI EST LA REGLE DU
+    JOUR: il a voulu identifier le build a partir des CHAMPS presents dans un
+    journal. `FILL SOURCE SHORT BY` n'apparait que sur un fichier qui a un manque,
+    donc son absence ne distingue pas `le build n'a pas le champ` de `le fichier ne
+    l'a pas declenche`. UNE PRESENCE DE CHAMP EST CONFONDUE AVEC LE CONTENU DU
+    FICHIER et ne peut pas servir d'empreinte.
+
+    Un condensat de la SOURCE ne l'est pas. Il est emis sur chaque reparation,
+    quel que soit le fichier, il change exactement quand le code change, et il ne
+    demande a personne de penser a l'incrementer -- un numero de version a la main
+    est un second exemplaire de la verite et il derive.
+
+    CE QU'IL IDENTIFIE ET CE QU'IL N'IDENTIFIE PAS: les deux modules de
+    reparation, et rien d'autre. Pas l'image, pas l'interprete, pas `mergeVideo.py`
+    ni `video.py`, pas les binaires. Un lecteur qui voit deux artefacts avec le
+    meme condensat sait que CE code etait identique; il ne sait pas que le reste
+    l'etait.
+    """
+    import hashlib
+    # IMPORT TARDIF, comme partout ailleurs dans ce module: la tete de
+    # `mergeVideo.py` est hors zone taguee et un deploiement partiel ne doit pas
+    # pouvoir empecher le demarrage.
+    try:
+        import merge_video_chimeric as _chi
+        chimeric_file = getattr(_chi, "__file__", None)
+    except Exception:
+        chimeric_file = None
+    parts = []
+    for module in (__file__, chimeric_file):
+        if not module:
+            continue
+        try:
+            with open(module, "rb") as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()[:12]
+        except Exception:
+            # UNE EMPREINTE QU'ON N'A PAS PU LIRE SE DIT. Elle ne vaut pas zero et
+            # elle ne s'omet pas: un champ absent se lirait comme un vieux build.
+            digest = "unreadable"
+        parts.append(f"{path.basename(module)}:{digest}")
+    return " ".join(parts) if parts else "unreadable"
+
+
 def log_assembly(candidate_path, assembly, plan):
     """CE QUI A ETE FAIT AU FICHIER, PISTE PAR PISTE, AVEC LES TIMINGS.
 
@@ -554,15 +1104,64 @@ def log_assembly(candidate_path, assembly, plan):
     # que la colonne VALIDATED existe pour poser, et elle etait sans reponse.
     # Il a cherche le maitre dans les racines voisines, le repertoire de sortie
     # et le code d'episode, sans le retrouver pour aucun des trois fichiers.
+    # PREMIERE LIGNE DE CHAQUE REPARATION: QUEL CODE A TOURNE. Inconditionnelle,
+    # donc utilisable comme empreinte -- contrairement a la presence d'un champ,
+    # qui depend du fichier.
+    tools.logs.append(f"repair: build {module_fingerprint()}\n")
+    # LE CODE DEPLOYE, PAR ARTEFACT. `vmsam-ci` a demande cette forme plutot que
+    # `/health`: un point d'ancrage PAR ARTEFACT survit a un redeploiement en
+    # cours de run, ce qu'un condensat par conteneur ne sait pas exprimer.
+    _sources = sources_digest()
+    _manifest = write_sources_manifest()
+    tools.logs.append(f"repair: sources {_sources['sha12']} "
+                      f"files={_sources['files']} scope={_sources['scope']} "
+                      f"manifest={_manifest or 'unwritten'}\n")
     if plan and plan.get("master_path"):
         tools.logs.append(f"repair: master {plan['master_path']}\n")
+    # L'IDENTITE DU CANDIDAT, SANS SON CHEMIN.
+    #
+    # `repair: master` nomme le maitre; RIEN ne nommait le candidat, parce que
+    # son chemin est exactement ce que `WRITE_ZONES.MD` s8 dit de ne pas emettre.
+    # Consequence trouvee par vmsam-dev-4 en comptant SON corpus: son unite est
+    # la PAIRE (maitre, candidat), et sans le second terme deux candidats
+    # fusionnes vers un meme maitre se replient en un seul cas. Son compte a la
+    # main donnait 15, la mesure en donne 16.
+    #
+    # LE RETRAIT D'UN CHAMP A RENDU UN CONSOMMATEUR INCAPABLE DE COMPTER, et il
+    # a fallu son probleme de regroupement pour le voir.
+    #
+    # Un digest satisfait les deux: il ne porte aucun texte libre et il resout
+    # l'ambiguite au lieu de la documenter. Meme construction que
+    # `master_path_digest`, convenue avec vmsam-dev-1: sha256 des octets du
+    # chemin. Sa limite est la meme et se dit ailleurs -- un digest de CHEMIN
+    # prouve que deux agents ont recu la meme CHAINE, pas le meme FICHIER.
+    if candidate_path:
+        import hashlib
+        tools.logs.append(
+            f"repair: candidate_digest "
+            f"{hashlib.sha256(str(candidate_path).encode()).hexdigest()}\n")
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
                       f"language={plan.get('language') if plan else None} "
                       # DE COMBIEN LA TRANSFORMATION DE RYTHME L'A EMPORTE.
                       # Absente quand la mesure n'en porte pas -- JAMAIS zero:
                       # une marge nulle serait deux hypotheses a egalite, qui est
                       # le cas `indeterminate` et non "pas de marge rapportee".
-                      f"{'speed_margin=' + get_speed_margin(plan) + ' ' if plan and get_speed_margin(plan) else ''}"
+                      # LA MARGE, ET SON ABSENCE, ET LA RAISON DE SON ABSENCE.
+                      #
+                      # L'emetteur etait conditionne a la VERACITE de la valeur.
+                      # Une marge INDEFINIE vaut None, donc rien du tout n'etait
+                      # ecrit -- precisement sur les fichiers ou la barre de
+                      # fidelite a decide et ou aucune marge de platitude
+                      # n'existe. vmsam-dev-4 rendait alors `marge de victoire:
+                      # NON EMISE` par-dessus une decision prise avec 0.3637 de
+                      # separation.
+                      #
+                      # C'est `head_pad_ms=0` a nouveau, en pire: la ou ce champ
+                      # confondait trois etats sous un chiffre, celui-ci
+                      # confondait `pas de marge` et `producteur muet` sous une
+                      # LIGNE NON ECRITE. Un emetteur conditionne a la veracite
+                      # de ce qu'il emet ne peut jamais dire `absent`.
+                      f"{_margin_fields(plan)}"
                       f"quantum={quantum_ms} pieces={' '.join(spans)}\n")
 
     verification = {}
@@ -599,10 +1198,17 @@ def log_assembly(candidate_path, assembly, plan):
                 #
                 # LE RESIDU EST LE DEFAUT; la part expliquee est celle qui n'en
                 # est pas un. On emet donc les deux et leur difference.
-                f"{'[FILL SOURCE SHORT BY ' + str(report['fill_short_by_ms']) + ' ms' + (('; TRACK LOST ' + str(_lost) + ' ms; UNEXPLAINED ' + str(_lost - Decimal(str(report['fill_short_by_ms']))) + ' ms') if (_lost := _track_shortfall_ms(assembly, report)) != None else '; TRACK LOSS UNMEASURED') + ']' if report.get('fill_short_by_ms') else ('[TRACK LOST ' + str(_l2) + ' ms, NO SHORT FILL SOURCE -- UNEXPLAINED]' if (_l2 := _track_shortfall_ms(assembly, report)) not in (None, ) and _l2 > 0 else '')} "
+                f"{_shortfall_annotation(assembly, report)} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
+                # POURQUOI CE NOMBRE, ET SURTOUT POURQUOI ZERO. `head_pad_ms=0`
+                # couvrait trois situations -- non mesure, decalage lu au-dela,
+                # et pas de decalage -- avec le meme chiffre. On compte les
+                # decisions par issue plutot que d'en imprimer une par morceau:
+                # la ligne de piste est deja longue, et ce qu'un lecteur doit
+                # pouvoir dire est "de quoi ce zero est-il fait".
+                f"head_pad={_head_pad_summary(report)} "
                 # SPEC_ZONE_A s4g: QUELLE BRANCHE A SERVI LA TETE.
                 #   master/<lang>  la piste de cette langue porte la tete, mesuree
                 #   NO-HEAD        elle NE la porte pas -- et le repli n'est PAS
@@ -663,6 +1269,25 @@ def log_assembly(candidate_path, assembly, plan):
                 # ne distingue pas une piste calee sur le bon programme d'une
                 # piste calee sur du contenu sans rapport; r le fait.
                 f"{'r_min=' + str(checked['weakest_correlation']) + ' ' if checked.get('weakest_correlation') != None else ''}"
+                # LA BORNE DE SELECTION, A COTE DU COMPTE QU'ELLE CONTAMINE.
+                # `probes=` est un compte sur des sondes CHOISIES: une fenetre
+                # sous `verify_min_rms` est ecartee. Le predicat d'appartenance
+                # mentionne donc une quantite du signal. Un rapport proche de 1
+                # dit que les sondes gardees frolaient le seuil et que le compte
+                # est fortement censure; un rapport tres grand dirait que le
+                # seuil n'est jamais contraignant, ce qui serait une decouverte
+                # et pas un repli. Regle de vmsam-dev-3, tiree du fait qu'il a
+                # tue sa propre borne pour cette raison exacte.
+                f"{'rms_over_floor=' + str(checked['rms_over_floor']) + 'x ' if checked.get('rms_over_floor') != None else ''}"
+                # LA CARTE VERS LE FICHIER PRODUIT. `stream_order` est l'index
+                # dans le CANDIDAT; l'index audio de la sortie est un compteur de
+                # boucle du verificateur que rien ne renvoyait. Sans lui, un
+                # consommateur qui veut comparer une piste du journal a un flux
+                # de l'artefact doit DEDUIRE l'ordre depuis la position -- le
+                # defaut qui a lu la colonne 2 comme un statut, et celui qui
+                # aurait fausse la jointure USED/CUT si dev-4 avait apparie par
+                # index plutot que par nom.
+                f"produced_index={checked.get('produced_index') if checked.get('produced_index') != None else 'unknown'} "
                 f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
         # SPEC_ZONE_A s4e, UNE LIGNE PAR REGION: ce qui a ete AJOUTE, ou, et
@@ -693,7 +1318,22 @@ def log_assembly(candidate_path, assembly, plan):
                 f"repair: ADDED audio track {report['stream_order']} "
                 f"master {region['master_start_ms']}-{region['master_end_ms']} "
                 f"from={region['source']}"
-                f"{'/' + str(region['language']) if region.get('language') else ''}\n")
+                f"{'/' + str(region['language']) if region.get('language') else ''}"
+                # QUEL FLUX, pas seulement quelle langue. Un maitre peut porter
+                # quatre pistes `spa` dont deux au meme titre; sans le
+                # StreamOrder un consommateur doit DEVINER contre quoi comparer,
+                # exactement la ou le commentaire de `find_fill_audio` dit que
+                # deviner est faux. `unknown` et jamais un defaut silencieux.
+                f" stream={report.get('fill_stream_order') if report.get('fill_stream_order') != None else 'unknown'}"
+                # L'INVARIANT, EMIS PLUTOT QUE SUPPOSE. `normalize_segments`
+                # pose `source_start_ms = cursor` sur les deux branches de
+                # morceau maitre, donc une region remplie [a,b] prend l'audio
+                # maitre [a,b] SANS decalage. vmsam-dev-3 l'a verifie dans la
+                # source et demande quand meme le champ, pour la bonne raison:
+                # SANS LUI, UN INVARIANT CASSE ET UNE ERREUR DE PLACEMENT SONT LA
+                # MEME OBSERVATION, et il classerait le premier comme le second,
+                # contre mon assembleur.
+                f" offset_ms=0\n")
         # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
         # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
         # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni
@@ -762,6 +1402,18 @@ def log_assembly(candidate_path, assembly, plan):
                           f"{check['subtitles_in_file']}/{check['subtitles_built']} "
                           f"expected_ms={check['expected_duration_ms']} "
                           f"source={check['expected_duration_source']} "
+                          # LA CADENCE DU MAITRE. Elle n'est derivable d'aucune
+                          # autre ligne, et sans elle personne ne peut calculer
+                          # une exclusion de vitesse ni dire sur quelle grille
+                          # `adjust_delay_to_frame` a colle. `unread` et pas
+                          # zero quand mediainfo ne la donne pas.
+                          f"frame_rate={assembly.get('master_frame_rate') or 'unread'}"
+                          f"({assembly.get('master_frame_rate_mode') or 'mode unread'}"
+                          f"{',used' if assembly.get('master_frame_rate_original') else ''}) "
+                          # LE SECOND CHAMP N'APPARAIT QUE S'IL DIFFERE. Deux
+                          # champs identiques sur chaque ligne seraient du bruit;
+                          # leur DESACCORD est l'information, et il est rare.
+                          f"{'frame_rate_original=' + str(assembly['master_frame_rate_original']) + ' ' if assembly.get('master_frame_rate_original') else ''}"
                           f"tolerance_ms={check['tolerance_ms']} "
                           f"measured={check.get('measured')} "
                           f"would_refuse={check.get('would_refuse')} "
@@ -775,6 +1427,42 @@ def log_assembly(candidate_path, assembly, plan):
             # s4d au seul endroit disponible tant que le gate est desarme.
             f"{'-- 1 WOULD HAVE BEEN DECLINED (gate inert) ' if check.get('would_refuse') and not check.get('enforcing') else ''}"
                           f"enforcing={check.get('enforcing')}\n")
+
+
+def decline_detail(error):
+    """Ce qu'un DECLIN emporte, extrait pour etre testable sans rejouer un fichier.
+
+    Une fonction et non un dictionnaire en ligne parce que le contenu d'un declin
+    est devenu une reponse a une question posee par d'autres agents -- le
+    registre de `vmsam-dev-4` et les comptes de `vmsam-ci` le lisent -- et un
+    dictionnaire construit en ligne dans une branche `except` ne se verifie qu'en
+    faisant lever un vrai fichier.
+
+    `output_check` EST ICI PARCE QUE LE DRAPEAU EST LEVE. Tant que le controle
+    de duree etait inerte, ce rapport n'apparaissait que sur des artefacts
+    PRODUITS; il est maintenant la RAISON d'un declin, et sans lui le declin dit
+    "le fichier produit ne correspond pas a ce qui a ete construit" sans jamais
+    dire QUELLE piste ni de combien.
+
+    `undelivered_path` EST LE CHEMIN DE L'ARTEFACT RENOMME, ET `undelivered_state`
+    DIT LEQUEL DES DEUX ETATS NON LIVRES IL PORTE -- `REFUSED` (la porte a decide
+    contre) ou `NOVERDICT` (personne n'a decide; une panne d'outil s'est echappee
+    avant qu'un verdict existe). UN SEUL NOM POUR LES DEUX ferait absorber en
+    silence chaque panne d'ffprobe dans le cout de la porte.
+
+    Le champ s'appelait `refused_path` pendant une heure, avant que le second
+    etat existe. `vmsam-dev-4` et `vmsam-ci` en ont ete prevenus avant que quoi
+    que ce soit soit expedie: rien de tout ceci n'est encore dans l'image.
+
+    `None` a DEUX causes distinctes -- le declin est arrive avant que le fichier
+    existe, ou le renommage a echoue -- et la seconde est ecrite sur stderr par
+    `mark_output` plutot que devinee ici.
+    """
+    return {"verification": getattr(error, "verification", None),
+            "audios": getattr(error, "audios", None),
+            "output_check": getattr(error, "output_check", None),
+            "undelivered_state": getattr(error, "undelivered_state", None),
+            "undelivered_path": getattr(error, "undelivered_path", None)}
 
 
 def record(candidate_path, outcome, reason, detail=None):
@@ -858,15 +1546,14 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    f"the measurement returned neither a segment nor a speed "
                    f"relation ({plan_source})")
             continue
-        if plan.get("master_path") not in (None, best_video.filePath):
+        master_check = compare_plan_master(plan, best_video)
+        if master_check != None:
             # LA RAISON NE PORTE PAS LE CHEMIN. `record` ecrit deja le fichier
             # sur sa propre ligne; une RAISON, elle, se cite -- dans un rapport,
             # dans un message a un autre agent, dans un resume -- et une raison
             # qui contient un chemin media voyage avec lui. On redige avant que
             # l'extrait ne parte, pas apres.
-            record(candidate_path, "declined",
-                   "the plan was measured against a different master than the "
-                   "one selected here")
+            record(candidate_path, "declined", master_check)
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
@@ -881,12 +1568,24 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # Le declin porte ses sondes quand il en a: c'est ce qui permet
                 # a la mesure de diagnostiquer son propre plan sans rejouer le
                 # fichier.
+                # `output_check` VOYAGE AVEC LE DECLIN, ET C'EST LE DRAPEAU
+                # LEVE QUI REND CETTE LIGNE NECESSAIRE. Tant que le controle
+                # etait inerte, ce rapport n'apparaissait QUE sur des artefacts
+                # PRODUITS; maintenant il est la RAISON d'un declin, et sans lui
+                # le declin dit "le fichier produit ne correspond pas" sans
+                # jamais dire QUELLE piste ni de combien. La levee le porte
+                # (`error.output_check = report`) et le pilote le jetait.
                 record(candidate_path, "declined", str(error),
-                       {"verification": getattr(error, "verification", None),
-                        "audios": getattr(error, "audios", None)})
+                       decline_detail(error))
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
-                record(candidate_path, "failed", str(error))
+                # LE MEME DETAIL SUR `failed` QUE SUR `declined`, ET C'EST CE
+                # CHEMIN-CI QUI PRODUIT `NOVERDICT`: une panne d'outil apres le
+                # mux laisse un artefact renomme, et le seul enregistrement qui
+                # peut le nommer est celui-ci. L'omettre remettrait le fichier
+                # hors de tout compte rendu, ce que le renommage existe pour
+                # empecher.
+                record(candidate_path, "failed", str(error), decline_detail(error))
                 sys.stderr.write(f"repair: failed for {candidate_path}: {error}\n")
             continue
 

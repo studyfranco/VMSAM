@@ -26,7 +26,7 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 '''
 
 from decimal import Decimal
-from os import path
+from os import path, replace as replace_file
 import re
 import subprocess
 import sys
@@ -81,6 +81,55 @@ audio_encoder_by_codec = {
 class chimeric_error(Exception):
     '''Le plan ne peut pas etre execute. Refus explicite, jamais un fallback.'''
     pass
+
+
+def delay_in_ms(track):
+    """`Delay` en millisecondes, AVEC SON UNITE VERIFIEE CONTRE UN SECOND OUTIL.
+
+    `mediainfo` rend `Delay` en SECONDES sur le binaire de cette image -- 0.083
+    contre un `start_time` de 0.083000, mesure par vmsam-dev-3 sur 13 cas non nuls,
+    zero correspondant a une lecture en millisecondes. Le `* 1000` d'ici est donc
+    correct.
+
+    MAIS C'EST UNE PROPRIETE DU BINAIRE, PAS DU SCHEMA JSON. Un build qui emettrait
+    des millisecondes rendrait cette ligne fausse d'un FACTEUR 1000, EN SILENCE, et
+    rien dans `src/` ne croisait une unite avec un second outil.
+
+    Or `ffprobe.start_time` est deja attache au MEME dict, en secondes par
+    definition, et dev-3 a mesure 291/291 accords sur les Delay de source
+    `Container`. Le controle est donc GRATUIT: on ne devine pas l'unite, on la
+    compare a une mesure qui n'en a qu'une.
+
+    Trois issues, et la troisieme n'est pas un defaut:
+        les deux concordent en secondes    -> on multiplie, unite confirmee
+        elles concordent si Delay est en ms -> ON LEVE. Le binaire a change d'unite
+                                               et tout ce qui suit serait faux de 1000.
+        pas de `start_time`                 -> on multiplie et on ne peut pas verifier;
+                                               c'est l'hypothese documentee, pas une mesure.
+    """
+    raw = track.get("Delay", 0) or 0
+    try:
+        seconds = Decimal(str(raw))
+    except Exception:
+        return Decimal("0")
+    probe = (track.get("ffprobe") or {}).get("start_time")
+    if probe not in (None, "", "N/A"):
+        try:
+            start = Decimal(str(probe))
+        except Exception:
+            return seconds * Decimal("1000")
+        # On ne compare que si l'un des deux est non nul: a zero les deux lectures
+        # sont identiques et le controle ne dit rien.
+        if seconds != 0 or start != 0:
+            as_seconds = abs(seconds - start)
+            as_ms = abs(seconds / Decimal("1000") - start)
+            if as_ms < as_seconds:
+                raise chimeric_error(
+                    f"mediainfo Delay {raw} matches ffprobe start_time {probe} only "
+                    f"if it is in MILLISECONDS, not seconds. This module multiplies "
+                    f"by 1000 and would be wrong by that factor. THIS IS A STATEMENT "
+                    f"ABOUT THE mediainfo BUILD, not about the media")
+    return seconds * Decimal("1000")
 
 
 def get_segment_offset(segment, stream_order=None):
@@ -399,14 +448,41 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
     # une invention: il n'y a REELLEMENT pas de son avant `start_time`, et le
     # silence est ce que le lecteur entend deja la.
     pads = []
+    # `head_pad_ms=0` COUVRAIT TROIS SITUATIONS DIFFERENTES ET LES ECRIVAIT AVEC
+    # LE MEME CHIFFRE. vmsam-dev-3, sur mes octets: sur 39 pistes observees,
+    # 11 portaient 0, et rien dans le journal ne dit laquelle des trois:
+    #
+    #   stream_start_ms == None   -> ON N'A PAS MESURE le debut du flux
+    #   missing <= 0              -> le flux commence apres zero MAIS le plan lit
+    #                                deja au-dela: un decalage EXISTE et ne coute
+    #                                aucun rembourrage
+    #   missing == 0 a l'origine  -> le flux commence vraiment a zero
+    #
+    # C'est ma propre regle -- une valeur et son absence ne doivent pas ecrire le
+    # meme jeton -- dans un champ de mon module. Et c'est la raison pour laquelle
+    # personne ne peut aujourd'hui confirmer NI refuter une hypothese de decalage
+    # de conteneur a partir du journal.
+    #
+    # La decision se dit maintenant a cote du nombre. Le nombre ne change pas.
+    head_decisions = []
 
     def head_pad(source_start_ms, stream_start_ms, sink):
         if stream_start_ms == None:
+            head_decisions.append({"outcome": "unmeasured",
+                                   "stream_start_ms": None, "missing_ms": None})
             return ""
         missing = Decimal(str(stream_start_ms)) - Decimal(str(source_start_ms))
         if missing <= 0:
+            head_decisions.append({
+                # LE DECALAGE EXISTE ET LE PLAN LE LIT AU-DELA. Ce n'est pas
+                # "pas de decalage", et l'ecrire 0 le faisait lire ainsi.
+                "outcome": "read_past" if Decimal(str(stream_start_ms)) > 0 else "none",
+                "stream_start_ms": str(stream_start_ms), "missing_ms": str(missing)})
             return ""
         sink.append(missing)
+        head_decisions.append({"outcome": "padded",
+                               "stream_start_ms": str(stream_start_ms),
+                               "missing_ms": str(missing)})
         return f",adelay={int(missing)}:all=1"
 
     candidate_index = 0
@@ -449,7 +525,8 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
 
     chains.append("".join(f"[{label}]" for label in labels)
                   + f"concat=n={len(labels)}:v=0:a=1[aout]")
-    return ";".join(chains), sum(pads) if len(pads) else Decimal("0")
+    return (";".join(chains), sum(pads) if len(pads) else Decimal("0"),
+            head_decisions)
 
 
 def resolve_source_bitrate(audio, source_path, timeout=120):
@@ -828,7 +905,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # seules Duration declare ja court de 1.99 s alors qu'il finit 1.0 s
             # avant en. L'erreur vaut le Delay, soit ici une seconde -- le meme
             # ordre qu'un residu fantome qui a ete cru par trois agents a la fois.
-            delay_ms = Decimal(str(master_audio.get("Delay", 0) or 0)) * Decimal("1000")
+            delay_ms = delay_in_ms(master_audio)
             fill_source_ms = (Decimal(str(master_audio["Duration"])) * Decimal("1000")
                               + delay_ms)
             furthest = max((p["master_end_ms"] for p in pieces
@@ -864,7 +941,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     candidate_start_ms = get_stream_start_ms(audio)
     if speed_ratio != None:
         candidate_start_ms = candidate_start_ms * Decimal(str(speed_ratio))
-    filtergraph, head_pad_ms = build_audio_filtergraph(
+    filtergraph, head_pad_ms, head_decisions = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
         speed_chain, candidate_start_ms, get_stream_start_ms(master_audio))
 
@@ -993,6 +1070,20 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "family": family, "gap_fill": fill, "fill_language": fill_language,
             "fill_title": fill_title, "fill_choices": fill_choices,
             "head_source": head_source,
+            # QUEL FLUX MAITRE A REELLEMENT SERVI, ET NON SEULEMENT SA LANGUE.
+            #
+            # `master_stream_order` etait une LOCALE et n'etait jamais renvoyee.
+            # Le rapport portait `fill_language`, `fill_title`, `fill_choices` et
+            # `fill_by_reference` -- tout sauf l'identite du flux.
+            #
+            # vmsam-dev-3, qui construit l'instrument s4c: quand le maitre porte
+            # plusieurs pistes dans la langue de remplissage, il ne peut pas
+            # savoir CONTRE QUOI comparer. Et le titre ne desambigue pas: video.py
+            # regroupe sur le code ISO, donc es-ES et es-419 tombent dans le meme
+            # seau avant que ce module ne voie quoi que ce soit, et un fichier du
+            # corpus porte QUATRE pistes spa dont deux titrees "European Spanish".
+            # `fill_choices` dit combien il y en avait, jamais laquelle.
+            "fill_stream_order": master_stream_order,
             "fill_source_ms": str(fill_source_ms) if fill_source_ms != None else None,
             "fill_short_by_ms": str(fill_short_by_ms) if fill_short_by_ms != None else None,
             "fill_by_reference": fill_by_reference,
@@ -1007,6 +1098,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
             # il ne doit pas se confondre avec le remplissage depuis le maitre.
             "head_pad_ms": str(head_pad_ms),
+            # LA DECISION, PAR MORCEAU, A COTE DU TOTAL. Un total ne s'audite pas.
+            "head_decisions": head_decisions,
             "silence_filled_ms": str(silence_ms),
             "silence_fraction": str((silence_ms / total).quantize(Decimal("0.000001")))
                                 if total > 0 else "0",
@@ -1403,17 +1496,128 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # positions qui existent encore et rend "aligned" sur un fichier ampute --
     # c'est exactement ce qui a rapporte "7 audio et 24 sous-titres
     # reconstruits, 0 refuse, 0 en echec" sur un fichier sans rien apres 21:21.
-    output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
-                                      subtitle_reports,
-                                      output_duration_tolerance_ms)
+    # LE FICHIER EST DEJA ECRIT QUAND LE CONTROLE LE LIT, DONC UN REFUS LAISSE UN
+    # ARTEFACT SUR LE DISQUE. Tant que le drapeau etait inerte, cet objet
+    # n'existait pas; maintenant il y en a un par refus.
+    #
+    # "aucun fichier faux ne sort" TIENT A LA FRONTIERE DU MERGE -- l'objet n'est
+    # accroche a `sameAudioMD5UseForCalculation` qu'apres le retour, donc
+    # `mergeVideo` ne le voit jamais. IL NE TIENT PAS SUR LE SYSTEME DE FICHIERS:
+    # le fichier porte le marqueur `VMSAM_FABRICATED` et AUCUN compte rendu ne le
+    # revendique. C'est exactement la forme qui m'a coute une heure sur `out108`
+    # -- un artefact trouve par son chemin et lu comme expedie.
+    #
+    # ON NE LE SUPPRIME PAS: c'est la seule trace de CE QUE le controle a refuse,
+    # et le declin la nomme. ON LE RENOMME, ET LE SUFFIXE EST CELUI QUE
+    # `vmsam-ci` A DEMANDE, POUR SES RAISONS ET PAS POUR LES MIENNES:
+    #
+    #   son preserveur balaye par EXTENSION (`-name '*.mkv'`), donc un refus
+    #   qui finit en `.mkv` est lie en dur dans KEEP et compte comme produit par
+    #   lui, par vmsam-forensic et par le registre.
+    #
+    # `<nom>.REFUSED.mkv` -- le marqueur AVANT l'extension: le fichier reste
+    # ouvrable et diagnosticable, et il se repere par un motif de NOM et non par
+    # une convention de CHEMIN. ci exclut `*.REFUSED.*` de son preserveur et de
+    # `check_output`.
+    #
+    # LA VERIFICATION D'ALIGNEMENT EST DEDANS AUSSI. Elle leve apres le mux
+    # exactement comme le controle de duree, et un artefact orphelin refuse pour
+    # desalignement se compte de la meme facon qu'un refuse pour troncature.
+    try:
+        output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
+                                          subtitle_reports,
+                                          output_duration_tolerance_ms)
 
-    verification = None
-    if verify:
-        verification = verify_on_master_timeline(
-            out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
-            verify_search_ms, reference_stream)
+        verification = None
+        if verify:
+            verification = verify_on_master_timeline(
+                out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
+                verify_search_ms, reference_stream)
+    except chimeric_error as error:
+        error.undelivered_state, error.undelivered_path = (
+            OUTPUT_REFUSED[0], mark_output(out_path, OUTPUT_REFUSED))
+        # L'ASSEMBLAGE PARTIEL VOYAGE AVEC LE REFUS, ET C'EST LE DRAPEAU LEVE QUI
+        # REND CETTE LIGNE NECESSAIRE.
+        #
+        # `log_assembly` est appele par `merge_video_repair` APRES cet appel-ci.
+        # Une levee ici le saute, donc un fichier DECLINE par la porte n'emet
+        # AUCUNE ligne `repair:` -- pas meme la ligne `plan`. `vmsam-dev-4` lit
+        # ces journaux par STRUCTURE et rejette un bloc sans ligne `plan`: les
+        # declins seraient invisibles dans son rapport exactement comme le sont
+        # deja les pannes precoces. Il a pose la question avant le rendu plutot
+        # que de decouvrir le trou dedans.
+        #
+        # ET LE COMMENTAIRE DE `merge_video_repair` DIT DEJA LE CONTRAIRE DE CE
+        # QUI SE PASSAIT: "un journal ecrit seulement en cas de succes ne
+        # documente jamais les cas qui en avaient besoin". Il etait ecrit avant
+        # la RELECTURE du fichier, pas avant la PORTE.
+        #
+        # `verification` est None et non omis: le declin peut venir de la porte
+        # de duree, auquel cas l'alignement n'a jamais ete mesure, et "pas
+        # mesure" n'est pas "mesure et vide".
+        error.partial_assembly = {
+            "path": out_path, "pieces": pieces, "audios": audio_reports,
+            "subtitles": subtitle_reports, "declined": declined,
+            "failed": failed, "marker": marker_value, "verification": None}
+        raise
+    except Exception as error:
+        # PAS UN VERDICT, DONC PAS `.REFUSED`. `probe_output_streams` lance
+        # `subprocess.run(..., check=True)` sans enveloppe puis `json.loads` sur
+        # sa sortie: un ffprobe qui sort non nul ou qui emet du bruit fait
+        # echapper `CalledProcessError` ou `JSONDecodeError`, qui ne sont pas des
+        # `chimeric_error` et que le pilote classe donc en `failed`.
+        #
+        # CETTE CLASSIFICATION EST LA BONNE -- une panne d'outil n'est pas un
+        # verdict sur le media, s6 -- et elle laissait le fichier a son NOM DE
+        # PRODUCTION, ou les balayages de ci le comptent comme produit alors que
+        # RIEN ne l'a verifie. C'etait le pire des trois etats: le seul ou un
+        # artefact non verifie porte le nom d'un fichier livre.
+        #
+        # ON NE MARQUE PAS `REFUSED` PAR COMMODITE: ce serait un mensonge, rien
+        # ne l'a refuse. Le jeton est celui de ci.
+        error.undelivered_state, error.undelivered_path = (
+            OUTPUT_NO_VERDICT[0], mark_output(out_path, OUTPUT_NO_VERDICT))
+        raise
 
+    # LA CADENCE DU MAITRE, PUBLIEE. Elle n'est derivable d'AUCUNE ligne du
+    # journal, et trois consommateurs en ont besoin: l'exclusion de vitesse de
+    # vmsam-dev-3 ne peut pas etre calculee sans elle, la ligne GAP du rapport
+    # doit NOMMER la cadence supposee, et `adjust_delay_to_frame` colle sur elle.
+    #
+    # vmsam-dev-1 a balaye 561 fichiers: 559 CFR, 2 VFR, et DEUX FICHIERS CFR A
+    # CADENCE NON STANDARD -- 23.839 et 47.281 -- qui prennent quand meme la
+    # branche de collage et collent donc sur une grille FABRIQUEE. Une cadence
+    # supposee identique pour tout le corpus est fausse pour ces deux-la, et rien
+    # dans le journal ne le disait.
+    #
+    # `unread` et non zero quand mediainfo ne la donne pas.
+    #
+    # DEUX CHAMPS, ET LEUR DESACCORD EST L'INFORMATION. vmsam-dev-3: sur les deux
+    # seuls fichiers dont la cadence est inhabituelle, `FrameRate` et
+    # `FrameRate_Original` DIFFERENT -- 23.839 contre 23.976, 47.281 contre
+    # 29.970. Emettre un seul champ collapse precisement ce qui rend ces
+    # fichiers interessants, et un lecteur qui calcule une periode d'image
+    # obtient 41.948 ms la ou le nominal est 41.708.
+    #
+    # Et le MODE se dit aussi, parce que la branche de collage ne teste pas
+    # "VFR": elle teste l'egalite avec la chaine exacte "CFR". Un mode absent ou
+    # vide prend donc silencieusement le chemin non colle, et rien ne disait
+    # lequel avait tourne.
+    frame_rate = None
+    frame_rate_mode = None
+    frame_rate_original = None
+    try:
+        frame_rate = master_obj.video.get("FrameRate")
+        frame_rate_mode = master_obj.video.get("FrameRate_Mode")
+        original = master_obj.video.get("FrameRate_Original")
+        if original != None and str(original) != str(frame_rate):
+            frame_rate_original = original
+    except Exception:
+        pass
     return {"path": out_path, "pieces": pieces, "audios": audio_reports,
+            "master_frame_rate": frame_rate,
+            "master_frame_rate_mode": frame_rate_mode,
+            "master_frame_rate_original": frame_rate_original,
             "subtitles": subtitle_reports, "declined": declined,
             "failed": failed, "marker": marker_value,
             "output_check": output_check,
@@ -1543,6 +1747,32 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
                "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
                "-ar", str(rate), "-"]
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
+    #
+    # Cette fonction ne lisait NI `returncode` NI `stderr` -- zero occurrence de
+    # l'un et de l'autre dans tout le module. Si ffmpeg echoue (specificateur de
+    # flux faux, fichier illisible, recherche au-dela de la fin, codec qu'il ne
+    # sait pas ouvrir), stdout est VIDE, `len(samples)` vaut 0, et le code levait
+    # `the track carries no audio to compare there`.
+    #
+    # C'EST UNE AFFIRMATION SUR LE MEDIA ALORS QUE LA VERITE EST UNE AFFIRMATION
+    # SUR L'OUTIL. Et ffmpeg avait ecrit la vraie raison sur stderr, qui etait
+    # capturee puis JETEE.
+    #
+    # C'est exactement le defaut corrige ce soir sur `master_path`, une fonction
+    # plus loin -- une RAISON FAUSSE dans une issue legitime, ou rien ne parait
+    # anormal -- et il est pire ici: le commentaire ci-dessous dit que cette
+    # phrase DEVIENT la raison d'un refus, et une raison se cite. Elle est faite
+    # pour voyager, donc elle peut voyager fausse.
+    #
+    # STATUT: signale par le Lead comme LU ET NON OBSERVE -- aucune instance dans
+    # le corpus. Ce qui est mesure, c'est que les deux canaux etaient ignores.
+    if process.returncode != 0:
+        raise chimeric_error(
+            f"the reader FAILED on {stream_specifier} at {start_ms} ms: ffmpeg "
+            f"exited {process.returncode}. THIS IS A STATEMENT ABOUT THE TOOL, "
+            f"not about the media: "
+            f"{(process.stderr or b'').decode('utf-8', 'replace').strip()[-300:]}")
     samples = numpy.frombuffer(process.stdout, dtype=numpy.float32).astype(numpy.float64)
     if len(samples) < rate:
         # Meme regle: le specificateur de flux et la position suffisent a
@@ -1624,7 +1854,41 @@ output_duration_tolerance_ms = Decimal("500")
 # PROPRIETAIRE qui prime sur elle, et il n'appartient ni a ce fichier ni a moi
 # de le renegocier. La question "quelque chose est-il prevu pour de vrai?" est
 # ouverte aupres du proprietaire et sans reponse.
-output_check_enforcing = False
+#
+# ---- LA QUESTION A RECU SA REPONSE, ET C'EST L'ARBITRAGE, PAS LE COMPTE ----
+#
+# Le proprietaire a tranche, rapporte mot pour mot par `vmsam-ci`:
+#
+#     "aucun fichier faux ne sort. Aucun fichier reparable ne sort non plus
+#      tant que le planificateur n'est pas corrige."
+#
+# LA SECONDE PHRASE EST LE COUT ET IL A ETE ACCEPTE EXPLICITEMENT: drapeau leve,
+# les fichiers REPARABLES cessent de sortir eux aussi, jusqu'a correction du
+# planificateur. C'est une decision de debit prise avec le chiffre sous les yeux.
+#
+# LE CHIFFRE, MESURE PAR `vmsam-ci` SUR LA POPULATION ENTIERE QUI PORTE LE CHAMP:
+#
+#     artefacts produits portant le champ    14
+#     would_refuse = True                     6      <- ce qui s'arrete
+#     enforcing = False                      14 / 14 <- avant aujourd'hui
+#
+# 14 est TOUTE la population portant le champ, pas 14 sur 315: les fichiers
+# DECLINED n'atteignent jamais le controle. Ce n'est pas un taux de corpus.
+#
+# ET LA CONDITION POSEE PLUS HAUT N'A PAS ETE CONTOURNEE, ELLE A ETE SATISFAITE
+# PAR L'EVENEMENT QU'ELLE NOMMAIT. Le drapeau a echoue quatre fois sur une
+# condition CHIFFREE -- inatteignable, incomptable, satisfiable par la mauvaise
+# chose, double. La cinquieme forme est la seule qui ait tenu, et elle n'est pas
+# un seuil: c'est un arbitrage nomme d'avance, leve par la personne nommee.
+#
+# DEUX SEUILS MESURENT LA MEME PROPRIETE ET ILS NE SONT PAS D'ACCORD. La
+# tolerance de piste courte de `vmsam-ci` est de 2 % -- 30 s sur un fichier de
+# 1500 s -- et ce controle-ci refuse `id 5` a 1994 ms. Trois des six refuses
+# portent son verdict FULL_LENGTH. LES DEUX SEUILS SONT RAPPORTES SUR CHAQUE
+# LIGNE PLUTOT QUE RECONCILIES: deux seuils nommes qui divergent sont honnetes,
+# un seul choisi en silence ne l'est pas. Lequel est LA norme appartient au
+# proprietaire, pas a celui des deux qui imprime "validated".
+output_check_enforcing = True
 
 # UN DECALAGE EMPRUNTE SE REFUSE-T-IL? PAS ENCORE, ET LA RAISON N'EST PAS LA
 # PRUDENCE: C'EST QUE "PAS D'ENTREE DANS LA TABLE" NE VEUT PAS ENCORE DIRE CE
@@ -1762,6 +2026,61 @@ def last_audio_packet_ms(file_path):
     return ends
 
 
+# LES DEUX ETATS QUI NE SONT PAS "PRODUIT", ET ILS N'AFFIRMENT PAS LA MEME CHOSE.
+#
+#   REFUSED     LA PORTE A DECIDE contre le fichier
+#   NOVERDICT   PERSONNE N'A DECIDE -- une panne d'outil s'est echappee avant
+#               qu'un verdict existe
+#
+# Un seul jeton pour les deux recreerait exactement l'effondrement qu'on repare:
+# un lecteur qui compte les refus absorberait en silence chaque panne d'ffprobe
+# dans le cout de la porte. `vmsam-ci` a nomme le second `unadjudicated` dans son
+# registre et il ne porte AUCUNE affirmation sur le media -- il dit ce qui est
+# arrive au PROCESSUS, ce qui est ce qui s'est reellement passe.
+#
+# TROISIEME ETAT SANS JETON DE LA SOIREE, et le premier qui soit un FICHIER SUR
+# LE DISQUE plutot qu'une valeur dans une ligne: `verdict != FULL_LENGTH` lu
+# comme "piste courte", "pas de ligne DECLINED" lu comme "pas de declin", et ici
+# un artefact NON VERIFIE portant le nom d'un fichier produit. Dans les trois cas
+# le defaut par defaut etait le flatteur.
+OUTPUT_REFUSED = ("REFUSED", "the gate DECIDED against it")
+OUTPUT_NO_VERDICT = ("NOVERDICT", "NOBODY decided -- a tool fault escaped before "
+                                  "any verdict existed")
+
+
+def mark_output(out_path, marking):
+    """Renomme un artefact non livre en `<nom>.<JETON>.<ext>` et rend le chemin.
+
+    Rend `None` si le fichier a disparu ou si le renommage echoue -- et le
+    consigne. UN ECHEC DE RENOMMAGE NE DOIT PAS REMPLACER LA RAISON DU REFUS:
+    l'appelant est deja en train de lever, et masquer un refus de troncature par
+    une OSError de systeme de fichiers perdrait la seule information que le
+    declin porte. On rapporte les deux plutot que d'en substituer une.
+
+    LE JETON VA AVANT L'EXTENSION, forme demandee par `vmsam-ci` pour ses
+    raisons: son preserveur balaye par EXTENSION et lierait un `.mkv` non livre
+    dans KEEP, ou il compterait comme produit par lui, par `vmsam-forensic` et
+    par le registre de `vmsam-dev-4`. Le fichier reste ouvrable et se repere par
+    un motif de NOM et non par une convention de CHEMIN.
+    """
+    token, why = marking
+    if not path.exists(out_path):
+        return None
+    base, extension = path.splitext(out_path)
+    marked = f"{base}.{token}{extension}"
+    try:
+        replace_file(out_path, marked)
+    except OSError as error:
+        sys.stderr.write(f"repair: the undelivered artefact could NOT be renamed "
+                         f"and is still at its produced name: {error}\n")
+        tools.logs.append("repair: an undelivered artefact kept its produced name\n")
+        return None
+    sys.stderr.write(f"repair: the artefact was renamed to *.{token}{extension} "
+                     f"-- {why} -- so it is inspectable and NOT counted as "
+                     f"produced\n")
+    return marked
+
+
 def verify_output_file(out_path, master_duration_ms, audio_reports,
                        subtitle_reports, tolerance_ms):
     """L'ACCEPTATION PORTE SUR LE FICHIER, pas sur le compte de pistes.
@@ -1797,13 +2116,46 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     for stream in audio:
         duration = stream["duration_ms"]
         if duration == None:
-            # ON NE SUBSTITUE PAS LA DUREE DU CONTENEUR. `vmsam-ci` a mesure que
-            # `format=duration` d'ffprobe differe de la duree du FLUX video et
-            # de mediainfo de 31 a 883 ms sur cinq fichiers -- flux video et
-            # mediainfo identiques 5 fois sur 5, conteneur different des deux.
-            # C'est une TROISIEME quantite, pas une approximation de celle-ci,
-            # et la glisser ici ferait exactement ce que les trois vocabulaires
-            # de noms de codec ont fait ce matin.
+            # ON NE SUBSTITUE PAS LA DUREE DU CONTENEUR.
+            #
+            # PREMIERE MESURE, vmsam-ci: `format=duration` d'ffprobe differe de la
+            # duree du FLUX video et de mediainfo de 31 a 883 ms sur cinq fichiers
+            # -- flux video et mediainfo identiques 5 fois sur 5, conteneur
+            # different des deux.
+            #
+            # CE CHIFFRE SOUS-ESTIME LE CAS D'UN FACTEUR 2470. vmsam-dev-3, audit
+            # de 60 fichiers sources et 1378 pistes:
+            #
+            #   conteneur moins max(video, audio), 60 fichiers
+            #     min 0.000    mediane 0.091    MAX 2179.937 SECONDES
+            #
+            #   un fichier declare 3600.000 s de conteneur pour 1420.063 s de
+            #   contenu -- un conteneur 2.5 fois plus long que tout ce qu'il porte.
+            #
+            # ET LE MECANISME A UN NOM. `format=duration` est le MAXIMUM SUR TOUS
+            # LES FLUX, et l'exces est un gabarit d'authoring de sous-titres:
+            #
+            #   fichiers ou le conteneur depasse max(video,audio) de >0.5 s      3
+            #   dont le conteneur egale max(sous-titre) a 0.5 s pres          3 / 3
+            #   les ecarts                     0.561 s, 59.901 s, 2179.937 s
+            #
+            # Sur un fichier a six pistes de sous-titres etiquetees
+            # `01:00:00.000000000`, la "duree du conteneur" EST ce gabarit.
+            #
+            # C'est une TROISIEME quantite, pas une approximation de celle-ci, et
+            # la glisser ici ferait exactement ce que les trois vocabulaires de
+            # noms de codec ont fait ce matin.
+            #
+            # LA JUSTIFICATION IMPORTE AUTANT QUE LA CONCLUSION: a 31-883 ms un
+            # lecteur peut raisonnablement conclure que la substitution est une
+            # commodite a petite erreur et la retablir. A 2180 s elle ne l'est
+            # sous aucune lecture. Le chiffre qui rend le garde inarguable est
+            # celui de dev-3, pas le mien.
+            #
+            # BORNE DE dev-3 SUR SES PROPRES CHIFFRES: 48 des 60 fichiers sources
+            # ne portent AUCUNE etiquette DURATION sur video ni audio, donc les
+            # statistiques a >0.5 s reposent sur 12 fichiers, et les 48 forment un
+            # bloc d'ids contigu -- un muxeur, pas 80 % au hasard.
             #
             # Un flux sans duree declaree est donc NON MESURE, pas suppose
             # correct et pas suppose faux.
@@ -1828,7 +2180,25 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     report = {"unmeasured": unmeasured,
               "expected_duration_ms": str(master_duration_ms),
               "expected_duration_source": "master video Duration (mediainfo)",
+              # CE CHAMP PEUT NE PAS ETRE UNE DUREE DE CONTENU. `format=duration`
+              # est le maximum sur TOUS les flux, sous-titres compris, et un
+              # gabarit d'authoring `01:00:00` le porte a 3600000 sur un fichier
+              # de 1420 s. Le garde ci-dessus empeche l'usage DANGEREUX -- on ne
+              # substitue jamais cette valeur a une duree de piste -- mais LE
+              # CHAMP EST EMIS, et un lecteur qui voit `container_duration_ms
+              # 3600000` a cote de `expected_duration_ms 1420002` n'a aucun champ
+              # qui dise que l'ecart est une etiquette de sous-titre plutot qu'un
+              # defaut du travail.
+              #
+              # On emet donc AUSSI le maximum sur les flux video et audio. Leur
+              # ECART nomme la situation sans que personne ait a la deviner, et il
+              # vaut zero sur un fichier ordinaire.
               "container_duration_ms": str(container_ms) if container_ms != None else None,
+              "max_av_stream_duration_ms": (
+                  str(max([s["duration_ms"] for s in streams
+                           if s["duration_ms"] != None
+                           and s["codec_type"] in ("video", "audio")] or [0]))
+                  if streams else None),
               "audio_built": len(audio_reports), "audio_in_file": len(audio),
               "subtitles_built": len(subtitle_reports), "subtitles_in_file": len(subtitle),
               "tolerance_ms": str(tolerance_ms) if tolerance_ms != None else None,
@@ -1895,6 +2265,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                                                      reference_stream)
         if master_audio == None:
             results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                             "outcome": "skipped",
                             "reason": "the master has no track in this language"})
             produced_index += 1
@@ -1946,6 +2317,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             lag, score = measure_lag_ms(reference, produced, verify_probe_rate, search_ms)
             probes.append({"master_position_ms": str(start), "piece": piece_index,
                            "lag_ms": lag, "correlation": score, "outcome": "measured",
+                           "reference_rms": reference_rms, "produced_rms": produced_rms,
                            "reference_rms": reference_rms,
                            "produced_rms": produced_rms})
         measured = [p for p in probes if p.get("outcome") == "measured"]
@@ -1954,6 +2326,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             # pas un succes, et l'appeler `aligned` serait exactement l'erreur que
             # la campagne poursuit -- un controle qui ne peut pas echouer.
             results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                             "outcome": "skipped",
                             "reason": "no probe window carried signal; the track "
                                       "is unverified, not verified",
@@ -1980,6 +2353,32 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
         # que j'ai refusee ailleurs ce soir. On RAPPORTE, et un lecteur peut
         # enfin distinguer "aligne, r=0.98" de "aligne, r=0.31".
         weakest = min(probe["correlation"] for probe in measured)
+        # LA BORNE DE SELECTION, A COTE DE LA STATISTIQUE QU'ELLE CONTAMINE.
+        #
+        # `verified=N/M` est un compte sur des sondes CHOISIES: une fenetre dont
+        # le RMS tombe sous `verify_min_rms` est ecartee comme `no_signal`. Le
+        # predicat d'appartenance mentionne donc une quantite du signal, et le
+        # numerateur est un echantillon selectionne par une propriete du signal.
+        #
+        # vmsam-dev-3, apres avoir tue sa propre borne intra-plateau pour cette
+        # raison exacte: QUAND LE PREDICAT D'APPARTENANCE D'UN ECHANTILLON
+        # MENTIONNE LA QUANTITE MESUREE, IMPRIMER LA BORNE DU PREDICAT A COTE DE
+        # LA STATISTIQUE. `n_distinct` fait ce travail pour la REPETITION; ceci
+        # le fait pour la SELECTION, et rien ne repare la circularite -- on la
+        # rend VISIBLE a qui tient le nombre.
+        #
+        # Un rapport proche de 1 dit que les sondes gardees frolaient le seuil et
+        # que le compte est fortement censure. Un rapport tres grand dirait que le
+        # seuil n'est jamais contraignant sur des donnees reelles -- ce qui serait
+        # une decouverte a part entiere, et pas un repli: un seuil qui ne se
+        # declenche jamais ne protege rien.
+        quietest = min(min(probe.get("reference_rms", float("inf")),
+                           probe.get("produced_rms", float("inf")))
+                       for probe in probes
+                       if probe.get("reference_rms") != None
+                       or probe.get("produced_rms") != None)
+        rms_over_floor = (quietest / verify_min_rms
+                          if quietest not in (None, float("inf")) else None)
         # DESACCORD A L'INTERIEUR D'UN MEME MORCEAU: le plan dit qu'il n'y a pas
         # de frontiere la, et la mesure dit le contraire. C'est une TROISIEME
         # issue, distincte de "mal cale": la piste peut etre parfaitement calee
@@ -2052,6 +2451,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                 f"on both sides of a boundary nobody modelled")
             error.verification = results + [
                 {"track": report["stream_order"], "language": language,
+                 "produced_index": produced_index,
                  "outcome": "inconsistent", "inconsistent": inconsistent,
                  "probes": probes}]
             # Et CE QUI A ETE CONSTRUIT, pas seulement ce qui a ete mesure: un
@@ -2064,10 +2464,16 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             raise error
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                         "outcome": outcome, "worst_lag_ms": worst,
                         "weakest_correlation": round(float(weakest), 4),
                         "probes_measured": len(measured),
                         "probes_without_signal": len(probes) - len(measured),
+                        # LA BORNE DE SELECTION, PAS SEULEMENT LE COMPTE.
+                        "quietest_probe_rms": quietest,
+                        "rms_over_floor": (round(float(rms_over_floor), 2)
+                                           if rms_over_floor != None else None),
+                        "rms_floor": verify_min_rms,
                         "probes": probes})
         produced_index += 1
 
