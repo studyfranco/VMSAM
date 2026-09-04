@@ -28,9 +28,10 @@ than absent: a reader who knows the mechanism files it as handled.
 | `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
-| `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
+| `TASKS/` | **finished reports** — one per closed group of actions: context, result, technical account. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/` | when a group of actions closes |
 | `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
 | `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
+| `MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
@@ -356,6 +357,73 @@ is how a campaign ends up negotiating its own rules.
 
 Never write a tier's filesystem path in a tracked file — Privacy, below.
 
+## ✅ What counts as done — and the two roles that decide it
+
+**A modification is not valid until the test container, on the latest image, has PRODUCED A
+FILE — and that file has been COMPARED AND VALIDATED.** The owner's standard, stated because
+five agents had each filled the blank differently and none of the fillings was this.
+
+    PRODUCED    an artefact exists on disk, from the container, on the current image
+    CHECKED     named automated properties verified -- NAME THE PROPERTY, never "passed"
+    VALIDATED   a person or the validator compared it and accepted it -- AND WHO
+
+**Only the third is done.** Ten commits were promoted in one morning through compile,
+unbound-name checks, zone checks, blob and tree verification — **and column one was empty for
+all ten.** A compile is not a run. A guard suite is not production. **And a lab measurement that
+explains why a file fails is not evidence that anything was fixed.**
+
+> **THE LAST CHECK ANYONE RUNS BECOMES THE DEFINITION OF DONE UNLESS A DEFINITION IS WRITTEN
+> ABOVE IT.**
+
+That is why this section exists. Nobody wrote one, so the last thing that said yes became it —
+and **each time that gate got stricter it made the wrong definition more convincing**, because a
+stricter check that still cannot see a file reads as more evidence rather than the same kind.
+
+**Two agents filled the blank in public and the pair is the point:** *my instrument's preference
+was for the outcome that makes the instrument look right — refuse what I cannot verify*, and
+*mine was it compiles and the blobs match.* **Neither chose dishonestly. Both answered the
+question their tools could answer.**
+
+### Why is not whether
+
+**A diagnostic reported as a diagnostic is not waste — it is the route by which a refused file
+becomes a produced one.** Mapping a refusal into six segments whose arithmetic closes to 0.097 s
+is what will let a file come out of that release. **The defect was never the diagnostic; it was
+the diagnostic reported as a completion.**
+
+### The two support roles
+
+    ci        GATES THE ENTRANCE to the most constraining test, the end-to-end one.
+              AND DETECTS WHETHER A DEV AGENT HAS DODGED THE FINAL VALIDATION.
+    forensic  VALIDATES THE REPAIR. "The end-to-end test produced this; what I expected
+              is this." VALIDATES OR REFUTES -- AND EXPLAINS WHY IN BOTH CASES.
+
+**The one who lets a file in must not be the one who declares it good.** ci sees what went in
+and under which image; forensic sees what came out against what was expected. **Neither can
+produce the other's answer from its own inputs** — the independence test, applied to roles.
+
+**And an anti-dodge report goes to the owner, not upward through the thing it checks.** That
+holds for the lead's promotions and for the architect's documents alike: *a check that only
+reports upward through the thing it is checking is not a check.* A role that depends on an agent
+choosing to audit itself is the control-that-cannot-fail wearing a virtue.
+
+### The boundary the validator drew, and it is binding
+
+**A derived expectation — from the master, the plan, and what the log says was done — validates
+INTERNAL CONSISTENCY: the artefact matches what the pipeline claims it did. IT CANNOT CATCH A
+DEFECT THE PIPELINE WAS NOT MODELLING.** The truncation the owner found by watching was exactly
+that. **The owner's validation and the validator's are different instruments and the assignable
+one is weaker.** Every artefact that passes is consistent with its own claims — nothing more,
+and that is still the difference between an unexamined file and a checked one.
+
+### And the fleet's job is not to replace the person who validates
+
+**It is to make the files cheap to check.** A produced file alone costs an episode of someone's
+attention; a produced file with a report saying what was cut, what was added, at which timings,
+from which language, and what remained, costs a minute of reading and points at the seconds
+worth watching. **That is why the plan report in `SPEC_ZONE_A` §4g is a validation instrument
+and not documentation.**
+
 ## 📡 Talking
 
 Who may direct you, and how anything you know reaches anyone else, are in
@@ -398,6 +466,12 @@ links and no host paths.
 ## 📜 Coding Directives
 
 **Naming Conventions**: STRICTLY use `snake_case` for all new functions, variables, and methods. Do NOT use `camelCase`. Exclusive use of `snake_case` is required for all new variables, functions, and classes. Do not reproduce the `camelCase` that might still exist in the older legacy code.
+
+**Comments, docstrings and commit messages are in English.** The code, the rules and
+every agent working on them are; a French comment is readable by two people, one of
+whom does not edit code. Campaign 2 has written 175 lines of French comment across
+four modules — convert them as you touch each file rather than in a sweep of their
+own, so the change travels with work instead of taking a commit.
 
 **Global state.** Route shared settings through `tools`, nowhere else.
 
@@ -468,54 +542,13 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🧪 Believing a result
+## 📏 Believing a result
 
-**Which paths hold test material, where outputs go and what survives a restart are
-facts about the machine, not about VMSAM** — they change without the code changing,
-and a stale path in a tracked file is worse than none. They live outside the
-repository, with the rest of the environment. `cargo` and `compileall` belong to the
-pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
+The ways a result can look sound and be worthless are in **`MEASURING.MD`** — read it
+when you hold a number and are about to act on it, which is the only moment any of
+them applies.
 
-What is left here is the part that stays true whatever machine you are on: **the ways
-a result can look sound and be worthless.** Each of these was paid for.
-
-**A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
-pieces of code — a guard, a refined measurement, a policy branch, an order check, a
-subtitle repair — that were written, reviewed and unit-tested green, and that nothing
-ever called. Every suite passed. A test calls the function directly, which is exactly
-what production did not do. Any new guard needs a test that pins its **call site**.
-
-**One turn further: the unit was called, and the transport between them dropped the
-field.** `parse_segments` rebuilt each segment from three named keys and discarded
-the rest, including the per-stream offsets. Emitter correct, consumer correct,
-integration inert — and the unit test passed throughout, because it handed the
-consumer a hand-built dict and never crossed the transport.
-
-The cost was **28.88 ms of misalignment**, which passed under four gates: below the
-video frame, below `adjust_delay_to_frame`'s snapping, below `mkvmerge`'s integer
-milliseconds, and below the repair's own 100 ms tolerance. Only a per-track check
-saw it. It would have shipped in silence.
-
-**So: a field whitelist in a transport is a defect by construction.** It makes every
-future extension of the format inert, and the only symptom is that nothing changes —
-which is the one symptom nobody investigates. Carry the whole structure and let the
-consumer ignore what it does not need.
-
-**Which rules deserve to be mechanical, and it is not the important ones.** The rules
-that survived today are the ones whose violation produces an immediate, local,
-unambiguous failure in the actor's own frame. The checker refuses a commit and you
-feel it at once — it is the only rule nobody has broken. A waiter never returns and
-you feel it six hours later, which is why it needed a check rather than a sentence. A
-report written but not sent produces **nothing at all**: no error, no delay, no
-symptom in the writer's world, which is why no wording fixes it.
-
-**So: mechanise the rules whose failure is silent in the actor's own frame — not the
-ones that matter most, the ones the actor cannot feel going wrong.** Everything else
-can be a sentence.
-
-**And an armed guard that has never fired is indistinguishable from a working one.**
-Campaign 1's success metric sat in the third branch of a function nothing reached:
-315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
-meant *nothing reached the check*. Fire every guard deliberately, with literals,
-plus a case proving it can return the **other** answer.
-
+Three lines worth carrying out of it: **mechanise the rules whose failure is silent
+in the actor's own frame**, **evidence about an intermediate is not evidence about
+the deliverable**, and **independence of instruments is not independence of
+assumptions**.

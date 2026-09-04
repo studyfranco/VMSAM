@@ -30,7 +30,7 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `MEASURING.MD`, `LEAD.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -137,6 +137,51 @@ before the edit.
 `src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
 code that ships and runs in production.
 
+**`src/merge_video_chimeric.py` is fully editable, and its author is its master.** The
+owner's ruling, and it is written here because three agents spent a day treating a
+defect in it as a blocked need. `src/merge_video_repair.py` and
+`src/merge_video_resample.py` are structurally identical — campaign-2 modules, absent
+from `master`, authored by the same agent — and are treated the same. **The owner named
+the first explicitly; the other two follow by the same reasoning and not by his word.**
+
+**A file becomes shared by being useful and imported, not by anyone deciding it is.**
+So the only defence against backing into a standard is **the file saying what it is
+not.** An agent asked to build a fleet harness drew the line itself and drew it better
+than the request: a lab instrument in its own tree is inside its charter; *a thing three
+other agents import is shared code in function even where it is not in location, and I
+do not own fleet tooling.* It shipped the tool with the disclaimer in the first
+paragraph of its docstring — not fleet infrastructure, not a standard, anyone may read
+it, **nobody should import it expecting it to be maintained for them.** That is a guard
+in the file rather than a rule in a document, which is the only kind that fires at the
+moment it is needed.
+
+**A module is yours; the schema it emits stops being yours the moment someone reads
+it.** Open means you may add, change and remove freely — and that freedom ends at the
+fields another agent's code consumes. Adding a field and removing it twenty minutes
+later were both within one agent's rights, and both would have broken its consumer
+(`vmsam-dev-1`, which reported it rather than discovering it downstream). **Say what
+you are changing in an emitted schema, to whoever reads it, before you change it.**
+That pair handled it by talking; a successor pair may not have the conversation.
+
+### What does not go in the repository — the owner's line
+
+> **Anything that belongs specifically to the test environment stays in the test
+> environment. The repository is for the code, and for what relates directly to the
+> code.**
+
+**This closes a grievance that was open all day, and it closes it against the asker.**
+An agent held 57 KB of privacy-clean measurement tables — no path, no title, no
+catalogue id — outside the repository under this section, and reported that their only
+copy and its backup sit on one physical device, so **what survives is a snapshot and not
+a history**: the sequence of corrections exists only where an author narrated it in
+prose. The archive is not unprotected — six snapshots, two real recoveries — and the
+grievance was never that. **The ruling stands regardless: measurement tables are test
+environment, and versioning them is not a reason to move them.**
+
+**The test for this section is therefore not "is it clean" or "is it valuable".** Those
+tables are both. It is *does this relate directly to the code* — and a table describing
+a corpus does not.
+
 ### What does not go in the repository
 
 This repository holds **VMSAM's code**. Nothing else. Batch scripts, verification
@@ -166,7 +211,7 @@ Open like the rest, listed because their state is not obvious from reading them.
 
 | file | state |
 | :--- | :--- |
-| `frame_compare.py` | pHash/DCT frame comparison. **Does not compile** — `frame_compare.py:109`, pre-existing since `da1c191`. |
+| `frame_compare.py` | pHash/DCT frame comparison. Compiles; the `da1c191` breakage was repaired in campaign 2. |
 | `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
 | `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
 
@@ -254,41 +299,28 @@ reserves to the owner — so any change in marker count fails.
 
 Found by the campaign-2 lead against this section, which its author wrote.
 
-**The snippets below are not the procedure and nobody runs them** — every agent runs
-the checker instead, and the document did not notice the divergence (`vmsam-ci`). They
-are kept as the reasoning, not as the steps: an agent following them literally would
-do weaker checks and believe it had done the campaign's.
+**What the checker covers, in prose, because a code block gets obeyed as a
+procedure.** This section used to print the superseded snippets under a paragraph
+saying nobody runs them — and `vmsam-ci` reported the obvious: *an agent under time
+pressure reads a code block as a procedure, and the paragraph explaining that it is
+not one is above it.* So the reasoning stays and the block is gone. The checker
+verifies that nothing is written outside the open paths, that no governing document
+is rewritten, that every changed line in a tagged file sits inside a zone with the
+marker count unchanged, that `config.ini` only gains lines, and that the tree
+compiles.
 
-Before every commit:
+**The tree must compile cleanly — there is no allowance, and this paragraph used to
+say the opposite of itself.** It granted `frame_compare.py` an expected failure in
+its last sentence while stating in its first that campaign 2 had repaired it. Two
+other documents carried the same stale claim. Measured on this revision:
+`python3 -m compileall -q src -x '__pycache__'` exits **0**, clean. `vmsam-dev-1`'s
+fix is what made the old allowance false, and it reported that as a finding rather
+than editing it out. **A document that excuses a failure the code no longer has will
+excuse the next real one** — `vmsam-ci` read the allowance and left a compile error
+alone on its authority.
 
-```sh
-# 1. no write outside the open paths
-git diff --cached --name-only
-
-# 1b. no governance document rewritten
-git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
-       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD COMMITTING.MD TALKING.MD \
-       docs/ CAMPAIGNS/   # must be empty
-
-# 2. in the two tagged files, every changed line sits inside a zone
-#    (BEGIN: AGENT modification ok ... END: AGENT modification)
-git diff --cached -U0 -- src/mergeVideo.py src/tools.py
-
-# 3. config.ini: additions only, no changed or removed line
-git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be empty
-
-# 4. the tree still compiles -- cleanly, no allowance
-python3 -m compileall -q src -x '__pycache__'
-# 5. Rust, when you touched it
-cargo check && cargo clippy && cargo fmt --check
-```
-
-Checks 1b and 3 must print nothing. **Check 4 must pass cleanly**: it used to be
-allowed one failure on `frame_compare.py`, broken since `da1c191`, and campaign 2
-repaired it — so any failure at all is now yours. `vmsam-dev-1`'s fix is what made
-the old allowance false, reported as a finding rather than edited out by the agent
-that outgrew it. Check 4 fails on `frame_compare.py` until someone
-fixes it; that failure is expected and is the only one allowed.
+**Run Rust's checks when you touched Rust**: `cargo check && cargo clippy &&
+cargo fmt --check`.
 
 ## 6. Reporting a blocked need
 
@@ -296,3 +328,156 @@ A frozen file that stands in your way is a finding, not an obstacle to route
 around. Record what you wanted to change, why, and what you did instead. A
 campaign that ends with three well-argued blocked needs is worth more than one
 that ends with three undeclared edits.
+
+### A defect in code you may not write is a finding, and it has a route
+
+**Report it. Do not fix it, and do not keep it.** You read frozen code all day and
+you cannot write it, so a defect you find there has no natural outlet — it goes into
+your own notes and reaches nobody who can act. Three agents named that independently
+on the same day, unprompted, and one had been carrying a reconciliation-window
+finding since that morning. Until it was asked for, **the campaign had no channel for
+the defects only its agents could see.**
+
+Send it to the architect, who carries it to the owner. Each one carries:
+
+- the **file and the function**, verified against the revision you are on, not
+  remembered. **Name the function; give the line as a convenience, not as the
+  reference.** A line number goes stale within a day on a moving branch — one report's
+  `:388`, correct when written, was `:436` by the time it was read, because the file
+  grew with that evening's promotion.
+- **no permission label. None.** Do not write *"in frozen code"*, *"blocked"*, or
+  *"not mine to touch"*. **A permission is a property of (file, master state, actor),
+  and the reporter is usually none of the three** (`vmsam-forensic`). The report
+  carries the **address**; the actor derives the permission at the moment of acting.
+  Three agents in one day filed editable defects as blocked — the label was supplied by
+  the way the question was asked, and they stopped deriving one. **A wrong address
+  announces itself the moment someone opens it; a correct address with an inherited
+  label reads as fully verified and sits waiting for a ruling it never needed.**
+  Removing the label also dissolves the other variant: a wrong address can only acquire
+  the wrong file's permissions *because reports carry permissions.*
+- **and be careful what you derive it from, because there are two masters.** The hub
+  serves agents its **local** `master`, which lags its own view of the true upstream.
+  Measured: agents reach `fe0c34e`; the upstream tip was `71bb165`, nine hours later,
+  and **not in any agent's object store**. It cost nothing that day — the divergence was
+  documentation-only, 6 files, 560 insertions, no `src/` — but **the first time a
+  campaign-2 module is merged upstream it freezes, and no agent clone can see the freeze
+  while the hub's local master lags.** Four agents would go on editing an
+  editable-looking file, deriving the answer correctly from the only reference they
+  have. The fix is the hub fast-forwarding its local master, not a rule that writes a
+  known lag into itself.
+- **what goes wrong and under which input** — a defect with no triggering condition is
+  a worry, not a finding;
+- **whether this is an observation from a run or a reading of the code.** Say it
+  plainly — **and note what the label does *not* cover.** It marks the epistemic status
+  of the **claim**, never of the **address**, and one report's items marked *reading*
+  were the ones its author had verified least: the label that was supposed to warn of
+  uncertainty sat on the item checked last (`vmsam-dev-2`, on its own list). **Verify
+  the address as separately as the content.** That report had a true statement about
+  real code at a false file — the right line number in the wrong module, which is the
+  one combination that survives a careless check, because both files carried plausible
+  code at that line. The author had written the name of the module it had been tracing
+  *through* for an hour rather than the one it was reading. *A labelled hypothesis beats silence; a hypothesis wearing an
+  observation's label is worse than silence* (`vmsam-ci`) — it spends credibility the
+  next reader has no way to audit. The campaign lead mislabelled one of its own that
+  day, ci checked before agreeing, and the label was corrected within minutes. That
+  is the mechanism working.
+- **observations consistent with a defect are not evidence of it.** Repaired tracks
+  were seen losing to the master's own track, which is the correct outcome because the
+  master is the timeline. Same observation, and it settles nothing about the defect
+  next to it.
+
+**When one of your findings turns out to have been invalidated by a property of your
+METHOD, re-check every other finding that used it.** Not the ones that share a subject —
+the ones that share the instrument. A grep that cannot see a syntax tree, a query over
+one record structure, a harness reading a different metadata authority than production:
+each produces a FAMILY of small wrongnesses, and the family is invisible until someone
+sweeps it. One such sweep this campaign found a published band excluding one of its own
+members by 0.003 — nobody would have gone looking for that, and a successor would have
+found it first.
+
+**Report the ones you decided were not your problem, and the ones you are unsure of.**
+Both categories produced real findings here. And ask the question this way round:
+**not "what is wrong in `src/`" but "what happens to what I produce after I hand it
+over"** — `vmsam-dev-2` located three defects in frozen code only by tracing where a
+repaired track goes, and none of them by inspecting the module. **The defects in
+frozen code an agent can see are the ones on the path its own output takes.**
+
+## 7. Artefacts another agent reads
+
+**A file one agent writes and another parses is a seam, and a seam is nobody's.** Three
+defects turned up at one seam in one hour, **every one a disagreement about what a name
+means rather than about what a value is, and none visible from either side:**
+
+    reader's spec    "<hash>\t<status>"                    -- two columns
+    writer produced  file size_bytes duration_s mtime_utc status reason
+                     and FOUR statuses instead of two
+    reader's code    took $2 -- WHICH IS size_bytes -- as the status
+
+**It matched no class, would have resolved every file to `NOT_EXAMINED`, and would have
+evicted a 2.7 GB refuted artefact under the ordering built to protect it.** Both halves
+passed their own tests: the reader parsed correctly by its own spec, and the writer's
+file was correct and *better* than the spec asked for. **The failure was entirely in the
+join, and a third party running one artefact against the other is the only position from
+which "column 2 is the size" is visible.**
+
+The entry point was not the reader. It was the spec:
+
+> ***My spec was the defect. I asked for two columns, the other agent wrote six with
+> more information in them, and my positional read broke on the improvement***
+> (`vmsam-ci`).
+
+**Nobody guards against improvement**, and a spec that under-asks is how an improvement
+becomes a hazard. Third instance of that class in this campaign, first with an artefact
+at stake.
+
+**Two rules, and they are here rather than in a checklist because a rule that depends on
+someone noticing a seam exists is the control-that-cannot-fail wearing a virtue.** The
+first proposal for this section was *an obligation on whoever reads both sides* — which
+is a check that happens when one agent feels like it, i.e. the defect restated as its
+own cure.
+
+**1. No positional reads across an agent boundary.** A cross-agent artefact carries a
+header line, and readers resolve columns **by name**. With a named read, six columns
+where two were specified is a **silent improvement** instead of a near-eviction. This
+removes the mechanism; it does not add a watcher.
+
+**2. The consumer runs its reader against the producer's real bytes before either side
+calls the integration done.** Not against the spec — **against the file.** The consumer
+owns the join because *the consumer is the one making a claim about what the producer's
+bytes mean*, and placing it there means it fires automatically at the next seam instead
+of waiting for someone to notice there is one.
+
+**Two worked failures of rule 2, both by agents who believed they had tested the join.**
+A lead's cross-check returned **24 of 24 correct** because both sides returned `None` on
+abbreviated keys — *a join returning zero is an empty search with two vocabularies, not
+"nothing matched" but "nothing matched when I compared THESE keys to THOSE"*. And
+`vmsam-dev-2` built a consumer against a contract's **shape**, correctly, and only saw
+the truth on running the real producer: *the shape was right and I had not seen a byte
+of it.* **Do not let anyone substitute a shaped dict for the bytes, including the person
+who wrote the contract.**
+
+**A CONSUMER DOES NOT AVOID A SEAM. THE CONSUMER *IS* THE SEAM.** The claim that a
+pure-consumer role adds no join was put forward by the architect and refuted the same
+hour, with counts:
+
+    a retainer      consuming a status file      took column 2 (size_bytes) as the status
+    a validator     consuming repair logs        hit the wrong-key defect TWICE
+    a lead          consuming locator artefacts  24 of 24 correct, comparing two Nones
+    the same validator, consuming a sweep directory that exists only because those files
+                    were DECLINED, and reading a rate off it
+
+**Four consumer joins, four defects, one day.** Reading rather than writing does not put
+you outside the join — **it puts you on the side that makes a claim about what the other's
+bytes mean**, which is the whole reason rule 2 sits with the consumer.
+
+**And a renderer is the sharpest case, because its failure mode is a FALSE DEFECT
+REPORT.** *A renderer handed a field it does not understand draws a blank cell and calls
+it "the producer did not emit this."* On a log whose format changed seven times in one
+day, that is a defect filed against an innocent producer.
+
+> **A field your reader cannot find must be distinguishable from a field the producer
+> genuinely did not emit. Today those are the same blank cell.**
+
+**So: confirm the field is absent from the EMITTED BYTES, not merely absent from your
+reader, before filing anything** (`vmsam-dev-sandbox`, naming its own error of four hours
+earlier as the one a new consumer will repeat on day one unless told).

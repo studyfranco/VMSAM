@@ -33,7 +33,7 @@ is authoritative and comes from `WRITE_ZONES.MD`.
 | file | l. | status | state |
 | :--- | ---: | :---: | :--- |
 | `get_cut_time.py` | 565 | ✅ | multi-range cut detection, drift, audio chimera. Imports `frame_compare` |
-| `frame_compare.py` | 221 | ✅ | pHash/DCT frame comparison. **Does not compile** (`:109`) |
+| `frame_compare.py` | 221 | ✅ | pHash/DCT frame comparison. Compiles since campaign 2's repair |
 
 ## API — `gestionar_show`, entirely frozen
 
