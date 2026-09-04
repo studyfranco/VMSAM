@@ -2442,8 +2442,23 @@ def render_svg(records):
             elif x1 - x0 > 34:
                 body.append(_text(middle, master_bar_y - 4,
                                   f"+{short_clock(duration)}", amber, 9, "middle"))
-            name = plain(fields.get("source")) or fields.get("source_state")
-            if name and name not in sources:
+            # UN ETAT N'EST PAS UN NOM DE SOURCE. Je rendais `source_state` a la
+            # place du nom quand le champ manquait, et la legende disait
+            # `added from the master: absent-from-this-format` -- un jeton de
+            # registre pose la ou un humain attend une piste. Trouve par
+            # l'architecte dans SA sortie, sur un artefact dont le format ne
+            # porte pas encore `from=`.
+            #
+            # C'est exactement le defaut que ce module poursuit, arrive DANS LE
+            # CANAL HUMAIN: mes etats sont faits pour les LIGNES, ou un lecteur
+            # a la legende sous les yeux. Dans la figure ils n'ont aucun sens et
+            # se lisent comme une reponse.
+            name = plain(fields.get("source"))
+            if not name:
+                name = ("source not recorded in this format"
+                        if fields.get("source_state") == ABSENT_FORMAT
+                        else "source not emitted")
+            if name not in sources:
                 sources.append(name)
         # UNE LEGENDE QUI NOMME UNE SOURCE SANS SA QUANTITE invite le lecteur a
         # estimer la quantite sur la largeur de la barre. On la donne.
