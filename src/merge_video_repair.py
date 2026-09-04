@@ -847,6 +847,28 @@ def log_assembly(candidate_path, assembly, plan):
     # et le code d'episode, sans le retrouver pour aucun des trois fichiers.
     if plan and plan.get("master_path"):
         tools.logs.append(f"repair: master {plan['master_path']}\n")
+    # L'IDENTITE DU CANDIDAT, SANS SON CHEMIN.
+    #
+    # `repair: master` nomme le maitre; RIEN ne nommait le candidat, parce que
+    # son chemin est exactement ce que `WRITE_ZONES.MD` s8 dit de ne pas emettre.
+    # Consequence trouvee par vmsam-dev-4 en comptant SON corpus: son unite est
+    # la PAIRE (maitre, candidat), et sans le second terme deux candidats
+    # fusionnes vers un meme maitre se replient en un seul cas. Son compte a la
+    # main donnait 15, la mesure en donne 16.
+    #
+    # LE RETRAIT D'UN CHAMP A RENDU UN CONSOMMATEUR INCAPABLE DE COMPTER, et il
+    # a fallu son probleme de regroupement pour le voir.
+    #
+    # Un digest satisfait les deux: il ne porte aucun texte libre et il resout
+    # l'ambiguite au lieu de la documenter. Meme construction que
+    # `master_path_digest`, convenue avec vmsam-dev-1: sha256 des octets du
+    # chemin. Sa limite est la meme et se dit ailleurs -- un digest de CHEMIN
+    # prouve que deux agents ont recu la meme CHAINE, pas le meme FICHIER.
+    if candidate_path:
+        import hashlib
+        tools.logs.append(
+            f"repair: candidate_digest "
+            f"{hashlib.sha256(str(candidate_path).encode()).hexdigest()}\n")
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
                       f"language={plan.get('language') if plan else None} "
                       # DE COMBIEN LA TRANSFORMATION DE RYTHME L'A EMPORTE.
