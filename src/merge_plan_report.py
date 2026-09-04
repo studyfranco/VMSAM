@@ -87,25 +87,52 @@ import re
 # "cas" est ici un couple (maitre, candidat), mais quatre journaux de laboratoire
 # ne nomment pas leur candidat et sont regroupes par leur maitre seul. Deux
 # candidats differents fusionnes vers un meme maitre compteraient donc pour un.
-CORPUS_BASIS = {
-    "logs": 18,
-    "distinct_cases": 15,
-    "unit": "(master, candidate) pair; lab logs that name no candidate are "
-            "grouped by master alone",
-    "collapsing": "3 logs describe case 297 through 3 code paths; 2 describe "
-                  "case 169",
-    # NOMMES ET NON CHEMINES: mon propre redacteur a transforme ces deux
-    # chemins absolus en jetons opaques -- correctement, il ne peut pas
-    # distinguer un chemin de laboratoire d'un chemin de media, et l'exempter
-    # serait ouvrir la porte par laquelle les fuites passent. On nomme donc les
-    # repertoires au lieu de les cheminer.
-    "measured_over": "the KEEP artefact directory and dev2_lab USED_sample",
-    "caveat": "NOT an independent sample, and undatable from any artefact -- "
-              "no build or timestamp field is emitted anywhere",
-}
-assert CORPUS_BASIS["distinct_cases"] <= CORPUS_BASIS["logs"], (
-    "a distinct-count cannot exceed its population; dev-2 published 12 releases "
-    "for 9 cases and read past it because the number leaned flattering")
+# UNE CONSTANTE VRAIE EST PIRE QU'UNE CONSTANTE FAUSSE, et c'est la propriete
+# que dev-2 a isolee sur ma premiere version. Une constante FAUSSE se rattrape en
+# la re-derivant une fois. Une constante VRAIE ne se rattrape qu'en la
+# re-derivant PLUS TARD, ce que personne ne planifie -- elle etait exacte le jour
+# ou je l'ai ecrite et devient fausse sans que rien ne bouge dans le code.
+#
+# On retire donc la possibilite au lieu de la surveiller, comme partout ailleurs
+# ici: LA BASE N'EST PLUS UNE CONSTANTE, ELLE EST UN PARAMETRE. Qui rend le
+# rapport la MESURE et la passe; s'il ne la passe pas, le rapport DIT qu'aucune
+# population n'a ete fournie, au lieu de citer un chiffre qui fut vrai.
+def measure_corpus(log_paths, read=None):
+    """Mesure la population, a l'instant du rendu, sur les fichiers donnes.
+
+    Un "cas" est un couple (maitre, candidat). Quand un journal ne nomme pas son
+    candidat -- ce qu'aucun n'a le droit d'emettre en clair -- on retombe sur le
+    maitre seul, et DEUX CANDIDATS DISTINCTS VERS UN MEME MAITRE COMPTERAIENT
+    POUR UN. L'unite est donc rendue avec son doute plutot que tranchee en
+    silence.
+    """
+    reader = read or (lambda path: open(path, encoding="utf-8",
+                                        errors="replace").read())
+    keys, logs = set(), 0
+    for path in log_paths:
+        text = reader(path)
+        if not is_job_log(text):
+            continue
+        logs += 1
+        job = parse_job_log(text)
+        keys.add((job.get("master_opaque_id"), job.get("candidate_opaque_id")))
+    # LA GARDE DE dev-2, GRATUITE: un compte de distincts ne peut jamais exceder
+    # sa population. dev-2 a publie 12 releases pour 9 cas -- plus de releases
+    # que de cas -- et l'a lu sans broncher parce que le nombre penchait du cote
+    # flatteur. Rien ne le verifiait.
+    assert len(keys) <= logs, (
+        f"n_distinct ({len(keys)}) exceeds n ({logs}): a distinct-count cannot "
+        f"exceed its population")
+    return {
+        "logs": logs,
+        "distinct_cases": len(keys),
+        "unit": "(master, candidate) opaque-id pair; a log naming no candidate "
+                "falls back to its master alone, so two candidates merged "
+                "toward one master would count as one",
+        "measured": "at render time, over the logs handed to this render",
+        "caveat": "NOT an independent sample, and undatable from any artefact "
+                  "-- no build or timestamp field is emitted anywhere",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +165,10 @@ NOT_DEFINED = "not-defined-here"
 # piste acceleree qui n'a jamais tourne, et `frame_rate_original` qui ne se
 # declenche qu'en cas de desaccord. Trois cas particuliers etaient un etat.
 NOT_EXERCISED = "not-exercised-here"
+# AUCUNE POPULATION N'A ETE FOURNIE A CE RENDU. Distinct de tout le reste: ce
+# n'est pas une propriete du code NI des donnees, c'est une propriete de
+# L'APPEL. Un blanc ici se lirait comme "la population va de soi".
+NOT_SUPPLIED = "not-supplied-to-this-render"
 
 _STATE_MARK = {
     PRESENT: "",
@@ -147,6 +178,7 @@ _STATE_MARK = {
     NO_PRODUCER: "x",       # personne ne l'emet
     NOT_DEFINED: "\u00b7",   # sans objet ici; la decision est ailleurs
     NOT_EXERCISED: "\u25cb",  # branche vivante, entree non produite ici
+    NOT_SUPPLIED: "?",       # l'appelant n'a pas fourni la population
 }
 
 _STATE_WORD = {
@@ -157,6 +189,7 @@ _STATE_WORD = {
     NO_PRODUCER: "no producer emits this",
     NOT_DEFINED: "not defined in this case; the decision was made elsewhere",
     NOT_EXERCISED: "the branch is live; this artefact does not produce its input",
+    NOT_SUPPLIED: "the caller supplied no population for this render",
 }
 
 
@@ -1037,7 +1070,7 @@ def plan_end_ms(job):
     return pieces[-1]["master_end_ms"] if pieces else None
 
 
-def build_rows(job, artefact_id, source_name, n_caveat):
+def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
     """Les LIGNES. Tout nombre du rapport est ici, une ligne par enregistrement."""
     generation, description = format_generation(job)
     plan = job.get("plan") or {}
@@ -1072,8 +1105,17 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     # observations. dev-2 a ecrit la sienne, elle etait fausse, et elle a ete
     # corrigee dans l'heure PARCE QU'ELLE ETAIT ECRITE. La mienne etait absente,
     # donc invisible a tout lecteur qui n'etait pas dans la conversation.
-    rows.append(_row("CORPUS", _redactor=redactor,
-                     **{name: value for name, value in CORPUS_BASIS.items()}))
+    if corpus:
+        rows.append(_row("CORPUS", _redactor=redactor, **dict(corpus)))
+    else:
+        # AUCUNE POPULATION FOURNIE, ET ON LE DIT. Le rapport contient des
+        # affirmations a l'echelle du corpus; sans base elles sont sans
+        # denominateur, et un blanc ici se lirait comme "la population va de
+        # soi".
+        rows.append(_row("CORPUS", _redactor=redactor, state=NOT_SUPPLIED,
+                         note="no population was supplied to this render, so "
+                              "every corpus-scale claim below is undenominated. "
+                              "Call measure_corpus() and pass the result"))
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
     rows.append(_row("IDENTITY",
@@ -1368,7 +1410,7 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                               "media filename were replaced by a stable opaque "
                               "token; the same input yields the same token"))
 
-    for gap in blank_cells(job):
+    for gap in blank_cells(job, corpus):
         # UN ETAT QUI PEUT PERIMER SANS QUE PERSONNE NE TOUCHE AU CODE PORTE SA
         # PORTEE. Les six autres etats sont des proprietes du code et restent
         # vraies tant que le code ne bouge pas; celui-ci est une propriete DU
@@ -1395,7 +1437,7 @@ _TRACK_FIELDS_RENDERED = frozenset((
     "residual", "quantum", "head_pad"))
 
 
-def blank_cells(job):
+def blank_cells(job, corpus=None):
     """LE REGISTRE DES CELLULES VIDES. C'est la sortie la plus utile du module.
 
     Chaque entree est une quantite que s4e ou s4g exige et qui n'arrive pas
@@ -1471,9 +1513,13 @@ def blank_cells(job):
         "address": "the seam: dev-1 emits it in a handoff JSON, "
                    "merge_video_repair.log_assembly has the conditional emitter, "
                    "nothing carries it between them",
-        "detail": f"0 occurrences across {CORPUS_BASIS['logs']} logs / "
-                  f"{CORPUS_BASIS['distinct_cases']} distinct cases (see the "
-                  f"CORPUS row: NOT an independent sample). AND THE EMITTER WILL FAIL ON "
+        "detail": (f"0 occurrences across {corpus['logs']} logs / "
+                   f"{corpus['distinct_cases']} distinct cases (see the CORPUS "
+                   f"row: NOT an independent sample). "
+                   if corpus else
+                   "not seen on this artefact; NO POPULATION SUPPLIED, so this "
+                   "report cannot say how many artefacts were looked at. ")
+                  + "AND THE EMITTER WILL FAIL ON "
                   "ARRIVAL, PRECISELY WHERE IT MATTERS: log_assembly emits the "
                   "field CONDITIONAL ON ITS TRUTHINESS, and a margin that is "
                   "undefined is None, which is falsy. So on exactly the files "
@@ -1575,9 +1621,12 @@ def blank_cells(job):
         "quantity": "build_identity",
         "state": NO_PRODUCER,
         "address": "gestionar_show.fusion (job log header)",
-        "detail": f"no commit build version or image key occurs in any of the "
-                  f"{CORPUS_BASIS['logs']} logs; "
-                  "the log records what was done and not which build did it"})
+        "detail": (f"no commit build version or image key occurs in any of the "
+                   f"{corpus['logs']} logs; " if corpus else
+                   "no commit build version or image key occurs on this "
+                   "artefact, and no population was supplied to say how many "
+                   "were checked; ")
+                  + "the log records what was done and not which build did it"})
     return entries
 
 
@@ -2231,14 +2280,14 @@ def render_narrative(records):
     return "\n".join(said)
 
 
-def render_report(job, artefact_id, source_name, caveats=()):
+def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
     """LE FICHIER. Un seul, et le rapport EST la page.
 
     L'ordre est deliberé: LES LIGNES D'ABORD. Le test qui prime est que rien
     dans la specification ne depende de l'existence du HTML -- alors on met en
     tete ce qui survit a `cat`, et le dessin apres, rendu depuis ces lignes.
     """
-    rows = build_rows(job, artefact_id, source_name, list(caveats))
+    rows = build_rows(job, artefact_id, source_name, list(caveats), corpus)
     records = parse_rows(rows)
     generation, description = format_generation(job)
 
@@ -2306,7 +2355,7 @@ def render_report(job, artefact_id, source_name, caveats=()):
     return rendered
 
 
-def report_for_log(text, artefact_id, source_name, caveats=()):
+def report_for_log(text, artefact_id, source_name, caveats=(), corpus=None):
     """Octets d'un journal de travail -> le rapport. Rejette PAR STRUCTURE."""
     if not is_job_log(text):
         raise ValueError(
@@ -2314,7 +2363,8 @@ def report_for_log(text, artefact_id, source_name, caveats=()):
             f"log. Rejected by STRUCTURE and not by name: a `.log` suffix is not "
             f"evidence, and a denominator defended by a filename is defended "
             f"until the next filename.")
-    return render_report(parse_job_log(text), artefact_id, source_name, caveats)
+    return render_report(parse_job_log(text), artefact_id, source_name,
+                         caveats, corpus)
 
 
 # ---------------------------------------------------------------------------
