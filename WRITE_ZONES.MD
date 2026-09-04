@@ -144,6 +144,17 @@ defect in it as a blocked need. `src/merge_video_repair.py` and
 from `master`, authored by the same agent — and are treated the same. **The owner named
 the first explicitly; the other two follow by the same reasoning and not by his word.**
 
+**A file becomes shared by being useful and imported, not by anyone deciding it is.**
+So the only defence against backing into a standard is **the file saying what it is
+not.** An agent asked to build a fleet harness drew the line itself and drew it better
+than the request: a lab instrument in its own tree is inside its charter; *a thing three
+other agents import is shared code in function even where it is not in location, and I
+do not own fleet tooling.* It shipped the tool with the disclaimer in the first
+paragraph of its docstring — not fleet infrastructure, not a standard, anyone may read
+it, **nobody should import it expecting it to be maintained for them.** That is a guard
+in the file rather than a rule in a document, which is the only kind that fires at the
+moment it is needed.
+
 **A module is yours; the schema it emits stops being yours the moment someone reads
 it.** Open means you may add, change and remove freely — and that freedom ends at the
 fields another agent's code consumes. Adding a field and removing it twenty minutes

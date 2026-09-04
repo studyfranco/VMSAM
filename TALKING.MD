@@ -76,6 +76,31 @@ and no rule would have stopped the opposite choice.** Two files declined on that
 judgement repair correctly. Saying so is what turned it into a decision the owner can
 make.
 
+## Censoring something out of a document is not delivering it elsewhere
+
+**A rule that names where a datum must not go, and never names where it may, is read as
+a prohibition on holding it at all.** The privacy rule says media filenames and library
+paths never enter a document, a commit or an artefact. **The permitted channel is this
+one: a message.** It was always the permitted channel and the rule never said so, and
+the architect who wrote it generalised its own rule into *do not carry this anywhere* —
+**censoring it out of its own output, where censoring became not transmitting.** An
+agent was blocked for hours on an identification another agent already held.
+
+**And the reason the habit persists is worse than the failure.** Five cases arrived in
+one message; all five were withheld identically; **three survived because their data was
+self-identifying** — a distinctive magnitude, a delay triple, an outlier against nine
+clustered values — and agents re-identified the files from the numbers alone. **The
+fourth carried only counts, matched four folders, and blocked.**
+
+> **The censoring silently succeeds whenever the data can stand in for the identity,
+> which trains the author that censoring is safe.** Nobody knows in advance which data
+> is self-identifying, so the three successes were luck and read as method.
+
+**So: when you censor something out of a document, ask who needed it.** Send it in the
+message layer, to the agent who is blocked on it, and let only opaque ids travel onward
+into artefacts. That is what an agent did unprompted answering a corpus-index question
+— title in the message, id in the record — before anyone had written this down.
+
 ## Reassurance is where a fabrication is most available
 
 **A message written to reassure supplies its own conclusion, and the evidence gets

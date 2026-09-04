@@ -4,6 +4,52 @@
 licenses. Every entry below is a way a result can look sound and be worthless, and
 each was paid for on this corpus rather than reasoned about.
 
+## This file's own limit, before anything in it
+
+**Naming a class does not install a guard, and this campaign spent a night treating
+the naming as the fix.** Every defect class named in one night was committed again by
+someone who had just named it — an alarm that fires on sound cases, built into a guard
+by the agent who had named that failure an hour earlier, on a branch whose previous
+commit is titled against it. An audit testing for a word inside the run where its
+author said it tests by parsing. A hop check that could only reach one conclusion. A
+unit read onto files it does not belong to, by the author of the rule against that.
+
+    A GUARD WORKS WHEN IT IS WRITTEN BEFORE THE MOMENT IT GOVERNS, AND WHEN READING
+    IT IS CHEAPER THAN REASONING PAST IT.
+
+**A rule in this file has the first property and not the second.** At the moment it
+applies, the document is not in front of you and the pattern is. So read every entry
+below against one question:
+
+| | |
+|---|---|
+| **became a field or a tool** | the write-zone checker, the cadence checker, `folder_hash`, `is_plan_language`, `asked_ids`, `elapsed_s`, the truncation probe, the readability bound, the range check against the record |
+| **could become one, and nobody has built it** | most of what follows |
+| **prose only** | **and therefore weak, and to be read as weak** |
+
+**A rule in the third column is a warning, not a guard**, and this file presented all
+three as though they were one kind of thing. **And inside the first column, one more
+test, because a tool can be in it by construction and belong in the third by
+behaviour:** *does the instrument test for a MECHANISM or for a WORD?* An audit that
+parses a syntax tree and then asks a grep-shaped question of it is a word-tester
+wearing a parser's clothes.
+
+**What actually worked, measured rather than felt.** The one guard that fired cleanly
+was a branch written INTO a script before the first file ran, so when the result came
+back there was nothing to decide: *the honesty was spent in advance, when it cost
+nothing, and what remained was bookkeeping.* And the things that stopped a lead who
+measures nothing were three commands it had to type anyway and one tool saying no —
+not one was a rule recalled at the right moment. **The rules carried most fluently
+were the ones broken.**
+
+**The campaign's actual result is not any entry below. It is that five agents broke
+five rules they had each written to enforce, in one night, AND EVERY ONE WAS CAUGHT BY
+ITS OWN AUTHOR — not one by a reviewer.** That argues for a document that makes an
+author re-read its own output against its own rule, and against one that hopes a
+reader will.
+
+---
+
 **Which paths hold test material, where outputs go and what survives a restart are
 facts about the machine, not about VMSAM** — they change without the code changing,
 and a stale path in a tracked file is worse than none. They live outside the
@@ -48,6 +94,35 @@ published its dangerous half first.
 excuse when the number disappoints* — say the measurable population is small before the
 run produces a figure, not after. And the sentence that most reports never manage:
 **"consistent with the evidence and not yet supported by it."**
+
+**A count is not a membership test.** Five instances in one night, each a correct
+command answering a question nobody meant to ask:
+
+    "0 declined, 0 failed" on a truncated file   a count of WORK DONE, read as a
+                                                 statement about a FILE
+    "48 folder-103 files"                        a TAG count printed as a MEMBERSHIP
+                                                 count; the real figure was 172
+    "wrong series | 27"                          a count where the IDS were needed —
+                                                 a peer could not check one against it
+    "7 audio, 24 subtitle"                       a signature that matched FOUR folders
+                                                 and blocked an agent for hours
+    "ahead by 1"                                 a COMMIT count read as unpromoted
+                                                 CONTENT, after cherry-picks rehashed it
+
+> **If the question is "is this one in", a count cannot answer it — and a count that
+> happens to be right about the case in front of you is indistinguishable from one that
+> answers the question.**
+
+That second clause is the mechanisable half. A filter on "≥ 24 subtitle tracks" held on
+the file it was built for and failed on the next one: source 5, rebuilt 41, because
+rebuilt tracks are drawn from the master too. **It was a property of that file, not of
+the filter.**
+
+**The instrument form: EMIT THE IDS, NOT THE COUNT.** A list is a field and its absence
+is visible; a count is a field whose wrongness is not. Two agents converged on it
+independently. **And it is why the owner's own requirement exists — "counts cannot be
+audited" is this rule discovered from the other end, in the one place it was already
+written down.**
 
 **A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
 pieces of code — a guard, a refined measurement, a policy branch, an order check, a
@@ -96,6 +171,44 @@ Ten of twenty files snapped to a hard-coded value, and the tight spread read as
 accuracy. A number that cannot disagree with itself is not a measurement — the same
 defect as a target derived from the plan under test, arriving through a constant
 instead of a plan.
+
+**The independence test is: could neither side have produced the other's answer from
+its own inputs?** Not *did the methods differ* — the methods differed in all three of
+one agent's failed corroborations. **Method diversity is what independence looks like
+from outside, and it is not independence.** Three shared an input; two files shared a
+folder and therefore the release's mastering; two figures shared a release and were
+compared across two of its languages. **In every case the shared input was invisible in
+the numbers and visible in one sentence about what each side consumed.**
+
+**Being right about a direction while wrong about the cause is how a mechanism gets
+adopted on evidence it does not have.** A triage predicted the correct direction and
+explained one case in eleven. Followed, it would have reported *twelve of thirteen are
+genuinely mismatched* — a larger alarming population than the one it started from, and
+wrong. The true figure across 25 files and 127 stream pairs was **one**. **A triage that
+stops at its first classifier manufactures a residual and hands it back as a finding.**
+
+**A unit or a bar transfers with its population or not at all.** Three refusals and one
+failure, one rule: a correlation bar declined because the word *correlation* matched
+across two different populations; the same bar declined again by name-match from a
+policy document; and a video frame period of 41.71 ms applied to two audio tracks in
+different codecs — 131.04 ms is an integer number of no frame in that file. **The
+failure was the architect's, and it felt like a mechanism because the arithmetic
+landed. Landing is the whole of its persuasion.**
+
+**An instrument with no tolerance still over-reports if its predicate is wrong. It does
+not fail safe.** Zero tolerance protects against accepting real hits; it does nothing
+against manufacturing them, and a zero-tolerance instrument with a bad predicate
+produces a confident list of things that are not there.
+
+**Do not explain a pattern while the run that tests it is still going.** An explanation
+was sent while the file that disproves it was decoding — four minutes. Its author's
+account: *the pressure was not evidential, it was conversational; I had a clean
+mechanism and a message to write.* **The generous reading of that requires better
+judgement; the accurate one requires waiting**, and only one of those is an action.
+
+**Compute first, open second, in every write-behind-a-check.** A guard refused to emit a
+file and destroyed it: `open(f,'w')` truncates before the check raises, so the refusal
+to write is what erased the artefact — **and a zero-byte artefact audits clean.**
 
 **An independent instrument aimed by a dependent one is not independent.** Three
 components inherited the pipeline's own 120 s blind spot because each used its window
