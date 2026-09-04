@@ -520,6 +520,69 @@ def _track_shortfall_ms(assembly, report):
     return None
 
 
+def _head_pad_summary(report):
+    """De quoi le total de rembourrage de tete est-il fait.
+
+        unmeasured   le debut du flux n'a pas ete lu -- on ne sait pas
+        read_past    le flux commence apres zero et le plan lit deja au-dela:
+                     UN DECALAGE EXISTE et ne coute aucun rembourrage
+        none         le flux commence vraiment a zero
+        padded       du silence a ete ajoute, et combien
+
+    `head_pad_ms=0` ecrivait les trois premieres avec le meme chiffre. Une valeur
+    et son absence ne doivent pas imprimer le meme jeton -- et c'est pourquoi
+    aucune hypothese de decalage de conteneur n'etait ni confirmable ni
+    refutable depuis le journal.
+    """
+    decisions = report.get("head_decisions")
+    if decisions == None:
+        # NI ZERO NI VIDE: ce rapport vient d'un assembleur qui ne produisait pas
+        # encore le champ. Le dire evite qu'un lecteur compte une absence de
+        # format comme une absence de decision.
+        return "unreported(this assembly predates the field)"
+    if not len(decisions):
+        return "no-candidate-piece"
+    counts = {}
+    for decision in decisions:
+        counts[decision["outcome"]] = counts.get(decision["outcome"], 0) + 1
+    return ",".join(f"{name}={counts[name]}" for name in sorted(counts))
+
+
+def _shortfall_annotation(assembly, report):
+    """Ce que la source explique, ce que la piste a perdu, et le RESTE.
+
+    Etait une seule expression conditionnelle avec deux operateurs morse dedans.
+    Elle etait juste et illisible, et une ligne qu'on ne relit pas est une ligne
+    ou un signe se cache.
+
+    ET UN SIGNE S'Y CACHAIT. `UNEXPLAINED` etait emis SIGNE, donc un artefact
+    reel a 7 pistes portait `UNEXPLAINED -21.0 ms` sur chacune. Le calcul est
+    juste -- la piste a perdu 21 ms de MOINS que la source n'etait courte -- mais
+    le mot dit une PERTE, et une perte negative n'a pas de sens pour un lecteur.
+    Meme classe que `verify=skipped` sans cause: un champ exact et illisible.
+
+    `UNEXPLAINED` ne descend donc plus sous zero, et le sur-compte se DIT au lieu
+    d'etre encode dans un signe que personne n'attendait. La valeur n'est pas
+    perdue, elle est nommee.
+    """
+    lost = _track_shortfall_ms(assembly, report)
+    short = report.get("fill_short_by_ms")
+    if short:
+        if lost == None:
+            return "[FILL SOURCE SHORT BY " + str(short) + " ms; TRACK LOSS UNMEASURED]"
+        residual = Decimal(str(lost)) - Decimal(str(short))
+        if residual > 0:
+            tail = "UNEXPLAINED " + str(residual) + " ms"
+        else:
+            tail = ("UNEXPLAINED 0 ms (the fill shortfall over-accounts by "
+                    + str(-residual) + " ms)")
+        return ("[FILL SOURCE SHORT BY " + str(short) + " ms; TRACK LOST "
+                + str(lost) + " ms; " + tail + "]")
+    if lost != None and lost > 0:
+        return "[TRACK LOST " + str(lost) + " ms, NO SHORT FILL SOURCE -- UNEXPLAINED]"
+    return ""
+
+
 def log_assembly(candidate_path, assembly, plan):
     """CE QUI A ETE FAIT AU FICHIER, PISTE PAR PISTE, AVEC LES TIMINGS.
 
@@ -599,10 +662,17 @@ def log_assembly(candidate_path, assembly, plan):
                 #
                 # LE RESIDU EST LE DEFAUT; la part expliquee est celle qui n'en
                 # est pas un. On emet donc les deux et leur difference.
-                f"{'[FILL SOURCE SHORT BY ' + str(report['fill_short_by_ms']) + ' ms' + (('; TRACK LOST ' + str(_lost) + ' ms; UNEXPLAINED ' + str(_lost - Decimal(str(report['fill_short_by_ms']))) + ' ms') if (_lost := _track_shortfall_ms(assembly, report)) != None else '; TRACK LOSS UNMEASURED') + ']' if report.get('fill_short_by_ms') else ('[TRACK LOST ' + str(_l2) + ' ms, NO SHORT FILL SOURCE -- UNEXPLAINED]' if (_l2 := _track_shortfall_ms(assembly, report)) not in (None, ) and _l2 > 0 else '')} "
+                f"{_shortfall_annotation(assembly, report)} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
+                # POURQUOI CE NOMBRE, ET SURTOUT POURQUOI ZERO. `head_pad_ms=0`
+                # couvrait trois situations -- non mesure, decalage lu au-dela,
+                # et pas de decalage -- avec le meme chiffre. On compte les
+                # decisions par issue plutot que d'en imprimer une par morceau:
+                # la ligne de piste est deja longue, et ce qu'un lecteur doit
+                # pouvoir dire est "de quoi ce zero est-il fait".
+                f"head_pad={_head_pad_summary(report)} "
                 # SPEC_ZONE_A s4g: QUELLE BRANCHE A SERVI LA TETE.
                 #   master/<lang>  la piste de cette langue porte la tete, mesuree
                 #   NO-HEAD        elle NE la porte pas -- et le repli n'est PAS

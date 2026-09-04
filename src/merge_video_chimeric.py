@@ -399,14 +399,41 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
     # une invention: il n'y a REELLEMENT pas de son avant `start_time`, et le
     # silence est ce que le lecteur entend deja la.
     pads = []
+    # `head_pad_ms=0` COUVRAIT TROIS SITUATIONS DIFFERENTES ET LES ECRIVAIT AVEC
+    # LE MEME CHIFFRE. vmsam-dev-3, sur mes octets: sur 39 pistes observees,
+    # 11 portaient 0, et rien dans le journal ne dit laquelle des trois:
+    #
+    #   stream_start_ms == None   -> ON N'A PAS MESURE le debut du flux
+    #   missing <= 0              -> le flux commence apres zero MAIS le plan lit
+    #                                deja au-dela: un decalage EXISTE et ne coute
+    #                                aucun rembourrage
+    #   missing == 0 a l'origine  -> le flux commence vraiment a zero
+    #
+    # C'est ma propre regle -- une valeur et son absence ne doivent pas ecrire le
+    # meme jeton -- dans un champ de mon module. Et c'est la raison pour laquelle
+    # personne ne peut aujourd'hui confirmer NI refuter une hypothese de decalage
+    # de conteneur a partir du journal.
+    #
+    # La decision se dit maintenant a cote du nombre. Le nombre ne change pas.
+    head_decisions = []
 
     def head_pad(source_start_ms, stream_start_ms, sink):
         if stream_start_ms == None:
+            head_decisions.append({"outcome": "unmeasured",
+                                   "stream_start_ms": None, "missing_ms": None})
             return ""
         missing = Decimal(str(stream_start_ms)) - Decimal(str(source_start_ms))
         if missing <= 0:
+            head_decisions.append({
+                # LE DECALAGE EXISTE ET LE PLAN LE LIT AU-DELA. Ce n'est pas
+                # "pas de decalage", et l'ecrire 0 le faisait lire ainsi.
+                "outcome": "read_past" if Decimal(str(stream_start_ms)) > 0 else "none",
+                "stream_start_ms": str(stream_start_ms), "missing_ms": str(missing)})
             return ""
         sink.append(missing)
+        head_decisions.append({"outcome": "padded",
+                               "stream_start_ms": str(stream_start_ms),
+                               "missing_ms": str(missing)})
         return f",adelay={int(missing)}:all=1"
 
     candidate_index = 0
@@ -449,7 +476,8 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
 
     chains.append("".join(f"[{label}]" for label in labels)
                   + f"concat=n={len(labels)}:v=0:a=1[aout]")
-    return ";".join(chains), sum(pads) if len(pads) else Decimal("0")
+    return (";".join(chains), sum(pads) if len(pads) else Decimal("0"),
+            head_decisions)
 
 
 def resolve_source_bitrate(audio, source_path, timeout=120):
@@ -864,7 +892,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     candidate_start_ms = get_stream_start_ms(audio)
     if speed_ratio != None:
         candidate_start_ms = candidate_start_ms * Decimal(str(speed_ratio))
-    filtergraph, head_pad_ms = build_audio_filtergraph(
+    filtergraph, head_pad_ms, head_decisions = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
         speed_chain, candidate_start_ms, get_stream_start_ms(master_audio))
 
@@ -1007,6 +1035,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
             # il ne doit pas se confondre avec le remplissage depuis le maitre.
             "head_pad_ms": str(head_pad_ms),
+            # LA DECISION, PAR MORCEAU, A COTE DU TOTAL. Un total ne s'audite pas.
+            "head_decisions": head_decisions,
             "silence_filled_ms": str(silence_ms),
             "silence_fraction": str((silence_ms / total).quantize(Decimal("0.000001")))
                                 if total > 0 else "0",
