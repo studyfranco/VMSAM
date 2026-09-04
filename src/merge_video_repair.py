@@ -811,6 +811,58 @@ def _shortfall_annotation(assembly, report):
     return ""
 
 
+def module_fingerprint():
+    """L'IDENTITE DU CODE QUI TOURNE, EMISE INCONDITIONNELLEMENT.
+
+    `build_identity` est une absence que vmsam-dev-4 a signalee le premier jour et
+    qui vient de couter une colonne a vmsam-forensic: aucun artefact ne dit par
+    quelle version il a ete produit, donc sa colonne `image` nomme une pointe de
+    branche que le conteneur ne fait peut-etre pas tourner. Mesure: mon `027feab`
+    est PROMU a 16:11 UTC et un artefact de 17:25 UTC ne porte pas son champ.
+    PROMU N'EST PAS EN COURS D'EXECUTION.
+
+    ET SA TENTATIVE DE REPARATION A ECHOUE POUR UNE RAISON QUI EST LA REGLE DU
+    JOUR: il a voulu identifier le build a partir des CHAMPS presents dans un
+    journal. `FILL SOURCE SHORT BY` n'apparait que sur un fichier qui a un manque,
+    donc son absence ne distingue pas `le build n'a pas le champ` de `le fichier ne
+    l'a pas declenche`. UNE PRESENCE DE CHAMP EST CONFONDUE AVEC LE CONTENU DU
+    FICHIER et ne peut pas servir d'empreinte.
+
+    Un condensat de la SOURCE ne l'est pas. Il est emis sur chaque reparation,
+    quel que soit le fichier, il change exactement quand le code change, et il ne
+    demande a personne de penser a l'incrementer -- un numero de version a la main
+    est un second exemplaire de la verite et il derive.
+
+    CE QU'IL IDENTIFIE ET CE QU'IL N'IDENTIFIE PAS: les deux modules de
+    reparation, et rien d'autre. Pas l'image, pas l'interprete, pas `mergeVideo.py`
+    ni `video.py`, pas les binaires. Un lecteur qui voit deux artefacts avec le
+    meme condensat sait que CE code etait identique; il ne sait pas que le reste
+    l'etait.
+    """
+    import hashlib
+    # IMPORT TARDIF, comme partout ailleurs dans ce module: la tete de
+    # `mergeVideo.py` est hors zone taguee et un deploiement partiel ne doit pas
+    # pouvoir empecher le demarrage.
+    try:
+        import merge_video_chimeric as _chi
+        chimeric_file = getattr(_chi, "__file__", None)
+    except Exception:
+        chimeric_file = None
+    parts = []
+    for module in (__file__, chimeric_file):
+        if not module:
+            continue
+        try:
+            with open(module, "rb") as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()[:12]
+        except Exception:
+            # UNE EMPREINTE QU'ON N'A PAS PU LIRE SE DIT. Elle ne vaut pas zero et
+            # elle ne s'omet pas: un champ absent se lirait comme un vieux build.
+            digest = "unreadable"
+        parts.append(f"{path.basename(module)}:{digest}")
+    return " ".join(parts) if parts else "unreadable"
+
+
 def log_assembly(candidate_path, assembly, plan):
     """CE QUI A ETE FAIT AU FICHIER, PISTE PAR PISTE, AVEC LES TIMINGS.
 
@@ -845,6 +897,10 @@ def log_assembly(candidate_path, assembly, plan):
     # que la colonne VALIDATED existe pour poser, et elle etait sans reponse.
     # Il a cherche le maitre dans les racines voisines, le repertoire de sortie
     # et le code d'episode, sans le retrouver pour aucun des trois fichiers.
+    # PREMIERE LIGNE DE CHAQUE REPARATION: QUEL CODE A TOURNE. Inconditionnelle,
+    # donc utilisable comme empreinte -- contrairement a la presence d'un champ,
+    # qui depend du fichier.
+    tools.logs.append(f"repair: build {module_fingerprint()}\n")
     if plan and plan.get("master_path"):
         tools.logs.append(f"repair: master {plan['master_path']}\n")
     # L'IDENTITE DU CANDIDAT, SANS SON CHEMIN.
