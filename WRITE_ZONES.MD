@@ -527,10 +527,133 @@ and a pattern redactor will not save them.*
 way to the usual case: elsewhere, construction lets you EMIT something and guarantee a
 property. Here the only construction that guarantees anything is to NOT emit.*
 
-**Two independent computations agreeing is worth more than either, and worth keeping
-after they agree.** The same report derives each region's offset from cut bounds *and*
-reads the value a producer now emits. **On 3 files, 9 tracks and 20 offsets including
-negatives, the two agree to the digit.** *The emitted value takes precedence and the
-derivation still runs beside it as a standing cross-check, printing both on a
-disagreement* — **a cross-check deleted the moment it first agrees is a cross-check that
-never runs again** (`vmsam-dev-4`).
+**A CROSS-CHECK DELETED THE MOMENT IT FIRST AGREES IS A CROSS-CHECK THAT NEVER RUNS
+AGAIN.** A report derives each region's offset from cut bounds *and* reads the value its
+producer emits; **the emitted value takes precedence and the derivation still runs beside
+it, printing both on a disagreement.** *Most people delete the old computation the moment
+the new one agrees — which is exactly when its value begins, because from then on it is
+the only thing that can catch a producer changing underneath.*
+
+**THE EXAMPLE THIS SECTION FIRST USED FOR THAT RULE WAS WRONG, AND ITS AUTHOR CORRECTED
+IT AGAINST HIMSELF.** The two computations were reported as independent — *twenty offsets
+across three files and nine tracks agreeing to the digit.* **They are not independent:**
+
+    cut_regions and used_regions are appended IN THE SAME `for piece in pieces:` LOOP,
+    FROM THE SAME `source_start`.
+
+> ***Two instruments that cannot disagree are one instrument reported twice.***
+
+**So the twenty-offset agreement measured nothing about the offsets. It measured that the
+consumer's parser reads the producer's format correctly** — *which is worth having, and is
+a different claim* (`vmsam-dev-2`, checking its own code after the paragraph praising it
+had been promoted; `vmsam-forensic` for the rule). **The practice stands; this pair is not
+an instance of it.**
+
+## 9. Two copies drift, and the drift is invisible from inside either file
+
+**Owner instruction:** *réutiliser au maximum les mêmes fonctions. Un code de plus de
+cinq lignes, présent deux fois à deux endroits différents et qui a le même but, devient
+une fonction.*
+
+**The trigger is mechanical — more than five lines, twice, same purpose — and the reason
+is not tidiness.** *Two copies do not stay identical. They drift, and the drift is
+invisible from inside either file, because each one is correct where it sits.*
+
+=== THE WORKED EXAMPLE IS IN THIS CAMPAIGN'S OWN HISTORY, ON BOTH SIDES ===
+
+**Applied, and the motive was measured:** subtitle kinds were classified in more than one
+place with more than one vocabulary, **so two call sites could disagree about the same
+track.** One classifier now answers and the callers ask it.
+
+**Violated — and this is the instance, verified line by line rather than characterised:**
+
+    mergeVideo.py:1486-1495   generate_merge_command_common_md5
+    mergeVideo.py:1502-1511   generate_merge_command_other_part
+
+**Normalise the delay variable name and ONE LINE DIFFERS — the one computing the delay.
+NINE ARE IDENTICAL:** the same `generate_new_file` call, the same `if number_track`
+branch, the same `["-A","-S","-D","--no-chapters"]`, the same `if delay != 0` guard, the
+same `--sync -1:{int(round(delay))}`, the same fallback `extend`, the same `stdout` line
+at the same `.3f`.
+
+**And the drift hazard is named rather than hypothetical: one copy is the path A REPAIRED
+OBJECT REJOINS THE MERGE THROUGH, the other is the ordinary MD5-group path.** *A fix
+applied to the path someone happens to be working on, in a campaign where one agent owns
+the repair, is exactly how two correct-in-place copies come apart.* **They agree today,
+which is why it is worth reporting before they do not** (`vmsam-dev-sandbox`; §6 shape,
+frozen zone, reading plus a mechanical diff, not observed causing harm).
+
+**AND THE EXAMPLE THIS SECTION FIRST CARRIED WAS AN INSTANCE OF THE COUNTER-RULE, NOT OF
+THE RULE.** The architect offered the two frame snaps — `get_good_frame` and
+`adjust_delay_to_frame` — and both agents who measured them refused it:
+
+    the quantise arithmetic   3 lines against 4.  THE TRIGGER DOES NOT FIRE.
+    the 11-line block         chooses frame_rate_use TO MATCH the fps= filter
+                              applied to both streams -- the rate choice and the
+                              filter are ONE decision, and it belongs to the
+                              COMPARISON rather than to the delay
+
+**Run the counter-rule properly and merging them is wrong in BOTH directions:** *the PSNR
+search would be wrong to put into a function that has no search; the rate SOURCE would be
+wrong to leave out of either.* **They share one micro-step — turning a declared rate into
+a frame period — and diverge above it.**
+
+**And the real defect is better stated without duplication at all:** *two different rate
+policies are applied IN SEQUENCE to one value and neither knows about the other, and the
+remedy is that the second should not run after the first* (`vmsam-dev-3`,
+`vmsam-dev-sandbox`). **Shipping the snaps as the headline example would have taught the
+fleet to merge precisely the pairs the counter-rule forbids, using this section as
+licence.**
+
+=== THE COUNTER-RULE, WHICH MATTERS AS MUCH ===
+
+> **RESEMBLANCE IS NOT PURPOSE. Two blocks that look alike and answer DIFFERENT questions
+> must stay apart.**
+
+**Merging by resemblance is how a name comes to mean two things, and this campaign has
+paid for that repeatedly in one day:** *two dicts both carrying a field called `outcome`;
+a `MOVIE/ENCODER` tag inherited from a source file wearing the output's field name;
+`codec_delay` and `start_time` both called "encoder priming".* **Every one of those is a
+merge that happened in someone's head rather than in the code, and it produced the same
+damage.**
+
+*So the test is not "do these look the same". It is: **would a change to one of them be
+wrong to leave out of the other?** If yes, they are one function. If no, they are two
+things that resemble each other.*
+
+=== WHEN IT FIRES, AND WHERE IT DOES NOT ===
+
+**It fires at the moment you write the SECOND copy** — *if you are about to write it a
+second time, it was a function the first time.* **That is cheaper than any detector and it
+is the only moment both copies are in one person's head.**
+
+**And it does not authorise touching frozen code.** *Where this rule points at a duplicate
+inside a frozen zone, the output is a defect report under §6 — file, function, triggering
+condition, epistemic status — and not an edit.* **Two of the clearest instances in this
+tree are frozen, which is exactly why they survived to be found.**
+
+=== TWO ARGUMENTS STRONGER THAN ANY EXAMPLE, BOTH FROM AGENTS APPLYING IT TO THEMSELVES ===
+
+**FOUR COPIES OF ONE STATISTIC, ALL AGREEING NUMERICALLY, AND THE DRIFT WAS SOMEWHERE A
+DETECTOR CANNOT LOOK.** An agent found four copies in its own lab and measured before
+unifying: **15 of 15 hypotheses, every copy agreeing.** *The drift was not in the numbers.
+It was in what they KNEW* — **the statistic that SELECTS a winning hypothesis and the
+statistic that VALIDATES whether a split is real were two copies, and only one of them
+knew a split can be spurious.** *A hypothesis could have won on a split that explained
+nothing, and a drift detector looking for numerical disagreement finds nothing there.*
+
+> ***The copies agree today, and the rule is not about today. The reason it has not bitten
+> is luck, not design*** (`vmsam-dev-1`).
+
+**AND THE COUNTER-RULE FIRING TOWARD INACTION IS WHAT PROVES IT IS LOAD-BEARING.** Another
+agent applied the same test to three label-placement blocks in its own code **and concluded
+AGAINST refactoring**: the axis version must never drop a tick, the amber version may fall
+back to a shorter string, the salmon version clamps to the plot edge. *Three resemblances,
+three different questions.*
+
+> ***A rule that only ever fires toward action is not being applied, it is being obeyed***
+> (`vmsam-dev-4`).
+
+**Two agents ran the same test on their own code within one hour and reached opposite
+answers, both correctly.** *That pair is the best evidence this section has that the
+counter-rule is doing work rather than softening the rule.*
