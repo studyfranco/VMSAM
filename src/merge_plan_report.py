@@ -1563,7 +1563,7 @@ def render_svg(records):
 
     # --- l'axe: un seul, fin, en bas. `0` et le total. Aucune graduation. -----
     axis = y + 6
-    height = axis + 26
+    height = axis + 38
     out = [f'<svg viewBox="0 0 {width} {height}" width="100%" '
            f'style="max-width:{width}px;height:auto" role="img" '
            f'aria-label="master timeline, one staircase per distinct geometry">',
@@ -1572,9 +1572,45 @@ def render_svg(records):
     out.extend(body)
     out.append(f'<line x1="{left}" y1="{axis:.1f}" x2="{left + plot}" '
                f'y2="{axis:.1f}" stroke="{faint}" stroke-width="1"/>')
-    out.append(_text(left, axis + 18, "0", ink, 11))
-    out.append(_text(left + plot, axis + 18,
-                     f"{seconds_fr(span, 0, signed=False)} s", ink, 11, "end"))
+
+    # LES HORODATAGES, demandes par le proprietaire: "sur la figure il faut les
+    # timing aussi". Ils vont SUR L'AXE et non au-dessus des regles, et la
+    # raison n'est pas une preference.
+    #
+    # UNE COUPE POSE DEUX QUESTIONS A UN LECTEUR ET ELLES VEULENT DES ENDROITS
+    # DIFFERENTS. `-12,1 s` en saumon au-dessus de la regle repond COMBIEN;
+    # `0:02:40` en gris sur l'axe repond QUAND. Les empiler au-dessus de la
+    # regle ferait porter DEUX GRANDEURS A UNE SEULE COULEUR, qui est
+    # exactement le defaut que ce rapport existe pour empecher.
+    #
+    # Cela contredit le "aucune graduation intermediaire" de ses images. Il a
+    # amende sa propre specification en le demandant, et entre ses images et
+    # son instruction, L'INSTRUCTION EST LA PLUS RECENTE.
+    #
+    # Aucun champ nouveau: `master_start` et `master_end` sont deja sur chaque
+    # ligne REGION. C'est la deuxieme fois qu'un des ajouts demandes se revele
+    # etre un manque DU DESSIN et pas un manque D'EMISSION.
+    boundaries = set()
+    for group in groups:
+        for fields in regions.get(group["tracks"][0]["track"], []):
+            boundaries.add(Decimal(fields["master_start_ms"]))
+            boundaries.add(Decimal(fields["master_end_ms"]))
+    placed = []
+    for position in sorted(boundaries):
+        x = x_of(position)
+        out.append(f'<line x1="{x:.1f}" y1="{axis:.1f}" x2="{x:.1f}" '
+                   f'y2="{axis + 5:.1f}" stroke="{faint}" stroke-width="1"/>')
+        label = clock(position)
+        if label.endswith(".000"):
+            label = label[:-4]
+        # ON NE LAISSE PAS DEUX HORODATAGES SE CHEVAUCHER: un nombre illisible
+        # n'est pas un nombre publie. Un cran sans etiquette garde sa position.
+        half = len(label) * 3.2
+        if placed and x - half < placed[-1] + 4:
+            continue
+        placed.append(x + half)
+        out.append(_text(x, axis + 17, label, ink, 10, "middle"))
+    out.append(_text(left, axis + 30, "timeline du ma\u00eetre", faint, 9))
     out.append('</svg>')
     return "\n".join(out)
 
