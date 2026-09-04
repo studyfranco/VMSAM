@@ -27,6 +27,22 @@ cut_file_to_get_delay_second_method = 2.5 # With the second method we need a bet
 
 errors_merge = []
 errors_merge_lock = RLock()
+# Le plan de la version resample/chimerique, TEL QU'IL A ETE EMIS -- des octets,
+# pas un dict reconstruit: un rapport bati sur un dict fait a la main teste sa
+# fixture et pas la sortie du producteur.
+#
+# `None` VEUT DIRE QU'AUCUNE VERSION RESAMPLE/CHIMERIQUE N'A ETE PRODUITE. C'est
+# la distinction que le lecteur ne peut pas faire autrement: un rapport absent
+# parce qu'il n'y avait rien a reparer n'est pas un rapport PERDU, et sans ce
+# marqueur les deux se lisent pareil -- une case vide.
+#
+# Une variable de module suffit et c'est verifie, pas suppose: le chemin
+# reparation..ecriture du rapport est SYNCHRONE dans le process fils de
+# `fusion.run_fusion_job`, qui la remet a `None` avant le merge exactement comme
+# il remet `errors_merge` et `tools.logs`. Les Pool de `video.py` sont des
+# process fils: ce qu'ils ecriraient ici ne remonterait pas, et rien ici n'est
+# ecrit depuis eux.
+merge_plan = None
 max_stream = 80
 show_not_compatible_error = True
 not_compatible_video_list = []
@@ -803,12 +819,30 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
         # un merge qui marchait. Elle inscrit elle-meme laquelle de ses cinq
         # issues s'est produite, par fichier, dans tools.logs.
         repaired_videos = []
+        global merge_plan
+        emitted_before_repair = len(tools.logs)
         try:
             import merge_video_repair
             repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video)
         except Exception as e:
             sys.stderr.write(f"The repair raised and was abandoned: {e}\n")
             tools.logs.append(f"The repair raised and was abandoned: {e}\n")
+        # SEULEMENT si une version a ete produite: `merge_plan` reste `None`
+        # quand la reparation n'a rien rendu, et c'est ce `None` qui porte
+        # l'information "pas de version resample/chimerique". Une reparation qui
+        # a tourne et refuse ne remplit donc pas cette variable.
+        #
+        # Les octets sont pris PAR POSITION dans tools.logs et non par motif: un
+        # filtre sur le prefixe `repair: ` laisserait tomber precisement les
+        # lignes hors vocabulaire que le rapport compte, et un compteur qui ne
+        # voit pas ce qu'il ne comprend pas rend zero. Le decoupage par position
+        # vaut parce que ce bloc est synchrone.
+        #
+        # On CONCATENE au lieu d'ecraser: `remove_not_compatible_video` est
+        # appelee a deux endroits (:924 et :954) pour un meme fichier produit,
+        # donc un ecrasement perdrait le premier plan sans rien dire.
+        if len(repaired_videos):
+            merge_plan = (merge_plan or "") + "".join(tools.logs[emitted_before_repair:])
         not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:
