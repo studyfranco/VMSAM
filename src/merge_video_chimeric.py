@@ -1171,12 +1171,31 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 # LE REFUS CITE LE NOMBRE PAR FICHIER, pas celui d'une
                 # tranche: la barre a ete appliquee au choix de partenaire, une
                 # fois, pour tout le fichier.
+                # DEUX FORMES, PARCE QUE CE SONT DEUX FAITS DIFFERENTS.
+                #
+                #   fidelite = UN NOMBRE sous la barre -> une sonde a tourne et a
+                #       rendu une valeur. Depuis le defaut de sonde a cheval
+                #       trouve ce matin, ce nombre peut decrire LE PLACEMENT DE
+                #       LA SONDE et non la piste.
+                #   fidelite = None -> AUCUNE SONDE N'A TOURNE. Le maitre ne
+                #       porte aucun flux de cette langue, donc il n'existe aucun
+                #       partenaire a scorer. Ce n'est pas un refus de mesurer:
+                #       LA QUANTITE N'EXISTE PAS.
+                #
+                # Un lecteur voyant la premiere forme sur une piste de la seconde
+                # chercherait une fidelite qui n'a jamais ete prise.
                 seen = pairing_fidelity(stream_pairing, int(audio["StreamOrder"]))
+                if seen != None:
+                    raise chimeric_error(
+                        f"no offset was measured for this stream (best partner "
+                        f"fidelity {seen}, below the bar): it would carry another "
+                        f"track's alignment, and a borrowed offset is not a "
+                        f"measurement")
                 raise chimeric_error(
-                    "no offset was measured for this stream"
-                    + (f" (best partner fidelity {seen})" if seen != None else "")
-                    + ": it would carry another track's alignment, and a "
-                      "borrowed offset is not a measurement")
+                    f"no offset is measurable for this stream: the master "
+                    f"carries no {language} stream, so no partner exists to "
+                    f"measure against and no probe was run -- the quantity does "
+                    f"not exist, by any method")
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
