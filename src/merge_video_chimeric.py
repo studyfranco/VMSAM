@@ -703,7 +703,8 @@ def pick_best_master_audio(tracks):
 
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                           out_path, timeout, speed_ratio=None,
-                          reference_stream=None, comparison_language=None):
+                          reference_stream=None, comparison_language=None,
+                          candidate_duration_ms=None):
     '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.'''
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     encoder_arguments, family, bitrate_origin = get_encoder_arguments(
@@ -828,6 +829,15 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             source_start = piece["source_start_ms"]
             source_end = source_start + (piece["master_end_ms"]
                                          - piece["master_start_ms"])
+            if previous_candidate_end == None and source_start > 0:
+                # COUPE DE TETE: le plan commence a lire le candidat APRES son
+                # debut. Le predicat d'origine ne testait que les sauts ENTRE
+                # deux morceaux, donc une tete coupee ne produisait aucune
+                # ligne.
+                cut_regions.append({
+                    "candidate_start_ms": "0",
+                    "candidate_end_ms": str(source_start),
+                    "dropped_ms": str(source_start), "where": "head"})
             if previous_candidate_end != None and source_start > previous_candidate_end:
                 # DU CANDIDAT SAUTE: ce materiau existe dans la source et
                 # n'apparait pas dans la sortie. C'est la coupe, et sans ces
@@ -835,8 +845,28 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 cut_regions.append({
                     "candidate_start_ms": str(previous_candidate_end),
                     "candidate_end_ms": str(source_start),
-                    "dropped_ms": str(source_start - previous_candidate_end)})
+                    "dropped_ms": str(source_start - previous_candidate_end),
+                    "where": "interior"})
             previous_candidate_end = source_end
+    if previous_candidate_end != None and candidate_duration_ms != None:
+        tail = Decimal(str(candidate_duration_ms)) - previous_candidate_end
+        if tail > 0:
+            # COUPE DE QUEUE: du candidat apres la derniere lecture. Rien ne
+            # tournait apres la boucle, donc elle etait invisible.
+            # MESUREE, PAS SUPPOSEE: 2516.95 ms sur le fichier meme qui a servi
+            # a valider ces lignes -- j'ai regarde l'interieur et jamais
+            # au-dela du dernier morceau.
+            cut_regions.append({
+                "candidate_start_ms": str(previous_candidate_end),
+                "candidate_end_ms": str(candidate_duration_ms),
+                "dropped_ms": str(tail), "where": "tail"})
+    elif previous_candidate_end != None and candidate_duration_ms == None:
+        # ON NE SUPPOSE PAS ZERO. Sans la duree du candidat la queue est
+        # INCONNUE, et une absence de ligne se lirait comme "rien n'a ete
+        # coupe". On le DIT.
+        cut_regions.append({"candidate_start_ms": str(previous_candidate_end),
+                            "candidate_end_ms": None, "dropped_ms": None,
+                            "where": "tail", "unmeasured": True})
     total = pieces[-1]["master_end_ms"] - pieces[0]["master_start_ms"]
     silence_ms = filled if fill == "silence" else Decimal("0")
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
@@ -1103,7 +1133,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 stream_order=int(audio["StreamOrder"]))
             report = build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
-                timeout, speed_ratio, reference_stream, comparison_language)
+                timeout, speed_ratio, reference_stream, comparison_language,
+                candidate_duration_ms)
             # Cette piste a-t-elle son propre decalage, ou emprunte-t-elle celui
             # de la langue mesuree? La table par flux ne couvre que cette
             # langue-la, donc toute autre langue emprunte, silencieusement, avec

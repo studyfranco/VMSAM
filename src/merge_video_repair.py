@@ -548,10 +548,23 @@ def log_assembly(candidate_path, assembly, plan):
         # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni
         # dans les totaux.
         for region in report.get("cut_regions") or []:
+            # `where` distingue tete, interieur et queue: une coupe de tete et
+            # une coupe de queue ne se diagnostiquent pas comme un saut entre
+            # deux morceaux. Et une queue NON MESUREE se dit, au lieu de ne
+            # produire aucune ligne -- l'absence de ligne se lirait "rien n'a
+            # ete coupe".
+            if region.get("unmeasured"):
+                tools.logs.append(
+                    f"repair: CUT audio track {report['stream_order']} "
+                    f"candidate {region['candidate_start_ms']}-? "
+                    f"where={region.get('where')} dropped_ms=UNMEASURED "
+                    f"(the candidate duration was not available)\n")
+                continue
             tools.logs.append(
                 f"repair: CUT audio track {report['stream_order']} "
                 f"candidate {region['candidate_start_ms']}-"
-                f"{region['candidate_end_ms']} dropped_ms={region['dropped_ms']}\n")
+                f"{region['candidate_end_ms']} dropped_ms={region['dropped_ms']} "
+                f"where={region.get('where')}\n")
 
     for report in assembly.get("subtitles") or []:
         tools.logs.append(f"repair: subtitle track {report['stream_order']} "
