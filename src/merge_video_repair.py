@@ -404,6 +404,49 @@ def clamp_segments_to_candidate_head(segments, stream_order=None):
     return clamped
 
 
+def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **kwargs):
+    """Assemble, et si l'assemblage REFUSE, ECRIT QUAND MEME LE JOURNAL DE PISTES.
+
+    UNE ENVELOPPE ET NON UNE GARDE. Elle ne rattrape rien: la levee repart
+    telle quelle, avec ses attributs. Ce qu'elle ajoute est que les lignes
+    `repair:` existent pour un fichier DECLINE.
+
+    Avant le passage de `output_check_enforcing` a True, la porte de duree
+    n'avait jamais fait lever cet appel sur un fichier reel; un declin venait
+    d'ailleurs et plus tot. Maintenant qu'elle leve, un fichier decline
+    n'emettait plus AUCUNE ligne -- ni `build`, ni `plan`, ni `ADDED`, ni `CUT`
+    -- et le lecteur de `vmsam-dev-4` rejette par structure un bloc sans ligne
+    `plan`. LE FICHIER DISPARAISSAIT DU RAPPORT AU LIEU D'Y APPARAITRE COMME
+    REFUSE, ce qui est la forme exacte du defaut que ce journal existe pour
+    empecher.
+
+    On ecrit ce qui a ete FAIT, pas ce qui a ete obtenu: `partial_assembly`
+    porte les pieces posees et les pistes construites au moment du refus.
+    """
+    # IMPORT LOCAL, comme partout ailleurs dans ce module: `merge_video_chimeric`
+    # n'est pas lie au niveau du module ici. `t58_unbound_names` l'a dit avant la
+    # premiere execution -- troisieme fois ce soir qu'il attrape un nom que je
+    # venais d'ecrire.
+    import merge_video_chimeric
+    try:
+        return merge_video_chimeric.assemble_on_master_timeline(*args, **kwargs)
+    except merge_video_chimeric.chimeric_error as error:
+        partial = getattr(error, "partial_assembly", None)
+        if partial != None:
+            partial["unverified_segment_ms"] = unverified_ms
+            try:
+                log_assembly(logged_candidate.filePath, partial, plan)
+            except Exception as logging_error:
+                tools.logs.append("repair: could not write the per-track log for "
+                                  f"a DECLINED file: {logging_error}\n")
+        # LA LIGNE TERMINALE EST INCONDITIONNELLE, meme quand il n'y a pas
+        # d'assemblage partiel: sans elle, "pas de ligne DECLINED" se lirait
+        # comme "pas de declin", qui est la lecture par omission que s4e
+        # interdit ailleurs.
+        tools.logs.append(f"repair: DECLINED {error}\n")
+        raise
+
+
 def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
     '''Construit le fichier repare et l'objet video qui va avec.
 
@@ -433,7 +476,8 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
             "every segment's offset is unverified (each shorter than the "
             "measurement's probe window); nothing can be spliced at a bounded offset")
     marker = get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj)
-    assembly = merge_video_chimeric.assemble_on_master_timeline(
+    assembly = assemble_or_log_the_decline(
+        candidate_obj, plan, unverified_ms,
         candidate_obj, master_obj,
         clamp_segments_to_candidate_head(
             clamp_segments_to_master(segments, master_obj)),
@@ -1214,6 +1258,32 @@ def log_assembly(candidate_path, assembly, plan):
                           f"enforcing={check.get('enforcing')}\n")
 
 
+def decline_detail(error):
+    """Ce qu'un DECLIN emporte, extrait pour etre testable sans rejouer un fichier.
+
+    Une fonction et non un dictionnaire en ligne parce que le contenu d'un declin
+    est devenu une reponse a une question posee par d'autres agents -- le
+    registre de `vmsam-dev-4` et les comptes de `vmsam-ci` le lisent -- et un
+    dictionnaire construit en ligne dans une branche `except` ne se verifie qu'en
+    faisant lever un vrai fichier.
+
+    `output_check` EST ICI PARCE QUE LE DRAPEAU EST LEVE. Tant que le controle
+    de duree etait inerte, ce rapport n'apparaissait que sur des artefacts
+    PRODUITS; il est maintenant la RAISON d'un declin, et sans lui le declin dit
+    "le fichier produit ne correspond pas a ce qui a ete construit" sans jamais
+    dire QUELLE piste ni de combien.
+
+    `refused_path` EST LE CHEMIN DE L'ARTEFACT RENOMME. `None` a DEUX causes
+    distinctes -- le declin est arrive avant que le fichier existe, ou le
+    renommage a echoue -- et la seconde est ecrite sur stderr par
+    `mark_output_refused` plutot que devinee ici.
+    """
+    return {"verification": getattr(error, "verification", None),
+            "audios": getattr(error, "audios", None),
+            "output_check": getattr(error, "output_check", None),
+            "refused_path": getattr(error, "refused_path", None)}
+
+
 def record(candidate_path, outcome, reason, detail=None):
     entry = {"candidate": candidate_path, "outcome": outcome, "reason": reason,
              "detail": detail}
@@ -1317,9 +1387,15 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # Le declin porte ses sondes quand il en a: c'est ce qui permet
                 # a la mesure de diagnostiquer son propre plan sans rejouer le
                 # fichier.
+                # `output_check` VOYAGE AVEC LE DECLIN, ET C'EST LE DRAPEAU
+                # LEVE QUI REND CETTE LIGNE NECESSAIRE. Tant que le controle
+                # etait inerte, ce rapport n'apparaissait QUE sur des artefacts
+                # PRODUITS; maintenant il est la RAISON d'un declin, et sans lui
+                # le declin dit "le fichier produit ne correspond pas" sans
+                # jamais dire QUELLE piste ni de combien. La levee le porte
+                # (`error.output_check = report`) et le pilote le jetait.
                 record(candidate_path, "declined", str(error),
-                       {"verification": getattr(error, "verification", None),
-                        "audios": getattr(error, "audios", None)})
+                       decline_detail(error))
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
                 record(candidate_path, "failed", str(error))

@@ -26,7 +26,7 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 '''
 
 from decimal import Decimal
-from os import path
+from os import path, replace as replace_file
 import re
 import subprocess
 import sys
@@ -1496,15 +1496,69 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # positions qui existent encore et rend "aligned" sur un fichier ampute --
     # c'est exactement ce qui a rapporte "7 audio et 24 sous-titres
     # reconstruits, 0 refuse, 0 en echec" sur un fichier sans rien apres 21:21.
-    output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
-                                      subtitle_reports,
-                                      output_duration_tolerance_ms)
+    # LE FICHIER EST DEJA ECRIT QUAND LE CONTROLE LE LIT, DONC UN REFUS LAISSE UN
+    # ARTEFACT SUR LE DISQUE. Tant que le drapeau etait inerte, cet objet
+    # n'existait pas; maintenant il y en a un par refus.
+    #
+    # "aucun fichier faux ne sort" TIENT A LA FRONTIERE DU MERGE -- l'objet n'est
+    # accroche a `sameAudioMD5UseForCalculation` qu'apres le retour, donc
+    # `mergeVideo` ne le voit jamais. IL NE TIENT PAS SUR LE SYSTEME DE FICHIERS:
+    # le fichier porte le marqueur `VMSAM_FABRICATED` et AUCUN compte rendu ne le
+    # revendique. C'est exactement la forme qui m'a coute une heure sur `out108`
+    # -- un artefact trouve par son chemin et lu comme expedie.
+    #
+    # ON NE LE SUPPRIME PAS: c'est la seule trace de CE QUE le controle a refuse,
+    # et le declin la nomme. ON LE RENOMME, ET LE SUFFIXE EST CELUI QUE
+    # `vmsam-ci` A DEMANDE, POUR SES RAISONS ET PAS POUR LES MIENNES:
+    #
+    #   son preserveur balaye par EXTENSION (`-name '*.mkv'`), donc un refus
+    #   qui finit en `.mkv` est lie en dur dans KEEP et compte comme produit par
+    #   lui, par vmsam-forensic et par le registre.
+    #
+    # `<nom>.REFUSED.mkv` -- le marqueur AVANT l'extension: le fichier reste
+    # ouvrable et diagnosticable, et il se repere par un motif de NOM et non par
+    # une convention de CHEMIN. ci exclut `*.REFUSED.*` de son preserveur et de
+    # `check_output`.
+    #
+    # LA VERIFICATION D'ALIGNEMENT EST DEDANS AUSSI. Elle leve apres le mux
+    # exactement comme le controle de duree, et un artefact orphelin refuse pour
+    # desalignement se compte de la meme facon qu'un refuse pour troncature.
+    try:
+        output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
+                                          subtitle_reports,
+                                          output_duration_tolerance_ms)
 
-    verification = None
-    if verify:
-        verification = verify_on_master_timeline(
-            out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
-            verify_search_ms, reference_stream)
+        verification = None
+        if verify:
+            verification = verify_on_master_timeline(
+                out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
+                verify_search_ms, reference_stream)
+    except chimeric_error as error:
+        error.refused_path = mark_output_refused(out_path)
+        # L'ASSEMBLAGE PARTIEL VOYAGE AVEC LE REFUS, ET C'EST LE DRAPEAU LEVE QUI
+        # REND CETTE LIGNE NECESSAIRE.
+        #
+        # `log_assembly` est appele par `merge_video_repair` APRES cet appel-ci.
+        # Une levee ici le saute, donc un fichier DECLINE par la porte n'emet
+        # AUCUNE ligne `repair:` -- pas meme la ligne `plan`. `vmsam-dev-4` lit
+        # ces journaux par STRUCTURE et rejette un bloc sans ligne `plan`: les
+        # declins seraient invisibles dans son rapport exactement comme le sont
+        # deja les pannes precoces. Il a pose la question avant le rendu plutot
+        # que de decouvrir le trou dedans.
+        #
+        # ET LE COMMENTAIRE DE `merge_video_repair` DIT DEJA LE CONTRAIRE DE CE
+        # QUI SE PASSAIT: "un journal ecrit seulement en cas de succes ne
+        # documente jamais les cas qui en avaient besoin". Il etait ecrit avant
+        # la RELECTURE du fichier, pas avant la PORTE.
+        #
+        # `verification` est None et non omis: le declin peut venir de la porte
+        # de duree, auquel cas l'alignement n'a jamais ete mesure, et "pas
+        # mesure" n'est pas "mesure et vide".
+        error.partial_assembly = {
+            "path": out_path, "pieces": pieces, "audios": audio_reports,
+            "subtitles": subtitle_reports, "declined": declined,
+            "failed": failed, "marker": marker_value, "verification": None}
+        raise
 
     # LA CADENCE DU MAITRE, PUBLIEE. Elle n'est derivable d'AUCUNE ligne du
     # journal, et trois consommateurs en ont besoin: l'exclusion de vitesse de
@@ -1781,7 +1835,41 @@ output_duration_tolerance_ms = Decimal("500")
 # PROPRIETAIRE qui prime sur elle, et il n'appartient ni a ce fichier ni a moi
 # de le renegocier. La question "quelque chose est-il prevu pour de vrai?" est
 # ouverte aupres du proprietaire et sans reponse.
-output_check_enforcing = False
+#
+# ---- LA QUESTION A RECU SA REPONSE, ET C'EST L'ARBITRAGE, PAS LE COMPTE ----
+#
+# Le proprietaire a tranche, rapporte mot pour mot par `vmsam-ci`:
+#
+#     "aucun fichier faux ne sort. Aucun fichier reparable ne sort non plus
+#      tant que le planificateur n'est pas corrige."
+#
+# LA SECONDE PHRASE EST LE COUT ET IL A ETE ACCEPTE EXPLICITEMENT: drapeau leve,
+# les fichiers REPARABLES cessent de sortir eux aussi, jusqu'a correction du
+# planificateur. C'est une decision de debit prise avec le chiffre sous les yeux.
+#
+# LE CHIFFRE, MESURE PAR `vmsam-ci` SUR LA POPULATION ENTIERE QUI PORTE LE CHAMP:
+#
+#     artefacts produits portant le champ    14
+#     would_refuse = True                     6      <- ce qui s'arrete
+#     enforcing = False                      14 / 14 <- avant aujourd'hui
+#
+# 14 est TOUTE la population portant le champ, pas 14 sur 315: les fichiers
+# DECLINED n'atteignent jamais le controle. Ce n'est pas un taux de corpus.
+#
+# ET LA CONDITION POSEE PLUS HAUT N'A PAS ETE CONTOURNEE, ELLE A ETE SATISFAITE
+# PAR L'EVENEMENT QU'ELLE NOMMAIT. Le drapeau a echoue quatre fois sur une
+# condition CHIFFREE -- inatteignable, incomptable, satisfiable par la mauvaise
+# chose, double. La cinquieme forme est la seule qui ait tenu, et elle n'est pas
+# un seuil: c'est un arbitrage nomme d'avance, leve par la personne nommee.
+#
+# DEUX SEUILS MESURENT LA MEME PROPRIETE ET ILS NE SONT PAS D'ACCORD. La
+# tolerance de piste courte de `vmsam-ci` est de 2 % -- 30 s sur un fichier de
+# 1500 s -- et ce controle-ci refuse `id 5` a 1994 ms. Trois des six refuses
+# portent son verdict FULL_LENGTH. LES DEUX SEUILS SONT RAPPORTES SUR CHAQUE
+# LIGNE PLUTOT QUE RECONCILIES: deux seuils nommes qui divergent sont honnetes,
+# un seul choisi en silence ne l'est pas. Lequel est LA norme appartient au
+# proprietaire, pas a celui des deux qui imprime "validated".
+output_check_enforcing = True
 
 # UN DECALAGE EMPRUNTE SE REFUSE-T-IL? PAS ENCORE, ET LA RAISON N'EST PAS LA
 # PRUDENCE: C'EST QUE "PAS D'ENTREE DANS LA TABLE" NE VEUT PAS ENCORE DIRE CE
@@ -1917,6 +2005,31 @@ def last_audio_packet_ms(file_path):
         if index not in ends or value > ends[index]:
             ends[index] = value
     return ends
+
+
+def mark_output_refused(out_path):
+    """Renomme un artefact REFUSE en `<nom>.REFUSED.<ext>` et rend le nouveau chemin.
+
+    Rend `None` si le fichier a disparu ou si le renommage echoue -- et le
+    consigne. UN ECHEC DE RENOMMAGE NE DOIT PAS REMPLACER LA RAISON DU REFUS:
+    l'appelant est deja en train de lever, et masquer un refus de troncature par
+    une OSError de systeme de fichiers perdrait la seule information que le
+    declin porte. On rapporte les deux plutot que d'en substituer une.
+    """
+    if not path.exists(out_path):
+        return None
+    base, extension = path.splitext(out_path)
+    refused = f"{base}.REFUSED{extension}"
+    try:
+        replace_file(out_path, refused)
+    except OSError as error:
+        sys.stderr.write(f"repair: the refused artefact could NOT be renamed and "
+                         f"is still at its produced name: {error}\n")
+        tools.logs.append("repair: a refused artefact kept its produced name\n")
+        return None
+    sys.stderr.write(f"repair: the refused artefact was renamed to *.REFUSED{extension} "
+                     f"so it is inspectable and NOT counted as produced\n")
+    return refused
 
 
 def verify_output_file(out_path, master_duration_ms, audio_reports,
