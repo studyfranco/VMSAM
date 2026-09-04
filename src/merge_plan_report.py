@@ -1010,6 +1010,25 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                                  attribution="inferred, not stated by the log",
                                  check=borrow["agreement"]))
 
+        # LE RYTHME, ET CE QUE `speed=` NE DIT PAS.
+        rate = applied_ratio(fields)
+        speed_text = plain(fields.get("speed"))
+        if isinstance(rate, Decimal):
+            rows.append(_row("SPEED", _redactor=redactor, track=order,
+                             ratio_applied=str(rate),
+                             margin_state=NO_PRODUCER,
+                             note="the winning transform's margin has no "
+                                  "producer, so how decisively it won is unknown"))
+        else:
+            rows.append(_row("SPEED", _redactor=redactor, track=order,
+                             ratio_applied_state=NO_PRODUCER,
+                             emitted=speed_text,
+                             note="NOBODY ASKED. `no rate proposed by the "
+                                  "measurement` is not a verdict of `no rate "
+                                  "problem` -- no producer of a speed verdict "
+                                  "exists in src/, so this track was never "
+                                  "assessed for one"))
+
         # LA TETE, ET SES TROIS ETATS. Champ obtenu apres que j'ai depose
         # `container_start_time`: `head_pad_ms=0` couvrait `pas de decalage`,
         # `non mesure` et `un decalage que le plan lit par-dessus` avec un seul
@@ -1242,9 +1261,25 @@ def blank_cells(job):
     entries.append({
         "quantity": "speed_margin",
         "state": NO_PRODUCER,
-        "address": "change_point_locator.locate_change_points",
-        "detail": "log_assembly has a conditional emitter for it, so it would "
-                  "print the moment something produced it; the absence is upstream"})
+        # L'ADRESSE A CHANGE ET L'ETAT NON. dev-1 PRODUIT desormais la marge --
+        # et deux d'entre elles, `speed_margin` en ms de platitude et
+        # `fidelity_margin` sans dimension, parce qu'une seule cle portant
+        # "la statistique qui a tranche" aurait une UNITE VARIABLE d'une ligne a
+        # l'autre. Mais elles vivent dans un JSON de transfert et AUCUNE
+        # n'atteint le journal: zero occurrence de `speed_margin` dans les
+        # treize artefacts. Le defaut n'est donc plus "personne ne la mesure",
+        # c'est "elle ne traverse pas jusqu'ici", et l'adresse est le chemin
+        # entre les deux.
+        "address": "the seam: dev-1 emits it in a handoff JSON, "
+                   "merge_video_repair.log_assembly has the conditional emitter, "
+                   "nothing carries it between them",
+        "detail": "0 occurrences in 13 artefacts. AND WHEN IT ARRIVES, `NON "
+                  "EMISE` MUST BE CONDITIONED: dev-1 also emits "
+                  "speed_margin_absent_reason and decided_by, because a margin "
+                  "can be undefined while the decision was still decisive -- one "
+                  "hypothesis clearing the fidelity gate leaves no flatness "
+                  "margin, and printing that as unemitted would call a 0.36 "
+                  "fidelity separation margin-less"})
     entries.append({
         "quantity": "verification_probe_positions",
         "state": COLLAPSED,
@@ -1504,12 +1539,27 @@ def render_svg(records):
             # entier. Reparer une mise en page apres l'avoir vue casser aurait
             # voulu dire la voir casser chez le proprietaire.
             ratio = speed.split("(")[0].strip()
-            head += (f" · ACCELEREE ×{_clip(ratio, 12)}"
-                     f" · marge de victoire : NON EMISE")
+            head += (f" \u00b7 ACC\u00c9L\u00c9R\u00c9E \u00d7{_clip(ratio, 12)}"
+                     f" \u00b7 marge de victoire : NON \u00c9MISE")
         elif "(" in speed and not speed.lower().startswith("none("):
-            head += " · vitesse : voir la ligne TRACK"
+            head += " \u00b7 vitesse : voir la ligne TRACK"
         else:
-            head += " · non acceleree"
+            # `non acceleree` ETAIT UNE REPONSE FAUSSE ET AFFIRMATIVE, et c'est
+            # la collision que `MEASURING.MD` enregistre deja: `speed=none(no
+            # rate proposed)` sur 112 fichiers se lit comme 112 fichiers SANS
+            # PROBLEME DE RYTHME et signifie 112 fichiers QUE PERSONNE N'A
+            # INTERROGES -- aucun producteur de verdict de vitesse n'existe dans
+            # `src/`. J'ecrivais donc un SILENCE comme un VERDICT NEGATIF, dans
+            # le seul document qu'il lit.
+            #
+            # C'est le meme defaut que la boite ambre, un champ plus loin, et en
+            # pire: l'ambre AFFIRMAIT par une marque absente, ceci affirme par
+            # une marque presente. Meme question de `MEASURING.MD`: la valeur
+            # avec laquelle la sentinelle entre en collision est-elle une valeur
+            # que cette mesure peut legitimement produire? Oui -- une piste peut
+            # reellement n'avoir aucun rythme a corriger -- donc la sentinelle
+            # est un defaut et pas une commodite.
+            head += " \u00b7 rythme : NON MESUR\u00c9"
         if lead.get("verify"):
             head += f" · verification {_clip(plain(lead['verify']), 24)}"
         body.append(_text(left, y + 10, _clip(head, 132), faint, 10))
@@ -1883,6 +1933,18 @@ def render_narrative(records):
             "\u00a0: le producteur \u00e9met bien ces lignes, et la marque "
             "n\u2019a encore jamais \u00e9t\u00e9 dessin\u00e9e contre de la "
             "mati\u00e8re r\u00e9ellement refus\u00e9e.</p>")
+
+    speeds = [f for k, f in records if k == "SPEED"]
+    if speeds and all(f.get("ratio_applied_state") for f in speeds):
+        said.append(
+            "<p><b>Aucune piste de cet artefact n\u2019a re\u00e7u de correction "
+            "de rythme</b>, et ce n\u2019est pas la m\u00eame chose que "
+            "\u00ab\u00a0aucune n\u2019en avait besoin\u00a0\u00bb. La mesure "
+            "n\u2019a propos\u00e9 aucun rythme, et <b>aucun producteur de "
+            "verdict de vitesse n\u2019existe</b>\u00a0: personne n\u2019a pos\u00e9 "
+            "la question. La figure n\u2019a donc jamais \u00e9t\u00e9 "
+            "dessin\u00e9e pour une piste acc\u00e9l\u00e9r\u00e9e \u2014 ce "
+            "chemin d\u2019affichage n\u2019a jamais servi.</p>")
 
     gaps = [f for k, f in records if k == "GAP"]
     missing = [f for f in gaps if f.get("state") == NO_PRODUCER]
