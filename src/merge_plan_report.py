@@ -1141,14 +1141,35 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     # -- `log_assembly` emet bien `repair: SKIPPED` -- c'est un cas que cet
     # artefact n'exerce pas, et les deux ne partagent pas un blanc.
     if not (job.get("refused") or []):
+        # LA PRECONDITION SE MESURE, donc on la donne au lieu de dire seulement
+        # que le cas ne s'est pas produit. `repair: SKIPPED segment` vient de
+        # `drop_unverified_segments`: un segment PLUS COURT QUE LA FENETRE DE
+        # SONDE est jete et rempli depuis le maitre. `PROBE_WINDOW_SECONDS` vaut
+        # 60 s et le plus court segment candidat du corpus fait 80 s -- donc la
+        # precondition n'a jamais ete remplie, de 20 s. Ce n'est ni du code mort
+        # ni une branche inatteignable: c'est une branche dont ce corpus ne
+        # produit pas l'entree, et la marge est etroite.
+        shortest = None
+        for piece in plan.get("pieces") or []:
+            if piece["source"] != "candidate":
+                continue
+            length = piece["master_end_ms"] - piece["master_start_ms"]
+            if shortest is None or length < shortest:
+                shortest = length
         rows.append(_row("REFUSED_NONE", _redactor=redactor,
                          count=0,
-                         producer="merge_video_repair.log_assembly emits "
-                                  "`repair: SKIPPED segment` for these",
-                         note="this artefact records no refused candidate "
-                              "segment, so the figure draws no dashed amber box. "
-                              "NOT EXERCISED, not missing -- and the mark has "
-                              "never been drawn against real refused material"))
+                         producer="merge_video_repair.drop_unverified_segments "
+                                  "then log_assembly `repair: SKIPPED segment`",
+                         precondition="a plan segment SHORTER than the "
+                                      "measurement's probe window "
+                                      "(PROBE_WINDOW_SECONDS=60s)",
+                         shortest_candidate_segment_ms=_trim(shortest),
+                         note="this artefact refuses no candidate segment, so "
+                              "the figure draws no dashed amber box. NOT a claim "
+                              "that nothing is ever refused: the branch is live "
+                              "and this corpus does not produce its input. The "
+                              "mark has never been drawn against real refused "
+                              "material"))
 
     for entry in job.get("refused") or []:
         # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
@@ -1932,15 +1953,28 @@ def render_narrative(records):
             f"chose qu\u2019un remplissage depuis le ma\u00eetre, et les deux "
             f"marques coexistent.</p>")
     elif none_row:
+        shortest = none_row.get("shortest_candidate_segment_ms")
         said.append(
             "<p><b>Aucune r\u00e9gion du candidat n\u2019a \u00e9t\u00e9 "
             "refus\u00e9e dans cet artefact</b>, donc la figure ne porte aucune "
             "bo\u00eete ambre en pointill\u00e9. \u00c0 lire comme "
             "\u00ab\u00a0ce cas ne s\u2019est pas produit ici\u00a0\u00bb et "
-            "non comme \u00ab\u00a0rien n\u2019est jamais refus\u00e9\u00a0\u00bb"
-            "\u00a0: le producteur \u00e9met bien ces lignes, et la marque "
-            "n\u2019a encore jamais \u00e9t\u00e9 dessin\u00e9e contre de la "
-            "mati\u00e8re r\u00e9ellement refus\u00e9e.</p>")
+            "non comme \u00ab\u00a0rien n\u2019est jamais refus\u00e9\u00a0\u00bb."
+            + (f" Un segment n\u2019est refus\u00e9 que s\u2019il est PLUS COURT "
+               f"que la fen\u00eatre de sonde, qui fait 60\u00a0s\u00a0; le plus "
+               f"court segment de ce plan fait "
+               f"{_escape(seconds_fr(shortest, 0, signed=False))}\u00a0s. La "
+               f"condition n\u2019est donc pas remplie"
+               # LA MARGE SE QUALIFIE SUR SA VALEUR ET PAS PAR HABITUDE. J'avais
+               # ecrit `et de peu` en dur, depuis un minimum releve sur TOUT le
+               # corpus (80 s) applique a un artefact qui est a 160 s. Une
+               # caracterisation fausse dans une phrase que le proprietaire lit
+               # est du meme genre que `non acceleree`: une affirmation gratuite.
+               + (", et de peu" if Decimal(str(shortest)) < 120000 else "")
+               + "."
+               if shortest else "")
+            + " La marque n\u2019a encore jamais \u00e9t\u00e9 dessin\u00e9e "
+              "contre de la mati\u00e8re r\u00e9ellement refus\u00e9e.</p>")
 
     speeds = [f for k, f in records if k == "SPEED"]
     if speeds and all(f.get("ratio_applied_state") for f in speeds):
