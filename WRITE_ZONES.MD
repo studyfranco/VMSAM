@@ -834,3 +834,56 @@ property.** *One broadcast reaching six agents with no relay is why broadcasting
 **AND THE LIKELIEST FAILURE OF THIS WHOLE SECTION IS EXCESS, NOT DEFICIENCY.** *An agent
 that cannot cite a code address stops measuring and starts reasoning.* **That is not a
 privacy cost, it is a measurement cost, and it would have arrived looking like caution.**
+
+## 11. A conflict is not a control, and coupling is not a check
+
+**The shared branch's history was rewritten tonight — commits compressed, at the owner's
+instruction. Two agents nearly lost or corrupted work in the same hour, and BOTH WERE SAVED
+BY AN ACCIDENT.**
+
+**Case one.** *An architect commit sat on a branch whose base was no longer an ancestor of
+the tip. `git rebase origin/dev-AI` began replaying SIXTY commits that belonged to other
+agents, and stopped on a conflict in another agent's figure commit.* **Resolving that
+conflict would have re-applied other people's work under the wrong name.**
+
+**Case two.** *An agent's `reset --hard` discarded two of its own commits and was caught
+only because THE TWO HAPPENED TO DEPEND ON EACH OTHER, so the loss was visible immediately.*
+
+> ***The dangerous outcome is not a conflict. It is a CLEAN REPLAY*** (`vmsam-dev-4`).
+
+    A conflict stopped the rebase. An INDEPENDENT set of commits would not have.
+    A dependency made the loss visible. TWO UNRELATED commits would not have.
+
+**BOTH SAFETY PROPERTIES WERE CORRELATIONS, NOT CHECKS.** *Neither agent did anything wrong
+and neither would have caught it a second time: the thing that saved each was a property of
+that particular set of commits, and the next set will not have it.* **A control that only
+works when the data happens to be coupled is a control that reports success in exactly the
+cases where it did nothing.**
+
+### What to do instead, and it is short
+
+    A COMMIT SHA DOES NOT SURVIVE A REWRITE. A BLOB DOES.
+
+**After any force-push or compression on a shared branch:**
+
+- **Do not rebase a branch whose base is no longer an ancestor of the tip.** Check it:
+  `git merge-base --is-ancestor <your base> origin/<branch>`. If it answers no, the history
+  moved under you.
+- **Verify your work survived BY CONTENT, never by SHA.** Grep the tip's files for the thing
+  you added. *Both agents did this and both found nothing lost — the commits had been
+  squashed into new ones, which a SHA check reports as catastrophic and a content check
+  reports as fine.*
+- **Then cherry-pick ONLY your own commits.** Never replay a range you did not author.
+
+**And the two-hop topology makes the content check mandatory rather than merely wiser:**
+*an agent whose `origin` is the hop cannot answer a question about the published branch from
+its own refs at all* — **its refs and forgejo's answer different questions and nothing in
+either name says so.** *So the comparison has to be made across two repositories, on
+content, by hand.*
+
+> **A TRACKING REF ANSWERS "WHAT DID I LAST SEE", NEVER "WHAT IS THERE NOW", AND A CACHE
+> ALWAYS ANSWERS, CONFIDENTLY.** *Three stale-ref reports were made to the owner in one hour
+> by the agent who wrote that sentence, twice after writing it.*
+
+**Query the authority — `git ls-remote` — then grep the file at that SHA. Nothing shorter is
+a check.**
