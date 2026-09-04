@@ -1357,7 +1357,27 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                              # compte de cellules vides qui ne pouvait que
                              # baisser -- et je ne peux pas le dater, parce
                              # qu'aucun artefact ne porte de champ de date.
-                             count_source="vmsam-lead, not measured here",
+                             # ET SA SOURCE EST UN MESSAGE, PAS UN DOCUMENT.
+                             # Verifie par l'architecte: zero occurrence de ce
+                             # chiffre dans MEASURING.MD, WRITE_ZONES.MD et
+                             # AGENT.MD. Il n'existe que dans la couche de
+                             # messages -- ET DANS CE RAPPORT. Donc le porteur le
+                             # plus durable d'une affirmation non promue est un
+                             # artefact qui n'appartient pas a son auteur, et un
+                             # lecteur ne peut PAS remonter la citation.
+                             #
+                             # Le rapport le dit au lieu de le masquer. La partie
+                             # DERIVEE DE MES OCTETS -- ce journal ne porte
+                             # aucune duree du maitre, donc l'attribution est
+                             # indecidable ici -- se tient sans ce chiffre; le
+                             # chiffre n'est qu'un contexte emprunte, et il est
+                             # marque comme tel.
+                             count_source="vmsam-lead, message layer only: ZERO "
+                                          "occurrences in MEASURING.MD, "
+                                          "WRITE_ZONES.MD or AGENT.MD (checked). "
+                                          "This report is currently its most "
+                                          "durable carrier and there is no "
+                                          "citation to follow back",
                              count_direction="can only be invalidated, never "
                                              "confirmed further: one introduced "
                                              "defect ends it, and a number that "
@@ -2490,8 +2510,10 @@ def render_narrative(records):
             "et ne porte aucune de ses dur\u00e9es, donc la question n\u2019est "
             "pas tranchable ici. \u00c0 ce jour, <b>les cinq d\u00e9fauts "
             "mesur\u00e9s sur des fichiers produits \u00e9taient tous "
-            "h\u00e9rit\u00e9s</b>, et aucune instance du pipeline en "
-            "introduisant un n\u2019a \u00e9t\u00e9 confirm\u00e9e. "
+            "h\u00e9rit\u00e9s</b> \u2014 chiffre <i>emprunt\u00e9</i>, non "
+            "mesur\u00e9 ici et consign\u00e9 dans aucun document de r\u00e9f\u00e9rence "
+            "\u2014 et aucune instance du pipeline en introduisant un n\u2019a "
+            "\u00e9t\u00e9 confirm\u00e9e. "
             "Fid\u00e9lit\u00e9 \u00e0 une source n\u2019est pas correction "
             "d\u2019une sortie.</p>")
 
