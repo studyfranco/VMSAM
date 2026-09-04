@@ -108,7 +108,8 @@ def measure_corpus(log_paths, read=None):
     """
     reader = read or (lambda path: open(path, encoding="utf-8",
                                         errors="replace").read())
-    keys, logs, basis = set(), 0, {"digest": 0, "derived": 0, "master_only": 0}
+    keys, logs, rejected, basis = set(), 0, 0, {"digest": 0, "derived": 0,
+                                                 "master_only": 0}
     # DEUX POPULATIONS SOUS UN SEUL COMPTE, et elles se separent PAR STRUCTURE.
     # Un journal de travail de production porte l'enveloppe `Logs:` posee par
     # `fusion.py`; un rejeu de laboratoire commence directement a `repair:`.
@@ -123,6 +124,15 @@ def measure_corpus(log_paths, read=None):
     for path in log_paths:
         text = reader(path)
         if not is_job_log(text):
+            # UN FICHIER ECARTE PAR MOI EST UNE ABSENCE QUE JE FABRIQUE. Le
+            # rejet par structure est correct -- pas de ligne de plan, pas de
+            # geometrie a rendre -- mais le SILENCE l'est pas: une reparation
+            # morte AVANT d'avoir planifie emet un journal sans plan, donc mon
+            # lecteur l'ecarte et mon corpus ne l'a jamais compte. C'est le "un
+            # journal manquant ne laisse aucune trace dans les journaux" de
+            # dev-2, UN CRAN PLUS BAS ET DANS MON PROPRE DENOMINATEUR: le
+            # fichier existe, c'est moi qui le fais disparaitre.
+            rejected += 1
             continue
         logs += 1
         if any(line.startswith("Logs:") for line in text.splitlines()):
@@ -154,6 +164,12 @@ def measure_corpus(log_paths, read=None):
         f"exceed its population")
     return {
         "logs": logs,
+        "rejected_by_structure": rejected,
+        "rejected_note": "handed to this render and NOT counted: they carry no "
+                         "`repair: plan` line. A repair that died before "
+                         "planning emits exactly that, so files in this class "
+                         "are invisible to every claim below -- including any "
+                         "claim about how often a repair fails early",
         "distinct_cases": len(keys),
         "unit": "(master, candidate) pair",
         "key_basis": f"{basis['digest']} from an emitted candidate_digest (read), "
@@ -1441,10 +1457,33 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                          shortest_candidate_segment_ms=_trim(shortest),
                          note="this artefact refuses no candidate segment, so "
                               "the figure draws no dashed amber box. NOT a claim "
-                              "that nothing is ever refused: the branch is live "
-                              "and this corpus does not produce its input. The "
-                              "mark has never been drawn against real refused "
-                              "material"))
+                              "that nothing is ever refused. The mark has never "
+                              "been drawn against real refused material"))
+        # TROIS SILENCES DERRIERE UN MEME BLANC, et elles ne se valent pas.
+        # Enumerees ici plutot que dans un message, parce que la figure ne peut
+        # pas les distinguer et qu'un lecteur les lira toutes comme "rien de
+        # refuse". Une seule porte un nombre.
+        rows.append(_row("SILENCE", _redactor=redactor, mark="amber refused box",
+                         reason="segment-level: drop_unverified_segments never "
+                                "fired", applies="YES on this artefact",
+                         bound=f"measurable -- probe window 60 s, shortest "
+                               f"candidate segment here "
+                               f"{_trim(shortest) if shortest else '?'} ms"))
+        rows.append(_row("SILENCE", _redactor=redactor, mark="amber refused box",
+                         reason="per-track: declined/failed needs SOME tracks to "
+                                "succeed while OTHERS fail on one file",
+                         applies=("YES on this artefact"
+                                  if (job.get("audios") or {}) else "unknown"),
+                         bound="NONE -- no measured bound on how rare mixed "
+                              "success is"))
+        rows.append(_row("SILENCE", _redactor=redactor, mark="amber refused box",
+                         reason="no tracks were attempted: the repair died "
+                                "before any track was built",
+                         applies="CANNOT APPEAR HERE",
+                         bound="such a run emits no `repair: plan` line, so this "
+                               "reader rejects it by structure and it is absent "
+                               "from every count in this report -- see "
+                               "rejected_by_structure on the CORPUS row"))
 
     for entry in job.get("refused") or []:
         # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
