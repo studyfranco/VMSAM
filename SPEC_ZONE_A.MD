@@ -251,6 +251,98 @@ the language actually used; the plan applied, and the residual measured after ap
 it. **A skip is a decision and gets a line too** — one observed run skipped an element
 as *"empty"* with no indication of what was skipped or why that mattered.
 
+## 4f. The repair is TWO STAGES and a set of metrics — not a tree of cases
+
+**The owner's correction, and it is aimed at how this campaign has been working.** Three files
+of one release were measured as three investigations and produced three beautiful maps and
+**zero general criterion**. His instruction: *stop handling each case as an exception. Metrics,
+and simplify.*
+
+### Stage 1 — find the rate transform. Stage 2 — handle the additions and deletions.
+
+**Do not read the container's frame rate to choose.** Test the transforms and let the
+measurement decide:
+
+    PAL candidate against 24000/1001 master   slow by   × 0.95904095904
+    the inverse                               speed by  × 1.04270833333
+    NTSC-to-NTSC and PAL-to-PAL cases likewise, and NTSC against PAL
+
+**Reading the declared rate would have missed a whole release.** Eight episodes of one folder
+carry steps that are integer frames at **29.97** while every container on both sides reports
+`24000/1001`, and nothing anywhere declares it. **The unit is in the EDIT, not in the
+container.** The owner's instinct to test rather than read is measured-correct.
+
+**TAKE THE BEST TRANSFORM ABOVE 90 % AUDIO SIMILARITY — AND REPORT BY HOW MUCH IT WON.** If two
+hypotheses sit above the bar within a margin too small to separate them, that is
+**INDETERMINATE, not PAL**. Choosing the argmax of a broad peak is the error that produced two
+wrong maps in one night: a scan whose top three positions sat within 0.028 was read as a
+location. **The winner and the margin are two facts and only reporting one of them is the
+count-not-a-membership defect wearing a verdict.**
+
+**When the margin cannot separate them, escalate to a different modality rather than to a
+tie-break rule.** The owner's proposal is scene detection, and its value is precisely that it
+does not share an input with the audio comparison — *neither could produce the other's answer
+from its own inputs.* **A tie-break computed from the same correlations is not a third opinion.**
+
+### The two thresholds are different quantities and must not be merged
+
+    90 %   AUDIO SIMILARITY   -- "is this the same programme"
+    ~80 %  FRACTION IN COMMON -- "is there enough continuous material to be worth merging"
+
+The second is a range, deliberately: **the agent holding the corpus finds the value**, and it
+is the point at which the pipeline stops trying rather than a property of any file.
+
+**AND THE VALUE MUST BE CALIBRATED AGAINST FILES THAT MUST NOT MERGE, NOT ONLY AGAINST FILES
+THAT MUST.** A control population is not validated by existing — *it is validated by containing
+the case that breaks you.* A bar set this campaign had an adversarial population and it was the
+**wrong adversary**: it tested against cross-language coincidence and never against a probe
+landing on a transition, and it is refusing good files in production as a result.
+
+**The adversarial material already exists.** One corpus file carries regions where a wide scan
+finds **no correspondence at any offset** — those are what "should not merge" looks like, and
+they are measured rather than constructed.
+
+### Small missing pieces must not break the sync
+
+**A candidate missing short pieces is the ordinary case, not a failure.** Where a large
+continuous fraction is common, attempt the merge. **But the missing pieces must be LOCATED**,
+and that is where the visual methods earn their place — audio correlation says a piece is
+absent, frame comparison says where.
+
+## 4g. The head, and what the merge_plan must emit
+
+### At the head of the file
+
+**If there is an offset at the start: take from the master if the master has it, otherwise
+insert silence — so that the output begins at 0 of the master.** One rule, no case analysis.
+
+### Every produced file gets a plan report beside it
+
+    THE PRODUCED FILE goes where the merged file will live -- not to a scratch output
+                      directory that something later deletes
+    THE REPORT        <candidate filename>.merge_plan.log, beside it
+
+**This is not bookkeeping. It is what makes a produced file checkable at all**, and the
+campaign has a number for what its absence costs: a manifest records **195 artefacts produced
+and since deleted, 45 of them merged and never verified by anything, and one merged while the
+pipeline itself recorded it as OUT OF SYNC.** None can now be examined.
+
+**The report carries, per file:**
+
+- **a timeline diagram, generated automatically** — master time along the axis with
+  **timestamps**, one bar per segment at its offset, **lost regions as a red line ABOVE the
+  offset values**, and **every offset value actually used**, borrowed ones included
+- **a human-readable account beside the diagram**, in plain sentences: *took from the candidate
+  here, deleted there, took from the master here to fill.* A reader must be able to see what
+  was done to the file without reading a table
+- **the borrowed placements marked on the track itself**, with a tag **distinct from
+  `VMSAM_FABRICATED`** — that key has a consumer that evicts assembled tracks, and *intact but
+  derived placement* is not *assembled from pieces*. Keep it simple and light.
+
+**The diagram and the sentences are the same information twice on purpose.** The owner's own
+validation is watching files, and *the log is read by whoever opens the log; the tag and the
+report are read by whoever opens the file.*
+
 ## 5. Commentary tracks are not repaired — owner's ruling
 
 **No chimeric version of an audio track tagged as commentary.** Pass it through

@@ -357,6 +357,73 @@ is how a campaign ends up negotiating its own rules.
 
 Never write a tier's filesystem path in a tracked file — Privacy, below.
 
+## ✅ What counts as done — and the two roles that decide it
+
+**A modification is not valid until the test container, on the latest image, has PRODUCED A
+FILE — and that file has been COMPARED AND VALIDATED.** The owner's standard, stated because
+five agents had each filled the blank differently and none of the fillings was this.
+
+    PRODUCED    an artefact exists on disk, from the container, on the current image
+    CHECKED     named automated properties verified -- NAME THE PROPERTY, never "passed"
+    VALIDATED   a person or the validator compared it and accepted it -- AND WHO
+
+**Only the third is done.** Ten commits were promoted in one morning through compile,
+unbound-name checks, zone checks, blob and tree verification — **and column one was empty for
+all ten.** A compile is not a run. A guard suite is not production. **And a lab measurement that
+explains why a file fails is not evidence that anything was fixed.**
+
+> **THE LAST CHECK ANYONE RUNS BECOMES THE DEFINITION OF DONE UNLESS A DEFINITION IS WRITTEN
+> ABOVE IT.**
+
+That is why this section exists. Nobody wrote one, so the last thing that said yes became it —
+and **each time that gate got stricter it made the wrong definition more convincing**, because a
+stricter check that still cannot see a file reads as more evidence rather than the same kind.
+
+**Two agents filled the blank in public and the pair is the point:** *my instrument's preference
+was for the outcome that makes the instrument look right — refuse what I cannot verify*, and
+*mine was it compiles and the blobs match.* **Neither chose dishonestly. Both answered the
+question their tools could answer.**
+
+### Why is not whether
+
+**A diagnostic reported as a diagnostic is not waste — it is the route by which a refused file
+becomes a produced one.** Mapping a refusal into six segments whose arithmetic closes to 0.097 s
+is what will let a file come out of that release. **The defect was never the diagnostic; it was
+the diagnostic reported as a completion.**
+
+### The two support roles
+
+    ci        GATES THE ENTRANCE to the most constraining test, the end-to-end one.
+              AND DETECTS WHETHER A DEV AGENT HAS DODGED THE FINAL VALIDATION.
+    forensic  VALIDATES THE REPAIR. "The end-to-end test produced this; what I expected
+              is this." VALIDATES OR REFUTES -- AND EXPLAINS WHY IN BOTH CASES.
+
+**The one who lets a file in must not be the one who declares it good.** ci sees what went in
+and under which image; forensic sees what came out against what was expected. **Neither can
+produce the other's answer from its own inputs** — the independence test, applied to roles.
+
+**And an anti-dodge report goes to the owner, not upward through the thing it checks.** That
+holds for the lead's promotions and for the architect's documents alike: *a check that only
+reports upward through the thing it is checking is not a check.* A role that depends on an agent
+choosing to audit itself is the control-that-cannot-fail wearing a virtue.
+
+### The boundary the validator drew, and it is binding
+
+**A derived expectation — from the master, the plan, and what the log says was done — validates
+INTERNAL CONSISTENCY: the artefact matches what the pipeline claims it did. IT CANNOT CATCH A
+DEFECT THE PIPELINE WAS NOT MODELLING.** The truncation the owner found by watching was exactly
+that. **The owner's validation and the validator's are different instruments and the assignable
+one is weaker.** Every artefact that passes is consistent with its own claims — nothing more,
+and that is still the difference between an unexamined file and a checked one.
+
+### And the fleet's job is not to replace the person who validates
+
+**It is to make the files cheap to check.** A produced file alone costs an episode of someone's
+attention; a produced file with a report saying what was cut, what was added, at which timings,
+from which language, and what remained, costs a minute of reading and points at the seconds
+worth watching. **That is why the plan report in `SPEC_ZONE_A` §4g is a validation instrument
+and not documentation.**
+
 ## 📡 Talking
 
 Who may direct you, and how anything you know reaches anyone else, are in
