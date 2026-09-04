@@ -1103,6 +1103,13 @@ def _row(record_kind, /, _redactor=None, **fields):
     return " ".join(parts)
 
 
+def _basename(path):
+    """Le nom de fichier seul. `None` reste `None` et ne devient pas ""."""
+    if not path:
+        return None
+    return str(path).rstrip("/").rsplit("/", 1)[-1] or None
+
+
 def _maybe_redact(text):
     return redact(text)[0] if REDACT_MEDIA_NAMES else text
 
@@ -1340,9 +1347,20 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
     rows.append(_row("IDENTITY",
                      master=job.get("master_opaque_id") or "",
                      candidate=job.get("candidate_opaque_id") or "",
-                     master_name=(job.get("master_path") or None
+                     # LE BASENAME, PAS LE CHEMIN, et le champ dit ce qu'il
+                     # porte. Je rendais `/srv/.../Season 17/X.mkv` dans un champ
+                     # nomme `_name`: la valeur etait juste et L'ETIQUETTE
+                     # PROMETTAIT AUTRE CHOSE -- meme classe que le jeton d'etat
+                     # dans la legende, corrige une heure plus tot.
+                     #
+                     # Et le perimetre suit l'autorisation plutot que de la
+                     # deborder: le proprietaire a autorise les NOMS pour "savoir
+                     # qui est quoi". Un chemin absolu donne cela ET la structure
+                     # de la bibliotheque, qu'il n'a pas demandee. Le chemin
+                     # complet reste dans le journal source, qui ne voyage pas.
+                     master_name=(_basename(job.get("master_path"))
                                   if not REDACT_MEDIA_NAMES else None),
-                     candidate_name=(job.get("candidate_path") or None
+                     candidate_name=(_basename(job.get("candidate_path"))
                                      if not REDACT_MEDIA_NAMES else None),
                      construction="md5(path)[:16]",
                      name_fidelity=("square brackets in a name are rendered as "
