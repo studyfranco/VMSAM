@@ -138,6 +138,40 @@ def offset_is_measured(segment, stream_order=None):
                for key in (stream_order, str(stream_order), int(stream_order)))
 
 
+def pairing_fidelity(stream_pairing, stream_order=None):
+    """La fidelite du choix PAR FICHIER, celle a laquelle la barre a ete appliquee.
+
+    DEUX NOMBRES, DEUX QUESTIONS, et `vmsam-dev-1` a vu la confusion avant moi.
+
+      par fichier   `candidate_stream_pairing[flux]` -- UN partenaire maitre
+                    choisi une fois pour le fichier, et la fidelite de ce choix.
+                    C'est LE nombre auquel la barre s'applique, donc le nombre
+                    qu'un REFUS doit citer.
+
+      par tranche   `candidate_offset_fidelity_by_stream[flux]` dans chaque
+                    segment -- la fidelite de CETTE sonde-la. Diagnostique.
+                    C'est le nombre que la ligne de POSE doit citer, parce qu'il
+                    decrit la mesure reellement utilisee pour poser ce
+                    morceau-la.
+
+    Les confondre ferait citer un nombre pour deux questions differentes. Ma
+    premiere version le faisait: elle lisait le per-segment et s'en servait
+    aussi dans le refus.
+
+    Un flux ABSENT de la table par fichier n'a passe la barre avec AUCUN
+    partenaire. Absent, jamais `fidelity: 0.0` -- des deux cotes du contrat.
+    """
+    if not stream_pairing or stream_order is None:
+        return None
+    for key in (stream_order, str(stream_order), int(stream_order)):
+        if key in stream_pairing:
+            entry = stream_pairing[key]
+            if isinstance(entry, dict):
+                return entry.get("fidelity")
+            return entry
+    return None
+
+
 def offset_fidelity(segment, stream_order=None):
     """La fidelite de l'appariement de ce flux, quand la mesure la donne.
 
@@ -930,7 +964,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                                 verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
-                                comparison_language=None):
+                                comparison_language=None, stream_pairing=None):
     '''Point d'entree du module.
 
     Renvoie un compte-rendu: ce qui a ete construit, ce qui a ete REFUSE et
@@ -983,7 +1017,10 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             if not report["offset_measured"] and refuse_borrowed_offset:
                 # La fidelite, QUAND ELLE EXISTE, distingue "aucun partenaire
                 # n'a passe la barre, a 0.82" de "rien n'a ete mesure du tout".
-                seen = report["offset_fidelity"]
+                # LE REFUS CITE LE NOMBRE PAR FICHIER, pas celui d'une
+                # tranche: la barre a ete appliquee au choix de partenaire, une
+                # fois, pour tout le fichier.
+                seen = pairing_fidelity(stream_pairing, int(audio["StreamOrder"]))
                 raise chimeric_error(
                     "no offset was measured for this stream"
                     + (f" (best partner fidelity {seen})" if seen != None else "")

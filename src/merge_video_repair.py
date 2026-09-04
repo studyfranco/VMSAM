@@ -381,6 +381,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
         # le repli de remplissage quand le maitre ne porte pas la langue de la
         # piste (SPEC_ZONE_A.MD s4c, decision du proprietaire).
         comparison_language=plan.get("language"),
+        # LE CHOIX DE PARTENAIRE PAR FICHIER, auquel la barre de fidelite a ete
+        # appliquee. Distinct de la fidelite par tranche, qui vit dans chaque
+        # segment: le refus cite celui-ci, la ligne de pose cite celui-la.
+        stream_pairing=plan.get("candidate_stream_pairing"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
 
     # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la
