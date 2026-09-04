@@ -484,6 +484,8 @@ earlier as the one a new consumer will repeat on day one unless told).
 
 ## 8. Quoting a log line is the fleet's widest privacy exit
 
+> **Read section 10 first: it defines WHICH SURFACE this protects.** *The boundary is the repository, not the artefact — so this section governs the QUOTE, not the producer.*
+
 **A CONTROL THAT DEPENDS ON A PATTERN MATCHING ADVERSARIAL TEXT IS NOT A CONTROL.**
 
 An agent building the merge-plan report collected non-`repair:` lines deliberately —
@@ -678,3 +680,157 @@ three different questions.*
 **Two agents ran the same test on their own code within one hour and reached opposite
 answers, both correctly.** *That pair is the best evidence this section has that the
 counter-rule is doing work rather than softening the rule.*
+
+## 10. The boundary is the REPOSITORY, not the artefact
+
+**Ruled by the owner, 2026-09-04, in three lines that replace a year of the fleet
+guessing:**
+
+> ***"Dans le repos, pas de nom de fichier (sauf les fichiers du repos en lui-même). Par
+> contre, le code VMSAM peut le faire — il peut afficher les noms des fichiers et leurs
+> paths. Dans le fichier .MD il ne faut pas un seul nom d'épisode ou de série. Les id sont
+> autorisés. Il ne faut non plus pas de path en dur dans le code."***
+
+**THE EXCEPTION IS NOT A DETAIL AND IT IS WHY THE RULE IS SAFE TO APPLY LITERALLY.** *"No
+filename in the repository" means NO MEDIA FILENAME.* **The repository's own files —
+`mergeVideo.py`, `WRITE_ZONES.MD`, `fusion.py`, `Dockerfile` — are named freely, and must
+be: a rule read without its exception ends with an agent redacting `mergeVideo.py:584`, and
+the fleet loses the ability to point at its own code at all.**
+
+    THE TEST IS NOT "IS IT A FILENAME". IT IS "WHOSE FILE IS IT".
+    ours, versioned here                 name it, with its line number
+    somebody's media, or a path to it    id only, in anything committed
+
+**THE FLEET HAD BEEN PROTECTING THE WRONG SURFACE.** *Section 8 was written as though a
+media name were dangerous wherever it appeared, and every producer inherited a redactor.
+It is not the name that is dangerous. It is the name IN A COMMITTED FILE* — where it is
+pushed, mirrored, cloned, and outlives the decision that put it there.
+
+    THE REPOSITORY                    what VMSAM PRODUCES AT RUNTIME
+    committed .MD, code, commit       reports, .log, .log.error, anything
+    messages, task files              written beside the media
+    ------------------------------    ------------------------------------
+    NO episode name                   MAY name the file
+    NO series name                    MAY carry its full path
+    NO media filename                 lives in the output directory and
+    NO hard-coded path                never enters the repository
+    ids ARE allowed
+    THIS REPO'S OWN FILENAMES ARE     and so may this repo's own filenames
+    ALWAYS ALLOWED, line numbers too
+
+**The three rules are separable and each fails differently.** *A name in a `.MD` travels
+with every clone. A hard-coded path is a different defect — it does not leak a title, it
+makes the code untestable anywhere but one machine, and it is the reason it is named here
+beside the other two rather than in a style guide.*
+
+**AUDITED THE DAY IT WAS RULED, and the repository already complies — measured, not
+assumed:**
+
+    episode codes in tracked .MD          0
+    media filenames in tracked .MD        0 real ones; every hit is structural
+                                          (`*.chimeric.mkv`, `<basename>_merged.mkv`, `/a.mkv`)
+    hard-coded filesystem paths in src/   0; every hit is an HTTP route
+                                          (`/internal/fusion`) or a comment example
+    container layout in Dockerfile/init   `/config/input`, `/home/vmsam` — the
+                                          container's OWN layout, declared once, NOT a
+                                          media library path and NOT what this rule means
+
+*The distinction in that last row is the one a future audit will get wrong: a path the
+container creates for itself is infrastructure; a path to somebody's library is the defect.*
+
+### What this changes, and what it does not
+
+**The merge-plan report now carries media names, and its redactor and its leak assertion
+are both released behind one constant.** *The owner's reason is the whole rule in one
+sentence:* ***"comme c'est généré par VMSAM, pas de soucis — ce n'est pas quelque chose qui
+finit dans le repo de VMSAM."***
+
+**SECTION 8 STILL GOVERNS, and it now governs one thing instead of two.** *It never was
+about the producer. It was about the QUOTE* — what an agent lifts out of a log, a report or
+a message and drops into a task file, a finding, or a commit. **That crosses into the
+repository, and withholding rather than sanitising is still the only control that holds
+there, for the reason measured in section 8: a path containing spaces walked through a
+pattern redactor and half a series title came with it.**
+
+> **THE NET DID TWO THINGS AND ONLY ONE IS OBSOLETE.** *It kept the name out of the file —
+> obsolete, the owner has ruled the file safe. It also made it IMPOSSIBLE BY CONSTRUCTION
+> for a reader to copy a name onward, because there was nothing to copy.* **Nobody
+> cancelled that, and it is the property this campaign has already lost on twice.**
+
+    THE GUARANTEE MOVES FROM "IMPOSSIBLE" TO "EVERYONE REMEMBERS".
+    That is a real weakening. It is authorised. It must not be silent.
+
+**The counter-measure is one line and costs sixteen characters: THE NAME BESIDE THE ID,
+NEVER INSTEAD OF IT.** *`IDENTITY` carries `master=<hash>` and `master_name=` together, so
+an agent citing a report never has to choose between quoting a name and quoting nothing.*
+**An id removed is an id nobody can use again; an id kept is the safe form always within
+reach** (proposed here, implemented by `vmsam-dev-4`, whose own addition — a `name_fidelity`
+field saying that a name copied out of a row is NOT byte-exact, because the row grammar
+rewrites `[` to `(` — is the part neither of us predicted).
+
+**And the document says so itself, in its first note, not only in a source comment.**
+*Reason it is there and not in the code:* ***the reader of that file is exactly the one who
+will be tempted to cite it.***
+
+### The produced HTML never enters the repository
+
+**Ruled by the owner the same day, and it closes the misreading this section otherwise
+invites:**
+
+> ***"Les fichiers HTML générés ne doivent pas être intégrés dans le repos. Au pire la
+> figure si besoin, sans les noms des fichiers — mais la figure sert d'exemple et de
+> rapport général."***
+
+**THE TEMPTING WRONG INFERENCE IS ONE STEP LONG AND EVERY AGENT HERE IS ONE STEP FROM IT:**
+*the owner ruled the report may carry names → the report is safe → I may commit one as a
+fixture, an example, a regression baseline, an attachment to a finding.* **No. Section 10
+says WHERE the file may be produced. It says nothing about moving it.** *A generated report
+is an output artefact; committing one converts it into a repository file, which is the exact
+boundary this section draws.*
+
+    a report written beside the media       allowed, names and paths included
+    THE SAME BYTES, `git add`-ed            FORBIDDEN -- it is now a repo file
+    a figure alone, names stripped          allowed, as an EXAMPLE and a general report
+
+**The middle row is the whole point: nothing about the content changed. The surface did.**
+
+**And the third row is a licence with a stated purpose, not a loophole.** *A figure in
+`docs/` exists to show the SHAPE of a report — the staircase, the master-contribution bar,
+the amber refusal boxes — to a reader who has no artefact to hand. It is an example and a
+general report, and it carries no filename because it is not about any one file.*
+
+**AUDITED:** no generated report, `.html` or `.log`, is tracked anywhere in this repository.
+One committed figure exists, `docs/speed_correction.svg`, 1653 bytes, **zero media
+filenames and zero episode codes** — already the shape this rule describes, which is why it
+is named here as the worked example rather than as an exception.
+
+### Test a new rule against the rules you already follow
+
+**The first relay of section 10 dropped the parenthesis** — *"pas de nom de fichier"*
+without *"sauf les fichiers du repos en lui-même"* — **and was minutes from reaching six
+agents in one broadcast.** *`vmsam-aide` caught it and its own diagnosis is worth more than
+the correction:*
+
+> ***The truncated rule contradicted a rule I had quoted the same evening, in the SAME
+> document, and I relayed it without testing it against the contradiction sitting in front
+> of me*** (`vmsam-aide`).
+
+**Section 6 of this file requires a code address — *"Name the function; give the line as a
+convenience"*. A rule forbidding filenames in the repository, read without its exception,
+makes section 6 impossible to obey.** *Two sections of one document in direct contradiction
+is the cheapest check available and nobody ran it.*
+
+    IF A CITED RULE READS TOO ABSOLUTE TO BE PRACTICABLE,
+    ASK FOR THE WHOLE SENTENCE BEFORE PASSING IT ON.
+
+**And the property that let it travel:** *a summary announces that it is lossy; quotation
+marks announce the opposite.* **A truncated quotation carries the authority of a quotation
+without its content, and it is interrogated less than the paraphrase it replaced.**
+
+**The scale argument belongs with it, because the fix and the hazard are the same
+property.** *One broadcast reaching six agents with no relay is why broadcasting is good.*
+**A slow relay corrects itself as it goes; a fast one arrives everywhere already wrong.**
+
+**AND THE LIKELIEST FAILURE OF THIS WHOLE SECTION IS EXCESS, NOT DEFICIENCY.** *An agent
+that cannot cite a code address stops measuring and starts reasoning.* **That is not a
+privacy cost, it is a measurement cost, and it would have arrived looking like caution.**
