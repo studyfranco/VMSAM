@@ -855,6 +855,128 @@ def _shortfall_annotation(assembly, report):
     return ""
 
 
+# LE CONDENSAT DES SOURCES QUI TOURNENT, CALCULE UNE FOIS PAR PROCESSUS.
+_sources_digest_cache = None
+
+# LA PORTEE EST CELLE DE L'IMAGE, PAS CELLE DU DEPOT, ET LES DEUX DIFFERENT.
+#
+#   Dockerfile:142  COPY src/*.ini src/*.py ...  -> /home/vmsam/
+#   Dockerfile:143  COPY src/gestionar_show      -> /home/vmsam/gestionar_show/
+#   Dockerfile:144  COPY src/gestionar_movie     -> /home/vmsam/gestionar_movie/
+#
+# `COPY src/*.py` N'EST PAS RECURSIF. Mesure de vmsam-ci: 17 fichiers a plat,
+# 7 dans gestionar_show, 3 dans gestionar_movie -- 27 EXPEDIES -- contre 28 pour
+# un `src/**.py` recursif. UN CONDENSAT A PLAT MANQUE DIX FICHIERS QUI PARTENT;
+# UN CONDENSAT RECURSIF EN INCLUT UN QUI NE PART PAS.
+#
+# Le vingt-huitieme est `src/tools/database.py`, 52 octets, une docstring sans
+# code, sans importateur, dans un repertoire sans `__init__.py`. Inoffensif --
+# et il ferait diverger un condensat recursif de l'image EN PERMANENCE, pour une
+# raison qu'aucun lecteur ne devinerait. C'est ce genre d'ecart inexplique qui
+# fait desactiver un bon controle.
+#
+# ON ENUMERE DONC LES TROIS CIBLES `COPY` et pas un motif recursif, ET ON PART DE
+# `__file__`: dans l'image la racine est `/home/vmsam`, dans une copie du depot
+# c'est `src/`. Enumerer les memes cibles depuis la racine du module fait que les
+# deux DOIVENT concorder -- et un desaccord devient une mesure au lieu d'un
+# artefact de chemin.
+SOURCE_SCOPE = ("*.py", "gestionar_show/**/*.py", "gestionar_movie/**/*.py")
+
+
+def sources_digest():
+    """Condensat du CODE DEPLOYE, lu sur le disque a l'execution.
+
+    CE QU'IL REPOND, ET QUE `org.opencontainers.image.revision` NE REPOND PAS:
+    `vmsam-ci` attend qu'une image annonce la revision visee et NE REGARDE JAMAIS
+    LES OCTETS. Or `Dockerfile:137 ARG VMSAM_GIT_COMMIT` et `Dockerfile:142 COPY`
+    sont poses INDEPENDAMMENT: une image construite depuis un arbre sale ou en
+    avance porte l'etiquette qu'on lui a passee et le controle passe. Ce soir
+    l'arbre du relais porte `validate_job` et la reference forgejo ne l'a pas --
+    DEUX IMAGES, MEME ETIQUETTE DE REVISION, CODE DIFFERENT.
+
+    A L'EXECUTION ET NON A LA CONSTRUCTION, et c'est la moitie qui compte: un
+    condensat calcule a la construction resume le CONTEXTE DE CONSTRUCTION et se
+    transmet exactement comme `VMSAM_GIT_COMMIT`. Celui-ci lit ce qui est
+    reellement dans l'image.
+
+    CE QU'IL N'IDENTIFIE PAS, ET LE CHAMP LE DIT: 27 fichiers `.py`. Pas
+    l'interprete, pas ffmpeg, pas mkvtoolnix -- installes NON EPINGLES depuis
+    Debian testing, ce que ci signale depuis le debut comme la moitie que
+    `image_git_commit` n'a jamais identifiee. UN CONDENSAT DONT LA COUVERTURE
+    N'EST PAS DITE REDEVIENT UNE ETIQUETTE.
+
+    `files=` accompagne le condensat parce qu'un condensat sur un ENSEMBLE ne
+    veut rien dire sans la taille de l'ensemble: un deploiement qui PERD un
+    fichier change le sha, et sans le compte on ne le distingue pas d'une
+    modification.
+    """
+    global _sources_digest_cache
+    if _sources_digest_cache != None:
+        return _sources_digest_cache
+    import glob, hashlib
+    root = path.dirname(path.abspath(__file__))
+    found = {}
+    for pattern in SOURCE_SCOPE:
+        for name in glob.glob(path.join(root, pattern), recursive=True):
+            if path.isfile(name):
+                found[path.relpath(name, root)] = name
+    per_file, rolled = [], hashlib.sha256()
+    # TRI PAR CHEMIN AVANT DE CONDENSER: contenu-et-nom, pas ordre de repertoire.
+    # `glob` ne garantit pas d'ordre, donc sans ceci le meme code rendrait des
+    # condensats differents selon le systeme de fichiers.
+    for relative in sorted(found):
+        try:
+            with open(found[relative], "rb") as handle:
+                payload = handle.read()
+        except OSError as error:
+            # UN FICHIER ILLISIBLE EST NOMME, PAS SAUTE. Le sauter rendrait le
+            # meme condensat qu'un deploiement ou il est absent, et les deux
+            # situations demandent des actions differentes.
+            digest = f"unreadable({type(error).__name__})"
+            rolled.update(relative.encode("utf-8") + b"\x00" + digest.encode("utf-8") + b"\n")
+            per_file.append({"path": relative, "sha12": digest})
+            continue
+        one = hashlib.sha256(payload).hexdigest()
+        rolled.update(relative.encode("utf-8") + b"\x00" + one.encode("utf-8") + b"\n")
+        per_file.append({"path": relative, "sha12": one[:12], "bytes": len(payload)})
+    _sources_digest_cache = {"sha12": rolled.hexdigest()[:12],
+                             "files": len(per_file),
+                             "scope": " + ".join(SOURCE_SCOPE),
+                             "root": root,
+                             "per_file": per_file}
+    return _sources_digest_cache
+
+
+def write_sources_manifest():
+    """Ecrit le detail par fichier UNE FOIS, et rend son chemin ou None.
+
+    LA LIGNE DE JOURNAL PORTE LE ROULE, LE MANIFESTE PORTE LE DETAIL. `vmsam-ci`
+    veut les deux et pas au meme endroit: 27 condensats sur chaque travail sont
+    un journal qu'il faudrait contourner, et le roule seul ne dit que "quelque
+    chose a bouge" la ou il faut "CES deux fichiers ont bouge".
+
+    LE MANIFESTE EST DESIGNE PAR LA LIGNE PLUTOT QUE RECOPIE DEDANS -- forme de
+    POINTEUR, adoptee par le Lead ce soir apres qu'une COPIE d'un compte rendu
+    et son original ont diverge de trois sections. Un pointeur ne peut pas etre
+    en desaccord avec ce qu'il designe; une copie l'a ete.
+    """
+    digest = sources_digest()
+    try:
+        target = path.join(tools.tmpFolder, "vmsam_sources_manifest.json")
+        if not path.exists(target):
+            import json as _json
+            with open(target, "w") as handle:
+                _json.dump({"sha12": digest["sha12"], "files": digest["files"],
+                            "scope": digest["scope"], "root": digest["root"],
+                            "per_file": digest["per_file"]}, handle, indent=1)
+        return target
+    except Exception as error:
+        # UN MANIFESTE QU'ON NE PEUT PAS ECRIRE NE DOIT PAS EMPECHER LA LIGNE.
+        # Le roule est la donnee; le detail est un confort.
+        tools.logs.append(f"repair: the sources manifest could not be written: {error}\n")
+        return None
+
+
 def module_fingerprint():
     """L'IDENTITE DU CODE QUI TOURNE, EMISE INCONDITIONNELLEMENT.
 
@@ -945,6 +1067,14 @@ def log_assembly(candidate_path, assembly, plan):
     # donc utilisable comme empreinte -- contrairement a la presence d'un champ,
     # qui depend du fichier.
     tools.logs.append(f"repair: build {module_fingerprint()}\n")
+    # LE CODE DEPLOYE, PAR ARTEFACT. `vmsam-ci` a demande cette forme plutot que
+    # `/health`: un point d'ancrage PAR ARTEFACT survit a un redeploiement en
+    # cours de run, ce qu'un condensat par conteneur ne sait pas exprimer.
+    _sources = sources_digest()
+    _manifest = write_sources_manifest()
+    tools.logs.append(f"repair: sources {_sources['sha12']} "
+                      f"files={_sources['files']} scope={_sources['scope']} "
+                      f"manifest={_manifest or 'unwritten'}\n")
     if plan and plan.get("master_path"):
         tools.logs.append(f"repair: master {plan['master_path']}\n")
     # L'IDENTITE DU CANDIDAT, SANS SON CHEMIN.
