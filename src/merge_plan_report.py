@@ -1404,12 +1404,18 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                          note="content withheld: free text outside the repair "
                               "vocabulary cannot be redacted with a guarantee"))
 
-    if redactor.hits:
-        rows.append(_row("REDACTED", occurrences=redactor.hits,
-                         note="values carrying an absolute path, catalogue id or "
-                              "media filename were replaced by a stable opaque "
-                              "token; the same input yields the same token"))
-
+    # LES CONTROLES DE CE RAPPORT DECLARENT S'ILS ONT SERVI.
+    #
+    # Meme discipline que pour les champs des producteurs, retournee sur moi.
+    # Un controle presente comme un succes avant d'avoir jamais rien attrape est
+    # exactement la marque ambre qui ne se dessine jamais: une absence lue comme
+    # une reponse. `0 redaction` ne dit PAS `rien a rediger` -- il dit `rien ne
+    # correspondait aux motifs`, et mes motifs ont deja rate un titre de serie
+    # qu'un chemin a espaces portait.
+    #
+    # Et le compte est PAR RENDU, pas historique: le journal ne porte ni build
+    # ni horodatage, donc ce rapport ne peut rien affirmer sur ses propres
+    # executions passees -- meme cellule `build_identity`, revenue encore.
     for gap in blank_cells(job, corpus):
         # UN ETAT QUI PEUT PERIMER SANS QUE PERSONNE NE TOUCHE AU CODE PORTE SA
         # PORTEE. Les six autres etats sont des proprietes du code et restent
@@ -1427,6 +1433,35 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                       "corpus and not of the code, and undatable "
                                       "from this record"}
                             if gap["state"] == NOT_EXERCISED else {})))
+    # LES CONTROLES SE DECLARENT EN DERNIER, APRES TOUT CE QU'ILS COUVRENT.
+    # Ecrits avant les lignes GAP, ils rapportaient un compte de redactions
+    # PRIS AVANT une partie du travail -- un controle qui publie un chiffre
+    # arrete plus tot que ce qu il mesure. Le defaut exact que je viens de
+    # decrire chez les autres, commis en l ecrivant.
+    rows.append(_row("CONTROL", _redactor=redactor, name="redaction",
+                     fired_on_this_render=redactor.hits,
+                     checks="absolute paths, catalogue ids and media filenames "
+                            "in emitted values, replaced by a stable opaque token",
+                     limit="pattern-based, and a pattern cannot survive text it "
+                           "does not own: a path containing spaces let a show "
+                           "title through, measured. The real control is that "
+                           "free text outside the repair vocabulary is never "
+                           "reproduced at all"))
+    rows.append(_row("CONTROL", _redactor=redactor, name="leak_assertion",
+                     fired_on_this_render=0,
+                     checks="the finished document is re-read and the render "
+                            "RAISES rather than corrects if anything survives",
+                     limit="it raises, so a zero here is the only outcome a "
+                           "reader can ever see -- this line records that the "
+                           "control ran, not that there was nothing to catch"))
+    rows.append(_row("CONTROL", _redactor=redactor, name="corpus_sanity",
+                     fired_on_this_render=0 if corpus else None,
+                     state=None if corpus else NOT_SUPPLIED,
+                     checks="a distinct-count can never exceed its population",
+                     limit="it passes on a WRONG count as readily as a right "
+                           "one: 15 and 16 both satisfy it, and 15 was the "
+                           "wrong unit. NEVER FIRED"))
+
     return rows
 
 
