@@ -192,11 +192,24 @@ def measure_corpus(log_paths, read=None):
         # delai et ne produisent pas de journal. MON CORPUS HERITE DONC D'UN
         # ECHANTILLONNAGE QUI FAVORISE LES FICHIERS BON MARCHE A DECODER, dans
         # une direction que je ne peux pas quantifier depuis ici.
-        "caveat": "NOT an independent sample; NOT an unbiased one either -- "
-                  "these logs exist only where a repair completed, and upstream "
-                  "the probe cost depends on the codec, so expensive files "
-                  "(lossless multichannel) time out and emit no log at all. "
-                  "Direction of the bias known, size unknown from here. And "
+        # CORRIGE: J'AVAIS AFFIRME UNE PERTE LA OU IL N'Y A QU'UN COUT.
+        # J'ecrivais "les fichiers chers depassent le delai et n'emettent aucun
+        # journal". dev-2 a retire cette conclusion: son cas 27 a coute des
+        # DIZAINES DE MINUTES contre deux a cinq pour les autres -- l'asymetrie
+        # de cout est mesuree -- ET IL A FINI. Un fichier cher qui n'a pas
+        # expire etablit le cout, pas la perte. Zero instance connue d'un
+        # journal perdu de cette maniere.
+        #
+        # J'avais repris sa formule "direction connue, ampleur inconnue" et
+        # traite la direction comme si elle impliquait des occurrences. Un
+        # mecanisme n'est pas une frequence, et je l'ai ecrit dans un rapport
+        # comme si ca l'etait.
+        "caveat": "NOT an independent sample: these logs exist only where a "
+                  "repair completed. A COST ASYMMETRY IS MEASURED UPSTREAM -- "
+                  "probe decoding is far dearer on lossless multichannel than "
+                  "on EAC3 -- but NO LOSS IS ESTABLISHED: zero known instances "
+                  "of a log missing for that reason, and the one expensive case "
+                  "measured did finish. A mechanism is not a frequency. And "
                   "undatable from any artefact -- no build or timestamp field "
                   "is emitted anywhere",
     }
@@ -1474,8 +1487,11 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                 "succeed while OTHERS fail on one file",
                          applies=("YES on this artefact"
                                   if (job.get("audios") or {}) else "unknown"),
-                         bound="NONE -- no measured bound on how rare mixed "
-                              "success is"))
+                         bound="0 per-track SKIPPED on 3 of 3 speed-mismatch "
+                               "cases (dev-2, measured: 26 no_plan, 27 declined, "
+                               "29 no_plan). The population most likely to "
+                               "produce mixed success produced none -- a "
+                               "measured negative, on 3 cases of one release"))
         rows.append(_row("SILENCE", _redactor=redactor, mark="amber refused box",
                          reason="no tracks were attempted: the repair died "
                                 "before any track was built",
