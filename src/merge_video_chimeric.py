@@ -810,7 +810,27 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     fill_short_by_ms = None
     if fill == "master" and master_audio != None and "Duration" in master_audio:
         try:
-            fill_source_ms = Decimal(str(master_audio["Duration"])) * Decimal("1000")
+            # UN POINT DE FIN MOINS UNE DUREE N'EST PAS UN MANQUE.
+            #
+            # `master_end_ms` est une POSITION sur la timeline du maitre, qui
+            # commence a zero. `Duration` de mediainfo est une DUREE -- mesure de
+            # `vmsam-forensic`: sur un flux demarrant a 1.103 s, Duration vaut
+            # 1439.949 contre un span de 1439.926, soit la longueur de la
+            # derniere trame, et PAS l'endpoint 1441.029. mediainfo expose le
+            # decalage separement, en `Delay`.
+            #
+            # Soustraire l'une de l'autre ajoute donc le DECALAGE PROPRE de la
+            # piste au manque rapporte. MESURE SUR UN MAITRE REEL:
+            #     en  Delay 0.005  Duration 1441.984  -> finit a 1441.989
+            #     ja  Delay 0.983  Duration 1439.997  -> finit a 1440.980
+            #     de  Delay 1.007  Duration 1440.980  -> finit a 1441.987
+            # CES PISTES FINISSENT ENSEMBLE ET COMMENCENT DECALEES. Comparer les
+            # seules Duration declare ja court de 1.99 s alors qu'il finit 1.0 s
+            # avant en. L'erreur vaut le Delay, soit ici une seconde -- le meme
+            # ordre qu'un residu fantome qui a ete cru par trois agents a la fois.
+            delay_ms = Decimal(str(master_audio.get("Delay", 0) or 0)) * Decimal("1000")
+            fill_source_ms = (Decimal(str(master_audio["Duration"])) * Decimal("1000")
+                              + delay_ms)
             furthest = max((p["master_end_ms"] for p in pieces
                             if p["source"] == "master"), default=None)
             if furthest != None and furthest > fill_source_ms:
