@@ -995,6 +995,35 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                                  attribution="inferred, not stated by the log",
                                  check=borrow["agreement"]))
 
+        # LA TETE, ET SES TROIS ETATS. Champ obtenu apres que j'ai depose
+        # `container_start_time`: `head_pad_ms=0` couvrait `pas de decalage`,
+        # `non mesure` et `un decalage que le plan lit par-dessus` avec un seul
+        # chiffre. dev-2 a scinde le champ; les trois se disent maintenant.
+        # Le champ ABSENT reste distinct des trois -- l'assemblage precede le
+        # champ -- et c'est le quatrieme etat, pas un zero.
+        head_pad = fields.get("head_pad")
+        if head_pad:
+            counts = {}
+            for piece in plain(head_pad).split(","):
+                name, _, value = piece.partition("=")
+                if name.strip():
+                    counts[name.strip()] = value.strip()
+            rows.append(_row("HEAD", _redactor=redactor, track=order,
+                             head_pad_ms=fields.get("head_pad_ms"),
+                             none=counts.get("none"), padded=counts.get("padded"),
+                             read_past=counts.get("read_past"),
+                             unreported=counts.get("unreported"),
+                             note="read_past is a real container offset the plan "
+                                  "reads over: it costs no padding and used to "
+                                  "print the same zero as no offset at all"))
+        else:
+            rows.append(_row("HEAD", _redactor=redactor, track=order,
+                             head_pad_ms=fields.get("head_pad_ms"),
+                             breakdown_state=ABSENT_FORMAT,
+                             note="this assembly predates the per-piece head "
+                                  "breakdown, so head_pad_ms=0 here still covers "
+                                  "three states with one digit"))
+
         # s3.3: UNE etiquette pour toute la piste. Quand les regions portent des
         # decalages differents, on le DIT plutot que de laisser l'etiquette
         # passer pour une propriete de chaque region.
@@ -1203,11 +1232,26 @@ def blank_cells(job):
         # corpus -- couvre deux etats: le conteneur n'a pas de decalage, et le
         # conteneur en a un que le plan lit par-dessus. On ne peut pas inverser
         # le champ pour retrouver la quantite.
-        "detail": "no start_time, Delay or container-offset key is emitted. "
-                  "head_pad_ms is a one-sided derivative clamped at zero, so "
-                  "head_pad_ms=0 means EITHER no container offset OR an offset "
-                  "the plan reads past -- it cannot be inverted. A constant "
-                  "off-grid phase in the offsets cannot be explained without it"})
+        # LA MOITIE DE CETTE CELLULE A ETE COMBLEE PAR SON PRODUCTEUR et on le
+        # dit, plutot que de laisser la cellule inchangee ou de la supprimer.
+        # L'AMBIGUITE que j'avais filee -- un zero pour trois etats -- est
+        # resolue par `head_pad=`. LA GRANDEUR ne l'est pas: aucun champ ne
+        # porte le `start_time` du conteneur en millisecondes, donc une phase
+        # constante hors grille reste inexplicable a partir de ce journal.
+        "detail": ("the AMBIGUITY is resolved: head_pad= now separates none, "
+                   "padded and read_past, so a zero no longer covers three "
+                   "states. The MAGNITUDE is still not emitted -- no start_time, "
+                   "Delay or container-offset key exists -- so a constant "
+                   "off-grid phase in the offsets still cannot be explained "
+                   "from this record"
+                   if any((job.get("audios") or {}).get(order, {}).get("head_pad")
+                          for order in (job.get("audios") or {}))
+                   else
+                   "no start_time, Delay or container-offset key is emitted. "
+                   "head_pad_ms is a one-sided derivative clamped at zero, so "
+                   "head_pad_ms=0 means EITHER no container offset OR an offset "
+                   "the plan reads past -- it cannot be inverted. A constant "
+                   "off-grid phase in the offsets cannot be explained without it")})
     entries.append({
         "quantity": "build_identity",
         "state": NO_PRODUCER,
@@ -1381,17 +1425,35 @@ def render_svg(records):
         body.append(_text(left, y + 10, head, faint, 10))
 
         # --- les regions sans correspondance: ambre, pointille ---------------
+        # LA HAUTEUR EST LE POIDS VISUEL LE PLUS FORT SUR UNE TIMELINE, et je
+        # l'avais entierement donne a l'ambre: des boites pointillees pleine
+        # hauteur pesaient plus que les regles et l'oeil tombait dessus en
+        # premier. La geometrie etait juste et LA HIERARCHIE ETAIT INVERSEE --
+        # ses images donnent la figure aux REGLES, avec de petites boites.
+        # Trouve sur un rendu par l'architecte; je ne pouvais pas le voir.
+        #
+        # On garde donc l'ETENDUE dans un aplat tres faible -- la region est
+        # bien la, sur toute la hauteur -- et on ne met le pointille que sur une
+        # bande courte. La position ne bouge pas, le poids revient aux regles.
+        band = 18
+        band_y = panel_top + max(0.0, (stair - band) / 2)
         for fields in filled:
             x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
             body.append(f'<rect x="{x0:.1f}" y="{panel_top:.1f}" '
                         f'width="{max(2.0, x1 - x0):.1f}" height="{stair:.1f}" '
+                        f'fill="{amber}" fill-opacity="0.05" stroke="none"/>')
+            body.append(f'<rect x="{x0:.1f}" y="{band_y:.1f}" '
+                        f'width="{max(2.0, x1 - x0):.1f}" height="{band}" '
                         f'fill="none" stroke="{amber}" stroke-width="1" '
                         f'stroke-dasharray="4 3"/>')
-            if x1 - x0 > 74:
-                body.append(_text((x0 + x1) / 2, panel_top + stair / 2 - 3,
-                                  "aucune", amber, 10, "middle"))
-                body.append(_text((x0 + x1) / 2, panel_top + stair / 2 + 9,
-                                  "correspondance", amber, 10, "middle"))
+            if x1 - x0 > 108:
+                body.append(_text((x0 + x1) / 2, band_y + 12,
+                                  "aucune correspondance", amber, 9, "middle"))
+            elif x1 - x0 > 34:
+                body.append(_text((x0 + x1) / 2, band_y + band + 11,
+                                  "aucune", amber, 9, "middle"))
+                body.append(_text((x0 + x1) / 2, band_y + band + 21,
+                                  "correspondance", amber, 9, "middle"))
 
         # --- les coupes: regles saumon pleine hauteur, la marque dominante ----
         # Une coupe retire du materiau du CANDIDAT; sur la timeline du MAITRE
@@ -1412,6 +1474,19 @@ def render_svg(records):
             x = x_of(boundary)
             body.append(f'<line x1="{x:.1f}" y1="{panel_top - 4:.1f}" x2="{x:.1f}" '
                         f'y2="{panel_bottom:.1f}" stroke="{salmon}" stroke-width="1.6"/>')
+            # UNE VALEUR ET SON ABSENCE NE DOIVENT PAS IMPRIMER LE MEME JETON --
+            # et au-dessus d'une regle le jeton de l'absence etait DU BLANC. Les
+            # coupes de tete et de queue n'ont pas de pas, rien ne les encadre,
+            # donc elles n'ont a juste titre pas de nombre; mais une regle sans
+            # rien au-dessus se lit comme une etiquette MANQUANTE et non comme un
+            # silence voulu. C'est la regle de la campagne arrivant dans un
+            # dessin, et il a fallu un rendu pour la voir.
+            if not any(_trim(Decimal(f["at_master_ms"])) == _trim(boundary)
+                       for f in steps.get(number, [])):
+                body.append(f'<circle cx="{x:.1f}" cy="{panel_top - 14:.1f}" r="2" '
+                            f'fill="none" stroke="{salmon}" stroke-width="1">'
+                            f'<title>pas de pas ici : coupe de tete ou de queue, '
+                            f'rien ne l\u0027encadre</title></circle>')
 
         # LE NOMBRE SAUMON EST LE PAS DE DECALAGE A TRAVERS LA COUPE, et pas la
         # duree jetee. Mesure sur les deux images du proprietaire: quatre de ses
