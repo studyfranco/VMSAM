@@ -1942,7 +1942,10 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             same = [p["lag_ms"] for p in measured if p["piece"] == index]
             if len(same) > 1 and (max(same) - min(same)) > tolerance_ms:
                 inconsistent.append({"piece": index, "spread_ms": max(same) - min(same),
-                                     "lags_ms": same})
+                                     "lags_ms": same,
+                                     "correlations": [round(p["correlation"], 4)
+                                                      for p in measured
+                                                      if p["piece"] == index]})
         if len(inconsistent):
             # CE NOMBRE N'EST PAS LA TAILLE DE LA MARCHE MANQUEE, et il se lit
             # comme si c'en etait une.
@@ -1961,9 +1964,29 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             # amplitude n'est PAS une mesure de cette frontiere. La meme classe a
             # ete trouvee le meme jour dans la barre d'appariement du locator,
             # ou une sonde a cheval a fait refuser un fichier entier.
+            # LA CORRELATION DE CHAQUE SONDE, DANS LE DESACCORD LUI-MEME.
+            #
+            # MECANISME REPRODUIT sur id 120, aux positions exactes du
+            # verificateur:
+            #     piece 6 @ 1340000 ms   lag    0.375   r 0.9521
+            #     piece 6 @ 1411972 ms   lag -959.625   r 0.6228
+            # La seconde sonde est LES VINGT DERNIERES SECONDES DU FICHIER, a
+            # moitie moins de signal. Son pic est SPURIEUX, et le verdict --
+            # max(abs(lag)) -- la traite exactement comme la sonde a 0.95.
+            # Le profil dense du fichier produit ne trouve AUCUNE marche, sur
+            # aucune piste mesurable: CE REFUS EST FAUX.
+            #
+            # Il y a un plancher de RMS et AUCUN plancher de CORRELATION. Je n'en
+            # pose pas un: je n'ai aucune population pour cette mesure-ci, et
+            # importer les 0.85 de l'appariement de flux serait la faute de
+            # ressemblance de nom refusee trois fois aujourd'hui.
+            #
+            # On MONTRE donc les correlations dans le desaccord. Un lecteur voit
+            # que l'ecart repose sur une sonde a 0.62.
             detail = "; ".join(
                 f"piece {c['piece']} probes disagree by {c['spread_ms']:.1f} ms "
-                f"{c['lags_ms']} (SPREAD, NOT THE SIZE OF THE MISSED STEP: a "
+                f"{c['lags_ms']} r={c['correlations']} (SPREAD, NOT THE SIZE OF "
+                f"THE MISSED STEP: a "
                 f"window straddling a boundary returns a displaced peak, so this "
                 f"establishes THAT a boundary lies between the probes and not "
                 f"how large it is)" for c in inconsistent)
