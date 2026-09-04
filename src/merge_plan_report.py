@@ -834,6 +834,29 @@ def lost_reference_frame(ratio):
             f"ratio={ratio}")
 
 
+def seconds_fr(ms, decimals, signed=True):
+    """Une duree en SECONDES, virgule decimale, comme le proprietaire les lit.
+
+    Sa locale est francaise et il lit ces figures: `-22,815 s`, jamais
+    `-22.815 s`. Le point decimal n'est pas un detail de style ici, c'est un
+    nombre qui se lit de travers.
+
+    CONVENTION DE SIGNE, et elle est declaree plutot que subie: la valeur
+    AFFICHEE est l'oppose du decalage emis. Un `offset_ms` positif veut dire que
+    le candidat est lu PLUS TARD que le maitre, donc qu'il faut l'avancer -- un
+    retard NEGATIF au sens ou la figure les ecrit. Le champ affiche est emis
+    dans les LIGNES a cote du champ brut, pour que le nombre du dessin existe
+    dans le texte: sinon la figure porterait une valeur qu'aucune ligne ne dit.
+    """
+    if ms is None:
+        return None
+    value = Decimal(str(ms)) / Decimal("1000")
+    if signed:
+        value = -value
+    quantised = value.quantize(Decimal("1." + "0" * decimals))
+    return f"{quantised}".replace(".", ",")
+
+
 def borrow_provenance(job, stream_order):
     """EMPRUNTE A QUOI. `BORROWED` seul ne le dit pas.
 
@@ -914,6 +937,11 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     for caveat in n_caveat:
         rows.append(_row("CAVEAT", text=caveat))
 
+    rows.append(_row("CONVENTION", _redactor=redactor,
+                     displayed_offset="the negative of offset_ms, in seconds",
+                     reason="a candidate read later than the master must be "
+                            "advanced, which the figure writes as a negative delay",
+                     decimal_separator="comma (fr)"))
     rows.append(_row("PLAN", kind=plan.get("kind"), language=plan.get("language"),
                      quantum_ms=plan.get("quantum_ms"),
                      speed_margin=(Cell(plan["speed_margin"], PRESENT)
@@ -979,6 +1007,9 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                                  candidate_end=clock(region["candidate_end_ms"]),
                                  dropped_ms=("UNMEASURED" if region["dropped_unmeasured"]
                                              else _trim(region["dropped_ms"])),
+                                 # LE NOMBRE DU DESSIN EXISTE DANS LE TEXTE.
+                                 dropped_s=(None if region["dropped_unmeasured"]
+                                            else seconds_fr(region["dropped_ms"], 1)),
                                  where=region["where"]))
                 continue
             rows.append(_row("REGION", track=order, seq=index, kind=region["kind"],
@@ -986,7 +1017,11 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                              master_end_ms=_trim(region["master_end_ms"]),
                              master_start=clock(region["master_start_ms"]),
                              master_end=clock(region["master_end_ms"]),
-                             source=region["source"], offset_ms=region["offset"]))
+                             source=region["source"], offset_ms=region["offset"],
+                             offset_s=(seconds_fr(region["offset"].value, 3)
+                                       if region["offset"].state in (PRESENT, DERIVED)
+                                       and region["offset"].value not in (None, "n/a")
+                                       else None)))
 
     for fields in job.get("subtitles") or []:
         rows.append(_row("SUBTITLE", track=fields.get("stream_order"),
@@ -1163,13 +1198,50 @@ def _x(value, span, width):
     return float(Decimal(str(value)) / span) * width
 
 
-def render_svg(records):
-    """s4g: la timeline du maitre avec HORODATAGES, une barre par segment a son
-    decalage, les regions perdues en ROUGE AU-DESSUS des valeurs de decalage, et
-    TOUTE valeur de decalage utilisee.
+def _text(x, y, content, fill, size=11, anchor="start", extra=""):
+    return (f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" fill="{fill}" '
+            f'text-anchor="{anchor}"{extra}>{_escape(content)}</text>')
 
-    Ecrit a la main, en balises. Pas de bibliotheque, pas de `<script>`, pas de
-    `<img>`, aucune fonte distante: le conteneur n'a pas de garantie de reseau.
+
+def _geometry_key(regions):
+    """Deux pistes ont la MEME geometrie quand leurs decalages par region sont
+    identiques chiffre pour chiffre. C'est ce qui distingue une mesure d'un
+    emprunt sans lire une etiquette."""
+    return tuple((f.get("master_start_ms"), f.get("offset_s") or f.get("offset_ms_state"))
+                 for f in regions)
+
+
+def render_svg(records):
+    """LA FIGURE QUE LE PROPRIETAIRE A DESSINEE, sur ses propres octets.
+
+    Fond sombre, aucune grille, aucune legende, aucun chrome. UN axe fin en bas
+    portant `0` et le total. Des REGLES SAUMON pleine hauteur a chaque coupe --
+    la marque dominante: l'oeil lit LES COUPES d'abord. Des BARRES BLEU PALE,
+    une par segment apparie, a leur vraie place et largeur, ET DECALEES VERS LE
+    BAS EN ESCALIER. Des RECTANGLES AMBRE POINTILLES la ou rien ne correspond,
+    avec `aucune correspondance` dessous.
+
+    L'escalier fait un vrai travail: des segments consecutifs a des hauteurs
+    differentes se suivent COMME UNE FORME. Ma premiere version mettait chaque
+    region sur une seule ligne par piste -- exact, et cela se lisait comme un
+    TABLEAU. Le proprietaire a rejete la figure et pas les nombres.
+
+    VIRGULE DECIMALE. Il lit ces figures et sa locale est francaise.
+
+    -- LE PROBLEME DE CONCEPTION: SES DEUX IMAGES DESSINENT UNE PISTE, L'ARTEFACT
+       EN A SEPT --
+
+    Une copie litterale ne survit pas au compte de pistes. Et sept escaliers
+    seraient pires que lourds: sur a9111493 cinq pistes portent les decalages de
+    la piste 1 AU CHIFFRE PRES, donc la figure dessinerait six fois la meme forme
+    et AFFIRMERAIT SEPT MESURES LA OU DEUX ONT ETE PRISES.
+
+    Donc UN ESCALIER PAR GEOMETRIE DISTINCTE, et les pistes qui empruntent
+    s'accrochent a l'escalier qu'elles empruntent, dans une marque differente et
+    nommee. L'exigence qui prime -- UN DECALAGE EMPRUNTE ET UN DECALAGE MESURE
+    NE DOIVENT PAS SE RESSEMBLER SUR L'AXE -- devient alors structurelle et non
+    decorative: on ne peut pas dessiner un emprunt comme une mesure parce qu'un
+    emprunt N'A PAS D'ESCALIER A LUI.
     """
     plan = next((f for k, f in records if k == "PLAN"), None)
     if not plan or not plan.get("master_end_ms"):
@@ -1178,106 +1250,204 @@ def render_svg(records):
                 'this format emitted.</p>')
     span = Decimal(plan["master_end_ms"])
 
-    tracks = []
+    tracks, regions, lost, borrows = [], {}, {}, {}
     for kind, fields in records:
         if kind == "TRACK" and fields.get("kind") == "audio":
-            tracks.append(fields["track"])
-    regions = {}
-    lost = {}
-    for kind, fields in records:
-        if kind == "REGION":
+            tracks.append(fields)
+        elif kind == "REGION":
             regions.setdefault(fields["track"], []).append(fields)
         elif kind == "LOST":
             lost.setdefault(fields["track"], []).append(fields)
+        elif kind == "BORROW":
+            borrows[fields["track"]] = fields
 
-    left, right, width = 78, 18, 916
+    # Regrouper par geometrie. L'ordre de premiere apparition tient lieu d'ordre.
+    groups = []
+    for track in tracks:
+        key = _geometry_key(regions.get(track["track"], []))
+        for group in groups:
+            if group["key"] == key:
+                group["tracks"].append(track)
+                break
+        else:
+            groups.append({"key": key, "tracks": [track]})
+
+    ink, paper = "#c6ccd4", "#0f1115"
+    salmon, blue, bar_blue, amber, faint = ("#e8836b", "#8fbcd4", "#a3cadd",
+                                            "#c9a227", "#6f7681")
+    left, right, width = 44, 44, 1080
     plot = width - left - right
-    lost_band, label_band, bar_height, spacer = 16, 15, 24, 20
-    block = lost_band + label_band + bar_height + spacer
-    top, axis = 26, 34
-    height = top + block * max(1, len(tracks)) + axis
+    top = 48
 
-    out = [f'<svg viewBox="0 0 {width} {height}" width="100%" '
-           f'style="max-width:{width}px;height:auto" role="img" '
-           f'aria-label="master timeline, one row per audio track">',
-           '<title>Master timeline: every region and every offset used</title>']
+    def x_of(value):
+        return left + float(Decimal(str(value)) / span) * plot
 
-    # Graduations, en TEMPS. Un axe en millisecondes brutes n'est pas un
-    # horodatage, et s4g demande des horodatages.
-    ticks = 8
-    for index in range(ticks + 1):
-        position = span * index / ticks
-        x = left + _x(position, span, plot)
-        out.append(f'<line x1="{x:.1f}" y1="{top}" x2="{x:.1f}" '
-                   f'y2="{height - axis + 6:.0f}" stroke="var(--grid)" '
-                   f'stroke-width="1"/>')
-        out.append(f'<text x="{x:.1f}" y="{height - axis + 20:.0f}" '
-                   f'font-size="10" fill="var(--faint)" text-anchor="middle">'
-                   f'{clock(position)}</text>')
+    # --- L'INFO DU PLAN, demandee explicitement. Discrete, jamais du chrome. --
+    # `kind=piecewise_constant` avec `quantum_ms=129` est exactement ce qui
+    # explique POURQUOI l'escalier a la forme qu'il a: un plan constant par
+    # morceaux descend par paliers, un plan constant serait une seule marche.
+    # Rien de tout cela n'atteignait le dessin.
+    body = []
+    plan_line = (f"plan : {plan.get('kind')} \u00b7 langue de mesure "
+                 f"{plan.get('language')} \u00b7 quantum {plan.get('quantum_ms')} ms \u00b7 "
+                 f"{plan.get('pieces')} morceaux \u00b7 duree maitre "
+                 f"{plain(plan.get('master_end')) or '?'}")
+    if plan.get("speed_margin_state"):
+        # s4f: la marge par laquelle la transformation gagnante l'a emporte.
+        # AUCUN PRODUCTEUR. On nomme le sujet et on marque la valeur manquante
+        # -- on ne laisse pas un blanc se lire comme une marge nulle, qui serait
+        # deux hypotheses a egalite.
+        plan_line += " \u00b7 marge de vitesse : NON EMISE"
+    body.append(_text(left, top - 18, plan_line, faint, 10))
+    y = top + 4
 
-    for row_index, track in enumerate(tracks):
-        base = top + block * row_index
-        bars_y = base + lost_band + label_band
-        out.append(f'<text x="0" y="{bars_y + 16:.0f}" font-size="11" '
-                   f'fill="var(--ink)">track {_escape(track)}</text>')
+    for group in groups:
+        lead = next((t for t in group["tracks"]
+                     if not (plain(t.get("offset")) or "").startswith("BORROWED")),
+                    group["tracks"][0])
+        number = lead["track"]
+        mine = regions.get(number, [])
+        candidates = [f for f in mine if f.get("kind") == "CANDIDATE"]
+        filled = [f for f in mine if f.get("kind") in ("MASTER", "SILENCE", "MASTER?")]
+        others = [t for t in group["tracks"] if t["track"] != number]
 
-        for fields in regions.get(track, []):
-            start = Decimal(fields["master_start_ms"])
-            end = Decimal(fields["master_end_ms"])
-            x = left + _x(start, span, plot)
-            bar = max(1.0, _x(end - start, span, plot))
-            colour = {"CANDIDATE": "var(--candidate)", "MASTER": "var(--master)",
-                      "SILENCE": "var(--silence)"}.get(fields.get("kind"),
-                                                       "var(--faint)")
-            out.append(f'<rect x="{x:.1f}" y="{bars_y}" width="{bar:.1f}" '
-                       f'height="{bar_height}" fill="{colour}"/>')
-            # LA VALEUR DU DECALAGE, ECRITE. s4g la demande explicitement, et
-            # une barre a la bonne place ne la dit pas.
-            offset = fields.get("offset_ms")
-            if offset and offset != "n/a":
-                mark = "~" if fields.get("offset_ms_state") == "derived" else ""
-                out.append(f'<text x="{x + bar / 2:.1f}" y="{bars_y - 4:.0f}" '
-                           f'font-size="10" fill="var(--ink)" '
-                           f'text-anchor="middle">{mark}{_escape(offset)} ms</text>')
-            elif fields.get("offset_ms_state"):
-                out.append(f'<text x="{x + bar / 2:.1f}" y="{bars_y - 4:.0f}" '
-                           f'font-size="10" fill="var(--lost)" '
-                           f'text-anchor="middle">no offset emitted</text>')
+        panel_top = y + 16
+        step = 30 if len(candidates) < 8 else max(14, int(200 / max(1, len(candidates))))
+        stair = max(1, len(candidates)) * step
+        panel_bottom = panel_top + stair + 10
+        master_bar_y = panel_bottom + 4
+        panel_end = master_bar_y + 16 + (12 * len(others))
 
-        # LES REGIONS PERDUES, EN ROUGE, AU-DESSUS DES VALEURS DE DECALAGE.
-        # Elles vivent sur la timeline DU CANDIDAT; on les dessine a leur point
-        # d'insertion cote maitre, a la meme echelle, pour que leur AMPLEUR se
-        # compare a ce qui a ete garde. Le rapport le dit en toutes lettres --
-        # une longueur dessinee sur un axe qui n'est pas le sien doit s'annoncer.
-        candidates = [f for f in regions.get(track, []) if f.get("kind") == "CANDIDATE"]
-        for fields in lost.get(track, []):
+        # --- l'en-tete: le plan, la piste, et si elle a ete acceleree ---------
+        speed = plain(lead.get("speed")) or ""
+        resampled = not speed.lower().startswith("none")
+        head = (f"piste {number} · {lead.get('lang')} · "
+                f"{'mesuree' if not (plain(lead.get('offset')) or '').startswith('BORROWED') else 'EMPRUNTEE'}")
+        if resampled:
+            # s4f: on dit QUE la piste a ete reechantillonnee, et on marque la
+            # confiance MANQUANTE. `speed_ratio_applied` est emis,
+            # `speed_margin` n'a AUCUN PRODUCTEUR: on n'omet pas le fait parce
+            # que la moitie manque, et on n'imprime pas la moitie manquante
+            # comme si c'etait une valeur.
+            head += f" · ACCELEREE ×{speed} · marge de victoire : NON EMISE"
+        else:
+            head += " · non acceleree"
+        if lead.get("verify"):
+            head += f" · verification {plain(lead['verify'])}"
+        body.append(_text(left, y + 10, head, faint, 10))
+
+        # --- les regions sans correspondance: ambre, pointille ---------------
+        for fields in filled:
+            x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
+            body.append(f'<rect x="{x0:.1f}" y="{panel_top:.1f}" '
+                        f'width="{max(2.0, x1 - x0):.1f}" height="{stair:.1f}" '
+                        f'fill="none" stroke="{amber}" stroke-width="1" '
+                        f'stroke-dasharray="4 3"/>')
+            if x1 - x0 > 74:
+                body.append(_text((x0 + x1) / 2, panel_top + stair / 2 - 3,
+                                  "aucune", amber, 10, "middle"))
+                body.append(_text((x0 + x1) / 2, panel_top + stair / 2 + 9,
+                                  "correspondance", amber, 10, "middle"))
+
+        # --- les coupes: regles saumon pleine hauteur, la marque dominante ----
+        # Une coupe retire du materiau du CANDIDAT; sur la timeline du MAITRE
+        # c'est un EVENEMENT SANS LARGEUR. On trace donc UNE regle a son point
+        # d'insertion et on ecrit son ampleur, plutot que de dessiner une
+        # longueur sur un axe qui n'est pas le sien.
+        for index, fields in enumerate(lost.get(number, [])):
             where = fields.get("where")
             if where == "head" and candidates:
                 boundary = Decimal(candidates[0]["master_start_ms"])
             elif where == "tail" and candidates:
                 boundary = Decimal(candidates[-1]["master_end_ms"])
             else:
-                index = [f for f in lost.get(track, [])
-                         if f.get("where") == "interior"].index(fields)
-                boundary = (Decimal(candidates[index]["master_end_ms"])
-                            if index < len(candidates) else span)
-            dropped = fields.get("dropped_ms")
-            x = left + _x(boundary, span, plot)
-            if dropped == "UNMEASURED" or dropped is None:
-                out.append(f'<text x="{x:.1f}" y="{base + 11}" font-size="10" '
-                           f'fill="var(--lost)" text-anchor="middle">'
-                           f'lost, extent UNMEASURED</text>')
-                continue
-            rule = max(2.0, _x(Decimal(dropped), span, plot))
-            out.append(f'<rect x="{x - rule / 2:.1f}" y="{base + 4}" '
-                       f'width="{rule:.1f}" height="4" fill="var(--lost)"/>')
-            out.append(f'<line x1="{x:.1f}" y1="{base + 8}" x2="{x:.1f}" '
-                       f'y2="{bars_y - 13:.0f}" stroke="var(--lost)" '
-                       f'stroke-width="1" stroke-dasharray="2 2"/>')
-            out.append(f'<text x="{x:.1f}" y="{base + 2}" font-size="9" '
-                       f'fill="var(--lost)" text-anchor="middle">'
-                       f'-{_escape(dropped)} ms</text>')
+                inner = [f for f in lost.get(number, []) if f.get("where") == "interior"]
+                position = inner.index(fields) if fields in inner else 0
+                boundary = (Decimal(candidates[position]["master_end_ms"])
+                            if position < len(candidates) else span)
+            x = x_of(boundary)
+            body.append(f'<line x1="{x:.1f}" y1="{panel_top - 4:.1f}" x2="{x:.1f}" '
+                        f'y2="{panel_bottom:.1f}" stroke="{salmon}" stroke-width="1.6"/>')
+            dropped = fields.get("dropped_s")
+            if dropped:
+                anchor = "middle"
+                at = x
+                if x < left + 40:
+                    anchor, at = "start", left
+                elif x > left + plot - 40:
+                    anchor, at = "end", left + plot
+                body.append(_text(at, panel_top - 10, f"{dropped} s", salmon, 11, anchor))
 
+        # --- l'escalier: une barre par segment apparie, decalee vers le bas ---
+        for index, fields in enumerate(candidates):
+            x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
+            bar_y = panel_top + index * step + 4
+            body.append(f'<rect x="{x0:.1f}" y="{bar_y:.1f}" '
+                        f'width="{max(2.0, x1 - x0):.1f}" height="12" '
+                        f'fill="{bar_blue}"/>')
+            offset = fields.get("offset_s")
+            if not offset:
+                body.append(_text(x1 + 6, bar_y + 10, "decalage non emis", salmon, 10))
+                continue
+            # `s` sur la PREMIERE etiquette d'une serie, puis abandonnee: c'est
+            # ce qu'il a dessine.
+            label = f"{offset} s" if index == 0 else offset
+            span_px = x1 - x0
+            estimate = len(label) * 6.4
+            if span_px > estimate + 16:
+                body.append(_text((x0 + x1) / 2, bar_y - 3, label, blue, 11, "middle"))
+            elif x1 + 8 + estimate < left + plot:
+                body.append(_text(x1 + 8, bar_y + 10, label, blue, 11))
+            else:
+                body.append(_text(x0 - 8, bar_y + 10, label, blue, 11, "end"))
+
+        # --- LA BARRE EN PLUS: ce qui a ete RAJOUTE DU MAITRE, et d'ou --------
+        # Nommee par le proprietaire comme ce qu'il aime. Et la langue REELLE de
+        # remplissage est la plus revelatrice de l'artefact: six pistes disant
+        # `master/ja` et une disant `master/fr` est le remplissage inter-langue
+        # de SPEC_ZONE_A s4c qui se produit sous les yeux du lecteur.
+        sources = []
+        for fields in filled:
+            x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
+            body.append(f'<rect x="{x0:.1f}" y="{master_bar_y:.1f}" '
+                        f'width="{max(2.0, x1 - x0):.1f}" height="7" fill="{amber}" '
+                        f'fill-opacity="0.75"/>')
+            name = plain(fields.get("source")) or fields.get("source_state")
+            if name and name not in sources:
+                sources.append(name)
+        body.append(_text(left, master_bar_y + 20,
+                          "rajoute du maitre : " + (" · ".join(sources) or "rien"),
+                          amber, 10))
+
+        # --- les pistes qui EMPRUNTENT cette geometrie ------------------------
+        for index, other in enumerate(others):
+            strip = master_bar_y + 28 + index * 12
+            borrow = borrows.get(other["track"], {})
+            body.append(f'<rect x="{left:.1f}" y="{strip:.1f}" width="{plot:.1f}" '
+                        f'height="6" fill="none" stroke="{faint}" stroke-width="1" '
+                        f'stroke-dasharray="3 3"/>')
+            detail = (f"piste {other['track']} · {other.get('lang')} · EMPRUNTE "
+                      f"cette geometrie · verification "
+                      f"{plain(other.get('verify')) or '?'}")
+            if borrow.get("check"):
+                detail += f" · {plain(borrow['check'])}"
+            body.append(_text(left + 6, strip + 5.5, detail, faint, 9))
+        y = panel_end + 18
+
+    # --- l'axe: un seul, fin, en bas. `0` et le total. Aucune graduation. -----
+    axis = y + 6
+    height = axis + 26
+    out = [f'<svg viewBox="0 0 {width} {height}" width="100%" '
+           f'style="max-width:{width}px;height:auto" role="img" '
+           f'aria-label="master timeline, one staircase per distinct geometry">',
+           '<title>merge_plan</title>',
+           f'<rect x="0" y="0" width="{width}" height="{height}" fill="{paper}"/>']
+    out.extend(body)
+    out.append(f'<line x1="{left}" y1="{axis:.1f}" x2="{left + plot}" '
+               f'y2="{axis:.1f}" stroke="{faint}" stroke-width="1"/>')
+    out.append(_text(left, axis + 18, "0", ink, 11))
+    out.append(_text(left + plot, axis + 18,
+                     f"{seconds_fr(span, 0, signed=False)} s", ink, 11, "end"))
     out.append('</svg>')
     return "\n".join(out)
 
