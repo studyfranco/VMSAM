@@ -13,6 +13,28 @@ pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
 What is left here is the part that stays true whatever machine you are on: **the ways
 a result can look sound and be worthless.** Each of these was paid for.
 
+**A figure without its denominator in the same row will be read at its most flattering
+scope by somebody who is not being careless.** Eight times in one night a true figure
+reached a reader with a population larger than it supported — worst-of-two-of-seven read
+as worst-of-seven, three files from one folder read as three files, one track of many
+read as every track, an availability sample read as a rate.
+
+**And the fix is not care at either end, because both ends behaved correctly.** The
+author leaves the blank; the reader fills it generously; *a blank invites the most
+impressive filling*. More caution in the wording would have caught none of the eight,
+and the readers were not being sloppy — they were doing what readers do.
+
+**So the denominator is a FIELD IN THE ARTEFACT, not a clause in the sentence.**
+`folder_hash` on every row, `is_plan_language` on every row — put there before the
+suspicion rather than after it. That is the only version that survives a tired reader at
+four in the morning, and every actor in this campaign was that reader at least once,
+including the one who wrote this rule.
+
+**Two consequences worth having.** *A bound stated in advance cannot be mistaken for an
+excuse when the number disappoints* — say the measurable population is small before the
+run produces a figure, not after. And the sentence that most reports never manage:
+**"consistent with the evidence and not yet supported by it."**
+
 **A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
 pieces of code — a guard, a refined measurement, a policy branch, an order check, a
 subtitle repair — that were written, reviewed and unit-tested green, and that nothing
@@ -101,6 +123,24 @@ one audio track rebuilt, whose subtitles carried the marker, and **whose audio t
 was the master's, correlating 1.0000 with it.** Forty-two measured repairs could not
 speak to it, because they measured tracks and the deliverable is a file.
 
+**When a finding is invalidated by a property of the METHOD rather than of the SUBJECT,
+every other finding from that method inherits the doubt.** Not "when it read dead text" —
+that names one incident. The general form covers a grep that cannot see the tree, a
+statistic that cannot express a shape, a query over one record structure, a harness
+reading a different metadata authority than production.
+
+**And the argument for running the sweep is not that it is cheap.** *The sweep found a
+real error in a published figure, and the error was 0.003.* A published band excluded one
+of its own nine members by that much — two decimals quoted for a figure needing three.
+**A method property produces a family of SMALL wrongnesses, not one large one**, and
+small wrongnesses are exactly what nobody goes looking for and what a successor finds
+first, before reasonably distrusting everything around them.
+
+**The check that catches the class before the sweep is needed:** *what would I have
+written if the evidence had come out the other way, and is that sentence in the set of
+sentences I was willing to write?* It aims at whether the conclusion was available before
+the evidence, which is a different question from whether anyone was careless.
+
 **A corpus file cannot isolate one variable, because everything else about it also
 differs. For *"does X alone cause Y"*, construct the case.** A container-offset
 hypothesis was first tested on a real corpus file drawn from the affected list; it
@@ -165,6 +205,28 @@ absent, forty lines after writing *"a grep is not a reading"* about frozen code
 reached through a proxy for reading it, is the same class as an audit reporting zero
 missing rows against a denominator it could not recover.** If the answer matters, open
 the file.
+
+**A constant disagreement between two instruments is a calibration difference. A
+position-dependent one is a measurement difference.** Two instruments differed by a
+constant 10.7 ms on control files — cancelling out of the quantity being measured, so
+they agreed to 0.03 ms — and by 4.4 to 7.1 ms *varying within the file* on three others,
+where it did not cancel. Those are two different facts and nobody separates them without
+running both instruments on the same files.
+
+**Compiling is not wiring, and signature-checking is not wiring either — it is one layer
+better.** A call passed an argument to a function that did not accept it: `py_compile`
+passed, **all four guard suites passed** because the suite stubs the assembler and never
+calls it with a plan, and a real run would have raised on every file. Caught by reading
+grep output and confirmed with `inspect.signature`, not by a recompile. And the limit of
+that check, stated by the agent that adopted it: **it verifies arity and names, not
+types** — a function returning zero still divides by zero at an unguarded call site.
+
+**Four of five defects in one night's harness work returned clean wrong answers; the one
+that crashed cost ten minutes.** A metadata authority mismatch, a stream-index
+convention, a switched-off diagnostic, a probe grid that could not see the head of a
+file — all silent, some wrong for hours, one of them producing a false finding. The
+guessed dictionary key raised immediately. **That ratio is the argument for mechanising
+the checks whose failure is silent, and it was measured rather than felt.**
 
 **A name that fits two objects will be read as the nearer one.** *"`b4c829d` carries
 dev-1's four locator commits and dev-2's three repair fixes"* — true of the **range**
@@ -246,6 +308,26 @@ guard above was the first; these are the family.
   argmax arbitrary. Six apparent desyncs, spreads to 3.7 s, were each **one deviant probe
   at near-noise correlation** against four agreeing exactly. Corrected: 0 of 48
   (`vmsam-ci`).
+- **A control tests whether an instrument gives the right answer. It cannot test
+  whether the instrument is a DIFFERENT instrument.** A third method was proposed to
+  settle a disagreement between two others, and a mandatory control was imposed so a
+  wrong method would be detectable. **The control would have passed** — the new method's
+  measurement step fell back to the first method's computation, so it agreed by
+  construction and would have returned one instrument's number as independent
+  confirmation of itself. **A method that reduces to another under the hood is invisible
+  to any agreement test; only reading what it computes catches it.** Found by writing the
+  thing: the design read as independent and the independence failed at the line where the
+  measurement happens.
+- **An empty diagnostic is not a clean diagnostic.** A debug flag was off, `_log` records
+  only when it is on, and two diagnostic passes produced verdicts with no diagnostics.
+  The silence was read as a result and a false finding was reported from it. **When a
+  diagnostic pass produces no diagnostics, that is the first thing to explain, not a
+  clean bill.**
+- **A verifier must reference a quantity the thing it verifies did not produce.** The
+  output check takes the master's video duration precisely because it is the only
+  candidate the repair did not compute; verifying against the plan's own last segment end
+  would **approve a truncated plan** — the control would agree with the defect. This is
+  the positive form of the whole family: it says what to do rather than what to avoid.
 - **A control that passes when its input is absent is not a control.** A guard reading
   a clock file permits when the file is missing or unreadable; an audit reports zero
   missing against a denominator it could not recover. Named three times in one day by

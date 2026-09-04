@@ -76,6 +76,25 @@ audio is extracted — every correlation then rests on it. Both now log under
 `tools.dev` and re-raise `KeyboardInterrupt` / `SystemExit`. If those log lines ever
 appear in a run, that is a finding.
 
+### The suites cannot see a join, and that was demonstrated twice in one evening
+
+**§2 exists because five pieces of code were written, reviewed and unit-tested green
+while nothing called them.** Two instances arrived the same night, from the other side of
+the same seam, and both were caught by reading rather than by any test:
+
+- A call passed `reference_stream` to a function that did not accept it. `py_compile`
+  passed and **all four guard suites passed**, because the suite stubs the assembler and
+  never calls it with a plan. **Production would have called it and raised on every
+  file.**
+- `verify_output_file` was **defined, tested, and never called** — in the function whose
+  entire purpose is to stop unnoticed nothing-happened. Found by grepping for the call
+  site.
+
+**A unit test calls the function directly, which production did not; a guard suite stubs
+the boundary, which production does not.** Both failures live at the join, and neither
+kind of test is built to see one. **Check cross-module calls by signature, not by
+compile** — and know that signature-checking verifies arity and names, not types.
+
 ## 3b. The reconciliation window is a coarse sort, and it must say so in quanta
 
 **The `< 127` comparison is stage one of two, by design.** The owner's framing: the

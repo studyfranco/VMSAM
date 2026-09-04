@@ -375,6 +375,15 @@ Send it to the architect, who carries it to the owner. Each one carries:
   master is the timeline. Same observation, and it settles nothing about the defect
   next to it.
 
+**When one of your findings turns out to have been invalidated by a property of your
+METHOD, re-check every other finding that used it.** Not the ones that share a subject —
+the ones that share the instrument. A grep that cannot see a syntax tree, a query over
+one record structure, a harness reading a different metadata authority than production:
+each produces a FAMILY of small wrongnesses, and the family is invisible until someone
+sweeps it. One such sweep this campaign found a published band excluding one of its own
+members by 0.003 — nobody would have gone looking for that, and a successor would have
+found it first.
+
 **Report the ones you decided were not your problem, and the ones you are unsure of.**
 Both categories produced real findings here. And ask the question this way round:
 **not "what is wrong in `src/`" but "what happens to what I produce after I hand it
