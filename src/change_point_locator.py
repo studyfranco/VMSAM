@@ -296,7 +296,7 @@ def _all_audio_streams(video_obj):
 
 
 def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_path,
-                            shortest, work_dir):
+                            shortest, work_dir, runs):
     """Give every candidate audio stream a master partner OF ITS OWN LANGUAGE.
 
     Returns (accepted, measurements). `accepted` keys only the streams whose best
@@ -320,10 +320,49 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
     for order, lang in master_streams:
         by_language.setdefault(lang, []).append(order)
 
+    # PROBE AT PLATEAU CENTRES, NOT AT BLIND FRACTIONS OF DURATION.
+    #
+    # The first version used fixed 35 % and 65 % positions. On error id 125 the 35 %
+    # position landed inside a transition region, returned 0.7880 against 0.9487 at
+    # the other position, and the minimum-of-two REFUSED A FILE WHOSE STREAMS MATCH --
+    # the pre-change locator measured 36 probes at fid_median 0.955 on it. A window
+    # crossing a change point returns a DISPLACED PEAK, and a minimum turns one
+    # displaced peak into a refusal of the whole file.
+    #
+    # k-of-n was the obvious repair and MEASUREMENT KILLED IT: over the same 127-pair
+    # population with a third position added, 2-of-3 admits SEVEN cross-language pairs
+    # that 2-of-2 refuses -- all on one music-and-effects-heavy file where one candidate
+    # stream scores 0.87-0.96 against SEVEN different master languages. Relaxing to
+    # 2-of-3 trades one loud false refusal for seven silent false accepts, and the
+    # false accept is the direction that ships a wrong offset.
+    #
+    #     rule      cross-language accepted    same-label accepted
+    #     2-of-2         0 of 87                    26 of 40
+    #     2-of-3         7 of 87                    26 of 40
+    #     3-of-3         0 of 87                    25 of 40
+    #
+    # So the minimum stays and the POSITIONS change. `runs` is already computed by the
+    # time pairing happens, and a plateau centre is inside a segment BY CONSTRUCTION --
+    # straddling becomes impossible rather than merely unlikely.
+    # THE TWO LARGEST plateaus by probe count, not the first two. The first version
+    # of this took runs[:2] and REGRESSED error id 114: that file has four segments,
+    # so the first two centres both sit near the head and neither samples the body.
+    # Its primary stream scored 0.902 at the old blind positions and fell below the
+    # bar at the new ones -- a fix for one file breaking another, caught by re-running
+    # the same comparison rather than by reasoning about it.
+    #
+    # The largest plateau is the one with the most probes agreeing, so it is both the
+    # furthest from any boundary and the best-evidenced place to ask whether two
+    # streams are the same recording.
     positions = []
-    for fraction in PAIRING_POSITION_FRACTIONS:
-        centre = max(0.0, min(shortest * fraction, shortest - PROBE_WINDOW_SECONDS))
-        positions.append(centre)
+    for run in sorted(runs, key=lambda r: -len(r["members"]))[:2]:
+        centre = (run["first"] + run["last"] + PROBE_WINDOW_SECONDS) / 2.0
+        positions.append(max(0.0, min(centre, shortest - PROBE_WINDOW_SECONDS)))
+    while len(positions) < 2:
+        # A single-plateau file has no boundary to straddle, so a blind second position
+        # is safe here and nowhere else.
+        fraction = PAIRING_POSITION_FRACTIONS[len(positions)]
+        positions.append(max(0.0, min(shortest * fraction, shortest - PROBE_WINDOW_SECONDS)))
 
     accepted, measurements = {}, []
     for stream, language in candidate_streams_all:
@@ -611,7 +650,7 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # the table below covers tracks outside the measured language instead of
     # leaving them to be assigned another language's offset by a consumer.
     pairing, pairing_measurements = _pair_candidate_streams(
-        best_video, candidate_video, master_path, candidate_path, shortest, work_dir)
+        best_video, candidate_video, master_path, candidate_path, shortest, work_dir, runs)
     # A measured-language stream missing from the pairing is missing for one of two
     # DIFFERENT reasons and they must not be collapsed. The first version of this
     # block re-added every measured-language stream unconditionally, which put a
