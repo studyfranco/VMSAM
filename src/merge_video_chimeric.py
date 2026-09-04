@@ -789,8 +789,17 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # depuis une autre piste demande une source PAR MORCEAU. Tant que ce
             # n'est pas fait, la tete vient de cette piste MEME SI ELLE EST
             # MUETTE, et `NO-HEAD` le dit sur la ligne au lieu de le taire.
+            # LA CONDITION *ET* SON CONSEQUENT. `NO-HEAD` seul nomme le fait et
+            # PAS le manque -- et un champ qui enregistre une condition sur
+            # laquelle le code n'agit pas n'est honnete QUE si l'ecart est nomme.
+            # C'est la moitie "pourquoi cela compte" de s4e, celle que j'ai
+            # trouvee absente dans le journal du merge ce matin. Meme defaut,
+            # chez moi.
             head_source = ("master/" + str(fill_language)
-                           if get_rms(samples) >= verify_min_rms else "NO-HEAD")
+                           if get_rms(samples) >= verify_min_rms
+                           else f"NO-HEAD(taken from master/{fill_language} "
+                                f"anyway -- fall-through not implemented, "
+                                f"this head is silent)")
         except Exception:
             # PAS de supposition: une tete illisible n'est pas une tete absente.
             head_source = "unprobed"
@@ -1367,6 +1376,30 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
 # Verification: la piste produite est-elle VRAIMENT sur la timeline du maitre?
 # --------------------------------------------------------------------------
 
+# LA COUVERTURE DE CE VERIFICATEUR EST DE 5.5 A 11.3 POUR CENT DE LA DUREE.
+# Mesuree sur douze fichiers reparés: deux sondes de 20 s par morceau candidat,
+# soit 80 a 160 s sondes sur ~1430 s. MEDIANE 11.2 %.
+#
+# CONSEQUENCE, ET ELLE BORNE TOUT CE QUE CE MODULE AFFIRME: `aligned` VEUT DIRE
+# "LES POSITIONS SONDEES SONT ALIGNEES", PAS "CE FICHIER N'A PAS DE PASSAGE
+# DEPLACE". Un defaut TRANSITOIRE -- une region de vingt secondes portant de
+# l'audio decale -- est invisible ICI par construction, quelle que soit la
+# tolerance: LES SONDES NE SONT PAS LA.
+#
+# Ce n'est pas une hypothese. Un tel defaut existe et je l'ai manque: un balayage
+# de laboratoire a 50 % de cycle utile a rate une region de 20 s a 1420-1440 s
+# sur un fichier produit, et j'ai publie "aucune region nulle part". Le
+# verificateur de production a un cycle utile QUATRE FOIS PLUS FAIBLE.
+#
+# `vmsam-forensic` a declare la meme limite sur son scanner de raccords (24 %) et
+# sur six autres de ses instruments le meme jour. La regle commune: UN
+# DISCRIMINANT A FAIBLE CYCLE UTILE DETECTE LE PERSISTANT ET RIEN D'AUTRE, parce
+# qu'un pas qui continue jusqu'a la fin se lit de n'importe quel cote des sondes,
+# et qu'une region bornee doit etre TOUCHEE pour etre vue.
+#
+# CE QUI N'EST PAS EN CAUSE: la conception. Deux sondes ecartees dans un morceau
+# mesurent le DESACCORD, qui est le signal recherche, et le cycle utile est le
+# prix de ne pas decoder chaque fichier en entier a chaque reparation.
 verify_window_seconds = 20
 verify_probe_rate = 8000
 verify_max_probes = 4
