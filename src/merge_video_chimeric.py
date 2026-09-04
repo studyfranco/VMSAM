@@ -1804,8 +1804,29 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                 inconsistent.append({"piece": index, "spread_ms": max(same) - min(same),
                                      "lags_ms": same})
         if len(inconsistent):
-            detail = "; ".join(f"piece {c['piece']} probes disagree by "
-                               f"{c['spread_ms']:.1f} ms {c['lags_ms']}" for c in inconsistent)
+            # CE NOMBRE N'EST PAS LA TAILLE DE LA MARCHE MANQUEE, et il se lit
+            # comme si c'en etait une.
+            #
+            # MESURE, id 160: ce champ a rapporte 2869.5 ms. Le profil dense du
+            # FICHIER PRODUIT donne une marche de 66.75 ms entre 100 et 110 s, et
+            # AUCUNE region au-dela de 500 ms nulle part. FACTEUR 43.
+            # `vmsam-dev-1`, mesurant le candidat ORIGINAL, a trouve la meme
+            # transition -- 66.8 ms dans [92.8, 139.1] s -- et a etabli que la
+            # variation totale de la source sur 23 minutes est de 300.3 ms, donc
+            # 2869.5 ms ne pouvait designer aucune structure du fichier.
+            #
+            # POURQUOI: une fenetre qui CHEVAUCHE une frontiere rend un pic
+            # DEPLACE, pas un decalage. Le desaccord entre deux sondes est donc
+            # un signal FIABLE qu'une frontiere existe entre elles, et son
+            # amplitude n'est PAS une mesure de cette frontiere. La meme classe a
+            # ete trouvee le meme jour dans la barre d'appariement du locator,
+            # ou une sonde a cheval a fait refuser un fichier entier.
+            detail = "; ".join(
+                f"piece {c['piece']} probes disagree by {c['spread_ms']:.1f} ms "
+                f"{c['lags_ms']} (SPREAD, NOT THE SIZE OF THE MISSED STEP: a "
+                f"window straddling a boundary returns a displaced peak, so this "
+                f"establishes THAT a boundary lies between the probes and not "
+                f"how large it is)" for c in inconsistent)
             # LE REFUS EMPORTE SES MESURES. Sans cela, la seule chose qui
             # survit d'un declin est une phrase: les sondes qui l'expliquent --
             # morceau, position maitre, lag, correlation -- sont construites
