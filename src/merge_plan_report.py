@@ -109,11 +109,26 @@ def measure_corpus(log_paths, read=None):
     reader = read or (lambda path: open(path, encoding="utf-8",
                                         errors="replace").read())
     keys, logs, basis = set(), 0, {"digest": 0, "derived": 0, "master_only": 0}
+    # DEUX POPULATIONS SOUS UN SEUL COMPTE, et elles se separent PAR STRUCTURE.
+    # Un journal de travail de production porte l'enveloppe `Logs:` posee par
+    # `fusion.py`; un rejeu de laboratoire commence directement a `repair:`.
+    # Les melanger sous `20 journaux` disait qu'ils repondent a la meme question,
+    # et ils n'y repondent pas: un rejeu exerce le chemin de reparation, pas une
+    # fusion. dev-2 vient de trouver dans un de ses harnais un import qui
+    # REMPLACE la configuration d'execution -- la paire a fusionne, le calage a
+    # eu lieu, puis la fusion est morte et AUCUN FICHIER N'A ETE ECRIT. Un rejeu
+    # peut donc produire un journal sans produire d'artefact, ce qu'un journal de
+    # production ne peut pas faire.
+    provenance = {"production_job_log": 0, "lab_replay": 0}
     for path in log_paths:
         text = reader(path)
         if not is_job_log(text):
             continue
         logs += 1
+        if any(line.startswith("Logs:") for line in text.splitlines()):
+            provenance["production_job_log"] += 1
+        else:
+            provenance["lab_replay"] += 1
         job = parse_job_log(text)
         # LA QUALITE DE LA CLE VARIE DANS LE CORPUS ET SE DIT. Un digest emis est
         # une LECTURE; un id derive du chemin par moi est une CONSTRUCTION; un
@@ -146,6 +161,12 @@ def measure_corpus(log_paths, read=None):
                      f"(constructed), {basis['master_only']} from the master "
                      f"alone (INFERRED: two candidates merged toward one master "
                      f"would count as one)",
+        "provenance": f"{provenance['production_job_log']} production job logs "
+                      f"(carrying the `Logs:` envelope), "
+                      f"{provenance['lab_replay']} lab replays (starting at "
+                      f"`repair:`). NOT one population: a replay exercises the "
+                      f"repair path and not a merge, and can emit a log without "
+                      f"producing an artefact",
         "measured": "at render time, over the logs handed to this render",
         "caveat": "NOT an independent sample, and undatable from any artefact "
                   "-- no build or timestamp field is emitted anywhere",
