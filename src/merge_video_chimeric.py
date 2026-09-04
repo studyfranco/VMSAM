@@ -587,6 +587,19 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # comparaison, LA LIGNE DE JOURNAL SERA DEJA JUSTE. Ajouter le champ apres
     # le changement ferait decrire par ce champ quelque chose deja livre sans
     # journal, ce que l'exigence existe precisement pour empecher.
+    # LE TITRE DU FLUX QUI REMPLIT, a cote de sa langue. `video.py` indexe le
+    # dictionnaire sur le code ISO -- `data['Language'].split("-")[0]` -- donc
+    # `es-ES` et `es-419` TOMBENT DANS LE MEME SEAU AVANT QUE CE MODULE NE VOIE
+    # QUOI QUE CE SOIT, et le seul indice restant est le titre libre: sur un
+    # fichier du corpus, quatre pistes `spa` titrees "European Spanish",
+    # "Latinoamerican Spanish", "Spanish" et "European Spanish" a nouveau.
+    #
+    # RIEN ICI NE CHOISIT SUR LE TITRE et ce champ ne change aucun
+    # comportement: il ECRIT CE QUI A ETE PRIS. Si un doublage est substitue a
+    # un autre cette nuit, ce sera dans l'artefact au lieu d'etre invisible --
+    # la meme raison qui a fait ajouter `fill_language` avant que le
+    # remplissage inter-langue existe.
+    fill_title = master_audio.get("Title") if fill == "master" and master_audio != None else None
     if fill != "master":
         fill_language = None
 
@@ -638,7 +651,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
             "codec": codec_name, "encoder": encoder_arguments[1],
             "family": family, "gap_fill": fill, "fill_language": fill_language,
-            "path": out_path,
+            "fill_title": fill_title, "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
