@@ -111,6 +111,20 @@ def get_speed_ratio(plan):
                       "matches and a correction would take it apart")
     if verdict == "decline":
         return None, "the measurement declined to name a transformation"
+    if verdict == "indeterminate":
+        # SPEC_ZONE_A s4f: DEUX HYPOTHESES AU-DESSUS DE LA BARRE ET TROP PROCHES
+        # POUR ETRE SEPAREES EST *INDETERMINE*, PAS PAL. Le proprietaire l'a
+        # nomme parce que la faute inverse a deja ete commise: un balayage dont
+        # les trois meilleures positions tenaient dans 0.028 a ete lu comme une
+        # localisation et a produit deux cartes fausses en une nuit.
+        #
+        # Appliquer la meilleure des deux ici serait choisir par la marge la plus
+        # mince disponible, c'est-a-dire par le bruit.
+        return None, ("the measurement could not separate two rate hypotheses "
+                      "above the bar: INDETERMINATE, not a rate. "
+                      "SPEC_ZONE_A.MD s4f requires escalation to scene detection "
+                      "-- a different modality -- and a tie-break computed from "
+                      "the same correlations is not a third opinion")
     if verdict == "rubberband":
         return None, ("the measurement says rubberband -- the inverting case, a "
                       "source already pitch-corrected at origin. Not implemented: "
@@ -121,6 +135,23 @@ def get_speed_ratio(plan):
     if ratio == None:
         return None, "verdict asetrate with no speed_ratio"
     return Decimal(str(ratio)), None
+
+
+def get_speed_margin(plan):
+    """DE COMBIEN LA MEILLEURE HYPOTHESE A GAGNE, pas seulement qu'elle a gagne.
+
+    `SPEC_ZONE_A.MD` s4f: "prendre la meilleure transformation au-dessus de 90 %
+    ET RAPPORTER DE COMBIEN ELLE L'EMPORTE". La marge est la quantite qui
+    distingue un verdict d'un tirage, et une marge qui n'est pas EMISE est une
+    marge que personne ne verifie -- meme regle que le denominateur dans la
+    ligne et que la ligne rouge qui doit exister comme champ.
+
+    Renvoie None quand la mesure n'en porte pas: absente, jamais zero. Une marge
+    de zero serait DEUX HYPOTHESES A EGALITE, ce qui est le cas `indeterminate`
+    et surtout pas "pas de marge rapportee".
+    """
+    margin = plan.get("speed_margin")
+    return None if margin == None else str(margin)
 
 
 def get_marker_value(plan):
@@ -492,6 +523,11 @@ def log_assembly(candidate_path, assembly, plan):
     # sans pouvoir dire emprunte A QUOI.
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
                       f"language={plan.get('language') if plan else None} "
+                      # DE COMBIEN LA TRANSFORMATION DE RYTHME L'A EMPORTE.
+                      # Absente quand la mesure n'en porte pas -- JAMAIS zero:
+                      # une marge nulle serait deux hypotheses a egalite, qui est
+                      # le cas `indeterminate` et non "pas de marge rapportee".
+                      f"{'speed_margin=' + get_speed_margin(plan) + ' ' if plan and get_speed_margin(plan) else ''}"
                       f"quantum={quantum_ms} pieces={' '.join(spans)}\n")
 
     verification = {}
