@@ -519,7 +519,17 @@ def log_assembly(candidate_path, assembly, plan):
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
-                f"speed={report.get('speed_ratio_applied')} "
+                # `speed=none` DISAIT DEUX CHOSES: "la mesure n'a propose aucun
+                # changement de rythme" et "il n'y a pas de probleme de rythme".
+                # Ce sont mesure-zero contre n'ai-pas-pu-mesurer, sur le rythme.
+                #
+                # Cela compte parce qu'un `r_min` faible a deux causes: LE MAUVAIS
+                # PROGRAMME, ou LE BON PROGRAMME A UN RYTHME NON COMPENSE. Quatre
+                # fichiers du corpus sont a 4.27 % lents (PAL) et SONT le bon
+                # programme -- forensic l'a etabli contre un controle negatif a
+                # 0.0052. Sans ce champ, leurs lignes seraient indistinguables
+                # d'un vrai desappariement.
+                f"speed={report.get('speed_ratio_applied') if report.get('speed_ratio_applied') != None else 'none(no rate proposed by the measurement)'} "
                 # BORROWED = cette piste porte le decalage d'une AUTRE langue.
                 f"offset={'measured' if report.get('offset_measured') else 'BORROWED'}"
                 # `fid` absent = la mesure n'en donne pas. JAMAIS 0.0: une
