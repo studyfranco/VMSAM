@@ -129,6 +129,18 @@ def measure_corpus(log_paths, read=None):
     # lecteur qui compte des artefacts reussis compte des fichiers qui
     # n'existeraient plus.
     gate = {"enforcing_true": 0, "enforcing_false": 0, "would_refuse_true": 0}
+    # UN CONTROLE GRATUIT, OFFERT PAR dev-2, ET IL EST DU TYPE QUI SE VIOLE
+    # PLUTOT QUE DE SE VERIFIER. `build` couvre ses deux modules, `sources` les
+    # 27 fichiers que l'image expedie, ET SES DEUX MODULES SONT DANS LES 27.
+    # Donc `build` peut bouger avec `sources`, et `sources` peut bouger seul --
+    # mais `build` QUI BOUGE ALORS QUE `sources` NE BOUGE PAS EST IMPOSSIBLE.
+    # Pas "non observe": impossible. Si cela arrive, un des deux emetteurs est
+    # casse.
+    #
+    # Cela vaut d'etre code parce que la violation est le seul signal: tant que
+    # rien ne se contredit, le controle ne dit rien, et c'est exactement ce
+    # qu'on veut d'un invariant.
+    by_sources = {}
     for path in log_paths:
         text = reader(path)
         if not is_job_log(text):
@@ -148,6 +160,10 @@ def measure_corpus(log_paths, read=None):
         else:
             provenance["lab_replay"] += 1
         job = parse_job_log(text)
+        if job.get("sources") and job.get("build"):
+            key = job["sources"]["digest"]
+            by_sources.setdefault(key, set()).add(
+                tuple(sorted(job["build"].items())))
         check = job.get("output_check") or {}
         if check:
             if str(check.get("enforcing")).lower().startswith("true"):
@@ -197,6 +213,17 @@ def measure_corpus(log_paths, read=None):
                      f"(constructed), {basis['master_only']} from the master "
                      f"alone (INFERRED: two candidates merged toward one master "
                      f"would count as one)",
+        "build_vs_sources": (
+            "consistent: no `sources` digest carries two different `build` "
+            "digests"
+            if all(len(v) <= 1 for v in by_sources.values())
+            else "CONTRADICTION: " + ", ".join(
+                f"sources={k} carries {len(v)} different build digests"
+                for k, v in by_sources.items() if len(v) > 1)
+            + ". `build` cannot move while `sources` holds still -- the two "
+              "repair modules are inside the 27 shipped files -- so one of the "
+              "two emitters is broken")
+            if by_sources else "not checkable: no artefact carries both lines",
         "gate_state": f"{gate['enforcing_false']} produced with the duration "
                       f"gate INERT (enforcing=False), {gate['enforcing_true']} "
                       f"with it enforcing. {gate['would_refuse_true']} carry "
