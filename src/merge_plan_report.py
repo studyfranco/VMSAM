@@ -205,6 +205,7 @@ def parse_job_log(text):
         "regions_cut": {},
         "regions_used": {},
         "skipped": [],
+        "refused": [],
         "output_check": None,
         "summary_counts": None,
         "foreign_lines": [],
@@ -337,6 +338,20 @@ def parse_job_log(text):
             continue
 
         if body.startswith("SKIPPED "):
+            # UN SEGMENT REFUSE A DES BORNES. Le plan AVAIT un candidat ici et
+            # l'a jete parce que son decalage etait invalide -- ce n'est PAS la
+            # meme chose qu'un endroit ou le plan n'avait pas de candidat, et le
+            # producteur le dit dans son propre commentaire. Je collectais la
+            # ligne comme une chaine et la figure ne pouvait donc pas la placer.
+            matched = re.match(r"SKIPPED segment master ([\d.]+)-([\d.]+)(.*)$", body)
+            if matched:
+                fields = split_fields(matched.group(3))
+                job["refused"].append({
+                    "master_start_ms": _decimal(matched.group(1)),
+                    "master_end_ms": _decimal(matched.group(2)),
+                    "dropped_ms": _decimal(fields.get("dropped_ms")),
+                    "reason": matched.group(3).partition("DECLINED:")[2].strip()
+                              or None})
             job["skipped"].append(body)
             continue
 
@@ -1100,8 +1115,23 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                          kept_cues=fields.get("kept_cues"),
                          dropped_cues=fields.get("dropped_cues")))
 
+    for entry in job.get("refused") or []:
+        # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
+        # region que la boite ambre pointillee marque, et pas un remplissage
+        # depuis le maitre. Une region peut etre l'un, l'autre, les deux ou
+        # aucun; les confondre rendrait `refuse` et `rempli depuis le maitre`
+        # indistinguables, qui est le defaut meme que ce rapport combat.
+        rows.append(_row("REFUSED", _redactor=redactor,
+                         master_start_ms=_trim(entry["master_start_ms"]),
+                         master_end_ms=_trim(entry["master_end_ms"]),
+                         master_start=clock(entry["master_start_ms"]),
+                         master_end=clock(entry["master_end_ms"]),
+                         dropped_ms=_trim(entry["dropped_ms"]),
+                         reason=entry.get("reason")))
+
     for entry in job.get("skipped") or []:
-        rows.append(_row("SKIPPED", detail=entry.replace(" ", "_")))
+        rows.append(_row("SKIPPED", _redactor=redactor,
+                         detail=entry.replace(" ", "_")))
 
     check = job.get("output_check")
     if check:
@@ -1289,6 +1319,32 @@ def _text(x, y, content, fill, size=11, anchor="start", extra=""):
             f'text-anchor="{anchor}"{extra}>{_escape(content)}</text>')
 
 
+def _clip(text, limit):
+    """Coupe pour la MISE EN PAGE, jamais pour la donnee.
+
+    La valeur entiere est toujours sur sa ligne; ceci ne protege que la
+    largeur du dessin. Une coupe se voit -- elle finit par une ellipse -- parce
+    qu'un texte tronque silencieusement se lit comme un texte complet, ce qui
+    est le meme defaut que `source=master` tronque d'une valeur de quatre mots.
+    """
+    text = str(text)
+    return text if len(text) <= limit else text[:limit - 1] + "\u2026"
+
+
+def short_clock(ms):
+    """m:ss sous l'heure, h:mm:ss au-dela. Pour les etiquettes serrees."""
+    if ms is None:
+        return "?"
+    total = int(Decimal(str(ms)))
+    seconds, _ = divmod(abs(total), 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    sign = "-" if total < 0 else ""
+    if hours:
+        return f"{sign}{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{sign}{minutes}:{seconds:02d}"
+
+
 def _geometry_key(regions):
     """Deux pistes ont la MEME geometrie quand leurs decalages par region sont
     identiques chiffre pour chiffre. C'est ce qui distingue une mesure d'un
@@ -1336,7 +1392,7 @@ def render_svg(records):
                 'this format emitted.</p>')
     span = Decimal(plan["master_end_ms"])
 
-    tracks, regions, lost, borrows, steps = [], {}, {}, {}, {}
+    tracks, regions, lost, borrows, steps, refused = [], {}, {}, {}, {}, []
     for kind, fields in records:
         if kind == "TRACK" and fields.get("kind") == "audio":
             tracks.append(fields)
@@ -1348,6 +1404,10 @@ def render_svg(records):
             borrows[fields["track"]] = fields
         elif kind == "STEP":
             steps.setdefault(fields["track"], []).append(fields)
+        elif kind == "REFUSED":
+            # PAR FICHIER et non par piste: un segment refuse l'est par le PLAN,
+            # avant que les pistes existent.
+            refused.append(fields)
 
     # Regrouper par geometrie. L'ordre de premiere apparition tient lieu d'ordre.
     groups = []
@@ -1403,7 +1463,7 @@ def render_svg(records):
         step = 30 if len(candidates) < 8 else max(14, int(200 / max(1, len(candidates))))
         stair = max(1, len(candidates)) * step
         panel_bottom = panel_top + stair + 10
-        master_bar_y = panel_bottom + 4
+        master_bar_y = panel_bottom + 16
         panel_end = master_bar_y + 16 + (12 * len(others))
 
         # --- l'en-tete: le plan, la piste, et si elle a ete acceleree ---------
@@ -1417,27 +1477,45 @@ def render_svg(records):
             # `speed_margin` n'a AUCUN PRODUCTEUR: on n'omet pas le fait parce
             # que la moitie manque, et on n'imprime pas la moitie manquante
             # comme si c'etait une valeur.
-            head += f" · ACCELEREE ×{speed} · marge de victoire : NON EMISE"
+            #
+            # LE RATIO SEUL DANS L'EN-TETE, JAMAIS LA PROSE. dev-2 s'apprete a
+            # emettre un refus en toutes lettres DANS `speed=none(...)` -- la
+            # convention de dev-1 est l'inverse de la sienne et rien ne separe
+            # 0.999001 de 1.000999. Cette phrase atterrirait ICI, sur la seule
+            # ligne du dessin qui n'a aucune marge. On coupe donc AVANT qu'elle
+            # arrive: l'en-tete ne prend que ce qui ressemble a un nombre, et le
+            # texte entier reste sur la ligne TRACK, qui le porte deja en
+            # entier. Reparer une mise en page apres l'avoir vue casser aurait
+            # voulu dire la voir casser chez le proprietaire.
+            ratio = speed.split("(")[0].strip()
+            head += (f" · ACCELEREE ×{_clip(ratio, 12)}"
+                     f" · marge de victoire : NON EMISE")
+        elif "(" in speed and not speed.lower().startswith("none("):
+            head += " · vitesse : voir la ligne TRACK"
         else:
             head += " · non acceleree"
         if lead.get("verify"):
-            head += f" · verification {plain(lead['verify'])}"
-        body.append(_text(left, y + 10, head, faint, 10))
+            head += f" · verification {_clip(plain(lead['verify']), 24)}"
+        body.append(_text(left, y + 10, _clip(head, 132), faint, 10))
 
         # --- les regions sans correspondance: ambre, pointille ---------------
-        # LA HAUTEUR EST LE POIDS VISUEL LE PLUS FORT SUR UNE TIMELINE, et je
-        # l'avais entierement donne a l'ambre: des boites pointillees pleine
-        # hauteur pesaient plus que les regles et l'oeil tombait dessus en
-        # premier. La geometrie etait juste et LA HIERARCHIE ETAIT INVERSEE --
-        # ses images donnent la figure aux REGLES, avec de petites boites.
-        # Trouve sur un rendu par l'architecte; je ne pouvais pas le voir.
+        # LA BOITE AMBRE POINTILLEE MARQUE CE QUI EST REFUSE DU CANDIDAT.
+        # Reglage du proprietaire, et je dessinais le mauvais ensemble: je la
+        # nourrissais des regions REMPLIES DEPUIS LE MAITRE. Les deux marques
+        # disent des choses differentes et il en faut deux -- la boite dit
+        # `ce materiau du candidat a ete REFUSE`, la barre dit `voici ce qui est
+        # VENU DU MAITRE`. Une region peut etre l'un, l'autre, les deux ou
+        # aucun, et les confondre rendait `refuse` et `rempli` indistinguables:
+        # exactement le defaut que le producteur nomme dans son propre
+        # commentaire, "le plan n'avait pas de candidat ici" contre "le plan en
+        # avait un et on l'a jete".
         #
-        # On garde donc l'ETENDUE dans un aplat tres faible -- la region est
-        # bien la, sur toute la hauteur -- et on ne met le pointille que sur une
-        # bande courte. La position ne bouge pas, le poids revient aux regles.
+        # ET LA HAUTEUR RESTE BASSE. Pleine hauteur, l'ambre pesait plus que les
+        # regles et l'oeil tombait dessus en premier; ses images donnent la
+        # figure AUX REGLES. Meme position, meme etendue, une bande.
         band = 18
         band_y = panel_top + max(0.0, (stair - band) / 2)
-        for fields in filled:
+        for fields in refused:
             x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
             body.append(f'<rect x="{x0:.1f}" y="{panel_top:.1f}" '
                         f'width="{max(2.0, x1 - x0):.1f}" height="{stair:.1f}" '
@@ -1447,13 +1525,8 @@ def render_svg(records):
                         f'fill="none" stroke="{amber}" stroke-width="1" '
                         f'stroke-dasharray="4 3"/>')
             if x1 - x0 > 108:
-                body.append(_text((x0 + x1) / 2, band_y + 12,
+                body.append(_text((x0 + x1) / 2, band_y + 13,
                                   "aucune correspondance", amber, 9, "middle"))
-            elif x1 - x0 > 34:
-                body.append(_text((x0 + x1) / 2, band_y + band + 11,
-                                  "aucune", amber, 9, "middle"))
-                body.append(_text((x0 + x1) / 2, band_y + band + 21,
-                                  "correspondance", amber, 9, "middle"))
 
         # --- les coupes: regles saumon pleine hauteur, la marque dominante ----
         # Une coupe retire du materiau du CANDIDAT; sur la timeline du MAITRE
@@ -1533,32 +1606,78 @@ def render_svg(records):
         # remplissage est la plus revelatrice de l'artefact: six pistes disant
         # `master/ja` et une disant `master/fr` est le remplissage inter-langue
         # de SPEC_ZONE_A s4c qui se produit sous les yeux du lecteur.
-        sources = []
+        # A QUEL MOMENT EST LE RAJOUT ET QUAND IL FINIT -- demande du
+        # proprietaire, et l'etiquette appartient A CETTE BARRE. Elle etait sur
+        # la boite ambre, parce que je croyais l'ambre egale au remplissage
+        # maitre; le proprietaire a tranche que l'ambre est le REFUS. `Le
+        # rajout` est ce qui vient du maitre, donc son horodatage suit la barre
+        # du maitre et pas la boite.
+        #
+        # SUR la barre et non laissee a l'axe: l'axe repond "ou en est-on dans
+        # le programme", la barre repond "quand commence et finit CE rajout".
+        # Sinon le lecteur doit redescendre vers l'axe et deviner quel cran lui
+        # appartient.
+        sources, filled_total, placed_marks = [], Decimal("0"), []
         for fields in filled:
+            duration = (Decimal(fields["master_end_ms"])
+                        - Decimal(fields["master_start_ms"]))
+            filled_total += duration
             x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
             body.append(f'<rect x="{x0:.1f}" y="{master_bar_y:.1f}" '
                         f'width="{max(2.0, x1 - x0):.1f}" height="7" fill="{amber}" '
                         f'fill-opacity="0.75"/>')
+            timing = (f"{short_clock(fields['master_start_ms'])} \u2192 "
+                      f"{short_clock(fields['master_end_ms'])}  "
+                      f"+{short_clock(duration)}")
+            estimate = len(timing) * 5.2
+            middle = (x0 + x1) / 2
+            if not placed_marks or middle - estimate / 2 > placed_marks[-1] + 8:
+                placed_marks.append(middle + estimate / 2)
+                body.append(_text(middle, master_bar_y - 4, timing, amber, 9, "middle"))
+            elif x1 - x0 > 34:
+                body.append(_text(middle, master_bar_y - 4,
+                                  f"+{short_clock(duration)}", amber, 9, "middle"))
             name = plain(fields.get("source")) or fields.get("source_state")
             if name and name not in sources:
                 sources.append(name)
+        # UNE LEGENDE QUI NOMME UNE SOURCE SANS SA QUANTITE invite le lecteur a
+        # estimer la quantite sur la largeur de la barre. On la donne.
         body.append(_text(left, master_bar_y + 20,
-                          "rajoute du maitre : " + (" · ".join(sources) or "rien"),
+                          "rajout\u00e9 du ma\u00eetre : "
+                          + (" \u00b7 ".join(sources) or "rien")
+                          + f" \u00b7 {len(filled)} r\u00e9gion(s)"
+                          + f" \u00b7 {short_clock(filled_total)}",
                           amber, 10))
 
         # --- les pistes qui EMPRUNTENT cette geometrie ------------------------
         for index, other in enumerate(others):
             strip = master_bar_y + 28 + index * 12
             borrow = borrows.get(other["track"], {})
+            # LE POIDS D'UNE BANDE SUIT SON ACCORD, et c'est une correction
+            # avant panne plutot qu'apres. Cinq bandes IDENTIQUES se lisent
+            # comme UNE annotation repetee et restent subordonnees a l'escalier
+            # -- la subordination est portee par leur MEMETE et non par leur
+            # place. Donnez-en une qui differe et elle saute hors du groupe et
+            # se met a concurrencer l'escalier.
+            #
+            # Alors qu'elle le fasse EXPRES: une bande dont le controle dit
+            # `identical at N of N` reste discrete, et TOUTE AUTRE prend le
+            # poids. Une emprunteuse divergente qui attire l'oeil est le
+            # comportement voulu, pas une regression de mise en page.
+            check = plain(borrow.get("check")) or ""
+            agrees = bool(re.match(r"offsets identical at (\d+) of \1 regions$",
+                                   check))
+            tone = faint if agrees else salmon
             body.append(f'<rect x="{left:.1f}" y="{strip:.1f}" width="{plot:.1f}" '
-                        f'height="6" fill="none" stroke="{faint}" stroke-width="1" '
-                        f'stroke-dasharray="3 3"/>')
+                        f'height="6" fill="none" stroke="{tone}" '
+                        f'stroke-width="{1 if agrees else 1.4}" '
+                        f'stroke-dasharray="{"3 3" if agrees else "none"}"/>')
             detail = (f"piste {other['track']} · {other.get('lang')} · EMPRUNTE "
                       f"cette geometrie · verification "
                       f"{plain(other.get('verify')) or '?'}")
-            if borrow.get("check"):
-                detail += f" · {plain(borrow['check'])}"
-            body.append(_text(left + 6, strip + 5.5, detail, faint, 9))
+            if check:
+                detail += f" · {check}"
+            body.append(_text(left + 6, strip + 5.5, _clip(detail, 150), tone, 9))
         y = panel_end + 18
 
     # --- l'axe: un seul, fin, en bas. `0` et le total. Aucune graduation. -----
@@ -1616,9 +1735,17 @@ def render_svg(records):
 
 
 def render_narrative(records):
-    """LES MEMES FAITS EN PHRASES. Voulu: un lecteur doit voir ce qui a ete fait
-    au fichier SANS lire une table. Le journal est lu par qui ouvre le journal;
-    le rapport par qui ouvre le fichier.
+    """LES MEMES FAITS EN PHRASES, ET EN FRANCAIS.
+
+    s4g: le diagramme et les phrases sont la meme information deux fois, VOULU.
+    Un lecteur doit voir ce qui a ete fait au fichier SANS lire une table.
+
+    EN FRANCAIS PARCE QUE C'EST LE LECTEUR. La figure porte deja la virgule
+    decimale pour la meme raison; laisser les phrases en anglais a cote d'une
+    figure francaise, dans un document dont l'attribut `lang` dit `fr`, serait
+    une incoherence que seul le destinataire paierait. LES LIGNES restent en
+    anglais: elles sont lues par des agents et par `grep`, et leurs noms de
+    champs sont ceux du producteur.
     """
     plan = next((f for k, f in records if k == "PLAN"), None)
     source = next((f for k, f in records if k == "SOURCE"), {})
@@ -1627,39 +1754,45 @@ def render_narrative(records):
 
     if plan:
         said.append(
-            f"<p>Artefact <b>{_escape(source.get('artefact', '?'))}</b> was rebuilt "
-            f"on the master's timeline, which runs to "
-            f"<b>{_escape(plan.get('master_end', '?'))}</b>. The measurement called "
-            f"the relationship <b>{_escape(plan.get('kind', '?'))}</b> and measured it "
-            f"on the <b>{_escape(plan.get('language', '?'))}</b> track, at a quantum of "
-            f"{_escape(plan.get('quantum_ms', '?'))} ms.</p>")
+            f"<p>L\u2019artefact <b>{_escape(plain(source.get('artefact', '?')))}</b> "
+            f"a \u00e9t\u00e9 reconstruit sur la timeline du ma\u00eetre, qui "
+            f"court jusqu\u2019\u00e0 <b>{_escape(plain(plan.get('master_end', '?')))}</b>. "
+            f"La mesure a qualifi\u00e9 la relation de "
+            f"<b>{_escape(plan.get('kind', '?'))}</b> et l\u2019a prise sur la "
+            f"piste <b>{_escape(plan.get('language', '?'))}</b>, \u00e0 un quantum "
+            f"de {_escape(plan.get('quantum_ms', '?'))} ms.</p>")
     if identity.get("master"):
-        said.append(f"<p>The master is named in this log, as "
-                    f"<b>{_escape(identity['master'])}</b>. That is what makes a "
-                    f"deficit in the produced file attributable to the merge or to "
-                    f"the master rather than merely present.</p>")
+        said.append(f"<p>Le ma\u00eetre est nomm\u00e9 dans ce journal, sous "
+                    f"<b>{_escape(identity['master'])}</b>. C\u2019est ce qui "
+                    f"rend un manque mesur\u00e9 dans le fichier produit "
+                    f"<i>attribuable</i> \u00e0 la fusion ou au ma\u00eetre, et "
+                    f"pas seulement constatable.</p>")
     else:
-        said.append('<p><b>The master is not named in this artefact\'s format.</b> '
-                    'A deficit measured in the produced file therefore cannot be '
-                    'attributed: content correspondence to the source is '
-                    'unmeasurable, and that is a property of the record, not of '
-                    'the file.</p>')
+        said.append("<p><b>Le ma\u00eetre n\u2019est pas nomm\u00e9 dans ce "
+                    "format.</b> Un manque mesur\u00e9 dans le fichier produit "
+                    "ne peut donc \u00eatre attribu\u00e9 \u00e0 personne\u00a0: "
+                    "la correspondance du contenu avec sa source est "
+                    "immesurable, et c\u2019est une propri\u00e9t\u00e9 de "
+                    "l\u2019enregistrement et non du fichier.</p>")
 
     tracks = [f for k, f in records if k == "TRACK" and f.get("kind") == "audio"]
     for track in tracks:
         number = track["track"]
         regions = [f for k, f in records if k == "REGION" and f["track"] == number]
         lost = [f for k, f in records if k == "LOST" and f["track"] == number]
+        borrow = next((f for k, f in records
+                       if k == "BORROW" and f["track"] == number), None)
         kept = [f for f in regions if f.get("kind") == "CANDIDATE"]
         filled = [f for f in regions if f.get("kind") in ("MASTER", "SILENCE")]
-        offsets = [f.get("offset_ms") for f in kept if f.get("offset_ms")]
+        offsets = [f.get("offset_s") for f in kept if f.get("offset_s")]
 
-        sentence = [f"<p><b>Track {_escape(number)} "
+        sentence = [f"<p><b>Piste {_escape(number)} "
                     f"({_escape(track.get('lang', '?'))}).</b> "]
         if kept:
             sentence.append(
-                f"It takes {len(kept)} region(s) from the candidate and fills "
-                f"{len(filled)} from {_escape(plain(track.get("fill", "the master")))}. ")
+                f"Elle prend {len(kept)} r\u00e9gion(s) du candidat et en remplit "
+                f"{len(filled)} depuis "
+                f"{_escape(plain(track.get('fill', 'le ma\u00eetre')))}. ")
         if offsets:
             unique = []
             for value in offsets:
@@ -1667,34 +1800,46 @@ def render_narrative(records):
                     unique.append(value)
             if len(unique) > 1:
                 sentence.append(
-                    f"<b>It reads the candidate at {len(unique)} different offsets</b> "
-                    f"— {', '.join(_escape(v) + ' ms' for v in unique)} — while the "
-                    f"track line carries the single label "
-                    f"<code>offset={_escape(track.get('offset', '?'))}</code>. "
-                    f"One token stands over {len(unique)} values. ")
+                    f"<b>Elle lit le candidat \u00e0 {len(unique)} d\u00e9calages "
+                    f"diff\u00e9rents</b> \u2014 "
+                    f"{', '.join(_escape(v) + '\u00a0s' for v in unique)} \u2014 "
+                    f"alors que la ligne de piste ne porte qu\u2019une seule "
+                    f"\u00e9tiquette, <code>offset={_escape(plain(track.get('offset', '?')))}</code>. "
+                    f"Un jeton se tient au-dessus de {len(unique)} valeurs. ")
             else:
-                sentence.append(f"It reads the candidate at {_escape(unique[0])} ms "
-                                f"throughout. ")
+                sentence.append(f"Elle lit le candidat \u00e0 "
+                                f"{_escape(unique[0])}\u00a0s d\u2019un bout "
+                                f"\u00e0 l\u2019autre. ")
         else:
-            sentence.append("<b>No offset is recoverable for this track</b>: this "
-                            "format emits none by name, and the plan cut nothing "
-                            "to derive one from. ")
+            sentence.append("<b>Aucun d\u00e9calage n\u2019est r\u00e9cup\u00e9rable "
+                            "pour cette piste</b>\u00a0: ce format n\u2019en "
+                            "\u00e9met aucun par son nom, et le plan n\u2019a "
+                            "rien coup\u00e9 d\u2019o\u00f9 en d\u00e9river un. ")
+        if borrow:
+            sentence.append(
+                f"<b>Elle EMPRUNTE</b> la g\u00e9om\u00e9trie de la piste "
+                f"{_escape(borrow.get('from_track', '?'))}, celle de la langue "
+                f"de mesure\u00a0: {_escape(plain(borrow.get('check', '?')))}. "
+                f"Le journal ne le dit nulle part \u2014 c\u2019est une "
+                f"inf\u00e9rence, v\u00e9rifi\u00e9e et pas affirm\u00e9e. ")
         if lost:
             total = sum(Decimal(f["dropped_ms"]) for f in lost
                         if f.get("dropped_ms") not in (None, "UNMEASURED"))
             places = ", ".join(sorted({_escape(f.get("where", "?")) for f in lost}))
-            sentence.append(f"<b>{_trim(total)} ms of candidate material is not in "
-                            f"the output</b>, across {len(lost)} region(s) at the "
+            sentence.append(f"<b>{_escape(seconds_fr(total, 1, signed=False))}\u00a0s "
+                            f"de mati\u00e8re du candidat ne sont pas dans la "
+                            f"sortie</b>, sur {len(lost)} r\u00e9gion(s), en "
                             f"{places}. ")
-        verify = track.get("verify")
+        verify = plain(track.get("verify"))
         if verify:
-            sentence.append(f"Verification says <code>{_escape(verify)}</code>")
+            sentence.append(f"La v\u00e9rification dit <code>{_escape(verify)}</code>")
             if track.get("probes"):
-                sentence.append(f" on {_escape(track['probes'])} probe(s), worst "
-                                f"{_escape(track.get('worst', '?'))}")
+                sentence.append(f" sur {_escape(track['probes'])} sonde(s), pire "
+                                f"\u00e9cart {_escape(track.get('worst', '?'))}")
             if track.get("verified"):
-                sentence.append(f", with {_escape(track['verified'])} of the file's "
-                                f"audio tracks verified at all")
+                sentence.append(f", et {_escape(track['verified'])} des pistes "
+                                f"audio du fichier ont \u00e9t\u00e9 "
+                                f"v\u00e9rifi\u00e9es tout court")
             sentence.append(". ")
         sentence.append("</p>")
         said.append("".join(sentence))
@@ -1703,12 +1848,13 @@ def render_narrative(records):
     missing = [f for f in gaps if f.get("state") == NO_PRODUCER]
     if missing:
         said.append(
-            f"<p><b>{len(missing)} quantity(ies) this report is required to show "
-            f"have no producer at all</b>: "
-            f"{', '.join('<code>' + _escape(f['quantity']) + '</code>' for f in missing)}. "
-            f"They are listed with their addresses in the rows above. An empty cell "
-            f"here is a finding, not a formatting accident — and it is deliberately "
-            f"distinguishable from a field this artefact's format simply predates.</p>")
+            f"<p><b>{len(missing)} grandeur(s) que ce rapport doit montrer "
+            f"n\u2019ont aucun producteur\u00a0:</b> "
+            f"{', '.join('<code>' + _escape(plain(f['quantity'])) + '</code>' for f in missing)}. "
+            f"Elles sont list\u00e9es plus haut avec leur adresse. Une cellule "
+            f"vide ici est un CONSTAT et pas un accident de mise en forme "
+            f"\u2014 et elle se distingue volontairement d\u2019un champ que "
+            f"ce format-ci ne portait simplement pas encore.</p>")
     return "\n".join(said)
 
 
@@ -1724,6 +1870,15 @@ def render_report(job, artefact_id, source_name, caveats=()):
     generation, description = format_generation(job)
 
     document = [
+        # LE DOCTYPE EN PREMIER OCTET. Un commentaire AVANT lui fait basculer
+        # certains navigateurs en quirks mode, et ce fichier est fait pour etre
+        # EXTRAIT D'UN JOURNAL PUIS OUVERT PAR DOUBLE-CLIC: il n'y a personne
+        # pour diagnostiquer un rendu degrade.
+        "<!doctype html>",
+        # `lang="fr"`: la figure et les phrases sont en francais parce que c'est
+        # le lecteur. Les LIGNES restent en anglais -- elles sont lues par des
+        # agents et par `grep`, et leurs noms de champs sont ceux du producteur.
+        '<html lang="fr"><head><meta charset="utf-8">',
         "<!-- VMSAM merge_plan report. SPEC_ZONE_A.MD s4g.",
         "     THE ROWS BELOW ARE THE REPORT. The diagram is rendered from them and",
         "     adds no quantity of its own: `grep`, `cat` and `diff` give every",
@@ -1731,7 +1886,6 @@ def render_report(job, artefact_id, source_name, caveats=()):
         f"     artefact={artefact_id} format_generation={generation} ({description})",
         "     Opaque ids only: no media filename, title or catalogue id appears here.",
         "-->",
-        "<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width,initial-scale=1">',
         f"<title>merge_plan {_escape(artefact_id)}</title>",
         f"<style>{_STYLE}</style></head><body>",
@@ -1780,3 +1934,74 @@ def report_for_log(text, artefact_id, source_name, caveats=()):
             f"evidence, and a denominator defended by a filename is defended "
             f"until the next filename.")
     return render_report(parse_job_log(text), artefact_id, source_name, caveats)
+
+
+# ---------------------------------------------------------------------------
+# LA DESTINATION, ET LA COPIE DE TRANSPORT
+#
+# s4g: le rapport va A COTE DU FICHIER PRODUIT, et pas dans un repertoire de
+# travail que quelque chose efface ensuite. Un manifeste compte 195 artefacts
+# produits puis supprimes, 45 fusionnes et jamais verifies, un fusionne alors
+# que le pipeline le disait DESYNCHRONISE. Aucun ne peut plus etre examine.
+#
+# LE FICHIER SUR DISQUE EST L'ORIGINAL. L'entree de journal est une COPIE DE
+# TRANSPORT, une commodite pour un lecteur qui n'a pas encore d'acces disque.
+# L'ordre n'est pas une preference: si la copie devient la seule, on a migre
+# une source de verite au lieu d'ajouter un lecteur, et c'est exactement ce que
+# la regle interdit. Le jour ou l'outillage lit le disque, l'append disparait
+# et rien n'est perdu.
+
+TRANSPORT_KEYWORD = "MERGE_PLAN_HTML"
+
+
+def transport_entry(document, artefact_id):
+    """UNE entree, PREFIXEE PAR SA LONGUEUR EN OCTETS. Jamais de delimiteur.
+
+    Un extracteur qui cherche une balise de fin applique un motif a un texte
+    qu'il ne controle pas, et si la charge utile peut contenir ce motif il
+    tronque -- en produisant un fichier a moitie ecrit QUI S'OUVRE QUAND MEME.
+    C'est la classe qui a coute deux fois a cette campagne aujourd'hui: un
+    redacteur mort sur une espace, un `sed` laissant passer un titre pendant des
+    heures. On retire donc la possibilite au lieu de la surveiller: le lecteur
+    prend EXACTEMENT n octets et ne cherche rien.
+
+    EN OCTETS ET NON EN CARACTERES, ET L'EXTRACTEUR DOIT DECOUPER DES OCTETS.
+    Le document est en UTF-8 et ses etiquettes sont francaises: `é`, `→`, `·` et
+    `×` font plusieurs octets chacun. MESURE, et sur ma propre erreur: mon
+    premier controle a decoupe la chaine par CARACTERES, a rendu 17467 octets
+    la ou l'en-tete en annoncait 17466, et le document ne correspondait plus.
+    Le prefixe etait juste; le lecteur ne l'etait pas. Un extracteur qui
+    decoupe des caracteres produit un fichier corrompu QUI S'OUVRE QUAND MEME,
+    ce qui est exactement le mode de defaillance que ce prefixe existe pour
+    supprimer -- et il a suffi d'un tour pour que je le commette.
+
+    UNE SEULE ENTREE. Repartie sur plusieurs `append`, la charge devrait etre
+    rassemblee par le lecteur, et tout retour a la ligne ou toute troncature
+    que le journal applique entre deux morceaux la corrompt de maniere
+    invisible.
+    """
+    payload = document.encode("utf-8")
+    return (f"{TRANSPORT_KEYWORD} {artefact_id} bytes={len(payload)}\n"
+            + document + "\n")
+
+
+def report_path(produced_file_path):
+    """`<nom du candidat>.merge_plan.log`, A COTE du fichier produit."""
+    return str(produced_file_path) + ".merge_plan.log"
+
+
+def write_report(job, artefact_id, source_name, produced_file_path, caveats=()):
+    """Ecrit le rapport A SA DESTINATION, puis rend la copie de transport.
+
+    L'appelant ecrit d'abord, transporte ensuite. Rien ici n'appelle
+    `tools.logs`: le point d'appel unique appartient au chemin de reparation et
+    pas a ce module, et un producteur qui ne voit pas sa propre sortie ne teste
+    pas sa sortie mais sa fixture.
+
+    Renvoie (chemin, entree_de_transport).
+    """
+    document = render_report(job, artefact_id, source_name, caveats)
+    destination = report_path(produced_file_path)
+    with open(destination, "w", encoding="utf-8") as handle:
+        handle.write(document)
+    return destination, transport_entry(document, artefact_id)
