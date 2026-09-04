@@ -834,6 +834,51 @@ def lost_reference_frame(ratio):
             f"ratio={ratio}")
 
 
+def borrow_provenance(job, stream_order):
+    """EMPRUNTE A QUOI. `BORROWED` seul ne le dit pas.
+
+    La langue de MESURE est sur la ligne de plan, `language=`, et LA SEULE. Une
+    correction de dev-2 que je porte ici plutot que dans un message: `offset=`
+    distingue mesure d'emprunte et ne dit PAS quelle piste porte la langue du
+    plan -- sur un artefact reel deux pistes sont `measured` et une seule est
+    dans la langue du plan.
+
+    L'attribution est une INFERENCE et se marque comme telle: le journal ne dit
+    nulle part "la piste 2 a emprunte a la piste 5". On la VERIFIE au lieu de
+    l'affirmer -- les decalages par region de l'emprunteuse doivent egaler ceux
+    de la piste de reference, region par region -- et on rapporte le resultat de
+    cette verification, y compris quand elle echoue.
+    """
+    plan = job.get("plan") or {}
+    language = plan.get("language")
+    if not language:
+        return None
+    reference = [order for order, fields in (job.get("audios") or {}).items()
+                 if fields.get("lang") == language]
+    if len(reference) != 1:
+        # Zero ou plusieurs pistes dans la langue du plan: l'attribution n'est
+        # pas decidable et on ne devine pas.
+        return {"language": language, "track": None,
+                "agreement": f"undecidable: {len(reference)} tracks carry the "
+                             f"plan language"}
+    other = reference[0]
+    if other == stream_order:
+        return None
+    mine = [r["offset_ms"] for r in (job.get("regions_used", {}).get(stream_order) or [])]
+    theirs = [r["offset_ms"] for r in (job.get("regions_used", {}).get(other) or [])]
+    if not mine or not theirs:
+        mine = [c.value for c in recover_offsets(job, stream_order) if c.state == DERIVED]
+        theirs = [c.value for c in recover_offsets(job, other) if c.state == DERIVED]
+    if not mine or not theirs or len(mine) != len(theirs):
+        agreement = "unverified: the two tracks do not expose comparable offsets"
+    elif all(str(a) == str(b) for a, b in zip(mine, theirs)):
+        agreement = f"offsets identical at {len(mine)} of {len(mine)} regions"
+    else:
+        agreement = (f"DISAGREES: {sum(1 for a, b in zip(mine, theirs) if str(a) != str(b))} "
+                     f"of {len(mine)} regions differ from the reference track")
+    return {"language": language, "track": other, "agreement": agreement}
+
+
 def plan_end_ms(job):
     pieces = (job.get("plan") or {}).get("pieces") or []
     return pieces[-1]["master_end_ms"] if pieces else None
@@ -897,6 +942,16 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                          worst=fields.get("worst"),
                          r_min=fields.get("r_min"),
                          verified=fields.get("verified")))
+        label = plain(fields.get("offset")) or ""
+        if label.startswith("BORROWED"):
+            borrow = borrow_provenance(job, order)
+            if borrow:
+                rows.append(_row("BORROW", _redactor=redactor, track=order,
+                                 plan_language=borrow["language"],
+                                 from_track=borrow["track"],
+                                 attribution="inferred, not stated by the log",
+                                 check=borrow["agreement"]))
+
         # s3.3: UNE etiquette pour toute la piste. Quand les regions portent des
         # decalages differents, on le DIT plutot que de laisser l'etiquette
         # passer pour une propriete de chaque region.
@@ -1052,6 +1107,14 @@ def blank_cells(job):
         "detail": "s4g requires a tag DISTINCT from VMSAM_FABRICATED; the marker "
                   "value is the single string chimeric on every marked track of "
                   "every produced file measured"})
+    entries.append({
+        "quantity": "video_frame_rate",
+        "state": NO_PRODUCER,
+        "address": "merge_video_repair.log_assembly",
+        "detail": "no fps, frame_rate or FrameRate key occurs in any artefact. "
+                  "Any statement about a delay landing on the video grid -- "
+                  "rounding, snapping, a drawn grid -- divides by a rate this "
+                  "record does not carry, so it divides by an assumption"})
     entries.append({
         "quantity": "build_identity",
         "state": NO_PRODUCER,
