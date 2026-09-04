@@ -2543,6 +2543,63 @@ def render_narrative(records):
     return "\n".join(said)
 
 
+class merge_plan_error(Exception):
+    """Un appel qui ne peut pas produire de rapport correct, refuse par son nom."""
+
+
+def _job_contract():
+    """LES CLES QU'UN `job` DOIT PORTER, DERIVEES ET NON RECOPIEES.
+
+    Prises sur ce que `parse_job_log` construit, donc elles ne peuvent pas
+    diverger de lui: ajouter une cle au lecteur l'ajoute au contrat le meme
+    jour. Une liste recopiee a la main serait une SECONDE IMPLEMENTATION du
+    dictionnaire, exactement ce que j'ai refuse a dev-1 pour sa configuration et
+    a moi-meme pour le compte du corpus.
+    """
+    return frozenset(parse_job_log("").keys())
+
+
+def validate_job(job):
+    """REFUSE FORT PLUTOT QUE DE RENDRE A MOITIE. Signale par son nom.
+
+    ci a livre son premier appel avec un `job` epars plausible et a obtenu
+    `KeyError: 'plan'` a la ligne 646. Quinze cles sont lues AVEC DES CROCHETS,
+    et TREIZE d'entre elles sont lues aussi avec `.get` ailleurs -- donc QU'UNE
+    CLE ABSENTE PLANTE OU NON DEPEND DE LA BRANCHE QUI S'EXECUTE. Une fusion qui
+    marche sur dix fichiers peut mourir sur le onzieme par la meme cle absente,
+    et un test qui exerce un chemin ne peut rien dire de l'autre. Seules
+    `regions_added` et `regions_cut` ne sont jamais gardees nulle part.
+
+    ET LE REMEDE N'EST PAS UN `.get()` GENERALISE AVEC DES DEFAUTS. Un rapport
+    qui se rend avec un champ silencieusement absent est de la meme classe qu'un
+    document tronque qui s'ouvre quand meme -- et le prefixe de longueur du
+    transport existe precisement pour rendre cela impossible. J'ai choisi le
+    bruyant contre le silencieux la; c'est le meme choix un cran plus bas.
+
+    Le proprietaire cable le point d'appel lui-meme. Un appel ecrit depuis la
+    docstring rencontre ceci SUR LE CHEMIN DE REPARATION, celui pour lequel la
+    campagne existe.
+    """
+    if not isinstance(job, dict):
+        raise merge_plan_error(
+            f"job must be the dict `parse_job_log` returns, not "
+            f"{type(job).__name__}. Build it with `parse_job_log(<the emitted "
+            f"bytes>)` and never by hand: a hand-built dict tests a fixture and "
+            f"not the output, which is the failure this zone exists for")
+    missing = sorted(_job_contract() - set(job))
+    if missing:
+        raise merge_plan_error(
+            f"job is missing {len(missing)} key(s) this report reads: "
+            f"{', '.join(missing)}. Pass `parse_job_log(<the emitted bytes>)`. "
+            f"NOTE: 13 of the 15 keys are read both with brackets and with "
+            f"`.get` in different branches, so an absent key crashes ONLY ON "
+            f"SOME INPUTS -- a call that works on ten files can die on the "
+            f"eleventh. This refusal is deliberate and is not fixed by "
+            f"defaulting the value: a report rendered with a silently absent "
+            f"field is the same class as a truncated document that still opens")
+    return job
+
+
 def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
     """LE FICHIER. Un seul, et le rapport EST la page.
 
@@ -2550,6 +2607,7 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
     dans la specification ne depende de l'existence du HTML -- alors on met en
     tete ce qui survit a `cat`, et le dessin apres, rendu depuis ces lignes.
     """
+    validate_job(job)
     rows = build_rows(job, artefact_id, source_name, list(caveats), corpus)
     records = parse_rows(rows)
     generation, description = format_generation(job)
@@ -2733,6 +2791,7 @@ def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
 
     Renvoie (chemin, entree_de_transport).
     """
+    validate_job(job)
     document = render_report(job, artefact_id, source_name, caveats, corpus)
     destination = report_path(produced_file_path)
     with open(destination, "w", encoding="utf-8") as handle:
