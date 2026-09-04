@@ -1391,11 +1391,29 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                      # qui est quoi". Un chemin absolu donne cela ET la structure
                      # de la bibliotheque, qu'il n'a pas demandee. Le chemin
                      # complet reste dans le journal source, qui ne voyage pas.
-                     master_name=(_basename(job.get("master_path"))
+                     # LE NOM DU CHAMP PORTE L'AVERTISSEMENT, AU POINT D'USAGE.
+                     # La phrase en tete du document est lue par un HUMAIN qui
+                     # ouvre le fichier; UN AGENT QUI `grep` NE VOIT JAMAIS LA
+                     # TETE. Signale par dev-3, qui est precisement le
+                     # consommateur le plus susceptible de grep plutot que de
+                     # lire, et qui a prefere le dire plutot que d'etre
+                     # l'instance.
+                     #
+                     # C'est l'inverse exact de mon defaut `_name`: la l'etiquette
+                     # promettait autre chose que la valeur, ici l'etiquette est
+                     # juste et L'AVERTISSEMENT EST AILLEURS. Le suffixe le
+                     # ramene sur la ligne, et `grep master_name` continue de
+                     # correspondre par prefixe -- aucun lecteur existant ne
+                     # casse.
+                     master_name_local_only=(_basename(job.get("master_path"))
                                   if not REDACT_MEDIA_NAMES else None),
-                     candidate_name=(_basename(job.get("candidate_path"))
+                     candidate_name_local_only=(_basename(job.get("candidate_path"))
                                      if not REDACT_MEDIA_NAMES else None),
                      construction="md5(path)[:16]",
+                     quote_by=("the opaque ids above, never the `_local_only` "
+                               "fields: those must not leave the output "
+                               "directory"
+                               if not REDACT_MEDIA_NAMES else None),
                      name_fidelity=("square brackets in a name are rendered as "
                                     "parentheses by this row grammar, so a NAME "
                                     "HERE IS NOT BYTE-EXACT -- use the id if you "
@@ -1757,7 +1775,7 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
     if job.get("undelivered"):
         rows.append(_row("UNDELIVERED", _redactor=redactor,
                          state=job["undelivered"]["state"],
-                         file=job["undelivered"]["path"],
+                         file_local_only=job["undelivered"]["path"],
                          note="REFUSED = the gate decided against it. NOVERDICT "
                               "= nobody decided. The artefact exists on disk "
                               "under this name and is NOT counted as produced"))
