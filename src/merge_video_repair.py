@@ -659,6 +659,41 @@ def check_ratio_labelled(plan):
     return None
 
 
+def _margin_fields(plan):
+    """`speed_margin=` quand elle existe, la RAISON quand elle n'existe pas.
+
+    Quatre champs, chacun avec son propre emetteur, parce qu'ils repondent a
+    quatre questions et qu'un seul emetteur conditionnel les fait disparaitre
+    ensemble:
+
+        speed_margin                 la marge de platitude, en ms
+        speed_margin_absent_reason   pourquoi elle n'existe pas
+        fidelity_margin              une autre quantite, sans unite
+        decided_by                   quel critere a tranche
+
+    `NON EMISE` chez le consommateur ne doit se declencher que quand la marge est
+    absente ET qu'aucune raison ne l'accompagne -- c'est-a-dire quand le
+    producteur n'a rien dit. Aujourd'hui il se declenchait sur le cas INVERSE.
+    """
+    if not plan:
+        return ""
+    parts = []
+    margin = get_speed_margin(plan)
+    if margin != None:
+        parts.append(f"speed_margin={margin}")
+    else:
+        reason = plan.get("speed_margin_absent_reason")
+        if reason != None:
+            parts.append(f"speed_margin=absent({reason})")
+    fidelity = plan.get("fidelity_margin")
+    if fidelity != None:
+        parts.append(f"fidelity_margin={fidelity}")
+    decided = plan.get("decided_by")
+    if decided != None:
+        parts.append(f"decided_by={decided}")
+    return (" ".join(parts) + " ") if len(parts) else ""
+
+
 def compare_plan_master(plan, best_video):
     """Le plan a-t-il ete mesure contre CE maitre? Renvoie une raison, ou None.
 
@@ -818,7 +853,22 @@ def log_assembly(candidate_path, assembly, plan):
                       # Absente quand la mesure n'en porte pas -- JAMAIS zero:
                       # une marge nulle serait deux hypotheses a egalite, qui est
                       # le cas `indeterminate` et non "pas de marge rapportee".
-                      f"{'speed_margin=' + get_speed_margin(plan) + ' ' if plan and get_speed_margin(plan) else ''}"
+                      # LA MARGE, ET SON ABSENCE, ET LA RAISON DE SON ABSENCE.
+                      #
+                      # L'emetteur etait conditionne a la VERACITE de la valeur.
+                      # Une marge INDEFINIE vaut None, donc rien du tout n'etait
+                      # ecrit -- precisement sur les fichiers ou la barre de
+                      # fidelite a decide et ou aucune marge de platitude
+                      # n'existe. vmsam-dev-4 rendait alors `marge de victoire:
+                      # NON EMISE` par-dessus une decision prise avec 0.3637 de
+                      # separation.
+                      #
+                      # C'est `head_pad_ms=0` a nouveau, en pire: la ou ce champ
+                      # confondait trois etats sous un chiffre, celui-ci
+                      # confondait `pas de marge` et `producteur muet` sous une
+                      # LIGNE NON ECRITE. Un emetteur conditionne a la veracite
+                      # de ce qu'il emet ne peut jamais dire `absent`.
+                      f"{_margin_fields(plan)}"
                       f"quantum={quantum_ms} pieces={' '.join(spans)}\n")
 
     verification = {}
@@ -926,6 +976,16 @@ def log_assembly(candidate_path, assembly, plan):
                 # ne distingue pas une piste calee sur le bon programme d'une
                 # piste calee sur du contenu sans rapport; r le fait.
                 f"{'r_min=' + str(checked['weakest_correlation']) + ' ' if checked.get('weakest_correlation') != None else ''}"
+                # LA BORNE DE SELECTION, A COTE DU COMPTE QU'ELLE CONTAMINE.
+                # `probes=` est un compte sur des sondes CHOISIES: une fenetre
+                # sous `verify_min_rms` est ecartee. Le predicat d'appartenance
+                # mentionne donc une quantite du signal. Un rapport proche de 1
+                # dit que les sondes gardees frolaient le seuil et que le compte
+                # est fortement censure; un rapport tres grand dirait que le
+                # seuil n'est jamais contraignant, ce qui serait une decouverte
+                # et pas un repli. Regle de vmsam-dev-3, tiree du fait qu'il a
+                # tue sa propre borne pour cette raison exacte.
+                f"{'rms_over_floor=' + str(checked['rms_over_floor']) + 'x ' if checked.get('rms_over_floor') != None else ''}"
                 f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
         # SPEC_ZONE_A s4e, UNE LIGNE PAR REGION: ce qui a ete AJOUTE, ou, et
@@ -1025,6 +1085,18 @@ def log_assembly(candidate_path, assembly, plan):
                           f"{check['subtitles_in_file']}/{check['subtitles_built']} "
                           f"expected_ms={check['expected_duration_ms']} "
                           f"source={check['expected_duration_source']} "
+                          # LA CADENCE DU MAITRE. Elle n'est derivable d'aucune
+                          # autre ligne, et sans elle personne ne peut calculer
+                          # une exclusion de vitesse ni dire sur quelle grille
+                          # `adjust_delay_to_frame` a colle. `unread` et pas
+                          # zero quand mediainfo ne la donne pas.
+                          f"frame_rate={assembly.get('master_frame_rate') or 'unread'}"
+                          f"({assembly.get('master_frame_rate_mode') or 'mode unread'}"
+                          f"{',used' if assembly.get('master_frame_rate_original') else ''}) "
+                          # LE SECOND CHAMP N'APPARAIT QUE S'IL DIFFERE. Deux
+                          # champs identiques sur chaque ligne seraient du bruit;
+                          # leur DESACCORD est l'information, et il est rare.
+                          f"{'frame_rate_original=' + str(assembly['master_frame_rate_original']) + ' ' if assembly.get('master_frame_rate_original') else ''}"
                           f"tolerance_ms={check['tolerance_ms']} "
                           f"measured={check.get('measured')} "
                           f"would_refuse={check.get('would_refuse')} "

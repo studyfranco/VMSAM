@@ -1443,7 +1443,45 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
             verify_search_ms, reference_stream)
 
+    # LA CADENCE DU MAITRE, PUBLIEE. Elle n'est derivable d'AUCUNE ligne du
+    # journal, et trois consommateurs en ont besoin: l'exclusion de vitesse de
+    # vmsam-dev-3 ne peut pas etre calculee sans elle, la ligne GAP du rapport
+    # doit NOMMER la cadence supposee, et `adjust_delay_to_frame` colle sur elle.
+    #
+    # vmsam-dev-1 a balaye 561 fichiers: 559 CFR, 2 VFR, et DEUX FICHIERS CFR A
+    # CADENCE NON STANDARD -- 23.839 et 47.281 -- qui prennent quand meme la
+    # branche de collage et collent donc sur une grille FABRIQUEE. Une cadence
+    # supposee identique pour tout le corpus est fausse pour ces deux-la, et rien
+    # dans le journal ne le disait.
+    #
+    # `unread` et non zero quand mediainfo ne la donne pas.
+    #
+    # DEUX CHAMPS, ET LEUR DESACCORD EST L'INFORMATION. vmsam-dev-3: sur les deux
+    # seuls fichiers dont la cadence est inhabituelle, `FrameRate` et
+    # `FrameRate_Original` DIFFERENT -- 23.839 contre 23.976, 47.281 contre
+    # 29.970. Emettre un seul champ collapse precisement ce qui rend ces
+    # fichiers interessants, et un lecteur qui calcule une periode d'image
+    # obtient 41.948 ms la ou le nominal est 41.708.
+    #
+    # Et le MODE se dit aussi, parce que la branche de collage ne teste pas
+    # "VFR": elle teste l'egalite avec la chaine exacte "CFR". Un mode absent ou
+    # vide prend donc silencieusement le chemin non colle, et rien ne disait
+    # lequel avait tourne.
+    frame_rate = None
+    frame_rate_mode = None
+    frame_rate_original = None
+    try:
+        frame_rate = master_obj.video.get("FrameRate")
+        frame_rate_mode = master_obj.video.get("FrameRate_Mode")
+        original = master_obj.video.get("FrameRate_Original")
+        if original != None and str(original) != str(frame_rate):
+            frame_rate_original = original
+    except Exception:
+        pass
     return {"path": out_path, "pieces": pieces, "audios": audio_reports,
+            "master_frame_rate": frame_rate,
+            "master_frame_rate_mode": frame_rate_mode,
+            "master_frame_rate_original": frame_rate_original,
             "subtitles": subtitle_reports, "declined": declined,
             "failed": failed, "marker": marker_value,
             "output_check": output_check,
@@ -1976,6 +2014,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             lag, score = measure_lag_ms(reference, produced, verify_probe_rate, search_ms)
             probes.append({"master_position_ms": str(start), "piece": piece_index,
                            "lag_ms": lag, "correlation": score, "outcome": "measured",
+                           "reference_rms": reference_rms, "produced_rms": produced_rms,
                            "reference_rms": reference_rms,
                            "produced_rms": produced_rms})
         measured = [p for p in probes if p.get("outcome") == "measured"]
@@ -2010,6 +2049,32 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
         # que j'ai refusee ailleurs ce soir. On RAPPORTE, et un lecteur peut
         # enfin distinguer "aligne, r=0.98" de "aligne, r=0.31".
         weakest = min(probe["correlation"] for probe in measured)
+        # LA BORNE DE SELECTION, A COTE DE LA STATISTIQUE QU'ELLE CONTAMINE.
+        #
+        # `verified=N/M` est un compte sur des sondes CHOISIES: une fenetre dont
+        # le RMS tombe sous `verify_min_rms` est ecartee comme `no_signal`. Le
+        # predicat d'appartenance mentionne donc une quantite du signal, et le
+        # numerateur est un echantillon selectionne par une propriete du signal.
+        #
+        # vmsam-dev-3, apres avoir tue sa propre borne intra-plateau pour cette
+        # raison exacte: QUAND LE PREDICAT D'APPARTENANCE D'UN ECHANTILLON
+        # MENTIONNE LA QUANTITE MESUREE, IMPRIMER LA BORNE DU PREDICAT A COTE DE
+        # LA STATISTIQUE. `n_distinct` fait ce travail pour la REPETITION; ceci
+        # le fait pour la SELECTION, et rien ne repare la circularite -- on la
+        # rend VISIBLE a qui tient le nombre.
+        #
+        # Un rapport proche de 1 dit que les sondes gardees frolaient le seuil et
+        # que le compte est fortement censure. Un rapport tres grand dirait que le
+        # seuil n'est jamais contraignant sur des donnees reelles -- ce qui serait
+        # une decouverte a part entiere, et pas un repli: un seuil qui ne se
+        # declenche jamais ne protege rien.
+        quietest = min(min(probe.get("reference_rms", float("inf")),
+                           probe.get("produced_rms", float("inf")))
+                       for probe in probes
+                       if probe.get("reference_rms") != None
+                       or probe.get("produced_rms") != None)
+        rms_over_floor = (quietest / verify_min_rms
+                          if quietest not in (None, float("inf")) else None)
         # DESACCORD A L'INTERIEUR D'UN MEME MORCEAU: le plan dit qu'il n'y a pas
         # de frontiere la, et la mesure dit le contraire. C'est une TROISIEME
         # issue, distincte de "mal cale": la piste peut etre parfaitement calee
@@ -2098,6 +2163,11 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                         "weakest_correlation": round(float(weakest), 4),
                         "probes_measured": len(measured),
                         "probes_without_signal": len(probes) - len(measured),
+                        # LA BORNE DE SELECTION, PAS SEULEMENT LE COMPTE.
+                        "quietest_probe_rms": quietest,
+                        "rms_over_floor": (round(float(rms_over_floor), 2)
+                                           if rms_over_floor != None else None),
+                        "rms_floor": verify_min_rms,
                         "probes": probes})
         produced_index += 1
 
