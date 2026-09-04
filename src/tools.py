@@ -204,8 +204,42 @@ default_language_for_undetermine = 'und'
 dev = False
 special_params = {}
 mergeRules = None
-sub_type_not_encodable = set(["hdmv_pgs_subtitle","dvd_subtitle","s_hdmv/pgs","pgs","vobsub","s_vobsub"])
-sub_type_near_srt = set(["srt","utf-8","utf-16","utf-16le","utf-16be","utf-32","utf-32le","utf-32be","vtt","webvtt","subrip"])
+# The single classification for subtitle codecs. Both names are compared against
+# TWO vocabularies -- ffprobe's `codec_name` and mediainfo's `Format` -- plus the
+# Matroska CodecIDs that reach us through the container, so each entry is spelled
+# in whichever of the three actually appears.
+#
+# Refuse by exclusion, never by allow-list: a codec missing from an allow-list is
+# dropped in silence and reported as an image, while a codec missing from an
+# exclusion list is attempted and fails loudly on a real defect. Anything not in
+# `sub_type_not_encodable` is written back as srt when it is in
+# `sub_type_near_srt`, and as ass otherwise.
+#
+# WHEN IN DOUBT, ASS. Ass expresses everything srt can plus styling, so calling a
+# plain format styled costs a slightly heavier container, while calling a styled
+# format plain destroys its styling with no error. That asymmetry decides every
+# uncertain case, which is why ttml, sami, jacosub, realtext, microdvd, stl and
+# mov_text are absent below: each can carry style and none is worth losing on a
+# guess.
+# BITMAP -- never encoded to text. One line per family, spelled in every vocabulary
+# that reaches us: ffprobe codec_name, Matroska CodecID, mediainfo Format.
+sub_type_not_encodable = set([
+    "hdmv_pgs_subtitle", "s_hdmv/pgs", "pgs",                    # Blu-ray PGS
+    "dvd_subtitle", "s_vobsub", "vobsub",                        # DVD VobSub
+    "dvb_subtitle", "s_dvbsub", "dvbsub", "dvb subtitle",        # broadcast DVB
+    "xsub", "s_image/xsub",                                      # DivX-era XSUB
+])
+
+# PLAIN TEXT -- written back as srt, because srt loses nothing they can express.
+# Everything not listed here and not bitmap is written back as ass.
+sub_type_near_srt = set([
+    "subrip", "srt", "s_text/utf8",                              # SubRip
+    "utf-8", "utf-16", "utf-16le", "utf-16be",                   # mediainfo Format
+    "utf-32", "utf-32le", "utf-32be",
+    "webvtt", "vtt", "s_text/webvtt",                            # WebVTT
+    "text",                                                      # raw timed text
+    "mpl2", "pjs", "subviewer", "subviewer1", "vplayer",         # plain, no styling
+])
 to_convert_ffmpeg_type = {
     "webvtt": ["webvtt","srt"],
     "s_text/webvtt": ["webvtt","srt"]
