@@ -1313,6 +1313,41 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                  attribution="inferred, not stated by the log",
                                  check=borrow["agreement"]))
 
+        # UN MANQUE MESURE N'EST PAS UN MANQUE ATTRIBUE.
+        #
+        # La ligne de piste porte `[FILL SOURCE SHORT BY x ms; TRACK LOST y ms;
+        # UNEXPLAINED z ms]`, et je la rendais telle quelle, y compris dans la
+        # phrase francaise. Un lecteur y lit que LA REPARATION a perdu z ms.
+        #
+        # LE LEAD A MESURE LE CONTRAIRE, CINQ FOIS SUR CINQ: tout defaut mesure
+        # sur un fichier produit est HERITE -- le maitre est court par rapport a
+        # sa propre image et l'artefact le suit a la milliseconde. LA CAMPAGNE
+        # N'A AUCUNE INSTANCE CONFIRMEE DU PIPELINE INTRODUISANT UN DEFAUT.
+        #
+        # Et ce journal ne peut pas trancher: il NOMME le maitre et ne donne
+        # aucune de ses durees. FIDELITE A UNE SOURCE N'EST PAS CORRECTION D'UNE
+        # SORTIE, et tout ce que ces lignes mesurent est de la fidelite. On emet
+        # donc le manque AVEC son indecidabilite plutot que seul.
+        shortfall = re.search(r"FILL SOURCE SHORT BY ([\d.-]+) ms; "
+                              r"TRACK LOST ([\d.-]+) ms; UNEXPLAINED ([\d.-]+) ms",
+                              plain(fields.get("fill")) or "")
+        if shortfall:
+            rows.append(_row("SHORTFALL", _redactor=redactor, track=order,
+                             fill_source_short_by_ms=shortfall.group(1),
+                             track_lost_ms=shortfall.group(2),
+                             unexplained_ms=shortfall.group(3),
+                             attribution=NOT_MEASURED,
+                             detail="a shortfall MEASURED here is not a "
+                                    "shortfall ATTRIBUTED. This log names the "
+                                    "master and carries none of its durations, "
+                                    "so nothing here can say whether the repair "
+                                    "lost this or inherited it. Every produced "
+                                    "defect measured in this campaign so far -- "
+                                    "5 of 5 -- was INHERITED, and there is no "
+                                    "confirmed instance of the pipeline "
+                                    "introducing one. Fidelity to a source is "
+                                    "not correctness of an output"))
+
         # LE RYTHME, ET CE QUE `speed=` NE DIT PAS.
         rate = applied_ratio(fields)
         speed_text = plain(fields.get("speed"))
@@ -2420,6 +2455,23 @@ def render_narrative(records):
                if shortest else "")
             + " La marque n\u2019a encore jamais \u00e9t\u00e9 dessin\u00e9e "
               "contre de la mati\u00e8re r\u00e9ellement refus\u00e9e.</p>")
+
+    shortfalls = [f for k, f in records if k == "SHORTFALL"]
+    if shortfalls:
+        said.append(
+            "<p><b>Ce fichier d\u00e9clare un manque, et ce rapport ne peut "
+            "PAS dire d\u2019o\u00f9 il vient.</b> La ligne de piste chiffre ce "
+            "que la source de remplissage avait de trop court et ce que la piste "
+            "a perdu\u00a0; elle ne dit pas si la r\u00e9paration l\u2019a "
+            "caus\u00e9 ou si elle l\u2019a <i>h\u00e9rit\u00e9</i> d\u2019un "
+            "ma\u00eetre d\u00e9j\u00e0 court. Ce journal nomme le ma\u00eetre "
+            "et ne porte aucune de ses dur\u00e9es, donc la question n\u2019est "
+            "pas tranchable ici. \u00c0 ce jour, <b>les cinq d\u00e9fauts "
+            "mesur\u00e9s sur des fichiers produits \u00e9taient tous "
+            "h\u00e9rit\u00e9s</b>, et aucune instance du pipeline en "
+            "introduisant un n\u2019a \u00e9t\u00e9 confirm\u00e9e. "
+            "Fid\u00e9lit\u00e9 \u00e0 une source n\u2019est pas correction "
+            "d\u2019une sortie.</p>")
 
     speeds = [f for k, f in records if k == "SPEED"]
     if speeds and all(f.get("ratio_applied_state") for f in speeds):
