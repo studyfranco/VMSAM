@@ -462,6 +462,8 @@ def log_assembly(candidate_path, assembly, plan):
     for entry in assembly.get("verification") or []:
         verification[entry.get("track")] = entry
 
+    verified_count = sum(1 for v in verification.values()
+                         if v.get("outcome") not in (None, "skipped"))
     for report in assembly.get("audios") or []:
         checked = verification.get(report["stream_order"], {})
         worst = checked.get("worst_lag_ms")
@@ -475,8 +477,21 @@ def log_assembly(candidate_path, assembly, plan):
                 f"head_pad_ms={report['head_pad_ms']} "
                 f"speed={report.get('speed_ratio_applied')} "
                 f"verify={checked.get('outcome')} "
-                f"residual=({checked.get('probes_measured')},"
-                f"{quanta(worst, quantum_ms)},{quantum_ms})\n")
+                # LES UNITES VOYAGENT AVEC LES NOMBRES. L'ancienne forme
+                # `residual=(4,0.08,129)` mettait un COMPTE, un RAPPORT et une
+                # DUREE dans une seule parenthese sans nom ni unite, et le
+                # premier champ qu'un lecteur rencontre est un entier qui
+                # ressemble a des millisecondes. Un agent l'a lu comme un
+                # decalage de 4.0 ms -- c'etait QUATRE SONDES -- et allait le
+                # rapporter comme un desaccord entre le conteneur et le
+                # laboratoire. Le format etait le defaut, pas la lecture.
+                f"residual=probes={checked.get('probes_measured')} "
+                f"worst={quanta(worst, quantum_ms)}q "
+                f"quantum={quantum_ms}ms "
+                # La COUVERTURE voyage avec le pire ecart: "worst 9.88" ne porte
+                # aucune trace de "sur 2 pistes verifiees parmi 7", et se cite
+                # donc comme s'il decrivait le fichier.
+                f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
 
     for report in assembly.get("subtitles") or []:

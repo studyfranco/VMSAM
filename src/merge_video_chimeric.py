@@ -740,6 +740,21 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
                "-c:s", target, out_path]
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
     kept, dropped = retime_subtitle_file(out_path, pieces, speed_ratio)
+    if not kept:
+        # TOUTES les repliques sont tombees hors des morceaux gardes du
+        # candidat. `pysubs2` ecrit alors un .srt de ZERO OCTET -- un .ass garde
+        # ses en-tetes, un .srt n'a rien a garder -- et ffmpeg refuse ce fichier
+        # avec "Invalid data found when processing input" AU MOMENT DU MUX,
+        # c'est-a-dire apres toutes les pistes audio, ce qui fait echouer LA
+        # REPARATION ENTIERE pour un sous-titre qui ne portait aucun contenu.
+        #
+        # Observe sur deux fichiers du corpus. Le compte-rendu disait alors
+        # `kept_cues: 0` et se presentait comme un SUCCES: le nombre etait juste
+        # et la conclusion tiree du nombre etait absente.
+        raise chimeric_error(
+            f"every cue fell outside the pieces kept from the candidate "
+            f"({dropped} dropped, 0 kept): the track has no content on the "
+            f"master timeline")
     return {"stream_order": int(subtitle["StreamOrder"]), "language": language,
             "codec": codec_name, "format": target, "path": out_path,
             "kept_cues": kept, "dropped_cues": dropped,
