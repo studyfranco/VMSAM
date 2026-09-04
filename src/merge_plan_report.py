@@ -62,6 +62,53 @@ import hashlib
 import re
 
 # ---------------------------------------------------------------------------
+# LA BASE DE TOUTE AFFIRMATION A L'ECHELLE DU CORPUS
+#
+# Plusieurs cellules de ce rapport citent des faits qui ne viennent PAS de
+# l'artefact rendu -- "zero occurrence sur N artefacts", "le plus court segment
+# du corpus fait 80 s". Ce sont des affirmations sur une POPULATION, ecrites
+# dans un document qui parle d'UN fichier, et elles etaient des constantes
+# codees en dur sans denominateur ni date.
+#
+# DEUX DEFAUTS DANS UN. Elles perimeront en silence -- un artefact de plus et le
+# `zero` est faux, sans que rien ne bouge dans le code. Et elles ne disaient pas
+# de quelle population elles parlaient, alors que CETTE POPULATION N'EST PAS
+# INDEPENDANTE: mesure ici, 18 journaux pour 15 cas distincts, parce que trois
+# journaux decrivent le meme cas 297 par trois chemins de code et deux le meme
+# cas 169.
+#
+# `n_distinct(quoi)` EST LA QUESTION, et le nom du champ la cache. dev-2 a
+# publie `n_distinct_release = 12` pour 9 cas -- plus de releases que de cas --
+# et l'a lu sans broncher parce que le nombre penchait du cote flatteur. Sa
+# garde, gratuite et retenue ici: UN COMPTE DE DISTINCTS NE PEUT JAMAIS EXCEDER
+# SA POPULATION, et rien ne le verifiait.
+#
+# ET L'UNITE RESTE AMBIGUE, ce qui se dit plutot que se tranche en silence: un
+# "cas" est ici un couple (maitre, candidat), mais quatre journaux de laboratoire
+# ne nomment pas leur candidat et sont regroupes par leur maitre seul. Deux
+# candidats differents fusionnes vers un meme maitre compteraient donc pour un.
+CORPUS_BASIS = {
+    "logs": 18,
+    "distinct_cases": 15,
+    "unit": "(master, candidate) pair; lab logs that name no candidate are "
+            "grouped by master alone",
+    "collapsing": "3 logs describe case 297 through 3 code paths; 2 describe "
+                  "case 169",
+    # NOMMES ET NON CHEMINES: mon propre redacteur a transforme ces deux
+    # chemins absolus en jetons opaques -- correctement, il ne peut pas
+    # distinguer un chemin de laboratoire d'un chemin de media, et l'exempter
+    # serait ouvrir la porte par laquelle les fuites passent. On nomme donc les
+    # repertoires au lieu de les cheminer.
+    "measured_over": "the KEEP artefact directory and dev2_lab USED_sample",
+    "caveat": "NOT an independent sample, and undatable from any artefact -- "
+              "no build or timestamp field is emitted anywhere",
+}
+assert CORPUS_BASIS["distinct_cases"] <= CORPUS_BASIS["logs"], (
+    "a distinct-count cannot exceed its population; dev-2 published 12 releases "
+    "for 9 cases and read past it because the number leaned flattering")
+
+
+# ---------------------------------------------------------------------------
 # Etats de cellule
 
 PRESENT = "present"
@@ -1020,6 +1067,13 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     rows.append("#                           standing fact about the pipeline.")
     rows.append("#   not-defined-here        the quantity does not exist in this case;")
     rows.append("#                           the decision was made elsewhere, see decided_by")
+    # UNE AFFIRMATION DE POPULATION SE DIT, MEME QUAND L'UNITE EST DOUTEUSE.
+    # Sans elle un lecteur qui ouvre dix-huit figures voit dix-huit
+    # observations. dev-2 a ecrit la sienne, elle etait fausse, et elle a ete
+    # corrigee dans l'heure PARCE QU'ELLE ETAIT ECRITE. La mienne etait absente,
+    # donc invisible a tout lecteur qui n'etait pas dans la conversation.
+    rows.append(_row("CORPUS", _redactor=redactor,
+                     **{name: value for name, value in CORPUS_BASIS.items()}))
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
     rows.append(_row("IDENTITY",
@@ -1417,7 +1471,9 @@ def blank_cells(job):
         "address": "the seam: dev-1 emits it in a handoff JSON, "
                    "merge_video_repair.log_assembly has the conditional emitter, "
                    "nothing carries it between them",
-        "detail": "0 occurrences in 13 artefacts. AND THE EMITTER WILL FAIL ON "
+        "detail": f"0 occurrences across {CORPUS_BASIS['logs']} logs / "
+                  f"{CORPUS_BASIS['distinct_cases']} distinct cases (see the "
+                  f"CORPUS row: NOT an independent sample). AND THE EMITTER WILL FAIL ON "
                   "ARRIVAL, PRECISELY WHERE IT MATTERS: log_assembly emits the "
                   "field CONDITIONAL ON ITS TRUTHINESS, and a margin that is "
                   "undefined is None, which is falsy. So on exactly the files "
@@ -1445,7 +1501,8 @@ def blank_cells(job):
         "address": "merge_video_chimeric.mux_repaired_file",
         "detail": "s4g requires a tag DISTINCT from VMSAM_FABRICATED; the marker "
                   "value is the single string chimeric on every marked track of "
-                  "every produced file measured"})
+                  "every produced file measured -- see the CORPUS row for "
+                  "what that population is and is not"})
     # DEUX QUESTIONS DERRIERE UN SEUL NOM DE CHAMP, separees en deux cellules.
     # Le TAUX est emis; le DESACCORD entre le taux d'origine et le taux final ne
     # l'est que quand les deux different. Une seule cellule aurait lu `present`
@@ -1518,7 +1575,8 @@ def blank_cells(job):
         "quantity": "build_identity",
         "state": NO_PRODUCER,
         "address": "gestionar_show.fusion (job log header)",
-        "detail": "no commit build version or image key occurs in any artefact; "
+        "detail": f"no commit build version or image key occurs in any of the "
+                  f"{CORPUS_BASIS['logs']} logs; "
                   "the log records what was done and not which build did it"})
     return entries
 
