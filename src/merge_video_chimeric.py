@@ -739,6 +739,23 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
                "-map", f"0:{int(subtitle['StreamOrder'])}",
                "-c:s", target, out_path]
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+    if not path.getsize(out_path):
+        # LA PISTE ETAIT DEJA VIDE A LA SOURCE -- zero paquet dans le fichier
+        # d'origine, donc ffmpeg extrait un .srt de zero octet. Aucune replique
+        # n'a ete supprimee: IL N'Y EN A JAMAIS EU.
+        #
+        # Ce cas n'atteignait PAS le garde ci-dessous, et la condition n'y etait
+        # pour rien: `pysubs2.load` leve FormatAutodetectionError sur un fichier
+        # vide, AVANT que le garde ne soit lu. La piste partait alors en `failed`
+        # avec "No suitable formats" -- une phrase qui decrit l'analyseur, pas le
+        # fichier -- au lieu d'un refus nomme. L'ORDRE, PAS LA CONDITION.
+        #
+        # Recense par vmsam-ci: 5 pistes subrip a zero paquet a la source dans le
+        # corpus, et 0 en ass. Population distincte de celle du garde suivant, et
+        # nommee separement pour qu'un comptage ne les confonde pas.
+        raise chimeric_error(
+            "the source subtitle track carries no cue at all: nothing was "
+            "dropped, there was never anything to drop")
     kept, dropped = retime_subtitle_file(out_path, pieces, speed_ratio)
     if not kept:
         # TOUTES les repliques sont tombees hors des morceaux gardes du
