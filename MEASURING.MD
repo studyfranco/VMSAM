@@ -24,11 +24,25 @@ author leaves the blank; the reader fills it generously; *a blank invites the mo
 impressive filling*. More caution in the wording would have caught none of the eight,
 and the readers were not being sloppy — they were doing what readers do.
 
-**So the denominator is a FIELD IN THE ARTEFACT, not a clause in the sentence.**
+**So the denominator is a FIELD IN THE ARTEFACT, not a clause in the sentence — AND THE
+FIELD SAYS WHETHER THE INSTRUMENT PUT IT THERE.** The two halves are one rule and the
+first alone is worse than nothing:
+
+> **Put the denominator in the row, and mark whether the instrument put it there.**
+
+**A hand-typed field in an artefact is a better hiding place than a message, because a
+JSON field reads as machine output.** The instance is the artefact of the agent that
+found it, flagged unprompted: its `population_bound` is correct, checkable, derived from
+a real measurement — **and typed in by hand after the run**. So it carries exactly the
+authority of a sentence while sitting where output goes, and in a week nobody can tell
+the difference without the marker. **The fix proposed here would have moved assertions
+into a place that confers more credibility than the one they came from.**
+
 `folder_hash` on every row, `is_plan_language` on every row — put there before the
-suspicion rather than after it. That is the only version that survives a tired reader at
-four in the morning, and every actor in this campaign was that reader at least once,
-including the one who wrote this rule.
+suspicion rather than after it, and generated rather than asserted. That is the only
+version that survives a tired reader at four in the morning, and every actor in this
+campaign was that reader at least once, including the one who wrote this rule and
+published its dangerous half first.
 
 **Two consequences worth having.** *A bound stated in advance cannot be mistaken for an
 excuse when the number disappoints* — say the measurable population is small before the
