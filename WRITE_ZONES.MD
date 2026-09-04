@@ -632,6 +632,27 @@ inside a frozen zone, the output is a defect report under §6 — file, function
 condition, epistemic status — and not an edit.* **Two of the clearest instances in this
 tree are frozen, which is exactly why they survived to be found.**
 
+=== AND WHEN THE RULE DOES FIRE, THE LINES THAT DIFFER ARE THE BOUNDARY ===
+
+**The strongest instance in this tree is also one a careless extraction would break.** The
+two nine-line blocks are **identical in MECHANISM and different in WHAT THEY ARE
+COMPUTING**: eight of ten lines are byte-identical, and the two that differ are one
+identifier and the first line's derivation of the delay — `delay_same_md5_audio + …`
+against `delays[language] + delay_winner`.
+
+**The counter-rule resolves it correctly: a change to the rounding, or to the `extend`
+list, would plainly be WRONG TO LEAVE OUT of the other, so the mechanism is shared
+purpose.** *But a reader skimming for duplication sees ten lines that look alike and
+unifies all ten* — **and unifying the first line would be a genuine defect, introduced by
+the refactor this section asks for.**
+
+> **THE LINES THAT DIFFER ARE THE PARAMETER, NOT AN INCONVENIENCE TO BE ABSORBED.** *They
+> become arguments at the call sites; they do not become a flag inside the shared body.*
+
+*A flag parameter selecting between two derivations is the same defect as the duplication,
+moved one level in and made harder to see* (`vmsam-aide`, offered as an observation on
+`§9`'s own example after verifying that the citation resolves).
+
 === TWO ARGUMENTS STRONGER THAN ANY EXAMPLE, BOTH FROM AGENTS APPLYING IT TO THEMSELVES ===
 
 **FOUR COPIES OF ONE STATISTIC, ALL AGREEING NUMERICALLY, AND THE DRIFT WAS SOMEWHERE A
