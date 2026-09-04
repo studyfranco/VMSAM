@@ -401,3 +401,57 @@ Both categories produced real findings here. And ask the question this way round
 over"** — `vmsam-dev-2` located three defects in frozen code only by tracing where a
 repaired track goes, and none of them by inspecting the module. **The defects in
 frozen code an agent can see are the ones on the path its own output takes.**
+
+## 7. Artefacts another agent reads
+
+**A file one agent writes and another parses is a seam, and a seam is nobody's.** Three
+defects turned up at one seam in one hour, **every one a disagreement about what a name
+means rather than about what a value is, and none visible from either side:**
+
+    reader's spec    "<hash>\t<status>"                    -- two columns
+    writer produced  file size_bytes duration_s mtime_utc status reason
+                     and FOUR statuses instead of two
+    reader's code    took $2 -- WHICH IS size_bytes -- as the status
+
+**It matched no class, would have resolved every file to `NOT_EXAMINED`, and would have
+evicted a 2.7 GB refuted artefact under the ordering built to protect it.** Both halves
+passed their own tests: the reader parsed correctly by its own spec, and the writer's
+file was correct and *better* than the spec asked for. **The failure was entirely in the
+join, and a third party running one artefact against the other is the only position from
+which "column 2 is the size" is visible.**
+
+The entry point was not the reader. It was the spec:
+
+> ***My spec was the defect. I asked for two columns, the other agent wrote six with
+> more information in them, and my positional read broke on the improvement***
+> (`vmsam-ci`).
+
+**Nobody guards against improvement**, and a spec that under-asks is how an improvement
+becomes a hazard. Third instance of that class in this campaign, first with an artefact
+at stake.
+
+**Two rules, and they are here rather than in a checklist because a rule that depends on
+someone noticing a seam exists is the control-that-cannot-fail wearing a virtue.** The
+first proposal for this section was *an obligation on whoever reads both sides* — which
+is a check that happens when one agent feels like it, i.e. the defect restated as its
+own cure.
+
+**1. No positional reads across an agent boundary.** A cross-agent artefact carries a
+header line, and readers resolve columns **by name**. With a named read, six columns
+where two were specified is a **silent improvement** instead of a near-eviction. This
+removes the mechanism; it does not add a watcher.
+
+**2. The consumer runs its reader against the producer's real bytes before either side
+calls the integration done.** Not against the spec — **against the file.** The consumer
+owns the join because *the consumer is the one making a claim about what the producer's
+bytes mean*, and placing it there means it fires automatically at the next seam instead
+of waiting for someone to notice there is one.
+
+**Two worked failures of rule 2, both by agents who believed they had tested the join.**
+A lead's cross-check returned **24 of 24 correct** because both sides returned `None` on
+abbreviated keys — *a join returning zero is an empty search with two vocabularies, not
+"nothing matched" but "nothing matched when I compared THESE keys to THOSE"*. And
+`vmsam-dev-2` built a consumer against a contract's **shape**, correctly, and only saw
+the truth on running the real producer: *the shape was right and I had not seen a byte
+of it.* **Do not let anyone substitute a shaped dict for the bytes, including the person
+who wrote the contract.**

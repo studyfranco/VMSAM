@@ -487,3 +487,95 @@ reports `start_time` as though it were the measured quantity. **65 of 315 master
 a nonzero one**, in whole AAC frames of encoder priming (21, 42, 63, 84 ms — 1–4 ×
 21.33 ms at 48 kHz). Three consumers hit it independently in one day, and in every case
 **the number came back clean and wrong** (`vmsam-dev-1`, `vmsam-dev-sandbox`).
+
+**A VALUE AND ITS ABSENCE MUST NOT PRINT THE SAME TOKEN.** When *not measured* and
+*measured, found nothing* render identically, every reader downstream conflates them —
+**and the conflation is invisible precisely because the token is true both times.**
+Three arrivals in one day, from three agents, none derived from another:
+
+- an empty `validation-status.tsv` read as *nothing needs validating* when it means
+  **nothing has been examined** (`vmsam-dev-sandbox`, eviction oracle);
+- `speed=none(no rate proposed)` on **all 112 repaired files**, which a reader takes for
+  112 files with no rate problem and which means **112 files nobody asked** — no
+  producer of a speed verdict exists anywhere in `src/` (`vmsam-dev-2`);
+- a margin printed as `0` for *no margin reported*.
+
+**The third is the sharpest and it is a strictly stronger form.** A margin of zero is
+**two hypotheses tied, which is exactly the INDETERMINATE case.** So the collision is
+not merely ambiguous — *it renders a draw and a silence identically, and the reader gets
+a specific wrong answer rather than an unclear one* (`vmsam-dev-2`, who found it while
+applying the weaker form). **Ask, of every sentinel: is the value it collides with one
+this measurement can legitimately produce?** If it is, the sentinel is a defect and not
+a convenience.
+
+**A guard that fails safe hides the absence of the thing it guards.**
+`merge_video_repair.py` has implemented a four-field speed contract for a day; the only
+producer of a plan emits two `kind` values and neither is `speed`; **the guard's first
+line can therefore never be false.** The consumer passes its own tests by returning
+`None` correctly, the producer passes its own by emitting valid constant plans, **and
+the join has carried nothing at all.** Neither test suite can see a seam — that is a
+property of testing sides separately, not a lapse by either author. **Stage 2 complete,
+drift-corrected and unit-tested; stage 1 nonexistent.**
+
+**A HIGH CORRELATION DOES NOT MEAN ALIGNED. It means the correlation found something
+real.** An unaggregated tail profile returned `r = 0.9506` at a lag of **−959.50 ms** —
+a genuinely displaced window, measured confidently. So a confidence floor rejects
+*noise*; it never certifies *alignment*, and adding one here would have changed nothing.
+**`verify_min_rms = 1e-4` is a silence detector and answers only *is there sound*, never
+*is this sound comparable*** — worth having, worth not mistaking for a quality gate
+(`vmsam-dev-2`).
+
+**A FILTER CHOSEN TO REJECT NOISE REJECTS SIGNAL IDENTICALLY, AND NOTHING IN THE DESIGN
+DISTINGUISHES THEM.** Four mechanisms in this campaign, one class:
+
+    sampling gaps         a 20 s window every 40 s      rejects what falls in the gap
+    an averaged RMS       a span read as a point        rejects what is brief
+    a minimum-run filter  MIN_WINDOWS = 2               rejects what is short
+    a positives-only floor  no adversarial population   never asks
+
+**Every one is a rejection rule with no way to say what it rejected**, and all four
+therefore report an absence they cannot support (`vmsam-dev-2`, `vmsam-forensic`; the
+generalisation is `vmsam-dev-sandbox`'s, from dev-2's formulation of the third).
+
+The third is the worked case:
+
+    WIN=10 STEP=10 AGREE_MS=20 MIN_WINDOWS=2
+    windows:  ... 1402:-0.12  1412:-0.12  1422:-959.50
+    plateaus: [-0.12 x5]  and  [-959.50 x1]
+    KEPT (>= 2 windows): [-0.12 x5] ONLY   <- the defect, removed before its author saw it
+
+**The instrument then reported "one plateau, no step anywhere" about a file whose last
+fifteen seconds are 959.5 ms out.** The parameter chosen to reject single-window noise
+removed single-window signal, and its author found it only by running an unaggregated
+test against his own published result.
+
+**And the fix is the general one, not the local one.** Not `MIN_WINDOWS = 1`, which
+trades a silent failure for a loud one: **publish the windows AND the plateaus, so the
+rejected thing appears with its evidence instead of being deleted.** That is *emit the
+ids, not the count* aimed at a filter rather than at a count.
+
+**And the damage is not one file. It is a CLASS OF CLAIM across every file the
+instrument touched:** largest values stay confirmed, but *"no region beyond X anywhere"*
+dies for all of them at once. **A table from an aggregate that drops short runs is a
+lower bound on what is in each file and never a description of it.**
+
+**A `max()` over probes of unequal confidence lets the worst one decide alone.** On the
+file above the worst probe was **right**, so the hazard did not fire — *and it is still
+there*, because a probe at `r = 0.0834` can produce a large spurious lag and the verdict
+weighs it exactly like one at `r = 0.9964`. **A hazard that has not fired is not a
+hazard that was disproved**, and the case where it looked like the cause is the case
+that made it easiest to stop looking.
+
+**A promotion happens in the relay, and the relay is the one join nobody audits.** An
+agent reported *a file I believe was wrongly refused*; one hop later the architect put
+**a demonstrated wrong verdict** in front of the owner. Nobody lied, the reporting agent
+was careful, the lead verified independently rather than relaying — **and the claim
+gained a strength nobody granted it, in transit.** *Architect-to-owner has the fewest
+checks of any join in this structure, and it is the one with the most authority
+attached to what comes out of it.*
+
+**And the retraction was right for a weaker reason than the truth.** It was withdrawn as
+**unproven**; the eight-minute measurement then showed the original claim was **false** —
+the refusal it called wrong was correct. **Retracting an over-promotion does not restore
+the underlying claim to "probably right"; it returns it to untested, and untested is
+where it can still turn out to be the opposite.**
