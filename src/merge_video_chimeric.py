@@ -123,6 +123,20 @@ def offset_is_measured(segment, stream_order=None):
         et porte 24.06 ms (segment 0) et 14.50 ms (segment 1) d'erreur.
         id 52: 31.11 et 32.35 ms.
 
+    CORRECTION: ids 47 ET 52 SONT LE MEME DOSSIER -- meme maitre, meme dossier
+    candidat. Je les ai cites comme DEUX fichiers, ici et dans un message de
+    commit ("a second file gives..."), ce qui les fait lire comme une
+    corroboration independante. C'EST UNE OBSERVATION, ECHANTILLONNEE DEUX FOIS.
+
+    La mesure qui porte vraiment, elle, vient de quatre dossiers distincts, sur
+    des sorties PRODUITES et non sur des plans (T67):
+        2c611366b7  en 34.62 et 35.25 ms
+        854984999c  fr 14.75 ms
+        b39a89aa87  en 0.00 et fr 10.62 ms   <- MEME FICHIER, DEUX COUTS
+        80e29f2b4d  fr 1.12 ms
+    Le cout de l'emprunt est PAR PISTE et imprevisible: entre 0 et 35 ms, et
+    rien dans une piste n'annonce dans quelle moitie elle se trouve.
+
     C'est SOUS la tolerance de 100 ms du verificateur, donc livrable en
     silence -- exactement la forme des 27.6 ms que `vmsam-dev-1` a trouves
     entre deux pistes jpn, un cran plus haut: regle DANS une langue, ouvert
