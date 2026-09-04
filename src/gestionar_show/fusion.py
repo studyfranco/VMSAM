@@ -220,6 +220,30 @@ def write_log_file(log_file_path, content, merge_plan=None, plan_anchor=None,
                 # decision du proprietaire sans que rien ne le dise.
                 os.path.basename(log_file_path),
                 plan_anchor)
+                # QUATRE ARGUMENTS, ET LES DEUX QUI MANQUENT MANQUENT EXPRES.
+                #
+                # Ni `caveats` ni `corpus`. Le rapport porte donc
+                # `CORPUS state=not-supplied-to-this-render`, ce qui est LA
+                # BONNE SORTIE: en production il y a UNE fusion et UN rapport,
+                # donc IL N'Y A PAS DE POPULATION. Le parametre existe pour le
+                # laboratoire, ou dev-4 rend vingt-quatre fichiers d'un coup et
+                # affirme des choses comme "zero occurrence sur N journaux"; un
+                # rendu a un seul artefact ne doit pas heriter en silence d'un
+                # denominateur qui n'etait pas la.
+                #
+                # LA "REPARATION" EVIDENTE EST PIRE QUE L'ABSENCE. Passer
+                # `measure_corpus([ce seul journal])` rendrait un denominateur
+                # de UN presente comme une population -- et la ligne CORPUS du
+                # rapport dit elle-meme "Call measure_corpus() and pass the
+                # result", ce qui est juste au laboratoire et faux ici. Cette
+                # note EST l'instruction qu'un futur lecteur suivra: c'est
+                # pourquoi le contre-argument est ecrit AU POINT D'APPEL, la ou
+                # il patcherait, et pas seulement dans un message.
+                #
+                # Si une population devient souhaitable un jour, la source
+                # honnete est le repertoire KEEP de ci -- et c'est une decision
+                # sur CE QUE LE RAPPORT AFFIRME, pas sur la signature. Pas
+                # maintenant, et jamais sans dire DE QUELLE population il s'agit.
             # Un POINTEUR, et non la copie de transport. `transport_entry` porte
             # le document entier prefixe par sa longueur EN OCTETS, pour un
             # lecteur qui n'aurait que le journal; ici le fichier est ecrit a
