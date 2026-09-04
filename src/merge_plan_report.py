@@ -78,6 +78,19 @@ NO_PRODUCER = "no-producer"
 # grandeur qui n'est pas agregee mais indefinie: une collision d'etats dans le
 # module qui existe pour empecher les collisions.
 NOT_DEFINED = "not-defined-here"
+# LA BRANCHE EST VIVANTE ET CE CORPUS N'EN PRODUIT PAS L'ENTREE. Distinct de
+# `not-defined-here`, qui dit que la grandeur N'EXISTE PAS dans ce cas; celui-ci
+# dit qu'elle existerait si le cas se presentait. Et distinct de tous les autres
+# par L'ACTION, qui reste le seul test: `no-producer` dit depose un defaut,
+# `collapsed` dit demande au producteur, `not-defined-here` dit va lire l'autre
+# champ, et celui-ci ne demande RIEN -- il dit ne lis pas ce blanc comme une
+# reponse negative, ET SACHE QUE CE CHEMIN N'A JAMAIS SERVI.
+#
+# Il arrive apres l'avoir rencontre TROIS FOIS en le traitant a chaque fois a la
+# main: la boite ambre dont le corpus ne produit pas l'entree, le rendu d'une
+# piste acceleree qui n'a jamais tourne, et `frame_rate_original` qui ne se
+# declenche qu'en cas de desaccord. Trois cas particuliers etaient un etat.
+NOT_EXERCISED = "not-exercised-here"
 
 _STATE_MARK = {
     PRESENT: "",
@@ -86,6 +99,7 @@ _STATE_MARK = {
     ABSENT_FORMAT: "-",     # ce format ne le portait pas
     NO_PRODUCER: "x",       # personne ne l'emet
     NOT_DEFINED: "\u00b7",   # sans objet ici; la decision est ailleurs
+    NOT_EXERCISED: "\u25cb",  # branche vivante, entree non produite ici
 }
 
 _STATE_WORD = {
@@ -95,6 +109,7 @@ _STATE_WORD = {
     ABSENT_FORMAT: "absent from this artefact's format",
     NO_PRODUCER: "no producer emits this",
     NOT_DEFINED: "not defined in this case; the decision was made elsewhere",
+    NOT_EXERCISED: "the branch is live; this artefact does not produce its input",
 }
 
 
@@ -991,6 +1006,8 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     rows.append("#   collapsed               emitted, but aggregated above this granularity")
     rows.append("#   absent-from-this-format this artefact predates the field")
     rows.append("#   no-producer             nothing emits it; this is the defect")
+    rows.append("#   not-exercised-here      the branch is live and this artefact does not")
+    rows.append("#                           produce its input -- NOT a negative answer")
     rows.append("#   not-defined-here        the quantity does not exist in this case;")
     rows.append("#                           the decision was made elsewhere, see decided_by")
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
@@ -1096,6 +1113,7 @@ def build_rows(job, artefact_id, source_name, n_caveat):
         else:
             rows.append(_row("SPEED", _redactor=redactor, track=order,
                              ratio_applied_state=NO_PRODUCER,
+                             rendering_of_an_accelerated_track=NOT_EXERCISED,
                              emitted=speed_text,
                              note="NOBODY ASKED. `no rate proposed by the "
                                   "measurement` is not a verdict of `no rate "
@@ -1231,7 +1249,7 @@ def build_rows(job, artefact_id, source_name, n_caveat):
             if shortest is None or length < shortest:
                 shortest = length
         rows.append(_row("REFUSED_NONE", _redactor=redactor,
-                         count=0,
+                         count=0, state=NOT_EXERCISED,
                          producer="merge_video_repair.drop_unverified_segments "
                                   "then log_assembly `repair: SKIPPED segment`",
                          precondition="a plan segment SHORTER than the "
@@ -1404,6 +1422,25 @@ def blank_cells(job):
         "detail": "s4g requires a tag DISTINCT from VMSAM_FABRICATED; the marker "
                   "value is the single string chimeric on every marked track of "
                   "every produced file measured"})
+    # DEUX QUESTIONS DERRIERE UN SEUL NOM DE CHAMP, separees en deux cellules.
+    # Le TAUX est emis; le DESACCORD entre le taux d'origine et le taux final ne
+    # l'est que quand les deux different. Une seule cellule aurait lu `present`
+    # sur chaque artefact portant un taux et n'aurait JAMAIS montre le cas pour
+    # lequel `frame_rate_original` existe -- si bien que le jour ou ce champ
+    # arrive enfin, il arrive dans une cellule deja marquee complete. Trouve par
+    # dev-2 sur ma propre cellule, et c'est la meme collision que je passe la
+    # journee a defaire, un cran au-dessus.
+    entries.append({
+        "quantity": "video_frame_rate_disagreement",
+        "state": (PRESENT if (job.get("output_check") or {}).get("frame_rate_original")
+                  else NOT_EXERCISED if (job.get("output_check") or {}).get("frame_rate")
+                  else ABSENT_FORMAT),
+        "address": "merge_video_repair.log_assembly (output file line)",
+        "detail": "frame_rate_original= is emitted ONLY when the original and "
+                  "final rates differ. It has never fired: it can only fire on "
+                  "files that are VFR, which are likely to be declined instead. "
+                  "A blank here is not agreement between two rates -- it is one "
+                  "rate and no second to compare it with"})
     entries.append({
         "quantity": "video_frame_rate",
         # CELLULE COMBLEE PAR SON PRODUCTEUR, et on le dit par artefact plutot
@@ -1412,7 +1449,7 @@ def blank_cells(job):
         "state": (PRESENT if (job.get("output_check") or {}).get("frame_rate")
                   else NO_PRODUCER),
         "address": "merge_video_repair.log_assembly (output file line)",
-        "detail": ("emitted on the output line as frame_rate=<rate>(<mode>). "
+        "detail": ("emitted on the output line as frame_rate=RATE(MODE). "
                    "Any statement about a delay landing on the video grid now "
                    "divides by a MEASURED rate rather than by an assumption -- "
                    "and the mode matters: two CFR files at 23.839 and 47.281 "
