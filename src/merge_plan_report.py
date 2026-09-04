@@ -437,6 +437,7 @@ def parse_job_log(text):
         "skipped": [],
         "refused": [],
         "declined": None,
+        "build": None,
         "unparsed": [],
         "output_check": None,
         "summary_counts": None,
@@ -585,6 +586,23 @@ def parse_job_log(text):
             fields = split_fields(matched.group(2))
             fields["stream_order"] = int(matched.group(1))
             job["subtitles"].append(fields)
+            continue
+
+        if body.startswith("build "):
+            # L'IDENTITE DE BUILD, ARRIVEE. C'est la cellule `build_identity`
+            # deposee le premier jour -- le journal disait ce qui avait ete fait
+            # et jamais QUELLE VERSION l'avait fait.
+            #
+            # ET MON LECTEUR LA JETAIT EN SILENCE. Le repli des lignes non
+            # reconnues, ajoute une heure plus tot pour `DECLINED`, l'a attrapee
+            # a sa toute premiere execution sur le corpus reel: LA PREMIERE
+            # CHOSE QU'IL A SAUVEE EST LA REPONSE A MON PLUS VIEUX DEFAUT FILE,
+            # que j'aurais continue a rapporter comme manquant.
+            job["build"] = {}
+            for token in body[len("build "):].split():
+                name, _, digest = token.rpartition(":")
+                if name and digest:
+                    job["build"][name] = digest
             continue
 
         if body.startswith("DECLINED"):
@@ -980,10 +998,18 @@ def assert_no_leak(document):
 # UN SEUL FICHIER, et le rapport EST la page. Decision du proprietaire, pas la
 # mienne. Trois consequences qu'il faut tenir ensemble:
 #
+#   DEUX PUBLICS, ET C'EST LA VRAIE RAISON. Le proprietaire: "le schema c'est
+#   bien pour l'humain et le texte c'est un recap pour etre certain de pas tout
+#   perdre, et ainsi les agents peuvent rapidement comprendre." LES LIGNES SONT
+#   LE CANAL DES AGENTS, le dessin est le canal humain. J'avais justifie l'ordre
+#   par la robustesse -- ce qui survit a `cat` -- et cet argument-la s'affaiblit
+#   le jour ou le HTML ne casse jamais. L'argument d'audience tient ce jour-la
+#   aussi: un agent n'a pas besoin d'un dessin et un humain n'a pas besoin d'un
+#   champ.
+#
 #   RIEN DANS LA SPECIFICATION NE DEPEND DE L'EXISTENCE DU HTML. Les LIGNES
 #   portent chaque nombre; le dessin est rendu A PARTIR d'elles. `grep`, `cat`
-#   et `diff` donnent tout sans navigateur, et un diagramme qu'on ne peut pas
-#   ouvrir ne retire rien.
+#   et `diff` donnent tout sans navigateur.
 #
 #   CHAQUE LIGNE EST UN ENREGISTREMENT COMPLET, `KIND cle=valeur ...`. Aucun
 #   lecteur n'a de position a compter. `WRITE_ZONES.MD` s7 demande un en-tete et
@@ -1275,6 +1301,12 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                               "Call measure_corpus() and pass the result"))
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
+    if job.get("build"):
+        rows.append(_row("BUILD", _redactor=redactor,
+                         **dict(job["build"]),
+                         note="which version of each module produced this. A "
+                              "verdict is a claim about a file AND about the "
+                              "build that made it"))
     rows.append(_row("IDENTITY",
                      master=job.get("master_opaque_id") or "",
                      candidate=job.get("candidate_opaque_id") or "",
@@ -1935,7 +1967,10 @@ def blank_cells(job, corpus=None):
                    "off-grid phase in the offsets cannot be explained without it")})
     entries.append({
         "quantity": "build_identity",
-        "state": NO_PRODUCER,
+        # COMBLEE PAR SON PRODUCTEUR, par artefact. Filee le premier jour, emise
+        # depuis, et mon propre lecteur la jetait jusqu'a ce qu'un repli des
+        # lignes inconnues l'attrape.
+        "state": PRESENT if job.get("build") else NO_PRODUCER,
         "address": "gestionar_show.fusion (job log header)",
         "detail": (f"no commit build version or image key occurs in any of the "
                    f"{corpus['logs']} logs; " if corpus else
@@ -2141,8 +2176,27 @@ def render_svg(records):
         panel_end = master_bar_y + 16 + (12 * len(others))
 
         # --- l'en-tete: le plan, la piste, et si elle a ete acceleree ---------
-        speed = plain(lead.get("speed")) or ""
-        resampled = not speed.lower().startswith("none")
+        # UNE CHAINE VIDE NE COMMENCE PAS PAR `none`. Un champ `speed=` ABSENT
+        # rendait donc `resampled=True` et dessinait `ACCELEREE x` AVEC UN RATIO
+        # VIDE -- pendant que la narration du MEME document disait "aucune piste
+        # n'a recu de correction de rythme". LE DESSIN AFFIRMAIT, LA PROSE
+        # NIAIT, sur les memes octets.
+        #
+        # C'est mon propre defaut de la boite ambre, un champ plus loin, et dans
+        # la direction que j'avais appelee "en pire": une affirmation portee par
+        # une marque PRESENTE. Et il etait ARME PAR UNE ABSENCE, la classe que
+        # ce module entier existe pour rendre impossible.
+        #
+        # Trouve par l'architecte parce que SA fixture omettait le champ.
+        # `merge_video_repair.py:959` ecrit toujours `speed=`, donc ce n'etait
+        # pas atteignable en production -- LATENT, pas vivant. Il le devient au
+        # premier producteur qui omet le champ, ce qui est exactement ce que
+        # `absent-from-this-format` existe pour dire.
+        speed = plain(lead.get("speed"))
+        if speed is None:
+            resampled, speed = None, ""
+        else:
+            resampled = not speed.lower().startswith("none")
         head = (f"piste {number} · {lead.get('lang')} · "
                 f"{'mesuree' if not (plain(lead.get('offset')) or '').startswith('BORROWED') else 'EMPRUNTEE'}")
         if resampled:
@@ -2164,6 +2218,10 @@ def render_svg(records):
             ratio = speed.split("(")[0].strip()
             head += (f" \u00b7 ACC\u00c9L\u00c9R\u00c9E \u00d7{_clip(ratio, 12)}"
                      f" \u00b7 marge de victoire : NON \u00c9MISE")
+        elif resampled is None:
+            # NI acceleree NI non-acceleree: le champ n'est pas la. On ne
+            # devine pas dans un sens plutot que dans l'autre.
+            head += " \u00b7 rythme : CHAMP ABSENT de cet artefact"
         elif "(" in speed and not speed.lower().startswith("none("):
             head += " \u00b7 vitesse : voir la ligne TRACK"
         else:
