@@ -484,6 +484,8 @@ earlier as the one a new consumer will repeat on day one unless told).
 
 ## 8. Quoting a log line is the fleet's widest privacy exit
 
+> **Read section 10 first: it defines WHICH SURFACE this protects.** *The boundary is the repository, not the artefact — so this section governs the QUOTE, not the producer.*
+
 **A CONTROL THAT DEPENDS ON A PATTERN MATCHING ADVERSARIAL TEXT IS NOT A CONTROL.**
 
 An agent building the merge-plan report collected non-`repair:` lines deliberately —
@@ -527,10 +529,308 @@ and a pattern redactor will not save them.*
 way to the usual case: elsewhere, construction lets you EMIT something and guarantee a
 property. Here the only construction that guarantees anything is to NOT emit.*
 
-**Two independent computations agreeing is worth more than either, and worth keeping
-after they agree.** The same report derives each region's offset from cut bounds *and*
-reads the value a producer now emits. **On 3 files, 9 tracks and 20 offsets including
-negatives, the two agree to the digit.** *The emitted value takes precedence and the
-derivation still runs beside it as a standing cross-check, printing both on a
-disagreement* — **a cross-check deleted the moment it first agrees is a cross-check that
-never runs again** (`vmsam-dev-4`).
+**A CROSS-CHECK DELETED THE MOMENT IT FIRST AGREES IS A CROSS-CHECK THAT NEVER RUNS
+AGAIN.** A report derives each region's offset from cut bounds *and* reads the value its
+producer emits; **the emitted value takes precedence and the derivation still runs beside
+it, printing both on a disagreement.** *Most people delete the old computation the moment
+the new one agrees — which is exactly when its value begins, because from then on it is
+the only thing that can catch a producer changing underneath.*
+
+**THE EXAMPLE THIS SECTION FIRST USED FOR THAT RULE WAS WRONG, AND ITS AUTHOR CORRECTED
+IT AGAINST HIMSELF.** The two computations were reported as independent — *twenty offsets
+across three files and nine tracks agreeing to the digit.* **They are not independent:**
+
+    cut_regions and used_regions are appended IN THE SAME `for piece in pieces:` LOOP,
+    FROM THE SAME `source_start`.
+
+> ***Two instruments that cannot disagree are one instrument reported twice.***
+
+**So the twenty-offset agreement measured nothing about the offsets. It measured that the
+consumer's parser reads the producer's format correctly** — *which is worth having, and is
+a different claim* (`vmsam-dev-2`, checking its own code after the paragraph praising it
+had been promoted; `vmsam-forensic` for the rule). **The practice stands; this pair is not
+an instance of it.**
+
+## 9. Two copies drift, and the drift is invisible from inside either file
+
+**Owner instruction:** *réutiliser au maximum les mêmes fonctions. Un code de plus de
+cinq lignes, présent deux fois à deux endroits différents et qui a le même but, devient
+une fonction.*
+
+**The trigger is mechanical — more than five lines, twice, same purpose — and the reason
+is not tidiness.** *Two copies do not stay identical. They drift, and the drift is
+invisible from inside either file, because each one is correct where it sits.*
+
+=== THE WORKED EXAMPLE IS IN THIS CAMPAIGN'S OWN HISTORY, ON BOTH SIDES ===
+
+**Applied, and the motive was measured:** subtitle kinds were classified in more than one
+place with more than one vocabulary, **so two call sites could disagree about the same
+track.** One classifier now answers and the callers ask it.
+
+**Violated — and this is the instance, verified line by line rather than characterised:**
+
+    mergeVideo.py:1486-1495   generate_merge_command_common_md5
+    mergeVideo.py:1502-1511   generate_merge_command_other_part
+
+**Normalise the delay variable name and ONE LINE DIFFERS — the one computing the delay.
+NINE ARE IDENTICAL:** the same `generate_new_file` call, the same `if number_track`
+branch, the same `["-A","-S","-D","--no-chapters"]`, the same `if delay != 0` guard, the
+same `--sync -1:{int(round(delay))}`, the same fallback `extend`, the same `stdout` line
+at the same `.3f`.
+
+**And the drift hazard is named rather than hypothetical: one copy is the path A REPAIRED
+OBJECT REJOINS THE MERGE THROUGH, the other is the ordinary MD5-group path.** *A fix
+applied to the path someone happens to be working on, in a campaign where one agent owns
+the repair, is exactly how two correct-in-place copies come apart.* **They agree today,
+which is why it is worth reporting before they do not** (`vmsam-dev-sandbox`; §6 shape,
+frozen zone, reading plus a mechanical diff, not observed causing harm).
+
+**AND THE EXAMPLE THIS SECTION FIRST CARRIED WAS AN INSTANCE OF THE COUNTER-RULE, NOT OF
+THE RULE.** The architect offered the two frame snaps — `get_good_frame` and
+`adjust_delay_to_frame` — and both agents who measured them refused it:
+
+    the quantise arithmetic   3 lines against 4.  THE TRIGGER DOES NOT FIRE.
+    the 11-line block         chooses frame_rate_use TO MATCH the fps= filter
+                              applied to both streams -- the rate choice and the
+                              filter are ONE decision, and it belongs to the
+                              COMPARISON rather than to the delay
+
+**Run the counter-rule properly and merging them is wrong in BOTH directions:** *the PSNR
+search would be wrong to put into a function that has no search; the rate SOURCE would be
+wrong to leave out of either.* **They share one micro-step — turning a declared rate into
+a frame period — and diverge above it.**
+
+**And the real defect is better stated without duplication at all:** *two different rate
+policies are applied IN SEQUENCE to one value and neither knows about the other, and the
+remedy is that the second should not run after the first* (`vmsam-dev-3`,
+`vmsam-dev-sandbox`). **Shipping the snaps as the headline example would have taught the
+fleet to merge precisely the pairs the counter-rule forbids, using this section as
+licence.**
+
+=== THE COUNTER-RULE, WHICH MATTERS AS MUCH ===
+
+> **RESEMBLANCE IS NOT PURPOSE. Two blocks that look alike and answer DIFFERENT questions
+> must stay apart.**
+
+**Merging by resemblance is how a name comes to mean two things, and this campaign has
+paid for that repeatedly in one day:** *two dicts both carrying a field called `outcome`;
+a `MOVIE/ENCODER` tag inherited from a source file wearing the output's field name;
+`codec_delay` and `start_time` both called "encoder priming".* **Every one of those is a
+merge that happened in someone's head rather than in the code, and it produced the same
+damage.**
+
+*So the test is not "do these look the same". It is: **would a change to one of them be
+wrong to leave out of the other?** If yes, they are one function. If no, they are two
+things that resemble each other.*
+
+=== WHEN IT FIRES, AND WHERE IT DOES NOT ===
+
+**It fires at the moment you write the SECOND copy** — *if you are about to write it a
+second time, it was a function the first time.* **That is cheaper than any detector and it
+is the only moment both copies are in one person's head.**
+
+**And it does not authorise touching frozen code.** *Where this rule points at a duplicate
+inside a frozen zone, the output is a defect report under §6 — file, function, triggering
+condition, epistemic status — and not an edit.* **Two of the clearest instances in this
+tree are frozen, which is exactly why they survived to be found.**
+
+=== AND WHEN THE RULE DOES FIRE, THE LINES THAT DIFFER ARE THE BOUNDARY ===
+
+**The strongest instance in this tree is also one a careless extraction would break.** The
+two nine-line blocks are **identical in MECHANISM and different in WHAT THEY ARE
+COMPUTING**: eight of ten lines are byte-identical, and the two that differ are one
+identifier and the first line's derivation of the delay — `delay_same_md5_audio + …`
+against `delays[language] + delay_winner`.
+
+**The counter-rule resolves it correctly: a change to the rounding, or to the `extend`
+list, would plainly be WRONG TO LEAVE OUT of the other, so the mechanism is shared
+purpose.** *But a reader skimming for duplication sees ten lines that look alike and
+unifies all ten* — **and unifying the first line would be a genuine defect, introduced by
+the refactor this section asks for.**
+
+> **THE LINES THAT DIFFER ARE THE PARAMETER, NOT AN INCONVENIENCE TO BE ABSORBED.** *They
+> become arguments at the call sites; they do not become a flag inside the shared body.*
+
+*A flag parameter selecting between two derivations is the same defect as the duplication,
+moved one level in and made harder to see* (`vmsam-aide`, offered as an observation on
+`§9`'s own example after verifying that the citation resolves).
+
+=== TWO ARGUMENTS STRONGER THAN ANY EXAMPLE, BOTH FROM AGENTS APPLYING IT TO THEMSELVES ===
+
+**FOUR COPIES OF ONE STATISTIC, ALL AGREEING NUMERICALLY, AND THE DRIFT WAS SOMEWHERE A
+DETECTOR CANNOT LOOK.** An agent found four copies in its own lab and measured before
+unifying: **15 of 15 hypotheses, every copy agreeing.** *The drift was not in the numbers.
+It was in what they KNEW* — **the statistic that SELECTS a winning hypothesis and the
+statistic that VALIDATES whether a split is real were two copies, and only one of them
+knew a split can be spurious.** *A hypothesis could have won on a split that explained
+nothing, and a drift detector looking for numerical disagreement finds nothing there.*
+
+> ***The copies agree today, and the rule is not about today. The reason it has not bitten
+> is luck, not design*** (`vmsam-dev-1`).
+
+**AND THE COUNTER-RULE FIRING TOWARD INACTION IS WHAT PROVES IT IS LOAD-BEARING.** Another
+agent applied the same test to three label-placement blocks in its own code **and concluded
+AGAINST refactoring**: the axis version must never drop a tick, the amber version may fall
+back to a shorter string, the salmon version clamps to the plot edge. *Three resemblances,
+three different questions.*
+
+> ***A rule that only ever fires toward action is not being applied, it is being obeyed***
+> (`vmsam-dev-4`).
+
+**Two agents ran the same test on their own code within one hour and reached opposite
+answers, both correctly.** *That pair is the best evidence this section has that the
+counter-rule is doing work rather than softening the rule.*
+
+## 10. The boundary is the REPOSITORY, not the artefact
+
+**Ruled by the owner, 2026-09-04, in three lines that replace a year of the fleet
+guessing:**
+
+> ***"Dans le repos, pas de nom de fichier (sauf les fichiers du repos en lui-même). Par
+> contre, le code VMSAM peut le faire — il peut afficher les noms des fichiers et leurs
+> paths. Dans le fichier .MD il ne faut pas un seul nom d'épisode ou de série. Les id sont
+> autorisés. Il ne faut non plus pas de path en dur dans le code."***
+
+**THE EXCEPTION IS NOT A DETAIL AND IT IS WHY THE RULE IS SAFE TO APPLY LITERALLY.** *"No
+filename in the repository" means NO MEDIA FILENAME.* **The repository's own files —
+`mergeVideo.py`, `WRITE_ZONES.MD`, `fusion.py`, `Dockerfile` — are named freely, and must
+be: a rule read without its exception ends with an agent redacting `mergeVideo.py:584`, and
+the fleet loses the ability to point at its own code at all.**
+
+    THE TEST IS NOT "IS IT A FILENAME". IT IS "WHOSE FILE IS IT".
+    ours, versioned here                 name it, with its line number
+    somebody's media, or a path to it    id only, in anything committed
+
+**THE FLEET HAD BEEN PROTECTING THE WRONG SURFACE.** *Section 8 was written as though a
+media name were dangerous wherever it appeared, and every producer inherited a redactor.
+It is not the name that is dangerous. It is the name IN A COMMITTED FILE* — where it is
+pushed, mirrored, cloned, and outlives the decision that put it there.
+
+    THE REPOSITORY                    what VMSAM PRODUCES AT RUNTIME
+    committed .MD, code, commit       reports, .log, .log.error, anything
+    messages, task files              written beside the media
+    ------------------------------    ------------------------------------
+    NO episode name                   MAY name the file
+    NO series name                    MAY carry its full path
+    NO media filename                 lives in the output directory and
+    NO hard-coded path                never enters the repository
+    ids ARE allowed
+    THIS REPO'S OWN FILENAMES ARE     and so may this repo's own filenames
+    ALWAYS ALLOWED, line numbers too
+
+**The three rules are separable and each fails differently.** *A name in a `.MD` travels
+with every clone. A hard-coded path is a different defect — it does not leak a title, it
+makes the code untestable anywhere but one machine, and it is the reason it is named here
+beside the other two rather than in a style guide.*
+
+**AUDITED THE DAY IT WAS RULED, and the repository already complies — measured, not
+assumed:**
+
+    episode codes in tracked .MD          0
+    media filenames in tracked .MD        0 real ones; every hit is structural
+                                          (`*.chimeric.mkv`, `<basename>_merged.mkv`, `/a.mkv`)
+    hard-coded filesystem paths in src/   0; every hit is an HTTP route
+                                          (`/internal/fusion`) or a comment example
+    container layout in Dockerfile/init   `/config/input`, `/home/vmsam` — the
+                                          container's OWN layout, declared once, NOT a
+                                          media library path and NOT what this rule means
+
+*The distinction in that last row is the one a future audit will get wrong: a path the
+container creates for itself is infrastructure; a path to somebody's library is the defect.*
+
+### What this changes, and what it does not
+
+**The merge-plan report now carries media names, and its redactor and its leak assertion
+are both released behind one constant.** *The owner's reason is the whole rule in one
+sentence:* ***"comme c'est généré par VMSAM, pas de soucis — ce n'est pas quelque chose qui
+finit dans le repo de VMSAM."***
+
+**SECTION 8 STILL GOVERNS, and it now governs one thing instead of two.** *It never was
+about the producer. It was about the QUOTE* — what an agent lifts out of a log, a report or
+a message and drops into a task file, a finding, or a commit. **That crosses into the
+repository, and withholding rather than sanitising is still the only control that holds
+there, for the reason measured in section 8: a path containing spaces walked through a
+pattern redactor and half a series title came with it.**
+
+> **THE NET DID TWO THINGS AND ONLY ONE IS OBSOLETE.** *It kept the name out of the file —
+> obsolete, the owner has ruled the file safe. It also made it IMPOSSIBLE BY CONSTRUCTION
+> for a reader to copy a name onward, because there was nothing to copy.* **Nobody
+> cancelled that, and it is the property this campaign has already lost on twice.**
+
+    THE GUARANTEE MOVES FROM "IMPOSSIBLE" TO "EVERYONE REMEMBERS".
+    That is a real weakening. It is authorised. It must not be silent.
+
+**The counter-measure is one line and costs sixteen characters: THE NAME BESIDE THE ID,
+NEVER INSTEAD OF IT.** *`IDENTITY` carries `master=<hash>` and `master_name=` together, so
+an agent citing a report never has to choose between quoting a name and quoting nothing.*
+**An id removed is an id nobody can use again; an id kept is the safe form always within
+reach** (proposed here, implemented by `vmsam-dev-4`, whose own addition — a `name_fidelity`
+field saying that a name copied out of a row is NOT byte-exact, because the row grammar
+rewrites `[` to `(` — is the part neither of us predicted).
+
+**And the document says so itself, in its first note, not only in a source comment.**
+*Reason it is there and not in the code:* ***the reader of that file is exactly the one who
+will be tempted to cite it.***
+
+### The produced HTML never enters the repository
+
+**Ruled by the owner the same day, and it closes the misreading this section otherwise
+invites:**
+
+> ***"Les fichiers HTML générés ne doivent pas être intégrés dans le repos. Au pire la
+> figure si besoin, sans les noms des fichiers — mais la figure sert d'exemple et de
+> rapport général."***
+
+**THE TEMPTING WRONG INFERENCE IS ONE STEP LONG AND EVERY AGENT HERE IS ONE STEP FROM IT:**
+*the owner ruled the report may carry names → the report is safe → I may commit one as a
+fixture, an example, a regression baseline, an attachment to a finding.* **No. Section 10
+says WHERE the file may be produced. It says nothing about moving it.** *A generated report
+is an output artefact; committing one converts it into a repository file, which is the exact
+boundary this section draws.*
+
+    a report written beside the media       allowed, names and paths included
+    THE SAME BYTES, `git add`-ed            FORBIDDEN -- it is now a repo file
+    a figure alone, names stripped          allowed, as an EXAMPLE and a general report
+
+**The middle row is the whole point: nothing about the content changed. The surface did.**
+
+**And the third row is a licence with a stated purpose, not a loophole.** *A figure in
+`docs/` exists to show the SHAPE of a report — the staircase, the master-contribution bar,
+the amber refusal boxes — to a reader who has no artefact to hand. It is an example and a
+general report, and it carries no filename because it is not about any one file.*
+
+**AUDITED:** no generated report, `.html` or `.log`, is tracked anywhere in this repository.
+One committed figure exists, `docs/speed_correction.svg`, 1653 bytes, **zero media
+filenames and zero episode codes** — already the shape this rule describes, which is why it
+is named here as the worked example rather than as an exception.
+
+### Test a new rule against the rules you already follow
+
+**The first relay of section 10 dropped the parenthesis** — *"pas de nom de fichier"*
+without *"sauf les fichiers du repos en lui-même"* — **and was minutes from reaching six
+agents in one broadcast.** *`vmsam-aide` caught it and its own diagnosis is worth more than
+the correction:*
+
+> ***The truncated rule contradicted a rule I had quoted the same evening, in the SAME
+> document, and I relayed it without testing it against the contradiction sitting in front
+> of me*** (`vmsam-aide`).
+
+**Section 6 of this file requires a code address — *"Name the function; give the line as a
+convenience"*. A rule forbidding filenames in the repository, read without its exception,
+makes section 6 impossible to obey.** *Two sections of one document in direct contradiction
+is the cheapest check available and nobody ran it.*
+
+    IF A CITED RULE READS TOO ABSOLUTE TO BE PRACTICABLE,
+    ASK FOR THE WHOLE SENTENCE BEFORE PASSING IT ON.
+
+**And the property that let it travel:** *a summary announces that it is lossy; quotation
+marks announce the opposite.* **A truncated quotation carries the authority of a quotation
+without its content, and it is interrogated less than the paraphrase it replaced.**
+
+**The scale argument belongs with it, because the fix and the hazard are the same
+property.** *One broadcast reaching six agents with no relay is why broadcasting is good.*
+**A slow relay corrects itself as it goes; a fast one arrives everywhere already wrong.**
+
+**AND THE LIKELIEST FAILURE OF THIS WHOLE SECTION IS EXCESS, NOT DEFICIENCY.** *An agent
+that cannot cite a code address stops measuring and starts reasoning.* **That is not a
+privacy cost, it is a measurement cost, and it would have arrived looking like caution.**

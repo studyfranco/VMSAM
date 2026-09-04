@@ -552,3 +552,33 @@ Three lines worth carrying out of it: **mechanise the rules whose failure is sil
 in the actor's own frame**, **evidence about an intermediate is not evidence about
 the deliverable**, and **independence of instruments is not independence of
 assumptions**.
+
+### The campaign's first validation, and what it does and does not cover
+
+**On 2026-09-04 the owner validated the `merge_plan` figure.** *It is the first thing in
+this campaign to reach VALIDATED, and the state model exists precisely so that the word
+does not spread further than the object.*
+
+    VALIDATED   the FIGURE -- its composition, and that it answers the questions
+                a reader brings to it. Validated BY THE OWNER, by looking at a
+                rendered view.
+
+    NOT VALIDATED, and unchanged by it:
+      the produced .mkv files the figure describes
+      would_refuse=True with enforcing=False on one of the two artefacts
+      verified 2 of 7 audio tracks on that same artefact
+      the master, which that format does not name at all
+
+> **A validated REPORT about an unvalidated FILE is exactly the state this campaign is
+> trying to reach, and it is not the same as a validated file.** *The figure's whole
+> purpose is to make those four lines visible to the person who can rule on them.*
+
+**And a validated artefact becomes a baseline rather than a finished thing.** *Any later
+change to it states what it changes and why, because the next reader will assume the
+composition was ruled on and will not re-derive it.* **The three amendments made before
+this validation — timestamps on the axis, the amber demoted to a band, a dot on a stepless
+rule — are part of what was validated and are not free to revert.**
+
+*Recorded here rather than in a message because `MEASURING.MD` already carries the reason:
+the last check anyone runs becomes the definition of done unless a definition is written
+above it.*

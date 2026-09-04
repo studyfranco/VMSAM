@@ -942,8 +942,13 @@ AND THIS FILE MUST NOT CONFLATE THEM.** The architect saw `if v.get("outcome") n
 second instance of the `get_speed_ratio` class. **It is not, and the refutation is the
 useful part:**
 
-    "skipped" HAS THREE PRODUCERS -- merge_video_chimeric.py:1838, :1850, :1909 --
-    writing into a DIFFERENT structure, built at :1372 and read at repair.py:569.
+    "skipped" HAS THREE PRODUCERS in merge_video_chimeric, each writing
+      {"outcome": "skipped", ...} into a DIFFERENT structure from record()'s --
+      one built under the "verification" key and read in merge_video_repair by
+        for entry in assembly.get("verification") or []:
+    ADDRESSES DELIBERATELY OMITTED: they were :1838/:1850/:1909 and :1372/:569
+    when written and are :1994/:2007/:2068 and :897 one day later. THE ANCHOR
+    TEXT ABOVE STILL GREPS; THE NUMBERS DID NOT SURVIVE ONE DAY.
 
     record() builds entries keyed  candidate/outcome/reason/detail
     verification entries are keyed track/language/outcome/reason
@@ -1138,3 +1143,1307 @@ independent Gaussian per probe; real scatter from a 124 ms quantum is neither Ga
 independent between overlapping windows.* **So the table measures the OVERFITTING
 MECHANISM and not this corpus's failure rate** — and the distinction is what stops the
 81.7 % becoming a number someone quotes about real files.
+
+**A COUNT INFLATED BY A REPETITION NOBODY LOOKED FOR — AND THE DENOMINATOR RULE DOES NOT
+CATCH IT.** Four instances, two agents, one day:
+
+    six probes that were THREE        two positions collapsed because span == window
+    two folders that were ONE         a population reported as two observations
+    294 delays that are 37 DISTINCT   "29.6 % on the AAC grid" was three values --
+                                      21.0 x51, 42.0 x20, 63.0 x9 -- counted as
+                                      eighty observations. ON DISTINCT VALUES the
+                                      grid scores 1 of 37 = 2.7 % against a 4.8 %
+                                      chance rate -- BELOW CHANCE. Withdrawn.
+    four offsets whose n_effective    one displacement seen four times
+      is ONE
+
+**This file already says *a figure without its denominator in the same row will be read at
+its most flattering scope*, and the fix is *put the denominator in the row*.** *Every one
+of the four HAD its denominator in the row.* **294 was printed. 112 was printed.**
+
+> **THE DENOMINATOR WAS CORRECT AND THE NUMERATOR COUNTED THE SAME THING REPEATEDLY, SO
+> THE RATIO WAS WRONG WHILE BOTH ITS PARTS WERE RIGHT.** *That is a different failure and
+> the existing field cannot see it.*
+
+**And in every case the arithmetic was right, the population was inflated, and SOMEBODY
+ELSE COUNTED.** *Neither author caught it in their own data — one agent counted for
+another, that agent asked a third to count, and the third's own instance was found by a
+fourth.* **Four for four. Nobody has ever caught this one in their own numbers.**
+
+**THE GUARD, AND IT COSTS ONE FIELD:** *print `n_distinct` BESIDE `n`, in the artefact,
+**generated rather than asserted**.* **A row reading `294 values, 37 distinct` cannot be
+quoted as 294 independent observations by a tired reader at four in the morning** — and it
+**puts the inflation in front of whoever HOLDS the number rather than whoever wrote it**,
+which is the only position from which it has ever been caught.
+
+**And it is not one number: it is the distinct count AT EACH LEVEL THE DATA HAS.** *One
+agent's repetition lived at two levels — several tracks of one file, and several files of
+one release. It guarded the first and was caught by the second.* **Per track, per file,
+per release** (`vmsam-dev-3`, from four instances including two of its own).
+
+**AND THE RELEASE LEVEL HAS NOW BEEN MEASURED, BY THE AGENT WHOSE NUMBER IT DEFLATES:**
+
+    pairs whose master and candidate differ in container delay
+      n                                   96
+      n_distinct(difference)              21
+      n_releases                          12       <- NINETY-SIX PAIRS ARE TWELVE RELEASES
+      largest single release contributes  24 pairs <- a QUARTER of the sample
+      n_distinct( (release, difference) ) 27
+
+**An eightfold inflation if you count pairs, and nothing in `n = 96` says so**
+(`vmsam-dev-2`). *And it puts a live question on a number others are using: an
+equal-terms test at `n = 112` controls the TRACK level and may not control the RELEASE
+level — if it does not, its 4.2× is inflated by this mechanism one level up.*
+
+**THE MECHANISM, IN ITS AUTHOR'S WORDS, AND IT IS WHY INTENT CANNOT FIX IT:**
+
+> ***I compute the statistic before I count the population, and no statistic announces the
+> difference. `29.6 % of 294` and `29.6 % of 37 distinct values repeated to 294` print
+> identically.***
+
+**So the rule is a required FIELD and not a habit:** ***`n` alone is not a publishable
+population. `n_distinct` and the GROUPING LEVEL travel with it, in the artefact, generated
+rather than asserted.*** *It would have caught all three of one agent's instances and at
+least one of another's, mechanically, without anyone being more careful.*
+
+**AND ONE MECHANISM DID CATCH SOMETHING BEFORE IT TRAVELLED, EXACTLY ONCE ALL DAY.** A
+near-second family *looked* like a clean 24 ms arithmetic sequence and the sentence was
+already written. The real differences:
+
+    5  19  48  24  5  19  24  24  24  22  2  19  5  38
+
+> **A run of three identical values reads as a sequence, and everything else reads as
+> noise around it.**
+
+*It did not reach anyone only because its author was recomputing to answer someone else's
+unrelated question.* **The generalisation, and it is the only positive control in the whole
+day: ANSWER OTHER PEOPLE'S QUESTIONS WITH FRESH COMPUTATION RATHER THAN FROM NOTES** —
+*not because notes are unreliable, but because recomputing is the one occasion on which
+anybody looks at a population twice* (`vmsam-dev-2`, `vmsam-dev-3`).
+
+**THE GUARD'S OWN LIMIT, STATED BY ITS PROPOSER, AND IT IS WHY THE PROPOSAL IS
+TRUSTWORTHY.** `mkvmerge -J` reports **`codec_delay = 21333333 ns` on EVERY aac track**,
+including on an artefact whose seven tracks all carry `start_time` exactly 0. *`codec_delay`
+is a constant the decoder compensates and is independent of `start_time`.* **So 21.3333
+was never going to appear in the field either agent was reading:**
+
+> ***We fitted an audio-frame grid to a quantity that does not carry one.***
+
+**That is a better account of the failure than "the tolerance was too loose", and the
+distinct-count field would NOT have caught it.** *A guard presented as covering more than
+it does is exactly the defect this file collects — and its author said so while proposing
+it.*
+
+**FIXING THE CLASS WHILE COMMITTING IT, ONE HOP SHORT — AND REPORTED BY THE PERSON WHO
+DID IT, TWENTY MINUTES AFTER THE FACT.** Noticing that five of six clones held stale
+tracking refs, an agent fetched all six **from the hop** and reported them repaired.
+
+> ***That command propagated the hop's behind-state and it looks exactly like a freshness
+> fix.***
+
+**The clones were then uniformly current with a machine that was itself behind.** *A
+successful fetch, a real improvement in consistency, and the wrong source* — **and the
+report of it was true in every particular.** *It is the day's class committed inside the
+repair of the day's class, and the timeline would have read as though its author found the
+defect rather than walked into it* (`vmsam-dev-sandbox`, saying so unprompted).
+
+**AND THE NEAR-MISS IN THE SAME HOUR IS THE SHARPER HALF.** Trying to reproduce a
+cadence-tool defect, the same agent's first attempt used **a tool path that does not
+exist** — so **all three working directories failed identically**, which is precisely the
+signature of the defect being tested for. *It would have been a fourth instance if the
+output had been believed.* **A test whose harness is broken produces exactly the result
+the hypothesis predicts, and nothing in the output distinguishes them.**
+
+**AND A HEADLINE CAN COMPRESS TWO MECHANISMS INTO ONE.** A three-row table showing exit
+2 / 0 / 1 across three working directories was diagnosed correctly in its body — *cwd not
+a repository gives exit 2; a stale tracking ref gave the 0 against the 1* — **and the
+headline read as a single cwd-sensitivity finding.** On a rerun the exit-1 row did not
+reproduce, because the stale ref had moved. **Two defects, entangled in one artefact, both
+real** (`vmsam-aide`, `vmsam-dev-sandbox`).
+
+*The genuine defect is nastier than either exit code and survives both: the tool runs
+`rev-list` with no `-C`, and prints `rev-list` FAILING as **"no commits on origin/dev-AI"**
+— a confident claim about the branch. **Could-not-look and looked-and-found-nothing share
+a token, inside a gate.***
+
+**TWO AGENTS DESCRIBING THE SAME IMAGE INDEPENDENTLY, AGREEING ON EVERY STRUCTURAL POINT,
+IS THE CORROBORATION TEST PASSING WITHOUT EITHER KNOWING IT WAS RUNNING.** *Dark ground,
+one thin axis with only 0 and the total, salmon full-height rules at every cut as the
+dominant mark, pale-blue bars staggered down the page, dashed amber boxes, decimal comma,
+three decimals on segment offsets and one on cut offsets, no legend.* **Neither knew the
+other was writing a description, and the agreement is why the secondary one was trusted
+enough to hand on — with the ruling attached that THE IMAGES WIN WHERE THEY DISAGREE**
+(`vmsam-dev-sandbox`, the architect).
+
+**AND A NAMING COLLISION FOUND BY READING A CONTAINER FIELD RATHER THAN BY A JOIN
+BREAKING.** Every instance of this class today surfaced when two vocabularies met and
+something failed — a column read as a status, a value read as an outcome, a guard with no
+producer. **This one surfaced because somebody read `codec_delay` on a track whose
+`start_time` was zero and noticed the two could not be the same quantity.** *Seventh
+instance, and the first found by inspection rather than by damage.*
+
+**A READ-ONLY FETCH IS READ-ONLY WITH RESPECT TO THE WORKING TREE, NOT WITH RESPECT TO
+REFS.** An agent's own careful fetch — `FETCH_HEAD` only, no ref clobbered, working tree
+verified clean afterwards — **still moved that clone's tracking ref between its
+measurement and a second agent's rerun**, which is why one row of its three-row table
+stopped reproducing. *The care was real and aimed at the working tree; the thing that
+moved was a ref* (`vmsam-aide`, reporting its own table as confounded).
+
+**AND THE CONTROL THAT DISENTANGLED TWO DEFECTS WAS AN EMPTY DIRECTORY.** Freshness and
+cwd-sensitivity had been measured together and read as one finding. **The separation
+needed a case where staleness is impossible by construction:**
+
+    a clone made FROM THE TRUE REMOTE, tracking ref current by construction  -> EXIT 1
+    an EMPTY DIRECTORY, no refs at all, so nothing CAN be stale              -> EXIT 2
+    every cwd that IS a repo, all refs pinned                                -> EXIT 1
+    both non-repos                                                           -> EXIT 2
+
+**Exit 2 is caused by cwd-not-a-repository and is independent of freshness; staleness
+moved the answer between 0 and 1 and never produced 2.** *To separate two entangled
+causes, build the case where one of them CANNOT occur — not the case where you believe it
+does not* (`vmsam-aide`).
+
+**AND "THE HOP IS BEHIND" WAS THE ARCHITECT'S OVER-STATEMENT: ONLY ONE BRANCH WAS.**
+`master` was current at the hop the whole time — local, tracking and true remote all
+agreeing — and only `dev-AI` was stale. *A narrower problem than the one broadcast, and
+the narrower statement is the one that would have told the fleet where to look.*
+
+**§8's FAILURE IS NOW MEASURED ON AN ARTEFACT RATHER THAN REASONED ABOUT.**
+
+    a real log line on disk, reported as FACT ONLY, no content
+      bracketed quoted field  TRUE      carries_path  TRUE
+      path segment count      11        SPACES INSIDE THE PATH  TRUE
+      quoted field length     224 chars
+      A NAIVE \S+ PATTERN CAPTURES 54 OF 224  ->  170 CHARACTERS WALK THROUGH
+
+**Seventy-six per cent of the field escapes the redactor.** *And the same sweep found the
+six matches inside `src/` are THE FORMAT STRING AND NOT DATA — verified by a control:
+matching lines that also carry a path literal, zero.*
+
+**AND THE ZERO THAT MATTERS CAME WITH ITS POSITIVE CONTROL, UNPROMPTED.** Across 1293
+lines of a report generator's own output: **zero path literals, zero absolute-looking
+paths, 35 opaque tokens.** *And the same regex fired three times against the other file* —
+
+> ***A zero from me is worth nothing without one.***
+
+**That is this file's newest rule — prove your reader can show the thing when it IS
+present — applied by an agent to its own null before anyone asked** (`vmsam-aide`).
+*Layer 1 of the withhold-rather-than-sanitise control is holding in production output.*
+
+**And the limit it refused to cross:** *it established the hazardous shape exists on disk
+with a real space-containing path; it did NOT establish that the file is captured
+production output rather than a constructed fixture.* **The filename says "replay", and
+provenance is the producing agent's to state rather than a reader's to infer.**
+
+**A DIFF WITHOUT ITS BASE IS NOT A MEASUREMENT, AND TWO AGENTS CAN BOTH BE RIGHT AND
+CONTRADICT EACH OTHER FLATLY.**
+
+    the lead    ec15b65 -> aefdf8a    3 files, +379, DOCS ONLY, src/ byte-identical
+    forensic    109ec10 -> aefdf8a    9 files, +2226 -31, INCLUDING A 1449-LINE MODULE
+                                      -> "docs only was false from where I stood"
+
+**Both measured correctly. Neither stated its base.** *One clone stood at the tip of a
+squash; the other stood at a tip that a LATER force-push had orphaned, so its range
+crossed a history rewrite and every code promotion since.* **The contradiction is entirely
+in the two unstated starting points** (`vmsam-dev-sandbox`, `vmsam-forensic`, reconciled by
+the architect who caused the rewrite that separated them).
+
+**AN ATTRIBUTION WITHOUT A CITATION IS A FABRICATION WITH A FOOTNOTE.** A tool's docstring
+recorded that another agent *"profiled error id 13 end to end and found FOUR change
+points, one at 1170 s with a step of 89 ms."* **The named agent could not find it. Its own
+document was then searched directly rather than the denial accepted:**
+
+    "id 13"        appears NOWHERE in it
+    "change point" appears ZERO times in it
+    "an 89 ms step at 1170 s"  IS there -- describing that agent's OWN DRIFT
+                               HYPOTHESIS, ON A DIFFERENT SUBJECT, REFUTED BY
+                               ITS AUTHOR THE SAME MORNING
+
+**A real magnitude, from a refuted hypothesis, about another thing, attached to a file its
+supposed author never named, with a count in a vocabulary its supposed author never uses.**
+*Written as an instrument's motivation, built upon, and cited to two agents as the
+disagreement deciding a selector.*
+
+> **AND IT SURVIVED A DAY *BECAUSE* IT WAS ATTRIBUTED TO SOMEONE ELSE.** *Its author's own
+> words: "I would have checked my own number."*
+
+**That is the sharpest thing this file records about cross-agent work.** *Every rule here
+about verifying claims assumes the claim has a source. A borrowed number is checked less
+than an owned one, precisely because someone else is presumed to have checked it*
+(`vmsam-forensic`, against itself, having searched the other agent's document rather than
+accepting a denial that would have closed the question in its favour).
+
+**AND A PARTIAL REDACTION IS WORSE THAN NONE, BECAUSE THE TOKEN SIGNALS HANDLING.** An
+agent piped its output through `sed -E 's#/srv/[^ ]*#<PATH>#g'` for a day — **replacing
+the library root while letting the series title, the season and the catalogue id through**,
+the identical space-terminated defect §8 documents. **Nothing leaked, and what prevented it
+was a habit rather than a control:** every peer message was written by hand from opaque
+ids and no redacted blob was ever pasted into one. *One paste and it fails silently.*
+
+> ***A defence that works because of a habit is not a defence, and the `<PATH>` token makes
+> the output LOOK handled*** (`vmsam-dev-2`).
+
+**A VALUE AND ITS ABSENCE SHARING A TOKEN, IN THE STRONGEST POSITION THE DEFECT CAN
+OCCUPY: A FUNCTION'S RETURN.** Verified in the frozen source:
+
+    video.py:738   best_value_psnr = -1
+    video.py:739   good_frame = -2
+    video.py:743   for i in range(-2,3):
+    video.py:772   if mean(list_result_average_psnr) >= best_value_psnr:
+                                                     ^^ >=, NOT >
+
+**Every tie overwrites the standing winner, so the last index standing is always the
+largest `i`. `+2` is returned when the scan LOCATED frame +2 and when it COULD NOT
+DISCRIMINATE.**
+
+> **The token is a RETURN VALUE, not a log field — so nothing downstream can annotate it,
+> separate the two cases, or even know the question arose.** *Every other instance of this
+> class in this file was a field somebody could have added a companion to.*
+
+**And what makes it live rather than theoretical:** the means are parsed with
+`average:(\d+.\d+)` out of ffmpeg's printed output, **and the psnr filter prints TWO
+DECIMALS** — *so an exact collision is a collision of ROUNDED values, not of
+full-precision floats.* **Narrower than first reported — a 0.001 dB difference selects
+correctly — and worse where it bites: a spurious `+2` costs two frames, 83.42 ms at
+23.976, four times the 20.85 ms half-frame maximum the later snap can cost**
+(`vmsam-dev-1` found it, `vmsam-dev-3` fired the real loop order and operator).
+
+**AND THE SAME PARSE REFUSES A PAIR WHOSE VIDEO IS IDENTICAL.** `video.py:757` calls
+`.group(1)` directly on the `re.search` result with no `None` check. **ffmpeg's psnr
+filter prints `average:inf` when the two streams are identical**, `(\d+.\d+)` does not
+match `inf`, and the `AttributeError` is swallowed by the `except Exception` in
+`compare_video.run` — **which records the pair as NOT COMPATIBLE.**
+
+> **Bit-identical video does not return "these are the same". It is refused through the
+> error path, silently** (`vmsam-dev-3`, reading plus a demonstration against ffmpeg
+> 9.0.1's real output; not observed on a corpus file).
+
+*Same shape `SPEC_ZONE_A` §3 already records for a `Decimal`/`float` `TypeError` that
+dropped every candidate on one path — **a broad `except` converting a parse failure into a
+verdict about the media.***
+
+**A LINE NUMBER QUOTED ACROSS A FETCH IS STALE UNTIL RE-GREPPED.** `src/` moved **1506
+lines** between two tips in one day. *An agent re-verified every address it had cited —
+six in one file and one in another held; one had moved by sixteen lines* (`vmsam-dev-1`
+caught it, `vmsam-dev-3` re-checked). **Same family as an archived invariant citing a line
+in a file that no longer contains the word: the content survives and the address does
+not.**
+
+**AND AN OVER-RETRACTION WAS PARTIALLY REVERSED BY MEASURING THE REPRESENTATIVE CARRIER.**
+A claim was withdrawn to *untested* because its control used a synthetic offset injected
+one way. **Re-run on a real container offset changed with the muxer that actually touches
+these files, read back through the production command: n=8, eight releases, eight distinct
+values from 8 ms to 1031 ms, PRESERVED 8 OF 8.** *So the path claim was right and the
+withdrawal took the carrier and the conclusion together.* **Its author's own account: I
+over-retracted when I took it back with the carrier** (`vmsam-dev-2` measured,
+`vmsam-dev-3` un-retracted). *This file's rule that an over-broad retraction is accepted
+within the minute and sits, firing on the agent who carried it — and reversed inside two
+hours only because someone ran the right carrier.*
+
+**A SELF-CONSISTENCY PROPERTY IS NOT A FITNESS PROPERTY, AND THE FIRST WILL STAND IN FOR
+THE SECOND UNLESS SOMEBODY NAMES WHICH ONE WAS CHECKED.** A report was delivered as
+PRODUCED and CHECKED, and both were true:
+
+> ***What I checked was that the drawing contained nothing the text lacked — never that it
+> showed what a reader needed.***
+
+**The artefact was still wrong.** *`AGENT.MD` already requires that CHECKED name the
+property; this is what happens when it does — the label is honest, the property is real,
+and it is the wrong property* (`vmsam-dev-4`, against its own delivery). **Ask of every
+"checked": checked against what a reader NEEDS, or against ITSELF?**
+
+**A COINCIDENCE AT DISPLAY PRECISION IS A FITTED WRONG QUANTITY THAT LOOKS RIGHT ON THE
+ONE ARTEFACT YOU WOULD HAVE CHECKED.** A label printed `-23,0 s`; a region offset of
+`22815,13 ms` displays as `-22,8 s`, close enough to propose. **The true quantity was the
+offset STEP, recoverable only by arithmetic on the printed labels:**
+
+    -1,287 -> -24,309  = -23,022  vs  -23,0
+    -24,309 -> -54,922 = -30,613  vs  -30,6
+    -54,714 -> -81,909 = -27,195  vs  -27,2
+    -91,008 -> -164,374 = -73,366 vs  -73,4
+    -0,018 -> -91,008  = -90,990  vs  -90,1   <- UNEXPLAINED, AND LEFT SO
+
+**Four exact, one not, and the one that does not fit was reported rather than smoothed.**
+*Fitting the near-miss instead would have put the wrong quantity in every label of every
+report while agreeing on the single file its author would have verified* (`vmsam-dev-4`).
+
+**AND THE ARCHITECT'S REQUIREMENT WAS SATISFIED BY CONSTRUCTION RATHER THAN BY CARE — FOR
+THE THIRD TIME IN ONE ZONE.** The rule was *a borrowed offset must not look like a
+measured one*. The implementation is not a marker:
+
+> ***A borrowed track has no staircase of its own.*** One staircase per distinct geometry;
+> borrowers hang beneath the staircase they borrow, as dashed strips naming their
+> language, their `verify=skipped`, and the per-region equality result.
+
+**The previous figure required a reader to COMPUTE the borrowing; this one cannot draw it
+any other way.** *Same zone that made "nothing in the picture the text lacks" a data path
+rather than a discipline, and that answered a redaction problem by withholding rather than
+sanitising.* **Three rules in one zone satisfied by removing the possibility of breaking
+them.**
+
+**AND ITS OWN LIMIT: THERE IS NO RASTERIZER IN THAT CONTAINER.** *The figure was verified
+numerically — bars inside the canvas, staircase descending, rules on the boundaries,
+labels not colliding — and its author has never seen it drawn.* **Every rendered view of
+this report so far exists because a second agent rebuilt it from pasted rows on another
+machine.** *A drawing verified only by arithmetic is a drawing whose fitness property is
+still empty, and its author said so while shipping it.*
+
+**A SYNTHETIC FIXTURE CAN BE A PREDICTION OF A CORPUS FILE RATHER THAN A SUBSTITUTE FOR
+ONE — AND THE ARCHITECT'S CAVEAT WAS TOO NARROW.** The standing rule was *a synthetic file
+measures the instrument, never the corpus*. **True, and incomplete.** A fixture built to
+carry a rate AND a splice — because no such corpus file was known — predicted a shape;
+**the shape was then found on real bytes, in a file everyone already had:**
+
+    id 70          fid_mean   max-min      2-segment
+      inverse        0.9702    958.1 ms      0.6 ms   <- only one above the gate
+      1:1            0.6029  38909.9      40581.3
+
+    the eight probes under `inverse`: two plateaus at -1890.8 and -2848.6,
+    FLAT TO 0.1 ms WITHIN EACH -- bounding the rate error at |dr| < 7e-7
+
+**`max-min` reads 958.1 ms and calls it "not flat". The two-segment statistic reads
+0.6 ms.** *The fixture predicted the shape; the corpus contained it; the prediction held*
+(`vmsam-dev-1`). **So the caveat stands for what a synthetic MEASURES and not for what it
+can PREDICT** — and a prediction that later meets a real file is worth more than either
+half alone.
+
+**A WINDOW THAT DOES NOT FIT REPORTS NOTHING, AND NOTHING READS AS FLAT.** A segment count
+was set at four because *"the W=30 window could not be placed past t=1285.6, I stopped
+probing at 1280 — and then wrote a segment boundary at 1310, AN INTERVAL MY EVIDENCE NEVER
+REACHED."* **A dense pass with a flat-region control at the same window size found a
+fourth change point at (1285, 1290) of −41.7 ms — one frame at 24.000.** *And another
+agent had flagged a reading there and declined to assert it. It was real.*
+
+> **Third form of "no noise is a condition": not a missing FLAG, not missing NOISE, but a
+> MISSING PLACE.** *The first two omit something the production path carries; this omits
+> somewhere the instrument cannot stand — and the gap is silent rather than empty*
+> (`vmsam-dev-1`, `vmsam-ci`).
+
+**TWO MARGINALS SOMETIMES DO CONSTRAIN THE JOINT, AND CHECKING COSTS FIVE ADDITIONS.**
+The cross-tab error recorded earlier in this file had an arithmetic tell in the table its
+author was already looking at:
+
+    the standard frame rates sum to 516+13+12+10+8 = 559
+    THE CFR COUNT IS EXACTLY 559
+
+**The marginals left one possibility.** *"Two histograms do not give you a cross-tab" is
+the rule; the cheap half nobody states is that SOMETIMES THEY DO, and finding out costs
+adding up a column* (`vmsam-dev-1`, against its own withdrawn finding).
+
+**AND A PRODUCER'S OWN GAP, FOUND BY READING ITS BYTES THROUGH THE CONSUMER RATHER THAN
+THROUGH ITS SPEC.** A marker is built as `chimeric+resampled:<factor>` from
+`plan["segments"]`; **the plans shipped that evening carry `segments: []`** — so on a file
+that demonstrably has a change point the marker would read `resampled:` where the track
+needs `chimeric+resampled:`. *`WRITE_ZONES.MD` §7 rule 2 asks the CONSUMER to run against
+the producer's real bytes. Here the PRODUCER ran its own bytes through the consumer and
+found its own defect* — **one layer earlier than the rule anticipated, and the cheaper
+direction** (`vmsam-dev-1`).
+
+**AND A REFUSAL AND A TEST CAN BE THE SAME OBJECT.** A plan was shipped carrying a ratio
+and `verdict: None`. *"I will not emit a verdict I cannot defend to make a seam look
+closed."* **That is also the consumer's INDETERMINATE branch, written first and never
+exercised** — so declining to close the seam is what finally runs the code written for the
+case (`vmsam-dev-1`, `vmsam-dev-2`).
+
+**EMIT A DERIVABLE QUANTITY ONLY IF THE DERIVATION HAS A PRECONDITION THE DATA CAN
+VIOLATE.** *"Fragile rather than inconvenient" is the right instinct and it is a
+judgement; this is the checkable form of it.*
+
+    offset_ms from CUT bounds     recoverable ONLY from a plan that cut something
+                                  -- MEASURED at 2 of 10 logs.  PRECONDITION EXISTS
+                                  -> EMIT IT. And it was emitted.
+
+    the increments between them   one subtraction on values already on the line
+                                  NO PRECONDITION. Cannot fail if the line exists
+                                  -> DOCUMENT THE DERIVATION, DO NOT EMIT IT
+
+**A field that restates an unconditionally derivable quantity adds no information and adds
+a surface for the two to disagree** (`vmsam-dev-2`). *And the campaign has the worked
+failure: two renderings of one computation, reported as an independent cross-check,
+retracted within the hour — and the second field would have been a THIRD rendering, added
+twenty minutes after that correction.*
+
+**AND A DERIVATION CAN BE UNCONDITIONAL IN ONE UNIT AND IMPOSSIBLE IN ANOTHER.** The
+increments are derivable **in milliseconds** and the test that wanted them needed them
+**in frames** — *and `video_frame_rate` has no producer anywhere in the artefact set.*
+
+> **A consumer computing "increments in frames" divides by a rate the record does not
+> carry, so it divides by an assumption.** *State the unit when you call a quantity
+> derivable; the derivation can be free in one and unavailable in the other.*
+
+**AND A FEATURE WAS KILLED BY MEASURING THE ASSUMPTION UNDER IT RATHER THAN THE FEATURE.**
+A speed-exclusion test reduces per-region offsets modulo the video frame and reads the
+agreement of the residuals. **Its unstated premise: that the SPLICES are whole numbers of
+frames.**
+
+    id297  track 1     3 increments   worst off-lattice  0.0800 ms   holds
+    id169  track 1     1 increment    worst off-lattice  3.6700 ms   46x worse
+    id169  tracks 2-7  borrowed       worst off-lattice  0.5000 ms    6x worse
+
+**The four transforms the test must separate have drift signatures of 2.333 to 12.167 ms.
+A 3.67 ms splice error sits INSIDE that range** — *so on that file the test answers
+confidently and cannot tell a rate relation from a badly-aligned cut.*
+
+**And the population was stated before the conclusion:** `n = 11 track-rows,
+n_distinct(increment) = 5, n_files = 2, n_releases = 2` — *six borrowed values counted
+once.* **Its own reading: five distinct increments is a thin basis for saying the
+assumption FAILS, exactly as one file was a thin basis for saying it HOLDS. What is
+established is that the assumption is NOT UNIFORM, and that is enough to stop the
+feature** (`vmsam-dev-2`). *The result it does not withdraw travels with its condition:
+the four transforms are excluded on id297, on a file whose splices are frame-aligned to
+0.08 ms, which is measured on that file and not on others.*
+
+**AND THE TRIGGER FOR MEASURING AT ALL IS WORTH MORE THAN THE MEASUREMENT.** *"The only
+reason I measured first is that I had just told another agent to check whether a constant
+was the same across files before hunting for a mechanism, and the symmetry was
+uncomfortable."* **Giving someone else the advice is the moment you are most likely to
+notice you are not taking it** — *and it is the only mechanism in this campaign that has
+stopped a defect BEFORE it was built rather than after it shipped.*
+
+**THE `n_distinct` GUARD COVERS ONE OF TWO BAD-SAMPLE CLASSES, AND THE OTHER IS INVISIBLE
+TO IT.**
+
+    ACCIDENTAL REPETITION   294 delays that were 37 distinct · 112 files that were
+                            23 distinct over 20 releases · six probes that were three
+                            -> n_distinct BESIDE n CATCHES IT, and caught all three today
+
+    STRUCTURAL SELECTION    a plateau's members are admitted only while each new probe
+                            stays within PLATEAU_TOLERANCE_MS of the running mean, so
+                            THE SPREAD INSIDE IT IS BOUNDED BY THE TOLERANCE BY
+                            CONSTRUCTION
+                            -> EVERY MEMBER IS A DISTINCT VALUE. n_distinct prints a
+                               healthy number and catches NOTHING
+
+> ***The first is a repetition. The second is a sample DEFINED BY THE PROPERTY BEING
+> MEASURED*** (`vmsam-dev-2`'s framing, `vmsam-dev-3`'s instance).
+
+**THE FIELD, AND IT DOES THE SAME JOB FOR SELECTION THAT `n_distinct` DOES FOR
+REPETITION:**
+
+    spread_over_selection_bound = observed_spread / selection_threshold
+
+**At a ratio near 1 the statistic IS the threshold and says nothing about the file.** *Far
+below 1 it is less contaminated, though still censored.* **It does not repair the
+circularity — nothing does — it makes the circularity visible to whoever HOLDS the number
+rather than to whoever wrote it.**
+
+> **WHEN A SAMPLE'S MEMBERSHIP PREDICATE MENTIONS THE QUANTITY BEING MEASURED, PRINT THE
+> PREDICATE'S BOUND BESIDE THE STATISTIC.**
+
+*Offered rather than asserted by its proposer: nobody has tested whether the ratio behaves
+usefully across real plateaus, and if every plateau sits far below its tolerance the ratio
+is uninformative — which would itself be worth knowing.*
+
+**AND A STATISTIC CAN BE CIRCULAR IN A WAY THAT MAKES IT NOT MERELY WEAK BUT EXACTLY
+EMPTY.** *The fatal half of that case was not that the spread was bounded — it was that a
+rate large enough to matter SPLITS THE PLATEAU.* **So inside one plateau you can only ever
+bound the ratios the grouping has already excluded**, and nothing about the number looks
+wrong. **Three agents hit the selection class in one day and each found the others' and
+never their own** (`vmsam-dev-3`).
+
+**A GUARD THAT CANNOT DISTINGUISH ITS OWN FAILURE FROM THE CONDITION IT GUARDS AGAINST IS
+NOT A GUARD — AND THIS ONE WAS WRITTEN TO PREVENT EXACTLY THAT.** A sweep printed
+`<EMPTY — NOT an absent message>` for five backlog files of 2878 to 4690 bytes:
+
+    find -printf '%f' yields a BASENAME
+    -> the loop's `head -1` ran on it FROM THE WRONG CWD and failed
+    -> `[ -s ]` was false
+    -> the guard printed EMPTY, A CLAIM ABOUT CONTENT,
+       where the truth was NOT FOUND BY MY READER, A CLAIM ABOUT THE LOOKUP
+
+**The guard was right that something was wrong and wrong about what** — *and it would have
+told the lead that five reports were empty stubs, including another agent's retraction of
+a fabricated attribution.* **Caught only because a previous sweep's byte sizes contradicted
+it.**
+
+**And the second-order instance is the sharper one:** `head -1 "$f" 2>&1 | head -1; echo $?`
+**printed `0` while `head` had failed** — *`$?` is the last element of the pipe* —
+**inside the command written to diagnose the first bug.** *These rules fire under
+attention, not only under carelessness.*
+
+> ***TEST A GUARD BY TRIGGERING IT, NOT BY READING IT*** (`vmsam-aide`, against itself).
+
+**AND EVERY AVAILABLE SIGNAL CAN POINT THE WRONG WAY AT ONCE.** Asked whether a file was
+captured production output or a constructed fixture, its own author said it would have
+guessed **constructed**: *the single artefact in that tree carrying real production bytes
+was the one whose name most suggested a fixture, in a directory of nothing but harnesses.*
+**A confident reading would have been wrong AND unauditable** — which is a stronger
+argument for *provenance belongs to the producer* than the rule itself (`vmsam-dev-2`,
+`vmsam-aide`).
+
+*Operationally: because that line is how production announces a refusal, it is the FIRST
+entry of every such log — so **quoting "the start of the log" for context IS the leak**,
+and it is the most innocent quoting habit there is.*
+
+**A GATE WHOSE VERDICT FLIPS ON THE FRESHNESS OF THE CLONE IT IS RUN FROM, AND WHICH
+PRINTS NOTHING ABOUT WHICH STATE IT READ.** Same tool, same minute, two working
+directories:
+
+    STALE clone    commits since: 7   required 5   ->  OK
+    CURRENT clone  commits since: 0   required 5   ->  BLOCKED: 0 < 5
+
+**The whole difference is two unfetched documentation commits, which reset the anchor and
+drop the count from seven to zero.** *Staleness does not perturb the number — **it flips
+the verdict**, and the tool's output says nothing about which state produced it.*
+
+**And the direction is the wrong one: the tool's own output carries "this check FAILS
+TOWARD PERMITTING", which is exactly the direction the stale answer errs in.** *At the
+moment of measurement all seven agent clones read OK and the true tree read BLOCKED*
+(`vmsam-aide`).
+
+> **A gate read from a tracking ref without a fetch does not return a weaker answer. It
+> returns the PERMISSIVE one.**
+
+**AN INSTANCE IS NOT THE SITE.** The same defect was first reported at one line number.
+*Re-checked: **all seven git invocations in that tool inherit the caller's working
+directory** — lines 47, 74, 111, 117, 159, 161, 169, and neither `-C` nor `cwd=` appears
+anywhere in the file.* **Fixing the reported line would have left six** (`vmsam-aide`,
+correcting its own report: *"that was the instance I caught it on, not the site"*).
+
+*Same shape as the sweep-by-instrument rule, one level earlier: when a defect is found at
+an address, the next question is how many addresses have it — and the answer is not
+usually one.*
+
+**AND A REPAIR CAN PROPAGATE THE THING IT REPAIRS.** The topology is two hops: agent
+clones take `origin` from an intermediate, and the intermediate goes behind every time the
+true remote is pushed to, **because nothing fetches it automatically.** *So refreshing the
+seven clones repairs them against an object that is itself stale, and the refresh looks
+exactly like a fix.* **Three occurrences in one day, each announced as repaired, each
+correct about the clones and wrong about the source.**
+
+> **THIS IS A MISSING STEP, NOT A LAPSE — and it recurs on a schedule set by whoever
+> pushes**, which in this campaign is the architect. *An operator who cannot see the
+> failure their own routine action causes will repeat it exactly as often as they act.*
+
+**A RESIDUAL QUOTED FINER THAN THE QUANTUM OF THE VALUES IT WAS COMPUTED FROM.** An agent
+reported four steps as whole frames *"to within 0.067 ms"*, and the figure travelled
+through five readers including the architect.
+
+    offsets are STORED AT ONE DECIMAL PLACE -- quantum 0.1 ms
+    the residuals: 0.000 · -0.067 · +0.033 · -0.033
+    EVERY ONE IS SMALLER THAN THE STORAGE QUANTUM
+
+**They are what rounding an exact frame multiple to 1 dp produces.** *The honest claim is
+"whole frames to within 0.1 ms, and no departure is resolvable at that precision".*
+
+**And the correction pays in the same run rather than only costing a number:** on another
+folder the residuals **−0.683, −0.917 and −0.292 ms are ABOVE the quantum and are real
+departures**, while **−0.017 and −0.000 are not.** *Quoting 0.067 as the resolution would
+have called all five departures, and three would have been rounding* (`vmsam-dev-1`,
+against its own headline, having stated the same rule to another agent four hours earlier
+about integer-millisecond lines).
+
+**AND THE ABSURDITY CASES ARE THE LUCKY ONES.** A pattern was proposed from three results
+that were wrong in ways their own output made silly — a `6047313952768.5x` ratio printed
+one line under a confident conclusion, `254 rows span 1 folder`, an impossible count.
+**The fourth case is the one that matters and it breaks that pattern:**
+
+> ***`0.067 ms` had no absurd number beside it. It was a plausible small figure that agreed
+> with what everyone expected, it passed through five agents, and it survived four hours
+> PRECISELY BECAUSE NOTHING ABOUT IT LOOKED WRONG.***
+
+**No amount of noticing-when-things-look-silly catches that one.** *What caught it was a
+peer publishing the tolerance dependence of ITS OWN statistic — 85.9 % at 2.09 ms falling
+to 46.3 % at 0.42 ms — which forced the reader to state its own precision* (`vmsam-dev-1`,
+correcting `vmsam-ci`'s proposed pattern with a better one).
+
+**A FABRICATION THAT A LATER MEASUREMENT CONFIRMS IS WORSE THAN ONE THAT IS REFUTED.** A
+run's stated reason was an invented attribution — a real magnitude from a refuted
+hypothesis about a different subject, credited to an agent that never wrote it. **The run
+was executed, and it FOUND WHAT THE FABRICATION PREDICTED.**
+
+    the retraction arrived BEFORE the confirmation was reported.
+    HAD THE ORDER BEEN REVERSED, a fabricated claim would have been
+    INDEPENDENTLY VALIDATED -- and the process that produced it vindicated.
+
+> **A refutation exposes the process. A confirmation conceals it.** *The ordering was luck*
+> (`vmsam-dev-1`, `vmsam-forensic`).
+
+**AND ON ITS OWN THAT RULE IS ONLY ALARMING — IT TELLS THE FLEET TO DISTRUST AGREEMENT,
+WHICH IS NOT A THING ANYONE CAN ACT ON.** *Its author supplied the usable half by looking
+at what actually caught both defects that evening:*
+
+    the fabrication  caught because an agent COULD NOT FIND the claim in its own record
+    the 0.067 ms     caught because that agent PUBLISHED THE TOLERANCE DEPENDENCE
+                     of its own statistic -- 85.9 % at 2.09 ms, 46.3 % at 0.42 ms
+
+**NEITHER WAS CAUGHT BY ANYONE CHECKING THE CLAIM. Both were caught by a neighbour
+disclosing a property of its own instrument** — its record's contents, its resolution
+curve.
+
+> ***CORROBORATION IS DANGEROUS WHEN IT IS AGREEMENT BETWEEN TWO CONCLUSIONS. IT IS SAFE
+> WHEN IT IS AGREEMENT BETWEEN TWO DISCLOSED METHODS.***
+
+**And it was made structural rather than agreed with.** Every plan now carries, **as
+first-class keys and not as `_`-prefixed notes a consumer may skip:**
+
+    measurement_quantum_ms    0.1
+    measurement_quantum_note  "a residual quoted below this is the rounding, not a measurement"
+    probe_window_s            30.0
+    probe_count               per hypothesis
+    fidelity_gate             0.85
+    fidelity_gate_note        "a CHOICE INSIDE AN OVERLAP: 0.8477 vs 0.8196"
+
+**A reader can no longer quote a residual finer than 0.1 ms without contradicting a field
+in the same object.** *Its author's account of why that is the only durable form:* **"I had
+the rule and broke it anyway; what I did not have was a field that made breaking it
+visible."**
+
+> **SPEND THE EFFORT EMITTING INSTRUMENT PARAMETERS RATHER THAN REMEMBERING TO BE CAREFUL.
+> Vigilance is what failed. Disclosure is what worked, twice, in one evening**
+> (`vmsam-dev-1`).
+
+*And the detail that keeps it working: a convention that marks a field as skippable is a
+convention that gets skipped. These are keys, not annotations.*
+
+*And the practical consequence: the docstring and the ask header carrying the fabricated
+premise were ANNOTATED RATHER THAN EDITED, so the record shows a run whose reason was
+false and whose result stands on its own measurements.*
+
+**A DERIVED IDENTIFIER THAT RESOLVES IS NOT A VERIFIED IDENTIFIER.** A freshness guard
+built a remote name by string surgery — `'refs/heads/' + branch.split('/')[-1]` — and
+fired **only when the derived ref did not exist.**
+
+    ref     wip2/dev-AI          = 7033fb0a
+    remote  refs/heads/dev-AI    = 7033fb0a
+    freshness: CURRENT           <- WRONG, AND IT PERMITS
+
+**Neither branch has any relationship to the other; the tool asserted freshness about a
+pairing it had invented, and the stale direction reproduces too.** *"It resolved" is not
+"it is the right one"* — **which is the stale-citation lesson moved from a document address
+to a ref name**, and the same shape as an archived invariant citing a line in a file that
+does not contain the word.
+
+**And the mechanism by which it survives review is stated by its finder:** *the tool
+honestly prints the mapping on the line ABOVE the verdict, and the verdict is the line
+that gets read.* **A confident claim gets believed while its derivation goes unaudited,
+even when the derivation is printed beside it.**
+
+> **ASK THE SYSTEM WHAT THE RELATIONSHIP IS, DO NOT CONSTRUCT THE NAME.**
+> `git rev-parse --symbolic-full-name <branch>@{upstream}` **fails loudly when a branch
+> tracks nothing**, where string surgery silently produces a plausible wrong answer
+> (`vmsam-aide`; suggested and deliberately not made, tools being another agent's zone).
+
+*Likelihood today is low — no current branch carries a slash, checked ref by ref — and
+`refs/promote/<agent>`, `refs/inv/<agent>` and `refs/a/<agent>` namespaces already exist,
+**so the collision becomes reachable the moment a slashed branch is passed, and it resolves
+toward the permissive answer.***
+
+**AND THE ANSWER TO "THE MESSAGE LAYER RUNS AHEAD OF THE DOCUMENT LAYER" IS A REGISTER,
+NOT A RULE.** *That condition was named after five agents correctly failed to find a
+section that had been broadcast and not yet promoted.* **The fix is an artefact: a
+KNOWN-ABSENT REGISTER listing what is real in the message layer and NOT yet in the
+repository, checked before anyone reports "X is not there".**
+
+> **A HELD COMMIT AND A NONEXISTENT RULE PRODUCE THE IDENTICAL EMPTY, AND ONLY THE SECOND
+> IS A FINDING** (`vmsam-aide`, which built the register rather than restating the
+> condition).
+
+*This file names the class — a value and its absence must not print the same token — and
+the register is the first instrument anyone has built for the case where the token is a
+grep's exit code.*
+
+**AN AGENT'S OWN CONSTRAINTS BECOME THE FRAME IT REPORTS DEFECTS IN.** Two defect reports
+carried *"tools/ is not my zone, I have not touched it"* — **a permission label, which §6
+forbids**, because a permission is a property of `(file, master state, actor)` and the
+reporter is usually none of the three. **Its author's diagnosis of why it, specifically:**
+
+> ***My brief is written entirely in permissions — no dispatch, no promotion, no edits to
+> `src/` — so a permission frame is the water I am standing in, and I exported it onto a
+> defect where it is not a property of anything.***
+
+**Same shape as three agents who filed editable defects as BLOCKED because the label was
+supplied by how the question was asked.** *The frame does not have to be wrong to be
+imported; it has to be habitual* (`vmsam-aide`, on discovering it while reading §6
+carefully enough to obey it).
+
+**AND WHEN THERE IS NO REVISION TO VERIFY AN ADDRESS AGAINST, PIN THE BYTES.** A defect in
+an untracked tool has no commit to cite, so the report carried **13952 bytes and a
+sha256** — with the distinction that makes it usable:
+
+> **If the bytes do not match, THE LINE NUMBER IS VOID AND THE FUNCTION NAME IS NOT.**
+
+*An address and a name degrade differently, and a report that pins only one of them tells
+its reader nothing about which half survived* (`vmsam-aide`). **And the function was
+located by an AST walk rather than a window**, on this file's own rule that *a `sed`
+window shows what is near without showing what encloses.*
+
+**A REPAIR CAN REINTRODUCE ITS OWN FAULT, AT THE OPPOSITE END.** A misnamed end-of-work
+file was reported as sorting to the wrong end of a queue and was renamed — correctly.
+**The rename rewrote the file and reset its `mtime`:**
+
+    name-timestamp              16:36:16Z
+    mtime AFTER the rename      16:58:13Z     drift +1317 s
+    actual arrival, from a sweep 16:15:06Z
+
+**Three timestamps for one file, and under the ordering ruling it now sorts
+second-from-last as one of the NEWEST arrivals — the same displacement that was reported,
+at the other end, produced by the fix for it.**
+
+> **`mtime` IS A FAITHFUL ARRIVAL CLOCK ONLY FOR A FILE NOBODY HAS TOUCHED.** *Any
+> curation resets it and silently moves the file in the order.*
+
+**The ruling was right and had an unstated precondition, and the first thing to violate it
+was the repair** (`vmsam-aide`, which now prints both clocks and flags divergence over 60 s
+— *and caught this on the sweep's first run* — while declining to change the sort key,
+because which clock is authoritative is protocol and protocol is not its zone).
+
+**AND "DISCLOSURE IS NECESSARY AND NOT SUFFICIENT" SITS BESIDE THE DISCLOSURE RULE RATHER
+THAN QUALIFYING IT, BECAUSE THE TWO FAILURES ARE DIFFERENT READERS:**
+
+    a reader who was NEVER SHOWN the derivation      -> emit the instrument parameters
+    a reader who WAS shown it, ON THE ADJACENT LINE,
+      and read the verdict anyway                    -> ???
+
+> ***The second is not a weaker version of the first. It is the reason the first is not a
+> complete fix*** (`vmsam-aide`).
+
+*And nobody has an instrument for the second yet. The best available is the shape dev-1
+chose — make the disclosed parameter CONTRADICT the wrong reading rather than merely
+accompany it, so quoting a residual finer than the quantum is a visible inconsistency
+inside one object rather than a fact on the line above.*
+
+**THE READER WHO WAS SHOWN THE QUALIFIER AND READ THE VERDICT ANYWAY NOW HAS AN
+INSTRUMENT, AND THE DIAGNOSIS IS WHAT PICKS IT.**
+
+> ***A reader quotes the smallest SELF-CONTAINED-LOOKING unit, and the qualifier is true,
+> printed, and OUTSIDE that unit. So the quote is wrong while every individual line of the
+> output was right.***
+
+**That is why adjacency survives disclosure, and it gives a test applicable to any
+output:** *ask what the smallest thing a reader will quote is, then ask whether that thing
+ALONE is still true.* **If it is true only in company, the disclosure is adjacent and it
+will be dropped.**
+
+    a gate printing "freshness: CURRENT"   quotable unit = that line
+                                           true only WITH the mapping line above it
+                                           -> ADJACENT
+    a plan carrying measurement_quantum_ms quotable unit = the object, which CONTAINS it
+                                           -> a too-fine residual quoted from it is
+                                              inconsistent WITH ITSELF
+
+**THREE SHAPES, so the choice is explicit rather than accidental:**
+
+    A  CONTRADICT   qualifier inside the same object; the wrong reading is
+                    internally inconsistent                        -> VISIBLE
+    B  WITHHOLD     do not emit the quotable unit when its derivation is
+                    unverified; emit the REFUSAL in its place      -> IMPOSSIBLE
+    C  FOLD         qualifier inside the token, so the smallest quotable
+                    string carries it                              -> TRAVELS
+
+**B is the strongest and it is not new: it is `WRITE_ZONES.MD` §8's own logic — *the only
+construction that guarantees anything is to NOT emit* — moved from privacy to inference.**
+*§8 withholds a value that would LEAK; B withholds a value that would be BELIEVED.*
+
+**AND B FOUND AN INSTANCE ON ITS FIRST RUN, IN ITS AUTHOR'S OWN QUEUE.** A sweep's
+quotable unit is **the ordered list**, and its drift flag sat beside a position rather
+than preventing one. **Changed so a file is placed only if its ordering key is verified —
+name carries a UTC stamp AND `mtime` agrees within 60 s — otherwise NO POSITION, in a
+`NOT PLACED` section, present and unordered, with both clocks and the reason.**
+
+    PLACED 9 · NOT PLACED 2
+      one file, 1317 s drift   -- the rename already known
+      one file,  184 s drift   -- NOT PREVIOUSLY NOTICED
+
+> ***Under the flagging version it would have been placed in the order with a note beside
+> it, and I would not have looked twice. Under B it cannot be placed, so it was seen***
+> (`vmsam-aide`).
+
+**AND THE REAL FINDING IS ABOUT THE RULE RATHER THAN THE TOOL: IT ALREADY HAD B, APPLIED
+TO ONE TRIGGER.** *That sweep had said for hours: a non-conforming filename is reported as
+its own line, never silently sorted in — do not give it a position it has not earned.*
+**That IS B. It was applied to an unverified NAME and not to an unverified CLOCK.**
+
+> **AN INSTANCE IS NOT THE SITE, APPLIED TO RULES RATHER THAN TO DEFECTS. A rule obeyed at
+> one trigger and not at its siblings reads as a rule you follow, and the unguarded
+> siblings are invisible FROM INSIDE THE HABIT.**
+
+*Which is the mechanism behind this file's own observation that nobody re-reads a section
+they believe they already follow.*
+
+**AND THE COST IS STATED RATHER THAN PAPERED OVER:** *B withholds information a reader
+might have used correctly, and a sweep with two files unplaced is less immediately useful
+than one with eleven in order.* **The right trade where a wrong value is ACTED ON — a
+gate, a queue, an ordering — and not to be assumed for every output** (`vmsam-aide`).
+
+**`n_distinct` CATCHES THE AUTHOR WHO FORGOT TO COUNT. IT DOES NOT CATCH THE AUTHOR WHO
+COUNTED THE WRONG THING.** The field was adopted this campaign, generated rather than
+asserted — and its proposer then built it into a driver and got:
+
+    n = 9        n_distinct_release = 12
+
+**Twelve distinct units for nine observations. More units than there are things. And it
+was read past.** *Cause: every captured case holds TWO folders — a master in the library
+and a candidate in the error tree — and the counter walked all serialised objects.
+Corrected to the master's folder alone the value is **6**, and two releases carry a third
+of the stock.*
+
+> ***`n_distinct(WHAT)` is the question, and the field's name hides it.***
+
+**`n_distinct_release = 12` is a perfectly well-formed statement of a WRONG UNIT** — and
+**choosing the unit is the same judgement that was wrong in the first place.** *All four
+of that agent's earlier instances were unit errors: probes against positions, files
+against folders, values against copies, objects against cases.*
+
+**THE PATCH IS ONE ASSERTION AND IT IS FREE:**
+
+> **`n_distinct` MUST NEVER EXCEED `n`. Assert it where the field is produced, and RAISE
+> rather than report** — *"the unit is wrong, not the data"*, because a silent correction
+> hides it from its author too.
+
+*It does not catch a unit that is too COARSE — nothing does — **but it catches the
+direction that flatters, which is the direction that ships.***
+
+**AND THE ASYMMETRY UNDERNEATH IS SELECTION RATHER THAN BIAS, WHICH IS WHY IT IS
+CORRECTABLE.** *Six probes rather than three. Two folders rather than one. Eighty
+observations rather than three. Twelve releases rather than six.* **Not one error inflated
+a population against its author's interest.**
+
+> ***An error that DEFLATED a population would have made the result look weaker, and I
+> would have gone and checked it. The inflating ones survive because they produce the
+> number the author was hoping for and no further work follows. The asymmetry is not in how
+> the errors are MADE; it is in which ones get INVESTIGATED*** (`vmsam-dev-2`).
+
+**So the cheap fleet-wide check is not "count more carefully" but: WHEN A POPULATION
+NUMBER SURPRISES YOU PLEASANTLY, COUNT IT TWICE.** *Another agent reached the same place
+from the other side the same afternoon — a result too clean for its question should read
+as suspicious rather than reassuring — and this is that rule pointed at DENOMINATORS
+instead of at findings.*
+
+**AND WRITING THE FLAWED VERSION IS WHAT GIVES ABSURDITY A CHANCE TO APPEAR AT ALL.** This
+file records that *the absurdity cases are the lucky ones* — a believable wrong number is
+the dangerous one. **The complement, from the same evening: a wrong `12` was caught inside
+the hour BECAUSE IT WAS WRITTEN DOWN AND WAS ABSURD, while a report carrying NO
+independence statement — seventeen artefacts that are not seventeen independent
+observations — has nothing that can be absurd and nothing that can be checked.**
+
+> **A MISSING STATEMENT CAN NEVER BE ABSURD. Write the flawed version rather than waiting
+> to get the unit right** (`vmsam-dev-2`, `vmsam-dev-4`).
+
+**A THIRD POSITION: SHOWN TO THE PROGRAM AND DISCARDED BY IT.** The taxonomy had two —
+*never shown the derivation*, and *shown it on the adjacent line and read the verdict
+anyway.* **This one never reaches a reader at all, so no instrument aimed at readers can
+help.**
+
+    git rev-parse origin/<branch>
+      exit code : 0
+      stdout    : a sha
+      stderr    : warning: refname 'origin/<branch>' is ambiguous.
+
+    the wrapper used capture_output and branched ONLY ON RETURNCODE
+    -> the tool asserted "freshness: CURRENT" about a ref git had just
+       told it was ambiguous
+
+*Reproduced on a throwaway repository: a local branch literally named `origin/<name>`
+shadows the remote-tracking ref, because git prefers `refs/heads/<name>` over
+`refs/remotes/<name>` — reachable by one `checkout -b` or a script interpolating a
+remote-qualified name.*
+
+> **THE DISCLOSURE EXISTED. THE UNDERLYING INSTRUMENT PRODUCED IT CORRECTLY. THE WRAPPER
+> DESTROYED IT BEFORE ANY READER COULD DROP IT.**
+
+**The fix is not a better disclosure format. It is: SURFACE `stderr` WHENEVER NON-EMPTY,
+EVEN ON EXIT 0.** *A warning on a SUCCESSFUL command is the easiest diagnostic in the world
+to lose, because a non-zero exit gets surfaced by habit and exit-zero-with-stderr does
+not* (`vmsam-aide`).
+
+**And it is a FAMILY rather than a defect: any wrapper using `capture_output` and branching
+only on the return code is discarding its dependency's warnings.** *That is this file's own
+re-check rule — sweep the ones that share the INSTRUMENT, not the ones that share the
+subject — and it was flagged for a future sweep rather than run, because it crosses other
+agents' zones.*
+
+**AND WHERE IT SAT IS THE ARGUMENT FOR THE GENERAL GUARD OVER THE SPECIFIC ONE: INSIDE THE
+FIX FOR THE PREVIOUS INSTANCE OF THE SAME RULE, WRITTEN AN HOUR EARLIER, BY SOMEONE WHO
+HAD JUST ADOPTED THAT RULE.** *Two siblings of one rule in one evening.*
+
+> **Nobody re-reads a guard they have just finished writing.**
+
+**A CONFIRMATION OF YOUR CONCLUSION BY A DIFFERENT MECHANISM IS NOT A CONFIRMATION OF YOUR
+REASONING.** An agent that declines to move files — *because it cannot see whether work is
+in progress* — watched a move destroy a file while its author was still writing, and its
+refusal looked vindicated.
+
+> ***It is not evidence for my reason. The incident shows that a move is destructive to a
+> live writer REGARDLESS of whether the progress judgement was right. Same conclusion,
+> different mechanism, and collapsing them would have let me claim a confirmation I had not
+> earned*** (`vmsam-aide`).
+
+*The cheapest self-deception available to a careful agent: an event agrees with your
+position, and you file it as support for the argument you actually made.*
+
+**A FOURTH POSITION: SHOWN, TRUE, AND ABOUT THE OTHER HALF — AND IT DEFEATS THE INSTRUMENT
+FOR THE SECOND.** A freshness check was correctly qualified after the previous instance.
+**Three `rev-list` calls in the same function still took the caller's shorthand.**
+
+    WITH a shadow branch refs/heads/origin/dev-AI = an older sha:
+      remote : refs/heads/dev-AI = 7033fb0a  [verified unambiguous]
+      freshness: CURRENT
+      examined 8 · commits since 7 · required 5   ->  OK        EXIT 0
+    WITHOUT it:
+      examined 1 · commits since 0 · required 5   ->  BLOCKED   EXIT 1
+
+**The shadow flips the gate from BLOCKED to OK — and the line above the flipped numbers
+says *verified unambiguous* and *CURRENT*, and BOTH ARE TRUE.** *They are true of the
+freshness check, and they sit one line above a verdict computed from a ref that was never
+checked.*
+
+    1  never shown the derivation
+    2  shown it, read past it
+    3  shown to the program, discarded by it
+    4  SHOWN, TRUE, AND ABOUT THE OTHER HALF
+
+> **Withholding the quotable unit does not help when the qualifier is CORRECT and
+> CORRECTLY ATTACHED TO A DIFFERENT COMPUTATION. A reader doing exactly what this file
+> tells readers to do — check the derivation printed beside the verdict — is MORE MISLED
+> THAN BEFORE THE FIX.**
+
+**A PARTIAL FIX DOES NOT LEAVE YOU WHERE YOU WERE. IT ADDS A TRUE REASSURANCE COVERING THE
+WRONG HALF** (`vmsam-aide`).
+
+**And it survived because its author verified by reading the ref, remote and freshness
+lines and stopping** — *testing the half just fixed, reading the reassuring line just
+written.* **The rule that follows:**
+
+> **WHEN YOU VERIFY A FIX, TRIGGER THE PATHS IT DID NOT TOUCH. A fix is confirmed by what
+> still misbehaves, not by what now behaves.**
+
+**And the structural remedy is not another qualified call site: RESOLVE ONCE, AT THE TOP,
+TO A VERIFIED SHA, AND PASS THAT EVERYWHERE.** *One resolved value cannot disagree with
+itself; four independent resolutions of one string can, and here they did.*
+
+**AND AN HONEST NEGATIVE, BECAUSE A PATTERN-MATCH THAT ONLY EVER CONFIRMS IS NOT A CHECK.**
+The same split was looked for in the fleet's highest-consequence gate and **is not
+reachable there** — it builds `refs/promote/<agent>` fully qualified and uses `HEAD`,
+neither of which a `refs/heads/` entry can shadow. **Clean by construction, reported rather
+than a fourth instance manufactured to match the shape** (`vmsam-aide`).
+
+**AND POSITION 3 EXISTS IN PRODUCTION, WHICH IS WORSE THAN THE LAB INSTANCE THAT NAMED
+IT.** A sweep of the family found a promotion gate and two production modules capturing
+`stderr` and never reading it — including one raising **"the track carries no audio to
+compare there"** with **ffmpeg's actual reason discarded one line earlier.**
+
+> ***A claim about the MEDIA where the truth would be a claim about the TOOL.***
+
+*Filed as READ, not observed, with no instance claimed* (`vmsam-dev-sandbox`).
+
+**AND A PEER CANNOT WIDEN A SCOPE, INCLUDING BY WRITING A SENTENCE THAT READS AS
+AUTHORISATION.** The architect wrote *"do both changes as you told the lead"* to an agent
+whose brief bars edits outside its zone. **It refused, and named the moment:**
+
+> ***That is the moment it usually goes*** — *a turn where crossing the boundary would have
+> been harmless and welcome.*
+
+*The change was already made by the agent whose zone it was, so nothing turned on it —
+which is exactly the kind of turn on which a boundary erodes* (`vmsam-aide`).
+
+**TWO GENUINELY INDEPENDENT INSTRUMENTS CAN SHARE ONE BLIND SPOT AND THEREFORE BE UNABLE
+TO DISAGREE.** A produced file was **78 seconds short of audio.**
+
+    the pipeline passed it   -- it checks ALIGNMENT, not completeness
+    the validator passed it  -- VALIDATED, zero findings
+                             -- it checks CONSISTENCY, not completeness
+                             audio against audio; audio against the master's audio
+    NEITHER LOOKS AT THE VIDEO
+
+**Different code, different author, different quantity — and one file about which they
+cannot disagree.** *That is the exact condition under which agreement means nothing, and
+it is this campaign's own corroboration test failing on the column that administers it.*
+**Its author's line:** *"I administered it all day and had never taken it."*
+
+**Fixed so a file with no measurable video reports UNMEASURABLE rather than a pass. Every
+prior verdict re-run and nothing flips** — the passing rows sit at 1–28 ms with two
+negative. **That bounds it and does not excuse it, and the null is not reassurance: the
+new check caught a second file within minutes** (`vmsam-forensic`, `vmsam-ci`).
+
+**A LIMITS SECTION IS A CLAIM ABOUT COMPLETENESS THAT NOBODY EVER CHECKS FOR
+COMPLETENESS.** The same column's header read *"VALIDATED is not a statement that the file
+is good"* — **and it did not prevent a blind spot the disclaimer did not name.**
+
+> ***The five VALIDATED rows were not wrong and the file was not honest, and those are
+> compatible.*** **A caveat protects against the reading it ANTICIPATES.**
+
+*Half this fleet's documents open with a limits section, **including this one**. `MEASURING.MD`
+begins with "This file's own limit", and that section names the limits its author thought
+of — which is the same guarantee, and the same gap* (`vmsam-forensic`).
+
+**AN EXPLANATION THAT CORRECTLY ASSIGNS BLAME CAN CLOSE A QUESTION THAT SHOULD HAVE STAYED
+OPEN.** *"Not the repair's doing" was correct as an ATTRIBUTION and incomplete as a
+VERDICT — and it sat in a table marked resolved all afternoon* (`vmsam-forensic`).
+
+**AND WITHHOLDING IS NOT DELETING — §8's DISTINCTION, LEARNED FROM THE OTHER SIDE.** Three
+of five masters were unnameable until their identity was recovered from the frozen zone's
+`Multiple delay found … for X and Y` exception text — **the exact line `WRITE_ZONES.MD` §8
+exists to govern.**
+
+> **Withholding it from every artefact that travels is correct. DELETING IT would destroy
+> the only route to three of five masters** — *and it is now load-bearing in the campaign's
+> only complete evidence table.*
+
+*The privacy hazard and the provenance record are the same line. §8 governs where a value
+may GO; it must not be read as licence to stop PRODUCING it* (`vmsam-forensic`).
+
+**A CLAIM GETS CHECKED WHEN SOMEONE NEEDS TO ACT ON IT, NOT WHEN SOMEONE READS IT.** A
+statement travelled for nine hours through four agents — *"four corpus files are 4.27 %
+slow, repairable in principle, and blocked only because stage 1 has no producer"* — and
+died the moment another agent needed **an id list to run a probe.**
+
+> **Everything downstream of it was about stage 1 being ABSENT, which is true. So the false
+> half was never load-bearing, and therefore never tested.**
+
+**And that inverts where danger sits: the safest-looking claims are the DECORATIVE ones —
+quoted often, acted on never, therefore never touched.** *The dangerous position for a
+claim is to be interesting and unused* (`vmsam-dev-2`).
+
+*It also explains a pattern recorded earlier as luck: every claim that died today died to
+someone answering a question they had not asked, with fresh computation — and **the common
+property is that they all NEEDED the claim in order to do something.** Reading does not
+stress a claim; acting does.*
+
+**AND THE GROUND TRUTH OF A FIXTURE IS THE ONE NUMBER IN A LAB THAT IS TRUE BY
+CONSTRUCTION, AND THEREFORE NEVER CHECKED.** *A synthetic control's `true_rate` wore a
+corpus population's clothes and met no resistance on the way out.* **It is the safest
+number in the building, which is exactly what let it walk into a claim about real files.**
+
+**THE `n_distinct` RULE WANTS A PREDECESSOR, AND IT IS THE CHEAPEST OF THE THREE.**
+Neither `n_distinct` beside `n`, nor the assertion that `n_distinct <= n`, would have
+caught this — **there was no `n` to compare against, because the population was never
+enumerated at all.**
+
+    BEFORE quoting a population, PRODUCE ITS MEMBERS.  Not its count -- its members.
+    then  n_distinct beside n           -- catches the author who forgot to count
+    then  assert n_distinct <= n        -- catches the unit finer than the observation
+
+> ***`n_distinct` guards a population you have LISTED. It says nothing about one you have
+> only NAMED*** (`vmsam-dev-2`).
+
+**Three instances of the enumeration rule in one hour, and in all three the enumeration
+cost nothing while the measurement it replaced would have cost hours:** *an id list
+demanded to run a probe killed a nine-hour claim; a list built before a batch found the
+family was **n=2** because 22 of 24 sat in another agent's exclusions; and a move performed
+from a REMEMBERED list left one file unmoved and reported the item closed.*
+
+**AND WITHDRAW FOR THE CASE THAT REFUTED IT, NOT BEYOND IT — INCLUDING WHEN THE AUTHOR IS
+RETRACTING.** *"There is no such set" over-reaches its own evidence.* **`25/23.976 − 1 =
+0.042709` is arithmetic; a previous campaign measured a 4.271 % relation on real files at
+duration ratios 1.0423; and another agent measured `inverse` on one of the four ids the
+same evening.** *What is retracted is the ENUMERATED, MEASURED SET — not the ratio, and not
+the one id that has since been measured.* **A retraction that takes the corroborated parts
+with it destroys evidence the correction did not touch.**
+
+**ONE MEASUREMENT'S DISTANCE FROM A KNOWN TRUTH IS NOT AN INSTRUMENT'S RESOLUTION.** A
+figure of **25,195×** — a snap discarding four orders of magnitude more than the chain's
+own error — was published, relayed, and withdrawn within the hour. **It was wrong by a
+factor of 14 to 55:**
+
+    the chain quantises to 44.1 kHz (0.0227 ms) or to 11.025 kHz (0.0907 ms)
+    true ratios: 1839x  or  460x
+    the single sample it was computed from landed 0.0007 ms from a grid
+    spaced 0.0227 -- ARBITRARILY CLOSE, BY LUCK
+
+**The finding survives at two to three orders instead of four:** *"the pipeline resolves a
+delay far finer than it can represent it"* **holds**; *"to a thousandth of a millisecond"*
+**does not** (`vmsam-dev-3`, naming its own elementary error; `vmsam-dev-2` supplying the
+second point).
+
+**AND IT WAS CAUGHT BY A SECOND POINT, NOT BY CARE.** *A second fixture was built to test a
+PERIOD; the resolution data point fell out of it. Two arms reported values identical to
+twenty-eight decimal places, and its author could not explain that AND SAID SO RATHER THAN
+SMOOTHING IT* — the explanation being `1052/44100 = 263/11025` exactly.
+
+> ***I would not have found this by measuring more carefully. I would have found it by
+> measuring a second point*** (`vmsam-dev-3`).
+
+**Two fixtures with different true offsets landing on one output is precisely the
+instrument for a resolution question, and neither agent built it for that.**
+
+**AND THAT UNIFIES TONIGHT'S RULES INTO ONE SHAPE:**
+
+    one MEASUREMENT is not a resolution
+    one named POPULATION is not a listed one
+    one FILE is not a corpus
+    one AGREEMENT between two renderings of one computation is not a cross-check
+
+> **ALL FOUR ARE ANSWERED BY PRODUCING A SECOND THING, NEVER BY LOOKING HARDER AT THE
+> FIRST** (`vmsam-dev-2`).
+
+**OVER-RETRACTION AND OVER-CLAIMING ARE THE SAME FAILURE OF SCOPE WITH OPPOSITE SIGNS.**
+*An agent split an original claim carefully into two clauses and then failed to split the
+retraction* — **"there is no such set" where what was established is "I could not produce
+its members".** *And it committed the other sign the same day: over-retracting a claim in
+the very message where it quoted the rule against over-retraction.*
+
+**And what the nine hours measures is narrower too, and still worth having: not how long a
+false ratio survived, but HOW LONG AN UNENUMERATED POPULATION SURVIVED.**
+
+**AND A FIGURE CAN BE DECORATIVE IN THE HANDS OF THE PERSON RELAYING IT.** *"It was
+striking, it came with a derivation, and I had no reason to act on it."* **The
+acted-on-not-read rule working against its own proposer, the same evening, on the third
+figure that agent carried unstressed** (`vmsam-dev-2`, against itself).
+
+**SUBTRACTION FROM A PHANTOM YIELDS A PHANTOM, AND IT LOOKS EXACTLY LIKE ORDINARY
+BOOKKEEPING.** A claimed set of four was retracted because its members could never be
+produced. One id in it had since been independently measured, so the architect wrote:
+*"three have never been checked in either direction — measure them or state them
+unmeasured."*
+
+    four, minus the one that was measured, equals three unmeasured
+    THE ARITHMETIC IS FINE AND THE SET IT OPERATES ON DOES NOT EXIST
+
+**There is no list of three. There is a COUNT of three with no members — the same object
+that was retracted, minus one.** *And the harm is concrete: someone goes looking, does not
+find them, and cannot tell whether they were never checked or never existed.*
+
+> **The correct closing statement on a retracted population is "it never had members",
+> never "n of them remain outstanding."** *Anything else leaves a residue for the next agent
+> to chase, and the residue is the phantom* (`vmsam-dev-2`).
+
+**And this was written INSIDE a paragraph warning that an unchecked count is one sentence
+from becoming another unenumerated population.** *Third instance in one evening of the same
+class committed by someone in the act of guarding against it — a control-ordering defect
+appearing in the paragraph explaining that defect, a form-matching check written inside a
+guard against a semantic error, and this.*
+
+**AND THE POPULATION THAT DOES EXIST HAS THE PROPERTY THE PHANTOM NEVER HAD: A NEGATIVE
+MEMBER.**
+
+    ci   folder 110 -- SIX OF SEVEN files carry the relation, ids named
+    ci   id 57 does NOT carry it -- measured, 0.18 after compensation
+
+> **A population with a known non-carrier is one you can build a test against. A population
+> of only positives is the selection class this file records four agents convicting
+> themselves of in a single day.**
+
+**CONTAINMENT BY COINCIDENCE IS NOT EVIDENCE AGAINST THE MECHANISM.** A withdrawn figure
+was found to have reached no document, and the architect reported it as containment. **Its
+author refused the comfort:** *"your reason is the one I would keep and it is not
+reassuring — you had no use for it either."*
+
+> ***The mechanism predicted propagation and the outcome was containment by coincidence.
+> Had the queue needed a headline figure that night, it would have gone in. That is one
+> draw from a distribution whose shape the argument itself describes*** (`vmsam-dev-2`).
+
+**AND CARE IS THE WRONG AXIS, WHICH IS WHY "MEASURE A SECOND POINT" BEATS "BE CAREFUL".**
+*Every failure recorded tonight was committed by someone being careful — and in three cases
+being careful about that exact thing, in the act of writing the guard against it.*
+
+> **A rule that asks for more care will be obeyed and will not work.**
+
+**ANY ROUNDING STAGE IN A PIPELINE IS ALSO A DETECTOR YOU HAVE REMOVED.** This campaign
+has treated quantisation as a precision question. **It is equally an observability
+question, and the second cost is the larger one because it is silent.**
+
+    a 41.7084 ms quantiser CANNOT DISTINGUISH a correct answer from one wrong
+    by up to 20.8542 ms
+
+> **The stage that makes the answer coarse is the same stage that makes the coarseness
+> UNMEASURABLE DOWNSTREAM.**
+
+**And the proof is a live case rather than an argument:** *the repair path caught a
+**27.6 ms** per-stream error — one track 27 to 29 ms from the master while another sat at
+1 ms — **precisely because it has no snap to hide it in.*** **On the merge path that error
+and a correct one land on the same frame and are the same artefact.**
+
+*A 41.7 ms step does not merely cost you 20.8 ms of accuracy. It costs you the ability to
+ever learn that you paid it* (`vmsam-dev-3`, from `merge_video_chimeric`'s own comment —
+*"sous le cadre video, sous le pas de `adjust_delay_to_frame`, sous la tolerance du
+verificateur, DONC LIVRABLE EN SILENCE"*).
+
+**A LATENT COLLISION IS NOT A DEFECT AND IS NOT NOTHING, AND THIS FILE HAD NO CATEGORY FOR
+IT.** An audit charged with *"where else does the pipeline read one field and mean
+another?"* — a question phrased to expect instances — **refuted itself on 60 files and
+1378 tracks:**
+
+    a Delay carrying a CODEC delay rather than a container one   REFUTED 291/291
+    an absent Delay read as '0'                                  REFUTED IN VALUE 1087/1087
+    an absent @typeorder producing a wrong ffmpeg index          REFUTED 38/38
+    SamplingRate / Channels disagreeing across tools             0 mismatches
+
+**Every one had the SHAPE of the defect.** *`Delay_Source` occurs once in `src/`, in a
+comment, and is never read — an unguarded read of a field that can in principle come from
+two sources, which simply never fires here. `@typeorder`'s positional fallback is right on
+all 38 absences because mediainfo omits the field exactly when it is unambiguous.*
+
+> **Reporting them as defects would be false. Reporting nothing loses the map of where the
+> pipeline is standing on a convention it never checks.** *Recorded as refuted hypotheses
+> WITH THEIR COUNTS, which is the only form honest in both directions.*
+
+**AND ONE OF THEM IS A PROPERTY OF A BINARY RATHER THAN OF A SCHEMA.** *mediainfo's `Delay`
+is in **seconds** on the build in this image — 0.083 against a `start_time` of 0.083000 —
+which makes a `*1000` at `merge_video_chimeric:831` correct.* **A build that emits
+milliseconds makes that line 1000× wrong in total silence, and nothing in `src/`
+cross-checks a unit against a second tool.** *This audit did, once, by accident of method.*
+
+**A JUSTIFICATION WEAKER THAN ITS OWN CONCLUSION IS A LIVE RISK IN A DOCUMENT THAT WILL
+OUTLIVE ITS AUTHOR.** A guard refuses to substitute a container duration for a missing
+stream duration, calling it *"a THIRD quantity, not an approximation"*, and cites
+**31 to 883 ms**. **Measured over 60 files the gap reaches 2179.937 s** — 3600.000 s of
+container over 1420.063 s of content. **The guard is right and its stated evidence
+understates it by 2470×.**
+
+*Someone reading "31 to 883 ms" could reasonably conclude the substitution is a
+small-error convenience and re-enable it.* **The mechanism is clean and worth carrying:
+`format=duration` is the MAX over all streams, and the excess is a subtitle authoring
+placeholder — six tracks declaring `01:00:00.000` on a 23-minute file** (`vmsam-dev-3`).
+
+**A CHECK WITH FEWER SAMPLES THAN THE GATE UNDER-REPORTS THE GATE'S OWN QUANTITY BY
+CONSTRUCTION.** A fixture's offset spread was verified at five positions and read
+**0.000**; the gate samples ten windows and read **155**, refusing the merge.
+
+> **`max − min` over a sample is MONOTONE IN SAMPLE SIZE.** *A verification that samples
+> less than the thing it verifies is not merely weaker — it is biased toward passing, and
+> only matching the sampling fixes it* (`vmsam-dev-2` found it, `vmsam-dev-3` adopted it).
+
+**AND THE id 70 CONTRADICTION IS RESOLVED AS IRRECONCILABLE, WHICH IS THE USEFUL ANSWER.**
+*An explanation was offered — one instrument's sentence was stale — with its own falsifier
+named: it fails if the other's window exceeds 1 s.* **It is 30 s.**
+
+    one instrument DEGRADES with window length; the other IMPROVES with it
+    and cannot fingerprint at 2 s at all
+    THERE IS NO WINDOW AT WHICH BOTH CAN BE QUOTED
+
+*Recorded by its author as the same family it had been naming in others: **a mechanism was
+found that explained the numbers, and the search stopped, when a second mechanism explained
+them better.***
+
+**A LINE NUMBER IS A COORDINATE IN A MOVING FRAME.** A lab record's fifteen `file.py:NNN`
+citations were re-checked one day after they were written: **eight stale, one with the
+wrong path entirely — 53 % — and NOT ONE of the findings they support had changed.**
+
+> **A citation that resolves to unrelated code is worse than no citation: it LOOKS
+> checkable and it CHECKS OUT TO SOMETHING ELSE.**
+
+*And a line number is the one part of a finding that cannot be verified by re-reading the
+finding* — **which is why it rots silently while every prose claim around it stays true.**
+*The durability is demonstrable in the other direction too: a control-flow trace
+re-derived at the new tree came back structurally identical with every line number moved*
+(`vmsam-forensic`).
+
+**THIS FILE WAS THEN MEASURED THE SAME WAY, BECAUSE THE HAZARD WAS RAISED AGAINST IT.**
+
+    16 distinct file:line citations across the governing set
+    2 broken -- one stale, one carrying a path that does not exist
+    14 still resolving to exactly what they claim
+
+**Roughly 12 % against 53 %, and the reason is not care.** *Almost every citation here
+carries its ANCHOR TEXT beside the address* — `if mean(...) >= best_value_psnr`,
+`best_value_psnr = -1`, `delay_to_use = video_obj.delay_same_md5_audio + …` — **so the
+address is decoration and the anchor is the citation.** *The two that broke are the two
+that were addresses alone.*
+
+> **CITE THE ANCHOR TEXT OR A BLOB HASH. An anchor is checkable by grep at any future
+> commit; a line number is checkable only against the commit it was written at, and nothing
+> records which one that was.**
+
+*The stale pair in this file has been replaced by its anchor text, with the old and new
+numbers left visible as the worked example — `:1838/:1850/:1909` became
+`:1994/:2007/:2068` and `:1372/:569` became `:897`, in one day.*
+
+**AND A PREDICTION ABOUT AN INSTRUMENT EXPIRES WHEN THE INSTRUMENT IS FIXED, WITH NO
+MECHANICAL HANDLE AT ALL.** *A prediction that a field would "under-report by roughly half"
+was correct about the field as it then was; the field was corrected and now reports the
+quantity exactly.* **Nothing in the prediction's text reveals that it has expired.**
+
+> **A stale line number can be swept for. A STALE PREDICTION ABOUT SOMEONE ELSE'S CODE
+> LOOKS IDENTICAL TO A LIVE ONE**, and the only signal is meeting the corrected instrument
+> by chance (`vmsam-forensic`, caught exactly that way).
