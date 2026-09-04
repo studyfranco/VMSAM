@@ -499,7 +499,11 @@ def log_assembly(candidate_path, assembly, plan):
                 # AMBIGU = le maitre portait PLUSIEURS pistes principales dans
                 # cette langue et l'etiquette ne les separe pas. Cout mesure du
                 # mauvais choix: 21.3 ms, sous la tolerance, silencieux.
-                f"{'(AMBIGUOUS among ' + str(report['fill_choices']) + ')' if (report.get('fill_choices') or 0) > 1 else ''} "
+                # AMBIGUOUS seulement quand le choix N'A PAS ete tranche par
+                # la mesure. Quand il l'a ete, on le dit aussi -- `among N by
+                # measurement` -- pour qu'on voie qu'il y avait un choix ET
+                # qu'il etait fonde.
+                f"{('(among ' + str(report['fill_choices']) + ' by measurement)' if report.get('fill_by_reference') else '(AMBIGUOUS among ' + str(report['fill_choices']) + ')') if (report.get('fill_choices') or 0) > 1 else ''} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "

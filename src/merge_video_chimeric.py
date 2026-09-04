@@ -731,6 +731,18 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # programme correlent a 0.63 et sont a 21.3 ms l'un de l'autre.
     fill_choices = (same_language_principal_count(master_obj, fill_language)
                     if fill == "master" and fill_language else 0)
+    # LE CHOIX A-T-IL ETE TRANCHE PAR LA MESURE OU PAR L'ENCODAGE? Si la piste
+    # retenue EST le flux de reference, le plan a ete mesure contre elle et le
+    # choix est adosse a une mesure. Sinon `pick_best_master_audio` a tranche sur
+    # le codec, les canaux et le debit -- des dimensions qui n'ont rien a voir
+    # avec le doublage, donc un tirage.
+    #
+    # Sans cette distinction, la marque AMBIGUOUS crierait aussi sur les cas ou
+    # le choix est fonde, et une alerte qui se declenche sur les cas sains
+    # devient une alerte qu'on cesse de lire.
+    fill_by_reference = bool(
+        fill == "master" and master_audio != None and reference_stream != None
+        and str(master_audio.get("StreamOrder")) == str(reference_stream))
     if fill != "master":
         fill_language = None
 
@@ -783,6 +795,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "codec": codec_name, "encoder": encoder_arguments[1],
             "family": family, "gap_fill": fill, "fill_language": fill_language,
             "fill_title": fill_title, "fill_choices": fill_choices,
+            "fill_by_reference": fill_by_reference,
             "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
