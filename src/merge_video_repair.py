@@ -495,7 +495,11 @@ def log_assembly(candidate_path, assembly, plan):
                 f"lang={report['language']} "
                 f"fill={report['gap_fill']}"
                 f"{'/' + str(report['fill_language']) if report.get('fill_language') else ''}"
-                f"{'[' + str(report['fill_title']) + ']' if report.get('fill_title') else ''} "
+                f"{'[' + str(report['fill_title']) + ']' if report.get('fill_title') else ''}"
+                # AMBIGU = le maitre portait PLUSIEURS pistes principales dans
+                # cette langue et l'etiquette ne les separe pas. Cout mesure du
+                # mauvais choix: 21.3 ms, sous la tolerance, silencieux.
+                f"{'(AMBIGUOUS among ' + str(report['fill_choices']) + ')' if (report.get('fill_choices') or 0) > 1 else ''} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "

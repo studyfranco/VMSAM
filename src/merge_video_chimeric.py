@@ -565,6 +565,39 @@ def find_master_audio_for_language(master_obj, language, reference_stream=None):
     return None
 
 
+def same_language_principal_count(master_obj, language):
+    """Combien de pistes PRINCIPALES le maitre porte-t-il dans cette langue?
+
+    Plus d'une, et le choix du remplissage se fait entre des pistes que
+    L'ETIQUETTE NE SEPARE PAS. `commentary` et `audiodesc` sont des holders
+    distincts, donc ce compte ne voit que des pistes principales -- deux
+    doublages, pas une piste et son commentaire.
+
+    MESURE, ET CE N'EST PLUS UNE INQUIETUDE: sur le maitre de id 56, les deux
+    pistes espagnoles principales correlent a 0.6321 l'une contre l'autre sur
+    trois positions -- LE MEME REGIME QUE DEUX LANGUES DIFFERENTES, mediane
+    0.6108 sur 87 paires inter-langues. Ce sont bien deux doublages distincts.
+    Elles sont aussi DECALEES DE 21.3 ms L'UNE DE L'AUTRE, constant sur tout le
+    fichier a 0.1 ms pres, soit exactement une trame AAC a 48 kHz.
+
+    DONC REMPLIR DEPUIS LE MAUVAIS DOUBLAGE COUTE 21.3 ms. Sous la tolerance de
+    100 ms du verificateur, sous une trame video, inaudible comme decalage et
+    invisible comme defaut. Mesure par `vmsam-dev-1` sur un fichier, un couple
+    de flux, trois positions.
+
+    ET IL N'Y A AUCUN REPLI PAR ETIQUETTE: sur 290 pistes de 44 maitres, ZERO
+    porte une etiquette de langue avec un tiret. Les deux doublages sont tagues
+    'es' tous les deux, meme codec, meme nombre de canaux. Les seuls champs qui
+    different sont le TITRE, texte libre, et le CONTENU, que seule une mesure
+    atteint.
+
+    On ne devine donc pas ici. On COMPTE, et le journal dit qu'il y avait un
+    choix a faire.
+    """
+    tracks = (master_obj.audios or {}).get(language) or []
+    return len(tracks)
+
+
 def find_fill_audio(master_obj, language, reference_stream=None,
                     comparison_language=None):
     """La piste du maitre qui remplira les trous de CETTE piste.
@@ -692,6 +725,12 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # la meme raison qui a fait ajouter `fill_language` avant que le
     # remplissage inter-langue existe.
     fill_title = master_audio.get("Title") if fill == "master" and master_audio != None else None
+    # COMBIEN DE PISTES PRINCIPALES LE MAITRE PORTAIT-IL DANS LA LANGUE DU
+    # REMPLISSAGE? Plus d'une, et le choix s'est fait entre des pistes que
+    # l'etiquette ne separe pas -- mesure: deux doublages espagnols du meme
+    # programme correlent a 0.63 et sont a 21.3 ms l'un de l'autre.
+    fill_choices = (same_language_principal_count(master_obj, fill_language)
+                    if fill == "master" and fill_language else 0)
     if fill != "master":
         fill_language = None
 
@@ -743,7 +782,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
             "codec": codec_name, "encoder": encoder_arguments[1],
             "family": family, "gap_fill": fill, "fill_language": fill_language,
-            "fill_title": fill_title, "path": out_path,
+            "fill_title": fill_title, "fill_choices": fill_choices,
+            "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
