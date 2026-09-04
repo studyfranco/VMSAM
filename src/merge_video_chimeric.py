@@ -1414,8 +1414,28 @@ output_duration_tolerance_ms = Decimal("500")
 # un cinquieme du corpus, alors que MESURER donne le meme taux de refus PLUS
 # tout ce qui se trouve en aval.
 #
-# Passe a True des que le balayage du corpus est termine, ou immediatement si
-# quoi que ce soit doit etre produit pour de vrai avant cela.
+# LA CONDITION DE LEVEE EST ECRITE UNE SEULE FOIS, PLUS BAS, AVEC `measured`:
+# VINGT ARTEFACTS MESURES -- des pistes audio presentes ET des durees lues.
+#
+# Ce commentaire portait une SECONDE condition, "des que le balayage du corpus
+# est termine", ecrite avant que la premiere ne soit affinee. LES DEUX NE
+# CONCORDENT PAS: un balayage qui se termine et un compte qui atteint vingt sont
+# des evenements differents et aucun n'implique l'autre. Un fichier qui porte
+# deux conditions a celle que le prochain lecteur trouve en premier.
+#
+# ET LA CONDITION SUPPRIMEE EST DEVENUE INATTEIGNABLE: le balayage du corpus est
+# SUSPENDU a 3 lignes sur 315, au profit d'une priorite du proprietaire. Rien de
+# ce qui tourne aujourd'hui ne peut plus la satisfaire. C'est la quatrieme fois
+# que la condition de ce drapeau echoue -- inatteignable, incomptable,
+# satisfiable par la mauvaise chose, et maintenant DOUBLE -- et la seule qui
+# ait tenu est celle qui compte une quantite emise par l'instrument lui-meme.
+#
+# CE QUI RESTE VRAI ET N'EST PAS UNE CONDITION: si quoi que ce soit doit etre
+# PRODUIT POUR DE VRAI, le drapeau passe a True immediatement, quel que soit le
+# compte. Ce n'est pas une seconde condition de levee, c'est un ARBITRAGE DU
+# PROPRIETAIRE qui prime sur elle, et il n'appartient ni a ce fichier ni a moi
+# de le renegocier. La question "quelque chose est-il prevu pour de vrai?" est
+# ouverte aupres du proprietaire et sans reponse.
 output_check_enforcing = False
 
 # UN DECALAGE EMPRUNTE SE REFUSE-T-IL? PAS ENCORE, ET LA RAISON N'EST PAS LA
