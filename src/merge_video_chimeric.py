@@ -947,7 +947,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     if verify:
         verification = verify_on_master_timeline(
             out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
-            verify_search_ms)
+            verify_search_ms, reference_stream)
 
     return {"path": out_path, "pieces": pieces, "audios": audio_reports,
             "subtitles": subtitle_reports, "declined": declined,
@@ -1318,7 +1318,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
 
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                              tolerance_ms, search_ms):
+                              tolerance_ms, search_ms, reference_stream=None):
     """Compare chaque piste reconstruite au maitre et REFUSE si elle n'y est pas.
 
     Ceci est la forme automatique de `SPEC_ZONE_A.MD` §2 point 3 -- produire la
