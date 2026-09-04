@@ -1116,6 +1116,22 @@ def blank_cells(job):
                   "rounding, snapping, a drawn grid -- divides by a rate this "
                   "record does not carry, so it divides by an assumption"})
     entries.append({
+        "quantity": "container_start_time",
+        "state": NO_PRODUCER,
+        "address": "merge_video_chimeric.get_stream_start_ms",
+        # ABSENT N'EST PAS ZERO, et ici les deux portent le meme chiffre.
+        # `head_pad_ms` est `stream_start_ms - source_start_ms` ECRETE a zero:
+        # quand le flux commence AVANT le point de lecture, la fonction rend ""
+        # et le champ vaut 0. Donc `head_pad_ms=0` -- 11 occurrences sur le
+        # corpus -- couvre deux etats: le conteneur n'a pas de decalage, et le
+        # conteneur en a un que le plan lit par-dessus. On ne peut pas inverser
+        # le champ pour retrouver la quantite.
+        "detail": "no start_time, Delay or container-offset key is emitted. "
+                  "head_pad_ms is a one-sided derivative clamped at zero, so "
+                  "head_pad_ms=0 means EITHER no container offset OR an offset "
+                  "the plan reads past -- it cannot be inverted. A constant "
+                  "off-grid phase in the offsets cannot be explained without it"})
+    entries.append({
         "quantity": "build_identity",
         "state": NO_PRODUCER,
         "address": "gestionar_show.fusion (job log header)",
