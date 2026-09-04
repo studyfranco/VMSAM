@@ -497,6 +497,29 @@ def quanta(value_ms, quantum_ms):
         return None
 
 
+def _track_shortfall_ms(assembly, report):
+    """De combien CETTE piste produite est-elle plus courte que le maitre?
+
+    Le controle de sortie a deja lu les durees par flux; elles etaient dans
+    l'artefact et personne ne les rapprochait de la piste. Renvoie None quand la
+    duree n'a pas ete lue -- JAMAIS zero: une duree non mesuree n'est pas une
+    piste de longueur juste.
+    """
+    check = assembly.get("output_check") or {}
+    expected = check.get("expected_duration_ms")
+    if expected == None:
+        return None
+    for stream in check.get("streams") or []:
+        if stream.get("codec_type") != "audio":
+            continue
+        if str(stream.get("language")) != str(report.get("language")):
+            continue
+        if stream.get("duration_ms") == None:
+            return None
+        return Decimal(str(expected)) - Decimal(str(stream["duration_ms"]))
+    return None
+
+
 def log_assembly(candidate_path, assembly, plan):
     """CE QUI A ETE FAIT AU FICHIER, PISTE PAR PISTE, AVEC LES TIMINGS.
 
@@ -521,6 +544,18 @@ def log_assembly(candidate_path, assembly, plan):
     # pistes ont leur propre decalage et lesquelles empruntent, et elle
     # n'apparaissait nulle part dans le journal -- on pouvait lire `BORROWED`
     # sans pouvoir dire emprunte A QUOI.
+    # LE MAITRE EST NOMME. Le journal nommait le candidat et la sortie et jamais
+    # le maitre -- "merged <candidate> with the master into <output>", UN ARTICLE
+    # DEFINI LA OU IL FAUT UN IDENTIFIANT.
+    #
+    # Consequence, rapportee par le validateur: il peut verifier un fichier
+    # produit contre ses propres affirmations et contre son candidat, ET PAS
+    # CONTRE CE A PARTIR DE QUOI IL A ETE CONSTRUIT. C'est exactement la question
+    # que la colonne VALIDATED existe pour poser, et elle etait sans reponse.
+    # Il a cherche le maitre dans les racines voisines, le repertoire de sortie
+    # et le code d'episode, sans le retrouver pour aucun des trois fichiers.
+    if plan and plan.get("master_path"):
+        tools.logs.append(f"repair: master {plan['master_path']}\n")
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
                       f"language={plan.get('language') if plan else None} "
                       # DE COMBIEN LA TRANSFORMATION DE RYTHME L'A EMPORTE.
@@ -556,7 +591,15 @@ def log_assembly(candidate_path, assembly, plan):
                 # QU'ON LUI DEMANDE? Mesure sur un artefact reel: la piste fr du
                 # maitre 2008 ms plus courte que sa ja, le manque HERITE par la
                 # sortie, quatre fois la tolerance, et rien ne les comparait.
-                f"{'[FILL SOURCE SHORT BY ' + str(report['fill_short_by_ms']) + ' ms]' if report.get('fill_short_by_ms') else ''} "
+                # CE QUE LA SOURCE EXPLIQUE, ET CE QUE LA PISTE A REELLEMENT
+                # PERDU. Le validateur a mesure un fichier ou le maitre etait
+                # court de 907 ms et la piste produite courte de 1988: MON
+                # ANNOTATION AURAIT DIT 907 ET SOUS-DECLARE DE MOITIE. Un lecteur
+                # a qui l'on donne 907 croit le manque explique.
+                #
+                # LE RESIDU EST LE DEFAUT; la part expliquee est celle qui n'en
+                # est pas un. On emet donc les deux et leur difference.
+                f"{'[FILL SOURCE SHORT BY ' + str(report['fill_short_by_ms']) + ' ms' + (('; TRACK LOST ' + str(_lost) + ' ms; UNEXPLAINED ' + str(_lost - Decimal(str(report['fill_short_by_ms']))) + ' ms') if (_lost := _track_shortfall_ms(assembly, report)) != None else '; TRACK LOSS UNMEASURED') + ']' if report.get('fill_short_by_ms') else ('[TRACK LOST ' + str(_l2) + ' ms, NO SHORT FILL SOURCE -- UNEXPLAINED]' if (_l2 := _track_shortfall_ms(assembly, report)) not in (None, ) and _l2 > 0 else '')} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
