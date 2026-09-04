@@ -508,7 +508,10 @@ def log_assembly(candidate_path, assembly, plan):
                           f"{check['subtitles_in_file']}/{check['subtitles_built']} "
                           f"expected_ms={check['expected_duration_ms']} "
                           f"source={check['expected_duration_source']} "
-                          f"tolerance_ms={check['tolerance_ms']}\n")
+                          f"tolerance_ms={check['tolerance_ms']} "
+                          f"measured={check.get('measured')} "
+                          f"would_refuse={check.get('would_refuse')} "
+                          f"enforcing={check.get('enforcing')}\n")
 
 
 def record(candidate_path, outcome, reason, detail=None):

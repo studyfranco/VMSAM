@@ -1297,6 +1297,18 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     # peut avoir change entre-temps. Un verdict recalcule derive.
     report["would_refuse"] = bool(len(problems))
     report["enforcing"] = bool(output_check_enforcing)
+    # `measured` EST LA CONDITION DE LEVEE DU DRAPEAU, ET ELLE EST UNE SOMME SUR
+    # LES LIGNES DU RUN PLUTOT QU'UN ACCORD A OBTENIR APRES COUP. Le drapeau
+    # passe a vingt ARTEFACTS MESURES: des pistes audio presentes ET DES DUREES
+    # LUES, pas une fusion qui a produit un fichier.
+    #
+    # POURQUOI CE N'EST PAS "un artefact existe": "0 tronque sur 0 artefact" est
+    # INDEFINI et pas zero, et compter des fichiers plutot que des artefacts
+    # ferait reapparaitre le meme trou un cran plus bas -- vingt fichiers que le
+    # controle ne sait pas lire satisferaient un N pose sur un denominateur nul
+    # dans un autre systeme de coordonnees.
+    report["measured"] = bool(len(streams)) and not len(unmeasured) and bool(
+        [x for x in streams if x["codec_type"] == "audio"])
     if len(problems) and output_check_enforcing:
         error = chimeric_error("the produced file does not match what was built: "
                                + "; ".join(problems))
