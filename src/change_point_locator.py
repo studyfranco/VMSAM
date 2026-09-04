@@ -115,6 +115,28 @@ MIN_MEDIAN_FIDELITY = 0.70
 MAX_DISTINCT_POINTS = 4
 MAX_SIGN_FLIPS = 2
 
+# --- cross-language stream pairing ---------------------------------------
+# A candidate audio stream outside the measured language used to get NO entry in
+# the per-stream offset table, and dev-2's assembler fell back to the measured
+# language's offset for it -- silently, carrying 14-32 ms on the two files it
+# measured, and 34.62 ms on a produced file. Under its 100 ms tolerance, under a
+# video frame, invisible.
+#
+# The fix is a per-language reference: probe each candidate stream against a
+# master stream OF ITS OWN LANGUAGE. Measured on 26 corpus files / 127 stream
+# pairs: same-language same-track pairs score 0.944-0.990, cross-language pairs
+# 0.566-0.848, and 0 of 87 cross-language pairs reach 0.85 on the MINIMUM of two
+# probe positions. At a SINGLE position cross-language reaches 0.9400 -- so the
+# two-position minimum is load-bearing and a single-probe bar would accept them.
+#
+# 0.85 IS A CHOICE INSIDE AN OVERLAP, NOT A BOUNDARY: the highest cross-language
+# min-of-two is 0.8477 and the lowest genuine-looking same-label is 0.8196. Every
+# measurement is therefore reported beside its verdict, so the bar can be moved
+# by someone who disagrees with it. A row saying "rejected" cannot be re-judged;
+# a row saying "0.8477, rejected at 0.85" can.
+MIN_PAIRING_FIDELITY = 0.85
+PAIRING_POSITION_FRACTIONS = (0.35, 0.65)
+
 # --- no-signal guard ---------------------------------------------------------
 # A correlation taken where there is no signal is not a measurement. dev-2 found
 # a 1.4 s near-silent window returning -170.69 ms with apparent confidence; with
@@ -255,6 +277,105 @@ def _streams_for(video_obj, language):
         return []
     return [entry["StreamOrder"] for entry in audios[language]
             if entry.get("StreamOrder") is not None]
+
+
+def _all_audio_streams(video_obj):
+    """EVERY audio stream with its language, not only one language's.
+
+    `_streams_for` answers "the streams of language L". This answers "the streams",
+    which is what a per-language pairing needs.
+    """
+    audios = getattr(video_obj, "audios", None) or {}
+    out = []
+    for lang, entries in audios.items():
+        for entry in entries:
+            order = entry.get("StreamOrder")
+            if order is not None:
+                out.append((order, lang))
+    return sorted(out)
+
+
+def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_path,
+                            shortest, work_dir):
+    """Give every candidate audio stream a master partner OF ITS OWN LANGUAGE.
+
+    Returns (accepted, measurements). `accepted` keys only the streams whose best
+    partner cleared MIN_PAIRING_FIDELITY -- a stream ABSENT from it has no
+    measurable offset and its consumer must refuse rather than borrow one.
+    `measurements` carries every pairing that was probed, accepted or not, with the
+    fidelity the bar was applied to.
+
+    ABSENT, NEVER ZERO: a stream that cleared no partner gets no key. Not
+    `fidelity: 0.0` -- an unknown fidelity is not a fidelity of zero, and a
+    placeholder here would read downstream as a measurement.
+
+    CROSS-LANGUAGE PAIRS ARE NOT PROBED. 0 of 87 reached the bar on the minimum of
+    two positions in the population this rule was measured on, so spending probes
+    on them buys nothing. IF THAT EVER CHANGES THIS IS THE LINE TO CHANGE -- the
+    rule is an empirical result, not a property of audio.
+    """
+    master_streams = _all_audio_streams(best_video)
+    candidate_streams_all = _all_audio_streams(candidate_video)
+    by_language = {}
+    for order, lang in master_streams:
+        by_language.setdefault(lang, []).append(order)
+
+    positions = []
+    for fraction in PAIRING_POSITION_FRACTIONS:
+        centre = max(0.0, min(shortest * fraction, shortest - PROBE_WINDOW_SECONDS))
+        positions.append(centre)
+
+    accepted, measurements = {}, []
+    for stream, language in candidate_streams_all:
+        partners = by_language.get(language, [])
+        if not partners:
+            _log(f"candidate stream {stream} ({language}): the master carries no "
+                 f"{language} stream, so no partner exists; no entry")
+            measurements.append({"candidate_stream": stream, "language": language,
+                                 "master_stream": None, "fidelity": None,
+                                 "accepted": False, "reason": "no master stream of this language"})
+            continue
+        best = None
+        for master_stream in partners:
+            scores = []
+            for index, centre in enumerate(positions):
+                probe = _probe(master_path, master_stream, candidate_path, stream,
+                               centre, PROBE_WINDOW_SECONDS, work_dir,
+                               f"pair{master_stream}_{stream}_{index}")
+                if probe is None:
+                    scores = []
+                    break
+                scores.append(probe[1])
+            if not scores:
+                continue
+            # THE MINIMUM, not the mean: a pair that agrees at one position and not
+            # the other is a coincidence, and cross-language pairs reach 0.94 at a
+            # single position.
+            score = min(scores)
+            if best is None or score > best[1]:
+                best = (master_stream, score)
+        if best is None:
+            _log(f"candidate stream {stream} ({language}): no {language} master stream "
+                 f"could be probed; no entry")
+            measurements.append({"candidate_stream": stream, "language": language,
+                                 "master_stream": None, "fidelity": None,
+                                 "accepted": False, "reason": "every probe failed"})
+            continue
+        record = {"candidate_stream": stream, "language": language,
+                  "master_stream": best[0], "fidelity": round(float(best[1]), 4),
+                  "positions": len(positions),
+                  "accepted": bool(best[1] >= MIN_PAIRING_FIDELITY)}
+        if not record["accepted"]:
+            record["reason"] = f"below {MIN_PAIRING_FIDELITY} on the minimum of {len(positions)} positions"
+            _log(f"candidate stream {stream} ({language}): best partner master "
+                 f"{best[0]} at {best[1]:.4f}, below {MIN_PAIRING_FIDELITY}; no entry")
+        else:
+            accepted[stream] = {"master_stream": best[0],
+                                "fidelity": round(float(best[1]), 4),
+                                "language": language,
+                                "positions": len(positions)}
+        measurements.append(record)
+    return accepted, measurements
 
 
 def _audio_duration_seconds(video_obj, language):
@@ -486,23 +607,90 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # The transitions are shared: every stream of the language shows the same
     # staircase in the same places, and only the offsets differ. So the structure
     # is measured once and the offsets once per stream, at each plateau's centre.
+    # Every candidate audio stream gets a master partner of its OWN language, so
+    # the table below covers tracks outside the measured language instead of
+    # leaving them to be assigned another language's offset by a consumer.
+    pairing, pairing_measurements = _pair_candidate_streams(
+        best_video, candidate_video, master_path, candidate_path, shortest, work_dir)
+    # A measured-language stream missing from the pairing is missing for one of two
+    # DIFFERENT reasons and they must not be collapsed. The first version of this
+    # block re-added every measured-language stream unconditionally, which put a
+    # stream that had FAILED THE BAR at 0.5844 back into the table with a null
+    # fidelity -- and a consumer reads PRESENCE as measurable. That is
+    # "absent, never zero" violated in its other form: not a fabricated value but a
+    # fabricated KEY.
+    probe_failed = {m["candidate_stream"] for m in pairing_measurements
+                    if m.get("reason") == "every probe failed"}
+    for stream in candidate_streams:
+        if stream in pairing:
+            continue
+        if stream in probe_failed:
+            # UNCHANGED: the repair rebuilds every stream of this language, so one it
+            # cannot measure at all is a refusal of the whole plan.
+            _log(f"stream {stream} ({language}) could not be probed at all; declining")
+            return None
+        # Measurable, and not the same content as any master stream of its language.
+        # No entry, and NOT a decline: the plan stays valid for the streams that do
+        # match, and the consumer refuses this one rather than borrowing an offset.
+        _log(f"stream {stream} ({language}) is in the measured language but matched no "
+             f"master stream of it above {MIN_PAIRING_FIDELITY}; no entry, not declining")
+    if primary_stream not in pairing:
+        # The plan's own stream failing its own bar means the offsets the segments are
+        # built from were measured against a track that does not match. That is not a
+        # missing entry, it is a plan with no foundation.
+        _log(f"the primary stream {primary_stream} did not clear "
+             f"{MIN_PAIRING_FIDELITY} against any {language} master stream; declining")
+        return None
+    extra_streams = [s for s in sorted(pairing) if s not in candidate_streams]
+    if extra_streams:
+        _log(f"pairing adds {len(extra_streams)} stream(s) outside {language}: "
+             + ", ".join(f"{s}->master {pairing[s]['master_stream']} "
+                         f"({pairing[s]['language']}, fid {pairing[s]['fidelity']})"
+                         for s in extra_streams))
+
     per_stream = []
+    per_stream_fidelity = []
+    dropped_streams = set()
     for run in runs:
         centre = (run["first"] + run["last"] + PROBE_WINDOW_SECONDS) / 2.0
         centre = max(0.0, min(centre, shortest - PROBE_WINDOW_SECONDS))
         by_stream = {}
-        for stream in candidate_streams:
+        fidelity_by_stream = {}
+        for stream in sorted(pairing):
+            if stream in dropped_streams:
+                continue
+            partner = pairing[stream]["master_stream"]
             if stream == primary_stream:
                 by_stream[stream] = run["mean"]
                 continue
-            result = _probe(master_path, reference_stream, candidate_path, stream,
+            result = _probe(master_path, partner, candidate_path, stream,
                             centre, PROBE_WINDOW_SECONDS, work_dir,
                             f"p{stream}_{int(centre)}")
             if result is None:
-                _log(f"stream {stream} unmeasurable at {centre:.1f}s; declining")
-                return None
+                if stream in candidate_streams:
+                    # UNCHANGED for the measured language: a stream the repair will
+                    # rebuild and cannot measure is a refusal, not a gap.
+                    _log(f"stream {stream} unmeasurable at {centre:.1f}s; declining")
+                    return None
+                # A stream outside the measured language is dropped ENTIRELY rather
+                # than measured in some segments and not others: a track placed in
+                # segments 0 and 2 and missing from 1 is a gap in the middle of a
+                # track, not a placement.
+                _log(f"stream {stream} ({pairing[stream]['language']}) unmeasurable at "
+                     f"{centre:.1f}s; dropping it from the table entirely")
+                dropped_streams.add(stream)
+                continue
             by_stream[stream] = result[0]
+            fidelity_by_stream[stream] = round(float(result[1]), 4)
         per_stream.append(by_stream)
+        per_stream_fidelity.append(fidelity_by_stream)
+    if dropped_streams:
+        for stream in dropped_streams:
+            pairing.pop(stream, None)
+            for table in per_stream:
+                table.pop(stream, None)
+            for table in per_stream_fidelity:
+                table.pop(stream, None)
 
     # --- transitions, bisected ----------------------------------------------
     change_points = []
@@ -582,6 +770,7 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             continue
         kept_runs.add(position)
         by_stream = per_stream[position]
+        fidelity_here = per_stream_fidelity[position]
         # A SEGMENT SHORTER THAN ONE PROBE WINDOW HAS NO CLEAN PROBE IN IT.
         #
         # Every window overlapping such a segment also overlaps a transition, and
@@ -616,6 +805,12 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             "candidate_offset_ms_by_stream": {s: round(v, 2) for s, v in by_stream.items()},
             "candidate_offset_points_by_stream": {s: int(round(v / quantum_ms))
                                                   for s, v in by_stream.items()},
+            # DIAGNOSTIC, NOT A GATE. The bar is applied once per file, in
+            # `candidate_stream_pairing`; gating per segment would place a track in
+            # segments 0 and 2 and refuse it in 1. A stream carries no key here when
+            # its offset is a plateau MEAN rather than a single probe at this centre
+            # -- absent, never zero.
+            "candidate_offset_fidelity_by_stream": dict(fidelity_here),
             "probes_in_segment": len(run["members"]),
             "offset_unverified": unverified,
         })
@@ -635,6 +830,15 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             "language": language,
             "reference_stream": reference_stream,
             "candidate_streams": candidate_streams,
+            # ONE decision per candidate stream, made once for the file. A stream
+            # ABSENT here cleared no master partner at the bar and its consumer must
+            # REFUSE to place it rather than borrow another stream's offset.
+            "candidate_stream_pairing": pairing,
+            # Every pairing that was probed, accepted or not, with the fidelity the
+            # bar was applied to -- so a bar sitting inside an overlap can be moved
+            # by someone who disagrees with it.
+            "candidate_stream_pairing_measurements": pairing_measurements,
+            "pairing_min_fidelity": MIN_PAIRING_FIDELITY,
             "quantum_ms": quantum_ms,
             "probe_window_seconds": PROBE_WINDOW_SECONDS,
             "probe_step_seconds": PROBE_STEP_SECONDS,
