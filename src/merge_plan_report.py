@@ -168,8 +168,21 @@ def measure_corpus(log_paths, read=None):
                       f"repair path and not a merge, and can emit a log without "
                       f"producing an artefact",
         "measured": "at render time, over the logs handed to this render",
-        "caveat": "NOT an independent sample, and undatable from any artefact "
-                  "-- no build or timestamp field is emitted anywhere",
+        # NI INDEPENDANT NI NON BIAISE, et le second est le plus recent des deux.
+        # Ces journaux n'existent que parce qu'une reparation est allee au bout.
+        # dev-2 a mesure que son verificateur decode des fenetres de 20 s et que
+        # le cout depend du CODEC: quelques millisecondes en EAC3, des dizaines
+        # de secondes en TrueHD 7.1 sans perte. Les fichiers chers depassent le
+        # delai et ne produisent pas de journal. MON CORPUS HERITE DONC D'UN
+        # ECHANTILLONNAGE QUI FAVORISE LES FICHIERS BON MARCHE A DECODER, dans
+        # une direction que je ne peux pas quantifier depuis ici.
+        "caveat": "NOT an independent sample; NOT an unbiased one either -- "
+                  "these logs exist only where a repair completed, and upstream "
+                  "the probe cost depends on the codec, so expensive files "
+                  "(lossless multichannel) time out and emit no log at all. "
+                  "Direction of the bias known, size unknown from here. And "
+                  "undatable from any artefact -- no build or timestamp field "
+                  "is emitted anywhere",
     }
 
 
@@ -207,6 +220,19 @@ NOT_EXERCISED = "not-exercised-here"
 # n'est pas une propriete du code NI des donnees, c'est une propriete de
 # L'APPEL. Un blanc ici se lirait comme "la population va de soi".
 NOT_SUPPLIED = "not-supplied-to-this-render"
+# LA MESURE A ETE TENTEE ET N'A PAS ABOUTI. Distinct de `not-exercised-here`, et
+# c'est la distinction que dev-2 m'a fait chercher: `not-exercised-here` dit
+# L'ENTREE NE S'EST PAS PRESENTEE, celui-ci dit ON NE SAIT PAS si elle s'est
+# presentee, parce que la tentative n'a pas fini. L'action differe, seul test
+# valable: le premier ne demande rien, le second demande DE REMESURER avec un
+# budget qui convient.
+#
+# Sans lui, un depassement de delai se serait range sous `not-exercised-here` et
+# aurait dit `ce cas ne se produit pas` la ou la verite est `on n'a pas
+# regarde`. dev-2 a failli me livrer exactement cette phrase -- "aucun SKIPPED
+# du lot" -- alors qu'un cas sur trois avait ete mesure et deux tues a 44
+# minutes sur un decodage TrueHD.
+NOT_MEASURED = "not-measured"
 
 _STATE_MARK = {
     PRESENT: "",
@@ -217,6 +243,7 @@ _STATE_MARK = {
     NOT_DEFINED: "\u00b7",   # sans objet ici; la decision est ailleurs
     NOT_EXERCISED: "\u25cb",  # branche vivante, entree non produite ici
     NOT_SUPPLIED: "?",       # l'appelant n'a pas fourni la population
+    NOT_MEASURED: "\u2049",   # tentee, non aboutie -- a remesurer
 }
 
 _STATE_WORD = {
@@ -228,6 +255,8 @@ _STATE_WORD = {
     NOT_DEFINED: "not defined in this case; the decision was made elsewhere",
     NOT_EXERCISED: "the branch is live; this artefact does not produce its input",
     NOT_SUPPLIED: "the caller supplied no population for this render",
+    NOT_MEASURED: "the measurement was attempted and did not complete; "
+                  "re-measure, do not read as a negative",
 }
 
 
