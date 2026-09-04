@@ -121,6 +121,14 @@ def measure_corpus(log_paths, read=None):
     # peut donc produire un journal sans produire d'artefact, ce qu'un journal de
     # production ne peut pas faire.
     provenance = {"production_job_log": 0, "lab_replay": 0}
+    # L'ETAT DE LA PORTE AU MOMENT OU CES FICHIERS ONT ETE PRODUITS.
+    # Le proprietaire a tranche que `enforcing` passe a True. Un artefact portant
+    # `would_refuse=True` a donc ete produit SOUS UNE PORTE INERTE et ne serait
+    # PAS produit par la configuration qui expedie: il serait DECLINE. Ce corpus
+    # n'est donc pas la population que le conteneur produit maintenant, et un
+    # lecteur qui compte des artefacts reussis compte des fichiers qui
+    # n'existeraient plus.
+    gate = {"enforcing_true": 0, "enforcing_false": 0, "would_refuse_true": 0}
     for path in log_paths:
         text = reader(path)
         if not is_job_log(text):
@@ -140,6 +148,18 @@ def measure_corpus(log_paths, read=None):
         else:
             provenance["lab_replay"] += 1
         job = parse_job_log(text)
+        check = job.get("output_check") or {}
+        if check:
+            if str(check.get("enforcing")).lower().startswith("true"):
+                gate["enforcing_true"] += 1
+            else:
+                gate["enforcing_false"] += 1
+            # `would_refuse=True -- 1 WOULD HAVE BEEN DECLINED (gate inert)` est
+            # une forme apparue apres coup: la valeur porte de la prose. On teste
+            # donc le PREFIXE et non l'egalite, ce qu'une comparaison stricte
+            # aurait rate en silence.
+            if str(check.get("would_refuse")).lower().startswith("true"):
+                gate["would_refuse_true"] += 1
         # LA QUALITE DE LA CLE VARIE DANS LE CORPUS ET SE DIT. Un digest emis est
         # une LECTURE; un id derive du chemin par moi est une CONSTRUCTION; un
         # maitre seul est une INFERENCE qui regroupe des cas distincts. Publier
@@ -177,6 +197,13 @@ def measure_corpus(log_paths, read=None):
                      f"(constructed), {basis['master_only']} from the master "
                      f"alone (INFERRED: two candidates merged toward one master "
                      f"would count as one)",
+        "gate_state": f"{gate['enforcing_false']} produced with the duration "
+                      f"gate INERT (enforcing=False), {gate['enforcing_true']} "
+                      f"with it enforcing. {gate['would_refuse_true']} carry "
+                      f"would_refuse=True, so under the SHIPPING configuration "
+                      f"they would be DECLINED and would not exist as produced "
+                      f"files. THIS CORPUS IS NOT THE POPULATION THE CONTAINER "
+                      f"NOW PRODUCES",
         "provenance": f"{provenance['production_job_log']} production job logs "
                       f"(carrying the `Logs:` envelope), "
                       f"{provenance['lab_replay']} lab replays (starting at "
