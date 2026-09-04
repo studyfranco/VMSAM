@@ -1021,6 +1021,20 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "family": family, "gap_fill": fill, "fill_language": fill_language,
             "fill_title": fill_title, "fill_choices": fill_choices,
             "head_source": head_source,
+            # QUEL FLUX MAITRE A REELLEMENT SERVI, ET NON SEULEMENT SA LANGUE.
+            #
+            # `master_stream_order` etait une LOCALE et n'etait jamais renvoyee.
+            # Le rapport portait `fill_language`, `fill_title`, `fill_choices` et
+            # `fill_by_reference` -- tout sauf l'identite du flux.
+            #
+            # vmsam-dev-3, qui construit l'instrument s4c: quand le maitre porte
+            # plusieurs pistes dans la langue de remplissage, il ne peut pas
+            # savoir CONTRE QUOI comparer. Et le titre ne desambigue pas: video.py
+            # regroupe sur le code ISO, donc es-ES et es-419 tombent dans le meme
+            # seau avant que ce module ne voie quoi que ce soit, et un fichier du
+            # corpus porte QUATRE pistes spa dont deux titrees "European Spanish".
+            # `fill_choices` dit combien il y en avait, jamais laquelle.
+            "fill_stream_order": master_stream_order,
             "fill_source_ms": str(fill_source_ms) if fill_source_ms != None else None,
             "fill_short_by_ms": str(fill_short_by_ms) if fill_short_by_ms != None else None,
             "fill_by_reference": fill_by_reference,
@@ -1611,6 +1625,32 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
                "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
                "-ar", str(rate), "-"]
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
+    #
+    # Cette fonction ne lisait NI `returncode` NI `stderr` -- zero occurrence de
+    # l'un et de l'autre dans tout le module. Si ffmpeg echoue (specificateur de
+    # flux faux, fichier illisible, recherche au-dela de la fin, codec qu'il ne
+    # sait pas ouvrir), stdout est VIDE, `len(samples)` vaut 0, et le code levait
+    # `the track carries no audio to compare there`.
+    #
+    # C'EST UNE AFFIRMATION SUR LE MEDIA ALORS QUE LA VERITE EST UNE AFFIRMATION
+    # SUR L'OUTIL. Et ffmpeg avait ecrit la vraie raison sur stderr, qui etait
+    # capturee puis JETEE.
+    #
+    # C'est exactement le defaut corrige ce soir sur `master_path`, une fonction
+    # plus loin -- une RAISON FAUSSE dans une issue legitime, ou rien ne parait
+    # anormal -- et il est pire ici: le commentaire ci-dessous dit que cette
+    # phrase DEVIENT la raison d'un refus, et une raison se cite. Elle est faite
+    # pour voyager, donc elle peut voyager fausse.
+    #
+    # STATUT: signale par le Lead comme LU ET NON OBSERVE -- aucune instance dans
+    # le corpus. Ce qui est mesure, c'est que les deux canaux etaient ignores.
+    if process.returncode != 0:
+        raise chimeric_error(
+            f"the reader FAILED on {stream_specifier} at {start_ms} ms: ffmpeg "
+            f"exited {process.returncode}. THIS IS A STATEMENT ABOUT THE TOOL, "
+            f"not about the media: "
+            f"{(process.stderr or b'').decode('utf-8', 'replace').strip()[-300:]}")
     samples = numpy.frombuffer(process.stdout, dtype=numpy.float32).astype(numpy.float64)
     if len(samples) < rate:
         # Meme regle: le specificateur de flux et la position suffisent a
@@ -1963,6 +2003,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                                                      reference_stream)
         if master_audio == None:
             results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                             "outcome": "skipped",
                             "reason": "the master has no track in this language"})
             produced_index += 1
@@ -2023,6 +2064,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             # pas un succes, et l'appeler `aligned` serait exactement l'erreur que
             # la campagne poursuit -- un controle qui ne peut pas echouer.
             results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                             "outcome": "skipped",
                             "reason": "no probe window carried signal; the track "
                                       "is unverified, not verified",
@@ -2147,6 +2189,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                 f"on both sides of a boundary nobody modelled")
             error.verification = results + [
                 {"track": report["stream_order"], "language": language,
+                 "produced_index": produced_index,
                  "outcome": "inconsistent", "inconsistent": inconsistent,
                  "probes": probes}]
             # Et CE QUI A ETE CONSTRUIT, pas seulement ce qui a ete mesure: un
@@ -2159,6 +2202,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             raise error
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
+                        "produced_index": produced_index,
                         "outcome": outcome, "worst_lag_ms": worst,
                         "weakest_correlation": round(float(weakest), 4),
                         "probes_measured": len(measured),

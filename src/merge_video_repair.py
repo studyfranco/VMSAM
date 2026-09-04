@@ -1008,6 +1008,15 @@ def log_assembly(candidate_path, assembly, plan):
                 # et pas un repli. Regle de vmsam-dev-3, tiree du fait qu'il a
                 # tue sa propre borne pour cette raison exacte.
                 f"{'rms_over_floor=' + str(checked['rms_over_floor']) + 'x ' if checked.get('rms_over_floor') != None else ''}"
+                # LA CARTE VERS LE FICHIER PRODUIT. `stream_order` est l'index
+                # dans le CANDIDAT; l'index audio de la sortie est un compteur de
+                # boucle du verificateur que rien ne renvoyait. Sans lui, un
+                # consommateur qui veut comparer une piste du journal a un flux
+                # de l'artefact doit DEDUIRE l'ordre depuis la position -- le
+                # defaut qui a lu la colonne 2 comme un statut, et celui qui
+                # aurait fausse la jointure USED/CUT si dev-4 avait apparie par
+                # index plutot que par nom.
+                f"produced_index={checked.get('produced_index') if checked.get('produced_index') != None else 'unknown'} "
                 f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
         # SPEC_ZONE_A s4e, UNE LIGNE PAR REGION: ce qui a ete AJOUTE, ou, et
@@ -1038,7 +1047,22 @@ def log_assembly(candidate_path, assembly, plan):
                 f"repair: ADDED audio track {report['stream_order']} "
                 f"master {region['master_start_ms']}-{region['master_end_ms']} "
                 f"from={region['source']}"
-                f"{'/' + str(region['language']) if region.get('language') else ''}\n")
+                f"{'/' + str(region['language']) if region.get('language') else ''}"
+                # QUEL FLUX, pas seulement quelle langue. Un maitre peut porter
+                # quatre pistes `spa` dont deux au meme titre; sans le
+                # StreamOrder un consommateur doit DEVINER contre quoi comparer,
+                # exactement la ou le commentaire de `find_fill_audio` dit que
+                # deviner est faux. `unknown` et jamais un defaut silencieux.
+                f" stream={report.get('fill_stream_order') if report.get('fill_stream_order') != None else 'unknown'}"
+                # L'INVARIANT, EMIS PLUTOT QUE SUPPOSE. `normalize_segments`
+                # pose `source_start_ms = cursor` sur les deux branches de
+                # morceau maitre, donc une region remplie [a,b] prend l'audio
+                # maitre [a,b] SANS decalage. vmsam-dev-3 l'a verifie dans la
+                # source et demande quand meme le champ, pour la bonne raison:
+                # SANS LUI, UN INVARIANT CASSE ET UNE ERREUR DE PLACEMENT SONT LA
+                # MEME OBSERVATION, et il classerait le premier comme le second,
+                # contre mon assembleur.
+                f" offset_ms=0\n")
         # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
         # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
         # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni
