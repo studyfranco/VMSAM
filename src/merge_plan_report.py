@@ -1408,9 +1408,27 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
         # denominateur, et un blanc ici se lirait comme "la population va de
         # soi".
         rows.append(_row("CORPUS", _redactor=redactor, state=NOT_SUPPLIED,
+                         # LE REMEDE DOIT NOMMER SON PUBLIC. Cette note disait
+                         # `Call measure_corpus() and pass the result` -- UNE
+                         # INSTRUCTION, imprimee dans CHAQUE rapport de
+                         # production, disant au lecteur de faire exactement ce
+                         # que j'ai explique a l'architecte comme etant pire que
+                         # rien: fabriquer une population de 1 et la presenter
+                         # comme un denominateur.
+                         #
+                         # C'est ma propre classe d'un cran de plus: l'ETAT est
+                         # juste, et LE REMEDE QUI L'ACCOMPAGNE n'est juste que
+                         # pour l'un des deux publics qui le lisent. Et c'est la
+                         # note qui voyage, pas le commentaire au point d'appel:
+                         # un mainteneur suit la ligne imprimee dans l'artefact
+                         # qu'il tient.
                          note="no population was supplied to this render, so "
                               "every corpus-scale claim below is undenominated. "
-                              "Call measure_corpus() and pass the result"))
+                              "IN A MULTI-ARTEFACT RENDER, call measure_corpus() "
+                              "and pass the result. IN PRODUCTION THIS IS THE "
+                              "CORRECT OUTPUT AND NOT A DEFECT: a single merge "
+                              "has no population, and inventing one of 1 would "
+                              "present a denominator that does not exist"))
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
     if job.get("sources"):
@@ -1862,10 +1880,25 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                          state=(PRESENT if job.get("declined") else NOT_MEASURED)))
     for entry in job.get("unparsed") or []:
         rows.append(_row("UNPARSED", _redactor=redactor, line=entry,
-                         note="a `repair:` line this reader does not recognise. "
-                              "Kept rather than dropped: the producer's format "
-                              "has moved repeatedly, and a reader that discards "
-                              "what it does not know discards exactly what is new"))
+                         # ALARME SUR CE LECTEUR, PAS FAIT SUR L'ARTEFACT.
+                         # Construction prise a dev-2, qui l'a appliquee a son
+                         # propre classificateur: une valeur qu'aucune entree ne
+                         # peut atteindre est etiquetee de sorte qu'un ZERO ne
+                         # puisse pas se lire comme une mesure et qu'un NON-ZERO
+                         # se lise comme "l'instrument est perime".
+                         #
+                         # Ici c'est le sens inverse et la meme idee: une ligne
+                         # `UNPARSED` NE DIT RIEN SUR L'ARTEFACT. Elle dit que
+                         # CE lecteur ne connait pas encore cette ligne. Trois
+                         # fois ce soir -- `DECLINED`, `build`, `sources` -- et
+                         # les trois fois le producteur avait raison et moi du
+                         # retard.
+                         reads_as="an alarm about THIS READER, not a fact about "
+                                  "the artefact: the producer emitted a line "
+                                  "this parser does not know yet",
+                         note="kept rather than dropped, because a reader that "
+                              "discards what it does not know discards exactly "
+                              "what is new"))
 
     for entry in job.get("refused") or []:
         # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
