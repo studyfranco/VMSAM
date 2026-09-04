@@ -530,6 +530,28 @@ def log_assembly(candidate_path, assembly, plan):
                 # donc comme s'il decrivait le fichier.
                 f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
+        # SPEC_ZONE_A s4e, UNE LIGNE PAR REGION: ce qui a ete AJOUTE, ou, et
+        # d'ou -- avec LA LANGUE REELLEMENT UTILISEE et non celle demandee.
+        # La ligne de piste ci-dessus porte des TOTAUX, et un total ne dit pas
+        # quelle region a recu de l'audio maitre et laquelle du silence.
+        #
+        # Prefixe ADDED, distinct de `repair: audio track`, pour qu'un grep qui
+        # compte les pistes construites n'y compte pas les regions.
+        for region in report.get("filled_regions") or []:
+            tools.logs.append(
+                f"repair: ADDED audio track {report['stream_order']} "
+                f"master {region['master_start_ms']}-{region['master_end_ms']} "
+                f"from={region['source']}"
+                f"{'/' + str(region['language']) if region.get('language') else ''}\n")
+        # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
+        # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
+        # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni
+        # dans les totaux.
+        for region in report.get("cut_regions") or []:
+            tools.logs.append(
+                f"repair: CUT audio track {report['stream_order']} "
+                f"candidate {region['candidate_start_ms']}-"
+                f"{region['candidate_end_ms']} dropped_ms={region['dropped_ms']}\n")
 
     for report in assembly.get("subtitles") or []:
         tools.logs.append(f"repair: subtitle track {report['stream_order']} "

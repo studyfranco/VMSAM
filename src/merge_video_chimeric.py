@@ -800,9 +800,43 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # taille reelle de cette population: le chiffre est donc un resultat, pas une
     # curiosite.
     filled = Decimal("0")
+    # SPEC_ZONE_A s4e: CE QUI A ETE COUPE ET CE QUI A ETE AJOUTE, AVEC LES
+    # TEMPS, ET D'OU VIENT CHAQUE REGION REMPLIE. Le compte-rendu ne portait que
+    # des TOTAUX -- `gap_filled_ms=100000` ne dit pas OU, et la ligne de plan
+    # donne la geometrie du FICHIER, identique pour toutes les pistes, alors que
+    # la SOURCE du remplissage est par piste. Un lecteur ne pouvait donc pas dire
+    # quelle region avait recu de l'audio maitre et laquelle du silence.
+    #
+    # "Les comptes ne s'auditent pas" -- le proprietaire, deux fois. Un total est
+    # un compte.
+    filled_regions = []
+    cut_regions = []
+    previous_candidate_end = None
     for piece in pieces:
         if piece["source"] == "master":
             filled += piece["master_end_ms"] - piece["master_start_ms"]
+            filled_regions.append({
+                "master_start_ms": str(piece["master_start_ms"]),
+                "master_end_ms": str(piece["master_end_ms"]),
+                # La source REELLE de cette region: l'audio du maitre, ou du
+                # silence quand le maitre ne porte ni la langue de la piste ni
+                # celle de comparaison.
+                "source": "silence" if fill == "silence" else "master",
+                "language": None if fill == "silence" else fill_language})
+            continue
+        if piece["source"] == "candidate":
+            source_start = piece["source_start_ms"]
+            source_end = source_start + (piece["master_end_ms"]
+                                         - piece["master_start_ms"])
+            if previous_candidate_end != None and source_start > previous_candidate_end:
+                # DU CANDIDAT SAUTE: ce materiau existe dans la source et
+                # n'apparait pas dans la sortie. C'est la coupe, et sans ces
+                # bornes elle n'est visible nulle part.
+                cut_regions.append({
+                    "candidate_start_ms": str(previous_candidate_end),
+                    "candidate_end_ms": str(source_start),
+                    "dropped_ms": str(source_start - previous_candidate_end)})
+            previous_candidate_end = source_end
     total = pieces[-1]["master_end_ms"] - pieces[0]["master_start_ms"]
     silence_ms = filled if fill == "silence" else Decimal("0")
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
@@ -815,6 +849,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
             "gap_filled_ms": str(filled),
+            "filled_regions": filled_regions, "cut_regions": cut_regions,
             # Le silence ajoute EN TETE parce que la source ne commence pas a
             # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
             # il ne doit pas se confondre avec le remplissage depuis le maitre.
