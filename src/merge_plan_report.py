@@ -231,8 +231,17 @@ def measure_corpus(log_paths, read=None):
         # traite la direction comme si elle impliquait des occurrences. Un
         # mecanisme n'est pas une frequence, et je l'ai ecrit dans un rapport
         # comme si ca l'etait.
+        # CORRIGE, ET DANS LE SENS FAIBLE. J'allais ecrire qu'un fichier
+        # NOVERDICT garde son nom de produit et echappe a tout compte. dev-2 l'a
+        # renomme entre-temps: `<nom>.NOVERDICT.<ext>`, classe `unadjudicated`
+        # chez ci, non compte comme produit. L'artefact n'est donc plus
+        # invisible -- ce qui rend ce caveat MESURABLE au lieu d'etre seulement
+        # declare, via `state=NOVERDICT` sur la ligne `undelivered`.
         "caveat": "NOT an independent sample: these logs exist only where a "
-                  "repair completed. A COST ASYMMETRY IS MEASURED UPSTREAM -- "
+                  "repair COMPLETED -- which is not the same as `produced`. A "
+                  "run that failed on a tool fault can leave a log and an "
+                  "artefact under a NOVERDICT name; that class is countable "
+                  "from `undelivered state=` and is not counted here. A COST ASYMMETRY IS MEASURED UPSTREAM -- "
                   "probe decoding is far dearer on lossless multichannel than "
                   "on EAC3 -- but NO LOSS IS ESTABLISHED: zero known instances "
                   "of a log missing for that reason, and the one expensive case "
@@ -439,6 +448,8 @@ def parse_job_log(text):
         "skipped": [],
         "refused": [],
         "declined": None,
+        "failed": None,
+        "undelivered": None,
         "build": None,
         "unparsed": [],
         "output_check": None,
@@ -611,6 +622,28 @@ def parse_job_log(text):
                 name, _, digest = token.rpartition(":")
                 if name and digest:
                     job["build"][name] = digest
+            continue
+
+        # DEUX PREFIXES TERMINAUX ET NON UN, parce que le pilote les classe
+        # differemment: `DECLINED` est une DECISION de la porte, `FAILED` est une
+        # panne d'outil qui s'est echappee AVANT qu'un verdict existe. Un seul
+        # prefixe absorberait chaque echec d'ffprobe dans le cout de la porte --
+        # c'est mon `no-producer` contre `not-measured`, dans un nom de ligne.
+        #
+        # ECRIT CONTRE UNE FORME ANNONCEE. dev-2 les a decrites; je n'ai pas
+        # passe ce lecteur sur ses octets, donc la jonction N'EST PAS FAITE.
+        if body.startswith("FAILED"):
+            job["failed"] = body[len("FAILED"):].strip(": ").strip() or "(no reason given)"
+            continue
+
+        if body.startswith("undelivered "):
+            # PAR NOM: `state=` et `path=`. Et SON ABSENCE EST UN TROISIEME FAIT
+            # et pas une ligne manquante -- elle n'est emise que si un fichier a
+            # ete marque, donc pas de ligne veut dire QU'AUCUN ARTEFACT
+            # N'EXISTAIT a marquer: la levee est arrivee avant le mux.
+            fields = split_fields(body[len("undelivered "):])
+            job["undelivered"] = {"state": fields.get("state"),
+                                  "path": _basename(fields.get("path"))}
             continue
 
         if body.startswith("DECLINED"):
@@ -1716,6 +1749,23 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                "from every count in this report -- see "
                                "rejected_by_structure on the CORPUS row"))
 
+    if job.get("failed"):
+        rows.append(_row("FAILED", _redactor=redactor, file_produced="NO",
+                         reason=job["failed"],
+                         note="a TOOL FAULT escaped before any verdict existed. "
+                              "Not a decision about the media: nobody decided"))
+    if job.get("undelivered"):
+        rows.append(_row("UNDELIVERED", _redactor=redactor,
+                         state=job["undelivered"]["state"],
+                         file=job["undelivered"]["path"],
+                         note="REFUSED = the gate decided against it. NOVERDICT "
+                              "= nobody decided. The artefact exists on disk "
+                              "under this name and is NOT counted as produced"))
+    elif job.get("failed") or job.get("declined"):
+        rows.append(_row("UNDELIVERED", _redactor=redactor, state=NOT_EXERCISED,
+                         note="no `undelivered` line: no artefact existed to "
+                              "mark, so the raise came before the mux. An "
+                              "absence here is a THIRD fact, not a missing line"))
     if job.get("declined"):
         # LE VERDICT EN PREMIER, pas en fin de liste: ce rapport decrit
         # normalement un FICHIER PRODUIT, et ici il n'y en a pas.
