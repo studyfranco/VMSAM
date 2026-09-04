@@ -1062,12 +1062,30 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             report["offset_measured"] = all(
                 offset_is_measured(segment, int(audio["StreamOrder"]))
                 for segment in segments)
+            report["pairing_contract"] = stream_pairing != None
             report["offset_fidelity"] = next(
                 (offset_fidelity(segment, int(audio["StreamOrder"]))
                  for segment in segments
                  if offset_fidelity(segment, int(audio["StreamOrder"])) != None),
                 None)
-            if not report["offset_measured"] and refuse_borrowed_offset:
+            # TROISIEME ETAT, QUE NI MOI NI L'AUTEUR DE LA MESURE N'AVIONS
+            # ECRIT: le contrat a change DANS SON DEPOT ET PAS ENCORE EN
+            # PRODUCTION. On avait deux sens pour "pas d'entree" -- "autre
+            # langue" avant, "aucun partenaire n'a passe la barre" apres -- et
+            # il en existe un troisieme: "CE LOCATOR NE CONNAIT PAS ENCORE LA
+            # QUESTION".
+            #
+            # Armer le drapeau contre un ancien locator refuserait CHAQUE piste
+            # hors langue mesuree, et contre un locator plus ancien encore
+            # TOUTES les pistes, y compris celle du plan -- et le journal dirait
+            # "no offset was measured", ce qui serait VRAI et ruineux.
+            #
+            # La presence de la table PAR FICHIER est donc la marque du contrat.
+            # Absente, on emprunte et on le journalise, comme aujourd'hui.
+            # Presente, une entree manquante veut enfin dire ce qu'elle doit.
+            contract_present = stream_pairing != None
+            if (not report["offset_measured"] and refuse_borrowed_offset
+                    and contract_present):
                 # La fidelite, QUAND ELLE EXISTE, distingue "aucun partenaire
                 # n'a passe la barre, a 0.82" de "rien n'a ete mesure du tout".
                 # LE REFUS CITE LE NOMBRE PAR FICHIER, pas celui d'une
