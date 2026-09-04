@@ -258,14 +258,22 @@ def drop_unverified_segments(segments):
     proteger un seul mauvais est le mauvais echange, et `vmsam-dev-1` a eu raison
     de ne pas le faire dans son module.
     """
-    kept, dropped_ms = [], Decimal("0")
+    kept, dropped_ms, dropped = [], Decimal("0"), []
     for segment in segments:
         if segment.get("offset_unverified"):
             span = Decimal(str(segment["master_end_ms"])) - Decimal(str(segment["master_start_ms"]))
             dropped_ms += span
+            # LES BORNES, PAS SEULEMENT LE TOTAL. Un segment jete ici devient une
+            # region remplie DEPUIS LE MAITRE plus bas, et sur la ligne de
+            # journal elle est indistinguable d'un trou ordinaire du plan. Le
+            # lecteur ne peut donc pas separer "le plan n'avait pas de candidat
+            # ici" de "le plan en avait un ET ON L'A JETE".
+            dropped.append({"master_start_ms": str(segment["master_start_ms"]),
+                            "master_end_ms": str(segment["master_end_ms"]),
+                            "dropped_ms": str(span)})
             continue
         kept.append(segment)
-    return kept, dropped_ms
+    return kept, dropped_ms, dropped
 
 
 def clamp_segments_to_master(segments, master_obj):
@@ -361,7 +369,7 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
                      "candidate_offset_ms": Decimal(str(plan.get("base_offset_ms", 0)))}]
     else:
         segments = parse_segments(segments)
-    segments, unverified_ms = drop_unverified_segments(segments)
+    segments, unverified_ms, dropped_segments = drop_unverified_segments(segments)
     if not len(segments):
         raise merge_video_chimeric.chimeric_error(
             "every segment's offset is unverified (each shorter than the "
@@ -422,6 +430,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
     # cle: c'est le contrat, et le jour ou le consommateur sera corrige elle
     # sera la.
     mark_audio_dicts(repaired_obj, assembly["marker"])
+    # LES SEGMENTS JETES VOYAGENT AVEC L'ASSEMBLAGE, pour que le journal puisse
+    # les nommer. Ils etaient comptes (`unverified_segment_ms`) et jamais dits.
+    assembly["dropped_segments"] = dropped_segments
+
     return repaired_obj, assembly
 
 
@@ -583,6 +595,22 @@ def log_assembly(candidate_path, assembly, plan):
     # C'est la meme forme que le compte de pistes "reconstruites" qui a decrit
     # un fichier tronque -- une phrase vraie dont une moitie dit autre chose que
     # ce qu'on en lit. Trouve en ecrivant le controle, pas apres.
+    # SPEC_ZONE_A s4e: UN ELEMENT ECARTE EST UNE DECISION ET SE DIT, avec ce
+    # qui a ete ecarte ET POURQUOI CELA COMPTE. Ces segments etaient comptes en
+    # millisecondes dans le compte-rendu et n'apparaissaient sur AUCUNE ligne.
+    #
+    # Pourquoi cela compte: la region devient un remplissage DEPUIS LE MAITRE, et
+    # sur la ligne ADDED elle est indistinguable d'un trou ordinaire du plan. Le
+    # lecteur ne pouvait pas separer "le plan n'avait pas de candidat ici" de
+    # "le plan en avait un et on l'a jete parce que son decalage etait invalide".
+    for entry in assembly.get("dropped_segments") or []:
+        tools.logs.append(
+            f"repair: SKIPPED segment master {entry['master_start_ms']}-"
+            f"{entry['master_end_ms']} dropped_ms={entry['dropped_ms']} "
+            f"DECLINED: offset unverified (segment shorter than the "
+            f"measurement's probe window); this span is filled from the master "
+            f"instead of the candidate\n")
+
     for entry in assembly.get("declined") or []:
         tools.logs.append(f"repair: SKIPPED {entry.get('kind')} track "
                           f"{entry.get('stream_order')} DECLINED: "
