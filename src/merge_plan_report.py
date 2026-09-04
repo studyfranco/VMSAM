@@ -436,6 +436,8 @@ def parse_job_log(text):
         "regions_used": {},
         "skipped": [],
         "refused": [],
+        "declined": None,
+        "unparsed": [],
         "output_check": None,
         "summary_counts": None,
         "foreign_lines": [],
@@ -585,6 +587,19 @@ def parse_job_log(text):
             job["subtitles"].append(fields)
             continue
 
+        if body.startswith("DECLINED"):
+            # LE FICHIER N'A PAS ETE PRODUIT. C'est le verdict le plus important
+            # qu'un journal puisse porter et mon lecteur le laissait tomber en
+            # silence -- il commence par `repair: `, donc la branche de prefixe
+            # le consommait, aucune sous-branche ne le reconnaissait, et il n'y
+            # avait AUCUN repli. Pas une cle fantome: une disparition.
+            #
+            # Sans cela un artefact decline se rendait comme un plan et une
+            # piste, sans verdict et sans raison -- UN RAPPORT DECRIVANT UN
+            # FICHIER QUI N'EXISTE PAS, avec l'air d'en decrire un qui existe.
+            job["declined"] = body[len("DECLINED"):].strip(": ").strip() or "(no reason given)"
+            continue
+
         if body.startswith("SKIPPED "):
             # UN SEGMENT REFUSE A DES BORNES. Le plan AVAIT un candidat ici et
             # l'a jete parce que son decalage etait invalide -- ce n'est PAS la
@@ -615,11 +630,20 @@ def parse_job_log(text):
             job["output_check"] = fields
             continue
 
+        # TOUTE LIGNE `repair:` NON RECONNUE EST CONSERVEE. Le defaut ci-dessus
+        # n'etait pas propre a `DECLINED`: mon analyseur avait une LISTE BLANCHE
+        # de prefixes et jetait le reste sans trace, ce qui est le meme defaut
+        # que la ligne TRACK enumerant ses champs -- une position deguisee en
+        # nom, dans l'analyseur cette fois. Le producteur a change de format sept
+        # fois en un jour; un lecteur qui perd ce qu'il ne connait pas encore
+        # perd exactement les nouveautes.
         matched = re.match(r"repaired for (.*?): (.*)$", body)
         if matched:
             job["candidate_opaque_id"] = opaque_id(matched.group(1))
             job["summary_counts"] = matched.group(2)
             continue
+
+        job["unparsed"].append(body[:120])
 
     return job
 
@@ -1599,6 +1623,33 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                "from every count in this report -- see "
                                "rejected_by_structure on the CORPUS row"))
 
+    if job.get("declined"):
+        # LE VERDICT EN PREMIER, pas en fin de liste: ce rapport decrit
+        # normalement un FICHIER PRODUIT, et ici il n'y en a pas.
+        rows.append(_row("DECLINED", _redactor=redactor,
+                         file_produced="NO",
+                         reason=job["declined"],
+                         note="this report describes a repair that was REFUSED. "
+                              "No file was produced. Everything below describes "
+                              "what the plan WOULD have done, not what any "
+                              "artefact contains"))
+    if job.get("plan") and not job.get("output_check"):
+        # L'ABSENCE DE LIGNE DE RESUME SE DIT, avec sa raison quand on l'a.
+        rows.append(_row("NO_OUTPUT_CHECK", _redactor=redactor,
+                         reason=("the repair was DECLINED: the `output file` "
+                                 "summary is written past the point where the "
+                                 "gate raises, so it does not exist"
+                                 if job.get("declined") else
+                                 "no `output file` line on this artefact and no "
+                                 "decline recorded either -- unexplained"),
+                         state=(PRESENT if job.get("declined") else NOT_MEASURED)))
+    for entry in job.get("unparsed") or []:
+        rows.append(_row("UNPARSED", _redactor=redactor, line=entry,
+                         note="a `repair:` line this reader does not recognise. "
+                              "Kept rather than dropped: the producer's format "
+                              "has moved repeatedly, and a reader that discards "
+                              "what it does not know discards exactly what is new"))
+
     for entry in job.get("refused") or []:
         # CE QUI EST REFUSE DU CANDIDAT -- reglage du proprietaire. C'est CETTE
         # region que la boite ambre pointillee marque, et pas un remplissage
@@ -2396,6 +2447,14 @@ def render_narrative(records):
     identity = next((f for k, f in records if k == "IDENTITY"), {})
     said = []
 
+    declined = next((f for k, f in records if k == "DECLINED"), None)
+    if declined:
+        said.append(
+            f"<p><b>CE FICHIER N\u2019A PAS \u00c9T\u00c9 PRODUIT.</b> La "
+            f"r\u00e9paration a \u00e9t\u00e9 <b>REFUS\u00c9E</b>\u00a0: "
+            f"{_escape(plain(declined.get('reason', '?')))}. Tout ce qui suit "
+            f"d\u00e9crit ce que le plan AURAIT fait, et non le contenu d\u2019un "
+            f"artefact\u00a0\u2014 il n\u2019y a pas d\u2019artefact.</p>")
     if plan:
         said.append(
             f"<p>L\u2019artefact <b>{_escape(plain(source.get('artefact', '?')))}</b> "
