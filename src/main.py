@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from multiprocessing import Pool
+from multiprocessing import Pool, set_start_method
 from os import path,chdir
 import traceback
 import tools
@@ -65,6 +65,13 @@ if __name__ == '__main__':
         tools.language_to_keep = config["language_to_keep"]
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]
+
+        # Python 3.14 changed the default start method on Linux away from fork.
+        # Everything the workers read -- tools.software, tools.mergeRules, the
+        # language configuration -- is set as a module global ABOVE this line and
+        # never passed as an argument, so only fork carries it into a worker.
+        # Under forkserver a worker sees tools.software == {} and the run fails.
+        set_start_method("fork")
 
         video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
         video.ffmpeg_pool_big_job = Pool(processes=1)
