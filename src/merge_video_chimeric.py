@@ -108,6 +108,36 @@ def get_segment_offset(segment, stream_order=None):
     return Decimal(str(segment["candidate_offset_ms"]))
 
 
+def offset_is_measured(segment, stream_order=None):
+    """Ce flux a-t-il SON PROPRE decalage, ou emprunte-t-il celui d'une autre?
+
+    La table par flux ne couvre QUE les flux de la langue mesuree -- le
+    locator la construit sur `candidate_streams`, c'est-a-dire les flux de
+    cette langue-la, et c'est correct dans SON contrat. Mais l'assembleur
+    applique le meme plan a TOUTES les langues, donc chaque piste d'une autre
+    langue retombe sur `candidate_offset_ms`, LE DECALAGE D'UNE AUTRE LANGUE.
+
+    Mesure, id 47, meme paire, meme plan, langue de mesure changee:
+        en mesure le flux 2 -> -983.54    fr mesure le flux 1 -> -959.48
+        tables DISJOINTES; la piste que l'autre langue a mesuree emprunte,
+        et porte 24.06 ms (segment 0) et 14.50 ms (segment 1) d'erreur.
+        id 52: 31.11 et 32.35 ms.
+
+    C'est SOUS la tolerance de 100 ms du verificateur, donc livrable en
+    silence -- exactement la forme des 27.6 ms que `vmsam-dev-1` a trouves
+    entre deux pistes jpn, un cran plus haut: regle DANS une langue, ouvert
+    ENTRE les langues.
+
+    On ne devine pas le bon decalage ici: on dit lequel des deux on a
+    applique. Un repli tacite est une mesure que personne ne lit.
+    """
+    by_stream = segment.get("candidate_offset_ms_by_stream")
+    if not by_stream or stream_order is None:
+        return False
+    return any(key in by_stream
+               for key in (stream_order, str(stream_order), int(stream_order)))
+
+
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None):
     '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
@@ -907,9 +937,17 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             track_pieces = normalize_segments(
                 segments, master_duration_ms, candidate_duration_ms, speed_ratio,
                 stream_order=int(audio["StreamOrder"]))
-            audio_reports.append(build_one_audio_track(
+            report = build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
-                timeout, speed_ratio, reference_stream, comparison_language))
+                timeout, speed_ratio, reference_stream, comparison_language)
+            # Cette piste a-t-elle son propre decalage, ou emprunte-t-elle celui
+            # de la langue mesuree? La table par flux ne couvre que cette
+            # langue-la, donc toute autre langue emprunte, silencieusement, avec
+            # 14 a 32 ms d'erreur mesures -- SOUS la tolerance du verificateur.
+            report["offset_measured"] = all(
+                offset_is_measured(segment, int(audio["StreamOrder"]))
+                for segment in segments)
+            audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
                              "stream_order": int(audio["StreamOrder"]),
@@ -1089,9 +1127,12 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     samples = numpy.frombuffer(process.stdout, dtype=numpy.float32).astype(numpy.float64)
     if len(samples) < rate:
+        # Meme regle: le specificateur de flux et la position suffisent a
+        # diagnostiquer, le chemin ne sert qu'a identifier le media. Cette
+        # phrase devient la RAISON d'un refus, et une raison se cite.
         raise chimeric_error(
-            f"read only {len(samples)} samples from {file_path} {stream_specifier} "
-            f"at {start_ms} ms: cannot verify against nothing")
+            f"read only {len(samples)} samples from {stream_specifier} at "
+            f"{start_ms} ms: the track carries no audio to compare there")
     return samples - samples.mean()
 
 

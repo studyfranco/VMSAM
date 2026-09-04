@@ -476,6 +476,8 @@ def log_assembly(candidate_path, assembly, plan):
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
                 f"speed={report.get('speed_ratio_applied')} "
+                # BORROWED = cette piste porte le decalage d'une AUTRE langue.
+                f"offset={'measured' if report.get('offset_measured') else 'BORROWED'} "
                 f"verify={checked.get('outcome')} "
                 # LES UNITES VOYAGENT AVEC LES NOMBRES. L'ancienne forme
                 # `residual=(4,0.08,129)` mettait un COMPTE, un RAPPORT et une
@@ -611,9 +613,14 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    f"relation ({plan_source})")
             continue
         if plan.get("master_path") not in (None, best_video.filePath):
+            # LA RAISON NE PORTE PAS LE CHEMIN. `record` ecrit deja le fichier
+            # sur sa propre ligne; une RAISON, elle, se cite -- dans un rapport,
+            # dans un message a un autre agent, dans un resume -- et une raison
+            # qui contient un chemin media voyage avec lui. On redige avant que
+            # l'extrait ne parte, pas apres.
             record(candidate_path, "declined",
-                   f"the plan was measured against another master than "
-                   f"{best_video.filePath}")
+                   "the plan was measured against a different master than the "
+                   "one selected here")
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
