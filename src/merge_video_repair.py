@@ -189,17 +189,32 @@ def get_delay_language(best_video, candidate_obj):
     keys = [language for language in best_video.delays.keys() if language != "und"]
     preferred = tools.special_params.get("original_language", "")
     if preferred in keys:
-        return preferred
+        return preferred, "preferred language is among the measured ones"
     if len(keys) == 1:
-        return keys[0]
+        return keys[0], "only one language was measured"
     # Repli: la seule langue audio commune aux deux fichiers.
     common = set(best_video.audios.keys()) & set(candidate_obj.audios.keys())
     common.discard("und")
     if len(common) == 1:
-        return common.pop()
+        return common.pop(), "only one language is common to both files"
     if preferred in common:
-        return preferred
-    return keys[0] if len(keys) else None
+        return preferred, "preferred language is common to both files"
+    if not len(keys):
+        return None, "no language to choose from"
+    # QUEUE ARBITRAIRE, ET ELLE DECIDE DE QUELQUE CHOSE. `keys` vient d'un dict,
+    # donc keys[0] est l'ORDRE D'INSERTION, pas un choix. Mesure: cette queue
+    # tranche sur 6 paires sur 29, toujours entre {en, fr}, toujours vers 'en'.
+    #
+    # Et ce n'est pas gratuit: le locator ne mesure les decalages par flux QUE
+    # pour la langue du plan, donc cette queue decide QUELLE LANGUE EST CALEE
+    # CORRECTEMENT et laquelle emprunte -- 14 a 32 ms mesures, sous la tolerance
+    # du verificateur, donc livrable en silence.
+    #
+    # On ne l'ameliore pas ici: il n'existe pas de regle meilleure a partir de ce
+    # que cette fonction voit, et en inventer une donnerait a un tirage l'allure
+    # d'une decision. On DIT que c'en est un. Devient sans consequence quand la
+    # table par flux couvrira tous les flux (contrat de `vmsam-dev-1`).
+    return keys[0], f"ARBITRARY: insertion order among {sorted(keys)}"
 
 
 def get_plan_from_locator(best_video, candidate_obj, language):
@@ -455,7 +470,12 @@ def log_assembly(candidate_path, assembly, plan):
         start = Decimal(str(piece["master_start_ms"]))
         end = Decimal(str(piece["master_end_ms"]))
         spans.append(f"{piece['source'][0]}{int(start)}-{int(end)}")
+    # LA LANGUE DE MESURE SUR LA LIGNE DU PLAN. C'est elle qui decide quelles
+    # pistes ont leur propre decalage et lesquelles empruntent, et elle
+    # n'apparaissait nulle part dans le journal -- on pouvait lire `BORROWED`
+    # sans pouvoir dire emprunte A QUOI.
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
+                      f"language={plan.get('language') if plan else None} "
                       f"quantum={quantum_ms} pieces={' '.join(spans)}\n")
 
     verification = {}
@@ -562,7 +582,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             record(candidate_path, "declined",
                    "the rejected path has no video object in dict_file_path_obj")
             continue
-        language = get_delay_language(best_video, candidate_obj)
+        language, language_route = get_delay_language(best_video, candidate_obj)
         if language == None:
             record(candidate_path, "no_plan",
                    "could not tell which language the merge measured on")
