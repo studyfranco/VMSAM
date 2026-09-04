@@ -1056,7 +1056,24 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                          probes=fields.get("probes"),
                          worst=fields.get("worst"),
                          r_min=fields.get("r_min"),
-                         verified=fields.get("verified")))
+                         verified=fields.get("verified"),
+                         # TOUT CHAMP QUE JE NE CONNAIS PAS PASSE QUAND MEME.
+                         #
+                         # J'enumerais une liste fixe, donc un champ ajoute par
+                         # le producteur DISPARAISSAIT SANS TRACE. Mesure sur les
+                         # octets de dev-2 et pas en relisant: `rms_over_floor`
+                         # etait sur la ligne de piste, mon analyseur le lisait
+                         # PAR NOM correctement, et ma ligne le jetait.
+                         #
+                         # C'est le pire endroit pour cette perte: resoudre par
+                         # nom existe pour qu'une amelioration du producteur
+                         # traverse en silence, et j'avais recree un lecteur
+                         # POSITIONNEL a l'emission -- une liste blanche est une
+                         # position deguisee en nom. Le format de dev-2 a change
+                         # sept fois en un jour; un lecteur qui doit etre modifie
+                         # a chaque ajout n'est pas un lecteur par nom.
+                         **{name: value for name, value in fields.items()
+                            if name not in _TRACK_FIELDS_RENDERED}))
         label = plain(fields.get("offset")) or ""
         if label.startswith("BORROWED"):
             borrow = borrow_provenance(job, order)
@@ -1275,6 +1292,13 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     return rows
 
 
+_TRACK_FIELDS_RENDERED = frozenset((
+    "lang", "fill", "filled_ms", "silence_ms", "head_pad_ms", "speed", "offset",
+    "verify", "probes", "worst", "r_min", "verified",
+    # portes par d'autres lignes, pas perdus:
+    "residual", "quantum", "head_pad"))
+
+
 def blank_cells(job):
     """LE REGISTRE DES CELLULES VIDES. C'est la sortie la plus utile du module.
 
@@ -1382,12 +1406,22 @@ def blank_cells(job):
                   "every produced file measured"})
     entries.append({
         "quantity": "video_frame_rate",
-        "state": NO_PRODUCER,
-        "address": "merge_video_repair.log_assembly",
-        "detail": "no fps, frame_rate or FrameRate key occurs in any artefact. "
-                  "Any statement about a delay landing on the video grid -- "
-                  "rounding, snapping, a drawn grid -- divides by a rate this "
-                  "record does not carry, so it divides by an assumption"})
+        # CELLULE COMBLEE PAR SON PRODUCTEUR, et on le dit par artefact plutot
+        # que globalement: les artefacts anterieurs restent sans le champ, et
+        # `absent de ce format` n'est pas `personne ne l'emet`.
+        "state": (PRESENT if (job.get("output_check") or {}).get("frame_rate")
+                  else NO_PRODUCER),
+        "address": "merge_video_repair.log_assembly (output file line)",
+        "detail": ("emitted on the output line as frame_rate=<rate>(<mode>). "
+                   "Any statement about a delay landing on the video grid now "
+                   "divides by a MEASURED rate rather than by an assumption -- "
+                   "and the mode matters: two CFR files at 23.839 and 47.281 "
+                   "take the snap branch and snap to a fabricated grid"
+                   if (job.get("output_check") or {}).get("frame_rate") else
+                   "no fps, frame_rate or FrameRate key on this artefact. Any "
+                   "statement about a delay landing on the video grid -- "
+                   "rounding, snapping, a drawn grid -- divides by a rate this "
+                   "record does not carry, so it divides by an assumption")})
     entries.append({
         "quantity": "container_start_time",
         "state": NO_PRODUCER,
