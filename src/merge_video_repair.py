@@ -632,7 +632,19 @@ def log_assembly(candidate_path, assembly, plan):
                 # `fid` absent = la mesure n'en donne pas. JAMAIS 0.0: une
                 # fidelite inconnue n'est pas une fidelite nulle.
                 f"{'(fid ' + str(report['offset_fidelity']) + ')' if report.get('offset_fidelity') != None else ''} "
-                f"verify={checked.get('outcome')} "
+                # UN `skipped` NU FAIT RECONSTRUIRE SA CAUSE. Deux agents l'ont
+                # deduite de `fill=` sur la meme ligne et l'ont eu juste, CE QUI
+                # N'EST PAS UNE PREUVE QUE LE PROCHAIN LECTEUR Y ARRIVERA.
+                #
+                # Et la cause compte plus qu'un detail de forme: le meme predicat
+                # -- LE MAITRE PORTE-T-IL CETTE LANGUE? -- decide A LA FOIS que
+                # le remplissage tombe sur la langue de comparaison ET que la
+                # verification n'a aucune reference. `skipped_iff_foreign` n'est
+                # donc pas une correlation observee, c'est une IDENTITE: LA
+                # VERIFICATION EST INDISPONIBLE EXACTEMENT LA OU LE RISQUE SE
+                # CONCENTRE, et elle ne peut pas en etre autrement.
+                f"verify={checked.get('outcome')}"
+                f"{'(' + str(checked['reason']) + ')' if checked.get('outcome') == 'skipped' and checked.get('reason') else ''} "
                 # LES UNITES VOYAGENT AVEC LES NOMBRES. L'ancienne forme
                 # `residual=(4,0.08,129)` mettait un COMPTE, un RAPPORT et une
                 # DUREE dans une seule parenthese sans nom ni unite, et le
