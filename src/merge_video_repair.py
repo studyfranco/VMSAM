@@ -528,6 +528,10 @@ def log_assembly(candidate_path, assembly, plan):
                 # La COUVERTURE voyage avec le pire ecart: "worst 9.88" ne porte
                 # aucune trace de "sur 2 pistes verifiees parmi 7", et se cite
                 # donc comme s'il decrivait le fichier.
+                # LA CORRELATION LA PLUS FAIBLE, a cote du verdict. "aligned"
+                # ne distingue pas une piste calee sur le bon programme d'une
+                # piste calee sur du contenu sans rapport; r le fait.
+                f"{'r_min=' + str(checked['weakest_correlation']) + ' ' if checked.get('weakest_correlation') != None else ''}"
                 f"verified={verified_count}/{len(assembly.get('audios') or [])}\n")
         tools.logs.append(line)
         # SPEC_ZONE_A s4e, UNE LIGNE PAR REGION: ce qui a ete AJOUTE, ou, et

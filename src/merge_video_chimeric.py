@@ -1753,6 +1753,25 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             produced_index += 1
             continue
         worst = max(abs(probe["lag_ms"]) for probe in measured)
+        # LA CORRELATION LA PLUS FAIBLE PARMI LES SONDES. Elle etait ENREGISTREE
+        # par sonde et n'entrait NULLE PART dans le verdict: `worst` ne regarde
+        # que l'amplitude du decalage. Une piste calee sur du contenu SANS
+        # RAPPORT rendait donc exactement le meme verdict qu'une piste calee sur
+        # le bon programme, pourvu que le pic tombe pres de zero -- et sur de
+        # l'audio sans rapport le pic tombe ou il veut.
+        #
+        # Le cas existe: `vmsam-dev-1` a trouve six fichiers ou AUCUNE paire de
+        # flux n'atteint 0.70, c'est-a-dire ou le candidat n'est pas ce
+        # programme, et CINQ D'ENTRE EUX NE SONT SUR AUCUNE LISTE cannot-help.
+        # Le balayage complet les tentera.
+        #
+        # ON N'EN FAIT PAS UN SEUIL. Je n'ai aucune population derriere un
+        # nombre pour CETTE mesure -- la barre de 0.85 de dev-1 porte sur un
+        # appariement de flux en fenetres de 30 s, pas sur une piste PRODUITE en
+        # fenetres de 20 s, et l'importer par ressemblance de nom serait la faute
+        # que j'ai refusee ailleurs ce soir. On RAPPORTE, et un lecteur peut
+        # enfin distinguer "aligne, r=0.98" de "aligne, r=0.31".
+        weakest = min(probe["correlation"] for probe in measured)
         # DESACCORD A L'INTERIEUR D'UN MEME MORCEAU: le plan dit qu'il n'y a pas
         # de frontiere la, et la mesure dit le contraire. C'est une TROISIEME
         # issue, distincte de "mal cale": la piste peut etre parfaitement calee
@@ -1794,6 +1813,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
                         "outcome": outcome, "worst_lag_ms": worst,
+                        "weakest_correlation": round(float(weakest), 4),
                         "probes_measured": len(measured),
                         "probes_without_signal": len(probes) - len(measured),
                         "probes": probes})
