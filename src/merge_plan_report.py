@@ -69,6 +69,15 @@ DERIVED = "derived"
 COLLAPSED = "collapsed"
 ABSENT_FORMAT = "absent-from-this-format"
 NO_PRODUCER = "no-producer"
+# LA QUANTITE N'EXISTE PAS DANS CE CAS, et la decision a quand meme ete prise --
+# par une autre statistique, nommee. Etat distinct parce que L'ACTION est
+# distincte, qui est le seul test qui vaille pour un etat: `no-producer` dit
+# depose un defaut, `collapsed` dit demande au producteur de faire descendre la
+# valeur, et celui-ci ne demande RIEN -- il dit va lire l'autre champ. Le ranger
+# sous `collapsed` aurait dit "agrege au-dessus de cette granularite" d'une
+# grandeur qui n'est pas agregee mais indefinie: une collision d'etats dans le
+# module qui existe pour empecher les collisions.
+NOT_DEFINED = "not-defined-here"
 
 _STATE_MARK = {
     PRESENT: "",
@@ -76,6 +85,7 @@ _STATE_MARK = {
     COLLAPSED: "^",         # emis, mais agrege au-dessus de cette granularite
     ABSENT_FORMAT: "-",     # ce format ne le portait pas
     NO_PRODUCER: "x",       # personne ne l'emet
+    NOT_DEFINED: "\u00b7",   # sans objet ici; la decision est ailleurs
 }
 
 _STATE_WORD = {
@@ -84,6 +94,7 @@ _STATE_WORD = {
     COLLAPSED: "emitted, but aggregated above this granularity",
     ABSENT_FORMAT: "absent from this artefact's format",
     NO_PRODUCER: "no producer emits this",
+    NOT_DEFINED: "not defined in this case; the decision was made elsewhere",
 }
 
 
@@ -259,6 +270,15 @@ def parse_job_log(text):
                 "language": fields.get("language"),
                 "quantum_ms": fields.get("quantum"),
                 "speed_margin": fields.get("speed_margin"),
+                # LES TROIS COMPAGNONS DE LA MARGE. Je les avais ajoutes a la
+                # LIGNE sans les faire porter par le PLAN: la ligne les
+                # demandait, le dictionnaire ne les avait pas, et ils
+                # disparaissaient en silence. Trouve par le controle, pas en
+                # relisant -- une cle ecrite d'un cote et pas de l'autre ne se
+                # voit d'aucun des deux cotes.
+                "speed_margin_absent_reason": fields.get("speed_margin_absent_reason"),
+                "fidelity_margin": fields.get("fidelity_margin"),
+                "decided_by": fields.get("decided_by"),
                 "pieces": parse_pieces(pieces_text),
             }
             continue
@@ -932,6 +952,24 @@ def borrow_provenance(job, stream_order):
     return {"language": language, "track": other, "agreement": agreement}
 
 
+def _speed_margin_cell(plan):
+    """`NON EMISE` seulement quand le producteur n'a RIEN dit.
+
+    Une marge indefinie n'est pas une marge absente: quand une seule hypothese
+    franchit la porte de fidelite, aucune marge de PLATITUDE n'existe et la
+    decision a pourtant ete tranchee -- par la porte, avec sa propre separation
+    dans `fidelity_margin`. Confondre les deux imprimerait `NON EMISE` par-dessus
+    une decision nette.
+    """
+    value = plain(plan.get("speed_margin"))
+    if not value:
+        return no_producer("the producer said nothing at all")
+    if value.lower().startswith("absent("):
+        return Cell(None, NOT_DEFINED,
+                    value[len("absent("):].rstrip(")") + " -- see decided_by")
+    return Cell(value, PRESENT)
+
+
 def plan_end_ms(job):
     pieces = (job.get("plan") or {}).get("pieces") or []
     return pieces[-1]["master_end_ms"] if pieces else None
@@ -953,6 +991,8 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     rows.append("#   collapsed               emitted, but aggregated above this granularity")
     rows.append("#   absent-from-this-format this artefact predates the field")
     rows.append("#   no-producer             nothing emits it; this is the defect")
+    rows.append("#   not-defined-here        the quantity does not exist in this case;")
+    rows.append("#                           the decision was made elsewhere, see decided_by")
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
     rows.append(_row("IDENTITY",
@@ -974,9 +1014,26 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                      decimal_separator="comma (fr)"))
     rows.append(_row("PLAN", kind=plan.get("kind"), language=plan.get("language"),
                      quantum_ms=plan.get("quantum_ms"),
-                     speed_margin=(Cell(plan["speed_margin"], PRESENT)
-                                   if plan.get("speed_margin")
-                                   else no_producer("no_key_produces_it")),
+                     # TROIS CAS ET NON DEUX, et le troisieme est un
+                     # SENTINELLE-VALEUR et pas un champ omis:
+                     #   speed_margin=12215.4              la marge existe
+                     #   speed_margin=absent(<raison>)     elle n'est PAS definie,
+                     #                                     et la raison voyage
+                     #   champ absent                      le producteur n'a rien dit
+                     # Seul le troisieme est `NON EMISE`. Le deuxieme rendu comme
+                     # le troisieme qualifierait de sans-marge une decision prise
+                     # avec 0,3637 de separation.
+                     #
+                     # ECRIT CONTRE UN FORMAT ANNONCE ET JAMAIS CONTRE SES
+                     # OCTETS: dev-2 m'a decrit ces champs avant de les emettre.
+                     # La forme est donc UNE FORME, pas une lecture, et la
+                     # jonction ne sera faite que quand j'aurai passe ce lecteur
+                     # sur son artefact -- s7 regle 2, et c'est exactement
+                     # l'echange que j'ai refuse une fois deja aujourd'hui.
+                     speed_margin=_speed_margin_cell(plan),
+                     fidelity_margin=(Cell(plan["fidelity_margin"], PRESENT)
+                                      if plan.get("fidelity_margin") else None),
+                     decided_by=plan.get("decided_by"),
                      master_end_ms=_trim(plan_end_ms(job)),
                      master_end=clock(plan_end_ms(job)),
                      pieces=len(plan.get("pieces") or [])))
@@ -1520,12 +1577,31 @@ def render_svg(records):
                  f"{plan.get('language')} \u00b7 quantum {plan.get('quantum_ms')} ms \u00b7 "
                  f"{plan.get('pieces')} morceaux \u00b7 duree maitre "
                  f"{plain(plan.get('master_end')) or '?'}")
-    if plan.get("speed_margin_state"):
+    if plan.get("decided_by"):
+        plan_line += f" \u00b7 tranch\u00e9 par : {plan['decided_by']}"
+    # `NON EMISE` UNIQUEMENT QUAND LE PRODUCTEUR N'A RIEN DIT.
+    #
+    # Je viens de deposer ce defaut exact contre l'emetteur de dev-2 et je le
+    # tenais dans mon propre en-tete: le test portait sur la PRESENCE d'un etat,
+    # donc `not-defined-here` et `no-producer` -- deux etats que je venais de
+    # separer -- retombaient sur la meme phrase. Filer un defaut ne le retire
+    # pas de chez soi, et un etat n'existe que si quelque chose le LIT.
+    #
+    # Quand la marge n'est pas definie, `tranche par : fidelity_gate` dit deja
+    # ce qui a decide; ecrire `NON EMISE` a cote qualifierait de sans-marge une
+    # decision prise avec 0,3637 de separation.
+    if plan.get("speed_margin_state") == NO_PRODUCER:
         # s4f: la marge par laquelle la transformation gagnante l'a emporte.
-        # AUCUN PRODUCTEUR. On nomme le sujet et on marque la valeur manquante
-        # -- on ne laisse pas un blanc se lire comme une marge nulle, qui serait
-        # deux hypotheses a egalite.
-        plan_line += " \u00b7 marge de vitesse : NON EMISE"
+        # On nomme le sujet et on marque la valeur manquante -- on ne laisse pas
+        # un blanc se lire comme une marge nulle, qui serait deux hypotheses a
+        # egalite.
+        plan_line += " \u00b7 marge de vitesse : NON \u00c9MISE"
+    elif plan.get("speed_margin_state") == NOT_DEFINED:
+        plan_line += " \u00b7 marge de platitude : SANS OBJET ici"
+    elif plan.get("speed_margin"):
+        plan_line += f" \u00b7 marge {plan['speed_margin']}"
+    if plan.get("fidelity_margin"):
+        plan_line += f" \u00b7 s\u00e9paration de fid\u00e9lit\u00e9 {plan['fidelity_margin']}"
     body.append(_text(left, top - 18, plan_line, faint, 10))
     y = top + 4
 
