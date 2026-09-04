@@ -140,6 +140,24 @@ Repository-side: this file and `AGENT_NOTES.MD`.
     by that file, and the artefact's provenance was established by object-store
     reachability rather than by timestamps.
 
+14. **The accepted population has a bound for the first time: 0 of 48, Wilson 95 %
+    upper limit 7.4 %.** The refused corpus is defined by an inclusion criterion — a
+    pair agreeing within one quantum is reconciled and never recorded — so **a file
+    whose only defect is sub-quantum reconciles, is accepted, and ships**, and no
+    figure drawn from that corpus can reach it. Measured instead on the pipeline's own
+    output: 294 folders offered, 292 probed, 73 carrying a same-language audio pair,
+    48 measurable. **23 could not be measured and are carried as such, never as
+    clean.** No detectable inter-track step. Scope: one file per folder, five probes,
+    same-language pairs only, a 25 ms threshold chosen by the author, and nothing at
+    all about cross-language desync — a planted-step control put that route's noise
+    floor at 73.5 ms against a sub-quantum signal, so it is unmeasurable by this
+    method.
+    **The first run of this scan reported 6 of 71 files carrying a desync and that was
+    false**: every one was a single deviant probe at near-noise correlation, admitted
+    because the acceptance rule had been validated on the favourable half of the
+    population. Caught before publication only because every probe's correlation was
+    stored beside its lag — *a summary that cannot be re-judged cannot be corrected.*
+
 Narrative, method and the day's corrections: `AGENT_NOTES.MD`, and
 `VMSAM_HELP_AI/ci/` (full archive at `002-full-narrative-archive.MD`).
 Method write-up for the algorithms index: `VMSAM_HELP_AI/ci/sections/SCANNER.md`.
