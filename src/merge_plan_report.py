@@ -426,7 +426,9 @@ def parse_job_log(text):
     job = {
         "master_line_present": False,
         "master_opaque_id": None,
+        "master_path": None,
         "candidate_opaque_id": None,
+        "candidate_path": None,
         "candidate_digest": None,
         "plan": None,
         "audios": {},
@@ -479,7 +481,13 @@ def parse_job_log(text):
 
         if body.startswith("master "):
             job["master_line_present"] = True
-            job["master_opaque_id"] = opaque_id(body[len("master "):].strip())
+            # LE NOM A COTE DE L'IDENTIFIANT, JAMAIS A SA PLACE. Un id retire
+            # est un id que plus personne ne peut utiliser; un id garde a cote
+            # coute seize caracteres et laisse a tout agent citant ce rapport
+            # une forme sure sous la main -- il n'a pas a choisir entre citer un
+            # nom et ne rien citer.
+            job["master_path"] = body[len("master "):].strip()
+            job["master_opaque_id"] = opaque_id(job["master_path"])
             continue
 
         if body.startswith("candidate_digest "):
@@ -657,6 +665,7 @@ def parse_job_log(text):
         # perd exactement les nouveautes.
         matched = re.match(r"repaired for (.*?): (.*)$", body)
         if matched:
+            job["candidate_path"] = matched.group(1)
             job["candidate_opaque_id"] = opaque_id(matched.group(1))
             job["summary_counts"] = matched.group(2)
             continue
@@ -967,12 +976,23 @@ class _Redactor:
         self.hits = 0
 
     def __call__(self, text):
+        if not REDACT_MEDIA_NAMES:
+            return text
         clean, hits = redact(text)
         self.hits += hits
         return clean
 
 
 def assert_no_leak(document):
+    """Le filet, desormais conditionne par `REDACT_MEDIA_NAMES`.
+
+    RELACHE EN PREMIER ET DELIBEREMENT. L'ordre importe: relacher le FILET seul
+    n'a aucun effet visible -- le redacteur en amont a deja remplace le nom --
+    tandis que relacher le REDACTEUR seul ferait LEVER le filet et le rapport ne
+    serait plus emis du tout. Dans cet ordre chaque etat intermediaire est sur.
+    """
+    if not REDACT_MEDIA_NAMES:
+        return
     """DERNIER CONTROLE, sur le document fini. Il leve; il ne corrige pas.
 
     Un correctif silencieux ici rendrait la fuite suivante invisible. On
@@ -1070,7 +1090,7 @@ def _row(record_kind, /, _redactor=None, **fields):
         if isinstance(value, Cell):
             if value.state in (PRESENT, DERIVED):
                 cleaned = _wrap(value.value)
-                parts.append(f"{name}={_redactor(cleaned) if _redactor else redact(cleaned)[0]}")
+                parts.append(f"{name}={_redactor(cleaned) if _redactor else _maybe_redact(cleaned)}")
                 if value.state == DERIVED:
                     parts.append(f"{name}_state=derived")
             else:
@@ -1079,8 +1099,12 @@ def _row(record_kind, /, _redactor=None, **fields):
         if value is None:
             continue
         text = _wrap(value)
-        parts.append(f"{name}={_redactor(text) if _redactor else redact(text)[0]}")
+        parts.append(f"{name}={_redactor(text) if _redactor else _maybe_redact(text)}")
     return " ".join(parts)
+
+
+def _maybe_redact(text):
+    return redact(text)[0] if REDACT_MEDIA_NAMES else text
 
 
 def _wrap(value):
@@ -1316,8 +1340,21 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
     rows.append(_row("IDENTITY",
                      master=job.get("master_opaque_id") or "",
                      candidate=job.get("candidate_opaque_id") or "",
+                     master_name=(job.get("master_path") or None
+                                  if not REDACT_MEDIA_NAMES else None),
+                     candidate_name=(job.get("candidate_path") or None
+                                     if not REDACT_MEDIA_NAMES else None),
                      construction="md5(path)[:16]",
-                     note="opaque_ids_only;_no_media_name_travels_in_this_report"))
+                     name_fidelity=("square brackets in a name are rendered as "
+                                    "parentheses by this row grammar, so a NAME "
+                                    "HERE IS NOT BYTE-EXACT -- use the id if you "
+                                    "need to match, and the figure's title or "
+                                    "the source log if you need the literal name"
+                                    if not REDACT_MEDIA_NAMES else None),
+                     note=("names carried BESIDE the ids, never instead: an id "
+                           "removed is an id nobody can use again"
+                           if not REDACT_MEDIA_NAMES else
+                           "opaque ids only; no media name travels in this report")))
     if not job.get("master_line_present"):
         rows.append(_row("IDENTITY_LIMIT", master_state=NO_PRODUCER,
                          detail="this_format_does_not_name_the_master;"
@@ -2779,6 +2816,13 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
         f"<title>merge_plan {_escape(artefact_id)}</title>",
         f"<style>{_STYLE}</style></head><body>",
         f"<h1>merge_plan — artefact {_escape(artefact_id)}</h1>",
+        ('<p class="note"><b>This file carries media names.</b> It is generated '
+         'by VMSAM, written beside the produced file in the output directory, '
+         'and never enters the repository. <b>Do not copy it, or lines from it, '
+         'outside that directory</b> — quote the opaque id on the IDENTITY row '
+         'instead, which is carried beside every name for exactly that purpose. '
+         'The reader of this file is the one most likely to be tempted to cite '
+         'it.</p>' if not REDACT_MEDIA_NAMES else ''),
         '<p class="note">Every record is one line, <code>KIND key=value …</code>. '
         'Resolve by name; there are no columns. A value that is not present carries '
         '<code>&lt;key&gt;_state</code> instead, so a field this format predates is '
@@ -2851,6 +2895,32 @@ def report_for_log(text, artefact_id, source_name, caveats=(), corpus=None):
 
 TRANSPORT_KEYWORD = "MERGE_PLAN_HTML"
 
+# LE PROPRIETAIRE A AUTORISE LES NOMS DE MEDIA DANS CE DOCUMENT.
+#
+#   "Ces journaux peuvent avoir les noms des medias. C'est tres utile de savoir
+#    qui est quoi. Comme c'est genere par VMSAM, pas de soucis. Ce n'est pas
+#    quelque chose qui finit dans le repo de VMSAM."
+#
+# SA PREMISSE EST JUSTE ET MON FILET ETAIT CALIBRE SUR UNE AUTRE. Mon message
+# d'assertion disait "this artefact travels and the log it is built from does
+# not". Celui-ci NE VOYAGE PAS: il est ecrit dans le repertoire de sortie, a
+# cote du media, et n'entre jamais dans le depot.
+#
+# MAIS LE FILET FAISAIT DEUX CHOSES ET UNE SEULE EST CADUQUE. Il empechait le
+# nom d'entrer dans le FICHIER -- caduc. Il rendait aussi IMPOSSIBLE PAR
+# CONSTRUCTION qu'un agent lisant ce rapport recopie un nom dans un message, un
+# commit ou une tache, parce qu'il n'y avait rien a recopier. PERSONNE N'A
+# ANNULE CETTE SECONDE PROPRIETE, et c'est celle sur laquelle cette campagne a
+# deja perdu deux fois -- un titre traversant un redacteur dans une phrase
+# anglaise, dix-neuf codes d'episode dans un WORKLOG.
+#
+#   LA GARANTIE PASSE DE "IMPOSSIBLE" A "TOUT LE MONDE Y PENSE".
+#   C'est un affaiblissement REEL, il est AUTORISE, et il n'est pas muet.
+#
+# Une seule ligne a rebasculer pour revenir en arriere, et le redacteur reste
+# construit et teste sous elle.
+REDACT_MEDIA_NAMES = False
+
 
 def transport_entry(document, artefact_id):
     """UNE entree, PREFIXEE PAR SA LONGUEUR EN OCTETS. Jamais de delimiteur.
@@ -2884,8 +2954,13 @@ def transport_entry(document, artefact_id):
 
 
 def report_path(produced_file_path):
-    """`<nom du candidat>.merge_plan.log`, A COTE du fichier produit."""
-    return str(produced_file_path) + ".merge_plan.log"
+    """`<nom du produit>.merge_plan.html`, A COTE du fichier produit."""
+    # `.html` PARCE QUE C'EN EST UN. Le proprietaire: "comme ce fichier est un
+    # HTML, l'extension peut l'etre je pense." Mesure par l'architecte avant le
+    # changement: RIEN dans `src/` ne globbe `*.log` dans le repertoire de
+    # sortie -- les `.log` y sont ecrits et jamais relus par le code -- donc
+    # aucun consommateur ne casse.
+    return str(produced_file_path) + ".merge_plan.html"
 
 
 # ---------------------------------------------------------------------------
