@@ -2239,6 +2239,12 @@ def render_svg(records):
             # `identical at N of N` reste discrete, et TOUTE AUTRE prend le
             # poids. Une emprunteuse divergente qui attire l'oeil est le
             # comportement voulu, pas une regression de mise en page.
+            # ETAT: CONSTRUIT, JAMAIS EXERCE. Toutes les emprunteuses
+            # observees a ce jour s'accordent avec leur reference, donc la
+            # branche saumon ci-dessous n'a jamais ete dessinee. Elle est vivante
+            # et le corpus n'en produit pas l'entree -- `not-exercised-here`,
+            # dit ici plutot que dans un message parce qu'un message ne survit
+            # pas a une session.
             check = plain(borrow.get("check")) or ""
             agrees = bool(re.match(r"offsets identical at (\d+) of \1 regions$",
                                    check))
@@ -2640,7 +2646,46 @@ def report_path(produced_file_path):
     return str(produced_file_path) + ".merge_plan.log"
 
 
-def write_report(job, artefact_id, source_name, produced_file_path, caveats=()):
+# ---------------------------------------------------------------------------
+# LE POINT D'APPEL QUI N'EXISTE PAS -- ce qu'il devra passer, ecrit ici parce
+# qu'un message ne survit pas a une session
+#
+# CE MODULE N'EST APPELE PAR RIEN. `grep -rn merge_plan_report src/` ne trouve
+# que ce fichier. Le rapport que le proprietaire lira en production est donc
+# produit PAR RIEN, et ce n'est pas au consommateur de se cabler lui-meme dans
+# le producteur: le point d'appel unique appartient au chemin de reparation.
+#
+# CE QUE L'APPELANT DOIT PASSER, et il n'y a rien d'autre:
+#
+#     job        = parse_job_log(<le texte du journal de ce travail>)
+#                  ou, dans la reparation, un dict de la MEME forme. NE PAS
+#                  construire ce dict a la main: le passer par
+#                  `parse_job_log` sur les octets reellement emis, sinon on
+#                  teste une fixture et pas la sortie -- c'est la faute qui a
+#                  cree cette zone.
+#     artefact_id      = un identifiant OPAQUE. `md5(chemin)[:16]`, comme
+#                        `build_repaired_video_object` le fait deja pour sa
+#                        cle de repertoire. JAMAIS un nom de media.
+#     source_name      = le nom du journal d'ou viennent ces octets.
+#     produced_file_path = le chemin du FICHIER PRODUIT. Le rapport s'ecrit a
+#                        cote de lui, `<ce chemin>.merge_plan.log`, s4g.
+#     caveats    = les reserves a afficher. `n=1`, `non valide`, ce que
+#                  l'appelant sait et que les octets ne portent pas.
+#     corpus     = `measure_corpus(<les journaux de ce lot>)`, ou RIEN. Si
+#                  rien, le rapport DIT qu'aucune population n'a ete fournie
+#                  et que ses affirmations a l'echelle du corpus sont sans
+#                  denominateur. Ne pas inventer de chiffre pour remplir.
+#
+# ORDRE, ET IL EST LA REGLE ET PAS UNE PREFERENCE: `write_report` ECRIT LE
+# FICHIER A SA DESTINATION D'ABORD et rend l'entree de transport ENSUITE.
+# L'appelant fait `tools.logs.append(entree)`. Si la copie de transport devient
+# la seule, on a migre une source de verite au lieu d'ajouter un lecteur.
+#
+# CE MODULE N'APPELLE JAMAIS `tools.logs` LUI-MEME, et c'est deliberе: un
+# producteur qui ne voit pas sa propre sortie ne teste pas sa sortie mais sa
+# fixture.
+def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
+                 corpus=None):
     """Ecrit le rapport A SA DESTINATION, puis rend la copie de transport.
 
     L'appelant ecrit d'abord, transporte ensuite. Rien ici n'appelle
@@ -2650,7 +2695,7 @@ def write_report(job, artefact_id, source_name, produced_file_path, caveats=()):
 
     Renvoie (chemin, entree_de_transport).
     """
-    document = render_report(job, artefact_id, source_name, caveats)
+    document = render_report(job, artefact_id, source_name, caveats, corpus)
     destination = report_path(produced_file_path)
     with open(destination, "w", encoding="utf-8") as handle:
         handle.write(document)
