@@ -2902,41 +2902,54 @@ def report_path(produced_file_path):
 
 
 # ---------------------------------------------------------------------------
-# LE POINT D'APPEL QUI N'EXISTE PAS -- ce qu'il devra passer, ecrit ici parce
-# qu'un message ne survit pas a une session
+# LE POINT D'APPEL, QUI EXISTE MAINTENANT -- et il n'est pas ou je l'avais ecrit
 #
-# CE MODULE N'EST APPELE PAR RIEN. `grep -rn merge_plan_report src/` ne trouve
-# que ce fichier. Le rapport que le proprietaire lira en production est donc
-# produit PAR RIEN, et ce n'est pas au consommateur de se cabler lui-meme dans
-# le producteur: le point d'appel unique appartient au chemin de reparation.
+# CE BLOC DISAIT: "ce module n'est appele par rien" et "le point d'appel unique
+# appartient au chemin de reparation". LE PREMIER EST PERIME ET LE SECOND ETAIT
+# FAUX. Le proprietaire a tranche le cablage:
 #
-# CE QUE L'APPELANT DOIT PASSER, et il n'y a rien d'autre:
+#     mergeVideo.py   remplit `merge_plan` avec les octets REELLEMENT EMIS,
+#                     "".join(tools.logs[position_avant_reparation:]), et
+#                     seulement si une version reparee existe.
+#     fusion.py       appelle `parse_job_log` puis `write_report`.
 #
-#     job        = parse_job_log(<le texte du journal de ce travail>)
-#                  ou, dans la reparation, un dict de la MEME forme. NE PAS
-#                  construire ce dict a la main: le passer par
-#                  `parse_job_log` sur les octets reellement emis, sinon on
-#                  teste une fixture et pas la sortie -- c'est la faute qui a
-#                  cree cette zone.
-#     artefact_id      = un identifiant OPAQUE. `md5(chemin)[:16]`, comme
-#                        `build_repaired_video_object` le fait deja pour sa
-#                        cle de repertoire. JAMAIS un nom de media.
-#     source_name      = le nom du journal d'ou viennent ces octets.
-#     produced_file_path = le chemin du FICHIER PRODUIT. Le rapport s'ecrit a
-#                        cote de lui, `<ce chemin>.merge_plan.log`, s4g.
-#     caveats    = les reserves a afficher. `n=1`, `non valide`, ce que
-#                  l'appelant sait et que les octets ne portent pas.
-#     corpus     = `measure_corpus(<les journaux de ce lot>)`, ou RIEN. Si
-#                  rien, le rapport DIT qu'aucune population n'a ete fournie
-#                  et que ses affirmations a l'echelle du corpus sont sans
-#                  denominateur. Ne pas inventer de chiffre pour remplir.
+# ET FUSION A RAISON CONTRE MOI, pour une raison que le chemin de reparation ne
+# peut pas contourner: FUSION EST LE SEUL ENDROIT QUI CONNAIT LE CHEMIN PUBLIE.
+# En mode test le fichier est deplace vers `VMSAM_TEST_OUTPUT_DIR` APRES le
+# merge; la reparation n'a jamais vu cette destination. Un rapport ecrit depuis
+# le chemin de reparation atterrirait a cote d'un fichier qui a demenage --
+# c'est-a-dire exactement le defaut que s4g interdit, "pas dans un repertoire de
+# travail que quelque chose efface ensuite", produit par ma propre regle.
 #
-# ORDRE, ET IL EST LA REGLE ET PAS UNE PREFERENCE: `write_report` ECRIT LE
-# FICHIER A SA DESTINATION D'ABORD et rend l'entree de transport ENSUITE.
-# L'appelant fait `tools.logs.append(entree)`. Si la copie de transport devient
-# la seule, on a migre une source de verite au lieu d'ajouter un lecteur.
+# CE QUE L'APPELANT PASSE, et `validate_job` refuse par son nom si le dict ne
+# porte pas les quinze cles:
 #
-# CE MODULE N'APPELLE JAMAIS `tools.logs` LUI-MEME, et c'est deliberе: un
+#     job        = parse_job_log(<les octets emis>). JAMAIS un dict construit a
+#                  la main: ce serait tester une fixture et pas la sortie, la
+#                  faute qui a cree cette zone.
+#     artefact_id        un identifiant OPAQUE, jamais un nom de media.
+#     source_name        d'ou viennent ces octets.
+#     produced_file_path le chemin PUBLIE du fichier produit. Le rapport s'ecrit
+#                        a cote, `<ce chemin>.merge_plan.log`.
+#     caveats    ce que l'appelant sait et que les octets ne portent pas.
+#     corpus     `measure_corpus(...)` ou RIEN -- auquel cas le rapport DIT
+#                qu'aucune population n'a ete fournie plutot que d'inventer.
+#
+# LE TRANSPORT EST EN RESERVE, PAS RETIRE. Le proprietaire a prefere un pointeur
+# d'une ligne dans le `.log` au document entier: "je voulais que le plan soit
+# sauvegarde dans les logs pour que je puisse les extraire. Mais j'ai meme
+# mieux" -- le fichier a cote plutot que quatorze kilo-octets de HTML au milieu
+# d'un journal qui se lit. `transport_entry()` reste construit et teste; la
+# ligne a changer pour revenir a l'extraction est l'appel a `tools.logs.append`
+# cote appelant, pas quoi que ce soit ici.
+#
+# UNE CONSEQUENCE ASSUMEE ET QUI EST UN TROU CONNU: `merge_plan` n'est rempli
+# que si une version reparee existe, donc UNE REPARATION QUI TOURNE ET REFUSE NE
+# PRODUIT AUCUN RAPPORT. C'est precisement la classe qui passe de zero a neuf
+# artefacts avec `enforcing=True`, et c'est dans `mergeVideo.py` que cela se
+# decide, pas ici.
+#
+# CE MODULE N'APPELLE JAMAIS `tools.logs` LUI-MEME, et c'est delibere: un
 # producteur qui ne voit pas sa propre sortie ne teste pas sa sortie mais sa
 # fixture.
 def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
