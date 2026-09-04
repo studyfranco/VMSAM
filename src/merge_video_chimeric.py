@@ -1534,7 +1534,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
                 verify_search_ms, reference_stream)
     except chimeric_error as error:
-        error.refused_path = mark_output_refused(out_path)
+        error.undelivered_state, error.undelivered_path = (
+            OUTPUT_REFUSED[0], mark_output(out_path, OUTPUT_REFUSED))
         # L'ASSEMBLAGE PARTIEL VOYAGE AVEC LE REFUS, ET C'EST LE DRAPEAU LEVE QUI
         # REND CETTE LIGNE NECESSAIRE.
         #
@@ -1558,6 +1559,24 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             "path": out_path, "pieces": pieces, "audios": audio_reports,
             "subtitles": subtitle_reports, "declined": declined,
             "failed": failed, "marker": marker_value, "verification": None}
+        raise
+    except Exception as error:
+        # PAS UN VERDICT, DONC PAS `.REFUSED`. `probe_output_streams` lance
+        # `subprocess.run(..., check=True)` sans enveloppe puis `json.loads` sur
+        # sa sortie: un ffprobe qui sort non nul ou qui emet du bruit fait
+        # echapper `CalledProcessError` ou `JSONDecodeError`, qui ne sont pas des
+        # `chimeric_error` et que le pilote classe donc en `failed`.
+        #
+        # CETTE CLASSIFICATION EST LA BONNE -- une panne d'outil n'est pas un
+        # verdict sur le media, s6 -- et elle laissait le fichier a son NOM DE
+        # PRODUCTION, ou les balayages de ci le comptent comme produit alors que
+        # RIEN ne l'a verifie. C'etait le pire des trois etats: le seul ou un
+        # artefact non verifie porte le nom d'un fichier livre.
+        #
+        # ON NE MARQUE PAS `REFUSED` PAR COMMODITE: ce serait un mensonge, rien
+        # ne l'a refuse. Le jeton est celui de ci.
+        error.undelivered_state, error.undelivered_path = (
+            OUTPUT_NO_VERDICT[0], mark_output(out_path, OUTPUT_NO_VERDICT))
         raise
 
     # LA CADENCE DU MAITRE, PUBLIEE. Elle n'est derivable d'AUCUNE ligne du
@@ -2007,29 +2026,59 @@ def last_audio_packet_ms(file_path):
     return ends
 
 
-def mark_output_refused(out_path):
-    """Renomme un artefact REFUSE en `<nom>.REFUSED.<ext>` et rend le nouveau chemin.
+# LES DEUX ETATS QUI NE SONT PAS "PRODUIT", ET ILS N'AFFIRMENT PAS LA MEME CHOSE.
+#
+#   REFUSED     LA PORTE A DECIDE contre le fichier
+#   NOVERDICT   PERSONNE N'A DECIDE -- une panne d'outil s'est echappee avant
+#               qu'un verdict existe
+#
+# Un seul jeton pour les deux recreerait exactement l'effondrement qu'on repare:
+# un lecteur qui compte les refus absorberait en silence chaque panne d'ffprobe
+# dans le cout de la porte. `vmsam-ci` a nomme le second `unadjudicated` dans son
+# registre et il ne porte AUCUNE affirmation sur le media -- il dit ce qui est
+# arrive au PROCESSUS, ce qui est ce qui s'est reellement passe.
+#
+# TROISIEME ETAT SANS JETON DE LA SOIREE, et le premier qui soit un FICHIER SUR
+# LE DISQUE plutot qu'une valeur dans une ligne: `verdict != FULL_LENGTH` lu
+# comme "piste courte", "pas de ligne DECLINED" lu comme "pas de declin", et ici
+# un artefact NON VERIFIE portant le nom d'un fichier produit. Dans les trois cas
+# le defaut par defaut etait le flatteur.
+OUTPUT_REFUSED = ("REFUSED", "the gate DECIDED against it")
+OUTPUT_NO_VERDICT = ("NOVERDICT", "NOBODY decided -- a tool fault escaped before "
+                                  "any verdict existed")
+
+
+def mark_output(out_path, marking):
+    """Renomme un artefact non livre en `<nom>.<JETON>.<ext>` et rend le chemin.
 
     Rend `None` si le fichier a disparu ou si le renommage echoue -- et le
     consigne. UN ECHEC DE RENOMMAGE NE DOIT PAS REMPLACER LA RAISON DU REFUS:
     l'appelant est deja en train de lever, et masquer un refus de troncature par
     une OSError de systeme de fichiers perdrait la seule information que le
     declin porte. On rapporte les deux plutot que d'en substituer une.
+
+    LE JETON VA AVANT L'EXTENSION, forme demandee par `vmsam-ci` pour ses
+    raisons: son preserveur balaye par EXTENSION et lierait un `.mkv` non livre
+    dans KEEP, ou il compterait comme produit par lui, par `vmsam-forensic` et
+    par le registre de `vmsam-dev-4`. Le fichier reste ouvrable et se repere par
+    un motif de NOM et non par une convention de CHEMIN.
     """
+    token, why = marking
     if not path.exists(out_path):
         return None
     base, extension = path.splitext(out_path)
-    refused = f"{base}.REFUSED{extension}"
+    marked = f"{base}.{token}{extension}"
     try:
-        replace_file(out_path, refused)
+        replace_file(out_path, marked)
     except OSError as error:
-        sys.stderr.write(f"repair: the refused artefact could NOT be renamed and "
-                         f"is still at its produced name: {error}\n")
-        tools.logs.append("repair: a refused artefact kept its produced name\n")
+        sys.stderr.write(f"repair: the undelivered artefact could NOT be renamed "
+                         f"and is still at its produced name: {error}\n")
+        tools.logs.append("repair: an undelivered artefact kept its produced name\n")
         return None
-    sys.stderr.write(f"repair: the refused artefact was renamed to *.REFUSED{extension} "
-                     f"so it is inspectable and NOT counted as produced\n")
-    return refused
+    sys.stderr.write(f"repair: the artefact was renamed to *.{token}{extension} "
+                     f"-- {why} -- so it is inspectable and NOT counted as "
+                     f"produced\n")
+    return marked
 
 
 def verify_output_file(out_path, master_duration_ms, audio_reports,

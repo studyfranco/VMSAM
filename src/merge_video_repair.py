@@ -430,7 +430,14 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
     import merge_video_chimeric
     try:
         return merge_video_chimeric.assemble_on_master_timeline(*args, **kwargs)
-    except merge_video_chimeric.chimeric_error as error:
+    except Exception as error:
+        # ON ATTRAPE `Exception` ET NON `chimeric_error`, ET C'EST LA QUESTION DE
+        # `vmsam-dev-4` QUI L'A OUVERT. Son lecteur consomme des LIGNES DE
+        # JOURNAL par prefixe et rien d'autre; il a demande si l'etat non livre
+        # atteint une ligne. Il n'y arrivait pas -- et pire, un `failed`
+        # n'emettait AUCUNE ligne, exactement le trou que ce bloc venait de
+        # boucher pour les declins. La panne d'outil sortait par une porte que
+        # la reparation ne venait pas de reparer.
         partial = getattr(error, "partial_assembly", None)
         if partial != None:
             partial["unverified_segment_ms"] = unverified_ms
@@ -438,12 +445,30 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
                 log_assembly(logged_candidate.filePath, partial, plan)
             except Exception as logging_error:
                 tools.logs.append("repair: could not write the per-track log for "
-                                  f"a DECLINED file: {logging_error}\n")
-        # LA LIGNE TERMINALE EST INCONDITIONNELLE, meme quand il n'y a pas
-        # d'assemblage partiel: sans elle, "pas de ligne DECLINED" se lirait
-        # comme "pas de declin", qui est la lecture par omission que s4e
-        # interdit ailleurs.
-        tools.logs.append(f"repair: DECLINED {error}\n")
+                                  f"an UNDELIVERED file: {logging_error}\n")
+        # LA LIGNE TERMINALE EST INCONDITIONNELLE, meme sans assemblage partiel:
+        # sans elle, "pas de ligne DECLINED" se lirait comme "pas de declin", la
+        # lecture par omission que s4e interdit ailleurs.
+        #
+        # DEUX PREFIXES ET PAS UN, parce que les deux issues ne disent pas la
+        # meme chose et que le pilote les classe differemment: `chimeric_error`
+        # -> `declined` (le module a regarde et a dit non), tout le reste ->
+        # `failed` (une panne d'outil ou un defaut a nous). Un prefixe unique
+        # ferait absorber chaque echec d'ffprobe dans le cout de la porte.
+        if isinstance(error, merge_video_chimeric.chimeric_error):
+            tools.logs.append(f"repair: DECLINED {error}\n")
+        else:
+            tools.logs.append(f"repair: FAILED {type(error).__name__}: {error}\n")
+        # ET L'ETAT DE L'ARTEFACT ATTEINT UNE LIGNE, PAR CLE ET NON PAR PROSE.
+        # dev-4 lit par nom; `state=` et `path=` se lisent, "the file was
+        # renamed" ne se lit pas. Emise seulement quand un fichier a REELLEMENT
+        # ete marque: son ABSENCE dit "aucun artefact n'existait a marquer",
+        # ce qui est un troisieme fait et pas un defaut de journal.
+        marked = getattr(error, "undelivered_path", None)
+        if marked != None:
+            tools.logs.append(
+                f"repair: undelivered state={getattr(error, 'undelivered_state', 'unnamed')} "
+                f"path={marked}\n")
         raise
 
 
@@ -962,7 +987,23 @@ def write_sources_manifest():
     """
     digest = sources_digest()
     try:
-        target = path.join(tools.tmpFolder, "vmsam_sources_manifest.json")
+        # LE MANIFESTE EST ADRESSE PAR SON CONTENU, ET C'EST UNE CORRECTION.
+        #
+        # Premiere version: un nom FIXE, ecrit seulement s'il n'existait pas
+        # deja. Un fichier source change, le roule change, ET LE MANIFESTE
+        # RESTAIT CELUI D'AVANT -- la ligne pointait sur un detail qui ne
+        # correspondait plus a son propre condensat. C'est EXACTEMENT la
+        # divergence copie-contre-original que la forme pointeur existe pour
+        # empecher, reconstruite a l'interieur de la forme pointeur.
+        #
+        # Attrape par `t80`, par le controle qui verifie que le manifeste est
+        # D'ACCORD avec la ligne. Un test qui aurait seulement verifie que le
+        # fichier existe serait passe.
+        #
+        # Le nom porte donc le condensat: un manifeste perime est IMPOSSIBLE
+        # plutot qu'evite, et deux deploiements coexistent au lieu de s'ecraser.
+        target = path.join(tools.tmpFolder,
+                           f"vmsam_sources_{digest['sha12']}.json")
         if not path.exists(target):
             import json as _json
             with open(target, "w") as handle:
@@ -1403,15 +1444,25 @@ def decline_detail(error):
     "le fichier produit ne correspond pas a ce qui a ete construit" sans jamais
     dire QUELLE piste ni de combien.
 
-    `refused_path` EST LE CHEMIN DE L'ARTEFACT RENOMME. `None` a DEUX causes
-    distinctes -- le declin est arrive avant que le fichier existe, ou le
-    renommage a echoue -- et la seconde est ecrite sur stderr par
-    `mark_output_refused` plutot que devinee ici.
+    `undelivered_path` EST LE CHEMIN DE L'ARTEFACT RENOMME, ET `undelivered_state`
+    DIT LEQUEL DES DEUX ETATS NON LIVRES IL PORTE -- `REFUSED` (la porte a decide
+    contre) ou `NOVERDICT` (personne n'a decide; une panne d'outil s'est echappee
+    avant qu'un verdict existe). UN SEUL NOM POUR LES DEUX ferait absorber en
+    silence chaque panne d'ffprobe dans le cout de la porte.
+
+    Le champ s'appelait `refused_path` pendant une heure, avant que le second
+    etat existe. `vmsam-dev-4` et `vmsam-ci` en ont ete prevenus avant que quoi
+    que ce soit soit expedie: rien de tout ceci n'est encore dans l'image.
+
+    `None` a DEUX causes distinctes -- le declin est arrive avant que le fichier
+    existe, ou le renommage a echoue -- et la seconde est ecrite sur stderr par
+    `mark_output` plutot que devinee ici.
     """
     return {"verification": getattr(error, "verification", None),
             "audios": getattr(error, "audios", None),
             "output_check": getattr(error, "output_check", None),
-            "refused_path": getattr(error, "refused_path", None)}
+            "undelivered_state": getattr(error, "undelivered_state", None),
+            "undelivered_path": getattr(error, "undelivered_path", None)}
 
 
 def record(candidate_path, outcome, reason, detail=None):
@@ -1528,7 +1579,13 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                        decline_detail(error))
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
-                record(candidate_path, "failed", str(error))
+                # LE MEME DETAIL SUR `failed` QUE SUR `declined`, ET C'EST CE
+                # CHEMIN-CI QUI PRODUIT `NOVERDICT`: une panne d'outil apres le
+                # mux laisse un artefact renomme, et le seul enregistrement qui
+                # peut le nommer est celui-ci. L'omettre remettrait le fichier
+                # hors de tout compte rendu, ce que le renommage existe pour
+                # empecher.
+                record(candidate_path, "failed", str(error), decline_detail(error))
                 sys.stderr.write(f"repair: failed for {candidate_path}: {error}\n")
             continue
 
