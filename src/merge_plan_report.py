@@ -216,7 +216,30 @@ def parse_job_log(text):
             # prefixe le laisse tomber, donc on le compte au lieu de l'ignorer.
             if line.strip() and not line.startswith(("Merged", "Logs:", "We was",
                                                      "Multiple delay")):
-                job["foreign_lines"].append(line.strip())
+                # ON GARDE LE FAIT, PAS LE TEXTE.
+                #
+                # s4e veut qu'un element ecarte se dise: une omission se lit
+                # "il n'y en avait pas". Mais ces lignes sont du texte libre
+                # hors du vocabulaire de la reparation, et la ligne reelle
+                # observee est
+                #   `['<chemin>'] not compatible with the others videos`
+                # ou le chemin PORTE DES ESPACES, donc un titre de serie
+                # survit a toute redaction par motif -- j'ai mesure
+                # `Suicide Squad` traversant la mienne.
+                #
+                # UN REDACTEUR QUI NE PEUT PAS GARANTIR SON RESULTAT NE DOIT PAS
+                # ETRE LA DEFENSE. On enregistre donc l'EXISTENCE de la ligne,
+                # sa longueur, son empreinte stable et si elle contient un
+                # chemin -- de quoi la retrouver dans le journal, qui lui ne
+                # voyage pas -- et jamais son contenu.
+                stripped = line.strip()
+                job["foreign_lines"].append({
+                    "digest": hashlib.md5(
+                        stripped.encode("utf-8", "replace")).hexdigest()[:12],
+                    "chars": len(stripped),
+                    "carries_path": bool(_PATH.search(stripped)),
+                    "tail": re.sub(r"[^a-z ]", "", stripped.lower()[-42:]).strip(),
+                })
             continue
         body = line[len("repair: "):]
 
@@ -473,7 +496,19 @@ def track_regions(job, stream_order):
     plan = job["plan"]
     if not plan:
         return []
-    offsets = recover_offsets(job, stream_order)
+    # LA VALEUR EMISE PRIME SUR LA VALEUR DERIVEE, et le desaccord se DIT.
+    #
+    # `USED` porte le decalage PAR NOM: c'est une lecture, pas une
+    # reconstruction, et elle est inconditionnelle -- une piste dont le plan ne
+    # coupe rien la porte quand meme. La derivation reste calculee A COTE, comme
+    # controle croise: deux instruments qui tombent d'accord valent mieux qu'un,
+    # et s'ils divergent on montre les deux plutot que le plus joli des deux.
+    derived = recover_offsets(job, stream_order)
+    emitted = {}
+    for region in job.get("regions_used", {}).get(stream_order) or []:
+        if region.get("offset_ms_present"):
+            emitted[_trim(region["master_start_ms"])] = region["offset_ms"]
+    offsets = derived
     added = {(_trim(r["master_start_ms"]), _trim(r["master_end_ms"])): r
              for r in job["regions_added"].get(stream_order) or []}
 
@@ -510,14 +545,29 @@ def track_regions(job, stream_order):
 
         offset = (offsets[candidate_index] if candidate_index < len(offsets)
                   else Cell(None, NO_PRODUCER, "no offset recoverable"))
+        read = emitted.get(key[0])
+        if read is not None:
+            note = None
+            if offset.state == DERIVED and str(offset.value) != _trim(read):
+                # Les deux instruments divergent. On garde la valeur EMISE --
+                # elle est ecrite par le producteur -- et on porte la derivee
+                # a cote, nommee, pour que le desaccord soit visible et
+                # adressable au lieu d'etre arbitre en silence.
+                note = (f"disagrees with the value derived from the CUT bounds "
+                        f"({offset.value}); the emitted value is shown")
+            offset = Cell(_trim(read), PRESENT, note)
         candidate_index += 1
         rows.append({
             "kind": "CANDIDATE",
             "master_start_ms": piece["master_start_ms"],
             "master_end_ms": piece["master_end_ms"],
-            # s4e/s3.4: aucune ligne ne couvre les regions prises du candidat.
-            "source": no_producer("no line type covers a kept candidate region; "
-                                  "only the `c<a>-<b>` token on the plan line"),
+            # s4e: la ligne `USED` couvre desormais ces regions. Sans elle, leur
+            # seule trace est le jeton `c<a>-<b>` de la ligne de plan -- ni
+            # flux, ni decalage, ni fidelite.
+            "source": (Cell("candidate", PRESENT) if emitted
+                       else no_producer("no line type covers a kept candidate "
+                                        "region; only the `c<a>-<b>` token on "
+                                        "the plan line")),
             "offset": offset,
         })
 
@@ -531,6 +581,95 @@ def track_regions(job, stream_order):
             "where": cut["where"],
         })
     return rows
+
+
+# ---------------------------------------------------------------------------
+# LA REDACTION, ET ELLE EST UN CONTROLE ET PAS UNE INTENTION
+#
+# LE JOURNAL DE PRODUCTION PORTE DE VRAIS CHEMINS, PAR CONSTRUCTION -- douze
+# endroits dans `mergeVideo.py` gele. La discipline est donc a LA FRONTIERE: le
+# journal ne voyage pas, CE RAPPORT VOYAGE.
+#
+# Trouve sur les octets reels de dev-2 et pas en relisant mon code: le journal
+# passe par le pilote de rejeu commence par
+# `['<chemin>'] not compatible with the others videos`, une ligne qui n'a pas le
+# prefixe `repair:`. Je la collectais comme "ligne hors reparation" -- pour la
+# bonne raison qu'une omission se lirait "il n'y en avait pas" -- et je l'aurais
+# RECOPIEE TELLE QUELLE dans le rapport, chemin, titre et identifiant de
+# catalogue compris.
+#
+# On ne compte donc pas sur la vigilance: toute valeur passe par ici, et le
+# document fini est RELU avant d'etre rendu. Une fuite dans un artefact qui
+# voyage est pire qu'un plantage, donc le controle final LEVE.
+
+# UN CHEMIN A AU MOINS DEUX SEGMENTS. Exiger un seul `/` prenait `</title>`
+# pour un chemin -- le controle final refusait d'emettre son propre balisage --
+# et aurait mutile `verified=1/1` et `master/ja`, deux valeurs legitimes qui
+# portent une barre. Le motif exige donc `/a/b` au minimum.
+_PATH = re.compile(r"(?:[A-Za-z]:)?(?:/[^\s'\"\]<>/]+){2,}/?")
+_CATALOGUE = re.compile(r"[\[{（(]?\b(?:tvdb|tmdb|imdb|tvdbid|anidb)[-_ ]?\d+\b[\]})）]?",
+                        re.IGNORECASE)
+_MEDIA = re.compile(r"[^\s/\\]+\.(?:mkv|mp4|avi|m4v|ts|mka|mks|srt|ass|sub|idx)\b",
+                    re.IGNORECASE)
+
+
+def redact(text):
+    """Rend le texte sur, et DIT combien de fois il a fallu le rendre sur.
+
+    Un chemin absolu, un identifiant de catalogue ou un nom de fichier media
+    devient un jeton opaque STABLE -- le meme chemin donne le meme jeton, donc
+    deux mentions restent correlables sans que rien ne soit nomme.
+    `master/ja` n'est pas touche: il ne commence pas par `/`.
+    """
+    if text is None:
+        return None, 0
+    working, hits = str(text), 0
+
+    def token(match):
+        nonlocal hits
+        found = match.group(0)
+        if len(found) < 3 or found.strip("/") == "":
+            return found
+        hits += 1
+        return "<redacted:" + hashlib.md5(found.encode("utf-8", "replace"))\
+                                      .hexdigest()[:8] + ">"
+
+    working = _PATH.sub(token, working)
+    working = _CATALOGUE.sub(token, working)
+    working = _MEDIA.sub(token, working)
+    return working, hits
+
+
+class _Redactor:
+    """Compte les redactions d'un rendu, pour qu'elles se DISENT."""
+
+    def __init__(self):
+        self.hits = 0
+
+    def __call__(self, text):
+        clean, hits = redact(text)
+        self.hits += hits
+        return clean
+
+
+def assert_no_leak(document):
+    """DERNIER CONTROLE, sur le document fini. Il leve; il ne corrige pas.
+
+    Un correctif silencieux ici rendrait la fuite suivante invisible. On
+    prefere un plantage bruyant a un artefact qui voyage avec un titre dedans.
+    """
+    for pattern, label in ((_PATH, "an absolute path"),
+                           (_CATALOGUE, "a catalogue id"),
+                           (_MEDIA, "a media filename")):
+        for match in pattern.finditer(document):
+            found = match.group(0)
+            if found.startswith("<redacted:") or len(found.strip("/")) < 3:
+                continue
+            if found.startswith("/") or pattern is not _PATH:
+                raise AssertionError(
+                    f"merge_plan report would have carried {label} "
+                    f"({found[:40]!r}). Refusing to emit: this artefact travels "
+                    f"and the log it is built from does not.")
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +730,7 @@ def clock(ms):
     return f"{'-' if negative else ''}{hours:d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
 
 
-def _row(record_kind, /, **fields):
+def _row(record_kind, /, _redactor=None, **fields):
     """Un enregistrement = UNE ligne. `KIND cle=valeur`. Jamais de position.
 
     Une valeur absente n'est pas ecrite comme vide: elle porte son ETAT. Un
@@ -602,7 +741,8 @@ def _row(record_kind, /, **fields):
     for name, value in fields.items():
         if isinstance(value, Cell):
             if value.state in (PRESENT, DERIVED):
-                parts.append(f"{name}={value.value}")
+                cleaned = _wrap(value.value)
+                parts.append(f"{name}={_redactor(cleaned) if _redactor else redact(cleaned)[0]}")
                 if value.state == DERIVED:
                     parts.append(f"{name}_state=derived")
             else:
@@ -610,7 +750,8 @@ def _row(record_kind, /, **fields):
             continue
         if value is None:
             continue
-        parts.append(f"{name}={_wrap(value)}")
+        text = _wrap(value)
+        parts.append(f"{name}={_redactor(text) if _redactor else redact(text)[0]}")
     return " ".join(parts)
 
 
@@ -645,6 +786,54 @@ def plain(value):
     return text
 
 
+def applied_ratio(track_fields):
+    """La relation de vitesse REELLEMENT appliquee, ou None.
+
+    Lue sur `speed=`, qui porte `speed_ratio_applied`. Ce champ EST emis quand
+    une relation a ete appliquee -- il ne faut pas le confondre avec
+    `speed_margin`, qui n'a aucun producteur: la MARGE par laquelle la
+    transformation gagnante l'a emporte est absente, le RATIO ne l'est pas.
+    `speed=None` et `speed=none(no rate proposed by the measurement)` disent
+    tous deux qu'aucune relation n'a ete proposee.
+    """
+    value = plain(track_fields.get("speed"))
+    if value is None:
+        return None
+    if value.lower().startswith("none"):
+        return None
+    try:
+        return Decimal(value)
+    except Exception:
+        return "UNREADABLE"
+
+
+def lost_reference_frame(ratio):
+    """Dans QUELLE timeline `dropped_ms` est exprime, et pourquoi cela tient.
+
+    Les bornes des lignes CUT sont lues sur le candidat DEJA REECHANTILLONNE --
+    `assemble_on_master_timeline` multiplie `candidate_duration_ms` par le ratio
+    AVANT `normalize_segments`, et la chaine de vitesse est posee avant le
+    `atrim` dans le filtergraph, ce que le producteur enonce lui-meme
+    (`merge_video_chimeric` :370, "les temps des tranches sont lus sur le
+    candidat DEJA reechantillonne").
+
+    Consequence, et elle va CONTRE l'intuition: comme
+    `candidate_start = master_start + offset`, cette timeline avance AU MEME
+    RYTHME que celle du maitre. Un `dropped_ms` est donc deja une duree
+    comparable a du temps maitre, et la barre rouge se dessine a l'echelle 1:1
+    SANS correction. Corriger par le ratio introduirait l'erreur qu'on croit
+    corriger.
+
+    Ce qui, LUI, differe d'un facteur `ratio`: la quantite de materiau
+    D'ORIGINE du candidat qui a ete jetee, soit `dropped_ms / ratio`. Les deux
+    sont legitimes et ne sont pas la meme chose, donc on dit laquelle on montre.
+    """
+    if ratio in (None, "UNREADABLE"):
+        return "resampled-candidate (advances at master rate; 1:1 with the axis)"
+    return (f"resampled-candidate (advances at master rate; 1:1 with the axis) "
+            f"ratio={ratio}")
+
+
 def plan_end_ms(job):
     pieces = (job.get("plan") or {}).get("pieces") or []
     return pieces[-1]["master_end_ms"] if pieces else None
@@ -654,6 +843,7 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     """Les LIGNES. Tout nombre du rapport est ici, une ligne par enregistrement."""
     generation, description = format_generation(job)
     plan = job.get("plan") or {}
+    redactor = _Redactor()
     rows = []
 
     rows.append(_row("MERGE_PLAN", schema="1", produced_by="merge_plan_report",
@@ -719,7 +909,15 @@ def build_rows(job, artefact_id, source_name, n_caveat):
 
         for index, region in enumerate(track_regions(job, order)):
             if region["kind"] == "LOST":
+                ratio = applied_ratio(fields)
+                original = None
+                if isinstance(ratio, Decimal) and ratio and not region["dropped_unmeasured"] \
+                        and region["dropped_ms"] is not None:
+                    # La MEME perte, comptee en materiau d'origine du candidat.
+                    original = _trim((region["dropped_ms"] / ratio).quantize(Decimal("0.01")))
                 rows.append(_row("LOST", track=order, seq=index,
+                                 timeline=lost_reference_frame(ratio),
+                                 original_candidate_ms=original,
                                  candidate_start_ms=_trim(region["candidate_start_ms"]),
                                  candidate_end_ms=_trim(region["candidate_end_ms"]),
                                  candidate_start=clock(region["candidate_start_ms"]),
@@ -752,7 +950,20 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                          note="a_count_is_a_statement_about_work_done,_not_about_a_file"))
 
     for entry in job.get("foreign_lines") or []:
-        rows.append(_row("OUTSIDE_REPAIR", text=entry.replace(" ", "_")))
+        # Le FAIT qu'une ligne hors reparation existe, et de quoi la retrouver
+        # dans le journal. Jamais son texte.
+        rows.append(_row("OUTSIDE_REPAIR", _redactor=redactor,
+                         digest=entry["digest"], chars=entry["chars"],
+                         carries_path=entry["carries_path"],
+                         tail=entry["tail"] or None,
+                         note="content withheld: free text outside the repair "
+                              "vocabulary cannot be redacted with a guarantee"))
+
+    if redactor.hits:
+        rows.append(_row("REDACTED", occurrences=redactor.hits,
+                         note="values carrying an absolute path, catalogue id or "
+                              "media filename were replaced by a stable opaque "
+                              "token; the same input yields the same token"))
 
     for gap in blank_cells(job):
         rows.append(_row("GAP", quantity=gap["quantity"], state=gap["state"],
@@ -780,7 +991,7 @@ def blank_cells(job):
             "detail": "the master is not named, so a produced deficit cannot "
                       "be attributed to the merge or to the master"})
 
-    used = any(job.get("regions_used") or {})
+    used = bool(job.get("regions_used") or {})
     if not used:
         entries.append({
             "quantity": "per region offset by name",
@@ -800,8 +1011,14 @@ def blank_cells(job):
         "quantity": "kept candidate region provenance",
         "state": NO_PRODUCER if not used else PRESENT,
         "address": "merge_video_repair.log_assembly",
-        "detail": "no line type covers the regions the output takes from the "
-                  "candidate, which are the majority of every file"})
+        # L'ETAT ET SA RAISON DOIVENT S'ACCORDER. `state=present` sous un detail
+        # qui dit "aucune ligne ne les couvre" est une cellule qui se contredit,
+        # et c'est pire qu'une cellule vide: un lecteur en croit une moitie.
+        "detail": ("the USED line covers them: master bounds, candidate bounds "
+                   "and the offset applied, per track and per region"
+                   if used else
+                   "no line type covers the regions the output takes from the "
+                   "candidate, which are the majority of every file")})
     entries.append({
         "quantity": "plateau_tolerance_ms",
         "state": NO_PRODUCER,
@@ -1135,7 +1352,11 @@ def render_report(job, artefact_id, source_name, caveats=()):
     document.append("<h2>What was done to this file</h2>")
     document.append(f'<div class="narrative">{render_narrative(records)}</div>')
     document.append("</body></html>")
-    return "\n".join(document)
+    rendered = "\n".join(document)
+    # LE CONTROLE FINAL, sur le document fini. Il leve, il ne corrige pas: un
+    # correctif silencieux ici rendrait la fuite suivante invisible.
+    assert_no_leak(rendered)
+    return rendered
 
 
 def report_for_log(text, artefact_id, source_name, caveats=()):
