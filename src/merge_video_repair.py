@@ -531,7 +531,12 @@ def log_assembly(candidate_path, assembly, plan):
                 # d'un vrai desappariement.
                 f"speed={report.get('speed_ratio_applied') if report.get('speed_ratio_applied') != None else 'none(no rate proposed by the measurement)'} "
                 # BORROWED = cette piste porte le decalage d'une AUTRE langue.
+                # BORROWED PORTE SA RAISON. Le proprietaire a tranche que
+                # l'emprunt continue, donc cette ligne est ce qui est livre avec
+                # le fichier, et "BORROWED" seul ne dit pas si un partenaire
+                # existait.
                 f"offset={'measured' if report.get('offset_measured') else 'BORROWED'}"
+                f"{'[' + str(report['borrow_reason']) + ']' if report.get('borrow_reason') else ''}"
                 # `fid` absent = la mesure n'en donne pas. JAMAIS 0.0: une
                 # fidelite inconnue n'est pas une fidelite nulle.
                 f"{'(fid ' + str(report['offset_fidelity']) + ')' if report.get('offset_fidelity') != None else ''} "

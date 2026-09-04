@@ -1143,6 +1143,28 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 offset_is_measured(segment, int(audio["StreamOrder"]))
                 for segment in segments)
             report["pairing_contract"] = stream_pairing != None
+            # POURQUOI CETTE PISTE EMPRUNTE, SUR LA LIGNE QUI EST REELLEMENT
+            # EMISE. La distinction entre "aucun partenaire n'existe" et "le
+            # meilleur partenaire est sous la barre" vivait UNIQUEMENT dans le
+            # message de refus -- et le proprietaire vient de trancher: ON
+            # CONTINUE D'EMPRUNTER, le drapeau reste desarme. Le refus ne se
+            # declenche donc jamais et la distinction ne serait jamais ecrite.
+            #
+            # Si l'emprunt est ce qui est LIVRE, dire quelles pistes ont emprunte
+            # et pourquoi est la seule chose entre un fichier faux et un fichier
+            # indecouvrable.
+            if report["offset_measured"]:
+                report["borrow_reason"] = None
+            elif stream_pairing == None:
+                report["borrow_reason"] = "no pairing table in this plan"
+            elif pairing_fidelity(stream_pairing, int(audio["StreamOrder"])) != None:
+                report["borrow_reason"] = (
+                    f"best partner fidelity "
+                    f"{pairing_fidelity(stream_pairing, int(audio['StreamOrder']))}"
+                    f", below the bar")
+            else:
+                report["borrow_reason"] = (
+                    f"the master carries no {language} stream; no probe was run")
             report["offset_fidelity"] = next(
                 (offset_fidelity(segment, int(audio["StreamOrder"]))
                  for segment in segments
