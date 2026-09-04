@@ -500,9 +500,24 @@ def track_regions(job, stream_order):
     #
     # `USED` porte le decalage PAR NOM: c'est une lecture, pas une
     # reconstruction, et elle est inconditionnelle -- une piste dont le plan ne
-    # coupe rien la porte quand meme. La derivation reste calculee A COTE, comme
-    # controle croise: deux instruments qui tombent d'accord valent mieux qu'un,
-    # et s'ils divergent on montre les deux plutot que le plus joli des deux.
+    # coupe rien la porte quand meme. La derivation reste calculee A COTE, et
+    # s'ils divergent on montre les DEUX plutot que le plus joli des deux.
+    #
+    # CE QUE CET ACCORD PROUVE, ET CE QU'IL NE PROUVE PAS -- correction de la
+    # mienne. J'ai qualifie l'accord des 20 valeurs de "deux calculs
+    # independants". C'EST FAUX. `used_regions` et `cut_regions` sont remplies
+    # DANS LA MEME BOUCLE A PARTIR DU MEME `source_start`, donc les deux sorties
+    # sont une seule grandeur rendue deux fois et NE PEUVENT PAS diverger.
+    # Verifie sur mes propres octets: `step_i == dropped_ms_i - master_gap_i`
+    # tient a l'identite sur 10 lignes sur 10, id297 et id169.
+    #
+    # L'accord etablit donc que MON LECTEUR lit correctement le format de dev-2
+    # -- l'ancrage sur la coupe de tete, le chainage, l'appariement des bornes
+    # -- ce qui est reel et utile. Ce n'est PAS une mesure du monde, et deux
+    # rendus d'un meme calcul qui s'accordent n'apprennent rien sur ce qu'ils
+    # calculent. Le controle reste en place parce qu'il attrape un changement de
+    # format ou une regression de mon analyseur, pas parce qu'il confirme un
+    # decalage.
     derived = recover_offsets(job, stream_order)
     emitted = {}
     for region in job.get("regions_used", {}).get(stream_order) or []:
