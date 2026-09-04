@@ -1007,7 +1007,17 @@ def build_rows(job, artefact_id, source_name, n_caveat):
     rows.append("#   absent-from-this-format this artefact predates the field")
     rows.append("#   no-producer             nothing emits it; this is the defect")
     rows.append("#   not-exercised-here      the branch is live and this artefact does not")
-    rows.append("#                           produce its input -- NOT a negative answer")
+    rows.append("#                           produce its input -- NOT a negative answer.")
+    rows.append("#                           ALONE AMONG THESE STATES IT IS A PROPERTY OF")
+    rows.append("#                           THE DATA, NOT OF THE CODE: a new corpus file")
+    rows.append("#                           turns it into `present` with nobody touching")
+    rows.append("#                           producer or consumer. It is therefore scoped")
+    rows.append("#                           to ONE artefact and it CANNOT BE DATED from")
+    rows.append("#                           this record -- no build, commit or timestamp")
+    rows.append("#                           field is emitted anywhere (see the")
+    rows.append("#                           build_identity GAP row). Read it as of the")
+    rows.append("#                           artefact named on the SOURCE row, never as a")
+    rows.append("#                           standing fact about the pipeline.")
     rows.append("#   not-defined-here        the quantity does not exist in this case;")
     rows.append("#                           the decision was made elsewhere, see decided_by")
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
@@ -1305,8 +1315,22 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                               "token; the same input yields the same token"))
 
     for gap in blank_cells(job):
-        rows.append(_row("GAP", quantity=gap["quantity"], state=gap["state"],
-                         addressed_to=gap["address"], detail=gap["detail"]))
+        # UN ETAT QUI PEUT PERIMER SANS QUE PERSONNE NE TOUCHE AU CODE PORTE SA
+        # PORTEE. Les six autres etats sont des proprietes du code et restent
+        # vraies tant que le code ne bouge pas; celui-ci est une propriete DU
+        # CORPUS, et un `not-exercised-here` lu dans six mois se prendrait pour
+        # un fait sur le pipeline. Il ne peut pas non plus etre DATE d'ici --
+        # aucun champ de build, de commit ou d'horodatage n'est emis nulle part,
+        # ce qui est la cellule `build_identity` deposee le premier jour,
+        # revenant comme une consequence concrete plutot qu'un principe.
+        rows.append(_row("GAP", _redactor=redactor,
+                         quantity=gap["quantity"], state=gap["state"],
+                         addressed_to=gap["address"], detail=gap["detail"],
+                         **({"observed_on": artefact_id,
+                             "scope": "this artefact only; a property of the "
+                                      "corpus and not of the code, and undatable "
+                                      "from this record"}
+                            if gap["state"] == NOT_EXERCISED else {})))
     return rows
 
 
