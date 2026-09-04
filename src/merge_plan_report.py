@@ -451,6 +451,7 @@ def parse_job_log(text):
         "failed": None,
         "undelivered": None,
         "build": None,
+        "sources": None,
         "unparsed": [],
         "output_check": None,
         "summary_counts": None,
@@ -605,6 +606,20 @@ def parse_job_log(text):
             fields = split_fields(matched.group(2))
             fields["stream_order"] = int(matched.group(1))
             job["subtitles"].append(fields)
+            continue
+
+        if body.startswith("sources "):
+            # LE DIGEST DES FICHIERS QUI EXPEDIENT, distinct de `build`. dev-2:
+            # `build` couvre SES DEUX MODULES, `sources` couvre LES 27 `.py` QUE
+            # LE Dockerfile COPIE. L'un bouge quand ses modules bougent, l'autre
+            # quand n'importe quoi d'expedie bouge -- NE PAS LIRE L'UN COMME UN
+            # RAFFINEMENT DE L'AUTRE.
+            rest = body[len("sources "):]
+            digest = rest.split()[0] if rest.split() else None
+            fields = split_fields(rest)
+            job["sources"] = {"digest": digest, "files": fields.get("files"),
+                              "scope": fields.get("scope"),
+                              "manifest": fields.get("manifest")}
             continue
 
         if body.startswith("build "):
@@ -1371,6 +1386,20 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                               "Call measure_corpus() and pass the result"))
     rows.append(_row("SOURCE", artefact=artefact_id, log=source_name,
                      format_generation=generation, format=description))
+    if job.get("sources"):
+        rows.append(_row("SOURCES", _redactor=redactor,
+                         digest=job["sources"]["digest"],
+                         files=job["sources"]["files"],
+                         scope=job["sources"]["scope"],
+                         manifest=job["sources"]["manifest"],
+                         derivation="sha256 of the bytes on disk at call time, "
+                                    "read per file",
+                         covers="the .py files the image ships, AND NOTHING "
+                                "ELSE: not the interpreter, not ffmpeg, not "
+                                "mkvtoolnix -- all installed unpinned. Two "
+                                "artefacts sharing this digest ran identical "
+                                "Python; they did not necessarily run in "
+                                "identical containers"))
     if job.get("build"):
         rows.append(_row("BUILD", _redactor=redactor,
                          **dict(job["build"]),
@@ -2099,7 +2128,8 @@ def blank_cells(job, corpus=None):
         # COMBLEE PAR SON PRODUCTEUR, par artefact. Filee le premier jour, emise
         # depuis, et mon propre lecteur la jetait jusqu'a ce qu'un repli des
         # lignes inconnues l'attrape.
-        "state": PRESENT if job.get("build") else NO_PRODUCER,
+        "state": PRESENT if (job.get("build") or job.get("sources"))
+                 else NO_PRODUCER,
         # L'ADRESSE SUIT L'ETAT. Filee contre l'en-tete de journal; le
         # producteur qui a repondu est la ligne `repair: build` de la
         # reparation, et nommer l'ancienne adresse sur une cellule comblee
@@ -2110,11 +2140,16 @@ def blank_cells(job, corpus=None):
         # un lecteur en croit une moitie. Ce detail disait encore `aucune cle de
         # build` sous un `state=present`, deux heures apres que j'aie corrige
         # exactement cela sur une autre cellule.
-        "detail": ("emitted as `repair: build <module>:<digest> ...`, per "
-                   "module, so this report can say which version produced the "
-                   "artefact it describes. It does NOT make the "
-                   "`not-exercised-here` cells datable: a build digest is not a "
-                   "date"
+        "detail": ("CONTENT-DERIVED, confirmed by its producer and reproduced "
+                   "independently: sha256 of the modules' own bytes read from "
+                   "disk at call time, not a label passed in. So this is a "
+                   "MEASUREMENT of which code ran, which is what the deploy "
+                   "gate is not -- that verifies ARG VMSAM_GIT_COMMIT against "
+                   "nothing. `build` covers 2 modules and `sources` the 27 .py "
+                   "files the image ships; different scopes, NOT a refinement "
+                   "of one another. Neither covers the interpreter, ffmpeg or "
+                   "mkvtoolnix. And a digest is not a DATE, so the "
+                   "`not-exercised-here` cells stay undatable"
                    if job.get("build") else
                    (f"no commit build version or image key occurs in any of the "
                     f"{corpus['logs']} logs; " if corpus else
