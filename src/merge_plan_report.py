@@ -990,7 +990,10 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                                 "offset_fidelity_is_the_first_non-None;_both_"
                                 "are_per-TRACK_over_per-REGION_values"))
 
+        candidate_rows = []
         for index, region in enumerate(track_regions(job, order)):
+            if region["kind"] == "CANDIDATE":
+                candidate_rows.append(region)
             if region["kind"] == "LOST":
                 ratio = applied_ratio(fields)
                 original = None
@@ -1022,6 +1025,30 @@ def build_rows(job, artefact_id, source_name, n_caveat):
                                        if region["offset"].state in (PRESENT, DERIVED)
                                        and region["offset"].value not in (None, "n/a")
                                        else None)))
+
+        # LE PAS DE DECALAGE D'UNE REGION A LA SUIVANTE, qui est ce que le
+        # proprietaire ecrit en saumon au-dessus de la regle. VERIFIE sur ses
+        # deux images plutot que suppose: sur l'image 1 les trois nombres
+        # saumon -23,0 -30,6 -27,2 sont exactement les pas -23,022 -30,613
+        # -27,195 entre etiquettes bleues consecutives, et les deux pas NON
+        # etiquetes sont les petits, -0,3 et +0,2. Ce n'est donc NI la duree
+        # jetee NI le decalage de la region -- deux lectures que j'avais
+        # proposees, et la seconde tombait pres par coincidence sur un artefact.
+        steps = []
+        for previous, following in zip(candidate_rows, candidate_rows[1:]):
+            if not (previous["offset"].state in (PRESENT, DERIVED)
+                    and following["offset"].state in (PRESENT, DERIVED)):
+                continue
+            try:
+                delta = Decimal(str(following["offset"].value)) - \
+                        Decimal(str(previous["offset"].value))
+            except Exception:
+                continue
+            steps.append((previous["master_end_ms"], delta))
+            rows.append(_row("STEP", _redactor=redactor, track=order,
+                             at_master_ms=_trim(previous["master_end_ms"]),
+                             at_master=clock(previous["master_end_ms"]),
+                             step_ms=_trim(delta), step_s=seconds_fr(delta, 1)))
 
     for fields in job.get("subtitles") or []:
         rows.append(_row("SUBTITLE", track=fields.get("stream_order"),
@@ -1250,7 +1277,7 @@ def render_svg(records):
                 'this format emitted.</p>')
     span = Decimal(plan["master_end_ms"])
 
-    tracks, regions, lost, borrows = [], {}, {}, {}
+    tracks, regions, lost, borrows, steps = [], {}, {}, {}, {}
     for kind, fields in records:
         if kind == "TRACK" and fields.get("kind") == "audio":
             tracks.append(fields)
@@ -1260,6 +1287,8 @@ def render_svg(records):
             lost.setdefault(fields["track"], []).append(fields)
         elif kind == "BORROW":
             borrows[fields["track"]] = fields
+        elif kind == "STEP":
+            steps.setdefault(fields["track"], []).append(fields)
 
     # Regrouper par geometrie. L'ordre de premiere apparition tient lieu d'ordre.
     groups = []
@@ -1368,15 +1397,23 @@ def render_svg(records):
             x = x_of(boundary)
             body.append(f'<line x1="{x:.1f}" y1="{panel_top - 4:.1f}" x2="{x:.1f}" '
                         f'y2="{panel_bottom:.1f}" stroke="{salmon}" stroke-width="1.6"/>')
-            dropped = fields.get("dropped_s")
-            if dropped:
-                anchor = "middle"
-                at = x
-                if x < left + 40:
-                    anchor, at = "start", left
-                elif x > left + plot - 40:
-                    anchor, at = "end", left + plot
-                body.append(_text(at, panel_top - 10, f"{dropped} s", salmon, 11, anchor))
+
+        # LE NOMBRE SAUMON EST LE PAS DE DECALAGE A TRAVERS LA COUPE, et pas la
+        # duree jetee. Mesure sur les deux images du proprietaire: quatre de ses
+        # cinq nombres saumon sont exactement la difference entre deux
+        # etiquettes bleues consecutives, a la decimale imprimee. Les coupes de
+        # tete et de queue n'ont pas de pas -- rien ne les encadre -- et restent
+        # donc des regles NUES, ce qui est aussi ce qu'il a dessine: huit
+        # regles, trois nombres.
+        for fields in steps.get(number, []):
+            x = x_of(fields["at_master_ms"])
+            anchor, at = "middle", x
+            if x < left + 44:
+                anchor, at = "start", left
+            elif x > left + plot - 44:
+                anchor, at = "end", left + plot
+            body.append(_text(at, panel_top - 10, f"{fields['step_s']} s",
+                              salmon, 11, anchor))
 
         # --- l'escalier: une barre par segment apparie, decalee vers le bas ---
         for index, fields in enumerate(candidates):
