@@ -515,7 +515,12 @@ def log_assembly(candidate_path, assembly, plan):
                 # la mesure. Quand il l'a ete, on le dit aussi -- `among N by
                 # measurement` -- pour qu'on voie qu'il y avait un choix ET
                 # qu'il etait fonde.
-                f"{('(among ' + str(report['fill_choices']) + ' by measurement)' if report.get('fill_by_reference') else '(AMBIGUOUS among ' + str(report['fill_choices']) + ')') if (report.get('fill_choices') or 0) > 1 else ''} "
+                f"{('(among ' + str(report['fill_choices']) + ' by measurement)' if report.get('fill_by_reference') else '(AMBIGUOUS among ' + str(report['fill_choices']) + ')') if (report.get('fill_choices') or 0) > 1 else ''}"
+                # LA SOURCE DE REMPLISSAGE EST-ELLE TROP COURTE POUR LES TROUS
+                # QU'ON LUI DEMANDE? Mesure sur un artefact reel: la piste fr du
+                # maitre 2008 ms plus courte que sa ja, le manque HERITE par la
+                # sortie, quatre fois la tolerance, et rien ne les comparait.
+                f"{'[FILL SOURCE SHORT BY ' + str(report['fill_short_by_ms']) + ' ms]' if report.get('fill_short_by_ms') else ''} "
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
@@ -645,6 +650,15 @@ def log_assembly(candidate_path, assembly, plan):
                           f"tolerance_ms={check['tolerance_ms']} "
                           f"measured={check.get('measured')} "
                           f"would_refuse={check.get('would_refuse')} "
+            # LE RESUME NE CONTREDIT PLUS LE DETAIL. `enforcing=False` etait une
+            # decision sur REFUSER OU NON -- jamais une decision de calculer le
+            # resume comme si le controle n'avait pas tire. Un validateur a lu un
+            # resume disant que tout allait bien a cote d'une ligne de detail qui
+            # disait le contraire.
+            #
+            # Gratuit, aucun changement de comportement, et cela ferme la forme
+            # s4d au seul endroit disponible tant que le gate est desarme.
+            f"{'-- 1 WOULD HAVE BEEN DECLINED (gate inert) ' if check.get('would_refuse') and not check.get('enforcing') else ''}"
                           f"enforcing={check.get('enforcing')}\n")
 
 

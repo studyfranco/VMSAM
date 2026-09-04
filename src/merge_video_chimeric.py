@@ -746,6 +746,34 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # programme correlent a 0.63 et sont a 21.3 ms l'un de l'autre.
     fill_choices = (same_language_principal_count(master_obj, fill_language)
                     if fill == "master" and fill_language else 0)
+    # LA SOURCE DE REMPLISSAGE EST-ELLE ASSEZ LONGUE POUR LES TROUS QU'ON LUI
+    # DEMANDE? Rien ne le verifiait. `find_master_audio_for_language` choisit par
+    # LANGUE et deux pistes du meme maitre n'ont pas la meme duree.
+    #
+    # MESURE, sur un artefact reel: six pistes remplies depuis master/ja, une
+    # depuis master/fr, comportement par langue CORRECT -- et la piste francaise
+    # du maitre est 2008 ms PLUS COURTE que sa japonaise. La piste produite a
+    # herite le manque, QUATRE FOIS la tolerance, et rien ne les a comparees.
+    #
+    # C'est le second danger de cette fonction. Le premier etait le TIMING --
+    # deux pistes de la meme langue a 126-138 ms l'une de l'autre. Celui-ci est
+    # la LONGUEUR, et il est quinze fois plus grand.
+    #
+    # ON MESURE ET ON DIT, ON NE REFUSE PAS: le proprietaire a tranche que
+    # l'emprunt continue, et jeter une piste parce que sa source de remplissage
+    # est courte serait la meme decision produit prise unilateralement.
+    fill_source_ms = None
+    fill_short_by_ms = None
+    if fill == "master" and master_audio != None and "Duration" in master_audio:
+        try:
+            fill_source_ms = Decimal(str(master_audio["Duration"])) * Decimal("1000")
+            furthest = max((p["master_end_ms"] for p in pieces
+                            if p["source"] == "master"), default=None)
+            if furthest != None and furthest > fill_source_ms:
+                fill_short_by_ms = furthest - fill_source_ms
+        except Exception:
+            # PAS de zero par defaut: une duree illisible est une ABSENCE.
+            fill_source_ms = None
     # LE CHOIX A-T-IL ETE TRANCHE PAR LA MESURE OU PAR L'ENCODAGE? Si la piste
     # retenue EST le flux de reference, le plan a ete mesure contre elle et le
     # choix est adosse a une mesure. Sinon `pick_best_master_audio` a tranche sur
@@ -873,6 +901,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "codec": codec_name, "encoder": encoder_arguments[1],
             "family": family, "gap_fill": fill, "fill_language": fill_language,
             "fill_title": fill_title, "fill_choices": fill_choices,
+            "fill_source_ms": str(fill_source_ms) if fill_source_ms != None else None,
+            "fill_short_by_ms": str(fill_short_by_ms) if fill_short_by_ms != None else None,
             "fill_by_reference": fill_by_reference,
             "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
