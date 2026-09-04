@@ -524,6 +524,14 @@ def log_assembly(candidate_path, assembly, plan):
                 f"filled_ms={report['gap_filled_ms']} "
                 f"silence_ms={report['silence_filled_ms']} "
                 f"head_pad_ms={report['head_pad_ms']} "
+                # SPEC_ZONE_A s4g: QUELLE BRANCHE A SERVI LA TETE.
+                #   master/<lang>  la piste de cette langue porte la tete, mesuree
+                #   NO-HEAD        elle NE la porte pas -- et le repli n'est PAS
+                #                  encore implemente, donc la tete vient QUAND MEME
+                #                  de cette piste et elle est muette
+                #   unprobed       tete illisible: pas une tete absente
+                #   silence        aucun remplissage maitre pour ce fichier
+                f"{'head=' + str(report['head_source']) + ' ' if report.get('head_source') else ''}"
                 # `speed=none` DISAIT DEUX CHOSES: "la mesure n'a propose aucun
                 # changement de rythme" et "il n'y a pas de probleme de rythme".
                 # Ce sont mesure-zero contre n'ai-pas-pu-mesurer, sur le rythme.

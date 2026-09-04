@@ -762,6 +762,41 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # ON MESURE ET ON DIT, ON NE REFUSE PAS: le proprietaire a tranche que
     # l'emprunt continue, et jeter une piste parce que sa source de remplissage
     # est courte serait la meme decision produit prise unilateralement.
+    # SPEC_ZONE_A s4g -- LA TETE. "Prendre du maitre SI LE MAITRE L'A, sinon du
+    # silence, pour que la sortie commence a 0 du maitre."
+    #
+    # "L'A" SE MESURE, IL NE SE DEDUIT PAS D'UNE DUREE. J'avais demande si une
+    # piste plus COURTE que sa soeur devait servir la tete, et la question etait
+    # mal posee: COURTE-A-LA-FIN ET ABSENTE-A-LA-TETE SONT DEUX FAITS
+    # DIFFERENTS, et rien dans une duree ne dit lequel. Une piste de 2008 ms plus
+    # courte peut manquer a la fin, a la tete, ou au milieu.
+    #
+    # Donc on SONDE la tete de la piste choisie. Si elle porte du signal, on la
+    # prend -- langue d'abord, coherent avec la regle de remplissage. Sinon on
+    # retombe: langue de comparaison, puis silence.
+    head_piece = next((p for p in pieces
+                       if p["source"] == "master" and p["master_start_ms"] == 0), None)
+    head_source = None
+    if head_piece != None and fill == "master" and master_audio != None:
+        span = min(Decimal("20000"),
+                   head_piece["master_end_ms"] - head_piece["master_start_ms"])
+        try:
+            samples = read_mono_samples(
+                master_obj.filePath, f"0:{int(master_audio['StreamOrder'])}",
+                Decimal("0"), span, verify_probe_rate)
+            # LE REPLI N'EST PAS ENCORE IMPLEMENTE. Le graphe de filtres prend UN
+            # flux maitre pour TOUS les morceaux maitre, donc servir la tete
+            # depuis une autre piste demande une source PAR MORCEAU. Tant que ce
+            # n'est pas fait, la tete vient de cette piste MEME SI ELLE EST
+            # MUETTE, et `NO-HEAD` le dit sur la ligne au lieu de le taire.
+            head_source = ("master/" + str(fill_language)
+                           if get_rms(samples) >= verify_min_rms else "NO-HEAD")
+        except Exception:
+            # PAS de supposition: une tete illisible n'est pas une tete absente.
+            head_source = "unprobed"
+    elif head_piece != None:
+        head_source = "silence"
+
     fill_source_ms = None
     fill_short_by_ms = None
     if fill == "master" and master_audio != None and "Duration" in master_audio:
@@ -901,6 +936,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "codec": codec_name, "encoder": encoder_arguments[1],
             "family": family, "gap_fill": fill, "fill_language": fill_language,
             "fill_title": fill_title, "fill_choices": fill_choices,
+            "head_source": head_source,
             "fill_source_ms": str(fill_source_ms) if fill_source_ms != None else None,
             "fill_short_by_ms": str(fill_short_by_ms) if fill_short_by_ms != None else None,
             "fill_by_reference": fill_by_reference,
