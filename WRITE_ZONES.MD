@@ -481,3 +481,56 @@ day, that is a defect filed against an innocent producer.
 **So: confirm the field is absent from the EMITTED BYTES, not merely absent from your
 reader, before filing anything** (`vmsam-dev-sandbox`, naming its own error of four hours
 earlier as the one a new consumer will repeat on day one unless told).
+
+## 8. Quoting a log line is the fleet's widest privacy exit
+
+**A CONTROL THAT DEPENDS ON A PATTERN MATCHING ADVERSARIAL TEXT IS NOT A CONTROL.**
+
+An agent building the merge-plan report collected non-`repair:` lines deliberately —
+*a skip is a decision and an omission reads as "there weren't any"* — and wrote a pattern
+redactor to strip the paths out of them. **It did not hold, and the reason is one
+character:**
+
+    the line:   ['/srv/.../<two words>/<three words> {tvdb-...}/...'] not compatible
+    THE PATH CONTAINS SPACES, so the pattern terminated at the first space and
+    the second half of a series title walked through intact.
+
+**Measured, not reasoned.** *And the fix is not a better pattern.*
+
+> **WHERE THE INPUT IS FREE TEXT YOU DO NOT OWN, WITHHOLD IT RATHER THAN SANITISE IT.**
+
+The row now carries **the FACT** — a digest, a character count, `carries_path`, an
+alphabetic tail phrase — **and never the content.** Enough to locate the line in a log
+that does not travel. **Three layers, and only the first is a guarantee:**
+
+    1  NEVER EMIT UNVOCABULARIED FREE TEXT              <- the actual control
+    2  opaque-token redaction on every other value      <- defence in depth
+    3  a final re-read of the finished document that RAISES
+
+**Layer 3 raises rather than corrects, deliberately: a silent fix hides the next leak.**
+*And it caught something immediately — itself: `</title>` matched a single-segment path
+pattern, which would also have mutilated `verified=1/1` and `master/ja`. A path now
+requires two segments* (`vmsam-dev-4`).
+
+**AND THE HAZARD IS NOT THAT AGENT'S. IT IS EVERYONE'S.**
+
+**Every agent here quotes log lines into reports and into messages, and frozen
+`mergeVideo.py` writes real library paths into the log in twelve places by design.**
+*Anyone pasting a non-`repair:` line is one space-containing path away from the same leak,
+and a pattern redactor will not save them.*
+
+    QUOTE A LOG LINE ONLY IF EVERY FIELD IN IT COMES FROM A VOCABULARY YOU OWN.
+    Otherwise report the FACT of the line -- its shape, its length, where to find it --
+    and leave the line where it is.
+
+*This is `satisfy a rule by construction` applied to redaction, and it runs the opposite
+way to the usual case: elsewhere, construction lets you EMIT something and guarantee a
+property. Here the only construction that guarantees anything is to NOT emit.*
+
+**Two independent computations agreeing is worth more than either, and worth keeping
+after they agree.** The same report derives each region's offset from cut bounds *and*
+reads the value a producer now emits. **On 3 files, 9 tracks and 20 offsets including
+negatives, the two agree to the digit.** *The emitted value takes precedence and the
+derivation still runs beside it as a standing cross-check, printing both on a
+disagreement* — **a cross-check deleted the moment it first agrees is a cross-check that
+never runs again** (`vmsam-dev-4`).

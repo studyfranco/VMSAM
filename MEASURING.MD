@@ -868,3 +868,273 @@ list that drives refutation** — `findings: ["only one measurable track, no int
 comparison possible"] -> REFUTED` — **the instrument built to keep the third outcome
 separate folded it into a verdict, written by the agent that had catalogued that class
 all campaign** (`vmsam-forensic`, `vmsam-dev-sandbox`).
+
+**TWO OPERATIONS WITH THE SAME NAME AND DIFFERENT GRIDS, AND A DOCUMENT THAT CITES ONE
+AS THE JUSTIFICATION FOR THE OTHER.** `video.get_good_frame` snaps on the **MINIMUM of the
+two files' declared rates** and locates the frame by a **PSNR scan over five candidate
+offsets** — a grid the two files can actually be compared on, found by measurement.
+`mergeVideo.adjust_delay_to_frame` snaps on **the best-quality video's own rate**, with
+`round()` where the other truncates, **reading the same mediainfo string once as `float`
+and once as `Decimal`.** *Nothing makes the best-quality video the lower-rate one.*
+
+    both 23.976              worst over k=1..8   0.0000 ms   EXACT NO-OP
+    use 23.976, best 25                         13.6670 ms
+    use 23.976, best 29.97                      16.6834 ms
+
+**When the rates match, the second buys nothing. When they differ, it moves the delay OFF
+the frame the PSNR scan chose**, with the error growing as the delay grows because the
+grids are incommensurate. **And it is path-dependent:** `get_good_frame` is reached only
+from `get_best_video`; on the forced-best-video path it is never called, **so a sentence
+about "the snap" is true of one path and false of the other** (`vmsam-dev-3`).
+
+*The lesson is not about frames. **Two functions doing "the same thing" on grids nobody
+compared is how a criterion gets cited at an operation it does not describe** — and the
+citation survives review because the sentence is true of something.*
+
+**A STATISTIC VALIDATED ONLY WHERE ITS DEFECT CANNOT APPEAR HAS NOT BEEN VALIDATED —
+SECOND INSTANCE, SAME AGENT, ONE LAYER UP.** A selector was published as *fidelity is the
+gate, flatness is the choice*. **The choice half is false**, refuted by the very fixture
+its author was dispatched to build:
+
+    max-min flatness reads THE STEP, not the drift, because a splice makes the
+    residual PIECEWISE CONSTANT -- and a wrong rate's drift can run OPPOSITE to
+    the step and partially cancel it, giving the wrong hypothesis a SMALLER
+    max-min than the truth.
+
+    1:1 residuals: 2013 5161 7643 2181 4667 7994 ms -- A SAWTOOTH.
+    MAX-MIN CANNOT TELL A SAWTOOTH FROM A PLATEAU.
+
+**It was wrong at two probe densities and at a DIFFERENT hypothesis each time**, which
+rules out probe count as the cause: *the statistic has no purchase on that file at all.*
+**And it read 0.1 ms against a 651.6 ms runner-up on the pure-rate fixture — flawless,
+because the defect cannot appear where there is no splice** (`vmsam-dev-1`).
+
+**The replacement takes no parameter, and that is the point:**
+
+    spread_2seg = min over every split k of ( spread(probes[:k]) + spread(probes[k:]) )
+
+*A true rate under one splice leaves two flat levels, so this goes to zero; a wrong rate
+leaves drift INSIDE both halves, which no split removes.* **0.3 ms against 693.2 — margin
+2311× — on the file where max-min had no margin and the wrong sign.** *Its author's own
+test: **if it needed a parameter it would not be a fix, it would be a knob set after
+seeing the answer.***
+
+**AND THE TWO STATISTICS SPLIT BY ROLE, WITH NUMBERS UNDER BOTH HALVES:**
+
+> **FIDELITY has the DISCRIMINATION to reject a wrong family and NOT the resolution to
+> choose within one** — it separates 1:1, inverse and PAL below 0.74, and separates the
+> near neighbours by **0.0002, which is noise.**
+> **SEGMENT-AWARE FLATNESS has the RESOLUTION to choose within a family and NOT the
+> discrimination to reject one** — 2311× on the same neighbours.
+
+*Same shape as the `dr x W` result — resolution is set by the baseline AND by how fine a
+quantity is read on it — arriving a second time from the opposite direction.*
+
+**And the limit is named rather than left implicit: the replacement assumes ONE splice.**
+The locator finds **four change points and five segments** on at least one corpus file,
+where a two-segment fit has nothing to say — **and the obvious repair, taking the
+segmentation from the locator, is CIRCULAR on exactly these files, because a rate
+relation is what destroys the locator's correlation in the first place.**
+
+**A DEAD BRANCH THAT ENCODES A WRONG BELIEF IS NOT THE SAME OBJECT AS A CHEAP DEFENCE,
+AND THIS FILE MUST NOT CONFLATE THEM.** The architect saw `if v.get("outcome") not in
+(None, "skipped")` guarding for a value it believed no producer emitted, and called it a
+second instance of the `get_speed_ratio` class. **It is not, and the refutation is the
+useful part:**
+
+    "skipped" HAS THREE PRODUCERS -- merge_video_chimeric.py:1838, :1850, :1909 --
+    writing into a DIFFERENT structure, built at :1372 and read at repair.py:569.
+
+    record() builds entries keyed  candidate/outcome/reason/detail
+    verification entries are keyed track/language/outcome/reason
+
+**Two dicts, both carrying a field called `outcome`, and that is the entire trap.** *The
+architect joined two vocabularies on a shared field name — `WRITE_ZONES.MD` §7, committed
+inside the document set that carries it, by the person who wrote it that morning.*
+
+**The `None` arm IS dead — no producer omits the key — and that still is not the same
+defect:**
+
+> ***`get_speed_ratio` was a guard for a value a producer was EXPECTED to emit and never
+> did: a branch encoding a belief about the data that was false. A `.get()` default
+> absorbing a malformed dict costs nothing and asserts nothing about producers.***
+
+**Only the first has cost this campaign anything. Ask which one you have before invoking
+the class** (`vmsam-forensic`).
+
+**A FIELD MISSING FROM ONE READER, READ AS A FIELD MISSING FROM THE ARTEFACT — AND THE
+WRONG CONCLUSION IS A NEGATIVE, WHICH NOBODY AUDITS BECAUSE IT SOUNDS LIKE CAUTION.**
+
+Four agents and the architect spent an afternoon on this chain, in this order:
+
+    231 .mkv, both campaigns, via ffprobe:   0 carry writing_application
+    -> "mkvmerge has never written a file here"
+    -> "the frozen merge has never completed"
+    -> "the END-TO-END TEST HAS NEVER REACHED THE END"
+    -> reported to the owner as the result of the day
+
+    THEN, via mkvinfo and mkvmerge -J on the same files:
+    Writing application: mkvmerge v101.0 ('Time To Turn') 64-bit    5 OF 5
+
+**`ffprobe` does not expose Matroska's `writing_application`. It prints a format-level
+`ENCODER`, which on these files is `Lavf63.1.101` INHERITED FROM AN EARLIER ffmpeg PASS
+AND CARRIED THROUGH THE REMUX.** *So the field was there and one reader could not see it.*
+
+**Everything downstream inverts: `mergeVideo.py:1834` has observed executions, the
+±20.85 ms snap path has observed executions, and mkvmerge's version is v101.0 — which
+retro-anchors a day of measurements that had been correctly labelled unanchored.**
+*What survives is narrower and still open: the ZERO-TRACK `--sync` branch has no observed
+execution, which was the qualifier its author asked to keep attached and which is the only
+part that was ever about `--sync`* (`vmsam-dev-3`, correcting `vmsam-ci`, `vmsam-forensic`,
+`vmsam-dev-sandbox` and the architect at once).
+
+**The class, and it is the inverse of the trap found the same hour.** *A source tag
+surviving a remux is a field with the right name and the wrong subject; this is a field
+with the right value that one instrument does not print.* **Both are invisible to a careful
+reader. Only one of them produces a NEGATIVE — and a negative is the conclusion nobody
+re-derives, because doubting your own instrument reads as rigour and the claim wears the
+shape of a limit rather than of a finding.**
+
+> **Before concluding from an absence, establish that the reader you used can SHOW the
+> field when it is present.** *One artefact known to carry it, through the same tool, is
+> the whole control — and none of the five of us ran it.*
+
+**And what makes it worse rather than excusable: the measurement that produced the wrong
+negative was BETTER than the one that would have avoided it.** *231 files, two campaigns,
+the output-path link checked at `:1872` so the absence would be evidence rather than a
+blind spot, and the bound stated precisely.* **Every one of those refinements is about the
+POPULATION and the SCOPE. Not one is about whether the instrument can see the thing.**
+
+**AND THE GOVERNANCE DEFECT IS THE ARCHITECT'S, NOT ANY AGENT'S.** Campaign 1 wrote this
+down as an invariant and archived it:
+
+> ***§71. Verify the artefact that ships, not the one on the way to it. The verifier runs
+> against the intermediate. The final merge happens afterwards. NOTHING CHECKS THE FILE
+> THAT SHIPS.***
+
+**Campaign 2 spent a day rediscovering it by measurement while five agents built
+increasingly careful instruments pointed at the wrong file** — *and the architect redacted
+the file containing it an hour before, without reading it.* **`vmsam-ci`'s own framing,
+which is the correct one: the contribution is the number and the bound, not the finding.**
+
+> **NOTHING IN THIS WORKFLOW SURFACES A PREVIOUS CAMPAIGN'S INVARIANT WHEN THE CURRENT ONE
+> WALKS INTO IT.** *An archive nobody is instructed to search is a record, not a control.*
+
+**So it becomes an instruction rather than an availability:** *before building an
+instrument against any artefact, grep `CAMPAIGNS/*/DOMAIN_INVARIANTS.MD` for the thing you
+are about to measure.* **Cheap, and it would have cost this campaign one command instead
+of a day.**
+
+**COULD-NOT-DETERMINE IN A BRANCH'S OPERAND IS WORSE THAN IN ITS PREDICATE, BECAUSE THE
+GUARD STILL FIRES.** A scan of **561 distinct corpus files** for `FrameRate_Mode` returned
+**559 CFR, 2 VFR, zero absent keys, zero missing video tracks** — so the two harsher exits
+readable in the source, a `KeyError` and a `TypeError` both swallowed by a broad `except`,
+are **real in the code and unrealised in this corpus. Hazard, not live defect** — *and its
+author says it would have shipped them as live if it had stopped at the reading.*
+
+**And the scan produced a defect that was WITHDRAWN within the hour, by the mechanism
+that matters more than the defect:**
+
+    reported   two CFR files carry non-standard FrameRate -- 23.839 and 47.281 --
+               so they pass the predicate and snap to a FABRICATED grid
+    RETRACTED  THE TWO NON-STANDARD RATES ARE THE TWO VFR FILES.
+               They take the unsnapped branch and never reach the snap.
+
+> **THE JOINT WAS INFERRED FROM TWO MARGINALS WITHOUT JOINING THE TABLES.** *Two VFR files
+> in one column, two odd rates in another, and the rows were the same rows.*
+
+**A second agent had already reproduced the numbers through the real function**, and says
+so against itself: *reproduction is not corroboration — I would have been a corroborating
+witness for a wrong joint.* **Running someone's input through the same code confirms their
+ARITHMETIC and cannot confirm their POPULATION** (`vmsam-dev-1`, `vmsam-dev-3`). *What
+survives is a hazard rather than a live defect: the snap divides by `1000/FrameRate`
+whatever it says, and nothing in this corpus currently reaches it with a rate that lies.*
+
+**AND THE THREE CONTROL FAILURES OF ONE DAY ARE ONE SHAPE.** *People build a control for
+the thing they were thinking about rather than for the thing that decides the answer:*
+
+    a control for the MECHANISM        where the COMMAND decided it      (dev-3)
+    a control for the STATISTIC        where the POPULATION decided it   (dev-1)
+    a control for the LINK THAT MAKES  where the link that makes a FIELD
+      AN ABSENCE MEANINGFUL              VISIBLE decided it              (ci)
+
+**Every one was a real, careful, well-designed control. None of them was pointed at the
+step that carried the conclusion.** *Ask what your control would have to show to be
+compatible with the OPPOSITE answer — if there is no such showing, it is aimed elsewhere.*
+
+**A CORPUS THAT EXERCISES ONE STATISTIC'S FAILURE AND NOT THE OTHER'S IS HALF A CORPUS.**
+A replacement statistic came in **3 of 3** where the original was **2 of 3** — *and its
+author refused the clean table:* **fidelity is also 3 of 3 on those fixtures, so they
+demonstrate one statistic's failure mode and not the other's.** The conclusion *neither
+can be the sole selector* rests on **one synthetic case plus one real file**, not on a
+fixture set that shows both. **A fixture set built to break statistic A cannot support a
+claim about A and B jointly, however many rows it has** (`vmsam-dev-1`).
+
+**And the acceptance criterion earns its place on the SMALL number.** `0.3 ms` against
+`0.2 ms` on the case the original already handled, against a 617 ms margin. *The figure
+that makes a replacement a fix rather than a trade is the one measuring what it did NOT
+break* — **and it exists only because the old case was run against the new statistic,
+which is the step most replacements skip.**
+
+**READ EVERY NUMBER IN THE PROSE AGAINST THE TABLE IT SUMMARISES — AND THE LABELS TOO.**
+A harness hardcoded a `<- TRUTH` marker on one hypothesis; on a fixture whose truth was a
+different hypothesis, **the numbers were right and the annotation pointed at the wrong
+row.** *The rule was written for numbers and it caught a label* (`vmsam-dev-1`, in its own
+output, before quoting it).
+
+**CORROBORATION CAN BE DESIGNED IN ADVANCE INSTEAD OF NOTICED AFTERWARDS.** Holding a
+frame-rate scan's numbers back from a second agent running the same scan **makes its
+result a blind second reading rather than an echo** (`vmsam-dev-1`). *Every corroboration
+this campaign has celebrated was discovered after the fact — two agents finding they had
+agreed. This is the first one anyone set up so that agreement would MEAN something, and it
+costs nothing but silence.*
+
+**"NO NOISE" IS A CONDITION, AND A REPLACEMENT VALIDATED WITHOUT IT HAS BEEN VALIDATED ON
+AN INPUT THE PRODUCTION PATH NEVER SEES.** A statistic was generalised to take a free
+parameter `k`, and on the residuals already in hand the conclusion was clean:
+
+    NOISE-FREE   k=1 picks the WRONG rate; k=2..6 ALL pick the truth
+                 tripling k from 2 to 6 costs the runner-up LESS THAN 2x
+    CONCLUSION   choose k GENEROUSLY rather than correctly -- you never need to
+                 know how many splices a file has
+
+**Adding `N(0, sigma)` per probe and re-selecting reversed it, and the reversal is about
+ACCURACY rather than margin:**
+
+    fraction of trials picking the TRUE rate
+    sigma        k=2      k=3      k=4     k=5     k=6
+    0-20 ms    100.0%   100.0%   100.0%  100.0%  100.0%
+    35.8 ms    100.0%   100.0%    99.8%   94.2%   81.7%   <- THIS CORPUS'S OWN
+    41.0 ms    100.0%   100.0%    98.8%   86.8%   71.2%      SCATTER, from TASKS/009
+   100.0 ms     90.0%    67.0%    57.0%   44.0%   30.0%
+
+> **EXTRA FREEDOM IS CHEAP ONLY WHERE THERE IS NOTHING TO OVERFIT — AND EVERY REAL FILE
+> HAS SOMETHING TO OVERFIT.** *The rule inverts: `k` AS SMALL AS THE FILE ALLOWS.*
+
+**And the operating point is on the shoulder, not inside it:** at the corpus's measured
+scatter of 35.8–41.0 ms, `k=6` is already **71–82 %**, and a file with worse scatter walks
+off it. *The number to carry is the shoulder, not the 100 %* (`vmsam-dev-1`).
+
+**THE ACCEPTANCE CRITERION FOR A REPLACEMENT NEEDS A SECOND CLAUSE, AND ITS AUTHOR
+SUPPLIED IT AGAINST HIS OWN RESULT:**
+
+> *The extra freedom must buy the new case **without damaging the case the original
+> handled** — **and the original's case must be run under the CONDITIONS the original ran
+> under.***
+
+**The two-segment version passed the first clause honestly, costing 0.1 ms on a 617 ms
+margin. The k-generalisation passed the same test on clean input and failed it the moment
+the input had noise.** *Same criterion, two applications, and the second is where it bit.*
+
+**SECOND INSTANCE THE SAME DAY, IN A DIFFERENT ZONE:** a transport control tested `-ss`
+alone where the pipeline runs `-copyts` **with `-ss` as an output option**, giving
+`0.0 ms` against the pipeline's `+21.0 ms`. **Both are a test that omitted a condition the
+production path always carries** — *one omitted a flag, one omitted the noise.* **Ask what
+the production path has that your fixture does not, and put it back before you believe the
+table.**
+
+**And the model's own limit, named by its author before anyone asked:** *the noise is
+independent Gaussian per probe; real scatter from a 124 ms quantum is neither Gaussian nor
+independent between overlapping windows.* **So the table measures the OVERFITTING
+MECHANISM and not this corpus's failure rate** — and the distinction is what stops the
+81.7 % becoming a number someone quotes about real files.
