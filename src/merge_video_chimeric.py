@@ -138,6 +138,34 @@ def offset_is_measured(segment, stream_order=None):
                for key in (stream_order, str(stream_order), int(stream_order)))
 
 
+def offset_fidelity(segment, stream_order=None):
+    """La fidelite de l'appariement de ce flux, quand la mesure la donne.
+
+    `vmsam-dev-1` a mesure la barre sur 127 paires de 25 fichiers et a trouve un
+    CHEVAUCHEMENT: la meilleure paire INTER-langue atteint 0.8477 et la plus
+    basse paire MEME-etiquette qui a l'air vraie est a 0.8196. AUCUN SEUIL NE
+    LES SEPARE PROPREMENT. 0.85 est donc un choix DANS un chevauchement, pas une
+    frontiere.
+
+    Consequence directe pour ce fichier-ci, et c'est leur formulation: A LA
+    BARRE, UN REFUS N'EST PAS LA PREUVE QUE LA PISTE EST NON MESURABLE -- C'EST
+    LA PREUVE QU'ON N'A PAS PU LA MESURER ASSEZ BIEN POUR EN ETRE SUR. Les deux
+    ne sont pas la meme chose et le journal doit pouvoir dire laquelle.
+
+    Renvoie None quand la mesure ne porte pas de fidelite -- ce qui est le cas
+    de TOUS les plans aujourd'hui, la table par flux ne l'emettant pas encore.
+    None se journalise alors comme absent, jamais comme zero: une fidelite
+    inconnue n'est pas une fidelite nulle.
+    """
+    table = segment.get("candidate_offset_fidelity_by_stream")
+    if not table or stream_order is None:
+        return None
+    for key in (stream_order, str(stream_order), int(stream_order)):
+        if key in table:
+            return table[key]
+    return None
+
+
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None):
     '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
@@ -947,11 +975,20 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             report["offset_measured"] = all(
                 offset_is_measured(segment, int(audio["StreamOrder"]))
                 for segment in segments)
+            report["offset_fidelity"] = next(
+                (offset_fidelity(segment, int(audio["StreamOrder"]))
+                 for segment in segments
+                 if offset_fidelity(segment, int(audio["StreamOrder"])) != None),
+                None)
             if not report["offset_measured"] and refuse_borrowed_offset:
+                # La fidelite, QUAND ELLE EXISTE, distingue "aucun partenaire
+                # n'a passe la barre, a 0.82" de "rien n'a ete mesure du tout".
+                seen = report["offset_fidelity"]
                 raise chimeric_error(
-                    "no offset was measured for this stream: it would carry "
-                    "another track's alignment, and a borrowed offset is not "
-                    "a measurement")
+                    "no offset was measured for this stream"
+                    + (f" (best partner fidelity {seen})" if seen != None else "")
+                    + ": it would carry another track's alignment, and a "
+                      "borrowed offset is not a measurement")
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",

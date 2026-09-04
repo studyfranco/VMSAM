@@ -497,7 +497,10 @@ def log_assembly(candidate_path, assembly, plan):
                 f"head_pad_ms={report['head_pad_ms']} "
                 f"speed={report.get('speed_ratio_applied')} "
                 # BORROWED = cette piste porte le decalage d'une AUTRE langue.
-                f"offset={'measured' if report.get('offset_measured') else 'BORROWED'} "
+                f"offset={'measured' if report.get('offset_measured') else 'BORROWED'}"
+                # `fid` absent = la mesure n'en donne pas. JAMAIS 0.0: une
+                # fidelite inconnue n'est pas une fidelite nulle.
+                f"{'(fid ' + str(report['offset_fidelity']) + ')' if report.get('offset_fidelity') != None else ''} "
                 f"verify={checked.get('outcome')} "
                 # LES UNITES VOYAGENT AVEC LES NOMBRES. L'ancienne forme
                 # `residual=(4,0.08,129)` mettait un COMPTE, un RAPPORT et une
