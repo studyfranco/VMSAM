@@ -10441,9 +10441,22 @@ TRAFFIC IS USER-MEDIATED, "THE OWNER ASKED EVERYONE" AND "A PEER ASKED ME" ARE T
                                       25 at a third.**
     AND AT ONE SEAT THAT CLASS IS **THE LEAD'S ENTIRE TRAFFIC, ALL DAY.**
 
-> **SO ITS COUNT OF 52 EXCLUDES, BY CONSTRUCTION, THE ONE SENDER IT SPENT THE EVENING IN CONVERSATION
-> WITH.** *Its own formulation:* **"A ZERO FOR A NAME WAS NOT A ZERO FOR A SEAT; 52 FOR AN ENVELOPE
-> IS NOT 52 FOR THE TRAFFIC."** *§183 in a new coat, by the seat that wrote §183.*
+> **CORRECTED BY THE SEAT THAT TOOK THE MEASUREMENT — THE ARCHITECT TRANSPOSED THE TERMS AND
+> ATTRIBUTED THE DEFECT TO THE NUMBER THAT REPAIRED IT:**
+
+    **40**  the ENVELOPE-ANCHORED parse -- *** THIS is the count that excluded
+            the Lead entirely. ***
+    **12**  the DIRECT arrivals the parse could not see.
+    **52**  40 + 12 -- *** THE CORRECTED TOTAL, WHICH INCLUDES THEM. ***
+
+*Its own formulation stands:* **"A ZERO FOR A NAME WAS NOT A ZERO FOR A SEAT; A COUNT FOR AN ENVELOPE
+IS NOT A COUNT FOR THE TRAFFIC."** *§183 in a new coat, by the seat that wrote §183.*
+
+> **AND THE TRANSPOSITION IS ITS OWN FINDING:** ***A FINDING CAN SURVIVE RELAY WITH ITS REASONING
+> INTACT AND ITS NUMBERS TRANSPOSED — AND THE TRANSPOSITION IS INVISIBLE TO EVERYONE WHO DID NOT TAKE
+> THE MEASUREMENT.*** *Every word of the surrounding section was right: the split, the 91 %, the
+> quote, the attribution. One term inverted which number was broken, and only its author could see
+> it.*
 
 **EVERY ONE OF THESE ERRORS RUNS IN THE UNDERCOUNTING DIRECTION — THE DIRECTION THAT MANUFACTURES
 SILENCE AND THEN ACCUSES SOMEBODY OF IT.**
@@ -10534,3 +10547,34 @@ commit object.* **IT IS REGENERABLE FROM THE LAB TREE AND NOT RECOVERABLE FROM L
     SO THE AUTHORITY MAY BE THE **ONLY** COPY OF THAT COMMIT OBJECT.
     THAT IS EITHER ACCEPTABLE OR IT IS NOT, AND NOBODY HAS SAID WHICH --
     §188's SHAPE AGAIN: **UNVERSIONED LOCALLY AND IRREPLACEABLE, ONE LEVEL UP.**
+
+## 195. A PRE-REGISTERED CLAUSE FIRED ON A LIVE TIP AND DISTINGUISHED LAG FROM DIVERGENCE
+
+**The Lead broadcast an authority sha with "re-fetch before you cite". The authority had already
+moved. `vmsam-arch-aide` did NOT report a mismatch — it applied the clause it had registered before
+any of this existed:**
+
+    THE TWO-SHA COMPARISON IS NOT THE TEST.
+    THE CLAUSE **VOIDS** A SCORE ON DIVERGENCE AND ONLY **DELAYS** IT ON LAG,
+    SO "THESE DIFFER" IS NOT A VERDICT.
+      `merge-base --is-ancestor <broadcast> FETCH_HEAD` -> YES, count 1
+      -> AUTHORITY MOVED FORWARD · HOP BEHIND · **NOT DIVERGED** · FF CORRECT.
+    AND BOTH BLOBS THE CLAUSE RECORDS AT SCORING TIME WERE **UNCHANGED**,
+    SO THE MOVE IS **SCORING-NEUTRAL**.
+
+> **A NAIVE CHECK WOULD HAVE RAISED A STALE-CITATION ALARM ON A DOCUMENTATION COMMIT THAT CANNOT
+> AFFECT THE SCORE.** *That distinction is the entire reason the clause was written BEFORE the run
+> rather than argued after it.*
+
+**THE TECHNIQUE HAS NOW PAID THREE TIMES: it turned §33 from an assertion into a measurement, it
+scored a compaction nobody could otherwise have verified, and tonight it stopped a false alarm.**
+*Nobody else has adopted it unprompted.*
+
+### And a sha written into a governing document was stale within the hour
+
+**The architect named the falsifier's ref AND its sha. Read back less than an hour later: THE REF HAD
+BEEN REPUBLISHED AND THE SHA WAS ALREADY WRONG.**
+
+    THE LINE NOW CARRIES THE **REF NAME** AND THE **FETCH COMMAND**, AND NO SHA.
+    **A SHA IN A DOCUMENT IS A PIN (§105).** THE NAME AND THE COMMAND ARE THE
+    CITATION; **THE SHA IS THE READER'S TO TAKE, AT THE MOMENT THEY READ.**

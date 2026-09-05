@@ -959,7 +959,11 @@ never examined — and from outside, that is indistinguishable from having merge
 ### WHERE IT IS, AND HOW TO GET IT — SUPERSEDES THE PARAGRAPH THAT STOOD HERE
 
     git ls-remote <authority> 'refs/agents/*'
-      ->  feb3485e...   **refs/agents/arch-aide-artefacts**
+      ->  **refs/agents/arch-aide-artefacts**
+    *** NO SHA IS GIVEN HERE ON PURPOSE. *** The one written into this line an
+    hour ago was ALREADY STALE when it was read back -- the ref was republished
+    in between. **A SHA IN A DOCUMENT IS A PIN (§105). THE REF NAME AND THE
+    COMMAND ARE THE CITATION; THE SHA IS THE READER'S TO TAKE.**
     `END_CONDITION_FALSIFIER.md` IS IN THAT REF'S PUBLISH SET.
     TO READ IT:
       git fetch <authority> '+refs/agents/*:refs/remotes/agents/*'
