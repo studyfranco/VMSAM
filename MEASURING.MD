@@ -9034,3 +9034,60 @@ the correction — the one question §146 exists to force.*
 
 *The seat quoted the three lines in its own commit body so the next reader need not trust either
 party. That is the correct repair for a relay that inverted.*
+
+## 147. THE CODE ALREADY CARRIED §111, IN ITS OWN WORDS, BEFORE THE DOCUMENT DID
+
+**Reading `merge_video_chimeric.py` for the owner's overview, the architect found this comment
+inside the guard it describes:**
+
+> ***"...ce qu'elle a fait sur le premier vrai run, et c'est pour cela qu'on tire les gardes plutôt
+> que de les relire."***
+
+**THAT IS §111 — *a guard is not verified by existing, it is verified by being made to fire* — WRITTEN
+BY A SEAT INTO THE MODULE, AND THE ORDER IS PROVABLE:** *the blob carrying it landed in `13ec6bf`,
+which `git merge-base --is-ancestor` confirms is an ancestor of `445177e`, where §111 was published.*
+**THE CAMPAIGN RE-DERIVED, FROM A BROKEN HOOK, A RULE ITS OWN ENGINE HAD ALREADY LEARNED FROM A
+FIRING GUARD.**
+
+    AND THE DATING IS ITSELF A FINDING: THE SQUASH DESTROYED THE **WALL CLOCK**
+    AND LEFT THE **ANCESTRY** INTACT. `git log --date` says both are 09-05.
+    `--is-ancestor` still answers. **A REWRITE TAKES *WHEN*. IT DOES NOT TAKE
+    *BEFORE AND AFTER*** -- so an ordering claim survives a compaction that
+    annihilates every date and every SHA, PROVIDED YOU ASK FOR ORDER AND NOT
+    FOR TIME.
+
+### What the guard had caught, and it is the campaign's own scope question
+
+**A guard written for objective 2 REFUSED objective 3 on the first real run** — *a single
+zero-offset slice over a resample is the normal shape of a SPEED-ONLY plan, where the work is done by
+the filter and not by the cutting.* **The exception lives in the condition today; without it the
+speed path is refused by an identity-gate guard.**
+
+## 148. REFUSING IS NOT A CHOICE HERE — THERE IS NO CLAMPING MACHINERY
+
+**`vmsam-lead` measured `normalize_segments` structurally rather than reading its comment, and it is
+the stronger evidence. RE-MEASURED HERE BY AST:**
+
+    normalize_segments, chimeric.py:267-391
+      raise sites          7
+      return sites         1
+      min() / max() calls  **0**   <- A CLAMP WOULD NEED ONE. THERE ARE NONE.
+
+> **IT IS NOT THAT THE FUNCTION *PREFERS* TO REFUSE. IT HAS NO MEANS OF CLAMPING AT ALL.** *Seven
+> raises against one return: refusal is the dominant exit, by construction.*
+
+**AND THE COMMENT SAYS WHY, IN THE CAMPAIGN'S OWN VOCABULARY:** *clamping a plan that runs past the
+candidate would produce a file that is* ***"plausible et silencieusement" wrong*** *— the exact class
+this campaign exists to prevent, refused by absence of capability rather than by discipline.*
+
+    **THE STRONGEST FORM OF A SAFETY PROPERTY IS THAT THE UNSAFE OPERATION IS
+    NOT EXPRESSIBLE.** §145 SAID: MAKE IT TRUE BY CONSTRUCTION, NOT BY
+    COINCIDENCE. THIS IS THE NEXT STEP -- TRUE BY **ABSENCE**.
+
+### And a refused population that is refused correctly
+
+**24 files — 7.6 % — carry a constant offset and are refused anyway. FOR ELEVEN OF THEM THE MEASURED
+CAUSE IS IN THE *MASTER*, NOT THE CANDIDATE.** *Repairing them here would mean rebuilding a track to
+correct a defect in the reference.* **A refusal with a stated, measured reason is not a gap in the
+repair — it is the repair declining work that is not its own**, and it is recorded in the module
+rather than in any report.
