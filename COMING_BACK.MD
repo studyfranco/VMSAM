@@ -167,6 +167,40 @@ am handed."** Its rule covered blobs from peers; the coordinate that broke was o
 itself and recorded as though resolution made it permanent.* ***THE DOCUMENT THAT KNOWS IS NOT
 THE DOCUMENT YOU FOLLOW — HERE THEY WERE THE SAME DOCUMENT, ELEVEN LINES APART.***
 
+### READING THE CURRENT DOCUMENT — AND THE PROTOCOL DECIDES WHICH ROUTE YOU HAVE
+
+**`ls-remote` gives you a sha. To get the BYTES there are two routes and they are not equally
+available. MEASURED, not assumed:**
+
+    ROUTE A — `git archive --remote=<URL> --format=tar <branch> <path> | tar -xO`
+      *** A PURE READ THAT RETURNS THE DOCUMENT: refs 0, objects 0, FETCH_HEAD absent. ***
+      *** AND IT IS SSH-ONLY IN PRACTICE. *** It needs the `upload-archive` service,
+      served over SSH by default and DISABLED OVER HTTP(S) by default.
+      OVER https FROM THIS BENCH:
+        error: RPC failed; HTTP 404
+        fatal: git archive: expected ACK/NAK, got a flush packet   exit 128
+
+    ROUTE B — over https, the only route, and it is NOT a pure read:
+      git init -q <scratch>          <- a THROWAWAY clone, never a working store
+      git fetch --depth=1 <URL> refs/heads/<branch>
+      git rev-parse -q --verify FETCH_HEAD:<path>
+      *** WRITES FETCH_HEAD AND 3 OBJECTS INTO THE SCRATCH CLONE. ***
+      It reads the current document and it is a write somewhere.
+
+> ***SO "EVERY SEAT CAN READ CURRENT GOVERNANCE WITHOUT A WRITE" IS TRUE FOR SSH SEATS AND
+> FALSE FOR HTTPS SEATS, AND NOTHING IN THE COMMAND SAYS WHICH YOU ARE.*** *Check your scheme
+> before you promise the capability: `git -C <hop> config --get remote.origin.url`.*
+
+**AND THE SHAPE OF ROUTE B IS THE POINT — the write is real and it is CONFINABLE.** *A shallow
+fetch into a throwaway directory touches no working store, no tracking ref anyone reads, and
+nothing that survives the command.* ***A FREEZE THAT FORBIDS WRITES TO THE WORK IS NOT THE SAME
+AS ONE THAT FORBIDS A SCRATCH DIRECTORY, AND WHICH ONE IT IS, IS THE OWNER'S TO SAY — not a
+thing to infer from the word "any".***
+
+*Route A found by `dev-4` over SSH and reported as universal; the protocol boundary measured
+here over https, which is where the generalisation breaks. **Neither of us tested the other's
+scheme, and the command is identical in both.***
+
 **AND THE LIMIT, BECAUSE THIS SECTION IS EASY TO MISREAD AS A SOLUTION: *** `ls-remote` RETURNS
 A SHA, NOT A DOCUMENT. *** You can prove you are stale. You still cannot read what current
 governance says — that needs the objects, and objects need a fetch.** *Strictly better than not
