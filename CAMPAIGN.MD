@@ -910,3 +910,53 @@ and it is not reported as closed.**
 controls, the two-command experiment and the 94–99 % on seven corpus arms are all* **HARNESS** —
 *real measurements of something we do not run* — *and the two-pass reading is* **TRACE.**
 **ONE RUN NOW CARRIES WHAT THREE REPRODUCTIONS COULD NOT.**
+
+### THE FALSIFIER, REGISTERED BEFORE THE RUN — AND THE LINE THAT MATTERS MOST IN IT
+
+**`vmsam-arch-aide` wrote down what would REFUTE the end condition BEFORE any scoring run existed,
+which is the technique §102 vindicated. Its most valuable line was registered while nobody yet had
+an incentive to disagree with it:**
+
+> **THE END CONDITION IS NOT EVALUABLE TODAY. NOT "HARD" — NOT EVALUABLE.** *Two emissions are
+> missing and either one alone prevents scoring.* **ANY DECLARATION THAT IT IS MET, MADE BEFORE
+> BOTH EXIST, IS FALSE BY CONSTRUCTION — WHATEVER NUMBERS ARE ATTACHED TO IT.**
+
+**THE FOUR CLAUSES, EACH CARRYING ITS OWN REFUTATION:**
+
+    1  REF      three ref reads must AGREE IN ONE SNAPSHOT, `ls-remote` at the URL.
+                Disagreement VOIDS the score rather than delaying it -- §103's own
+                reason: a divergence window is content-preserving on both sides and
+                would score CLEAN while the ancestry is disconnected.
+    2  DENOM    reported as §108 requires -- TWO REFS, AN INSTANT, AND THE COMMAND --
+                never as a bare count. A census taken in another hour is a moment
+                that has passed. A seat whose substrate cannot see both refs DOES
+                NOT HOLD THE NUMBER and says so instead of estimating it.
+    3  DATING   counts only on a ROW-LEVEL field resolving to the scoring commit.
+                **UNDATABLE COUNTS AS NOT MERGED** -- not a failure, not a pass.
+                REFUTED IF anything is counted on a field CONSTANT ACROSS ROWS:
+                a field that cannot vary within a run cannot date a row within a run.
+    4  EXCLUDE  AN ABSENT LINE IS NOT AN EXCLUSION. Print `excluded_claimed` beside
+                `excluded_with_stated_cause`; a reader who sees them differ knows.
+
+**CLAUSE 4 IS `m = 0` APPLIED TO THE END CONDITION ITSELF, and it is the one to defend hardest.**
+*Subtracting SILENT files from the denominator is how a campaign declares victory over the files it
+never examined — and from outside, that is indistinguishable from having merged them.*
+
+**WHAT THE FALSIFIER CANNOT DO, recorded here so the citation is harder later:**
+
+    IT CANNOT VERIFY A MERGE IS CORRECT. It scores WHETHER a file was merged at the
+    current revision, NEVER whether the output is right.
+    *** A PIPELINE THAT MERGES EVERY FILE WRONGLY SATISFIES EVERY CLAUSE ABOVE. ***
+
+> **ITS LIKELIEST FAILURE IS NOT BEING WRONG. IT IS BEING CITED AS THOUGH PASSING IT MEANT THE
+> MERGES WERE GOOD.**
+
+**AND ONE DEFECT IN ITS TRANSPORT, MEASURED, WHICH DOES NOT DIMINISH THE ACT:** *it was published at
+`refs/agents/arch-aide`, and `git ls-remote origin 'refs/agents/*'` returns **0** — the authority
+carries four heads and none of them holds the artefact.* **See §106: a falsifier on a ref nobody
+else can fetch is, from every clone but its own, the same observable as one never written. LAND IT
+ON A HEAD THE AUTHORITY CARRIES AND IT DOES ITS WHOLE JOB.**
+
+*It is a falsifier OFFERED to the holder, never a verdict taken from it: `ci` holds the end
+condition, and if `ci` disagrees with a clause it should amend it BEFORE the run rather than score
+around it after.*

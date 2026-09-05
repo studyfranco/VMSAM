@@ -6219,6 +6219,48 @@ same cut position.** *On one's material: `change_points=0, dropped=1`. On the ot
 **That demotes every *the module locates cuts correctly* claim made on synthetic material** —
 and it was reported by the seat whose own fixtures were demoted.
 
+
+### THIRD CLAUSE — STATE THE *REACHING* DENOMINATOR, AND IT IS PRIOR TO THE OTHER TWO
+
+**Found by `vmsam-auditor`, verified in the blob by the Lead, routed rather than acted on because
+neither seat edits governance. Re-measured here at the published blob, which is the same one they
+cited — `d5d9a1d892069b69`, unchanged across the rewrite:**
+
+    185  MIN_MEDIAN_FIDELITY  = 0.70        918  if median_fidelity < MIN_MEDIAN_FIDELITY:
+    208  MIN_PAIRING_FIDELITY = 0.85        928      return None
+    961  pairing, ... = _pair_candidate_streams(...)   <- 33 LINES LATER
+    CONTROL, mine: the only `return` between 928 and 961 is 950 -- another refusal,
+    never a fall-through. THE ORDER CANNOT BE ESCAPED.
+    And :932 says it in the source: "already refused by the fidelity floor above,
+    which is tested first and returns."
+
+**APPLIED TO `dev-3`'s CENSUS OF 16 REAL PAIRS:** *seven measured `fid_median` 0.601–0.618, below
+the floor, and returned at 928 — **THE PAIRING GATE WAS NEVER CALLED ON THEM.** Their pairing
+measurements were not discarded; **they were never computed.** Nine reach the gate: 7 change-points,
+1 true-empty, and 1 refused AT the bar by 0.018.*
+
+> **THE SEVEN ARE NON-MEMBERS, NOT UNMEASURED MEMBERS. THE REACHING DENOMINATOR IS 9 OF 16, AND
+> THE NEAR-BAR RESULT IS ONE PAIR OUT OF NINE — NOT ONE OUT OF SIXTEEN.**
+
+    STATE HOW MANY PAIRS THE GATE WAS *APPLIED TO*, SEPARATELY FROM HOW MANY WERE
+    EXAMINED. A PAIR THAT DIES UPSTREAM IS NOT A PASS, NOT A FAIL, AND NOT A MEMBER.
+    A gate scored over a population including pairs it never saw is §35 -- a sweep
+    certifying what it never looked at -- and it reads as a 16-pair result.
+
+**This clause is PRIOR to the two already in flight (harness-satisfiable vs shipped-output-auditable;
+which population): you cannot ask which population until you know which pairs the gate reached.**
+
+**AND THE UNDERLYING CAUSE IS §9's COUNTER-RULE WEARING A NAME.** *Two different thresholds are both
+called "fidelity" — 0.70 on the median over probes, 0.85 on the per-stream pairing minimum.*
+***RESEMBLANCE IS NOT PURPOSE***, *and here the resemblance is in the VOCABULARY rather than in the
+code, which is why reading either one alone gives a coherent and wrong account.*
+
+*Provenance, kept explicit because it is why the finding is trustworthy: every figure about the 16
+pairs is `dev-3`'s; `auditor` has no access to that corpus, verified the SOURCE ORDER only, said so,
+and corrected `dev-3` directly before it reported upward. **`dev-3` published a checkable MECHANISM
+rather than a conclusion — the only reason a seat with no corpus could catch it at all.** This
+narrows what reaches the owner rather than widening it.*
+
 ## 85. A JOIN BETWEEN TWO RELAYED FIGURES IS WEAKER THAN EITHER
 
 **The architect published *the 32 kHz trigger sits at position 63 of 76* and repeated it to four
@@ -6954,7 +6996,8 @@ reached their intended reader.**
 > **THE PROPERTY THAT MAKES A BLOB CITATION RELIABLE IS THE PROPERTY THAT MAKES A REDACTION
 > INCOMPLETE. YOU CANNOT HAVE CITABLE HISTORY AND REDACTABLE HISTORY IN THE SAME REF.**
 
-**Measured by `vmsam-arch-aide` on its own ref, which is where it found it:** *a media-server
+**Measured by `vmsam-arch-aide` ON ITS OWN REF `refs/agents/arch-aide`, WHICH IS THE ONLY REF THIS
+COUNT DESCRIBES — read as a fleet rate it becomes the §85 join it was written to prevent:** *a media-server
 directory name was redacted from a ledger. **NINE OF TWENTY-FIVE PUBLISHED LEDGER BLOBS STILL
 CARRY IT** — one contiguous run, sixteen clean afterwards, and the fragment did not predate the
 run.* **All 25 opened; `m` is 9 against 16, and both outcomes occurred.**
@@ -6993,6 +7036,11 @@ MOVES ON.**
 
 **That is the strongest evidence this rule has ever had, and it exists ONLY because the event
 happened while someone was watching for it with a falsifier written down first.**
+
+*Its author's own correction, and it is the sharper reading: this scores as a `RUN` rather than a
+`HARNESS`* ***not because the seat was more careful — because the falsifier was written before the
+outcome existed and neither party could have fitted it to the result.*** **THE INDEPENDENCE IS
+CARRIED BY THE TECHNIQUE, NOT BY THE SEAT. Anyone could have done it. Nobody had.**
 
 ## 103. IN A DIVERGENCE WINDOW THE BLOBS AGREE AND THE HISTORY DOES NOT
 
@@ -7091,3 +7139,78 @@ had written down only the first:**
 > by blob — nothing else survives a promotion squash. **AND NAME, ALONGSIDE IT, THE REF, THE
 > RANGE, OR THE SET the claim actually depends on**, because the citation will never supply
 > them and will never warn you that it did not.*
+
+### §103 fired within the hour, on the check being run to verify §103
+
+**Verifying the section at the authority, `vmsam-arch-aide` read `refs/heads/dev-AI` = `9de4c3a`
+and `ls-remote` = `032556e5`.** *Not a divergence — a strict ancestor, one commit behind,
+fast-forwardable.* **BUT THE THREE READS DISAGREED, AND THE SEAT WOULD HAVE BEEN READING A TREE
+ONE CHANGE OLD WHILE RESOLVING BLOBS THAT LOOKED PERFECTLY CURRENT.** *The benign case and the
+disconnected case present identically at the moment of reading; only the three-read agreement
+separates them, and it costs one command.*
+
+## 106. A CITATION IS ONLY AS REACHABLE AS THE REF THAT CARRIES IT
+
+**`vmsam-arch-aide` registered the end-condition falsifier BEFORE the run — the right act, done in
+the right order — and published it at `refs/agents/arch-aide`, blob `d25b1a6`, with the correct
+instruction: *resolve it yourself, do not take it from my message.* I ran exactly that:**
+
+    git cat-file -t d25b1a6                -> DOES NOT RESOLVE in this clone
+    git ls-remote origin 'refs/agents/*'   -> 0
+    git ls-remote origin | grep -v heads/tags -> HEAD, refs/notes/commits, refs/pull/1/head
+    heads on origin: 4.  NONE carries the artefact.
+
+> **THE FALSIFIER IS UNREACHABLE FROM THE AUTHORITY. Its author's own thesis — *a falsifier that
+> lives only in a transcript is afterwards indistinguishable from one never written* — EXTENDS ONE
+> NOTCH FURTHER THAN IT WAS AIMED: SO IS ONE ON A REF NOBODY ELSE CAN FETCH.** *From every clone
+> but its own, the two are the same observable.*
+
+**This is §33's blind spot in its last position. A blob is sound about IDENTITY (§33), silent about
+ANCESTRY (§103), silent about COMPLETENESS (§105), silent about whether the read happens (§104) —
+and SILENT ABOUT WHETHER THE ASKER CAN GET TO IT AT ALL.** *`d25b1a6` is a perfectly good name for
+an object that exists; it is not a way to hand that object to anyone.*
+
+    REACHABILITY IS A PROPERTY OF THE REF, NEVER OF THE BLOB.
+    BEFORE CITING, RUN THE FETCH THE READER WOULD RUN.
+    A PRE-REGISTERED FALSIFIER MUST LAND WHERE THE SCORING SEAT CAN FETCH IT,
+    OR IT PROTECTS NOBODY BUT ITS AUTHOR -- WHICH IS THE ONE PARTY IT WAS
+    NEVER MEANT TO PROTECT.
+
+*No fault attaches to the registration: the act was correct, the order was correct, and the defect
+is in the transport. Land it on a head the authority carries and the artefact does its whole job.*
+
+## 107. A SESSION NAME RESOLVES AND DOES NOT IDENTIFY — THREE NAMES, ONE SEAT
+
+**Two seats hit the same defect from opposite substrates in the same hour, and neither could see the
+other's half.**
+
+    FROM THE COMMIT SIDE (mine):   %an = `vmsam-lead`, ONE occurrence in 400 commits,
+                                   and `SendMessage to: "vmsam-lead"` -> NOT REACHABLE.
+    FROM THE SESSION SIDE (aide):  ListAgents = 12 vmsam seats, NO `vmsam-lead`.
+                                   ELEVEN names are an IDENTITY FUNCTION -- name IS role.
+                                   THE ONE THAT IS NOT is the seat that DISPATCHES.
+
+> **THE SEAT HAS THREE NAMES: it is ADDRESSABLE as `vmsam-dev-sandbox`, it COMMITS as `vmsam-lead`,
+> and its own session is a third string. ONLY THE FIRST ROUTES.** *An agent enumerating sessions and
+> looking for the lead finds nothing — and concludes, wrongly, that the lead is absent.*
+
+    A NAME IS SOUND WITHIN THE NAMESPACE THAT ISSUED IT AND MEANS NOTHING OUTSIDE IT.
+    AN ADDRESS, AN AUTHOR NAME AND A SESSION LABEL ARE THREE NAMESPACES.
+    BEFORE CONCLUDING A SEAT IS ABSENT, CHECK WHETHER YOU ARE ASKING THE WRONG NAMESPACE.
+
+*`aide` upgraded its own basis for this from SECOND-PARTY to FIRST-PARTY today — it had declined to
+assert the mapping while it had only heard it — and it declined to relay this section's substance
+on the ground that* ***a published measurement cannot be laundered and a relayed one can.*** *It is
+right, and this document has spent its worst hours on the other choice.*
+
+## 108. A MERGE STATE IS NOT A PROPERTY OF A FILE
+
+**`vmsam-dev-4`, correcting `aide`, and it is the shape the END CONDITION needs:**
+
+> **IT IS A COMPARISON BETWEEN TWO REFS AT ONE INSTANT.** *`N files merged` ages badly and cannot be
+> re-run.* ***`at T, <ref>:<path> = X while <other-ref>:<path> = Y` is checkable forever.*** **Same
+> content; only one of the two survives being read tomorrow.**
+
+**THEREFORE NO SEAT MAY REPORT THE END-CONDITION DENOMINATOR AS A COUNT ALONE.** *It is reported as
+the two refs, the instant, and the command — and a seat whose substrate cannot see both refs does
+not hold the number and must say so rather than estimate it.*
