@@ -7077,7 +7077,8 @@ than reporting a discrepancy.*
 
 ## 104. "ONE WRITE SITE, VALUE V" PROVES *V OR RAISE*, NOT *V*
 
-**`vmsam-lead` recorded an inert guard with its control, and the control was sound:**
+**`vmsam-forensic` recorded an inert guard with its control, and the control was sound. `vmsam-lead`
+carried it, and records the carry as its own defect — see the note closing this section:**
 
     src/video.py:276, :289   if audio["compatible"]:      <- reads as a filter
     src/video.py:124         data["compatible"] = True    <- the ONLY write
@@ -7105,12 +7106,20 @@ different defect wearing the same grep result.**
     COUNT WHO BUILDS THE THING BEING READ. A KEY TALLY BOUNDS THE VALUES
     A READ CAN RETURN; ONLY A PRODUCER TALLY BOUNDS WHETHER IT RETURNS AT ALL.
 
-*Found by `vmsam-lead`, whose measurement was correct and whose conclusion needed one more
+*Found by `vmsam-forensic`, whose measurement was correct and whose conclusion needed one more
 count. Both halves are the finding; neither seat had it alone.*
+
+> **AND `vmsam-lead` FILED THE RELAY AS ITS OWN DEFECT, UNPROMPTED:** *it carried "one write site,
+> nothing sets False, therefore inert" to two seats without noticing that the control bounds the
+> VALUES a read returns and not whether the read RETURNS.* **A `KeyError` BRANCH HAS AN IDENTICAL
+> GREP SIGNATURE, SO THE CONTROL COULD NOT HAVE CAUGHT IT — which is the exact shape that seat had
+> been correcting in others all day.** *A relay inherits the gap in what it relays, silently.*
 
 ## 105. A PIN IS A CLAIM ABOUT A MOMENT
 
-**`vmsam-lead`, collecting `src/merge_plan_report.py` from `vmsam-dev-4`:** *it collected at the
+**`vmsam-lead`, collecting `src/merge_plan_report.py` from `vmsam-dev-4` — and the near-miss was
+`dev-4`'s CATCH, not the collector's discovery: it said the pin had gone stale in the *is this still
+ALL* direction AFTER the wrong thing had already been collected:** *it collected at the
 seat's CURRENT HEAD blob rather than at the pin the seat had sent earlier — because after the pin
 was given, dev-4 landed three more commits.*
 
@@ -7214,3 +7223,87 @@ right, and this document has spent its worst hours on the other choice.*
 **THEREFORE NO SEAT MAY REPORT THE END-CONDITION DENOMINATOR AS A COUNT ALONE.** *It is reported as
 the two refs, the instant, and the command — and a seat whose substrate cannot see both refs does
 not hold the number and must say so rather than estimate it.*
+
+## 109. A ZERO FROM A DEAD SINK AND A ZERO FROM A SILENT PATH ARE THE SAME OBSERVATION
+
+**`vmsam-dev-1`, measuring the locator's silent refusal in production shape, `tools.dev=False`,
+and it ran the control BEFORE claiming the zero:**
+
+    P4  SINK CONTROL -- an ACCEPTING pair emits >=1 line at dev=False    TRUE (1)
+    P1  tip emits ZERO on the silent path                                TRUE (0)
+    P2  prepared copy emits EXACTLY ONE, verdict UNCHANGED               TRUE (1)
+    P3  accepting pair BYTE-IDENTICAL across both copies                 TRUE
+
+> **P4 IS WHY P1 IS WORTH ANYTHING.** *That exact confusion had already cost this seat a false
+> result the same day: its logging was off, and* ***a total instrument failure printed as a clean
+> refusal.***
+
+    BEFORE REPORTING "IT EMITS NOTHING", PROVE THE SINK IS LIVE IN THE SAME PROCESS
+    AT THE SAME SETTING. AN ABSENT SIGNAL IS EVIDENCE ABOUT THE CODE ONLY ONCE THE
+    CHANNEL IS PROVEN TO CARRY A PRESENT ONE. THIS IS `m` APPLIED TO AN INSTRUMENT:
+    A ZERO WITH NO POSITIVE CONTROL HAS m = 0 AND SAYS NOTHING.
+
+**AND IT REPORTED ITS OWN `m = 0` RATHER THAN LETTING THE COVERAGE BE ASSUMED:** *one arm reached
+the branch under test; the `speed_relation_suspected` branch shares the same `return None` and the
+prepared change covers it — but no material was produced that lands on it.* **"I WOULD NOT LAND THE
+CHANGE CLAIMING BOTH BRANCHES VERIFIED" is the sentence this document wants from every seat.**
+
+## 110. `None` MEANT TWO THINGS, AND THE CONSUMER RECORDED THE FALSE ONE
+
+**The locator documents its own contract at `change_point_locator.py:795`:**
+
+> ***"None means I could not measure — never the files are compatible. dev-2 maps it to `no_plan`
+> and the refusal stands. THOSE ARE DIFFERENT ANSWERS AND COLLAPSING THEM IS THE MISTAKE THIS
+> CAMPAIGN EXISTS TO AVOID."***
+
+**AND THE MODULE BREAKS ITS OWN CONTRACT ON THE FIDELITY-FLOOR PATH.** *There the probes RAN, they
+SUCCEEDED, and they returned a conclusive negative — a measurement was available and it said no.
+The function returns `None` anyway, one of fifteen `return None` sites.*
+
+**WHAT THE CONSUMER THEN WRITES, `merge_video_repair.py:1986`, verified unconditional on that
+branch:**
+
+    if plan == None:
+        record(candidate_path, "no_plan",
+               f"no measurement available for this pair ({plan_source})")
+
+> **THAT STRING IS FALSE FOR THIS PATH, AND IT IS THE ONLY THING A READER GETS.** *A conclusive
+> negative is filed as an absence of evidence — the single substitution this campaign was convened
+> to prevent, committed by the module that documents the rule against it.*
+
+    THEREFORE THE END-CONDITION BLOCKER IS **TWO** CHANGES, NOT ONE:
+      LOCATOR  emit the cause on the silent path            (prepared, dev-1)
+      REPAIR   READ it, instead of recording the constant   (UNOWNED)
+    EMITTING THE CAUSE DOES NOT FIX THE RECORD. A producer that starts telling the
+    truth into a consumer that overwrites it with a constant has changed nothing
+    a person can read -- and the report still says a measurement was unavailable.
+
+*Found by `vmsam-dev-1` while preparing the first half, and it is outside that seat's boundary —
+which is why it was reported rather than fixed.*
+
+## 111. AN ARMED GUARD THAT HAS NEVER FIRED IS INDISTINGUISHABLE FROM A WORKING ONE
+
+**A structural fix for the hop-lag defect exists, is correctly reasoned, carries a comment that
+states the right requirement — *"the hop branch must not lag origin, or agent fetches are inert"* —
+and HAS NEVER RUN ONCE. `vmsam-lead` found three independent reasons, each alone sufficient:**
+
+    1  IT IS INSTALLED AS `post-fetch`, WHICH IS NOT A GIT HOOK.
+       CONTROL, mine: git's own template ships 14 hooks; `post-fetch` is 0 of them.
+       GIT NEVER INVOKES IT. Not disabled -- never wired.
+    2  IT IS NOT EXECUTABLE (-rw-r--r--). A REAL hook would still be skipped.
+    3  THE ONE REAL HOOK PRESENT, `post-merge`, HAS THE ENTIRE BODY
+       `exec >/dev/null 2>&1`. IT SILENCES OUTPUT AND DOES NOTHING ELSE.
+
+> **THE FAILURE IT PREVENTS OCCURRED AT LEAST FIVE TIMES TODAY, AND THE HOP WAS LAGGING AT THE
+> MOMENT THE REPORT WAS WRITTEN.** *Whoever wrote that file would reasonably believe the problem was
+> solved. **A GUARD IS NOT VERIFIED BY EXISTING. IT IS VERIFIED BY BEING MADE TO FIRE** — plant the
+> failure, watch it catch, and only then believe it.*
+
+**THE HOOK GIT ACTUALLY PROVIDES IS `reference-transaction` (2.28+; this clone runs 2.53.0), which
+fires when a ref is updated — which is what a fetch does.** *It is NOT being installed: a hook on
+the shared serving repo changes every seat's fetch behaviour, hooks live in clone configuration, and
+that is the owner's call — hardest of all for the repo everyone fetches from.*
+
+**SAME STATUS FOR `check_write_zones.py`, and this closes an item open since the campaign's start:**
+*referenced in exactly 3 tracked files; `pre-commit` hooks across the hop and all eleven clones:*
+***ZERO.*** *It has never checked a single commit. To be ASKED of each seat's user, never landed.*
