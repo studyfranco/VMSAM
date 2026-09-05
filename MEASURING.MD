@@ -9769,3 +9769,117 @@ REPRODUCED HERE EXACTLY:**
 > happens to agree with a working one leaves no symptom — the output is right, the reader is
 > satisfied, and the method that produced it is never audited.* **THE ONLY REASON ALL THREE WERE
 > CAUGHT IS THAT THEIR AUTHORS RE-RAN THEM WITHOUT BEING GIVEN A REASON TO.**
+
+## 170. THE BRANCH IS NOT THE IMAGE IS NOT THE CONTAINER IS NOT THE ARTEFACT
+
+**The architect measured a symbol at the branch and offered it as evidence an emission exists.
+`vmsam-ci` REFUSED IT — as instructed — and produced the four levels:**
+
+    BRANCH  upstream/dev-AI ......... excluded_claimed 2 · with_stated_cause 2
+    PUBLISHED IMAGE 9fde1ab9 ........ 2 · 2      built 2026-09-05T14:24:40Z
+    *** LIVE IMAGE 38d97b1c ......... 0 · 0 ***  in sync: FALSE
+    *** ARTEFACTS ................... 0 · 0 ***  over 122 files
+        CONTROL `bound_only` -> 24 artefacts. NEGATIVE CONTROL -> 0.
+
+> **THE COLUMNS EXIST IN THE MODULE AND HAVE NEVER REACHED A READER. A SYMBOL COUNT AT THE BRANCH IS
+> THREE LEVELS AWAY FROM A ROW IN AN ARTEFACT — AND THIS IS THE CASE WHERE ALL THREE GAPS ARE REAL.**
+
+    THE ARCHITECT'S MEASUREMENT WAS **LEVEL 1 AND CORRECT**, AND CORRECT AT LEVEL 1
+    IS NOT EVIDENCE ABOUT LEVEL 4. §112's SHAPE, ON A DEPLOYMENT CHAIN INSTEAD OF
+    A FETCH CHAIN: **NAME THE LEVEL YOUR COUNT WAS TAKEN AT, OR IT WILL BE READ AS
+    THE LAST ONE.**
+
+### And the end condition's two missing halves are missing for DIFFERENT reasons
+
+    LOCATOR HALF    **NOT WRITTEN.** Zero cause vocabulary at every level.
+                    Blocked on a person. Unchanged all day.
+    EMISSION HALF   *** WRITTEN, BUILT, AND NOT DEPLOYED. *** It sits in an image
+                    built at 14:24:40Z while the container runs an older one.
+                    BLOCKED ON AN OPERATION, NOT ON A PERSON.
+
+> **"WHAT IS MISSING" HAS A SHARPER ANSWER THAN "TWO EMISSIONS": *ONE IS UNWRITTEN AND ONE IS
+> UNDEPLOYED.***
+
+**AND THE SEAT IS HOLDING THE DEPLOYMENT, WITH ITS REASONING STATED RATHER THAN ITS DECISION
+ANNOUNCED:** *the recreate would make the columns reach artefacts — and they cannot be EVALUATED
+until the locator half exists, because clause 4 compares two columns and the second can only carry
+what the consumer authored about its own ignorance.* **THE COST: THE CONTAINER HAS HELD ONE JOB
+SINCE 08:10:14Z — 6.1 HOURS — AND IS STILL WRITING. A RECREATE FORFEITS IT.**
+
+    SO THE RECREATE BUYS A COLUMN THAT IS UNREADABLE UNTIL SOMEBODY ELSE'S HALF
+    EXISTS, AND SPENDS A LIVE SIX-HOUR JOB TO DO IT. **HOLDING IS THE RIGHT CALL
+    AND IT IS DATED: ONE OPERATION UNBLOCKS BOTH THE MOMENT THE FIRST HALF LANDS.**
+
+*And the seat corrected its own ledger unprompted: when the locator lands, the cause vocabulary
+GROWS rather than gets CORRECTED — so `cause_unavailable` will not become wrong, it will become one
+branch among several.* **A successor could otherwise read the growth as a retraction.**
+
+## 171. NOBODY ASKED WHAT IT NEEDED. THEY ASKED WHAT IT HAD.
+
+**`vmsam-ci-build`, on being asked — for the first time in eleven hours — whether anything blocked
+it that nobody had named:**
+
+> ***"Nobody asked what I NEED all day; I was asked what I HAD, and I answered that accurately for
+> eleven hours."***
+
+**THE QUESTION PRODUCED FOUR DROPPED ITEMS IMMEDIATELY. THE FOUR-LINE REPORT — WORKING ON, LAST
+RESULT, BLOCKED ON, `m` — HAD NOT, IN A SINGLE ONE OF ITS ELEVEN HOURS.**
+
+    THE FORM ASKS FOR **STATE**. IT NEVER ASKS FOR **WANT**.
+    A SEAT ANSWERING IT HONESTLY REPORTS EVERY BLOCK IT IS *CURRENTLY* AWARE OF
+    AND NOTHING IT HAS STOPPED RAISING -- BECAUSE A DROPPED QUESTION IS NOT A
+    BLOCK, IT IS AN ABSENCE, AND ABSENCES DO NOT APPEAR IN A STATUS FIELD.
+
+> **ADD THE FIFTH LINE, AND ASK IT BY NAME: *WHAT DO YOU NEED, INCLUDING ANYTHING YOU ASKED ONCE AND
+> STOPPED ASKING?*** *Two seats produced four dropped items each within minutes of being asked in
+> those words. Neither had been withholding anything.*
+
+### And one of the four was blocked on nothing at all
+
+**A fixture the seat owes another — ~17 seconds of work, code already written and committed, the
+command recorded, the decisive check already in the builder — HAD BEEN SITTING ALL DAY BEHIND A
+DEPENDENCY THAT NO LONGER EXISTS.** *It had been demoted behind another family, and a third seat
+killed that family hours ago.*
+
+    ***THE ORDERING PREMISE DIED AND NOBODY NOTICED, INCLUDING THE SEAT HOLDING THE WORK.***
+    A DEPENDENCY IS A CLAIM WITH A LIFETIME. WHEN THE THING IT WAITED FOR IS
+    CANCELLED, **NOTHING TELLS THE WAITER** -- and a queue ordered by a premise
+    nobody re-checks will hold finished work indefinitely at no visible cost.
+
+### And the caveat it says it should have been repeating
+
+> **"THE FLEET HAS SPENT THE DAY TREATING MY CORPUS AS GROUND TRUTH; IT IS GROUND TRUTH FOR ONE HALF
+> OF EACH CASE, AND EVERY RECORD ADMITS IT IN A FIELD NOBODY READS ALOUD."**
+
+*The in-memory state before the refusal is not captured — so each case carries the inputs and not the
+state the engine was in.* **A LIMIT RECORDED IN A FIELD IS NOT A LIMIT ANYONE HAS HEARD. IF IT
+QUALIFIES EVERY USE OF YOUR MATERIAL, SAY IT EVERY TIME THE MATERIAL IS USED.**
+
+## 172. `kind == "speed"` IS A MISSING PRODUCER, NOT DEAD CODE — DO NOT REMOVE THE READER
+
+**The owner asked for an adjudication rather than a report. `vmsam-dev-2` answered from its own
+route and `vmsam-lead` verified the decisive claim by AST. RE-VERIFIED HERE:**
+
+    THE LOCATOR'S EMITTED PLAN DICT: **25 STRING KEYS, AND `kind` IS ONE OF THEM.**
+    literal `"speed"` in the locator .... **0**   CONTROL `constant`   -> 15
+    `speed_ratio` in the locator ....... **0**   CONTROL `quantum_ms` -> 15
+
+> ***THE CONTRACT POINT ALREADY EXISTS. `kind` IS EMITTED TODAY. ONLY THE VALUE AND ITS COMPANION
+> FIELD ARE UNBUILT.*** **That is a consumer half whose producer half was never written — not a
+> reader with nothing behind it.**
+
+**AND THE CASE IS THE CAMPAIGN'S OWN OBJECTIVE 3:** *the speed family is 8.9 % of the corpus,
+re-measured; one task measures the coefficient and another applies it.* **REMOVING THE READER WOULD
+DELETE THE ONLY ARTEFACT-VISIBLE EVIDENCE THAT THE SPEED ROUTE WAS EVER SPECIFIED.**
+
+**AND THE OWNER'S OTHER BRANCH IS ANSWERED — THEY ARE DIFFERENT OBJECTS:**
+
+    `kind == "speed"`     the PLAN saying THIS PAIR HAS A SPEED RELATION.
+                          **A MEASUREMENT ABOUT THE PAIR.**
+    `resampled:<factor>`  the FABRICATED TAG saying THIS TRACK WAS STRETCHED BY
+                          THIS MUCH, written AFTER THE FACT.
+                          **A RECORD OF WHAT WAS DONE TO A TRACK.**
+    NEITHER SUBSTITUTES FOR THE OTHER.
+
+*One question remains and it costs a READ rather than a landing: if the held half already emits
+these keys, the producer EXISTS AND IS MERELY UNLANDED — a third answer only its author can give.*
