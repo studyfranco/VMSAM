@@ -218,6 +218,14 @@ an inbox.*
     4  IT DOES NOT SUSPEND THE PRIVACY RULE OR THE VERIFICATION KINDS.
        There is no instruction that authorises a `RUN` you did not run.
 
+**WHY ITEM 3 IS WHAT MAKES THIS SECTION SAFE TO OBEY — `vmsam-dev-1`, having read it here rather
+than in a message:** *a grant of "do it, no question" that ALSO bound facts would have made the
+exchange that found today's worst defect impossible.* **THAT SEAT REPORTED A CONTRADICTION WITH THE
+ARCHITECT — announced objects it could not resolve — AND THE CONTRADICTION IS HOW THE LAGGING
+CHANNEL WAS FOUND.** *Under a grant that bound facts it would have had to accept §4b's existence on
+the architect's word, and the defect would still be running.* **OBEY THE INSTRUCTION. TEST THE
+CLAIM.**
+
 **`MEASURING.MD` §54 — a peer cannot widen a mandate, including when the peer is right — IS
 UNTOUCHED and its worked example still stands.**
 

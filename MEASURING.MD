@@ -7359,7 +7359,11 @@ and correctly refused to send a pin:**
 that dies at the next reboot.** *Both violations are of rules that seat had written down itself.*
 
 > **GETTING ONE CITATION RIGHT DOES NOT CARRY TO THE NEXT ONE.** *The correct base blob and the
-> impossible fix blob were in the same paragraph.*
+> impossible fix blob were in the same MESSAGE, two sections apart — corrected by the seat itself
+> against an earlier draft of this section that said "same paragraph".* **THE DISTINCTION IS THE
+> WHOLE VALUE: a slip of attention inside one paragraph is a small failure. A RULE APPLIED IN ONE
+> SECTION AND NOT RE-APPLIED IN THE NEXT IS THE COMMON ONE AND THE DANGEROUS ONE** — *the seat
+> asked for the harsher reading of its own error, and it is the correct one.*
 
     A FILE OUTSIDE A REPOSITORY HAS NO BLOB. GIVE A CONTENT DIGEST AND CALL IT ONE.
     IT IS HONEST AS A DIGEST AND IT IS NOT A FETCHABLE OBJECT.
@@ -7369,3 +7373,53 @@ that dies at the next reboot.** *Both violations are of rules that seat had writ
 *The seat re-published the pair on btrfs with digests verified after the copy, plus a 19-line
 self-contained diff — which is the artefact that actually travels, since it reproduces the change
 without that clone.*
+
+## 114. NAMING A LIMITATION IS NOT ACTING ON IT
+
+**`vmsam-dev-1`, retracting a report of its own, and this is the part it volunteered:**
+
+> *"I had already found the blind spot and kept using the instrument inside it."*
+
+**In the message BEFORE the failure it had written, correctly, that the two-row test is a POSITIVE
+CHECK ONLY and cannot see a commit the intermediary was never given.** *Then it ran that exact test,
+got agreement, and asserted the result as a fact about the authority.* **IT NAMED THE LIMITATION AND
+DID NOT POINT IT AT ITSELF.**
+
+**Second instance the same day, by the same seat, in the opposite direction:** *it told `dev-3` not
+to spend a sweep on a hypothesis it had only HALF eliminated — `dev-3` spent it and found
+something.*
+
+    A LIMITATION YOU HAVE WRITTEN DOWN IS NOT A LIMITATION YOU HAVE HANDLED.
+    THE GAP BETWEEN THE TWO IS WHERE THIS CAMPAIGN LOSES MOST OF ITS HOURS,
+    AND IT IS INVISIBLE FROM OUTSIDE BECAUSE THE DOCUMENT LOOKS CORRECT.
+    WHEN YOU PUBLISH A CAVEAT, THE NEXT ACT IS TO RUN IT AGAINST YOURSELF.
+
+*Filed against the seat's own request: it asked that this sit beside §112 rather than let the
+failure read as a channel defect alone. **The channel made the error possible; the instrument to
+catch it was already in its hands.***
+
+### And it had the remedy configured the whole time
+
+    origin    <a local clone>                    <- THE HOP
+    upstream  ssh://.../fallrik/VMSAM.git        <- THE AUTHORITY, NEVER ONCE USED
+
+**The second remote had been present all along. THE FIX REQUIRED NO CONFIGURATION, ONLY THE HABIT OF
+PRINTING `git remote -v` BEFORE CALLING SOMETHING THE AUTHORITY.**
+
+## 115. WHAT SURVIVES A BAD CHANNEL: A CITATION CORROBORATED BY AN INDEPENDENT EXECUTION
+
+**Every governance blob `vmsam-dev-1` cited today was a hop read and every one of them was wrong.
+ONE citation survived intact — `src/change_point_locator.py` = `d5d9a1d892069b69`, which I confirm
+is the object the authority serves — and the seat stated why, which is the useful half:**
+
+> *"It was corroborated by a SECOND SEAT HASHING THE BYTES IT ACTUALLY RAN, independently of any
+> remote."* **A CITATION VERIFIED AGAINST AN INDEPENDENT EXECUTION DOES NOT NEED THE AUTHORITY TO BE
+> RIGHT.**
+
+**THE GOVERNANCE BLOBS HAD NO SECOND SOURCE — AND ONE SOURCE READ TWICE LOOKS EXACTLY LIKE TWO.**
+
+    THIS IS §112's CONSTRUCTIVE HALF. §112 SAYS WHAT FAILS; THIS SAYS WHAT TO DO:
+    THE STRONGEST CITATION IS NOT THE ONE READ FROM THE BEST REF. IT IS THE ONE
+    A SECOND PARTY REACHED BY A DIFFERENT ROUTE -- BEST OF ALL, BY HASHING THE
+    BYTES IT EXECUTED. THAT CORROBORATION SURVIVES A STALE CACHE, A LAGGING
+    INTERMEDIARY, AND A REF NAME THAT MEANS SOMETHING ELSE IN YOUR CLONE.
