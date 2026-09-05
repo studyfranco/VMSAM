@@ -10003,3 +10003,116 @@ not, and four helper returns whose `None` the caller must interpret.** *The arch
 SHAPE; the owner of the boundary fills it, because only the seat that owns the module knows what each
 branch measured — inventing the tokens from outside would be the "invented, not read" failure the
 consumer already refuses.*
+
+## 176. THE GUARDS ARE REACHABLE, AND THE SPLIT RUNS THE UNHELPFUL WAY
+
+**`vmsam-forensic` TOOK its own holding question instead of answering whether it could. It had the
+substrate. THE ANSWER IS NOT THE REASSURING ONE.**
+
+    CALLERS, by AST across all tracked src/, positive control fired (6 sites):
+      both guarded functions ARE CALLED, FROM HTTP ROUTES, with values off a
+      request model whose fields are REQUIRED, NOT Optional, NO DEFAULT.
+
+    PYDANTIC REJECTS `None`  -> **THE `TypeError` HALF IS UNREACHABLE.**
+    PYDANTIC ACCEPTS `""`    -> **THE GUARD SEES IT, EVALUATES FALSE, AND ADMITS IT.**
+
+> **SO IT IS NEITHER "WRONG" NOR "UNREACHABLE" — IT IS BOTH, SPLIT, AND THE SPLIT RUNS THE UNHELPFUL
+> WAY. THE CRASH CANNOT HAPPEN; THE SILENT ADMISSION OF THE EMPTY STRING IS LIVE FROM ANY HTTP
+> CLIENT.**
+
+*"Unreachable rather than wrong" would have closed this harmlessly. **THE TRACE SAYS THE OPPOSITE.***
+
+    KIND: **TRACE.** Callers and field types read from the blobs. NOBODY HAS POSTED
+    AN EMPTY STRING TO A RUNNING INSTANCE, and a `RUN` would settle it -- and would
+    settle the OTHER package too, where THREE of the five guards live and whose
+    request model the seat explicitly did NOT verify rather than assume it matches.
+
+**AND ITS FIRST TRACE WAS A DEAD SCAN THAT RETURNED `CALL SITES: 0`.** *It nearly reported "reached
+from outside the tracked Python". The scan had found ZERO TARGET FUNCTIONS — `ast.unparse` renders
+`not len(x)` as `(not len(x))` and its regex died on the inserted parenthesis.* **Caught by the
+assert it now puts on every plant.**
+
+## 177. ARRIVING IS NOT REPLYING — AND ONE SEAT WAS UNADDRESSABLE ALL DAY
+
+**`vmsam-auditor` discovered, ten minutes before reporting it, that it has NO DELIVERY PATH to the
+Lead:**
+
+    SendMessage to the Lead's committing name -> **"No agent named … is reachable."**
+    The Lead is NOT among the peers its listing shows.
+    THE LEAD'S BROADCASTS ARRIVE TO IT AS **USER TURNS** --
+    *** SO EVERY REPLY IT WROTE TODAY REACHED THE LEAD ONLY IF ITS USER
+        RELAYED IT BY HAND. ***
+
+> **"I NEVER VERIFIED THE CHANNEL BECAUSE I NEVER HAD A FAILURE TO NOTICE — THE BROADCASTS KEPT
+> ARRIVING, AND *ARRIVING IS NOT REPLYING*."**
+
+**THIS IS §174's CHANNEL-2 FINDING FROM THE OTHER SIDE, AND IT COMPOUNDS IT:** *the Lead's read-debt
+instrument cannot see this seat for a SECOND reason — it is not merely uncounted, **IT IS
+UNADDRESSABLE.*** *If the Lead has been waiting on anything from it today, that is why.*
+
+    A ONE-WAY CHANNEL IS INDISTINGUISHABLE FROM A TWO-WAY ONE **FROM THE
+    RECEIVING END**. INBOUND TRAFFIC PROVES NOTHING ABOUT OUTBOUND.
+    **TEST THE REPLY PATH BEFORE YOU RELY ON IT -- SEND SOMETHING AND CONFIRM
+    IT ARRIVED, ONCE, RATHER THAN INFERRING A CHANNEL FROM ITS OTHER DIRECTION.**
+
+### And its record lives in two copies on one device
+
+**Two refs bear its name — and it checked rather than reporting "none carries my record": each
+carries one matching file, and that file is THE FLEET's document, not its ledger.** *Both are
+owner-authored whole-tree snapshots: the SUBJECT it was asked to scan, not the auditor's record.*
+
+> **REFS BEARING ITS NAME EXIST; NONE HOLDS ITS RECORD.** *The conclusion was right and the premise
+> was not, and it corrected the premise because somebody will grep for it.*
+
+    ITS LEDGER EXISTS IN EXACTLY TWO COPIES AND IT MEASURED THE DEVICE: **BOTH ARE
+    THE SAME DEVICE.** Hashing it into a ref is the only way it reaches a second
+    substrate before the reset. **IT WANTS IT; IT WILL NOT DO IT — its seat does
+    not push. IT NEEDS THE OWNER, AND SOMEBODY NAMED TO PUSH.**
+
+## 178. THE DENOMINATOR WAS SEAT-SCOPED AND THE INSTRUMENT COULD NOT HAVE CAUGHT IT
+
+**The architect measured the library from its own seat and found a different population. `ci-pair`
+verified from its side immediately:**
+
+    IT SEES 8 DIRECTORIES UNDER THE BASE AND ENUMERATES 7.
+    THE ARCHITECT SEES 32 CARRYING MEDIA.
+
+> **SO THE FIGURE IT HAS SUPPLIED AS THE END-CONDITION DENOMINATOR ALL DAY IS NOT A LIBRARY FIGURE.
+> IT IS ".mkv REACHABLE FROM THIS SEAT'S SEVEN CONTENT ROOTS".**
+
+**AND THE SEAT NAMED WHY ITS OWN HEADER DID NOT SAVE IT:** *the header said "superset of the accepted
+set; NOT the accepted set".* **IT BOUNDED THE FIGURE AGAINST THE ACCEPTED SET AND NEVER AGAINST THE
+LIBRARY.**
+
+    AND THE INSTRUMENT COULD NOT HAVE CAUGHT IT: it enumerates FROM THE BASE IT IS
+    GIVEN, so **AN INVISIBLE ROOT IS INDISTINGUISHABLE FROM AN ABSENT ONE.**
+    A BLIND REGION DEFINED BY THE **SUBSTRATE**, NOT BY THE LOGIC -- and no amount
+    of care inside the instrument reaches it. *Only a second seat with different
+    access does.*
+
+**EVERYTHING IN THAT FILE INHERITS IT, AND THE SEAT LABELLED THE WORST CASE ITSELF:** *a ratio of two
+seat-scoped numbers survives only if the unreachable roots carry the same rate —* **AN ASSUMPTION
+NOBODY HAS TESTED.** *The drift and the identical-by-digest set stand as measurements OF THIS
+POPULATION.*
+
+## 179. TWO FIXTURE FAMILIES, TWELVE ARMS, AND ONE DIVISION NOBODY DID
+
+**`ci-pair` sealed a prediction, `ci-build` built the arm in seconds, and the prediction was
+FALSIFIED — 242 placements predicted, ZERO measured, on material proven BIT-EXACT in the published
+bytes.**
+
+    THE CAUSE WAS ARITHMETIC AVAILABLE BEFORE EITHER FAMILY WAS BUILT:
+      the fingerprint hop divides NONE of the repeat lengths into a whole number.
+      20 s = 161.4987 hops -- **HALF A HOP OFF.**
+    A REGION DUPLICATED AT A NON-INTEGER-HOP DISPLACEMENT GIVES FRAMES OFFSET
+    RELATIVE TO THE ORIGINAL: **IDENTICAL PCM, DIFFERENT FINGERPRINTS.**
+    CORROBORATED by the residual count, which matches scattering and not duplication.
+
+> **"TWO FIXTURE FAMILIES, TWELVE ARMS, ONE DIVISION I NEVER DID. I BLAMED THE CODEC FOR TWO
+> ROUNDS."** *The other seat's warning about a codec effect was real — **a second-order effect
+> sitting on a first-order one neither of them had computed.***
+
+**AND THE ARM THAT KILLED THE WRONG DIAGNOSIS COST SEVENTEEN SECONDS.** *It had been sitting behind a
+dead dependency all day (§171).* **BUILDING IT WAS WORTH IT FOR EXACTLY THE REASON IT FAILED: a
+falsified seal is the cheapest correction available, and the seat stopped asking for further arms the
+moment it fired.**
