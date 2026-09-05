@@ -189,7 +189,33 @@ def measure_corpus(log_paths, read=None):
     # so. Subtracting silent files is how a campaign declares victory over the
     # files it never looked at, and from outside that is indistinguishable from
     # having merged them.
-    excluded = {"claimed": 0, "with_stated_cause": 0, "cause_anywhere": 0}
+    excluded = {"claimed": 0, "with_stated_cause": 0, "cause_anywhere": 0,
+                "tokened": 0, "untokened": 0, "tokens": {}}
+    # READING THE `no_plan` CAUSE WITHOUT EVER PARSING THE PATH.
+    #
+    # `record()` emits `repair: no_plan for <candidate path>: <reason>`, so the
+    # line carries a full media path with a series title BY CONSTRUCTION
+    # (dev-2, measured). Two consequences and they point the same way:
+    #
+    #   1. MY OLD FALLBACK KEPT THE WRONG HALF. `job["unparsed"]` stores
+    #      `body[:120]`; measured on this corpus, no_plan bodies run 196-266
+    #      chars and the REASON begins at 135-205 -- so 19 of 19 kept the PATH
+    #      and discarded the reason entirely. The truncation retained the
+    #      disclosure-bearing half and threw away the only quotable half.
+    #      dev-2's `cause=` token would have landed and this reader would have
+    #      shown nothing -- the same defect I warned dev-2 about for `detail`,
+    #      in my own code.
+    #   2. SO THIS SCAN NEVER EXTRACTS THE PATH AT ALL. It looks for `cause=`
+    #      and reads the token after it. Nothing before `cause=` is parsed,
+    #      stored or rendered, which makes the privacy property structural
+    #      rather than a redaction step someone must remember.
+    #
+    # AND THE ZERO THIS COLUMN REPORTS TODAY WAS RIGHT FOR THE WRONG REASON:
+    # it was 0 because nothing here parsed the line, not because the old
+    # constant had been judged unreliable. A check that passes for a reason
+    # unrelated to what it claims to test is the same animal as one that cannot
+    # fail. It is now a MEASURED zero, with the untokened count beside it.
+    _TOKEN = re.compile(r"cause=([A-Za-z0-9_]+)")
     # L'ETAT DE LA PORTE AU MOMENT OU CES FICHIERS ONT ETE PRODUITS.
     # Le proprietaire a tranche que `enforcing` passe a True. Un artefact portant
     # `would_refuse=True` a donc ete produit SOUS UNE PORTE INERTE et ne serait
@@ -218,9 +244,18 @@ def measure_corpus(log_paths, read=None):
         _cause = _job_for_exclusion.get("declined")
         if _cause:
             excluded["cause_anywhere"] += 1
+        _noplan = [ln for ln in text.splitlines() if "repair: no_plan for " in ln]
+        for ln in _noplan:
+            hit = _TOKEN.search(ln)
+            if hit:
+                excluded["tokened"] += 1
+                excluded["tokens"][hit.group(1)] = (
+                    excluded["tokens"].get(hit.group(1), 0) + 1)
+            else:
+                excluded["untokened"] += 1
         if not (_job_for_exclusion.get("plan") or {}).get("pieces"):
             excluded["claimed"] += 1
-            if _cause:
+            if _cause or any(_TOKEN.search(ln) for ln in _noplan):
                 excluded["with_stated_cause"] += 1
         if not is_job_log(text):
             # UN FICHIER ECARTE PAR MOI EST UNE ABSENCE QUE JE FABRIQUE. Le
@@ -505,6 +540,17 @@ def measure_corpus(log_paths, read=None):
                "The two counts are EQUAL on this material, which means this "
                "column had no opportunity to discriminate here -- m = 0 for the "
                "difference, and that is UNTESTED, not clean. ")
+            + (f"`no_plan` CAUSE LINES, READ WITHOUT EVER PARSING THE PATH: "
+               f"{excluded['tokened']} carry a `cause=` token"
+               + (" (" + ", ".join(f"{k} x{v}" for k, v in
+                                   sorted(excluded["tokens"].items())) + ")"
+                  if excluded["tokens"] else "")
+               + f" and {excluded['untokened']} carry a reason with NO token. "
+               f"AN UNTOKENED REASON IS NOT A STATED CAUSE HERE: the constant it "
+               f"carries asserts that no measurement was available on paths where "
+               f"a measurement WAS available and said no, which is a false "
+               f"qualifier and worse than a blank because it closes the question. "
+               if (excluded["tokened"] or excluded["untokened"]) else "")
             + f"POSITIVE CONTROL: {excluded['cause_anywhere']} log(s) in this "
               f"population DO carry a declared cause, so the emitter and this "
               f"parser both fire; an absence below is a property of the file and "
