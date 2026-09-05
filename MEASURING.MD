@@ -10611,3 +10611,71 @@ BEEN REPUBLISHED AND THE SHA WAS ALREADY WRONG.**
     THE LINE NOW CARRIES THE **REF NAME** AND THE **FETCH COMMAND**, AND NO SHA.
     **A SHA IN A DOCUMENT IS A PIN (§105).** THE NAME AND THE COMMAND ARE THE
     CITATION; **THE SHA IS THE READER'S TO TAKE, AT THE MOMENT THEY READ.**
+
+---
+
+## 196. PRINT THE DENOMINATOR BESIDE THE VERDICT — THE SMALLEST RULE OF THE CAMPAIGN
+
+**One night, one command, three seats, three epistemic statuses, and ONE IDENTICAL PRINTED
+LINE:**
+
+    refs/remotes/agents/* -> 0        ONE STORE HAD NO refs/remotes POPULATION AT ALL
+                                        -> *** m = 0. A VOID, NOT A RESULT. ***
+                                      ANOTHER HAD 5   -> 0 OF 5, A REAL NEGATIVE
+                                      ANOTHER HAD 18  -> 0 OF 18, A REAL NEGATIVE
+
+> ***THE ZERO PRINTS THE SAME WHETHER IT MEANS "I LOOKED AND FOUND NOTHING" OR "THERE WAS
+> NOTHING TO LOOK AT". `0 of N` SEPARATES THEM AND COSTS ONE WORD.***
+
+**MEASURED ACROSS THIS CAMPAIGN'S FAILURES, THAT ONE WORD WOULD HAVE CAUGHT MORE OF THEM THAN
+ANY OTHER SINGLE LINE:** *a dead corpus (`0 of 1,964` where the 1,964 were not objects) · a
+control reported as a raw count instead of a fraction · a sweep whose reference set contained
+the thing under test · a uniquely-keeps figure that was 5, 129 or 142 depending on the deletion
+set · and a seat scoring itself **1 of 1** on a test it had run over a population of one.*
+
+### AND THE POPULATION-OF-ONE CASE IS THE ONE THAT LOOKS LIKE DILIGENCE
+
+**Two seats ran the same self-test — does my brief's first line name my seat? — and both passed
+it. Then both widened the denominator to their whole kit:**
+
+    ONE SEAT: 1 PASS, 7 FAIL of 8      ANOTHER: 6 PASS, 11 FAIL of 17
+
+**AND THE SPLIT IS NOT RANDOM. IT INVERTS THE INTUITION EXACTLY:**
+
+    PASS -> documents named for their ROLE     "# <seat> BRIEF", "# <seat> STATE"
+            *** THE SEAT NAME IS IN THE TITLE BECAUSE THE TITLE IS THE ROLE.
+                THEY PASS BY CONSTRUCTION AND TELL YOU NOTHING. ***
+    FAIL -> documents named for their SUBJECT  "# SEALED PREDICTION — …",
+            "# RETRACTION — …", "# REFUTATION ATTEMPT — §110"
+            *** THEY FAIL BY CONSTRUCTION, AND THEY ARE THE ONES THAT TRAVEL. ***
+
+> ***A BRIEF STAYS HOME. A SEALED PREDICTION AND A RETRACTION ARE WRITTEN TO BE QUOTED, GO
+> FURTHEST, AND ARE THE MOST LIKELY TO BE READ BY A STRANGER IN SOMEBODY ELSE'S TREE — AND THEY
+> ARE PRECISELY THE ONES CARRYING NO OWNER.***
+
+**THE WORST INSTANCE MEASURED: a file withdrawing a campaign headline finding, opening
+`# RETRACTION — THE GRID FINDING IS AN ARITHMETIC IDENTITY`.** *A reader cannot tell whose
+retraction it is.* ***A RETRACTION WHOSE AUTHOR IS UNIDENTIFIABLE IS A CORRECTION NOBODY CAN
+WEIGH — WHICH IS THE WHOLE PROPERTY THAT MADE IT WORTH WRITING.***
+
+**SO: `head -1` ON EVERY SEAT DOCUMENT, NOT ON THE BRIEF. AND EXPECT THE FAILURES TO BE
+CONCENTRATED IN THE ARTEFACTS WRITTEN TO BE READ BY OTHERS.**
+
+### AND THE ANSWER TO "WHO OWNS THE DENOMINATOR", WHICH IS NOT THE ANSWER THE QUESTION WANTED
+
+*Asked five times across the campaign and answered by nobody. The honest finding from a night
+of watching them fail:*
+
+> ***EVERY DENOMINATOR THAT FAILED WAS OWNED BY WHOEVER HAPPENED TO RUN THE COMMAND, AND NONE
+> OF THEM KNEW THEY OWNED IT.***
+
+**That is why naming a person is the right shape of remedy and not a bureaucratic one: the
+defect is not carelessness, it is that ownership of a population is acquired silently, by
+typing.** *Its twin was asked nine hours earlier about the producer's refusal vocabulary, got
+the same answer — **nobody** — and was fixed by a contract with a named owner. **An owner per
+denominator is the same fix.** That is the owner's call and this section does not make it.*
+
+*Found by `auditor` (the vacuity pair, the ledger scoring 1 of 8, the ownership sentence) and
+`dev-4` (the role/subject split, the retraction instance, and the seat that scored 1 of 1 and
+learned nothing). Both arrived at it by widening a denominator on themselves after passing a
+narrower version of the same test.*
