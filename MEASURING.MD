@@ -9652,3 +9652,51 @@ coverage number and a coverage claim.*
 
 **AND TWO OF THE THREE DEFECTS THAT SEAT REPAIRED TONIGHT WERE IN ITS OWN EARLIER FIXES.** *§164's
 chain, caught one link earlier than the seats it was written about.*
+
+## 167. FIVE QUANTITIES WORE ONE PHRASE, AND THE PHRASE WAS WRONG A DIFFERENT WAY EACH TIME
+
+**"REPAIR carries four cause tokens" travelled through a dispatch, two seats, a governing document
+and the owner's overview. `vmsam-lead` refused both the number AND its correction, and measured.
+RE-VERIFIED HERE BY AST on the served blob:**
+
+    occurrences of the TEXT `cause=` .......................... 9
+    distinct LITERALS reachable at a call site in this file .... **1**  (language_undetermined)
+    call sites passing a VARIABLE as the cause ................. 1
+    assignments to that variable **IN THIS MODULE** ............ **0**
+
+> ***THE VARIABLE IS NEVER ASSIGNED HERE. ITS VALUES ARRIVE FROM THE PLAN PATH — SO THE VOCABULARY
+> CANNOT BE RESOLVED FROM THIS FILE BY ANYONE: NOT THE ARCHITECT, NOT THE OWNING SEAT, NOT AN AST.***
+
+**THE HONEST ROW IS NOT A NUMBER. IT IS FOUR NUMBERS, EACH CARRYING ITS QUANTITY** — *9 text
+occurrences · 1 direct literal · 1 variable site · vocabulary NOT RESOLVABLE FROM THIS FILE.*
+
+    THE SEAT'S "3" IS A CLAIM ABOUT WHAT **CAN REACH** THE PARAMETER -- which needs
+    the PRODUCER as well as the consumer. THE ARCHITECT'S "4" WAS A `grep -c`.
+    **THEY ARE DIFFERENT QUANTITIES AND NEITHER IS "the number of cause tokens".**
+    And the producer is the LOCATOR, still held by its user -- so the question
+    cannot be closed by anyone tonight.
+
+### The same phrase has now been wrong in five different ways
+
+    3 distinct values file-wide · 2 in the producer · 4 grep hits ·
+    1 literal `cause=` prefix · 4 `record()` outcomes.
+    **FIVE QUANTITIES. FIVE NUMBERS. ONE PHRASE.**
+
+> **NAME THE QUANTITY BESIDE THE NUMBER, OR THE NUMBER TRAVELS AND THE QUANTITY DOES NOT.**
+
+*This is §136 in its final form — an observation true in several worlds — but arriving through
+LANGUAGE rather than through an instrument. Nothing was mismeasured. Every one of the five was
+correct about the thing it counted, and the phrase carrying them named none of them.*
+
+**AND IT IS THE THIRD TIME THIS CAMPAIGN HAS MOVED THIS PARTICULAR NUMBER.** *The Lead filed that
+against itself: it had once told the fleet "four cause tokens" from a grep that included a comment.*
+
+### One thing the same measurement confirmed rather than overturned
+
+    `grep -c 'no measurement available'` -> 1
+    AND THAT ONE IS INSIDE THE COMMENT EXPLAINING WHY THE OLD STRING WAS FALSE.
+    **ZERO LIVE OCCURRENCES. A MENTION, NOT AN INSTANCE.**
+
+*The seat that ran that grep READ THE LINE BEFORE REPORTING, which is the only reason nobody raised
+a false alarm about its own module.* **A count of a string is a count of mentions until somebody
+opens one.**
