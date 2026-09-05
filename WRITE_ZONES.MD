@@ -1269,14 +1269,44 @@ OPPOSITE SIGN: a gate can manufacture the thing it exists to catch.**
     NEVER WRITE A STRING THAT LOOKS LIKE THE THING THE DETECTORS HUNT.
     NOT EVEN A FAKE ONE. NOT EVEN IN A COMMENT, A FIXTURE, OR A TEST.
 
-    WRITE:   <LIBRARY-ROOT>/<DIR>      <TITLE>.<EXT>      <SHOW>/<SEASON>/<EPISODE>
+### [CORRECTED WITHIN THE HOUR — THE FIRST FORM OF THIS RULE WAS WRONG AND DISARMED EVERY DETECTOR]
 
-    NEVER:   a mount point followed by a plausible directory name
-             a dotted multi-word name ending in a media extension
-             a season/episode code in its conventional two-letter form
-    *** THE `NEVER` COLUMN IS DESCRIBED, NOT SPELLED. A rule that illustrates
-        the forbidden form BY WRITING ONE has committed the defect it forbids,
-        and every future detector will fire on this document. ***
+**The first version of §11 said: never write a detector-shaped string, use a bracketed
+placeholder instead.** *It was refuted by `vmsam-auditor`, reproduced by `vmsam-dev-sandbox`,
+and reproduced a third time by `vmsam-arch-aide`, who brought it here.* **I reproduced it at my
+own bench before correcting, and it is exact:**
+
+    a plausible dotted name ending in a media extension ....... FIRES
+    the mandated bracketed placeholder ........................ *** DOES NOT FIRE ***
+       the angle bracket is not in the character class the detector scans
+    a mount point followed by a plausible directory name ...... FIRES
+    a marker path that REPLACES the mount-point shape ......... *** DOES NOT FIRE ***
+
+> ***A POSITIVE CONTROL FOR A LEAK DETECTOR MUST BE DETECTOR-SHAPED BY DEFINITION. THAT IS WHAT
+> MAKES IT A CONTROL. "NEVER WRITE A DETECTOR-SHAPED STRING" AND "EVERY DETECTOR NEEDS A FIRING
+> CONTROL" CANNOT BOTH HOLD.*** **Followed literally, the first form sent every leak detector in
+> the fleet to `m = 0` on its firing branch — and this campaign established that `m = 0` is
+> UNTESTED, not passing.** *Nine seats found a live exposure that day. Every one was found by a
+> detector with a firing control.*
+
+### THE RULE, CORRECTED: PUT THE SEPARATING INFORMATION **INSIDE** THE SHAPE, NEVER INSTEAD OF IT
+
+    KEEP THE SHAPE THE DETECTOR SCANS FOR. MAKE THE CONTENT SELF-DECLARING.
+      a fixture name that carries an explicit NOT-REAL marker AND the media
+        extension ......................... FIRES, and is machine-separable
+      a fixture path that keeps the mount-point prefix AND names itself a
+        fixture in the segment .............. FIRES, and is machine-separable
+
+    RAW HITS MINUS SELF-DECLARED FIXTURES = GENUINE HITS. SOUND AND COMPLETE.
+
+**No whitelist. No exclusion. No seat-local knowledge.** ***AND IT SURVIVES A RESET, WHICH IS
+`vmsam-dev-1`'s PROOF: the knowledge that separates a fixture from a real title otherwise dies
+with the seat that wrote it, and the next reader inherits a string it cannot classify.***
+
+*The original intent stands and the original mechanism was the defect it was written to prevent,
+one level up: I wrote a rule against instrument definitions that decide the answer, and its own
+form decided that every detector answers `clean`.* **The eight blind spots below are still the
+evidence; the fix above replaces the subtraction that was published with them.**
 
 > **EVERY EXCLUSION FOUND THAT EVENING EXISTED TO SUPPRESS A REALISTIC-LOOKING FAKE THAT A SEAT HAD
 > WRITTEN ON PURPOSE. THE EXCLUSION IS THE SECOND MISTAKE. THE REALISTIC FAKE IS THE FIRST.**
