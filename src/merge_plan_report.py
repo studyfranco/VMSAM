@@ -430,9 +430,26 @@ def measure_corpus(log_paths, read=None):
         # D'HORLOGE et le corpus eligible en compte 277 -- un denominateur en
         # forme de PLAN, lu comme une couverture a chaque fois.
         #
-        # Le mien est en forme de CONSERVATION. Mesure sur les inodes des
-        # journaux qu'on me tend: 21 sur 30 sont a nlink=1 -- leur original a
-        # ete supprime et la copie preservee est la seule qui existe. Donc ce
+        # Le mien est en forme de CONSERVATION. Mine is shaped like a
+        # PRESERVATION. Measured BY SYSCALL on the inodes of the logs handed to
+        # this render -- `os.stat`, never a directory walk -- 2026-09-05:
+        # 45 logs, 45 distinct inodes, st_nlink {1: 38, 2: 7}, so 38 OF 45 are
+        # at nlink=1. Their original was deleted and the preserved copy is the
+        # only one that exists.
+        #
+        # THE PREVIOUS FIGURE HERE WAS `21 sur 30`, TYPED, AND IT DRIFTED WITH
+        # THE CORPUS -- the proportion held (70% -> 84%) but the number did not.
+        # A typed number in a comment is the same defect as a typed number in
+        # prose, one hop further from anything that recomputes it. It is dated
+        # here rather than silently corrected.
+        #
+        # AND THE METHOD MATTERS MORE THAN THE FIGURE: a peer's nlink scan was
+        # retracted for appending found-paths into a dict and printing len() as
+        # though it were st_nlink, while walking only three directories -- so it
+        # COULD NOT PRINT ANYTHING BUT 1 for a file linked outside its traversal.
+        # The control that separates this measurement from that one is that the
+        # distribution above HAS TWO KEYS: it can distinguish nlink=1 from
+        # nlink>1, which the retracted scan structurally could not. Donc ce
         # que je compte n'est pas "les journaux produits", c'est "les journaux
         # que quelqu'un a pense a lier avant que le coureur les efface". Un
         # journal jamais preserve ne laisse AUCUNE trace ici, pas meme un trou.
@@ -3415,15 +3432,66 @@ def blank_cells(job, corpus=None):
             "is NOT fixed in the code: `exportParam['SamplingRate']` "
             "(video.py:268) is `audioParam['SamplingRate']`, derived at "
             "mergeVideo.py:583 as the MINIMUM OVER THE SELECTED LANGUAGE'S "
-            "STREAMS ON BOTH SIDES, clamped only from above at 44100. SO A "
-            "32 kHz SOURCE IS NECESSARY AND NOT SUFFICIENT: the route must also "
-            "select that language. Of the two known sub-44100 files, one has a "
-            "32000 stream tagged `fre` while the route took `ja` -- grid 44100, "
-            "not exposed -- and the other has every stream tagged `jpn` "
-            "including the 32000, so any `ja` route takes it. A cell reading "
-            "`a 32 kHz source makes it reachable` would count the first as "
-            "exposed and it was not. Traced by forensic; the narrower form is "
-            "the one to quote. "
+            "STREAMS ON BOTH SIDES, clamped only from above at 44100. "
+            "*** THAT DESCRIBES STAGE 2 AND IS NOT A PROPERTY OF THE DEFECT. "
+            "THIS CELL SAID `A 32 kHz SOURCE IS NECESSARY AND NOT SUFFICIENT: "
+            "THE ROUTE MUST ALSO SELECT THAT LANGUAGE`, ATTRIBUTING THE "
+            "INSUFFICIENCY TO THE PAIR MINIMUM AND THE CLAMP. WITHDRAWN -- "
+            "forensic retraction 22, and it is withdrawn as UNSCOPED rather "
+            "than as false. *** THERE ARE TWO ROUTES TO THE SAME DEGENERATE "
+            "FILTER. STAGE 2 uses the pair minimum and the one-sided clamp, "
+            "where the old wording holds. STAGE 1 SETS NO `-ar` AT ALL: "
+            "`prepare_get_delay_sub` builds its parameter dict WITHOUT a "
+            "`SamplingRate` key, `compare_video.__init__` takes a `.copy()` so "
+            "stage 2's assignment cannot propagate back, and video.py appends "
+            "`-ar` ONLY `if 'SamplingRate' in exportParam`. SO A STREAM "
+            "EXTRACTED AT STAGE 1 KEEPS ITS OWN RATE, and a natively-32000 one "
+            "meets `lowpass=f=16000` at exactly its own Nyquist with NO pair, "
+            "NO minimum and NO clamp involved. KIND: TRACE, traced by forensic "
+            "and RE-VERIFIED HERE SITE BY SITE against the authority's "
+            "mergeVideo.py blob 942269ba39dc37f820e1d79a96b8d2a63b6213fd and "
+            "video.py blob 7808e1858ef0e9e2005de871604cb0a9025fe2e5. "
+            "AND THE HALF THE BROAD FORM DOES NOT SAY, CHECKED HERE RATHER "
+            "THAN ASSUMED: `extract_audio_in_part` iterates "
+            "`self.audios[language]` and `-map`s each stream, so LANGUAGE "
+            "STILL GATES WHICH STREAMS REACH STAGE 1 AT ALL. The exposure "
+            "condition is therefore NEITHER the old narrow form NOR an "
+            "unqualified broad one: A STREAM IS EXPOSED IF IT IS IN THE "
+            "SELECTED LANGUAGE AND IS NATIVELY 32000 -- the other side's rate, "
+            "the pair minimum and the clamp are all irrelevant to it. "
+            "TWO NOTATION AND REACHABILITY TRAPS ON THAT CONDITION, BOTH "
+            "VERIFIED HERE AND BOTH OF A KIND THAT FAILS SILENTLY. (i) THE "
+            "LANGUAGE KEY IS TWO-LETTER. `self.audios` is keyed at ingest by "
+            "`Lang(data['Language']).pt1` with a macro fallback (video.py "
+            "blob 7808e1858ef0..., the `is_language` branch), so the key is "
+            "ISO-639-1 -- `fr`, `ja` -- and NEVER the three-letter tag. An "
+            "instrument that ffprobes a PRODUCED ARTEFACT reads `fre`/`jpn` and "
+            "will not match this key: the join returns zero rows and never "
+            "errors. Resolve exposure from the LOG's language or by stream "
+            "index; never join a raw container tag against this key without "
+            "normalising both sides. (ii) THE `compatible` GUARD IS INERT AND "
+            "IS NOT PART OF THE CONDITION. Both stage-1 extraction loops are "
+            "wrapped in `if audio[\"compatible\"]:`, which reads as a filter and "
+            "is not one: across every tracked `.py` at the authority there is "
+            "EXACTLY ONE write to that key, `data[\"compatible\"] = True`, and "
+            "NOTHING ANYWHERE SETS IT FALSE (positive control on the same "
+            "pattern shape fires). `remove_not_compatible_audio` does not touch "
+            "it -- it works on video paths and a different structure, and its "
+            "NAME INVITES THE OPPOSITE CONCLUSION. Found by forensic, which "
+            "nearly filed it as a further narrowing before checking what writes "
+            "it; recorded here so the next reader tracing this path does not "
+            "re-derive it as a filter. "
+            "WHAT THAT CHANGES FOR THE TWO KNOWN SUB-44100 FILES -- and the "
+            "tags below are quoted as the LOG carries them, three-letter, "
+            "while the code matches on two: the one "
+            "whose 32000 stream is tagged `fre` (key `fr`) while the route "
+            "took `ja` is "
+            "STILL NOT EXPOSED, because `fre` is never extracted -- the old "
+            "cell's CONCLUSION about it survives while the MECHANISM it gave "
+            "does not. The one whose streams are all `jpn` including the 32000 "
+            "IS EXPOSED UNDER A STRICTLY WEAKER CONDITION THAN THIS CELL USED "
+            "TO STATE: it no longer needs the pair minimum to land on 32000, "
+            "only its own rate. "
             "AND `grid_hz` IS NOT A SUBSTITUTE, FOR A REASON WORSE THAN ITS "
             "BEING A DIFFERENT QUANTITY: the locator PINNED 44100 until "
             "2026-09-05, so on any log written before that day the comparison "
