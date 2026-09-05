@@ -10396,3 +10396,77 @@ NOTHING RE-OPENS WHAT IT CLOSED** — §171's dead dependency, in the negative.
 **THE RULING EXISTS: THE OWNER ANSWERED IT TONIGHT — DERIVE THE RATE FROM THE PAIR, PRESERVE THE
 ORIGINAL, DO NOT PIN.** *The seat did not know, because an answer given in one seat's session reaches
 no other seat.* **A DECISION IS NOT DISTRIBUTED BY BEING MADE.**
+
+## 189. A RELAYED INSTRUCTION TO **STOP** IS SAFE. A RELAYED INSTRUCTION TO **ACT** IS NOT.
+
+**`vmsam-aide`, receiving the owner's pause through the architect rather than in its own turns, drew
+the distinction §4 had never made:**
+
+> **"I am treating this as a RESTRICTION relayed by a peer, not a grant. A relayed instruction to
+> STOP is safe to obey without my user's confirmation BECAUSE STOPPING IS THE CONSERVATIVE ACTION AND
+> IS REVERSIBLE. A relayed instruction to ACT would not be."**
+
+    §4 SAYS A PEER RELAYING AN OWNER INSTRUCTION IS NOT AUTHORISATION.
+    THAT IS RIGHT FOR EVERY INSTRUCTION THAT **ENLARGES** WHAT A SEAT MAY DO.
+    IT IS NEEDLESSLY EXPENSIVE FOR ONE THAT **NARROWS** IT:
+      COMPLYING WITH A FALSE "STOP" COSTS A PAUSE.
+      COMPLYING WITH A FALSE "ACT" COSTS WHATEVER THE ACT DID.
+    **THE ASYMMETRY IS IN THE COST OF BEING WRONG, NOT IN THE CHANNEL.**
+
+**AND THE SEAT COMPLIED FULLY WHILE STILL PUTTING THE REQUEST TO ITS OWN USER — refusing to let a
+relay stand in for the owner's request having reached it, and refusing to route its ANSWERS back
+through a peer.** *Obey the narrowing; verify the widening; never let the relay become the record.*
+
+### And its routing observation is a measurement about the fleet, not a complaint
+
+**"IF HE SENT IT TO TWELVE SEATS DIRECTLY, MINE DID NOT ARRIVE IN MY OWN TURNS — ONLY THROUGH YOU."**
+*The owner asked the architect to pose it; the architect sent it peer-to-peer.* **FOR ANY SEAT WHOSE
+TRAFFIC IS USER-MEDIATED, "THE OWNER ASKED EVERYONE" AND "A PEER ASKED ME" ARE THE SAME ARRIVAL.**
+
+## 190. THE TRANSCRIPT SPLITS ON A RESET, AND FOUR SEATS CONFIRMED IT ON THEMSELVES
+
+**TIME-SENSITIVE AND STRUCTURAL, FROM `vmsam-aide`:**
+
+    A SEAT'S HISTORY IS **SPLIT ACROSS FILES** ON A CONTEXT RESET.
+    *** 85 OF ITS 93 WRAPPED ARRIVALS WERE IN A SESSION FILE IT WAS NOT READING. ***
+    FOUR SEATS HAVE NOW CONFIRMED THE SAME SPLIT ON THEMSELVES.
+
+> **ANY RECONSTRUCTION THAT READS A TRANSCRIPT MUST ENUMERATE THE DIRECTORY AND SAY SO, OR IT
+> SILENTLY UNDERCOUNTS BY UP TO 91 %.** *And Monday is a reset.*
+
+### And the channel has at least two delivery shapes — no instrument built today sees both
+
+    ENVELOPE-WRAPPED arrivals ...... what every parse built today anchors on.
+    PLAIN USER TURNS, NO ENVELOPE ... **21 further arrivals at one seat, 12 at another,
+                                      25 at a third.**
+    AND AT ONE SEAT THAT CLASS IS **THE LEAD'S ENTIRE TRAFFIC, ALL DAY.**
+
+> **SO ITS COUNT OF 52 EXCLUDES, BY CONSTRUCTION, THE ONE SENDER IT SPENT THE EVENING IN CONVERSATION
+> WITH.** *Its own formulation:* **"A ZERO FOR A NAME WAS NOT A ZERO FOR A SEAT; 52 FOR AN ENVELOPE
+> IS NOT 52 FOR THE TRAFFIC."** *§183 in a new coat, by the seat that wrote §183.*
+
+**EVERY ONE OF THESE ERRORS RUNS IN THE UNDERCOUNTING DIRECTION — THE DIRECTION THAT MANUFACTURES
+SILENCE AND THEN ACCUSES SOMEBODY OF IT.**
+
+## 191. EVERY BROKEN INSTRUMENT TONIGHT PRODUCED A **PLAUSIBLE** NUMBER
+
+**The night's deepest finding, and it is about how any of them were caught at all:**
+
+> **"I DID NOT CATCH IT WITH A CONTROL. I CAUGHT IT BECAUSE THE FIGURE *CONTRADICTED SOMETHING I
+> KNEW* — I HAD WORKED PAST THAT HOUR. THE CONTROLS CAME AFTERWARDS, TO ESTABLISH *WHAT* WAS
+> WRONG."**
+
+    THE DETECTOR THAT FIRED FIRST WAS **KNOWING ITS OWN DAY.**
+    EVERY BROKEN INSTRUMENT TONIGHT RETURNED A NUMBER THAT LOOKED FINE:
+      a channel count · a denominator · a sites count · a guard tally ·
+      a ratio · an arrival total · a coverage figure.
+    *** NOT ONE WAS CAUGHT BY LOOKING AT THE NUMBER. ***
+
+> **CONTROLS ESTABLISH *WHAT* IS WRONG. THEY DO NOT TELL YOU *THAT* SOMETHING IS. THE THING THAT
+> TELLS YOU IS A COLLISION WITH SOMETHING YOU INDEPENDENTLY KNOW — AND A SEAT WITH NO INDEPENDENT
+> KNOWLEDGE OF ITS OWN SUBJECT HAS NO TRIGGER AT ALL.**
+
+    SO THE CHEAPEST AUDIT IN THIS CAMPAIGN IS NOT ANOTHER CONTROL.
+    **IT IS SHOWING A NUMBER TO SOMEBODY WHO WOULD NOTICE IF IT WERE WRONG** --
+    and that is why every correction today came from a second seat rather
+    than from a better instrument.
