@@ -8972,3 +8972,65 @@ had told two seats their reasoning "dies at Monday's reset".* **FALSE — `LEAD.
 RESETS THE SESSIONS, IT DOES NOT DELETE THE FILES, and the seat directories are on durable storage.**
 *What Monday costs is CITABILITY, not CONTENT.* **The refutation was two paragraphs below the alarm,
 in the same document, and the alarm was allowed to stand.**
+
+## 145. F26 WAS REINTRODUCED ONE WORD AWAY, INSIDE THE MODULE BUILT TO CONSUME F26's VICTIMS
+
+**Found by `vmsam-dev-1`, verified by `vmsam-lead` before changing anything, and RE-MEASURED HERE by
+AST over every call site:**
+
+    the guard      `if tools.dev or outcome in ("repaired","failed","declined","no_plan")`
+    outcomes ACTUALLY passed   declined x6 · no_plan x2 · failed x1 · repaired x1
+    the whitelist              THE SAME FOUR STRINGS
+    outcomes NOT whitelisted   *** NONE ***
+    => COULD THE LEFT OPERAND EVER CHANGE THE RESULT?  **NO.**
+
+> **A DEAD CLAUSE THAT MADE EVERY READER THINK THE LINE WAS DEBUG-GATED WHEN IT WAS NOT — AND THE
+> LINE FIRED IN PRODUCTION ONLY BECAUSE THE USED-OUTCOME SET *HAPPENED* TO EQUAL THE WHITELIST.**
+> ***ONE NEW OUTCOME STRING WOULD HAVE SILENTLY RE-GATED IT TO `tools.dev` ONLY.***
+
+**THAT IS F26 EXACTLY — a refusal that emits nothing in production because its emission is dev-gated —
+REINTRODUCED INSIDE THE MODULE THAT EXISTS TO CONSUME F26's VICTIMS.**
+
+    THE FIX IS BEHAVIOUR-IDENTICAL TODAY AND THAT IS THE POINT:
+    ALL TEN OUTCOMES WERE WHITELISTED, SO THE GUARD WAS ALWAYS TRUE.
+    REMOVING IT CHANGES NOTHING **AND MAKES THE PROPERTY TRUE BY CONSTRUCTION
+    INSTEAD OF TRUE BY COINCIDENCE.**
+
+> **THIS IS §125's REMEDY, APPLIED TO CODE INSTEAD OF TO A HABIT.** *§125 said: convert every rule you
+> care about into a control that fires without being remembered.* **HERE: convert every property you
+> depend on into one that holds without being maintained.** *A property that holds because two sets
+> happen to coincide is a property with a maintainer, and the maintainer is whoever adds the next
+> string — who will not know.*
+
+*Verified in the published blob: the only surviving mention of the old guard is the comment that
+quotes it.*
+
+## 146. A DELETION IS INDISTINGUISHABLE FROM A GAP UNTIL SOMEONE READS WHAT IS BEING DELETED
+
+**`vmsam-lead` reversed its own collection decision from an hour earlier, and the failure was in the
+direction that looks safe.**
+
+*It had declined to collect a seat's notes file because 3 lines present at the authority were ABSENT
+from that seat's copy, and read the difference as "its clone is stale". It had those three lines
+printed in front of it and drew the opposite conclusion from the evidence:*
+
+    THE THREE LINES WERE A PROHIBITION THE SEAT ITSELF HAD **MEASURED FALSE** AND
+    **RETRACTED**. THE SEAT'S COPY WAS THE CORRECTED ONE. THE AUTHORITY HELD THE ERROR.
+
+> **A CONSERVATIVE COLLECTION RULE PRESERVED A RETRACTED FALSE STATEMENT AT THE AUTHORITY, PUBLISHED
+> UNDER THE NAME OF THE AGENT WHO RETRACTED IT.**
+
+    THE SUPERSET CHECK ANSWERS "WOULD ANYTHING BE LOST".
+    IT DOES NOT ANSWER **"WHICH SIDE IS STALE"** -- AND ONLY THE SECOND DECIDES
+    WHETHER THE LOSS IS A LOSS. **READ WHAT YOU ARE ABOUT TO NOT-TAKE.**
+    §136 ON A DIFF: A MISSING LINE IS TRUE BOTH WHEN THE SOURCE IS BEHIND
+    AND WHEN THE SOURCE HAS CORRECTED SOMETHING.
+
+**AND THE ARCHITECT AMPLIFIED THE INVERTED READING TO THE OWNER.** *Told that the seat had refused to
+take a file whole, the architect praised it and reported that taking it whole "would have republished
+a retracted claim under the name of the seat that retracted it".* **THE TRUTH IS THE EXACT REVERSE:
+NOT taking it is what kept the retracted claim standing.** *Relayed without checking which side held
+the correction — the one question §146 exists to force.*
+
+*The seat quoted the three lines in its own commit body so the next reader need not trust either
+party. That is the correct repair for a relay that inverted.*
