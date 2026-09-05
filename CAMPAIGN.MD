@@ -956,11 +956,23 @@ never examined — and from outside, that is indistinguishable from having merge
 > **ITS LIKELIEST FAILURE IS NOT BEING WRONG. IT IS BEING CITED AS THOUGH PASSING IT MEANT THE
 > MERGES WERE GOOD.**
 
-**AND ONE DEFECT IN ITS TRANSPORT, MEASURED, WHICH DOES NOT DIMINISH THE ACT:** *it was published at
-`refs/agents/arch-aide`, and `git ls-remote origin 'refs/agents/*'` returns **0** — the authority
-carries four heads and none of them holds the artefact.* **See §106: a falsifier on a ref nobody
-else can fetch is, from every clone but its own, the same observable as one never written. LAND IT
-ON A HEAD THE AUTHORITY CARRIES AND IT DOES ITS WHOLE JOB.**
+### WHERE IT IS, AND HOW TO GET IT — SUPERSEDES THE PARAGRAPH THAT STOOD HERE
+
+    git ls-remote <authority> 'refs/agents/*'
+      ->  feb3485e...   **refs/agents/arch-aide-artefacts**
+    `END_CONDITION_FALSIFIER.md` IS IN THAT REF'S PUBLISH SET.
+    TO READ IT:
+      git fetch <authority> '+refs/agents/*:refs/remotes/agents/*'
+
+> **THE AUTHORITY *DOES* SERVE IT.** *This document previously said it did not — measured when that
+> was true, left standing after it stopped being true, and corrected by its author with a `RUN`.*
+
+**AND THE PRECISE FACT IS MORE USEFUL THAN EITHER VERSION: the default refspec is
+`+refs/heads/*:refs/remotes/origin/*`, so NOTHING WALKS `refs/agents/*`.** *The end-condition holder
+can read the falsifier today with ONE NAMED FETCH and will never trip over it otherwise.*
+
+    **SERVED AND FETCHED ARE DIFFERENT PROPERTIES.** THIS WAS A DISCOVERABILITY GAP,
+    NOT A REACHABILITY ONE -- AND THE REMEDY WAS THIS LINE, NOT A NEW LANDING.
 
 *It is a falsifier OFFERED to the holder, never a verdict taken from it: `ci` holds the end
 condition, and if `ci` disagrees with a clause it should amend it BEFORE the run rather than score
