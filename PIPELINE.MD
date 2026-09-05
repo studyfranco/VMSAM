@@ -7,6 +7,21 @@ subject matter.**
 
 # THE CONTROL FLOW — READ THIS BEFORE YOU TOUCH THE ENGINE
 
+**FILES THIS DESCRIBES:** `src/mergeVideo.py` · `src/change_point_locator.py` ·
+`src/merge_video_repair.py` · `src/merge_video_chimeric.py` · `src/merge_video_resample.py` ·
+`src/gestionar_show/fusion.py`
+**MEASURED AT** `origin/dev-AI` tip `a4b57808`. *`vmsam-dev-2` measured that the first version of
+this file named ZERO source files against a control of 121 — **a successor grepping for the module
+this document is about never found the document.** Its eight line citations all resolved correctly
+and carried no revision anchor:* **CORRECT-TODAY-AND-UNANCHORED IS THE DANGEROUS STATE, NOT THE SAFE
+ONE** *— that seat's own file moved four times in one day. Line numbers below are a convenience;
+the function name and the phrase are the citation.*
+
+> **AND THIS FILE IS NO LONGER THE ONLY PLACE. `vmsam-dev-2` put the relationship into
+> `src/merge_video_chimeric.py`'s module header — acting on the closing rule rather than agreeing
+> with it — with the line that settles any future disagreement:** ***if this and `PIPELINE.MD` ever
+> disagree, MEASURE THE CODE, and the code is that file.***
+
 > **WHY THIS EXISTS: `vmsam-dev-1` MEASURED that the locator NOWHERE STATES why it exists — zero hits
 > for "constant delay", "single delay", "re-encode", "subtitle", against a control at 39 that fires.
 > THE RELATIONSHIP BELOW LIVES ACROSS TWO OWNERS' FILES AND IS IN NEITHER DOCSTRING.** *A successor
@@ -20,14 +35,14 @@ bitmap subtitles preserved. THE REPAIR EXISTS ONLY FOR FILES WHERE NO SINGLE DEL
     merge_videos :2141  ->  sync_merge_video :2050
                                     |
                                     v
-    +--- get_delay_and_best_video :873 -------------------------------+
-    |     THE STAGE WHERE COMPATIBILITY IS DECIDED                    |
+    +--- get_delay :961  *** THE PRODUCTION PATH *** -----------------+
+    |     mergeVideo.py -- THE STAGE WHERE COMPATIBILITY IS DECIDED    |
     |                                                                 |
     |     compare_video -> correlation                                |
     |          |                          |                           |
     |          | ONE DELAY HOLDS          | NONE HOLDS                |
     |          |                          v                           |
-    |          |            remove_not_compatible_video :798          |
+    |          |     mergeVideo.py:remove_not_compatible_video :798   |
     +----------|--------------------------|---------------------------+
                |                          |  *** LEAVES THE CYCLE ***
                |                          v
@@ -48,6 +63,28 @@ bitmap subtitles preserved. THE REPAIR EXISTS ONLY FOR FILES WHERE NO SINGLE DEL
         find_differences_and_keep_best_audio :1935
                |
         the produced file
+
+### THERE ARE **TWO** ENTRIES, AND PRODUCTION TAKES THE ONE THIS DIAGRAM DID NOT DRAW
+
+**Found by `vmsam-ci`, re-derived by `vmsam-lead`, RE-VERIFIED HERE BY AST — enclosing function
+computed from the tree, never from indentation:**
+
+    mergeVideo.py:remove_not_compatible_video  DEFINED 798-868, TWO call sites:
+      :958  enclosing `get_delay_and_best_video`  -- no reference imposed. CLI / tournament.
+      :988  enclosing `get_delay`                 -- *** THE FUSION PATH ***
+
+    THE ROUTING, mergeVideo.py:2127-2131:
+      if forced_best_video == None:  -> get_delay_and_best_video
+      else:                          -> get_delay
+    AND gestionar_show/fusion.py SETS IT IN **BOTH ARMS** OF ONE if/else, :343 and :348.
+    **NO PATH THROUGH THE FUSION WORKER LEAVES IT UNSET.**
+
+> **EVERY REPAIR THE CONTAINER HAS EVER PERFORMED ENTERED AT `:988`. The first version of this
+> document drew `:958`.** *A successor reading it to understand the PRODUCTION repair path would have
+> studied the wrong function — which is exactly the failure this file was written to prevent.*
+
+**THE SHAPE IS UNCHANGED AND HOLDS FOR BOTH ENTRIES:** *both call the same function at `:798`, and
+both hang the result on `best_video.sameAudioMD5UseForCalculation`.*
 
 > **A REPAIRED FILE GOES BACK THROUGH THE SAME CYCLE AS A NORMAL ONE.** *It is not a parallel lane
 > that rejoins later — it leaves at the refusal, inside `get_delay_and_best_video`, and re-enters at
@@ -80,6 +117,8 @@ FOR:** *the check counted the files REMAINING without seeing that one had just c
                      THE SLOPE IS UNDERNEATH           THE STAIRCASE IS ON TOP
 
       *** THE RESAMPLE IS APPLIED **BEFORE** THE CUTTING. THEY ARE NOT TWO ROUTES. ***
+      src/merge_video_chimeric.py -- confirmed by its owner from the code, not the
+      comment: `candidate_entry` is REBOUND to `[spd]` BEFORE the `asplit`.
       The candidate's `start_time` is MULTIPLIED BY THE RATIO first, and the slice
       times are read on the **ALREADY-RESAMPLED** candidate.
       `SPEC_ZONE_A.MD` §4 says `chimeric+resampled` IN THAT ORDER for this reason.
@@ -113,6 +152,51 @@ constant-offset prose, **0 carrying a `plan_kind` marker**, against a control of
 
 *The value exists, it is one interpolation away from the log line, and it is inside the REPAIR
 boundary.*
+
+## 2c. A LATENT HAZARD: THE PLAN'S OFFSETS ARE MEASURED ON THE **UNRESAMPLED** PAIR
+
+**`vmsam-dev-1` contradicted the step-3 framing and DISSOLVED the interface question rather than
+answering it. VERIFIED HERE at `src/change_point_locator.py`:**
+
+    speed_ratio 0 · asetrate 0 · atempo 0 · resample 0
+    CONTROL `quantum_ms` -> 12, FIRES.   its only kinds: "constant" | "piecewise_constant"
+
+**THE LOCATOR EMITS NO RATIO AT ALL. When it detects a monotone drift it DECLINES — it never
+produces a plan describing a speed relation.** *So there is no ordering question at its interface.
+There is a stronger constraint:*
+
+> **EVERY MILLISECOND IN A PLAN IS THE RELATIONSHIP BETWEEN MASTER AND CANDIDATE *AS THEY ARE ON
+> DISK*. IF A RATIO IS APPLIED BEFORE THOSE SLICE TIMES ARE READ, THE OFFSETS ARE NOT REORDERED —
+> THEY ARE ***INVALIDATED***, because they were measured against a timeline that no longer exists.**
+
+    THAT IS COMPATIBLE WITH §2 STEP 3 **ONLY BECAUSE A PLAN AND A SPEED RATIO NEVER
+    COEXIST TODAY** -- and they never coexist only because the locator DECLINES the
+    speed family. **THE ORDERING IS SAFE BY ACCIDENT OF A REFUSAL, NOT BY DESIGN.**
+    AND WE NOW KNOW THAT REFUSAL IS ISSUED FOR A **FALSE STATED REASON** (CAMPAIGN.MD:
+    six of six real PAL pairs took `scattered`, saying "no shared content" about files
+    that share everything at 4.27 %).
+    *** IF THAT BRANCH IS EVER FIXED SO PAL PRODUCES A PLAN, THIS HAZARD GOES LIVE. ***
+    ANYONE TOUCHING THE SPEED BRANCH MUST SETTLE THIS FIRST.
+
+### And a costume: `kind == "speed"` has ZERO producers
+
+    the ONLY occurrence in src/ is the READER, merge_video_repair.py:101
+      if plan.get("kind") != "speed" and plan.get("speed_ratio") == None: return None, None
+
+**No plan produced anywhere in the tree can carry `kind == "speed"`, so that conjunct is TRUE for
+every producible plan and never changes the outcome.** *The line still behaves correctly — it
+reduces to "if there is no ratio, do nothing" — but the test is INERT, and a reader seeing a
+`"speed"` branch infers a producer that does not exist.* **`dev-1` inferred exactly that for ten
+minutes, about its own module.**
+
+### And a source comment that names the wrong module
+
+**`src/merge_video_repair.py:130` attributes a `speed_ratio` emission to the locator's author.** *At
+the current blob that module emits no such field in either convention.* **THE ACTUAL PRODUCER IS
+`src/merge_video_resample.py:11`, and it uses the convention the comment says is correct.** *The
+defect the comment records is real and well documented; it is FALSE OF THE CODE AS IT NOW STANDS and
+sends a live reader to the wrong file.* **A citation with a stale half, in a source comment rather
+than in a document.**
 
 ## 3. THE TWO SENTENCES A SUCCESSOR MUST NOT CONFUSE
 
