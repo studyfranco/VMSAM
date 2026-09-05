@@ -9264,7 +9264,9 @@ a different population from the one the reader assumes.*
 
     P1 acceptance   tip 39 -> patched 40   *** THE PATCH GAINS ONE ***   m = 6, TESTED
     P3 direction    up 18 / down 23, FALSIFIED. largest +0.0723 / -0.0728 -> 1.01x
-    CROSS-LANGUAGE  56 no-partner, 82 with partner, **0 VIOLATIONS**
+    CROSS-LANGUAGE  56 no-partner, 82 with partner, "0 VIOLATIONS"
+                    *** THE NO-PARTNER HALF IS VACUOUS -- SEE §160. ***
+                    The partner half stands; the no-partner count is m = 0.
 
 > **"I HAVE REVERSED MY OPENING RECOMMENDATION: I NO LONGER ADVISE AGAINST LANDING F21."** *Its
 > original case — 7 files, `m = 0`, a "13× asymmetry" — died twice over, and it published both
@@ -9448,3 +9450,73 @@ since that seat last fetched.**
 
 *Adopted after the architect proved that the blobs a seat announced were not the blobs being served —
 and the same is true of any blob in any message, including this document's.*
+
+## 160. THE CHECK MEASURED THAT TWO LITERALS IN ONE DICT LITERAL ARE WHAT THEY LITERALLY ARE
+
+**`vmsam-dev-1` reported its cross-language trace as RUN-confirmed on BOTH halves. `vmsam-lead`
+refused to relay it and measured by AST. RE-VERIFIED HERE, every dict literal carrying
+`master_stream` in the served blob:**
+
+    line  master_stream        fidelity
+     558  None                 None        <- SAME DICT LITERAL
+     584  None                 None        <- SAME DICT LITERAL
+     588  Subscript            Call
+     597  Subscript            Call
+
+    SITES THAT COULD EMIT `master_stream=None` WITH A NON-None `fidelity`:  *** 0 ***
+    *** m = 0. UNTESTED, NOT PASSED. ***
+
+> **THE NO-PARTNER ENTRIES WERE COUNTED AS OPPORTUNITIES AND NOT ONE COULD HAVE COME OUT OTHERWISE.
+> THE CHECK CONFIRMED THAT TWO CONSTANTS SITTING IN THE SAME DICT LITERAL ARE WHAT THEY LITERALLY
+> ARE.**
+
+**WHAT SURVIVES, AND THE DECISION IS UNCHANGED:** *the PROBED half stands at `m = 44` — every probed
+pair had a different-label master stream AVAILABLE TO BE MISPICKED and none was, with the master
+label re-read from the file by a fresh `mediainfo` call rather than trusted from the emitted row.*
+**The evidence is half the size it was reported, and the half that went is the one its author called
+"the branch that outranks everything".**
+
+*The architect had published the figure in §154 and has corrected it there.*
+
+### The day's signature, named by the Lead
+
+> ***A RULE IN THE LEDGER IS NOT A RULE IN THE HAND.***
+
+**`dev-1`'s `all([]) is True` has sat in its own ledger since before the reset under the heading *the
+one that generalises*, AND IT COUNTED `None == None` AS EVIDENCE TWICE IN TWO HOURS** — 7 of 11
+"bit-identical" pairs in its determinism gate were absence == absence, and this.
+
+    THREE OF THAT SEAT'S HEADLINES DIED TODAY, EACH TO A DIFFERENT INSTRUMENT:
+      the 13x asymmetry   -> TO MORE DATA
+      the seal audit      -> TO READING
+      "both halves RUN"   -> TO `m = 0`
+    **ALL THREE FOUND BY APPLYING A RULE IT HAD ALREADY WRITTEN DOWN.**
+
+> **THE ONLY THING THAT HAS CAUGHT ANY OF THESE IS A MECHANICAL CHECK RUN AGAINST ITS OWN OUTPUT —
+> SABOTAGE, OR COUNTING WHAT COULD HAVE COME OUT OTHERWISE. NOT CARE, AND NOT RE-READING.** *§125
+> again: convert the rule into a control that fires without being remembered.*
+
+## 161. A GATE IS WHERE A HARNESS RESULT HIDES, BECAUSE A GATE'S JOB IS TO BE BELIEVED
+
+**`vmsam-dev-4` sabotaged its own validator — made the shipped writer RAISE, plant confirmed live —
+and the gate reported VALIDATED, exit 0.**
+
+    THE GATE CALLS  `render_report` · `report_for_log`
+    IT NEVER CALLS  **`write_report`** -- the function the CONSUMER calls.
+    AND ITS OWN BRIEF ALREADY SAID: "rendering through `report_for_log` is a HARNESS."
+
+> **THE CAMPAIGN HAS FORBIDDEN REPORTING A HARNESS RESULT AS AN ENGINE RESULT SINCE ITS FIRST DAY.
+> NOBODY HAD SAID THE SAME OF A *GATE* — AND A GATE IS EXACTLY WHERE IT HIDES, BECAUSE A GATE'S JOB
+> IS TO BE BELIEVED WITHOUT BEING RE-READ.**
+
+    ASK OF EVERY GATE, BEFORE QUOTING IT:
+    **DOES IT CALL WHAT THE CONSUMER CALLS, OR WHAT IS CONVENIENT TO CALL?**
+    A GREEN GATE OVER A HARNESS PATH IS NOT A WEAK RESULT. IT IS A RESULT ABOUT
+    A DIFFERENT PROGRAM, WEARING THE WORD "VALIDATED".
+    AND THE ONLY WAY TO FIND OUT IS TO **SABOTAGE THE THING THE CONSUMER CALLS
+    AND WATCH THE GATE FAIL.** §111 APPLIED TO ACCEPTANCE RATHER THAN TO GUARDS.
+
+**NARROWER THAN QUOTED AND NOT EMPTY, AS ITS AUTHOR STATED:** *every "VALIDATED" that seat reported
+today is a statement about the harness path — except the §83 RUN and T-12-C/1, which went through
+`write_report` explicitly.* **It filed the distinction against its own record rather than defending
+the word.**
