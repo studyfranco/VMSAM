@@ -10308,3 +10308,91 @@ cannot be wrong.* **AND IT WAS BROADCAST AS "THE CHECK THAT CAN ACTUALLY FAIL".*
 
 *The conclusion the Lead drew about its own environment is very likely right. The justification is
 not — and a correct conclusion reached through a blind test is a coin that landed well (§132).*
+
+## 186. WE TESTED THE EXPENSIVE HYPOTHESIS FIRST BECAUSE IT WAS THE INTERESTING ONE
+
+**Two seats spent two rounds and twelve arms attributing a zero to a codec destroying contiguity.
+One of them built an entire lossless fixture family overnight to test it. THE ARITHMETIC THAT KILLS
+THE DIAGNOSIS WAS AVAILABLE TO BOTH BEFORE EITHER FAMILY EXISTED:**
+
+    fingerprint hop 0.123840 s
+      5 s -> 40.3747 hops · 10 s -> 80.7494 · 20 s -> 161.4987
+      copy separation 50 s -> **403.7468**    *** NONE INTEGER ***
+
+**SO THE TWO COPIES OF A REPEATED SEGMENT ARE SAMPLED AT DIFFERENT SUB-HOP PHASES. THEIR FINGERPRINT
+ITEMS DIFFER EVEN IN BIT-IDENTICAL PCM.** *A separation 31.4 ms further on would have aligned.*
+**THE CODEC WAS NEVER REQUIRED TO EXPLAIN THE ZERO.**
+
+> ***"WE TESTED THE EXPENSIVE HYPOTHESIS FIRST BECAUSE IT WAS THE INTERESTING ONE. THE CHEAP ONE WAS
+> A DIVISION ON TWO NUMBERS BOTH OF US ALREADY HAD IN OUR OWN RECORDS."***
+
+    THE STANDING QUESTION IT PRODUCES, TO BE ASKED OF EVERY SEAT AND OF THE ARCHITECT:
+    *** WHICH NUMBER IN YOUR LAST FINDING DID YOU **ASSUME** RATHER THAN **COMPUTE**? ***
+    AN INTERESTING HYPOTHESIS RECRUITS EFFORT; A BORING ONE HAS TO BE REMEMBERED.
+    AND THE BORING ONE IS USUALLY ARITHMETIC ON NUMBERS ALREADY IN THE RECORD.
+
+*It is a PREDICTION and not a result: the lossless arms exist and the other seat holds the
+instrument. **If the lossless family also returns zero, this is why, and the fixture was never the
+problem.***
+
+## 187. A COUNT OVER ONE **SHAPE** OF ARRIVAL, NEVER SAID SO
+
+**Minutes after publishing them, `vmsam-ci-build` re-measured its own channel figures:**
+
+    ITS PUBLISHED COUNT ....... 30-31
+    THE TRUE FIGURE ........... **57-58**
+    *** 25 ARRIVALS REACH IT AS PLAIN USER TURNS WITH NO ENVELOPE, AND ITS
+        PREDICATE MISSED ALL OF THEM. ***
+
+> **"EVERY COUNT I HAVE PUBLISHED ON THAT CHANNEL TONIGHT WAS OVER ONE SHAPE OF ARRIVAL AND I NEVER
+> SAID SO."** *And the error runs in the UNDERCOUNTING direction — the direction that manufactures
+> silence.*
+
+**THIS CORROBORATES §183 AND CORRECTS THE DESIGN CONSTRAINT FOR THE CENSUS NOBODY HAS BUILT YET: THE
+SAME MESSAGE ARRIVES IN AT LEAST TWO SHAPES, AND A PATTERN ANCHORED TO ONE OF THEM READS THE OTHER AS
+ABSENCE.** *A per-seat census over that store must enumerate SHAPES before it counts arrivals, or it
+will accuse the seats whose traffic takes the other form.*
+
+## 188. THE ONLY WORK IN THE FLEET THAT IS BOTH UNVERSIONED AND IRREPLACEABLE
+
+**Asked what rules it needs, the seat whose entire output is generated files answered the question
+nobody had put:**
+
+    ITS CORPUS ...... 6.5 GB of media + 1.1 MB of records, in NO REPOSITORY.
+    THE MEDIA ....... **REGENERABLE** -- every case carries its rebuild command.
+    THE RECORDS ..... *** NOT REGENERABLE. ***
+    ITS TOOLS ....... local only, never collected.
+
+> **SO THE RECORDS ARE UNVERSIONED *AND* IRREPLACEABLE, AND NOBODY HAS RULED WHETHER THEY ARE
+> CAMPAIGN ARTEFACTS OR TEST-ENVIRONMENT MATERIAL. TODAY THEY ARE NEITHER.**
+
+**AND THE SEAT RESTATED ITS OWN BLOCKER AS A RULE QUESTION, WHICH DISSOLVES IT:** *should a generator
+take its library and error roots FROM CONFIGURATION rather than from source?* **IF YES, IT NEEDS NO
+PERMISSION — IT IS THAT SEAT'S OWN FILE — AND IT REMOVES THE §1b/§10 COLLISION WITHOUT ANY RULING ON
+THE PUBLISH.**
+
+    THE BEST ANSWER TO A CONTESTED PERMISSION IS A PATH THAT DOES NOT REQUIRE IT --
+    **AND THE SEAT APPLIED THAT TO ITS *OWN* BLOCKER RATHER THAN TO SOMEBODY ELSE'S.**
+
+### And two things it was carrying as UNOWNED whose premise it had never tested
+
+    A NULL IT RECORDED AS **"IMPOSSIBLE"** under a constraint that was later
+    SUPERSEDED -- and never re-tested. *** ANOTHER SEAT THEN BUILT THE SYNTHETIC
+    HALF FROM THAT VERY NULL, SO THE "IMPOSSIBLE" WAS ALREADY FALSE WHEN WRITTEN. ***
+    AND A REQUEST IT RECORDED AS "THAT IS ANOTHER SEAT'S" -- **never asked them,
+    and never verified they could obtain it.**
+
+**A CONSTRAINT THAT MADE SOMETHING IMPOSSIBLE IS A CLAIM WITH A LIFETIME. WHEN THE CONSTRAINT MOVES,
+NOTHING RE-OPENS WHAT IT CLOSED** — §171's dead dependency, in the negative.
+
+### And three conversion profiles disagree, with one held by assumption
+
+    the measurement module ..... hardcodes one rate
+    the second stage ........... uses the minimum of the pair and that rate
+    the FIRST stage ............ **uses none at all**
+    THE SEAT BUILDS TO THE FIRST PROFILE **PENDING A RULING IT BELIEVED UNMADE**.
+    ALL DOWNSTREAM COMPARISONS INHERIT THAT CHOICE.
+
+**THE RULING EXISTS: THE OWNER ANSWERED IT TONIGHT — DERIVE THE RATE FROM THE PAIR, PRESERVE THE
+ORIGINAL, DO NOT PIN.** *The seat did not know, because an answer given in one seat's session reaches
+no other seat.* **A DECISION IS NOT DISTRIBUTED BY BEING MADE.**
