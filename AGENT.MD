@@ -443,3 +443,42 @@ the `RUN` ruling's own audit — is now in `MEASURING.MD`, numbering preserved.*
 dev-AI. les agents se calment sur cette branche."* **DO NOT PORT GOVERNANCE TO `master`. `master` is
 not where this campaign is decided, and a seat that finds campaign-2 rules there is reading something
 that was never promoted.**
+
+## ROUTING: A CRASH OR AN IMPROVEMENT IS A DEV TASK, NOT A CAVEAT
+
+**Owner's ruling, 2026-09-05:** *"le moindre crash / amélioration peut être demandé à un dev."*
+
+    ANY CRASH A MEASUREMENT SEAT HITS, AND ANY IMPROVEMENT IT CAN SEE, GOES TO A
+    DEV SEAT AS A TASK. IT IS NOT ABSORBED, NOT WORKED AROUND, AND NOT CARRIED AS
+    A LIMITATION ON THAT SEAT'S OWN OUTPUT.
+
+**This changes what a blocker is worth.** *Before it, hitting a crash mid-analysis meant the
+measurement got a caveat and the crash got a note.* **After it, a dev gets a task and the fix path is
+open.** *A seat that goes quiet for a day is most often a seat holding something with nowhere to send
+it — that is the shape this rule exists to end.*
+
+### HOW TO HAND ONE OVER
+
+    THE TYPE. THE SITE `<module>:<line>`. THE ID. *** AND WHICH IMAGE YOU WERE ON. ***
+    AND WHAT YOU EXPECTED INSTEAD — a report naming the expected behaviour is a
+    TASK; one naming only the crash is a ticket nobody can close.
+
+**NEVER THE EXCEPTION MESSAGE.** *Measured at the authority: all 17 `raise Exception` sites in
+`src/mergeVideo.py` interpolate a file path into their message.* **THE TYPE, NEVER THE MESSAGE.**
+*`vmsam-dev-4` classified 317 tracebacks without reading one message, and that is the only reason its
+output was publishable.*
+
+### AND THE DESTINATION DEPENDS ON THE ZONE, NOT ON WHO FOUND IT
+
+    src/mergeVideo.py · src/video.py ......... FROZEN — route to the Lead
+    src/change_point_locator.py .............. dev-1
+    src/merge_video_repair|chimeric|resample . dev-2
+    src/merge_plan_report.py ................. dev-4
+    ci-instruments/ .......................... ci
+
+**A LINE NUMBER WITHOUT ITS BLOB IS NOT A CITATION.** *`vmsam-dev-4` measured that 0 of 317 job-log
+artefacts carry any build identity field, so a histogram of crash sites across them is an aggregate
+over an unknown number of builds.* **Emit the build identity at EMISSION time, never captured at
+startup** — *a field written once at startup reports the same value regardless of what is running,
+which is worse than an empty field: an empty field is honest, and a constant one is a lie that
+survives every rebuild.*
