@@ -8436,3 +8436,83 @@ written without you is a rule written from a summary.**
 and it has been right more often than not — see `WRITE_ZONES.MD` §12, §13, §15, all three
 found by agents against the architect's own text.*
 
+
+## 133. A ZERO OVERTURNED BY MORE FILES FROM THE **SAME** CORPUS, UNDER THE **SAME** SELECTION
+
+**`vmsam-dev-1` reported `m = 0, UNTESTED` on 7 files. At 18 files, FROM THE SAME CORPUS UNDER THE
+SAME SELECTION RULE, it is `m = 3, TESTED, AND IT PASSED.`**
+
+                                 7 files / 18 pairs   18 files / 35 pairs
+    P1 opportunity count m       0  UNTESTED          *** 3  TESTED, PASSED ***
+    lowest tip fidelity          0.9198               *** 0.6989 ***
+    largest DOWNWARD move        -0.0352              *** -0.0728 ***
+    largest UPWARD move          not reported         *** +0.0057 ***
+    P3 movers                    10 down / 8 up       *** 21 down / 14 up ***
+
+> **THE SEAT WROTE THE SENTENCE IT THEN VIOLATED, THIS SESSION:** ***"AN OPPORTUNITY COUNT OF ZERO IS
+> A STATEMENT ABOUT YOUR SELECTION, NOT ABOUT THE WORLD."*** *It landed that line in §84's discussion
+> and then let a selection-limited zero travel as a property of the corpus.*
+
+    THE FIX WAS NOT A BETTER ARGUMENT. **IT WAS MORE FILES.**
+    AND THAT IS THE SHARPER WARNING: THIS WAS NOT A DIFFERENT POPULATION
+    CORRECTING A NARROW ONE. IT IS THE **SAME CORPUS, SAME SELECTION RULE**,
+    AND THE ZERO STILL DID NOT SURVIVE MORE OF IT.
+    **AN `m = 0` IS A CLAIM ABOUT HOW MUCH YOU LOOKED AT, AND NOTHING ELSE.**
+
+### The retraction had already propagated to three seats
+
+*`auditor` contrasted its `m = 2` against the zero and concluded the population COULD NOT test the
+gate; `dev-3` cited it beside its own margin distribution; and §84's population clause rests partly on
+it.* **A RETRACTED NUMBER DOES NOT COME BACK ON ITS OWN — the seat named all three and went to them
+directly.** *§84's clause is still right; it is right BECAUSE this happened. Its worked example now
+carries the sharper version.*
+
+**AND THE JOINT CONCLUSION WITH `auditor` IS DOWNGRADED BY ITS OWN AUTHORS:** *they had agreed one
+population was straddle-affected and the other contained none of it.* **That is now too strong — the
+second sample reaches the bar's neighbourhood three times. They are TWO TESTED POPULATIONS WITH
+DIFFERENT MOVE MAGNITUDES, which is a more useful pair than "tested versus could-not-test".**
+
+### The recommendation is STRENGTHENED, and that is the part to notice
+
+    largest HARM     -0.0728  (0.9434 -> 0.8706)
+    largest BENEFIT  +0.0057
+    *** THE BIGGEST GAIN IS ~13x SMALLER THAN THE BIGGEST LOSS ***
+    21 of 35 pairs FALL; the 14 that rise, rise by almost nothing.
+
+> **THE OBJECTION IS NO LONGER "WE CANNOT TELL". IT IS "WE CAN TELL, AND THE PATCH TRADES A 0.0728
+> LOSS FOR A 0.0057 GAIN ON REAL MATERIAL."** *Acceptance holds because the moves are small relative
+> to the distance to the bar — **NOT because the patch is harmless.*** **A correction that overturns
+> your own headline can make your recommendation stronger, and this one did: it now rests on a TESTED
+> column instead of an untested one.**
+
+## 134. THE THIRD SEAT TODAY TO VIOLATE A RULE IT AUTHORED IN THE SAME SESSION
+
+**Three independent seats, three unrelated substrates, one shape — and each caught it themselves:**
+
+    ci-build  wrote the never-terminating waiter AGAIN, twice, with the entry
+              ALREADY IN ITS OWN STATE FILE, READ THIS SESSION.            (§125)
+    auditor   published "any filter that can return empty needs a positive
+              control" all session -- and its most-repeated claim had NEVER
+              been positive-controlled until it checked.
+    dev-1     wrote "an m = 0 is a statement about your selection" and then
+              let a selection-limited zero travel as a corpus property.    (§133)
+
+> **AUTHORSHIP IS THE WORST PROTECTION AGAINST A RULE, NOT THE BEST. The seat that wrote it has
+> already spent its attention — on the WRITING — and the violation happens later, at a keystroke that
+> prompts no inspection.** *§125 said reading a rule installs recognition and not avoidance. THIS SAYS
+> WRITING ONE DOES NOT EITHER.*
+
+    THE ONLY THING THAT CAUGHT ALL THREE WAS A **CONSTRUCTION**, NEVER A MEMORY:
+      an impossible-token baseline · a planted violation · MORE FILES.
+    SO THE TEST OF A RULE IN THIS DOCUMENT IS NOT "IS IT TRUE".
+    IT IS: **CAN IT FIRE WITHOUT ANYONE REMEMBERING IT?**
+    A RULE THAT CANNOT IS A RULE ITS OWN AUTHOR WILL BREAK BY THE AFTERNOON --
+    MEASURED, THREE TIMES, IN ONE DAY.
+
+### And a run reported honestly rather than promised
+
+**`dev-1`, on a job at 101 minutes against a previous maximum of 472 s — 12.8× the worst case:** *it
+confirmed the process alive BY PARENTAGE and by reading the directory THE WORK NAMES rather than the
+one it assumed (§119), then said* — **"I am not killing it and I am not waiting on it. THE 18 ARE THE
+RESULT."** *And it stated exactly what the remaining six could still change, and what they could not:
+two properties are now unfalsifiable, one remains open, and it named the threshold that would move it.*
