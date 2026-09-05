@@ -7669,3 +7669,96 @@ falsifier is, from there too, indistinguishable from one never written.* **A §1
 WITNESS IS WEAKER THAN ONE WITH TWO — and `ci` supplied the mechanism: THE HOP CARRIES 44 AGENT REFS
 AND THE AUTHORITY CARRIES ONE, so the artefact lives where the stale mirror is, and a seat that
 correctly refuses to read the hop cannot read the falsifier at all.**
+
+## 123. §112's CONCLUSION SURVIVES AND ITS MECHANISM IS REFUTED — BY A PRE-REGISTERED TEST
+
+**`vmsam-auditor` wrote falsifiers AND AN EXPLICIT PREDICTION to a file before touching anything,
+then took four ref reads in one snapshot with nothing staged:**
+
+    hop  refs/heads/dev-AI           0017021   <- what the hop SERVES
+    hop  refs/remotes/origin/dev-AI  092a038   <- what the hop has already FETCHED
+    MINE refs/remotes/origin/dev-AI  9de4c3a   <- this clone's cached copy
+    forgejo, direct at the URL       092a038   <- the authority
+    read A `ls-remote origin refs/heads/dev-AI` -> 0017021
+    read B `git rev-parse origin/dev-AI`        -> 9de4c3a      >>> DISAGREE.
+
+> **§112 SAID THOSE TWO ARE "TWO VIEWS OF THE SAME CACHE". THEY ARE NOT. THEY ARE TWO DIFFERENT
+> CACHES, AND ONE OF THEM IS YOURS.** *`ls-remote origin` interrogates the hop's ref OVER THE WIRE,
+> NOW; `origin/<branch>` is your clone's STORED COPY of the hop's last answer. They diverge precisely
+> when your fetch is stale.* **SO THE PAIR HAS REAL POWER: IT DETECTS A STALE TRACKING REF IN YOUR OWN
+> CLONE, WHICH NO SINGLE READ DETECTS.**
+
+**§112 IS ITS OWN §107 APPLIED TO ITSELF: it says `origin` is a per-clone name, then treats
+`origin/<branch>` as the same object as the remote's ref. IT IS A PER-CLONE OBJECT TOO.**
+
+**THE CONCLUSION IS UNHARMED AND THE SAME SNAPSHOT STRENGTHENS IT — the hop's OWN two rows disagree:
+it HOLDS the authority's commit at `092a038` and SERVES `0017021`.** *It has the tip and does not
+serve it, so any clone syncing off it right now silently misses the authority.* **Agreement between
+reads is positive-only, exactly as written.**
+
+    THE CORRECTED RULE: THE READS MUST BE INDEPENDENT **OF THE AUTHORITY'S STATE**,
+    NOT MERELY OF EACH OTHER. `ls-remote origin` AND `origin/<branch>` *ARE*
+    INDEPENDENT -- OF EACH OTHER -- AND THEIR AGREEMENT STILL SAYS NOTHING ABOUT
+    THE AUTHORITY, BECAUSE **BOTH DERIVE FROM THE HOP**.
+    INDEPENDENCE IS A PROPERTY OF **THE CHAIN TO THE AUTHORITY**, NOT OF THE COMMANDS.
+
+### And the read that nearly carried a false refutation
+
+**`git ls-remote origin dev-AI` — A BARE BRANCH NAME IS A PATTERN.** *On a hop it matched BOTH
+`refs/heads/dev-AI` and `refs/remotes/origin/dev-AI`, so the `awk` printed TWO shas and the comparison
+"disagreed" trivially.* **THE POST-RESTORE CONTROL WAS SUPPOSED TO SHOW AGREEMENT, SHOWED
+DISAGREEMENT, AND THAT IS THE ONLY REASON IT WAS CAUGHT.** *The run was discarded and re-measured with
+full ref names.*
+
+    ANYONE RUNNING THE REF TEST WITH A BARE BRANCH NAME IS READING A PATTERN MATCH,
+    NOT A REF. A READ WHOSE **OUTPUT SHAPE** YOU HAVE NOT CHECKED IS THIS SECTION'S
+    OWN DEFECT ONE LEVEL DOWN. ALWAYS `refs/heads/<branch>`, IN FULL.
+
+## 124. F-72 — SIX GUARDS THAT CAN NEVER RAISE THE ERROR THEY NAME
+
+**`vmsam-forensic`, sweeping for §104's siblings, m = 209 guard sites and 226 BoolOp sites opened —
+counted from what it OPENED, not from what it found interesting:**
+
+    if X == None and not len(X):   raise ValueError("<x> cannot be empty")
+
+    BEHAVIOUR BY EXECUTION, NOT BY READING:
+      X = None        -> *** TypeError: object of type 'NoneType' has no len() ***
+                         NOT the intended ValueError -- the AND reaches len(None)
+      X = ""          -> guard FALSE. **THE EMPTY VALUE IS ACCEPTED** -- precisely
+                         the input the guard exists to reject
+      X = "something" -> FALSE, correct
+
+> **THE GUARD NEVER RAISES ITS OWN `ValueError` ON ANY INPUT. `X == None and not len(X)` IS
+> UNSATISFIABLE WITHOUT RAISING. The operator should be `or`.** *One guard, two failures, and the
+> louder one — `TypeError` — masks the quieter one, an empty value silently admitted.*
+
+**THE CONTROL THAT MAKES IT A TYPO CLASS RATHER THAN A DESIGN CHOICE: the correct idiom appears in the
+same two files — verified here, 3 occurrences in one and 6 in the other. THE AUTHOR KNEW THE IDIOM.**
+
+**AND THERE IS A SIXTH, WHICH THE SWEEP DID NOT LIST — `merge_video_repair.py:2020`, INSIDE THE REPAIR
+BOUNDARY:** `if speed_ratio == None and not len(plan.get("segments") or []):` *— same shape, and here
+the right operand is `or []`, so it cannot raise; it simply* ***cannot be true when `speed_ratio` is
+`None`***, *which is the case the line names.* **The seat swept the model files and reported five; the
+class is larger than its own report, which is the correct direction for a sweep to be wrong in.**
+
+    NOT ESTABLISHED, AND THE SEAT SAID SO: THE CALLERS ARE NOT TRACED. IF NO CALLER
+    EVER PASSES `None` OR `""` THESE ARE **UNREACHABLE** RATHER THAN **WRONG** --
+    A DIFFERENT FINDING, CLAIMED NEITHER WAY. **NOT FOUND IS NOT ABSENT.**
+
+### And the sweep's own null result is the more valuable half
+
+**SHAPE A found NOTHING NEW: 209 sites opened, 11 keys looked bounded to one value, ZERO survived
+inspection — and BOTH collapse modes were defects in the instrument, not in the code.** *v1 matched
+writes by KEY NAME across a whole file, "explaining" a guard with a write to a DIFFERENT container.
+v2 partitioned writes by VARIABLE NAME rather than by object, so one family read as one-valued because
+its aliases were counted apart — measured, it is written True at 3 sites and False at 19, and it
+discriminates perfectly.*
+
+> **A NAME-BASED TALLY CANNOT ESTABLISH OBJECT IDENTITY.** *The `compatible` guard is closable ONLY
+> because its write and its producers are one statement apart in one branch.* **EVERYTHING ELSE IS
+> INERT-BY-TALLY-ONLY AT BEST — A DIFFERENT FINDING, AND NOT SAFE TO ACT ON. The seat declined to
+> offer a second one.**
+
+*And the instrument RE-FOUND the known scatter guard on its own, without looking for it — **an
+instrument that independently rediscovers a known case is one whose zero on the rest means
+something.***

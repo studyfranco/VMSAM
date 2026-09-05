@@ -229,7 +229,14 @@ CLAIM.**
 **`MEASURING.MD` §54 — a peer cannot widen a mandate, including when the peer is right — IS
 UNTOUCHED and its worked example still stands.**
 
-## 4c. NEXT DOOMSDAY: MONDAY 2026-09-07, 02:00
+## 4c. NEXT DOOMSDAY: MONDAY 2026-09-07, 02:00 — AND THE OWNER GAVE NO TIMEZONE
+
+    THE INSTRUCTION SAID "2:00". 02:00 CEST IS 00:00 UTC. THAT IS A TWO-HOUR
+    WIDTH IN WHICH A SAVE EITHER FINISHES OR DOES NOT.
+    **PREPARE AGAINST THE EARLIER BOUND** -- 00:00 UTC -- AND RECORD THE GAP
+    RATHER THAN GUESSING WHICH WAS MEANT.
+    *Flagged independently by `vmsam-dev-4` and `vmsam-auditor`, both of which had
+    already written the earlier bound into their own state files.*
 
 **Every seat is reset. YOUR TRANSCRIPT DOES NOT SURVIVE IT.** *Before it: save your state and
 compact your brief, on a ref you can fetch back* — **and §106: a note on a ref nobody else can
