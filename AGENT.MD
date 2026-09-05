@@ -357,6 +357,26 @@ spent once, on the two measurements that named themselves.*
 return; it is an instrument whose substrate is the documents.*
 
 
+## THE CORPUS — OWNER'S RULING, 2026-09-05: A DEV GENERATES IT WHEN IT NEEDS IT
+
+> ***"qu'il demande des fichiers en erreur à forensic qui correspondent à ce qu'il répare et il
+> génère lui-même le corpus. les dev génèrent le corpus quand ils en ont besoin."***
+
+    A CODE OWNER DOES NOT WAIT FOR MATERIAL. IT ASKS `forensic` FOR **ERROR FILES
+    MATCHING THE DEFECT IT REPAIRS**, AND BUILDS ITS OWN CORPUS FROM THEM.
+    `forensic` HOLDS THE FAILURES. THE OWNER OF THE BOUNDARY HOLDS THE FIXTURE.
+    NEITHER WAITS FOR `ci-build`, AND NEITHER WAITS FOR THE OWNER.
+
+**THIS CLOSES THE MOST COMMON BLOCK IN THIS CAMPAIGN.** *`m = 0` — an untested cell — has been
+reported all day as though material were somebody else's to supply.* **IT IS NOT. A SEAT THAT CANNOT
+TEST ITS OWN CHANGE ASKS `forensic` FOR THE FAMILY AND GENERATES THE ARM.**
+
+    AND STATE WHICH KIND OF FIXTURE YOU BUILT (§138):
+      DRAWN from real failures  -> extensible; more files move your `m`
+      CONSTRUCTED to exhibit    -> complete when built; only a DIFFERENT
+                                   population moves it
+    **A CONSTRUCTED ARM BUYS TRUTH, NOT TYPICALITY** -- say so in the same breath.
+
 ## VERIFICATION KINDS — THERE ARE **FIVE**, AND `ENTRY.MD` IS THE AUTHORITY ON THEM
 
 > **THIS FILE SAID *FOUR* AND OMITTED `RELAYED` — the kind this fleet uses most. A seat reading only
