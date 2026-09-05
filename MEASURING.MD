@@ -3178,7 +3178,7 @@ arriving inside the contamination control itself.**
 
 ### And §8 was reproduced by an agent that had read §8 the same hour
 
-**Fixing an artefact that carried a source `title` tag, it wrote `.replace('/srv/Plex',
+**Fixing an artefact that carried a source `title` tag, it wrote `.replace('<LIBRARY_ROOT>',
 '<LIB>')` over a recorded command — and the title and the release group walked straight
 through the part the pattern did not cover.** *Second instance of "a control that depends on a
 pattern matching adversarial text is not a control", by a reader of the rule.*
@@ -8910,3 +8910,65 @@ else:**
 *The seat also withdrew a practice it had endorsed to the architect: it praised the stopping rule for
 naming the one thing that could still move, and now adds that* **the shape was right and the
 enumeration was incomplete — it approved the list without asking what was missing from it.**
+
+## 144. §1b CARVES `refs/agents/*` OUT OF THE FREEZE AND IS SILENT ON THE PRIVACY RULE
+
+**`vmsam-ci-pair` found it while doing exactly what it had been told to do; the Lead measured it; and
+it is live in three published refs.**
+
+    §1b   THE FREEZE governs the published branch and does not reach `refs/agents/<seat>`.
+          *** THAT IS ABOUT WHAT YOU MAY EDIT. ***
+    §10   THE BOUNDARY IS THE REPOSITORY, not the artefact.
+          *** THAT IS ABOUT WHAT MAY ENTER THE REPOSITORY AT ALL. ***
+    VERIFIED HERE: §1b's body mentions privacy, media, filename or §10 **ZERO TIMES.**
+
+**AND `refs/agents/*` IS A NAMESPACE INSIDE THE SAME OBJECT STORE AS THE PUBLISHED BRANCH — pushed
+and cloned with it.**
+
+> **`AGENT.MD` PUTS REAL LIBRARY PATHS IN THE SEAT DIRECTORIES *BY DESIGN* — A CENSUS NEEDS A BASE TO
+> ENUMERATE FROM. SO THE MATERIAL IS CORRECTLY PLACED TODAY AND BECOMES A §10 BREACH THE MOMENT IT IS
+> PUSHED, WITHOUT ONE BYTE OF IT CHANGING.**
+
+    ci-pair's sentence, and it is the one to keep:
+    **§1b READS AS PERMISSION, AND NOBODY RE-DERIVES A PRIVACY RULE FROM A FREEZE RULING.**
+
+**IT REVERSED THE LEAD'S OWN ADVICE, WHICH IS WHY IT IS HERE:** *it had been pressing seats to create
+and update agent refs before Monday; three of the five that exist would not pass a §10 sweep, and it
+was pressing four more to join them.* **It stopped. `ci-pair`, `forensic` and `ci-build` had each
+independently put it to their own user instead of pushing, AND ALL THREE WERE RIGHT.**
+
+### The architect swept the published branch, with a positive control, and found exactly one — its own
+
+    PATTERN over origin/dev-AI, tracked files:            5 files hit
+    FOUR ARE THE RULE ITSELF QUOTING THE FORBIDDEN SHAPE, already elided --
+      `{tvdb-...}`, `tvdb-<id>`, `/srv/.../<two words>/`, `SYNTHETIC-LIBRARY-ROOT`.
+    ONE WAS REAL: a literal library root in **this document**, inside a passage
+      describing somebody else's redaction. **FIXED IN THIS COMMIT** -> `<LIBRARY_ROOT>`.
+
+    POSITIVE CONTROL, because a zero without one says nothing (§109):
+      the pre-redaction blob of a campaign-1 log -> **17 hits**
+      the same file after the owner's redaction -> **0**
+    THE FILTER IS PROVEN LIVE, SO THE ZEROES ARE MEASUREMENTS AND NOT A DEAD SINK.
+
+**AND THE ONE AGENT REF THE AUTHORITY ACTUALLY CARRIES SCORES ZERO** — *the exposure is on the
+intermediary, not on the published branch.*
+
+### The ruling required, and it is the owner's alone
+
+    DOES §10 REACH `refs/agents/*`, OR DOES §1b's CARVE-OUT COVER IT?
+      IF §10 REACHES IT -- three published refs need a redaction pass, and the fix
+        is CHEAP: §10 supplies `<LIBRARY_ROOT>` and every number in those censuses
+        is already opaque by construction. A PASS, NOT A REWRITE.
+      IF IT DOES NOT -- say so EXPLICITLY, because four seats are holding their own
+        work back on a rule that may not apply to them.
+
+> **AND A ONE-WAY WARNING THAT APPLIES EITHER WAY (§101): you cannot have citable history and
+> redactable history in the same ref. ANYTHING ALREADY PUSHED CANNOT BE REDACTED WITHOUT A REWRITE
+> THAT ANNIHILATES EVERY BLOB CITATION INTO IT.** *Which is why this needs deciding BEFORE more seats
+> publish, not after.*
+
+**AND ONE CORRECTION THAT BOUNDS THE URGENCY, caught by `forensic` in the Lead's own message:** *it
+had told two seats their reasoning "dies at Monday's reset".* **FALSE — `LEAD.MD` says a Doomsday
+RESETS THE SESSIONS, IT DOES NOT DELETE THE FILES, and the seat directories are on durable storage.**
+*What Monday costs is CITABILITY, not CONTENT.* **The refutation was two paragraphs below the alarm,
+in the same document, and the alarm was allowed to stand.**
