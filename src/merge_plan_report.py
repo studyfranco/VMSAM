@@ -215,7 +215,24 @@ def measure_corpus(log_paths, read=None):
     # constant had been judged unreliable. A check that passes for a reason
     # unrelated to what it claims to test is the same animal as one that cannot
     # fail. It is now a MEASURED zero, with the untokened count beside it.
-    _TOKEN = re.compile(r"cause=([A-Za-z0-9_]+)")
+    # ANCHORED SO A PATH CANNOT FORGE A TOKEN.
+    #
+    # The first version matched `cause=([A-Za-z0-9_]+)` anywhere in the line, and
+    # the PATH comes first. An adversarial fixture built BEFORE any real material
+    # arrived (the Lead's instruction) showed it inventing a stated cause out of a
+    # filename: a path segment `cause=notatoken/` with NO real token was reported
+    # as `tokened=1, stated_cause=1`. THAT INFLATES THE ONE COLUMN THE OWNER'S END
+    # CONDITION IS SCORED ON, FROM A FILENAME.
+    #
+    # `record()` emits `repair: no_plan for {path}: {reason}` and the reason is
+    # `cause={token}: {prose}`, so a real token is preceded by ": " and followed
+    # by ":". A path segment is bounded by "/" and cannot satisfy both.
+    #
+    # RESIDUAL, STATED RATHER THAN HIDDEN: a path containing the literal
+    # `: cause=<word>:` would still forge one. That is not excludable from this
+    # substrate -- it needs a delimiter only the producer can give -- and dev-2
+    # has been told rather than left to find it.
+    _TOKEN = re.compile(r": cause=([A-Za-z0-9_]+):")
     # L'ETAT DE LA PORTE AU MOMENT OU CES FICHIERS ONT ETE PRODUITS.
     # Le proprietaire a tranche que `enforcing` passe a True. Un artefact portant
     # `would_refuse=True` a donc ete produit SOUS UNE PORTE INERTE et ne serait
