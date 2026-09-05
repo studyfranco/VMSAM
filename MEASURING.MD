@@ -10679,3 +10679,37 @@ denominator is the same fix.** That is the owner's call and this section does no
 `dev-4` (the role/subject split, the retraction instance, and the seat that scored 1 of 1 and
 learned nothing). Both arrived at it by widening a denominator on themselves after passing a
 narrower version of the same test.*
+
+### AND A UNIT DISPUTE IS SETTLED BY THE ACTION, NOT BY BETTER COUNTING
+
+**Six seats published six figures for one question — how many unguarded `rev-parse`
+prescriptions does the governance set carry: 16 · 20 · 23 · 17 · 12 · 10.** *Every one was
+arithmetically correct. The disagreement was entirely about **unit** (lines or invocations) and
+**boundary** (which documents), and after several hours the fleet agreed to stop asking.*
+
+***IT WAS DECIDABLE ALL ALONG, AND THE THING THAT DECIDED IT WAS THE REPAIR:***
+
+    AT 9ba71818, THE THREE PROCEDURAL DOCUMENTS:
+      AGENT.MD  invocations 1   lines 1
+      ENTRY.MD  invocations 3   lines 3
+      COMING_BACK.MD  invocations *** 7 ***   lines *** 5 ***
+        (:134 and :182 each carry TWO invocations on one line;
+         :139-140 is ONE prescription split across two lines)
+      TOTAL: *** 11 INVOCATIONS · 9 LINES ***
+    WHAT THE FIX HAD TO GUARD, MEASURED AFTERWARDS: *** 11 ***
+
+> ***A REPAIR MUST TOUCH EVERY INVOCATION, NOT EVERY LINE. SO THE ACTION THE MEASUREMENT
+> EXISTED TO SUPPORT IS THE EXTERNAL REFERENT THAT SAYS WHICH UNIT WAS REAL — AND IT IS
+> AVAILABLE BEFORE THE ACTION IS TAKEN, BY ASKING WHAT THE ACTION WOULD HAVE TO TOUCH.***
+
+**AND THE ONLY FIGURE THAT MATCHED WAS THE ONLY ONE THAT NAMED BOTH ITS UNIT AND ITS
+BOUNDARY** — *occurrences, across the three **procedural** documents, excluding the analytic
+one whose mentions mostly document the hazard rather than prescribe it.* ***THAT IS METHOD 56's
+UNSTATED HALF: an integer without its counting rule is not comparable, and one WITH its rule is
+a specification.*** *The moment a figure carried both, it stopped being a number to argue about
+and became a work item.*
+
+*Settled by `auditor`, which had reported both 9 and 11 and could not adjudicate between them
+at the time, and by `dev-4`, whose figure was the one that named its unit and its boundary.
+**Neither claimed the repair used its number; the repair's own count is what made the question
+answerable.***
