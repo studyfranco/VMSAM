@@ -9700,3 +9700,72 @@ against itself: it had once told the fleet "four cause tokens" from a grep that 
 *The seat that ran that grep READ THE LINE BEFORE REPORTING, which is the only reason nobody raised
 a false alarm about its own module.* **A count of a string is a count of mentions until somebody
 opens one.**
+
+## 168. THE STRUCTURED RECORD HAS NO CONSUMER — `detail` IS A PARAMETER WITH NO DESTINATION
+
+**The owner asked WHY the parameter exists rather than whether it drops. `vmsam-dev-4` answered by
+looking for its reader; `vmsam-lead` verified across every tracked `.py`. RE-VERIFIED HERE:**
+
+    `last_repair_report` across ALL tracked .py ..... **1 FILE, 3 SITES**
+      :64    last_repair_report = []            DEFINE
+      :1949  last_repair_report.append(entry)   WRITE
+      :2017  del last_repair_report[:]          CLEAR
+    SITES THAT COULD BE A **READ** .................. *** 0 ***
+    POSITIVE CONTROL, same search shape: `tools.logs` -> 10 FILES. IT DISCRIMINATES.
+    NEGATIVE CONTROL, impossible symbol, whole tree: 0.
+
+> **THE ENTRY DICT CARRIES `reason`, `detail` AND `cause`. THE LIST IS WRITTEN ON EVERY CALL, CLEARED
+> AT THE START OF EVERY RUN, AND READ BY NOTHING THAT SHIPS.**
+
+**SO THE RULE IS NOT "`detail` is for the structured record and `reason` is for the log".** *There is
+no second audience.* **IT IS A PARAMETER WITH A PLAUSIBLE NAME AND NO DESTINATION — and it will be
+filled in good faith by the next seat that wants to say more.**
+
+**AND THE ZERO IS WORTH SOMETHING ONLY BECAUSE THE SEARCH CANNOT MISS AN INDIRECT CONSUMER:** *an
+import (`from … import last_repair_report`) and an attribute access
+(`merge_video_repair.last_repair_report`) BOTH CONTAIN THE NAME.* **Zero either way.**
+
+### It retires an option that was offered in good faith
+
+*One seat had suggested another read `last_repair_report[-1]["cause"]` rather than parse a log line —
+"you need not parse the line at all". The second had noted it was unreachable from its substrate.*
+**IT IS WORSE: IT IS READ BY NOTHING ANYWHERE.** *The seat retired the option explicitly rather than
+leave it in the record as a path a successor might take.*
+
+> **AN OPTION THAT LOOKS AVAILABLE AND IS NOT IS THE SAME CLASS AS THE PARAMETER ITSELF.**
+
+    IF THE RULING IS **DOCUMENT** RATHER THAN **REMOVE**, THE DOCSTRING MUST SAY:
+      *"`detail` is stored in an in-memory report that nothing currently reads."*
+    NOT *"for the structured record"* -- **WHICH IMPLIES AN AUDIENCE THAT DOES NOT
+    EXIST**, and would recreate the trap in the sentence written to explain it.
+
+## 169. `grep -c` EXITS 1 ON ZERO — SO `|| echo 0` PRINTS THE ZERO TWICE
+
+**`vmsam-lead` broke its own arithmetic while answering the owner, ONE HOUR AFTER broadcasting that
+`|| true` is the limiting case of a command whose success is uncorrelated with its output.
+REPRODUCED HERE EXACTLY:**
+
+    c=$(grep -c 'zzz' file || echo 0)
+    grep PRINTS `0` **AND EXITS 1**, so the `||` FIRES AND APPENDS A SECOND `0`.
+    CAPTURED VALUE: **'0\n0'** -- two lines. THE ARITHMETIC THEN BREAKS,
+    and it printed `SITES 0` for a symbol it had just listed three sites of.
+
+> **THE GUARD WRITTEN TO MAKE A ZERO SAFE IS THE THING THAT CORRUPTED THE ZERO.** *`grep -c` reports
+> its finding in `stdout` and its outcome in the exit status, and those are DIFFERENT ANSWERS TO
+> DIFFERENT QUESTIONS — "how many" and "did I find any". A fallback keyed on the second overwrites
+> the first.*
+
+    NEVER GUARD A COUNT WITH `||`. Let it return 0 and exit 1 -- that is not
+    an error, IT IS THE ANSWER. Use a single stream, or `grep -c … ; true`
+    only where the value is not consumed.
+
+### And the shape it makes with the rest of the night — third time
+
+    THE COMPUTATION WAS **VOID**. THE ANSWER WAS **RIGHT**. THE REDONE
+    COMPUTATION GAVE **THE SAME ANSWER**.
+    THREE TIMES TONIGHT A SEAT WENT VOID -> SOUND WITH THE CONCLUSION UNCHANGED.
+
+> ***AND THAT IS EXACTLY WHY NOBODY RE-EXAMINES: THE REMEDY SURVIVES.*** *A broken instrument that
+> happens to agree with a working one leaves no symptom — the output is right, the reader is
+> satisfied, and the method that produced it is never audited.* **THE ONLY REASON ALL THREE WERE
+> CAUGHT IS THAT THEIR AUTHORS RE-RAN THEM WITHOUT BEING GIVEN A REASON TO.**
