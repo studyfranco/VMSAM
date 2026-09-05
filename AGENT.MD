@@ -135,7 +135,9 @@ certain of what you must obtain before you touch anything — are in `PIPELINE.M
     THEY ARE DOMAIN REFERENCE. YOU CONSULT THEM WHEN THE WORK NEEDS THEM.
     THEY ARE NOT READ-BEFORE-EVERY-ACTION, AND THEY WERE COSTING EVERY SEAT
     EVERY LINE ON EVERY RESTART.
-    `git rev-parse origin/dev-AI:PIPELINE.MD` -- RESOLVE IT YOURSELF.
+    `git rev-parse -q --verify origin/dev-AI:PIPELINE.MD` -- RESOLVE IT YOURSELF.
+    **An EMPTY answer means ABSENT, never "unchanged": the bare form echoes its own
+    argument on failure. And `cat-file -t` must say `blob`.**
 
 **IF YOU ARE ABOUT TO CHANGE ENGINE BEHAVIOUR, READ IT FIRST.** *Target-first especially: a change
 that improves a measurement and worsens the delivered file is not an improvement.*

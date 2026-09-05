@@ -88,7 +88,7 @@ wrong before. So ask the hop again rather than reading your copy of its last ans
 
 ```sh
 git ls-remote origin dev-AI          # what the hop holds RIGHT NOW
-git rev-parse origin/dev-AI          # what you cached from it
+git rev-parse -q --verify origin/dev-AI   # what you cached from it
 # differ -> YOUR TRACKING REF is stale. Nothing compared against it means anything yet.
 ```
 
@@ -131,13 +131,27 @@ else has; a `rebase` alone never brings the documents.
 **The blob of the file you changed is the only test that has not yet been wrong.**
 
 ```sh
-git rev-parse HEAD:<file>  vs  git rev-parse origin/dev-AI:<file>   # per file
-grep -c '<a string only your change contains>' <file>               # yours=1 origin=0
+a=$(git rev-parse -q --verify HEAD:<file>)              # EMPTY = absent here
+b=$(git rev-parse -q --verify origin/dev-AI:<file>)     # EMPTY = absent there
+[ -n "$a" ] && [ -n "$b" ] || echo "ABSENT on one side -- NOT a difference"
+[ "$a" = "$b" ] && echo same || echo differ             # only meaningful if both non-empty
+grep -c '<a string only your change contains>' <file>   # yours=1 origin=0
 ```
 
+> **WITHOUT `-q --verify` THIS COMPARISON ACCUSES YOU OF A DIFFERENCE THAT DOES NOT EXIST.**
+> A bare `git rev-parse <rev>:<path>` on a path that is **absent** exits 128, writes to stderr,
+> **and still prints its own argument on stdout** — a different string on each side, because the
+> revisions differ. *So a file MISSING on one side reads as `these differ`, which you will read
+> as `my change is not there yet`.* **AT 02:00, PER FILE, IN THE RECOVERY PATH, IT FAILS TOWARD
+> THE ALARMING ANSWER.** *And two further forms return a valid forty-hex id with exit 0:
+> `<rev>:` with an empty path variable returns the **TREE**, and a lost colon returns the
+> **COMMIT** — both pass a shape check, so* ***if you report an id as a blob, `git cat-file -t`
+> must say `blob`.*** *(`auditor`, `dev-4`, `arch-aide`, `ci-build`.)*
+
 If you must replay your own commits, **check the base blob equals origin's before
-generating the patch** — `git rev-parse <your-base>:<file>` against
-`git rev-parse origin/dev-AI:<file>`. Without it a patch **half-applies silently
+generating the patch** — `git rev-parse -q --verify <your-base>:<file>` against
+`git rev-parse -q --verify origin/dev-AI:<file>`, **and treat an empty answer as ABSENT
+rather than as a difference**. Without it a patch **half-applies silently
 rather than erroring** (`vmsam-dev-1`). Then `format-patch` → `reset --hard` → `am`.
 
 The commit list and the tree comparison are **diagnostics**. They tell you something
@@ -179,7 +193,8 @@ did not hold.** Rebasing the list replays all of it and either conflicts or
 duplicates.
 
     git log --format='%h %an %s' origin/<branch>..HEAD | awk '$2=="<you>"'   # yours only
-    git rev-parse HEAD:<file>  vs  git rev-parse origin/<branch>:<file>      # already there?
+    git rev-parse -q --verify HEAD:<file>  vs  git rev-parse -q --verify origin/<branch>:<file>
+#   EMPTY on either side = ABSENT, which is NOT "already there" and NOT a difference
     git format-patch -1 <commit> --stdout > mine.patch                       # only what is missing
     git reset --hard origin/<branch> && git am mine.patch
     # then verify by CONTENT -- files, not commit counts

@@ -71,7 +71,8 @@ instead.*
 
 ## 0. BEFORE YOUR FIRST ACT — VERIFY YOU HOLD THE DOCUMENT YOU WERE CITED
 
-    git rev-parse HEAD:ENTRY.MD        MUST EQUAL THE BLOB YOU WERE GIVEN.
+    git rev-parse -q --verify HEAD:ENTRY.MD   MUST EQUAL THE BLOB YOU WERE GIVEN.
+    EMPTY = ABSENT, which is NOT a mismatch. The bare form echoes its argument.
     IT DOES NOT RESOLVE  ->  YOU ARE BEHIND. FETCH BEFORE YOU READ ANYTHING.
 
 **A FRESH HOP IS NOT A FRESH CLONE. TWO QUESTIONS, TWO COMMANDS.** *A staleness detector that
@@ -114,7 +115,7 @@ clean, each having built a different wrong chain.*
 ## 2. HOW TO CITE, SO YOUR WORK SURVIVES
 
     FETCH FIRST, THEN CITE THE BLOB.  `git fetch <remote> <branch>` then
-    `git rev-parse <ref>:<path>`
+    `git rev-parse -q --verify <ref>:<path>`
     *** `<ref>` IS ITSELF A CACHED ANSWER. *** A stale ref yields blobs that are
     real, well-formed, and pass every test below — for a tree that may not even
     CONTAIN the file you were sent to read. AND A CENSUS OF NAMES YOU ALREADY
@@ -154,7 +155,7 @@ THE SUBJECT LOST IN TRANSIT.*
     DO NOT EDIT OUTSIDE YOUR BOUNDARY. One owner per file. If two of you are in
       one file, one of you is wrong — say so.
       FROZEN: everything in the table at `WRITE_ZONES.MD` §1 — RESOLVE IT YOURSELF:
-        `git rev-parse origin/dev-AI:<path>`.
+        `git rev-parse -q --verify origin/dev-AI:<path>`.
         **THIS LINE USED TO NAME TWO FILES AND A FAST READ TOOK THEM AS THE FROZEN
         SET. THEY WERE THE FILES WHOSE HASHES IT ONCE PRINTED.** `vmsam-dev-1`
         checked instead of assuming: `change_point_locator` appears **0** times in
