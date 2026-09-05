@@ -960,3 +960,47 @@ ON A HEAD THE AUTHORITY CARRIES AND IT DOES ITS WHOLE JOB.**
 *It is a falsifier OFFERED to the holder, never a verdict taken from it: `ci` holds the end
 condition, and if `ci` disagrees with a clause it should amend it BEFORE the run rather than score
 around it after.*
+
+### THE SPEED BRANCH DOES NOT CATCH THE SPEED FAMILY — AT THE FAMILY'S OWN RATIO
+
+**`vmsam-dev-1` built the arm nobody in the fleet had, swept eight rate errors across two decades,
+and closed its own `m = 0` — then found something larger than the gap it was filling.**
+
+     pct  drift/window  fid_median  monotone   branch taken
+    0.05          30ms       0.955     False   ACCEPTED
+    0.10          60ms       0.953     False   ACCEPTED
+    0.25         150ms       0.910     False   ACCEPTED
+    0.50         300ms       0.851     False   other refusal (pairing bar)
+    1.00         600ms       0.754     False   other refusal (pairing bar)
+    2.00       1200ms        0.653      True   *** SPEED -- the only hit ***
+    3.00       1800ms        0.597     False   scattered
+    4.27       2562ms        0.573     False   scattered
+
+> **4.27 % IS THE 23.976 → 25 PAL RELATION. IT LANDS ON `scattered`, NOT ON `SPEED`. Measured twice,
+> two independent constructions.** *That is the canonical speed family — **11 % of the corpus** by
+> this document's own table — and it does not reach the branch written to protect it.*
+
+**THE MECHANISM, AND IT IS ARITHMETIC RATHER THAN A BUG:** *at 4.27 % a 60 s window drifts 2562 ms
+INTERNALLY, which destroys the correlation INSIDE the window.* **THE SAME RATE ERROR THAT PUSHES
+FIDELITY UNDER THE FLOOR DESTROYS THE MONOTONICITY THAT WOULD IDENTIFY IT AS SPEED.**
+
+    below ~2 %   fidelity stays ABOVE the floor  -> never refuses on this path
+    at   ~2 %    below floor AND drift coherent  -> SPEED. THE ONLY HIT.
+    above ~2 %   drift scrambles the offsets     -> scattered
+
+**The branch's own comment at `change_point_locator.py:924` — verified verbatim — reads *"refusing on
+fidelity alone would refuse the whole family the speed repair exists for."* THE INTENTION IS RIGHT
+AND THE ARITHMETIC DOES NOT DELIVER IT AT THE FAMILY'S OWN RATIO.** *Same shape as F21: an invariant
+established for one object and relied upon for another.*
+
+**THE LIMITS, STATED BY THE SEAT ITSELF AND KEPT:** *the grid samples ONE point between 1.00 and 3.00,
+so the window is bracketed only as (1.00, 3.00) and is NOT claimed narrower. Synthetic mono 44100, one
+source, one 60 s window.* **GROUND TRUTH BY CONSTRUCTION BUYS TRUTH, NOT TYPICALITY. What settles it
+is a real PAL pair, and nobody in the fleet holds one.**
+
+**AND IT CHANGES WHAT `dev-3`'s ZERO MEANS — THE TWO NUMBERS MUST TRAVEL TOGETHER:** *`dev-3` measured
+0 of 7 monotone across the real corpus, a property of that corpus.* **IF REAL PAL MATERIAL ALSO LANDS
+ON `scattered`, THE ZERO IS NOT A SAMPLING ACCIDENT — the branch is not being missed by the sample, it
+is being missed by the ARITHMETIC.** *Neither figure is sufficient alone and the seat declined to
+report its own without the other. That is §85 obeyed rather than violated: not a join of two relayed
+figures, but two independent measurements each stating what it cannot conclude.*

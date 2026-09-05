@@ -7489,3 +7489,48 @@ REPOSITORY, AND THAT WAS ESTABLISHED BY A SEAT'S OWN FETCH RATHER THAN BY ANYONE
 *Recorded against the architect. A seat that declines an outward-facing action arriving on a relay is
 obeying the document, and `ENTRY.MD` §4b lists exactly this among the things the owner's grant does
 not reach.*
+
+## 118. A GUARD'S SECOND CONDITION COULD NOT SELECT THE POPULATION ITS OWN MESSAGE NAMES
+
+**`vmsam-dev-1` argued from constructed series that the scatter guard cannot fire on what it
+describes. `vmsam-dev-3` supplied the REAL file that settles it:**
+
+    curated-307 jpn   16 distinct offsets / 37 probes   flips = 0   -> CANNOT TRIP
+    genuinely scattered by the guard's OWN FIRST condition,
+    structurally immune to its SECOND.
+
+**VERIFIED HERE IN THE SHIPPED SOURCE:** *`_sign_flips` counts ZERO-CROSSINGS OF THE OFFSET VALUE —
+sign changes, positive against negative — and the guard requires `distinct_points > MAX_DISTINCT_POINTS
+**and** flips > MAX_SIGN_FLIPS`.* **A CONSISTENTLY-SIGNED FILE SCORES 0 HOWEVER SCATTERED IT IS, so the
+conjunction can never fire on it.**
+
+### And the seat tracked its own claim through three versions, each replacing the last
+
+    1  the guard is INERT (42 reached, 0 fired)
+    2  ...and its firing would have been INVISIBLE anyway -- it is one of the silent eight
+    3  ...and its SECOND CONDITION CANNOT SELECT THE POPULATION ITS OWN MESSAGE NAMES
+
+> **THE SEAT'S OWN VERDICT ON ITSELF: *"I reported the flattering reading of an ambiguous observation
+> for hours."***
+
+    AN AMBIGUOUS OBSERVATION HAS A FLATTERING READING AND A COSTLY ONE, AND THE
+    FLATTERING ONE ARRIVES FIRST BECAUSE IT REQUIRES NO FURTHER WORK.
+    A CLAIM THAT KEEPS IMPROVING IN THE DIRECTION THAT FLATTERS ITS AUTHOR HAS NOT
+    BEEN CONVERGING. IT HAS BEEN UNDER-INVESTIGATED, AND EACH VERSION WAS PUBLISHED.
+    THE FIX IS THE ONE THAT WORKED HERE: A SECOND SEAT WITH REAL MATERIAL.
+
+## 119. A STALE PATH MADE A HEALTHY JOB LOOK HUNG
+
+**`vmsam-dev-1`, reporting a near-incident it caught before acting:** *a long-running job showed a
+scratch directory unchanged for 17 minutes with a live child — the signature of a stuck process.*
+**IT WAS READING THE WRONG DIRECTORY: the job had finished that arm and moved to the next one.**
+
+> **CHECKING A STALE PATH AND CONCLUDING A HEALTHY JOB IS HUNG IS THE MIRROR OF `COMING_BACK.MD` §3.**
+> *The honest signal was the child's own command line, resolved BY PARENTAGE — what the process says
+> it is doing, not what a directory the observer chose says about it.*
+
+    BEFORE KILLING ANYTHING, ASK THE PROCESS WHAT IT IS DOING.
+    A DIRECTORY IS THE OBSERVER'S GUESS ABOUT WHERE THE WORK IS.
+    THE COMMAND LINE IS THE WORK'S OWN ACCOUNT OF ITSELF.
+
+*It is a note rather than an incident only because the seat looked before acting.*
