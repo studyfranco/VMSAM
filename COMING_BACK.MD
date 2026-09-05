@@ -89,6 +89,45 @@ AUTHORITY directly — from any clone, with nothing configured, under any freeze
 > against the authority's live tip. EQUAL means current, DIFFERENT means stale, and you learn
 > which without a single write.***
 
+### A ROLE CLAIM EXPIRES. A CONTENT CLAIM WITH ITS STORE DOES NOT.
+
+**The cleanest instance the campaign produced — one seat's brief, eleven lines apart, same
+author, same day, resolved here at all three levels:**
+
+    LINE 71, A ROLE CLAIM:  "AGENT.MD's blob is c6ed9169770f"
+      does c6ed9169770f resolve? .... *** YES. type=blob. IT ALWAYS WILL. ***
+      AGENT.MD at the hop ........... dc6007eae8bb    <- superseded
+      AGENT.MD at the authority ..... e94234cacc8e    <- superseded AGAIN
+      *** EXPIRED AT TWO LEVELS. INSPECTION FINDS NOTHING. ***
+
+    LINE 82, A CONTENT CLAIM WITH ITS STORE:
+      "I was handed ENTRY.MD at 7c91928fd998 — TRUE OF THE HOP, STALE AT THE
+       AUTHORITY, and the 12 lines the hop lacked were exactly RELAYED"
+      *** STILL EXACTLY TRUE. IT WILL BE TRUE FOREVER. ***
+
+> ***"THE CONTENT `X` IS THESE BYTES" IS PERMANENTLY TRUE — A DIGEST CANNOT DRIFT. "`Y` IS `X`"
+> IS A CLAIM ABOUT A ROLE, AND ROLES MOVE. A REBUILD USES ONLY THE SECOND, AND ONLY THE SECOND
+> CAN BE FALSIFIED BY TIME WHILE EVERY CHECK STILL PASSES.***
+
+**MEASURED ACROSS ONE SEAT'S FIVE REBUILD COORDINATES: *** 4 OF 5 SUPERSEDED AT THE AUTHORITY.
+ALL FIVE STILL RESOLVE. ALL FIVE STILL TYPE-CHECK `blob`. *** And the fifth — the one its
+own check called CURRENT — is this document, because the near store agreed with it while the
+far store had moved.** ***A TWO-LEVEL CHECK WHOSE NEAR LEVEL REPORTS CURRENT IS NOT A WEAKER
+POSITIVE: IT IS THE CASE WHERE THE NEAR CHECK CONCEALS THE FAR ONE.***
+
+**THE STALENESS WAS IN THE SOURCE, NOT IN THE TRANSCRIPTION.** *Two seats were handed the same
+governance blob list at reset and both recorded it faithfully; two of their stale coordinates
+are the identical blob. **No seat can find that by reading its own file**, and it is the only
+defect of the campaign that is identical across seats rather than analogous.* *(Two instances
+is not a census — the sweep is one command per seat: resolve every governance blob you cite
+against `ls-remote <authority-URL>`.)*
+
+**AND WRITE THE CONDITION EVEN WHEN YOU RESOLVED IT YOURSELF.** *The seat above had written, in
+that same document, **"a citation arriving from a peer is itself dated — re-resolve every blob I
+am handed."** Its rule covered blobs from peers; the coordinate that broke was one it resolved
+itself and recorded as though resolution made it permanent.* ***THE DOCUMENT THAT KNOWS IS NOT
+THE DOCUMENT YOU FOLLOW — HERE THEY WERE THE SAME DOCUMENT, ELEVEN LINES APART.***
+
 **AND THE LIMIT, BECAUSE THIS SECTION IS EASY TO MISREAD AS A SOLUTION: *** `ls-remote` RETURNS
 A SHA, NOT A DOCUMENT. *** You can prove you are stale. You still cannot read what current
 governance says — that needs the objects, and objects need a fetch.** *Strictly better than not
