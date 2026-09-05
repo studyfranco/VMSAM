@@ -1120,3 +1120,78 @@ consumer already refuses.* **THE ARCHITECT SPECIFIES THE SHAPE; THE OWNER OF THE
 all authored by the consumer describing its own ignorance, and they are TRUE.* **When these land, the
 vocabulary GROWS. `cause_unavailable` does not become wrong — it becomes one branch among several,
 and it keeps its meaning: THE PRODUCER SAID NOTHING.**
+
+### R21 — ADJUDICATED BY THE ARCHITECT, 2026-09-05. **YES, IT IS A PROBLEM.**
+
+**The owner routed it: *"Ask directly to the architect if it is a problem."* MEASURED, END TO END:**
+
+    `src/video.py:914-919` -- **A COMMENT, NOT AN `assert`.** It reasons that a
+    fallback is harmless because:
+      *"mergeVideo clamps the result to 44100 on the very next line, so the
+        fallback and the correctly-parsed value CONVERGE for any source at 44100
+        OR ABOVE ... It would only matter for a SUB-44100 SOURCE, WHICH THIS
+        CORPUS DOES NOT CONTAIN."*
+
+    `src/mergeVideo.py:584` -- **`if int(...) > 44100:` — THE CLAMP IS ONE-SIDED.**
+    IT CAPS FROM ABOVE ONLY. **A 32000 SOURCE IS NOT RAISED. IT PASSES THROUGH.**
+
+    THE FACT: `ci-pair` measures **34 files below 44100** in its population;
+    `dev-1` names two ids at 32000. **THE CORPUS DOES CONTAIN THEM.**
+
+> **THE COMMENT'S REASONING IS CORRECT AND ITS FACT IS FALSE — AND ITS OWN ESCAPE CLAUSE NAMES
+> EXACTLY THE CASE THAT EXISTS.** *"It would only matter for a sub-44100 source" is precise, careful,
+> and the sentence that stopped anyone looking.*
+
+**AND THE CONSEQUENCE IS NOT HYPOTHETICAL: `video.py:538` APPLIES `lowpass=f=16000` TO THE
+NORMALISED STREAM.** *At 32000 Hz that is **exactly Nyquist** — the degeneracy this campaign already
+measured and recorded in the emission module's own text.* **A SOURCE THE COMMENT DECLARES ABSENT IS
+THE ONE SOURCE FOR WHICH THE FILTER IS DEGENERATE.**
+
+    THE RULING:
+    1. **THE COMMENT IS THE DEFECT.** Not the fallback, which is instrumentation and
+       is correctly reasoned. **A COMMENT THAT RULES A CASE OUT IS A GUARD MADE OF
+       PROSE, AND IT GUARDS THE READER RATHER THAN THE CODE.** It must be corrected
+       to state that sub-44100 sources EXIST AND ARE MEASURED.
+    2. **THE ONE-SIDED CLAMP IS A SEPARATE QUESTION AND IT IS NOT MINE TO DECIDE.**
+       Raising 32000 to 44100 is a resample the owner has just ruled AGAINST in
+       general (R20: derive the rate, preserve the original). **DO NOT "FIX" THE
+       CLAMP BY MAKING IT TWO-SIDED WITHOUT SETTLING R20 FIRST -- THE TWO RULINGS
+       POINT IN OPPOSITE DIRECTIONS AND ONLY ONE OF THEM IS ABOUT THIS FILE.**
+    3. **`video.py` IS FROZEN AND IS NOBODY'S BOUNDARY.** The correction is one
+       comment. It goes to whoever the owner assigns, or it waits -- but it is
+       recorded here so the next reader does not inherit the false fact.
+
+**AND THE GENERAL FORM, WHICH IS WHY THIS IS IN THE GOVERNING DOCUMENT RATHER THAN IN A TICKET:**
+
+> **A COMMENT THAT SAYS *"THIS CANNOT HAPPEN ON THIS CORPUS"* IS A MEASUREMENT WITH NO DATE, NO
+> METHOD, AND NO `m`. IT WAS TRUE WHEN WRITTEN AND NOTHING RE-CHECKS IT — AND ITS ONLY EFFECT IS TO
+> STOP THE NEXT PERSON MEASURING.**
+
+*Every such sentence in this repository is a claim inheriting §105: a pin, in prose, with no revision
+beside it.*
+
+### THE OWNER'S RULINGS OF 2026-09-05, RECORDED WHERE THEY BIND
+
+    R20   **DERIVE `-ar` FROM THE SOURCE PAIR. DO NOT PIN 44100.**
+          *"avoid unnecessary audio resampling and preserve the original sample
+          rate whenever possible."*  -> This SUPERSEDES the convergence argument
+          the R21 comment rests on, and it is the reason the one-sided clamp must
+          not be "repaired" into a two-sided one.
+
+    R-alias  **THE `offset_ms=` ALIAS REMOVAL IS AUTHORISED**, to be validated
+             against a REAL RECORD rather than against source.
+
+    `record()` OUTPUT  **MUST NEVER REACH A REPOSITORY FILE.** It stays beside the
+             media or in a local ignored directory, **AND MUST BE COVERED BY
+             `.gitignore`** -- the owner's words. A ruling inherited from another
+             seat is now the owner's own, and the seat that declined to inherit it
+             was right to ask.
+
+    THE HOLD ON THE LOCATOR IS **LIFTED**. Two prepared diffs land in one batch,
+    **HEADER FIRST** -- the seat's own ordering, which ranks the successor's
+    understanding above its own blocking change.
+
+    AND AFTER THAT, IN ORDER: the ~20-file sizing run that collapses a 12x
+    uncertainty (22-268 files, 4-44 h), then CONSTRUCTED MATERIAL FOR THE SIX
+    SILENT REFUSAL PATHS THAT HAVE NEVER BEEN RUN -- both authorised, both
+    buildable under report-only.
