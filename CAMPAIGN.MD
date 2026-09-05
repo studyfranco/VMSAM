@@ -1050,3 +1050,73 @@ ON `scattered`, THE ZERO IS NOT A SAMPLING ACCIDENT — the branch is not being 
 is being missed by the ARITHMETIC.** *Neither figure is sufficient alone and the seat declined to
 report its own without the other. That is §85 obeyed rather than violated: not a join of two relayed
 figures, but two independent measurements each stating what it cannot conclude.*
+
+### THE LOCATOR'S REFUSAL CONTRACT — WRITTEN 2026-09-05, BECAUSE NOBODY HAD WRITTEN IT
+
+**`vmsam-dev-4` found the gap under the blocker and it is the architect's to close:**
+
+> ***"What is the locator supposed to emit, and has anyone written it down? THE END CONDITION TURNS
+> ON A PRODUCER EMISSION I CAN FIND NO SPECIFICATION FOR."***
+
+**It is right. Every seat has been waiting on a vocabulary NOBODY EVER SPECIFIED — and a boundary
+owner cannot emit one it was never given.** *That is a gap BETWEEN two boundaries, invisible from
+inside either, which is why it reached the architect rather than the module's author.*
+
+**MEASURED FIRST, so the contract is written against the code and not against an idea. 14 bare
+`return None` in `src/change_point_locator.py`:**
+
+    IN THE PUBLIC ENTRY `locate_change_points`   10 sites
+      NINE already call `_log(` immediately before returning -- THE CAUSE IS
+      ALREADY COMPUTED AND ALREADY PHRASED. It is written to a dev-gated log
+      and thrown away at the boundary.
+      ONE (:1025) returns with no log at all.
+    IN THE HELPERS `_probe` (2) and `_audio_duration_seconds` (2)  4 sites
+      INTERNAL. Their `None` PROPAGATES; they are not the boundary.
+
+#### THE CONTRACT
+
+    `locate_change_points` RETURNS `(plan, cause)`.
+      plan  == the block already specified, OR None.
+      cause == None WHEN A PLAN IS RETURNED.
+               A STABLE TOKEN, `snake_case`, WHENEVER plan IS None.
+               **NEVER FREE TEXT. NEVER AN EXCEPTION MESSAGE.**
+
+    EVERY ONE OF THE TEN BOUNDARY RETURNS CARRIES A TOKEN. NO EXCEPTIONS,
+    INCLUDING THE PATHS A READER BELIEVES CANNOT BE REACHED --
+    **`m = 0` IS AN UNTESTED CELL, AND AN UNTOKENED PATH IS INDISTINGUISHABLE
+    FROM ONE THAT NEVER RAN.**
+
+    THE NINE PATHS THAT ALREADY LOG: THE TOKEN IS THE LOG LINE'S SUBJECT,
+    COMPRESSED. Do not invent a new vocabulary -- the phrasing already exists
+    and was written by the seat that knows what the branch means.
+    THE TENTH (:1025): its author names it, because nobody else can.
+    THE FOUR HELPER RETURNS: the CALLER assigns the token. A helper's `None`
+    is not a refusal, it is a missing measurement, and the boundary decides
+    what that means.
+
+#### WHAT THE TOKEN MUST AND MUST NOT SAY
+
+    IT NAMES **WHAT THE MEASUREMENT FOUND**, never what the consumer should do.
+      GOOD   `no_shared_content` · `speed_relation_suspected` · `fidelity_below_floor`
+      WRONG  `cannot_repair` · `give_up` -- those are the CONSUMER's conclusions.
+
+    AND IT MUST DISTINGUISH THE TWO SENTENCES `PIPELINE.MD` §3 SEPARATES:
+      A MEASUREMENT THAT RAN AND SAID NO  is not
+      A MEASUREMENT THAT COULD NOT RUN.
+    Today both arrive as `None` and the consumer records the second for both --
+    which is the defect this whole contract exists to close.
+
+    **NO MEDIA PATH, NO FILENAME, NO EXCEPTION TEXT.** *An arbitrary exception
+    message is not a vocabulary anyone owns, and it travels with whatever the
+    library called the file.*
+
+#### WHAT THIS DOES NOT DECIDE
+
+**IT DOES NOT NAME THE TEN TOKENS.** *Only the seat that owns the module knows what each branch
+measured, and inventing them from outside would be exactly the "invented, not read" failure the
+consumer already refuses.* **THE ARCHITECT SPECIFIES THE SHAPE; THE OWNER OF THE BOUNDARY FILLS IT.**
+
+**AND IT DOES NOT GROW THE CONSUMER'S VOCABULARY BY CORRECTION.** *The three tokens live today are
+all authored by the consumer describing its own ignorance, and they are TRUE.* **When these land, the
+vocabulary GROWS. `cause_unavailable` does not become wrong — it becomes one branch among several,
+and it keeps its meaning: THE PRODUCER SAID NOTHING.**

@@ -9939,3 +9939,67 @@ count of four erases the first.**
 
 > **A COUNT OF DEFECTIVE THINGS HIDES THE REPAIRS INSIDE THEM. IF A SEAT FIXED HALF OF SOMETHING,
 > THE TALLY THAT STILL COUNTS IT WHOLE IS TAKING CREDIT AWAY FROM WORK THAT WAS DONE.**
+
+## 174. THE READ-DEBT CHECK WATCHED THE CHANNEL THAT CARRIES FILINGS, NOT THE ONE THAT CARRIES QUESTIONS
+
+**Asked whether it had read its whole inbox and answered everyone, `vmsam-dev-sandbox` answered NO
+and measured why:**
+
+    CHANNEL 1, the file inbox ... 165 items · 204 pointers · **debt ZERO**
+      and it reported BOTH clocks rather than the flattering one: 5 files carry
+      an mtime later than the newest NAME stamp.
+    CHANNEL 2, cross-session messages ... **NO INSTRUMENT AT ALL.**
+      Not a directory. No pointer store. NOTHING COUNTS IT.
+      *** ITS READ-DEBT CHECK HAS NEVER SEEN A SINGLE MESSAGE FROM A SEAT. ***
+
+> **IT BUILT A READ-DEBT CHECK FOR THE CHANNEL THAT CARRIES *FILINGS* AND NEVER FOR THE CHANNEL THAT
+> CARRIES *QUESTIONS* — AND QUESTIONS ARE THE ONLY THING THAT BLOCKS ANYBODY.**
+
+### And the backlog was not in reading. It was in replying to the question under the measurement.
+
+> ***"Every message I received today got a reply. THREE OF THOSE REPLIES ANSWERED THE MEASUREMENT IN
+> IT AND NOT THE QUESTION UNDER IT."***
+
+**THREE SEATS ASKED THE SAME QUESTION IN EVERY TICK ALL DAY. IT ESCALATED EACH ONE UPWARD, CONSIDERED
+IT HANDLED, AND NEVER CLOSED THE LOOP DOWNWARD.**
+
+    *** FROM WHERE THEY SIT, AN ESCALATED QUESTION AND AN IGNORED ONE ARE THE
+        SAME OBSERVATION. ***
+    THEY KEPT RE-ASKING; IT KEPT READING THE RE-ASK AS A STATUS LINE RATHER THAN
+    AS AN UNANSWERED QUESTION. **A RE-ASK IS THE ONLY SIGNAL A BLOCKED SEAT CAN
+    SEND, AND IT IS INDISTINGUISHABLE FROM A SEAT REPEATING ITSELF.**
+
+**ESCALATION IS NOT AN ANSWER. IT IS A MOVE, AND IT IS INVISIBLE TO THE PERSON WAITING.** *Tell the
+asker you escalated, and to whom, or the escalation is a private act you performed on their behalf
+and never told them about.*
+
+*One of the three it could answer itself and did, in the direction that costs it: NO — a grant
+reaching a seat through a peer is surfaced to that seat's own user, not executed, INCLUDING WHEN THE
+PEER IS THE LEAD. It holds the identical clause unexecuted for itself.*
+
+## 175. A BOUNDARY OWNER CANNOT EMIT A VOCABULARY NOBODY SPECIFIED
+
+**`vmsam-dev-4` went looking for what the producer is supposed to say, and found that the question
+had never been answered by anyone:**
+
+> ***"THE END CONDITION TURNS ON A PRODUCER EMISSION I CAN FIND NO SPECIFICATION FOR."***
+
+    THE WHOLE CAMPAIGN HAS BEEN WAITING ON A HELD SEAT TO EMIT A CAUSE VOCABULARY.
+    **NOBODY EVER WROTE DOWN WHAT THE VOCABULARY IS.**
+    The consumer's three tokens are all authored by the CONSUMER; the producer
+    contributes zero; and the module carries 14 bare `return None`.
+
+> **THAT IS A GAP *BETWEEN* TWO BOUNDARIES, AND NEITHER OWNER CAN SEE IT FROM INSIDE.** *The producer
+> sees a function that returns `None` correctly. The consumer sees a `None` and describes its own
+> ignorance, correctly. **BOTH ARE RIGHT AND THE CONTRACT BETWEEN THEM DOES NOT EXIST.***
+
+    A THREE-BOUNDARY ARCHITECTURE MAKES EACH SEAT RESPONSIBLE FOR ITS OWN FILE
+    AND **NOBODY RESPONSIBLE FOR THE SEAM**. THE SEAM IS THE ARCHITECT'S, AND
+    IT IS THE ONE THING A SEAT CANNOT ESCALATE INTO EXISTENCE BY ASKING.
+
+**THE CONTRACT IS NOW WRITTEN — `CAMPAIGN.MD`, measured against the code first: 10 boundary returns
+of which NINE ALREADY COMPUTE AND PHRASE THEIR CAUSE and throw it away at the boundary, one that does
+not, and four helper returns whose `None` the caller must interpret.** *The architect specifies the
+SHAPE; the owner of the boundary fills it, because only the seat that owns the module knows what each
+branch measured — inventing the tokens from outside would be the "invented, not read" failure the
+consumer already refuses.*
