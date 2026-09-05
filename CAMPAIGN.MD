@@ -1094,6 +1094,36 @@ inside either, which is why it reached the architect rather than the module's au
     is not a refusal, it is a missing measurement, and the boundary decides
     what that means.
 
+#### THE TOKEN MUST REACH A LOG LINE — ADDED BY `vmsam-dev-4`, AND THE CONTRACT WAS WRONG WITHOUT IT
+
+**The first version specified a RETURN VALUE. THE END CONDITION DEPENDS ON AN EMISSION.**
+
+> *"My substrate is the log. A return value I cannot see is a return value that does not exist for
+> me."*
+
+    THE TOKEN MUST APPEAR IN AN **EMITTED LOG LINE**. A cause that reaches only an
+    in-memory structure SATISFIES NOTHING.
+
+**AND THIS IS NOT A HYPOTHETICAL RISK — THE ENGINE HAS FAILED THIS WAY TWICE, BOTH FOUND TONIGHT, IN
+THE SAME FUNCTION THE NEW TOKEN WILL FLOW THROUGH:**
+
+    `detail`      accepted, stored, interpolated by **0 of 28** log sites --
+                  and its store has **ZERO READERS ANYWHERE**.
+    `plan_kind`   computed at the constant-offset refusal, passed as `detail`,
+                  **DROPPED** -- which is precisely why the report cannot tell a
+                  ROUTING DECISION from a DEAD END.
+
+> **A CONTRACT THAT PERFECTLY SPECIFIES A VALUE AND IS SILENT ON ITS EMISSION HAS ALREADY FAILED
+> TWICE HERE.** *If a future consumer routes the cause into `detail` in good faith — and `detail` is
+> the parameter whose NAME invites exactly that — **TEN PERFECTLY SPECIFIED TOKENS PRODUCE NOTHING
+> ANY READER CAN SEE, AND THE CONTRACT READS AS SATISFIED.***
+
+**IT IS TESTABLE BY GREP WITH A POSITIVE CONTROL, WHICH IS WHY IT IS WRITTEN RATHER THAN ASSUMED.**
+
+*And one line reserved, not required tonight: the contract makes tokens stable and does not say the
+vocabulary is CLOSED or enumerated anywhere. A consumer accounting against a known set widens
+silently as tokens accrete.* **NAME WHERE THE ENUMERATION LIVES, ONCE IT EXISTS.**
+
 #### WHAT THE TOKEN MUST AND MUST NOT SAY
 
     IT NAMES **WHAT THE MEASUREMENT FOUND**, never what the consumer should do.
