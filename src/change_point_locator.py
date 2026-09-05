@@ -18,6 +18,52 @@ It returns NUMBERS, never files. It never cuts, never writes a track, and never
 touches `best_video.sameAudioMD5UseForCalculation`. The repair is dev-2's.
 
 --------------------------------------------------------------------------------
+THE CONTROL-FLOW RELATIONSHIP, MEASURED RATHER THAN DESCRIBED
+
+*** IF THIS SECTION AND `PIPELINE.MD` EVER DISAGREE, MEASURE THE CODE. ***
+
+ONE ENTRY, ONE CALL SITE. `locate_change_points` is the only name here without a
+leading underscore, and the only call from anywhere in `src/` is
+`merge_video_repair.py:294`:
+
+    return change_point_locator.locate_change_points(best_video, candidate_obj, language)
+
+reached through the guarded import at :289. Counted by AST over `src/*.py`, not
+by recollection. A test that drives any other function is testing something the
+consumer never calls.
+
+TWO LOG CHANNELS, AND THEY DIFFER IN THE ONLY WAY THAT MATTERS IN PRODUCTION:
+
+    `_log`   gated on `tools.dev`  -> SILENT when the corpus runs
+    `_emit`  UNGATED               -> reaches `tools.logs` always
+
+BOTH write the same `[change_point_locator]` tag, and `merge_plan_report.py` keys
+`_LOCATOR_TAG` to exactly that string. So the consumer's reader is pointed at a
+channel that, in production, carries ONLY `_emit` lines. Eight of the ten refusal
+paths in `locate_change_points` use `_log` alone and therefore say nothing at all
+where it counts; the consumer records "no measurement available for this pair",
+which is false -- the probes ran and returned a conclusive negative.
+
+COVERAGE OF THIS MODULE'S OWN TESTS, MEASURED BY TRACER, NOT ESTIMATED:
+
+    refusal sites (`return None`) reachable from the entry     14
+    silent refusal paths ever driven by any harness             2 of 8
+
+Aim is not coverage. A harness that calls `locate_change_points` exercises the
+call tree by construction and still says almost nothing about which refusal fired.
+
+ONE INVARIANT THIS MODULE RELIES ON AND DOES NOT STATE ANYWHERE ELSE:
+
+    a pairing entry with `master_stream=None` NEVER carries a `fidelity`
+
+That is true, and it is NOT enforced where it is relied upon. It holds because
+`_master_streams` drops any entry whose `StreamOrder` is None before a partner
+list is ever built -- roughly eighty lines above the two literals that depend on
+it. Measured both ways: separating the two literals on a copy produces the
+violation immediately, while feeding the shipped function a None stream id
+cannot. AN EDIT TO THAT FILTER BREAKS THIS SILENTLY AND NOTHING HERE WOULD CATCH IT.
+
+--------------------------------------------------------------------------------
 THE SIGN CONVENTION, AS AN EQUATION SO IT CANNOT BE READ TWO WAYS
 
     candidate_time_ms = master_time_ms + candidate_offset_ms
