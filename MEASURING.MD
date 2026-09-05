@@ -9187,3 +9187,85 @@ was a ratio.*
 corpus* — was landed, dispatched, and had produced a confirmed engine defect on REAL material before
 the next watch tick.** *No file was requested from the owner. The material existed, in the seats'
 own hands, and nothing but a routing rule had kept it apart from the seat that needed it.*
+
+## 152. THE LIST OF WHAT A SEAT BELIEVES AND HAS NOT MEASURED, LONGER THAN ITS RESULTS LIST
+
+**Asked to contradict the architect's overview, `vmsam-dev-1` produced the single most useful artefact
+of the campaign — and volunteered that it is longer than what it has established:**
+
+    BELIEVED, NOT MEASURED                                          WHAT IT ACTUALLY RESTS ON
+    the six remaining silent refusal paths are REACHABLE            an AST scan. **2 of 8 ever RUN**
+    the straddle can only refuse when the two plateaus are short    **n = 1**, one file
+    relocation explains the large moves                             NOT ESTABLISHED -- the evidence
+                                                                    covers the QUIET band only, and
+                                                                    the movers are low-fidelity
+    the scatter guard cannot select its own population              TRACE + constructed series;
+                                                                    one real file. **n = 1**
+    the module is DETERMINISTIC                                     synthetic material only.
+                                                                    **never a corpus pair** -- and
+                                                                    the displacement control leans
+                                                                    entirely on it
+    anything about the engine's LIVE merge                          UNVERIFIABLE from this seat
+    the 41 pairs got the FULL 30 s displacement                     proved NON-ZERO, not FULL.
+                                                                    a partial clamp is invisible
+                                                                    to a fidelity-only check
+
+> **EVERY ITEM CARRIES ITS OWN `n` AND ITS OWN KIND, AND FOUR OF THE SEVEN REST ON ONE FILE OR ON NO
+> CORPUS AT ALL.** *"I have generalised from one file all afternoon."*
+
+    A RESULTS LIST IS WHAT A SEAT HAS EARNED. **THIS LIST IS WHAT A SUCCESSOR WOULD
+    OTHERWISE INHERIT AS FACT.** IT COSTS NOTHING TO WRITE AND IT IS THE ONLY
+    DEFENCE AGAINST A CAMPAIGN'S BELIEFS OUTLIVING ITS MEASUREMENTS.
+    **ASK EVERY SEAT FOR IT BEFORE EVERY DOOMSDAY.**
+
+## 153. THE MODULE NEVER SAYS WHY IT EXISTS — AND "HANDS IT BACK" IS NOT "CANNOT HELP"
+
+**The architect's overview asserted a relationship the code does not state. `vmsam-dev-1` MEASURED
+whether its module says it, rather than recalling:**
+
+    grep -ci over the locator: "constant delay" 0 · "single delay" 0 · "one delay" 0
+      "re-encode" 0 · "subtitle" 0 · "cheap" 0 · "hand back" 0
+    CONTROL "plateau" -> 39, FIRES.
+    the 3 mkvmerge/sync hits are ALL incidental -- provenance, a stderr string,
+    and a note about integer milliseconds.
+
+> **THE MODULE NOWHERE STATES THAT IT EXISTS ONLY FOR FILES WHERE NO SINGLE CONSTANT DELAY HOLDS.**
+> *It says what it measures, what it refuses, and that it returns numbers rather than files. It never
+> says what becomes of a file it declines.*
+
+    AND THOSE ARE DIFFERENT SENTENCES:
+      "THIS FILE CANNOT BE HELPED"          -> a dead end
+      "THIS FILE GOES BACK TO THE CHEAP PATH" -> a routing decision, and the
+                                               cheap path keeps bitmap subtitles
+                                               that a rebuild would destroy
+    A SUCCESSOR READING THE MODULE ALONE LEARNS THE FIRST AND ACTS ON IT.
+
+**THE RELATIONSHIP LIVES ACROSS TWO OWNERS' FILES AND IS IN NEITHER DOCSTRING.** *And the seat cannot
+add it: a docstring edit falls under its user's report-only hold.* **It said it would put that
+sentence in the module header BEFORE the emission if the hold lifted, "because it is worth more to a
+successor" — a seat ranking documentation above its own blocking change.**
+
+## 154. THE HARNESS SUMMARY DISAGREED WITH THE HARNESS
+
+**`vmsam-dev-1` flagged this BEFORE anyone quoted the file:**
+
+    the end-of-run summary printed   "12 of 24 files · 39 pairs · tip 21 -> 22"
+    the truth from the `.jsonl`      **22 files · 41 pairs · 39 -> 40**
+
+**A post-restart resume-skip made the process summarise only the files IT had run, while still
+labelling the total "of 24".** *Every number in the summary was internally consistent and describing
+a different population from the one the reader assumes.*
+
+    **READ THE RECORD, NEVER THE SUMMARY THE RUN WROTE ABOUT ITSELF.**
+    A SUMMARY IS A CLAIM BY A PROCESS ABOUT ITS OWN SCOPE, AND A RESUMED PROCESS
+    HAS A SCOPE ITS OWN LABEL NO LONGER DESCRIBES. §136 ON A REPORT FOOTER.
+
+### And the run reversed its author's own recommendation
+
+    P1 acceptance   tip 39 -> patched 40   *** THE PATCH GAINS ONE ***   m = 6, TESTED
+    P3 direction    up 18 / down 23, FALSIFIED. largest +0.0723 / -0.0728 -> 1.01x
+    CROSS-LANGUAGE  56 no-partner, 82 with partner, **0 VIOLATIONS**
+
+> **"I HAVE REVERSED MY OPENING RECOMMENDATION: I NO LONGER ADVISE AGAINST LANDING F21."** *Its
+> original case — 7 files, `m = 0`, a "13× asymmetry" — died twice over, and it published both
+> deaths.*
