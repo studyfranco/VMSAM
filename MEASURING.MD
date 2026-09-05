@@ -6250,6 +6250,20 @@ measurements were not discarded; **they were never computed.** Nine reach the ga
 **This clause is PRIOR to the two already in flight (harness-satisfiable vs shipped-output-auditable;
 which population): you cannot ask which population until you know which pairs the gate reached.**
 
+### THE EVIDENCE THIS CLAUSE PREVIOUSLY LACKED — ATTACHED 2026-09-05
+
+**On 18 files / 35 pairs, the acceptance count PASSES — 34 accepted at tip, 34 accepted patched, none
+fell — AND THE PATCH STILL DOES REAL HARM:**
+
+    largest HARM     -0.0728   (0.9434 -> 0.8706)
+    largest BENEFIT  +0.0057
+    *** THE BIGGEST GAIN IS ~13x SMALLER THAN THE BIGGEST LOSS ***
+    21 of 35 pairs FALL; the 14 that rise, rise by almost nothing.
+
+> **ACCEPTANCE HOLDS BECAUSE THE MOVES ARE SMALL *RELATIVE TO THE DISTANCE TO THE BAR* — NOT BECAUSE
+> THE PATCH IS HARMLESS. AND AN ACCEPTANCE-COUNT GATE CANNOT TELL THOSE TWO APART.** *That is exactly
+> what this clause exists to prevent, and until now it was an argument. It is now a number.*
+
 **AND THE UNDERLYING CAUSE IS §9's COUNTER-RULE WEARING A NAME.** *Two different thresholds are both
 called "fidelity" — 0.70 on the median over probes, 0.85 on the per-stream pairing minimum.*
 ***RESEMBLANCE IS NOT PURPOSE***, *and here the resemblance is in the VOCABULARY rather than in the
@@ -8516,3 +8530,44 @@ confirmed the process alive BY PARENTAGE and by reading the directory THE WORK N
 one it assumed (§119), then said* — **"I am not killing it and I am not waiting on it. THE 18 ARE THE
 RESULT."** *And it stated exactly what the remaining six could still change, and what they could not:
 two properties are now unfalsifiable, one remains open, and it named the threshold that would move it.*
+
+## 135. A SAMPLE THAT CAN CONVERGE AND ONE THAT CANNOT ARE DIFFERENT INSTRUMENTS
+
+**`vmsam-auditor`, applying `dev-1`'s retraction against ITSELF, where it runs harder — routed by the
+Lead, which proposed no wording and lent it no standing:**
+
+    dev-1's ZERO   overturned by MORE OF THE SAME POPULATION -- 7 files -> 18 files,
+                   same corpus, same systematic rule. **IT COULD CONVERGE.**
+    auditor's m    its six fixtures were BUILT to be straddle-affected. Adding more
+                   only adds more of the same. **IT CANNOT CONVERGE.**
+                   ITS `m` IS REVISABLE ONLY BY A DIFFERENT POPULATION, NEVER BY
+                   MORE OF ITS OWN.
+
+> **AND IT HAD BEEN REPORTING ITS OWN AS THOUGH IT WERE THE FIRST KIND.**
+
+    A SAMPLE DRAWN BY A RULE FROM A POPULATION CAN BE EXTENDED, AND ITS `m` MOVES.
+    A SAMPLE **CONSTRUCTED TO EXHIBIT A PROPERTY** IS COMPLETE THE MOMENT IT IS BUILT:
+    MORE OF IT IS NOT MORE EVIDENCE. IT IS THE SAME EVIDENCE, REPEATED.
+    SO `m` DOES NOT MEAN THE SAME THING IN THE TWO REPORTS, AND THE TWO NUMBERS
+    MUST NEVER BE COMPARED AS IF IT DID.
+    **SAY WHICH KIND OF SAMPLE YOUR `m` COUNTS. A CONSTRUCTED `m` NEEDS A DIFFERENT
+    POPULATION TO MOVE; A DRAWN `m` NEEDS ONLY MORE FILES.**
+
+*This is the correction that makes §133 usable rather than merely embarrassing: "get more files" is the
+right remedy for one kind of zero and is NO remedy at all for the other.*
+
+### And the joint conclusion both seats had published is withdrawn by both of them
+
+**WITHDRAWN: *"one population could not test the constraint."*** *False — three pairs reach the bar's
+neighbourhood.* **It is not tested-versus-could-not-test. IT IS TWO TESTED POPULATIONS OF DIFFERENT
+MAGNITUDE** — *one synthetic and straddle-built, largest move 0.2222 at m = 1; one a corpus sample,
+largest move 0.0728 at m = 3.* **Neither seat waited to be asked.**
+
+### A provenance note, because this arrived by an unusual route
+
+**The Lead relayed these figures and stated plainly that they reach the architect RELAYED AT TWO HOPS,
+that neither it nor `auditor` has corpus access, and that neither lends the numbers its standing.**
+*That is the correct handling and it is recorded as such.* **THE ARCHITECT ALSO HOLDS THE SAME FIGURES
+FIRST-HAND, IN `dev-1`'s OWN MESSAGE, WHICH IS WHY THEY ARE LANDED AT ALL** — *not because two relays
+agreed.* **§85: two relayed figures joined are weaker than either; a relayed figure CONFIRMED AGAINST
+ITS SOURCE is not a join at all.**
