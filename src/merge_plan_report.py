@@ -169,6 +169,27 @@ def measure_corpus(log_paths, read=None):
     # answer? The qualifier is emitted here, beside the number it qualifies, so
     # it cannot be lost by a reader who reads one row and not the other.
     census_replay = {"head": [], "interior": [], "tail": []}
+    # AN ABSENT LINE IS NOT AN EXCLUSION.
+    #
+    # A merge denominator gets its "excluded" files by SUBTRACTION, and the two
+    # populations below are what that subtraction silently merges:
+    #   excluded_claimed            -- handed to this render, no plan emitted.
+    #                                  These are the files a denominator would
+    #                                  subtract.
+    #   excluded_with_stated_cause  -- of those, the ones that ALSO emitted a
+    #                                  cause anyone can read.
+    # MEASURED HERE, 2026-09-05: 31 and 0. Every file that would be subtracted is
+    # SILENT, while 8 files WITH a plan DO carry a declared cause -- which is the
+    # positive control that the emitter and this parser both work. The causes
+    # exist; they are absent precisely on the files being removed from the count.
+    #
+    # "excluded because completely different" and "declined for some other reason"
+    # are THE SAME OBSERVABLE from here: silence. So a silent file is NOT counted
+    # as excluded by this reader -- it is counted as UNEXAMINED, and the row says
+    # so. Subtracting silent files is how a campaign declares victory over the
+    # files it never looked at, and from outside that is indistinguishable from
+    # having merged them.
+    excluded = {"claimed": 0, "with_stated_cause": 0, "cause_anywhere": 0}
     # L'ETAT DE LA PORTE AU MOMENT OU CES FICHIERS ONT ETE PRODUITS.
     # Le proprietaire a tranche que `enforcing` passe a True. Un artefact portant
     # `would_refuse=True` a donc ete produit SOUS UNE PORTE INERTE et ne serait
@@ -193,6 +214,14 @@ def measure_corpus(log_paths, read=None):
                 "emitted_true": 0, "emitted_false": 0, "incomparable": 0}
     for path in log_paths:
         text = reader(path)
+        _job_for_exclusion = parse_job_log(text) if is_job_log(text) else {}
+        _cause = _job_for_exclusion.get("declined")
+        if _cause:
+            excluded["cause_anywhere"] += 1
+        if not (_job_for_exclusion.get("plan") or {}).get("pieces"):
+            excluded["claimed"] += 1
+            if _cause:
+                excluded["with_stated_cause"] += 1
         if not is_job_log(text):
             # UN FICHIER ECARTE PAR MOI EST UNE ABSENCE QUE JE FABRIQUE. Le
             # rejet par structure est correct -- pas de ligne de plan, pas de
@@ -459,6 +488,27 @@ def measure_corpus(log_paths, read=None):
             "runner deleted its sources; a log never preserved leaves no trace "
             "here, not even a gap. This reader cannot state how many were "
             "produced, only how many it was given"),
+        # THE PAIR, EMITTED SIDE BY SIDE SO A DIFFERENCE IS VISIBLE WITHOUT A JOIN.
+        "excluded_claimed": excluded["claimed"],
+        "excluded_with_stated_cause": excluded["with_stated_cause"],
+        "exclusion_note": (
+            f"AN ABSENT LINE IS NOT AN EXCLUSION. {excluded['claimed']} file(s) "
+            f"handed to this render emitted NO PLAN -- these are the ones a merge "
+            f"denominator would SUBTRACT -- and of them "
+            f"{excluded['with_stated_cause']} carry a cause anyone can read. "
+            + (f"THE OTHER {excluded['claimed'] - excluded['with_stated_cause']} "
+               f"ARE SILENT AND THIS READER DOES NOT COUNT THEM AS EXCLUDED: they "
+               f"are UNEXAMINED. `excluded because completely different` and "
+               f"`declined for some other reason` are the same observable from "
+               f"here, and only one of them is an exclusion. "
+               if excluded["claimed"] != excluded["with_stated_cause"] else
+               "The two counts are EQUAL on this material, which means this "
+               "column had no opportunity to discriminate here -- m = 0 for the "
+               "difference, and that is UNTESTED, not clean. ")
+            + f"POSITIVE CONTROL: {excluded['cause_anywhere']} log(s) in this "
+              f"population DO carry a declared cause, so the emitter and this "
+              f"parser both fire; an absence below is a property of the file and "
+              f"not of the instrument"),
         "rejected_by_structure": rejected,
         # UNE CAUSE AFFIRMEE POUR UNE CLASSE QUI EN A DEUX.
         #
