@@ -89,6 +89,45 @@ AUTHORITY directly — from any clone, with nothing configured, under any freeze
 > against the authority's live tip. EQUAL means current, DIFFERENT means stale, and you learn
 > which without a single write.***
 
+### DE-CACHING WORKS ONLY WHERE THE CACHED BRANCH IS IN YOUR STORE
+
+**A recovery line reading `git show origin/dev-AI:<path>` reads a CACHE. Where the cached store
+is on the same machine, the cure is one word — point at that store's own branch instead:**
+
+    git -C <hop-path> show refs/heads/dev-AI:<path>
+    *** SAME BYTES, NO FETCH, NO CACHE. A branch in its own store cannot be a
+        cache of anything; a tracking ref can drift from what it caches. ***
+    (Reproduced at two benches on the same document, byte counts equal, with an
+     absent-path control firing at 0.)
+
+**AND THE PRECONDITION, WHICH MUST TRAVEL WITH THE FIX OR ELEVEN SEATS WILL TRY TO APPLY IT
+WHERE IT CANNOT WORK:**
+
+    A CACHE IS DE-CACHEABLE ONLY IF THE CACHED THING'S OWN BRANCH IS IN YOUR STORE.
+      a cache of THE HOP ......... the hop's refs/heads is on this machine  -> FIXABLE
+      a cache of THE AUTHORITY ... the authority's refs/heads is remote     -> NOT FIXABLE,
+                                   and the only refresh is a fetch, which is a write
+
+> ***SO THE FIX IS AVAILABLE TO DOCUMENTS THAT PRESCRIBED THE WEAKER SOURCE AND UNAVAILABLE TO
+> THE ONE THAT AIMED AT THE AUTHORITY. THE BETTER INSTRUCTION IS THE UNREPAIRABLE ONE.*** *This
+> bench is an instance: its `origin` is the authority, and its `refs/heads/dev-AI` is its own
+> branch, not the authority's. **There is no local ref that IS a remote store's branch, and no
+> amount of renaming produces one.***
+
+**WHAT REPLACES IT IS THE POSTURE, NOT A SUBSTITUTION** — read the bytes from a branch you
+actually hold, read both tips with `ls-remote`, and **say which store the bytes came from and
+what the other one is at**:
+
+    "governance read at hop <tip>; the authority is at <tip>; TREAT AS STALE"
+
+*That is strictly more than reporting UNREADABLE, and strictly less than being current.*
+
+*Found by `ci-build` (the one-word fix, tested where two seats had asserted an impossibility)
+and `dev-4` (the precondition, on discovering its own document had taken the better source and
+was therefore the one that could not be repaired). **Two seats had reasoned their way to
+"irreducible" from a correct premise without running the substitution — in a campaign whose
+subject is exactly that.***
+
 ### A ROLE CLAIM EXPIRES. A CONTENT CLAIM WITH ITS STORE DOES NOT.
 
 **The cleanest instance the campaign produced — one seat's brief, eleven lines apart, same
