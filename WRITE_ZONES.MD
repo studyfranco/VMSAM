@@ -155,6 +155,50 @@ narrowing and the mechanism, on refs that turned out not to need it.**
 > SAFETY CHECK.** *`auditor`, which listed the twelve refs before quoting the number — the only
 > reason this is a reconciliation and not a fourth contradictory integer.*
 
+### OWNING THE CONTAINER SAYS NOTHING ABOUT OWNING THE CONTENTS
+
+**Every test in this document tests the CONTAINER — is the ref mine, is the path foreign, does
+the id resolve, is it the right type. *** NONE OF THEM ASKS WHOSE THE FILE INSIDE IS. ***
+
+    ACROSS ALL 44 AGENT REFS ON THE HOP:
+      *** 17 CARRY `ci-instruments/BRIEF.md` *** — line 1: "# `vmsam-ci` — you own
+      the test container"
+    ONE SEAT'S BRIEF LIVES IN THE REPOSITORY AND NOBODY ELSE'S DOES, SO EVERY
+    SNAPSHOT OF THE REPOSITORY REPLICATES IT UNDER SOMEBODY ELSE'S NAME.
+
+> ***A SEAT REBUILDING, READING A REF THAT CORRECTLY BEARS ITS OWN NAME, SEARCHING FOR THE
+> OBVIOUS FILENAME, FINDS EXACTLY ONE BRIEF — AND IT IS ANOTHER SEAT'S MANDATE.*** *The
+> foreign-path test calls all of it `0 foreign`, because they ARE repository paths. **It is
+> right and it is useless for this question.*** *This is the complement of the staleness case
+> above: there, "yes it is yours" was what made it dangerous; here the REF is correctly yours
+> and the CONTENTS are not.*
+
+**THE ONLY BARRIER IS ONE LINE OF PROSE, AND IT IS NOT ENFORCED ANYWHERE.**
+
+    A SEAT-SCOPED DOCUMENT — brief, state, handover — MUST NAME ITS SEAT IN
+    LINE 1, AS A SEAT AND NOT AS A ROLE, BEFORE ANY TITLE.
+    MEASURED IN THIS REPOSITORY, campaign-1 handovers:
+      agent3 "`vmsam-agent-ci`" ............. NAMES A SEAT
+      agent1 "Agent 1, C_cut and structural edits"  \
+      agent2 "Agent 2 (d-trim)"                      >  *** A ROLE. 3 OF 4. ***
+      agent4 "Agent 4, forensics / evidence layer"  /
+    *** THE THREE THAT FAIL ARE THE OLDEST AND THE LEAST LIKELY TO BE
+        RECOGNISED AS FOREIGN BY WHOEVER READS THEM NEXT. ***
+    (Frozen archive — recorded, not edited. §1 governs `CAMPAIGNS/`.)
+
+*Reported by seats on themselves: `ci`'s brief names its seat, `dev-4`'s names its seat as the
+first token, **`auditor`'s does not — `# AUDITOR BRIEF` is a role**, and it found that only by
+applying another seat's hazard to itself. In a fleet where `aide` is a substring of `arch-aide`
+and `ci` of `ci-build`, a bare role name is exactly the identifier that survives every guard
+and settles nothing.*
+
+**AND THE HONEST LIMIT, WHICH NO RULE HERE REMOVES:** *`aide` —* ***"the seat's own memory is
+the only instrument that answers it, which is precisely the instrument a Doomsday destroys."***
+*Date, path-set, object-set and ref name all fail to say which of three same-named refs holds
+your work; the seat knows because it was there. **The event this document prepares for is the
+one that removes the only witness.*** *That is why line 1 is load-bearing: it is the single
+place the answer survives the reader who was not there.*
+
 ### THE GUARDS CHECK WHAT YOU REPORT. NONE CHECKS WHAT THE COMMAND EXPECTS.
 
 **`git for-each-ref --contains <id>` takes a COMMIT. Hand it a tree or a blob and it answers
