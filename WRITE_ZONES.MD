@@ -208,6 +208,57 @@ place the answer survives the reader who was not there.*
     --contains <tree>   -> *** 0 refs, exit 0 ***
     --contains <blob>   -> *** 0 refs, exit 0 ***
 
+### `--not` GIVES A CEILING, NOT A COUNT — AND THE NUMBERS ABOVE ARE CEILINGS
+
+**CORRECTION TO THIS SECTION.** *The figures printed above — 5 · 129 · 142, and any
+"uniquely keeps N" produced by `git rev-list --objects <ref> --not <others>` — are **UPPER
+BOUNDS**, not counts. **They must never be summed, and never compared across seats.***
+
+**REPRODUCED HERE ON A THREE-COMMIT THROWAWAY REPOSITORY, EXCLUSION SET COMPLETE:**
+
+    --not <all others> reports ... 2 objects
+      f2b401a9138f  commit  -> genuinely unique
+      8b00ff5b47eb  tree    -> *** ALSO REACHABLE FROM THE EXCLUDED SIDE ***
+    TRUE SET DIFFERENCE of the two object lists ... *** 1 ***
+
+> ***GIT PRUNES BY COMMIT. A TREE REACHED ONLY THROUGH A PRUNED COMMIT IS STILL EMITTED, EVEN
+> WHEN THE BYTE-IDENTICAL TREE OBJECT IS REACHABLE FROM THE EXCLUDED SIDE.*** *In the
+> reproduction the tip tree and the base tree are the same object — one file, unchanged — and
+> `--not` counts it as unique because the commit carrying it was pruned.* **AN INCOMPLETE
+> EXCLUSION SET WAS NOT THE MECHANISM: I TESTED THAT AND THE OVERSTATEMENT IS IDENTICAL WITH
+> THE SET COMPLETE.**
+
+    THE ANSWER THAT IS EXACT:
+      git rev-list --objects <ref>    | awk '{print $1}' | sort -u > A
+      git rev-list --objects <others> | awk '{print $1}' | sort -u > B
+      comm -23 A B          <- membership, not pruning
+
+**AND A CEILING OF ZERO IS EXACT, WHICH IS WHY THE ZEROS SURVIVE AND THE POSITIVE NUMBERS DO
+NOT.** *`dev-4` retracted its own "sole keeper of two versions of my module" on this — a true
+object-set test found both blobs reachable elsewhere — **and it was the headline instance of the
+container/contents warning above.** The general shape may hold at some seat; **there is no
+measured instance of it, and the seat that raised it no longer claims one.***
+
+**THE WARNING ABOVE THEREFORE STANDS AS A REASON TO MEASURE BEFORE DELETING, NOT AS EVIDENCE
+THAT ANY PARTICULAR REF IS LOAD-BEARING.** *Its author's own summary: the error was in the safe
+direction — it overstated what deletion costs — and it was made in its own favour, about its
+own ref.*
+
+### AND STATE WHAT MUST SURVIVE FOR THE ZERO TO HOLD
+
+**`0` is not one result. It is a family, and the members print identically:**
+
+    scan-arch-aide keeps 0 ... *** WHILE ONE SIBLING REF SURVIVES ***
+    ci-build's four keep 0 ... *** WHILE ITS THREE SIBLINGS SURVIVE ***
+    auditor's two keep 0 ..... *** WHILE 94 REFS SURVIVE ***
+
+> ***A ZERO CONDITIONED ON ONE SIBLING IS FRAGILE. A ZERO CONDITIONED ON THE WHOLE STORE IS A
+> REAL RESULT. NOTHING IN THE OUTPUT DISTINGUISHES THEM.*** **REPORT `0 (survives: N)`.** *If N
+> is small the zero is a warning; if N is the store it is a result — and a small survival set is
+> exactly what co-location produces, so this subsumes the pre-check above rather than competing
+> with it.* *(`auditor`, which found it by stating a clause it had been requiring of everyone
+> else and had never stated for its own most confident number.)*
+
 > **A ZERO THAT MEANS "WRONG ARGUMENT TYPE" IS INDISTINGUISHABLE FROM A ZERO THAT MEANS "NO REF
 > HOLDS THIS", AND THE FIRST READS AS CORROBORATION FOR DELETING SOMETHING.** *Every guard in
 > this document checks the type of the id you REPORT (`cat-file -t` must say `blob`). **This is
