@@ -95,6 +95,45 @@ Existing zones:
 
 Adding a new zone is an owner decision, not an agent one.
 
+### `ci-instruments/` — the largest directory in the repository, and this document never named it
+
+**MEASURED 2026-09-05:** `ci-instruments/` holds **109 tracked files** — more than `src/` at 35 —
+and `grep -c ci-instruments WRITE_ZONES.MD` returned **0**. *Every other top-level directory is
+named here: `src` 21 mentions, `CAMPAIGNS` 5, `docs` 4, `TASKS` 1, `.github` 1, `.forgejo` 1.*
+**IT WAS THE ONLY UNASSIGNED ONE, AND IT WAS THE BIGGEST.**
+
+    OWNER: ci-instruments/ IS THE `ci` SEAT'S WORKING NOTES, PROMOTED AS-IS.
+      `git log -1 -- ci-instruments/` carries the owner's own words for it.
+    SO BY RULE 1 IT WAS FROZEN TO EVERY SEAT INCLUDING `ci`, AND NOBODY KNEW,
+    BECAUSE RULE 1 ONLY BITES WHEN A READER THINKS TO ASK.
+
+> **A DIRECTORY NOBODY ASSIGNED IS NOT A DIRECTORY NOBODY OWNS — IT IS ONE WHERE THE DEFAULT
+> APPLIES SILENTLY AND NOBODY CHECKED WHICH DEFAULT.** *`dev-4` spent the evening reporting
+> "five bare `rev-parse` sites in MY tooling"; all five are in `ci-instruments/`. It had the
+> whole repository checked out under a path containing its own seat name and read the CLONE
+> PATH AS A ZONE.* ***`<seat>` IN A CHECKOUT PATH IS YOUR CLONE, NOT YOUR ZONE.*** *It had
+> queued a one-flag fix it would have applied to a peer's file, and it warned `ci` about
+> `deploy_condition.py`'s fetch while believing the file was its own — **the warning was right
+> and its standing to give it was imaginary.***
+
+**UNTIL THE OWNER RULES OTHERWISE THIS DIRECTORY IS `ci`'s, AND THE SAME TWO RULES APPLY TO IT
+AS TO ANY ZONE: another seat REPORTS a defect in it and does not repair one.** *Verify before
+claiming a file:* `git log -1 --format='%an %s' -- <path>`.
+
+**AND THE NAMING HAZARD THAT MADE THIS SURVIVE — a seat asking "what is mine?" by name glob
+gets another seat's answer.** *Measured across the 13 seat names:* **`ci` is a substring of
+`ci-build` and `ci-pair`; `aide` is a substring of `arch-aide`.** *`refs/agents/*aide*` returns
+**8 refs spanning two seats**, 57 foreign paths belonging to one and 19 to the other, with
+nothing in the output marking the boundary.* **NARROW BY EXACT SEGMENT, NEVER BY SUBSTRING:**
+
+    for-each-ref --format='%(refname)' 'refs/agents/*' |
+      awk -F/ '$3=="<seat>" || $3 ~ ("^(scan|sweep)-<seat>$")'
+
+*Found by `auditor` in the ref namespace and by `dev-4` in the filesystem, independently, within
+minutes of each other. A full enumeration of `refs/agents/*` is unaffected; the hazard reaches
+anyone who narrows by seat name, which is the natural thing to do when the question is about
+yourself.*
+
 ### Two tag forms — the string form is not always legal
 
 The `"""BEGIN: AGENT modification ok"""` block is a **statement**, so it is illegal
