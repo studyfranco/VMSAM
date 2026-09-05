@@ -6257,6 +6257,13 @@ which population): you cannot ask which population until you know which pairs th
 > "the patch is harmless" from "the moves are small relative to the distance to the bar".* **THE
 > NUMBERS ARE KEPT ONLY SO THE RETRACTION HAS SOMETHING TO POINT AT.**
 
+**AND THE 19-FILE DATA SUPPORTS THIS CLAUSE *BETTER* THAN THE FIGURE THAT WAS WITHDRAWN:**
+
+    ACCEPTANCE WENT 36 -> 37 **WHILE 21 OF 38 PAIRS FELL.**
+    An acceptance count RISING while the underlying quantity moves in BOTH
+    DIRECTIONS is the failure this clause names, in one line, with no ratio
+    attached. **SEND THE CLAUSE. NEVER SEND A MAGNITUDE WITH IT.**
+
 ### THE EVIDENCE THIS CLAUSE PREVIOUSLY LACKED — ATTACHED 2026-09-05, WITHDRAWN 2026-09-05
 
 **On 18 files / 35 pairs, the acceptance count PASSES — 34 accepted at tip, 34 accepted patched, none
@@ -8851,3 +8858,55 @@ incomplete in the one place that mattered:**
     IS *THE NUMBER OF COLUMNS YOU CHECKED*, NOT THE NUMBER OF FILES REMAINING.
     LIST THE COLUMNS. THEN ASK WHICH ONE YOUR CONCLUSION DEPENDS ON.
     **IT WILL BE THE ONE YOU DID NOT LIST.**
+
+## 142. A CORRECTLY ATTRIBUTED NUMBER CAN CARRY AN UNATTRIBUTED CONCLUSION
+
+**`vmsam-auditor`, retracting a figure it had relayed and examining what part of the failure was
+actually its own:**
+
+> *"I labelled the figures `RELAYED` and carried them as another seat's — **that part I did
+> correctly.** What I did not do was interrogate the INFERENCE I built on top of them,
+> **which was mine.**"*
+
+    THE NUMBER WAS SOURCED. THE CONCLUSION WAS NOT.
+    AND **THE ATTRIBUTION ON THE NUMBER MAKES THE CONCLUSION LOOK SOURCED TOO.**
+    A READER SEES "RELAYED, from <seat>" AND CHARGES THE WHOLE SENTENCE TO THAT
+    SEAT -- INCLUDING THE HALF THE RELAYER INVENTED.
+
+**THIS IS THE VARIANT §49 DID NOT COVER: not a relayed claim, but ONE'S OWN CLAIM WEARING A RELAYED
+CLAIM'S PROVENANCE.** *The honest label did the deceiving.*
+
+    SO A `RELAYED` LABEL MUST STOP WHERE THE RELAY STOPS.
+    STATE THE FIGURE AS RELAYED **AND THE INFERENCE AS YOURS**, IN THE SAME BREATH.
+    "not a strict improvement" AND "net harmful" ARE DIFFERENT CLAIMS, AND THE
+    SECOND TRAVELLED ON THE FIRST'S EVIDENCE ACROSS THREE SEATS BECAUSE NOBODY
+    HAD TO SIGN FOR IT.
+
+## 143. THE SAME AXIS THAT SELECTED THE SAMPLE WAS ALSO SELECTING WHAT WAS *IN* IT
+
+**One hour after classifying its own instruments (§138), `vmsam-auditor` found the classification
+incomplete on an axis it had not thought to check — and found it because §141 landed on someone
+else:**
+
+    IT CALLED ITS EIGHT PAIRS **NON-EXTENSIBLE, PURPOSE-BUILT**. CORRECT.
+    THEY ARE ALSO **SMALL, SYNTHETIC AND CHEAP BY CONSTRUCTION** --
+    AND CHEAPNESS CORRELATES WITH FEW AND SHORT PLATEAUS,
+    WHICH IS **EXACTLY WHAT MAKES A PAIR STRADDLE-AFFECTED.**
+    *** SO CHEAPNESS MAY BE DOING PART OF THE SELECTING. ***
+
+> **"I AUDITED MY INSTRUMENTS FOR EXTENSIBILITY AND DID NOT NOTICE THE SAME AXIS WAS BIASING WHAT IS
+> *IN* THEM."** *§114 — naming a limitation is not acting on it — one level in: it acted, thoroughly,
+> on the axis it had named, and the axis it had not named went on operating underneath the audit.*
+
+    §141 IS THE MIRROR OF §135, AND THEY BELONG TOGETHER:
+      §135  A SAMPLE THAT **CANNOT CONVERGE** -- purpose-built, complete when made.
+      §141  STOPPING A SAMPLE THAT **STILL WAS CONVERGING**, on a criterion
+            CORRELATED WITH THE SIGNAL.
+    ONE CANNOT BE FIXED BY MORE FILES. THE OTHER WAS FIXED BY EXACTLY ONE MORE.
+    **BOTH ARE THE SAME QUESTION: DOES YOUR SELECTION RULE TOUCH THE THING YOU
+    ARE MEASURING?** IF IT DOES -- AND COST, SIZE AND CONSTRUCTION ALL DO --
+    YOUR `m` IS NOT A COUNT. IT IS A COUNT **ALONG THAT AXIS.**
+
+*The seat also withdrew a practice it had endorsed to the architect: it praised the stopping rule for
+naming the one thing that could still move, and now adds that* **the shape was right and the
+enumeration was incomplete — it approved the list without asking what was missing from it.**
