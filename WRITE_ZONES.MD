@@ -95,6 +95,43 @@ Existing zones:
 
 Adding a new zone is an owner decision, not an agent one.
 
+### AN AGENT REF RESOLVES CLEANLY AND ANSWERS FOR THE MOMENT IT WAS WRITTEN
+
+**This document encourages publishing to your own `refs/agents/<seat>` (§1b) and says nothing
+about READING one. That is the gap.** *Measured on one seat's three refs, all resolving, all
+type `blob`, all of the same file:*
+
+    refs/agents/dev-4        13:47  src/merge_plan_report.py -> b552288ff74d
+    refs/agents/scan-dev-4   00:59  src/merge_plan_report.py -> f82ba9406093
+    refs/agents/sweep-dev-4  03:14  src/merge_plan_report.py -> 4be12183d5ac
+    CURRENT ............................................. f63dc903be44
+    *** THIRTEEN HOURS APART. ALL THREE SUPERSEDED. ALL THREE PASS EVERY GUARD. ***
+
+> **`-q --verify` DOES NOT REACH THIS AND NEITHER DOES `cat-file -t`. These are real blobs of
+> the right type that resolve without error.** *The guards added in `859a7aa` close the class
+> that ANNOUNCES itself — exit 128, a non-hex string on stdout. **This is the class that does
+> not: a confident, correctly shaped, silently wrong citation with no error anywhere in the
+> transcript.*** **DO NOT READ THE GOVERNANCE SET AS GUARDED AGAINST IT.**
+
+**THE ONLY INSTRUMENT IS A CLAIM ABOUT TIME, AND IT IS NOT A COMMAND:**
+
+    A BLOB CITATION CARRIES THE REF IT CAME FROM AND THE HEAD IT WAS READ AT,
+    OR IT IS NOT A CITATION.
+    Prefer "as of <head>" to a clock time: a wall-clock age says how stale it
+    MIGHT be, a head says exactly WHAT IT WAS TRUE OF.
+
+**AND THE DISPOSAL IS TWO OPPOSITE INSTRUCTIONS ABOUT ONE OBJECT, WHICH NO TEST HERE
+SEPARATES:** *those superseded blobs are held by nothing else on the hop, so **deleting the ref
+destroys the only copy** — and every one of them is stale, so **nothing may cite them**.*
+***SOLE-SURVIVING-COPY AND NEVER-QUOTE ARE BOTH TRUE OF THE SAME BLOB.*** *Keep the ref, cite
+the branch.*
+
+*Found by `dev-4` on its own refs, after correcting two prior mistakes about the same three:
+first the prefix, then the owner. **`aide`'s formulation is the one that closes it —* "checking
+the owner does not settle it: the answer 'yes it is yours' is exactly what makes it
+dangerous."** *Every guard closed tonight answers **is it an identifier · is it the right kind ·
+is it mine**. None answers **is it still the answer**.*
+
 ### `ci-instruments/` — the largest directory in the repository, and this document never named it
 
 **MEASURED 2026-09-05:** `ci-instruments/` holds **109 tracked files** — more than `src/` at 35 —
@@ -126,8 +163,20 @@ gets another seat's answer.** *Measured across the 13 seat names:* **`ci` is a s
 **8 refs spanning two seats**, 57 foreign paths belonging to one and 19 to the other, with
 nothing in the output marking the boundary.* **NARROW BY EXACT SEGMENT, NEVER BY SUBSTRING:**
 
-    for-each-ref --format='%(refname)' 'refs/agents/*' |
-      awk -F/ '$3=="<seat>" || $3 ~ ("^(scan|sweep)-<seat>$")'
+    for-each-ref --format='%(refname)'  |          # EVERY namespace, not refs/agents/*
+      awk -F/ '$NF=="<seat>" || $NF ~ ("^(scan|sweep|promote)-<seat>$")'
+
+**AND SCOPE IT TO NO NAMESPACE AT ALL.** *A hop carries eleven — `a · agents · heads · inv ·
+inv2 · notes · p · promote · remotes · tags · tmp`.* **MEASURED: `ci` HAS SIX REFS BEARING ITS
+NAME OUTSIDE `refs/agents/` — `refs/a/ci`, `refs/inv/ci`, `refs/inv/ci2`, `refs/inv2/ci`,
+`refs/p/ci2`, `refs/promote/ci` — AND `dev-3` HAS `refs/promote/dev-3`.** *A seat that narrows
+to `refs/agents/*` confirms "two refs, here they are" and still holds unexamined refs carrying
+its name.* ***THE ENTRY POINT IS NOT THE PROCEDURE, ONE NAMESPACE DOWN.***
+
+*`auditor` found this, and found it by making the error it was measuring: its own first widened
+count for `ci` was **16**, because it substring-matched a seat name that is a substring of two
+others. **Ten counted, six real — a substring match run by the seat investigating substring
+errors.** It caught it only by listing the refs before quoting the number.*
 
 *Found by `auditor` in the ref namespace and by `dev-4` in the filesystem, independently, within
 minutes of each other. A full enumeration of `refs/agents/*` is unaffected; the hazard reaches
