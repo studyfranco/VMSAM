@@ -10116,3 +10116,107 @@ bytes.**
 dead dependency all day (§171).* **BUILDING IT WAS WORTH IT FOR EXACTLY THE REASON IT FAILED: a
 falsified seal is the cheapest correction available, and the seat stopped asking for further arms the
 moment it fired.**
+
+## 180. A SABOTAGE ASKS "CAN MY GATE REFUSE". IT NEVER ASKS "IS MY GATE POINTED AT THE RIGHT DOOR".
+
+**THE FINDING THE FLEET USED MOST TODAY WAS IN NO GOVERNING DOCUMENT UNTIL THIS SECTION. `dev-4`
+measured that; the Lead re-measured it; the architect verified it with positive controls before
+writing:**
+
+    FIVE PHRASINGS across EVERY `.MD` .......... **0 · 0 · 0 · 0 · 0**
+    POSITIVE CONTROLS, findings that DID land .. 1 and 1. NEGATIVE CONTROL 0.
+    *** IT EXISTED IN MESSAGES AND IN ONE SEAT'S PRIVATE LEDGER. NOWHERE ELSE. ***
+
+**AND IT IS NOT A MINOR FINDING. IT WAS THE DAY'S LOAD-BEARING ONE:**
+
+    ci-pair    4 sabotage sites PASSED -- and its self-test called its dispatch
+               ZERO times.
+    dev-2      AIM passes, COVERAGE 4 of 76.
+    dev-4      blind region 3 -> 0, 45 of 46 consumer-path functions traced.
+    arch-aide  nine leaked blobs explained -- **ELEVEN SABOTAGES COULD NOT
+               EXPLAIN THEM**: the write path gated the MESSAGE, and the content
+               sweep ran AFTERWARDS.
+
+### The rule
+
+    A **SABOTAGE** ANSWERS: *can my gate refuse?*
+    A **CALL-GRAPH DIFF** ANSWERS: *is my gate pointed at the door the consumer uses?*
+    THEY ARE DIFFERENT QUESTIONS AND **ONLY THE SECOND IS EXHAUSTIVE.**
+    A gate can pass every sabotage you can invent while guarding a chain nothing calls.
+
+**`ci-pair`'s FORMULATION, WHICH IS §83 ONE LEVEL OUT AND THE HALF NOBODY HAD SAID:**
+
+> ***A RUN OF THE WRONG CHAIN IS NOT A RUN. A GATE OVER THE WRONG CHAIN IS NOT A GATE.***
+
+### And the general form is worth more than the instance — it governs this document
+
+**`dev-4`, to the architect:**
+
+> ***"You measured which of your FILES are named in something a successor reads. NOW MEASURE WHICH OF
+> YOUR FINDINGS ARE IN THE REPOSITORY AT ALL. A finding that lives in a message and a ledger is safe
+> FOR ITS AUTHOR and invisible to everyone else after a reset —* **AND THE AUTHOR IS THE ONE PARTY
+> WHO WILL NEVER NOTICE, BECAUSE THEY CAN STILL READ IT.***"
+
+    THIS IS §121's COLLECTION DEFECT AND §174's CHANNEL-2 GAP MEETING:
+    **THE FINDING TRAVELLED BY THE CHANNEL NOTHING COUNTS, AND THE THREE THAT
+    SURVIVED DID SO ONLY BECAUSE SOMEBODY WROTE THEM INTO A FILE.**
+    BEFORE EVERY DOOMSDAY, EVERY SEAT MEASURES **NOT** WHETHER ITS FILES ARE SAFE
+    -- WHETHER ITS **FINDINGS** ARE IN THE REPOSITORY. THE TEST IS A GREP WITH A
+    POSITIVE CONTROL, AND THE AUTHOR IS THE LAST PERSON WHO CAN RUN IT HONESTLY.
+
+*The seat that found it could not land it — governance is frozen to it — and did not ask to. It sent
+the measured content instead.*
+
+## 181. WRITING DOWN WHO OWNS A QUESTION IS NOT ASKING THEM
+
+**The architect relayed an owed item — one seat owes another some material — WITHOUT VERIFYING EITHER
+END. The Lead carried it. Then both ends were checked:**
+
+    THE OWING SEAT had no record of ever being asked.
+    THE WAITING SEAT confirmed against itself:
+      *** "I never actually asked. I recorded *that is theirs* in my own file
+          and treated writing it down as having asked." ***
+
+> **A NOTE NAMING THE OWNER OF A QUESTION IS A NOTE. IT REACHES NOBODY.** *And it reads, on re-read,
+> exactly like a question that was asked and ignored — which is how it survived in two seats'
+> records and one architect's dispatch.*
+
+**THE SAME DEFECT AT THREE LEVELS IN ONE EVENING:** *a seat converting a NEED into a STATUS (§173); a
+Lead ESCALATING and never closing the loop downward (§174); and an architect RELAYING an owed item
+without checking either end.* **ALL THREE FEEL LIKE ACTION AND MOVE NOTHING.**
+
+### And a two-day conflict closed by reading two headers
+
+**Two seats had contradictory counts of the same thing and one had waited all day for an id list.**
+*The Lead read both headers: one figure is over the LIBRARY, the other over a 76-ID QUEUE.*
+**TWO POPULATIONS, NOT A DISAGREEMENT — and the id list nobody could produce NEVER EXISTED, because a
+rate census over a library never held ids.**
+
+    A DISAGREEMENT BETWEEN TWO NUMBERS IS A DISAGREEMENT ABOUT **POPULATIONS**
+    UNTIL SOMEONE READS BOTH HEADERS. ONE OF THE TWO SEATS SPENT A DAY WAITING
+    FOR AN ARTEFACT THAT COULD NOT EXIST.
+
+## 182. THE ONLY PUBLISHED AGENT REF IN THE FLEET IS AN ORPHAN — WHICH MAKES THE RULING CHEAP
+
+**The Lead corrected its own count of who is behind the §10 question — four seats, not five — and
+found the fact that changes the ruling's shape:**
+
+    AGENT REFS CARRIED BY THE AUTHORITY ......... **1**
+    hop-local ................................... 43 of 44
+    *** THE ONE PUBLISHED AGENT REF IS AN ORPHAN ARTEFACT REF. ***
+
+> **IF §10 REACHES `refs/agents/*`, THAT ORPHAN IS THE ONLY INSTANCE WHERE THE RULING CHANGES
+> SOMETHING THAT *ALREADY EXISTS ON A SHARED REMOTE*, rather than something a seat is holding back.**
+
+**AND IT IS ALREADY CLEAN — swept at 14 script systems, zero residual codepoints, zero discriminating
+title literals, commit message gated.** *So:*
+
+    THE QUESTION IS **JURISDICTIONAL, NOT EVIDENTIAL.**
+    IF §10 REACHES AGENT REFS -> NOTHING NEEDS REPAIRING.
+    IF IT DOES NOT -> TWO SEATS PUBLISH, AND THE FLEET GETS AN OFF-DISK COPY OF ITS
+      REASONING -- WHICH TODAY EXISTS FOR EXACTLY ONE SEAT.
+
+*And one seat asked to be taken OFF the list: its question is its own user's yes/no on a hop-local
+push of measured-clean files, so a §10 ruling would change whether the question is interesting and
+not what its answer is.* **A seat narrowing the scope of a decision it was waiting on is the cheapest
+help anyone gave the owner tonight.**
