@@ -17,7 +17,12 @@ during it. Contract: `SPEC_ZONE_A.MD`.
 
 ## What is refused today, and why
 
-**These proportions are campaign 1's and have not been re-measured.** They are read
+> **ONE ROW IS NO LONGER CAMPAIGN 1's. `vmsam-forensic` RE-ESTABLISHED THE SPEED FAMILY ON
+> 2026-09-03 FROM THE PIPELINE'S OWN REFUSAL RECORDS — 303 files with a computable duration ratio,
+> PAL 6.3 % + NTSC 2.5 % = **8.9 %**, with campaign 1's classification columns DELIBERATELY NEVER
+> READ.** *The number moves DOWN, not away, and the table's warning is retired for that row alone.*
+
+**The remaining proportions are campaign 1's and have not been re-measured.** They are read
 from that campaign's documents, over a corpus of 315 files that has since grown —
 new errors keep arriving. Treat the table as the **shape** of the problem, never as
 a count: it says which failures exist and what they look like, not how many there
@@ -31,7 +36,7 @@ other document is a figure with no measurement behind it.
 | :--- | ---: | :--- |
 | different cuts | **57 %** | the offset is piecewise-constant — a staircase. Content one side has and the other does not |
 | trimmed edges | 18 % | the same, with a single step at one end |
-| speed mismatch | 11 % | PAL 25 fps against 23.976: the offset drifts linearly, ~1 s per half-hour. **The method is already ruled on** — `docs/AUDIO_SPEED_POLICY.MD` |
+| speed mismatch | **8.9 %** — *re-measured* | PAL 25 fps against 23.976: the offset drifts linearly, ~1 s per half-hour. **The method is already ruled on** — `docs/AUDIO_SPEED_POLICY.MD` |
 | weak correlation | 10 % | heavy re-encodes, differently mixed dubs, music-only stretches: no confident peak |
 | no shared language | 2 % | no audio language in common, or the tags lie |
 

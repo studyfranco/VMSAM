@@ -9091,3 +9091,63 @@ CAUSE IS IN THE *MASTER*, NOT THE CANDIDATE.** *Repairing them here would mean r
 correct a defect in the reference.* **A refusal with a stated, measured reason is not a gap in the
 repair — it is the repair declining work that is not its own**, and it is recorded in the module
 rather than in any report.
+
+## 149. THE SPEED FAMILY WAS HIDING INSIDE THE BUCKET THAT LOOKS LIKE AN INSTRUMENT LIMITATION
+
+**`vmsam-forensic`, on its own first pass, put the speed family at 2.5 % and classified NINETEEN of
+these files as *"weak correlation"*. `ci` refuted it on a duration ratio.**
+
+> **EVERY CORRELATION-BASED INSTRUMENT READS UNCORRECTED PAL AS "NO CONFIDENT PEAK", BECAUSE A SPEED
+> RELATION DESTROYS CORRELATION BY CONSTRUCTION.**
+
+    SO THE FAMILY WAS HIDING INSIDE THE ONE BUCKET THAT LOOKS LIKE
+    THE INSTRUMENT'S OWN LIMITATION RATHER THAN A PROPERTY OF THE FILES.
+    **"MY TOOL COULD NOT MEASURE IT" AND "THE FILES HAVE THE DEFECT MY TOOL
+    IS BLIND TO" ARE THE SAME OBSERVATION** -- §136 on a taxonomy.
+    WHEN A CLASSIFIER HAS A BUCKET NAMED FOR ITS OWN WEAKNESS, THAT BUCKET
+    IS WHERE THE FAMILY IT CANNOT SEE WILL BE FOUND. **OPEN IT FIRST.**
+
+### And the re-measurement retires a warning this document has carried since day one
+
+    error files in the population                315
+    with a COMPUTABLE duration ratio (m)         303
+    PAL 20 · NTSC 8  ->  SPEED = 28 = **8.9 %**   (campaign 1 said 11 %)
+    campaign 1's classification columns: DELIBERATELY NEVER READ.
+
+**THE NUMBER MOVES DOWN, NOT AWAY.** *`CAMPAIGN.MD`'s standing warning — that its table is a shape
+and never a count — is retired for that row and stands for the other four.*
+
+## 150. A FIXTURE CLASSIFIED BY THE BRANCH IT IS MEANT TO TEST CANNOT FALSIFY IT
+
+**`vmsam-forensic` handed `dev-3` nineteen real speed pairs, and named the property that makes the
+handover usable:**
+
+> **ITS CLASSIFIER NEVER READS THE LOCATOR'S BRANCH.** *`ffprobe` durations plus a logged collapsed
+> correlation — never `speed_relation_suspected` versus `scattered`.*
+
+    HAD IT CLASSIFIED BY THE BRANCH, THE FIXTURE COULD NOT HAVE DISAGREED WITH
+    THE CODE, AND THE RUN WOULD HAVE BEEN **VOID BEFORE IT STARTED**.
+    A PREREGISTERED FALSIFIER IS WORTH NOTHING IF THE MATERIAL WAS SELECTED
+    BY THE THING UNDER TEST. **SAY WHICH SIGNAL SELECTED YOUR FIXTURE, AND
+    PROVE IT IS NOT THE ONE YOU ARE ABOUT TO SCORE.**
+
+*That is the `flips`-versus-`monotone` trap avoided BY CONSTRUCTION rather than by care — §125's
+remedy reaching the fixtures.*
+
+### It also refused to bank its own positive control
+
+**The selector fires on a second family — 21 ids at the NTSC ratio — so the path runs.** *And the
+seat discounted it itself:* **"1.001 is 0.1 % from unity, so nearly any pair of near-equal durations
+matches. IT SHOWS EXECUTION, NOT DISCRIMINATION."**
+
+    THE DISCRIMINATING EVIDENCE IS THE PAL BAND, 4.3 % FROM UNITY, WHERE A MATCH
+    CANNOT HAPPEN BY ACCIDENT: agreeing ids at |dev| 0.00002-0.00081, selector-only
+    at 0.00074-0.00390, 8 of 10 above 0.0011.
+    **"A SEPARATION I FOUND, NOT A THRESHOLD I PICKED."**
+
+**A POSITIVE CONTROL THAT FIRES IS NOT AUTOMATICALLY A POSITIVE CONTROL THAT DISCRIMINATES** — §109
+demanded the sink be live; this adds that the control must also be able to FAIL on the negative case,
+or it proves only that the code ran.
+
+*And the seat handed over a genuine disagreement rather than resolving it in its favour: one id it
+labels PAL did not match the ratio, and it says so in the handover.*
