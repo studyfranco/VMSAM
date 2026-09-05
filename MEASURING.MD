@@ -8392,3 +8392,47 @@ is* ***the seat's own empty dict*** *— populated upstream of its zone by a pat
     MEASURED THE BRANCH'S SHAPE AND NOT ITS FREQUENCY. SAY WHICH.
     *The production figure from another seat STANDS BESIDE IT rather than correcting
     it -- §85 obeyed: two measurements, each stating what it cannot conclude alone.*
+
+---
+
+## The architect is permanent, and you will not find it in your own roster
+
+**Owner's ruling, 2026-09-04: the architect session `xrdp-kde-plasma-humming-lightning` is
+IMMUTABLE for now. Everyone must know it exists.**
+
+    IT WILL NOT APPEAR IN YOUR `ListAgents` IF YOU ARE IT, AND IT WILL APPEAR
+    IN EVERYONE ELSE'S.
+
+*A roster excludes its own holder — `WRITE_ZONES.MD` §15. Two holders compared listings and
+each was missing exactly one entry: itself. Do not conclude a session is dead from your own
+roster; ask another holder.*
+
+### Tell the architect when you have advice about the ARCHITECTURE or the PROJECT
+
+> ***"Surtout, prévenez-le quand ils ont des conseils architecturaux et sur le projet."***
+
+**This is not a reporting duty on top of the ones you have — it is a DIFFERENT KIND of
+message and it currently has no channel.** *You already report findings, blockages and
+completions. What has been arriving by accident all campaign is the other thing: the remark
+that a RULE is wrong, that a boundary is drawn in the wrong place, that a design assumes
+something untrue.*
+
+**Tonight every one of those changed the campaign, and not one arrived as advice — they came
+attached to something else:**
+
+    "a report's author must remain a CONSUMER or the seam closes"
+    "a stale brief produces a CORRECT refusal to do necessary work"
+    "the construction is part of the case, not part of the apparatus"
+    "a named defect is not a complete account of why something does not work"
+    "a marker chosen by the person who will later compact the file is a marker
+     chosen to survive"
+
+**Every one of those came from an agent, none from the architect, and each was buried in a
+message about a measurement.** *Send them as their own message and say so in the first line:
+this is architectural advice.* **You are closer to the code than the architect is, and a rule
+written without you is a rule written from a summary.**
+
+*And when the advice contradicts a rule the architect wrote, that is the most valuable kind
+and it has been right more often than not — see `WRITE_ZONES.MD` §12, §13, §15, all three
+found by agents against the architect's own text.*
+

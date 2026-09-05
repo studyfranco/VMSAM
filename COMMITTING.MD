@@ -348,3 +348,146 @@ So, concretely, before a commit:
 
 **None of this makes a commit slower to write. It makes it slower to declare finished**,
 and that is the intended effect.
+
+---
+
+# WHERE YOU WORK — FOUR TIERS, ONE PUBLISHED COMMIT
+
+*Moved from `AGENT.MD` 2026-09-05: it is promotion mechanics and this is the promotion document.*
+
+## 🏗️ Where you work — four tiers, one published commit
+
+You do not edit `master` directly. Each tier is a **git clone** of the one above it:
+
+| tier | what it is for | commits |
+| :--- | :--- | :--- |
+| `/tmp/…` | experiments — try things, break things | as many as you like |
+| `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
+| the **campaign branch** | what CI builds and the test instance runs | as many as you like — **a deploy requires a push** |
+| `master` | the published history | **one per feature**, by squash |
+
+**The campaign branch is a tier, not the record.** § Commits binds the last hop
+only: testing costs a push, and a rule that made you hesitate to test would be
+worse than a noisy branch. Commit there as freely as the work needs.
+
+**Clones, never copies.** A promotion by `cp` overwrites without warning, and the
+owner commits while you work — measured on this repository:
+a copy silently erased an owner change to the same file, while the same promotion
+through git stopped on the conflict and preserved it.
+
+```sh
+# promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
+git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
+
+# promote VMSAM_WIP -> campaign branch : ONE commit per promotion
+git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit && git push
+
+# campaign branch -> master : one commit, whatever the history behind it
+git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
+```
+
+`--squash` is what makes § Commits structural instead of a rule to remember: the
+command cannot produce two commits.
+
+**But it only fixes the mechanism, not the cadence.** Campaign 2 promoted three times
+in twenty-six minutes, each promotion correctly one commit — and two of the three
+were halves of a single increment: the locator fixed, then sixteen minutes later the
+locator wired to its consumer. The letter held and the intent did not; the
+granularity had simply moved from commits to promotions.
+
+**Promote when the branch needs to carry it** — when it must be tested in the
+container, or when another agent needs it to proceed. Not per fix, and never on a
+rhythm. If your next promotion continues the last one, it was one promotion.
+
+**It is used at two hops, and the second one is why.** Campaign 2's first day put 79
+commits on the branch, 73 of them documentation alone — and an audit found that
+**nobody had broken a rule**. Commits are free in the tiers above, correctly; the
+promotion preserved history, also correctly; and the two compose into a branch where
+six real pieces of work sit among seventy-three entries about thinking. Two correct
+rules composing badly is not fixed by asking anyone to try harder. Squashing at the
+promotion fixes it structurally: **one commit per promotion**, and you promote when
+you have something worth testing, so the branch reads as a list of increments. The
+granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
+
+**Pull down often, push up rarely.** Sync the tier above *into* the one below
+before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
+is cheap to resolve daily and expensive to resolve once.
+
+**Run `WRITE_ZONES.MD` §5 in `VMSAM_WIP`, not at the promotion.** The checks take a
+second. Discovering at the last hop that half your work sits outside a tagged zone
+is how a campaign ends up negotiating its own rules.
+
+Never write a tier's filesystem path in a tracked file — Privacy, below.
+
+
+---
+
+# WHAT COUNTS AS DONE — AND THE TWO ROLES THAT DECIDE IT
+
+## ✅ What counts as done — and the two roles that decide it
+
+**A modification is not valid until the test container, on the latest image, has PRODUCED A
+FILE — and that file has been COMPARED AND VALIDATED.** The owner's standard, stated because
+five agents had each filled the blank differently and none of the fillings was this.
+
+    PRODUCED    an artefact exists on disk, from the container, on the current image
+    CHECKED     named automated properties verified -- NAME THE PROPERTY, never "passed"
+    VALIDATED   a person or the validator compared it and accepted it -- AND WHO
+
+**Only the third is done.** Ten commits were promoted in one morning through compile,
+unbound-name checks, zone checks, blob and tree verification — **and column one was empty for
+all ten.** A compile is not a run. A guard suite is not production. **And a lab measurement that
+explains why a file fails is not evidence that anything was fixed.**
+
+> **THE LAST CHECK ANYONE RUNS BECOMES THE DEFINITION OF DONE UNLESS A DEFINITION IS WRITTEN
+> ABOVE IT.**
+
+That is why this section exists. Nobody wrote one, so the last thing that said yes became it —
+and **each time that gate got stricter it made the wrong definition more convincing**, because a
+stricter check that still cannot see a file reads as more evidence rather than the same kind.
+
+**Two agents filled the blank in public and the pair is the point:** *my instrument's preference
+was for the outcome that makes the instrument look right — refuse what I cannot verify*, and
+*mine was it compiles and the blobs match.* **Neither chose dishonestly. Both answered the
+question their tools could answer.**
+
+### Why is not whether
+
+**A diagnostic reported as a diagnostic is not waste — it is the route by which a refused file
+becomes a produced one.** Mapping a refusal into six segments whose arithmetic closes to 0.097 s
+is what will let a file come out of that release. **The defect was never the diagnostic; it was
+the diagnostic reported as a completion.**
+
+### The two support roles
+
+    ci        GATES THE ENTRANCE to the most constraining test, the end-to-end one.
+              AND DETECTS WHETHER A DEV AGENT HAS DODGED THE FINAL VALIDATION.
+    forensic  VALIDATES THE REPAIR. "The end-to-end test produced this; what I expected
+              is this." VALIDATES OR REFUTES -- AND EXPLAINS WHY IN BOTH CASES.
+
+**The one who lets a file in must not be the one who declares it good.** ci sees what went in
+and under which image; forensic sees what came out against what was expected. **Neither can
+produce the other's answer from its own inputs** — the independence test, applied to roles.
+
+**And an anti-dodge report goes to the owner, not upward through the thing it checks.** That
+holds for the lead's promotions and for the architect's documents alike: *a check that only
+reports upward through the thing it is checking is not a check.* A role that depends on an agent
+choosing to audit itself is the control-that-cannot-fail wearing a virtue.
+
+### The boundary the validator drew, and it is binding
+
+**A derived expectation — from the master, the plan, and what the log says was done — validates
+INTERNAL CONSISTENCY: the artefact matches what the pipeline claims it did. IT CANNOT CATCH A
+DEFECT THE PIPELINE WAS NOT MODELLING.** The truncation the owner found by watching was exactly
+that. **The owner's validation and the validator's are different instruments and the assignable
+one is weaker.** Every artefact that passes is consistent with its own claims — nothing more,
+and that is still the difference between an unexamined file and a checked one.
+
+### And the fleet's job is not to replace the person who validates
+
+**It is to make the files cheap to check.** A produced file alone costs an episode of someone's
+attention; a produced file with a report saying what was cut, what was added, at which timings,
+from which language, and what remained, costs a minute of reading and points at the seconds
+worth watching. **That is why the plan report in `SPEC_ZONE_A` §4g is a validation instrument
+and not documentation.**
+
