@@ -857,12 +857,25 @@ output, no perimeter, and invisible to the fleet's own liveness check.**
 
 ## THE REDRAW — THREE CODE BOUNDARIES, NOT FOUR ROLES
 
-    LOCATOR      change_point_locator.py                         -> dev-1, unchanged
-    REPAIR       merge_video_repair · _chimeric · _resample       -> ONE OWNER
-    EMISSION     merge_plan_report · gestionar_show/fusion        -> ONE OWNER
+    LOCATOR      change_point_locator.py                         -> dev-1
+    REPAIR       merge_video_repair · _chimeric · _resample       -> dev-2
+    EMISSION     merge_plan_report · gestionar_show/fusion        -> dev-4
+    FIXTURES     no src/ at all -- BUILDS THE MATERIAL OTHERS NEED -> dev-3
 
-**`dev-2` AND `dev-3` STOP SHARING. One takes REPAIR whole; the other moves to EMISSION or is
-released.** *A boundary owned by two agents is not a boundary.*
+> **NAMED, 2026-09-05, BY THE ARCHITECT UNDER THE OWNER'S GRANT. THIS TABLE PREVIOUSLY SAID
+> "ONE OWNER" TWICE AND NAMED NOBODY, AND THAT IS WHY SEATS DID NOT KNOW WHERE TO GO.**
+
+    A BOUNDARY OWNED BY "ONE OWNER" IS OWNED BY NOBODY.
+    AN ARCHITECTURE DOCUMENT THAT DESCRIBES A SHAPE WITHOUT NAMING THE SEATS
+    IS A DESCRIPTION, NOT A DISPATCH -- AND A SEAT READING IT CORRECTLY
+    CONCLUDES THAT SOMEONE ELSE HAS PROBABLY TAKEN THE WORK, AND STOPS.
+    **THE COST OF THAT OMISSION WAS PAID IN IDLE SEATS, NOT IN ARGUMENTS.**
+
+**`dev-3` TAKES FIXTURES AND IT IS A PROMOTION, NOT A RELEASE.** *It holds the corpus, it produced
+the 16-pair census that §84's third clause rests on, and it answered the monotone question from
+captured verdicts with a control — while every code owner is currently blocked or slowed by MATERIAL
+THAT DOES NOT EXIST YET.* **The seat that can build an arm is worth more than a fourth seat editing
+`src/`, and `m = 0` is the campaign's most common result: FIXTURES IS THE ROLE THAT KILLS IT.**
 
 **`dev-4` TAKES EMISSION AND ONLY EMISSION** — it has produced most of that path's work already
 and at a rate nobody predicted. **Its five-module spread ends today.**
