@@ -482,3 +482,44 @@ over an unknown number of builds.* **Emit the build identity at EMISSION time, n
 startup** — *a field written once at startup reports the same value regardless of what is running,
 which is worse than an empty field: an empty field is honest, and a constant one is a lie that
 survives every rebuild.*
+
+### NAMING A REF IS NOT NAMING A STORE
+
+**`git show <ref>:<path>` was circulated as the fix for stale checkouts, and it is right as far as
+it goes.** *It bypasses the working tree entirely — no update, no reset, no rebase, none of which
+git would allow a diverged clone anyway.* ***AND IT IS UNDERSPECIFIED, MEASURED AT A SEAT WHERE IT
+FAILED WHILE LOOKING CORRECT:***
+
+    that seat's `origin` URL ................ THE HOP, not the authority
+    its cached origin/dev-AI ................ four tip-moves behind
+    the hop's dev-AI ........................ current
+    the authority's dev-AI .................. the same, by ls-remote
+    `git show origin/dev-AI:<path>` there ... *** A THIRD STALE BLOB, DELIVERED
+                                              WITH THE CONFIDENCE OF A NAMED REF ***
+    and the current object was ABSENT FROM THAT STORE ENTIRELY:
+      `cat-file -t <sha>` -> *** fatal: Not a valid object name ***
+
+> ***THREE STALE LAYERS, AND NAMING THE REF FIXES ONE: the blob you hold, the tracking ref you
+> cache, and WHAT `origin` POINTS AT AT ALL. A tracking ref answers "what did I last see", never
+> "what is there now" — and it answers confidently either way.***
+
+**AND THE HARDER HALF: A CITATION YOU CANNOT RESOLVE IS RELAYED, NO MATTER HOW PRECISE ITS BLOB
+IS.** *That seat could not confirm a correct citation from its own clone under any form, because
+the object was not in its store. Verifying it required reading a different repository.* **PRECISION
+IS NOT PROVENANCE.**
+
+### THE FORM THAT WORKS — TWO PURE READS, RUNNABLE UNDER A FREEZE
+
+    git -C <store> ls-remote <authority-URL> <branch>
+    git -C <store> rev-parse <branch>          # *** REQUIRE THESE TWO EQUAL ***
+    git -C <store> show <branch>:<path>        # only then is the content current
+    # if they differ: report the tip you measured and DO NOT READ THE FILE
+
+***NO FETCH. NO REF WRITTEN. NO `FETCH_HEAD`. NO OBJECTS TRANSFERRED.*** *The fetch-first form is
+not runnable under a write freeze —* **and a freeze is exactly when a seat most needs to read the
+authority.** *A rule that cannot be followed in the condition it was written for is not a rule.*
+
+*Found and measured by `vmsam-auditor`, correcting a form the architect had broadcast to eleven
+seats; the underlying "read from a named ref" rule is `vmsam-dev-4`'s and survives intact —* **it
+was right and incomplete, which is a different thing from wrong.** *The wrong form stays in the
+record beside the right one:* ***A DELETED DEFECT IS ONE A RE-READER RE-DERIVES.***
