@@ -5,6 +5,101 @@ work and every line in it is paid for in every seat, on every restart.** *This i
 consult it when you need it, not before every action.* **`AGENT.MD` keeps the rules; this keeps the
 subject matter.**
 
+# THE CONTROL FLOW — READ THIS BEFORE YOU TOUCH THE ENGINE
+
+> **WHY THIS EXISTS: `vmsam-dev-1` MEASURED that the locator NOWHERE STATES why it exists — zero hits
+> for "constant delay", "single delay", "re-encode", "subtitle", against a control at 39 that fires.
+> THE RELATIONSHIP BELOW LIVES ACROSS TWO OWNERS' FILES AND IS IN NEITHER DOCSTRING.** *A successor
+> reading either module alone learns the wrong thing and acts on it.*
+
+## 1. THERE IS **ONE CYCLE**, AND THE REPAIR IS A DETOUR INSIDE IT
+
+**Most files correlate on a SINGLE CONSTANT DELAY, applied as a container offset — no re-encode,
+bitmap subtitles preserved. THE REPAIR EXISTS ONLY FOR FILES WHERE NO SINGLE DELAY HOLDS.**
+
+    merge_videos :2141  ->  sync_merge_video :2050
+                                    |
+                                    v
+    +--- get_delay_and_best_video :873 -------------------------------+
+    |     THE STAGE WHERE COMPATIBILITY IS DECIDED                    |
+    |                                                                 |
+    |     compare_video -> correlation                                |
+    |          |                          |                           |
+    |          | ONE DELAY HOLDS          | NONE HOLDS                |
+    |          |                          v                           |
+    |          |            remove_not_compatible_video :798          |
+    +----------|--------------------------|---------------------------+
+               |                          |  *** LEAVES THE CYCLE ***
+               |                          v
+               |            repair_not_compatible_videos :1980
+               |                          |
+               |            locator -> PLAN   |   None -> record()
+               |                          |
+               |            RESAMPLE **THEN** CUT  ->  track rebuilt
+               |                          |
+               |<-------------------------+  *** RE-ENTERS AT THE SAME POINT ***
+               |                             hung on the master:
+               |                             best_video.sameAudioMD5UseForCalculation
+               v
+    ############ FROM HERE, NO DIFFERENCE AT ALL ############
+               |
+        generate_launch_merge_command :1815
+               |
+        find_differences_and_keep_best_audio :1935
+               |
+        the produced file
+
+> **A REPAIRED FILE GOES BACK THROUGH THE SAME CYCLE AS A NORMAL ONE.** *It is not a parallel lane
+> that rejoins later — it leaves at the refusal, inside `get_delay_and_best_video`, and re-enters at
+> the point it left.* **DOWNSTREAM — track choice, subtitles, the merge command — NOTHING
+> DISTINGUISHES THE TWO.**
+
+**AND THAT IS WHY `len(dict_file_path_obj) < 2` USED TO RAISE ON THE VERY PATH THE REPAIR EXISTS
+FOR:** *the check counted the files REMAINING without seeing that one had just come back in.*
+**Campaign 1's defect exactly — code written, reviewed, tested green, that nothing ever reaches.**
+
+## 2. THE CUT PLAN, AND THE ORDER THAT MATTERS
+
+    STEP 1 -- WHAT THE MEASUREMENT RETURNS: one segment
+      master_start_ms       where, on the MASTER timeline
+      master_end_ms         until where
+      candidate_offset_ms   by how much to shift the candidate
+
+    STEP 2 -- WHAT GETS GLUED: one piece      normalize_segments, chimeric.py:267
+      source = "candidate" | "master" | "silence"
+      GAPS IN THE PLAN BECOME **MASTER** PIECES, never emptiness.
+      IT REFUSES RATHER THAN CLAMPS -- and not by discipline:
+        7 raise sites · 1 return · **ZERO min()/max() calls**
+        A CLAMP WOULD NEED ONE. THERE IS NO CLAMPING MACHINERY AT ALL.
+      Clamping would produce a file "plausible et silencieusement" wrong.
+
+    STEP 3 -- THE FILTER CHAIN: **THE SLOPE FIRST, THE STAIRCASE ON TOP**
+
+      [0:candidate] --speed_chain--> [spd] --asplit--> pieces --concat--> rebuilt
+                     ^^^^^^^^^^^^^^                    ^^^^^^
+                     THE SLOPE IS UNDERNEATH           THE STAIRCASE IS ON TOP
+
+      *** THE RESAMPLE IS APPLIED **BEFORE** THE CUTTING. THEY ARE NOT TWO ROUTES. ***
+      The candidate's `start_time` is MULTIPLIED BY THE RATIO first, and the slice
+      times are read on the **ALREADY-RESAMPLED** candidate.
+      `SPEC_ZONE_A.MD` §4 says `chimeric+resampled` IN THAT ORDER for this reason.
+
+    STEP 4 -- THE END: THE REPAIRED OBJECT REJOINS THE MERGE
+      hung on `best_video.sameAudioMD5UseForCalculation`
+      consumed by `generate_launch_merge_command` WITHOUT the delay machinery
+      -- because it no longer needs one. IT IS A FILE LIKE THE OTHERS AGAIN.
+
+## 3. THE TWO SENTENCES A SUCCESSOR MUST NOT CONFUSE
+
+    "THIS FILE CANNOT BE HELPED"            -> a dead end
+    "THIS FILE GOES BACK TO THE CHEAP PATH" -> a ROUTING DECISION
+
+**A plan that is a CONSTANT OFFSET WITH NO GAP is refused by the repair — and that refusal is the
+SECOND sentence, not the first.** *Rebuilding would cost an encode per track and destroy the bitmap
+subtitles a container offset keeps.* **THE REPAIR HANDS THE FILE BACK. It does not give up on it.**
+
+---
+
 ## 🔄 Synchronization pipeline
 
 ```
