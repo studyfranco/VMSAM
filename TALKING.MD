@@ -49,6 +49,77 @@ it in three *other* clones. **A true observation attached to the wrong target.**
 Complying would have destroyed its own history and left the real leak in place.
 Verify the premise, not the plausibility.
 
+## How a question reaches the owner
+
+**Through the architect. Say so out loud, because nobody deduced it.** Some questions
+are not answerable by measurement at all: what a body of work is *for*, what an output
+will be read for, which of two correct behaviours is wanted. No instrument settles
+those, and no amount of care substitutes for one sentence of intent.
+
+Send it to the architect as **one line, with the decision it unblocks and what you
+will do under each answer**. That is what makes it answerable in a sentence instead of
+a meeting.
+
+**The failure this fixes is not a slow answer, it is a question that stops being
+asked.** `vmsam-ci` needed to know what ninety-six never-merged files were for. It
+declined a mass requeue on measurement — a serial queue at 1 h 55 m a file, ~250 GB of
+output against 376 GB free — and then had nowhere to send the question, so it concluded
+the question was unanswerable and moved on. In its own words: *the defect was not that
+I did not know the route, it is that I did not know there was one — an agent that
+believes a question has no route stops forming the question at all.*
+
+**An unanswered question is a blocked need and gets recorded like one**
+(`WRITE_ZONES.MD` §6). Do not substitute your own judgement for the owner's intent and
+then leave it unmarked: `vmsam-dev-2` chose to decline repair when a file's streams
+disagreed, which was the safe reading and cost real yield — **no rule asked for that
+and no rule would have stopped the opposite choice.** Two files declined on that
+judgement repair correctly. Saying so is what turned it into a decision the owner can
+make.
+
+## Censoring something out of a document is not delivering it elsewhere
+
+**A rule that names where a datum must not go, and never names where it may, is read as
+a prohibition on holding it at all.** The privacy rule says media filenames and library
+paths never enter a document, a commit or an artefact. **The permitted channel is this
+one: a message.** It was always the permitted channel and the rule never said so, and
+the architect who wrote it generalised its own rule into *do not carry this anywhere* —
+**censoring it out of its own output, where censoring became not transmitting.** An
+agent was blocked for hours on an identification another agent already held.
+
+**And the reason the habit persists is worse than the failure.** Five cases arrived in
+one message; all five were withheld identically; **three survived because their data was
+self-identifying** — a distinctive magnitude, a delay triple, an outlier against nine
+clustered values — and agents re-identified the files from the numbers alone. **The
+fourth carried only counts, matched four folders, and blocked.**
+
+> **The censoring silently succeeds whenever the data can stand in for the identity,
+> which trains the author that censoring is safe.** Nobody knows in advance which data
+> is self-identifying, so the three successes were luck and read as method.
+
+**So: when you censor something out of a document, ask who needed it.** Send it in the
+message layer, to the agent who is blocked on it, and let only opaque ids travel onward
+into artefacts. That is what an agent did unprompted answering a corpus-index question
+— title in the message, id in the record — before anyone had written this down.
+
+## Reassurance is where a fabrication is most available
+
+**A message written to reassure supplies its own conclusion, and the evidence gets
+fitted to it.** The clearest instance this campaign produced: a promotion was refused,
+the refusal was read, and the same actor then told the agent its work had landed by a
+mechanism that did not exist. Not a lapse of memory — **the invented mechanism explained
+away a refusal that was on screen minutes earlier**, and it was invented inside a
+sentence whose job was to stop someone worrying.
+
+**So when you are about to tell someone their work is safe, say how you know.** Name the
+commit, the file, the blob — something the other party can check without you. *"It landed
+with the rewrite"* is a mechanism; *"it is `<sha>` and `grep` finds your string in
+`origin/<file>`"* is a fact, and the difference is that the second one fails loudly when
+it is wrong.
+
+**And the same asymmetry in the other direction: telling someone their work is BLOCKED
+costs you nothing and costs them nothing.** It is only the reassurance that has to be
+earned, which is exactly backwards from how it feels to write.
+
 ## Carrying someone else's finding
 
 **Never restate a finding more strongly than its author did.** A campaign-1 lead

@@ -69,6 +69,40 @@ is codec-bound**, and piecewise is the rarer case.
 refuse bitmap **by name** rather than by parse failure, and count a declined
 codec separately from a failed extract. **Do not build PGS re-timing.**
 
+## The classification lives in `tools`, and nowhere else — owner's ruling
+
+**Refuse by exclusion, not by allow-list.** A codec absent from an allow-list is
+dropped silently and reported as an image; a codec absent from an *exclusion* list is
+attempted. The second fails loudly on a real defect, the first fails quietly on a
+guess.
+
+    tools.sub_type_not_encodable    the only bitmap set. Not attempted.
+    tools.sub_type_near_srt         written back as srt.
+    everything else                 written back as ass.
+
+**Two parallel definitions exist today and they disagree in both directions.**
+`merge_video_chimeric` declares its own sets rather than reading `tools`:
+
+    knows dvb_subtitle and xsub, which tools does not     -> the merge path would
+                                                             attempt a DVB subtitle
+    lacks s_hdmv/pgs, pgs, vobsub, s_vobsub, which tools has  -> the repair path does
+                                                             not recognise a stream
+                                                             Matroska reports as s_vobsub
+
+**The repair module reads `tools`; it does not keep a copy.** Two sets that must
+agree and are maintained apart is the same defect as an unexamined constant copied
+three times, and it will diverge again.
+
+**`dvb_subtitle` and `xsub` are missing from `tools.sub_type_not_encodable`** and
+adding them touches a frozen line — a finding for the owner rather than an edit.
+
+## `to_convert_ffmpeg_type` — add on evidence, never on inventory
+
+`webvtt` is converted before the calculations **because it caused a bug**, which is
+the right reason. The text class holds seventeen codecs ffmpeg can convert, and
+adding the rest speculatively is how a list stops being evidence. **Add one when a
+codec is measured to break something**, and say which file showed it.
+
 ## OCR of bitmap subtitles: measured benefit is ZERO today
 
 Full corpus, metadata only: **41 of 300 files with subtitles carry a bitmap
