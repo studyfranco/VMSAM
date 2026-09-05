@@ -290,8 +290,36 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     except Exception as error:
         if tools.dev:
             tools.logs.append(f"repair: no change_point_locator module: {error}\n")
-        return None
-    return change_point_locator.locate_change_points(best_video, candidate_obj, language)
+        # THE MODULE IS NOT DEPLOYED. This is MY OWN process state and I am
+        # entitled to state it: no measurement was attempted, because there was
+        # nothing to attempt it with. Distinct from "the locator ran and refused".
+        # LE JETON EST STABLE; la classe d'exception va dans la PROSE. dev-4
+        # classe sur le jeton, donc un jeton qui varie n'est pas un jeton.
+        return None, "locator_module_absent"
+    plan = change_point_locator.locate_change_points(best_video, candidate_obj,
+                                                     language)
+    if plan != None:
+        return plan, None
+    # THE LOCATOR RAN AND RETURNED None, AND SAID NOTHING ABOUT WHY.
+    #
+    # I MAY NOT NAME THE CAUSE. The producer half that would emit one is
+    # dev-1's and is unlanded, held by ITS user -- so any cause I wrote here
+    # would be INVENTED, NOT READ, which is the acceptance test's own R2 and
+    # the defect the whole campaign is convened against.
+    #
+    # `cause_unavailable` IS A TRUE STATEMENT AND THE OLD STRING WAS NOT.
+    # "no measurement available" claims a property of the WORLD -- that no
+    # measurement exists. For the fidelity-floor path that is FALSE: the probes
+    # RAN, they SUCCEEDED, and they returned a CONCLUSIVE NEGATIVE. A
+    # conclusive negative filed as an absence of evidence is exactly the
+    # substitution change_point_locator warns about in its own words:
+    # "None means I could not measure -- never the files are compatible."
+    #
+    # What I can honestly say is a property of THIS CONSUMER: the producer told
+    # me nothing. WHEN THE PRODUCER HALF LANDS, READ ITS CAUSE HERE AND PASS IT
+    # THROUGH UNCHANGED -- one site, this one. Do not translate it, do not
+    # normalise it, and do not add a cause of your own beside it.
+    return None, "cause_unavailable"
 
 
 def drop_unverified_segments(segments):
@@ -808,113 +836,111 @@ def check_ratio_labelled(plan):
 
 
 def _margin_fields(plan):
-    """`speed_margin=` quand elle existe, la RAISON quand elle n'existe pas.
+    """`speed_margin=` when it exists, the REASON when it does not.
 
-    Quatre champs, chacun avec son propre emetteur, parce qu'ils repondent a
-    quatre questions et qu'un seul emetteur conditionnel les fait disparaitre
-    ensemble:
+    Four fields, each with its own emitter, because they answer four questions
+    and a single conditional emitter makes them disappear together:
 
-        speed_margin                 la marge de platitude, en ms
-        speed_margin_absent_reason   pourquoi elle n'existe pas
-        fidelity_margin              une autre quantite, sans unite
-        decided_by                   quel critere a tranche
+        speed_margin                 the plateau margin, in ms
+        speed_margin_absent_reason   why it does not exist
+        fidelity_margin              another quantity, unitless
+        decided_by                   which criterion decided
 
-    `NON EMISE` chez le consommateur ne doit se declencher que quand la marge est
-    absente ET qu'aucune raison ne l'accompagne -- c'est-a-dire quand le
-    producteur n'a rien dit. Aujourd'hui il se declenchait sur le cas INVERSE.
+    `NOT EMITTED` at the consumer must fire only when the margin is absent AND
+    no reason accompanies it -- that is, when the producer said nothing. Until
+    today it fired on the INVERSE case.
     """
     if not plan:
         return ""
-    # TROIS ETATS, TROIS JETONS. Il y en avait DEUX, et le troisieme n'emettait
-    # RIEN -- donc une ligne sans `speed_margin` ne distinguait pas "le plan ne
-    # le portait pas" de "cette ligne precede le champ".
+    # THREE STATES, THREE TOKENS. There were TWO, and the third emitted NOTHING
+    # -- so a line without `speed_margin` did not distinguish "the plan did not
+    # carry it" from "this line predates the field".
     #
-    # J'AI D'ABORD REFUSE DE L'AJOUTER, en disant que `repair: build` date la
-    # ligne sans marqueur par champ. `vmsam-dev-4` l'a MESURE et l'argument
-    # tombe:
+    # I FIRST REFUSED TO ADD IT, arguing that `repair: build` dates the line
+    # without a per-field marker. `vmsam-dev-4` MEASURED it and the argument
+    # falls:
     #
-    #     journaux de travail                 28
-    #     portant une ligne `repair: build`   12
-    #     NE LA PORTANT PAS                   16   <- les ANCIENS
+    #     job logs                          28
+    #     carrying a `repair: build` line   12
+    #     NOT CARRYING ONE                  16   <- the OLD ones
     #
-    # LE MARQUEUR MANQUE PRECISEMENT AUX ARTEFACTS DONT L'AGE EST LA QUESTION.
-    # Une ligne de provenance qui POSTDATE les artefacts qu'elle daterait ne peut
-    # pas les dater -- elle est elle-meme un champ arrive a un moment donne.
+    # THE MARKER IS MISSING PRECISELY ON THE ARTEFACTS WHOSE AGE IS THE
+    # QUESTION. A provenance line that POSTDATES the artefacts it would date
+    # cannot date them -- it is itself a field that arrived at some moment.
     #
-    # ET LA OU ELLE EST PRESENTE, ELLE N'ORDONNE PAS: deux condensats de contenu,
-    # pas d'horodatage, pas de sequence. Un lecteur voit que deux artefacts
-    # viennent de builds differents et rien ne dit lequel est le premier.
-    # dev-4: UN CONDENSAT N'EST PAS UNE DATE -- phrase qu'il avait ecrite
-    # ailleurs dans son module et que ma proposition lui a fait retrouver.
+    # AND WHERE IT IS PRESENT, IT DOES NOT ORDER: two content digests, no
+    # timestamp, no sequence. A reader sees that two artefacts come from
+    # different builds and nothing says which is first.
+    # dev-4: A DIGEST IS NOT A DATE -- a sentence it had written elsewhere in
+    # its own module and that my proposal made it rediscover.
     #
-    # Sans espace dans le jeton, comme `language_route` et le marqueur DEFAULTED.
+    # No space inside the token, like `language_route` and the DEFAULTED marker.
     #
-    # AUCUN PRODUCTEUR N'ECRIT CES QUATRE CLES. VERIFIE, 2026-09-05.
+    # NO PRODUCER WRITES THESE FOUR KEYS. VERIFIED, 2026-09-05.
     #
     #     grep -c "speed_margin\|fidelity_margin\|decided_by" \
     #          src/change_point_locator.py
-    #       mon arbre            0
-    #       l'autorite 24bf25f   0     (= l'arbre de dev-1, 25 cles)
-    #     temoin sur le chercheur -- `quantum_ms`, un nom PRESENT: 11 et 12.
-    #     LE GREP TIRE, donc le zero est une mesure et non un chercheur muet.
+    #       my tree             0
+    #       the authority 24bf25f  0   (= dev-1's tree, 25 keys)
+    #     control on the finder -- `quantum_ms`, a name that IS present: 11 and 12.
+    #     THE GREP FIRES, so the zero is a measurement and not a mute finder.
     #
-    # Le seul producteur qui alimente cet emetteur est
-    # `change_point_locator.locate_change_points` (voir 1893 puis 294), et son
-    # dictionnaire ne porte aucune des quatre. `merge_plan_report` (dev-4) les
-    # TRANSMET, ce module les LIT, aucun module ne les ORIGINE.
+    # The only producer feeding this emitter is
+    # `change_point_locator.locate_change_points` (see 1893 then 294), and its
+    # dictionary carries none of the four. `merge_plan_report` (dev-4) FORWARDS
+    # them, this module READS them, no module ORIGINATES them.
     #
-    # J'AI D'ABORD ECRIT L'ABSENCE SOUS FORME D'ENUMERATION -- "21 cles a la
-    # ligne 1209" -- et c'etait DEJA FAUX chez dev-1 et a l'autorite, que
-    # j'avais pourtant recuperee une demi-heure plus tot. UNE ABSENCE PROUVEE
-    # PAR UN GREP NE DEPEND PAS DE LA REVISION QU'ON TIENT; UNE ABSENCE
-    # PROUVEE PAR UNE ENUMERATION EN DEPEND. Forme portable, celle-ci.
+    # I FIRST WROTE THE ABSENCE AS AN ENUMERATION -- "21 keys at line 1209" --
+    # and it was ALREADY FALSE in dev-1's tree and at the authority, which I had
+    # fetched half an hour earlier. AN ABSENCE PROVED BY A GREP DOES NOT DEPEND
+    # ON WHICH REVISION YOU HOLD; AN ABSENCE PROVED BY AN ENUMERATION DOES.
+    # This is the portable form.
     #
-    # DONC CE QUE CES TROIS JETONS DISENT AUJOURD'HUI:
-    #   `absent(not_in_plan)` est VRAI a chaque emission et ne peut pas varier.
-    #   Il ne dit PAS "ce plan n'avait pas de marge" -- il dit "quatre cles ont
-    #   ete concues, consommees, et jamais originees". dev-4 avait classe le
-    #   defaut CONTRE UN PRODUCTEUR QUI N'EXISTE PAS (une couture nommee, un
-    #   mecanisme decrit) et l'a corrige en NO WRITER EXISTS.
+    # SO WHAT THESE THREE TOKENS SAY TODAY:
+    #   `absent(not_in_plan)` is TRUE at every emission and cannot vary.
+    #   It does NOT say "this plan had no margin" -- it says "four keys were
+    #   designed, consumed, and never originated". dev-4 had filed the defect
+    #   AGAINST A PRODUCER THAT DOES NOT EXIST (a named seam, a described
+    #   mechanism) and corrected it to NO WRITER EXISTS.
     #
-    # NE PAS SUPPRIMER CES TROIS CHAMPS TANT QUE (a) EST OUVERTE -- ET LES
-    # SUPPRIMER OU LES REMPLIR DES QU'ELLE EST TRANCHEE. Arbitrage du Lead,
-    # 2026-09-05, AMENDE LE MEME JOUR APRES OBJECTION DE dev-4.
+    # DO NOT REMOVE THESE THREE FIELDS WHILE (a) IS OPEN -- AND REMOVE THEM OR
+    # FILL THEM AS SOON AS IT IS DECIDED. Lead's ruling, 2026-09-05, AMENDED THE
+    # SAME DAY AFTER dev-4's OBJECTION.
     #
-    # L'arbitrage initial disait KEEP sans fin, et dev-4 a objecte: UN CHAMP
-    # MAINTENU EN VIE POUR QU'UNE LIGNE EN AVAL RESTE STABLE EST UNE CONSTANTE
-    # QUI NE PEUT PAS VARIER, ET UNE VALEUR QUI NE PEUT PAS VARIER N'EST PAS UNE
-    # PREUVE -- la regle meme que toute l'equipe applique aux denominateurs des
-    # autres. Un KEEP permanent aurait institutionnalise le defaut catalogue
-    # toute la nuit. Objection retenue.
+    # The initial ruling said KEEP with no end, and dev-4 objected: A FIELD KEPT
+    # ALIVE SO THAT A DOWNSTREAM ROW STAYS STABLE IS A CONSTANT THAT CANNOT
+    # VARY, AND A VALUE THAT CANNOT VARY IS NOT EVIDENCE -- the very rule the
+    # whole team applies to other people's denominators. A permanent KEEP would
+    # have institutionalised the defect catalogued all night. Objection upheld.
     #
-    # CE QUI SURVIT DE L'ARBITRAGE, ET QUI PORTE SUR LE *QUAND* ET NON SUR LE
-    # *TOUJOURS*: apres une coupe, le fait ne vit plus que dans le registre de
-    # dev-4 et dans ce commentaire -- CHEZ LES OBSERVATEURS, PAS DANS
-    # L'ENREGISTREMENT PRODUIT. Un artefact voyage; un registre et un
-    # commentaire, non. Un lecteur a six mois qui ne tient qu'un journal ne
-    # verrait rien, et le silence est ce que personne n'enquete.
+    # WHAT SURVIVES OF THE RULING, AND IT BEARS ON THE *WHEN* AND NOT ON THE
+    # *ALWAYS*: after a cut, the fact lives only in dev-4's register and in this
+    # comment -- IN THE OBSERVERS, NOT IN THE PRODUCED RECORD. An artefact
+    # travels; a register and a comment do not. A reader six months from now
+    # holding only a log would see nothing, and silence is what nobody
+    # investigates.
     #
-    # DONC CE JETON N'EST PAS UN ENREGISTREMENT PERMANENT: C'EST LE MARQUEUR
-    # D'UNE DECISION OUVERTE, et il a une FIN OBSERVABLE.
+    # SO THIS TOKEN IS NOT A PERMANENT RECORD: IT IS THE MARKER OF AN OPEN
+    # DECISION, and it has an OBSERVABLE END.
     #
-    #   (a) ouverte              on garde -- l'artefact porte la preuve
-    #                            qu'elle est ouverte
-    #   (a) dit ORIGINER         les champs SE REMPLISSENT. Rien a couper.
-    #   (a) dit ABANDONNER       les champs SORTENT, dans l'ordre fixe par
-    #                            dev-4: son registre change D'ABORD, mes octets
-    #                            ENSUITE, pour qu'aucun artefact ne rende un
-    #                            etat que son lecteur ne sait pas expliquer.
+    #   (a) open                 keep -- the artefact carries the evidence that
+    #                            it is open
+    #   (a) says ORIGINATE       the fields FILL. Nothing to cut.
+    #   (a) says ABANDON         the fields COME OUT, in the order dev-4 set:
+    #                            its register changes FIRST, my bytes AFTER, so
+    #                            that no artefact renders a state its reader
+    #                            cannot explain.
     #
-    # Ce n'est donc pas une constante qui ne peut pas varier: c'est une
-    # constante dont la variation est la decision du proprietaire, et cette
-    # decision est EN ATTENTE et non ABSENTE. Si vous lisez ceci et que (a) a
-    # ete tranchee, CE BLOC EST PERIME -- agissez, ne le recopiez pas.
+    # So it is not a constant that cannot vary: it is a constant whose variation
+    # is the owner's decision, and that decision is PENDING and not ABSENT. If
+    # you are reading this and (a) has been decided, THIS BLOCK IS STALE -- act,
+    # do not copy it forward.
     #
-    # EN ATTENTE D'UNE DECISION DU PROPRIETAIRE: le locator origine-t-il les
-    # quatre cles? dev-1 a REFUSE de les ajouter, non sur le fond mais sous une
-    # instruction permanente de SON utilisateur (rapporter les defauts, n'en
-    # corriger aucun). `WRITE_ZONES` lui accorde la PORTEE; son utilisateur
-    # contraint l'ACTION, et la contrainte la plus etroite gouverne.
+    # AWAITING AN OWNER DECISION: does the locator originate the four keys?
+    # dev-1 REFUSED to add them, not on the merits but under a standing
+    # instruction from ITS OWN user (report defects, fix none). `WRITE_ZONES`
+    # grants it the SCOPE; its user constrains the ACTION, and the narrower
+    # constraint governs.
     parts = []
     margin = get_speed_margin(plan)
     if margin != None:
@@ -1953,11 +1979,18 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # LA RAISON VOYAGE AVEC LE REFUS. `language_route` etait calcule,
             # rendu, DEPAQUETE ET JAMAIS UTILISE -- une occurrence dans tout le
             # fichier. Trouve par `vmsam-auditor`.
+            # FORME `cause=<jeton>: <prose>` -- convenue avec dev-4 (EMISSION)
+            # AVANT ecriture, des deux cotes. dev-4 decoupe sur `cause=`, classe
+            # le JETON et rend la prose VERBATIM sans la relire dans sa voix.
+            # Ce site nommait deja sa cause; seule la FORME change, pour que le
+            # lecteur de dev-4 ne voie pas une population MIXTE ou un jeton reel
+            # et une constante survivante sont indiscernables.
             record(candidate_path, "no_plan",
-                   f"could not tell which language the merge measured on "
-                   f"({language_route})")
+                   f"cause=language_undetermined: could not tell which language "
+                   f"the merge measured on ({language_route})")
             continue
-        plan = get_plan_from_locator(best_video, candidate_obj, language)
+        plan, plan_refusal_cause = get_plan_from_locator(
+            best_video, candidate_obj, language)
         plan_source = "change_point_locator"
         if plan != None:
             # COMMENT LA LANGUE A ETE CHOISIE, JUSQU'AU JOURNAL.
@@ -1982,8 +2015,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
         if plan == None:
             # None de la mesure = "je n'ai pas pu mesurer", et surtout pas
             # "les fichiers vont ensemble". Le refus reste, intact.
+            # LA CAUSE, PAS UNE CONSTANTE. Voir ACCEPTANCE_T12A: la chaine
+            # precedente affirmait qu'AUCUNE mesure n'existait, ce qui est FAUX
+            # sur le chemin du plancher de fidelite -- les sondes ont TOURNE et
+            # ont rendu un NEGATIF CONCLUANT.
             record(candidate_path, "no_plan",
-                   f"no measurement available for this pair ({plan_source})")
+                   f"cause={plan_refusal_cause}: no plan from {plan_source}")
             continue
         if plan.get("kind") == "constant":
             # Troisieme issue de la mesure, et elle n'est pas la notre. Un
