@@ -173,11 +173,100 @@ def resolve_rename_pattern(folder_id, incompatible_file, session):
     return None
 
 
-def write_log_file(log_file_path, content):
-    """Écrit un log sans jamais faire échouer le job pour autant."""
+def write_log_file(log_file_path, content, merge_plan=None, plan_anchor=None,
+                   candidate_path=None):
+    """Écrit un log sans jamais faire échouer le job pour autant.
+
+    Et, quand `merge_plan` n'est pas `None`, le rapport de plan A COTE du
+    fichier. LE NOM COMPLET EST CELUI QUE `write_report` REND, jamais un nom
+    reconstruit ici: l'extension appartient a `merge_plan_report.report_path` et
+    elle a deja change une fois. `merge_plan` vaut
+    `mergeVideo.merge_plan`: `None` veut dire qu'AUCUNE version
+    resample/chimerique n'a ete produite -- il n'y a pas de plan a rendre, et ce
+    n'est pas une erreur.
+
+    Import tardif et except large, pour la meme raison que la reparation
+    elle-meme: le rapport est un lecteur greffe sur un chemin qui marchait sans
+    lui. Un module absent d'un deploiement partiel, ou une cle que le rapport
+    attend et que le journal ne porte pas, n'ont pas le droit de faire tomber
+    une fusion reussie. Le module lit QUINZE cles en `job["x"]` -- dont treize
+    lues aussi en `.get()` ailleurs -- donc une cle manquante leve ou non selon
+    la branche qui s'execute, et cela ne se decide pas ici.
+
+    L'ISSUE EST ECRITE DANS LE LOG, succes comme echec. Un rapport qui manque en
+    silence se lit comme un fichier qui n'avait rien a rapporter, ce qui est
+    exactement ce que `None` veut dire par ailleurs.
+    """
     if not tools.make_dirs(os.path.dirname(log_file_path)):
         stderr.write(f"Cannot create the folder holding {log_file_path}\n")
         return
+    if merge_plan != None:
+        try:
+            import merge_plan_report
+            destination, transport_entry = merge_plan_report.write_report(
+                merge_plan_report.parse_job_log(merge_plan),
+                merge_plan_report.opaque_id(candidate_path),
+                # LE NOM DU JOURNAL D'OU VIENNENT CES OCTETS, et c'est bien le
+                # nom de base du fichier -- il porte le titre et le numero
+                # d'episode, et le proprietaire l'a autorise: ce rapport est
+                # genere par VMSAM, s'ecrit a cote du media et n'entre jamais
+                # dans le depot.
+                #
+                # CORRIGE: je passais ici un libelle neutre en croyant que
+                # c'etait lui qui gardait le nom hors du document. C'etait FAUX
+                # -- le redacteur du module le remplacait deja par
+                # `<redacted:...>`. Un garde redondant qui survit a ce qu'il
+                # doublait ne fait plus que du mal: celui-la aurait defait la
+                # decision du proprietaire sans que rien ne le dise.
+                os.path.basename(log_file_path),
+                plan_anchor)
+                # QUATRE ARGUMENTS, ET LES DEUX QUI MANQUENT MANQUENT EXPRES.
+                #
+                # Ni `caveats` ni `corpus`. Le rapport porte donc
+                # `CORPUS state=not-supplied-to-this-render`, ce qui est LA
+                # BONNE SORTIE: en production il y a UNE fusion et UN rapport,
+                # donc IL N'Y A PAS DE POPULATION. Le parametre existe pour le
+                # laboratoire, ou dev-4 rend vingt-quatre fichiers d'un coup et
+                # affirme des choses comme "zero occurrence sur N journaux"; un
+                # rendu a un seul artefact ne doit pas heriter en silence d'un
+                # denominateur qui n'etait pas la.
+                #
+                # LA "REPARATION" EVIDENTE EST PIRE QUE L'ABSENCE. Passer
+                # `measure_corpus([ce seul journal])` rendrait un denominateur
+                # de UN presente comme une population -- et la ligne CORPUS du
+                # rapport dit elle-meme "Call measure_corpus() and pass the
+                # result", ce qui est juste au laboratoire et faux ici. Cette
+                # note EST l'instruction qu'un futur lecteur suivra: c'est
+                # pourquoi le contre-argument est ecrit AU POINT D'APPEL, la ou
+                # il patcherait, et pas seulement dans un message.
+                #
+                # Si une population devient souhaitable un jour, la source
+                # honnete est le repertoire KEEP de ci -- et c'est une decision
+                # sur CE QUE LE RAPPORT AFFIRME, pas sur la signature. Pas
+                # maintenant, et jamais sans dire DE QUELLE population il s'agit.
+            # Un POINTEUR, et non la copie de transport. `transport_entry` porte
+            # le document entier prefixe par sa longueur EN OCTETS, pour un
+            # lecteur qui n'aurait que le journal; ici le fichier est ecrit a
+            # cote, et l'inclure ajouterait quatorze kilo-octets de HTML au
+            # milieu d'un journal qui se lit. Pour revenir a l'extraction depuis
+            # le journal, ecrire `transport_entry` au lieu de cette ligne.
+            content += (f"\nMerge plan report: {os.path.basename(destination)} "
+                        f"({len(transport_entry.encode('utf-8'))} bytes transportable)\n")
+        except Exception as e:
+            # UN REFUS DE CONTRAT N'EST PAS UN PLANTAGE. `validate_job` leve
+            # `merge_plan_error` PAR SON NOM quand le `job` n'a pas les quinze
+            # cles que le rapport lit; confondre les deux dans le journal
+            # ferait lire un defaut d'appel comme un bug du rendu.
+            #
+            # Le NOM de la classe et non la classe: si l'import lui-meme a
+            # echoue, `merge_plan_report` n'existe pas, et un
+            # `except merge_plan_report.merge_plan_error` leverait DANS le
+            # gestionnaire d'erreur. Un module anterieur a cette classe tombe
+            # aussi tout seul du bon cote.
+            kind = ("REFUSED (job contract)"
+                    if type(e).__name__ == "merge_plan_error" else "NOT produced")
+            stderr.write(f"Merge plan report {kind}: {e}\n")
+            content += f"\nMerge plan report {kind}: {e}\n"
     try:
         with open(log_file_path, "w") as log:
             log.write(content)
@@ -274,6 +363,10 @@ def run_fusion_job(database_url, error_file_path):
 
         mergeVideo.default_audio = True
         mergeVideo.errors_merge = []
+        # Remise a `None` et non a `[]`: `None` veut dire "aucune version
+        # resample/chimerique", et c'est ce qui distingue un rapport absent d'un
+        # rapport perdu.
+        mergeVideo.merge_plan = None
         tools.logs = []
         if not tools.dev:
             mergeVideo.show_not_compatible_error = False
@@ -298,7 +391,8 @@ def run_fusion_job(database_url, error_file_path):
 
         if test_mode:
             apply_test_outcome(current_folder, incompatible_file, new_file_path,
-                               merged_file_path, job_error, mergeVideo.errors_merge)
+                               merged_file_path, job_error, mergeVideo.errors_merge,
+                               mergeVideo.merge_plan)
         elif job_error == None:
             apply_production_outcome(session, incompatible_file, previous_file,
                                      new_file_path, new_file_weight, merged_file_path)
@@ -325,7 +419,7 @@ def run_fusion_job(database_url, error_file_path):
 
 
 def apply_test_outcome(current_folder, incompatible_file, new_file_path,
-                       merged_file_path, job_error, merged_errors):
+                       merged_file_path, job_error, merged_errors, merge_plan=None):
     """Mode test: rien n'existe hors de VMSAM_TEST_OUTPUT_DIR.
 
     Les sources et la base ne sont pas touchées. Le succès dépose le mkv et son
@@ -343,13 +437,19 @@ def apply_test_outcome(current_folder, incompatible_file, new_file_path,
         write_log_file(published+".log",
                        f"Merged {incompatible_file.file_path} with the master into {published}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
-                       f"Logs:\n{chr(10).join(tools.logs)}\n")
+                       f"Logs:\n{chr(10).join(tools.logs)}\n",
+                       merge_plan, published, incompatible_file.file_path)
     else:
-        write_log_file(os.path.join(out_folder_final, os.path.basename(incompatible_file.file_path))+".log.error",
+        # Une version resample/chimerique a pu etre produite et le merge echouer
+        # apres: le plan existe alors sans fichier produit, et il s'ancre sur le
+        # nom du candidat, a cote du .log.error.
+        failed_anchor = os.path.join(out_folder_final, os.path.basename(incompatible_file.file_path))
+        write_log_file(failed_anchor+".log.error",
                        f"Error processing file {os.path.basename(incompatible_file.file_path)}: "
                        f"{job_error['error']}\n{job_error['traceback']}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
-                       f"Logs:\n{chr(10).join(tools.logs)}\n")
+                       f"Logs:\n{chr(10).join(tools.logs)}\n",
+                       merge_plan, failed_anchor, incompatible_file.file_path)
 
 
 def apply_production_outcome(session, incompatible_file, previous_file,
