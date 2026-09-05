@@ -1,0 +1,4 @@
+pre-flatten pin, verified independently by vmsam-ci 2026-09-03T07:44:23Z
+commit 64c4565a736318dac614af5fa2b1936009813153
+tree   b0e969860cff6818994bc873a3e6443e63a2ca4b
+files  81
