@@ -6250,7 +6250,14 @@ measurements were not discarded; **they were never computed.** Nine reach the ga
 **This clause is PRIOR to the two already in flight (harness-satisfiable vs shipped-output-auditable;
 which population): you cannot ask which population until you know which pairs the gate reached.**
 
-### THE EVIDENCE THIS CLAUSE PREVIOUSLY LACKED — ATTACHED 2026-09-05
+### THE EVIDENCE ATTACHED HERE WAS WITHDRAWN THE SAME DAY — READ THE RETRACTION FIRST
+
+> **THE `13x` ASYMMETRY BELOW IS DEAD. ONE MORE FILE KILLED IT. SEE §140.** *The clause itself never
+> depended on the ratio and stands on its own reasoning: an acceptance-count gate cannot distinguish
+> "the patch is harmless" from "the moves are small relative to the distance to the bar".* **THE
+> NUMBERS ARE KEPT ONLY SO THE RETRACTION HAS SOMETHING TO POINT AT.**
+
+### THE EVIDENCE THIS CLAUSE PREVIOUSLY LACKED — ATTACHED 2026-09-05, WITHDRAWN 2026-09-05
 
 **On 18 files / 35 pairs, the acceptance count PASSES — 34 accepted at tip, 34 accepted patched, none
 fell — AND THE PATCH STILL DOES REAL HARM:**
@@ -8787,3 +8794,60 @@ directory name (§101).* **ITS EXPOSURE IS BOUNDED TODAY PRECISELY BECAUSE THE A
 ROWS FOR THAT NAMESPACE. A BULK PUSH WOULD UN-BOUND THE ONE LEAK WE HAVE MEASURED, IN THE SAME MOTION
 MEANT TO PROTECT AGAINST LOSS.** *Per-seat, swept before pushing, over the ACTUAL set and not a subset
 — never in bulk.*
+
+## 140. THE 13× ASYMMETRY IS WITHDRAWN. ONE FILE KILLED IT, AND IT WAS THE EXPENSIVE ONE.
+
+**`vmsam-dev-1` extended 18 files to 19. File 19 took 7024.9 seconds — 117 minutes, 14.9× the
+previous maximum — and it overturned the headline this campaign had been carrying for two hours:**
+
+                        18 files          19 files
+    largest DOWN        -0.0728           -0.0728
+    largest UP          +0.0057           *** +0.0723 ***
+    harm/benefit ratio  *** 13x ***       *** 1.0x -- ESSENTIALLY SYMMETRIC ***
+    acceptance          34 / 34           *** tip 36 / patched 37 ***
+    m                   3                 6
+    P3                  FALSIFIED         FALSIFIED (21 down, 17 up) -- UNCHANGED
+
+> **AND THE PATCH GAINED AN ACCEPTANCE ON REAL CORPUS MATERIAL — a pair refused at tip is ACCEPTED
+> under the patch.** *That is the first evidence from that seat's own material that the repair does
+> the thing it was built to do.*
+
+**WHAT STILL STANDS, AND THE DISTINCTION IS THE WHOLE FINDING:** *P3 remains falsified — 21 of 38
+pairs fall — so the patch is* ***NOT A STRICT IMPROVEMENT.*** **BUT "NOT A STRICT IMPROVEMENT" AND
+"NET HARMFUL" ARE DIFFERENT CLAIMS, AND THE SECOND TRAVELLED ON THE FIRST'S EVIDENCE.** *The framing
+was the Lead's and the auditor's, not the measuring seat's data. The case against landing is
+substantially weaker than this document stated an hour ago.*
+
+**THE FIGURE HAD PROPAGATED TO FOUR PLACES — this document, `auditor` (which adopted it verbatim),
+the Lead's own relays, and A REPORT PUBLISHED TO THE OWNER. All four are corrected.** *This is the
+third correction on this axis in one afternoon, and the Lead has declined to carry a fourth until the
+run completes — pairpos was at 20 of 24 and still moving when it wrote.*
+
+## 141. A COST-BASED STOPPING RULE IS BIASED AGAINST EXACTLY THE FILES THAT CARRY THE INFORMATION
+
+**The file that overturned the headline is the one the seat had nearly stopped waiting for.**
+
+> **THE FILES MOST EXPENSIVE TO MEASURE WERE THE MOST INFORMATIVE — a long REMUX carries more
+> streams, more pairs, and more diverse fidelities.** *So the cheap files are cheap precisely because
+> they are small and homogeneous, and* ***ANY RULE THAT STOPS ON COST STOPS ON THE INFORMATION.***
+
+    "I HAVE 18 OF 24 AND THE 18 ARE THE RESULT" WAS AN HONEST STOPPING RULE,
+    STATED IN ADVANCE, WITH ITS LIMITS ENUMERATED. **IT WAS STILL WRONG**, AND THE
+    SEAT CREATED THE BIAS ITSELF, BY IMPATIENCE, AGAINST ITS OWN CONCLUSION.
+    A COST-WEIGHTED SAMPLE IS NOT A RANDOM SAMPLE. IT IS A SAMPLE SELECTED
+    **AGAINST** COMPLEXITY -- AND COMPLEXITY IS WHAT YOU ARE MEASURING.
+
+### And the enumeration that omitted the column its own recommendation rested on
+
+**The seat had listed exactly what the remaining files could still change — and the list was
+incomplete in the one place that mattered:**
+
+> **IT ENUMERATED THE ACCEPTANCE COUNT AND THE FALSIFICATION STATUS, AND OMITTED THE *MAGNITUDE*
+> COLUMN — the exact statistic its recommendation rested on.**
+
+    A STOPPING RULE IS ONLY AS GOOD AS ITS ENUMERATION,
+    AND **AN ENUMERATION NEEDS ITS OWN OPPORTUNITY COUNT.**
+    "HERE IS WHAT THE REST COULD CHANGE" IS A CLAIM WITH AN `m`, AND THE `m`
+    IS *THE NUMBER OF COLUMNS YOU CHECKED*, NOT THE NUMBER OF FILES REMAINING.
+    LIST THE COLUMNS. THEN ASK WHICH ONE YOUR CONCLUSION DEPENDS ON.
+    **IT WILL BE THE ONE YOU DID NOT LIST.**
