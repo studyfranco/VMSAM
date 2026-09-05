@@ -9320,3 +9320,58 @@ report change, not an engine change — it did not touch the frozen file.**
 structural".** *Given §1 — nothing downstream distinguishes a repaired file — a single staircase is a
 correct drawing of the PIPELINE'S BEHAVIOUR* **and NOT evidence that the tracks were measured to
 agree.** *The caution was already written; it now has a mechanism under it instead of an observation.*
+
+## 156. THE PROPERTY EVERY INSTRUMENT USED TO RULE IT OUT IS THE PROPERTY THAT DEFINES THE CLASS
+
+**A real series title sits in two tracked files. Confirmed BY READING, independently, by `vmsam-ci`
+— which owns the file and reported it against itself — and by `vmsam-dev-2`. Re-verified here: two
+files carry the exact value, negative control 0.**
+
+> **SIX INSTRUMENTS MISSED IT, IN SIX DIFFERENT WAYS, FOR ONE REASON:**
+> ***A MIXED-SCRIPT TITLE HAS A NATIVE RUN LENGTH OF 1 BY CONSTRUCTION.***
+
+    EVERY SWEEP FILTERED ON "A RUN OF NATIVE CHARACTERS LONG ENOUGH TO BE A TITLE".
+    A TITLE THAT ALTERNATES SCRIPTS NEVER PRODUCES ONE.
+    **THE DISCRIMINATOR AND THE DEFINITION WERE THE SAME PROPERTY, POINTING
+    OPPOSITE WAYS.**
+
+*`forensic` withdrew the finding on that basis and later un-withdrew it; `dev-4` published the same
+inference an hour after that and retracted it.* **Three seats reached the same wrong conclusion
+independently, each with a correct measurement of the wrong quantity — §136, at the scale of a
+whole instrument class.**
+
+    WHEN A FILTER RULES SOMETHING OUT, ASK WHETHER THE PROPERTY IT FILTERED ON
+    IS ALSO WHAT WOULD MAKE THE THING WHAT IT IS. IF SO, YOUR FILTER IS AN
+    ANTI-DETECTOR: IT REMOVES EXACTLY THE POPULATION IT WAS BUILT TO FIND.
+
+### And the correction that made the remedy cheap — the Lead against its own diagnosis
+
+**It had concluded that NO enumerated sweep could see these files.** *FALSE, and it said so:* **`ci`'s
+enumerated sweep DID hit it, because its population came from THE CONTAINER'S ARTEFACT PATHS rather
+than from a directory listing.**
+
+> **THE THREE "BLIND" SWEEPS WERE NOT BLIND. THEIR *POPULATIONS* WERE INCOMPLETE.** *A far cheaper
+> defect with a far cheaper remedy: widen the enumeration, do not rebuild the detector.*
+
+**AND THE ONLY NUMBER THAT SURVIVED THE DAY IS THE ONE NO PATTERN PRODUCED:** *13 files DECLARE
+themselves private.* **Every instrument that produced a positive today has been withdrawn or
+narrowed.**
+
+## 157. A PUSH FROM A STALE CLONE WOULD HAVE DELETED 729 LINES OF GOVERNANCE
+
+**`vmsam-dev-2` declined to push and offered a fetch route instead. `vmsam-lead` then measured what
+the push would have carried:**
+
+    diff authority .. dev-2's head
+      MEASURING.MD  -537     PIPELINE.MD  -120
+      CAMPAIGN.MD    -52     AGENT.MD      -20      **-729 LINES**
+    INCLUDING ALL OF `PIPELINE.MD` -- the file written that hour.
+
+> **THAT IS THE MECHANICAL COUNTERFACTUAL FOR "PROMOTE BY BLOB, NEVER BY TREE", AND NOBODY HAD THE
+> NUMBER UNTIL NOW.** *The Lead collected BY PATH — two files, nothing else staged.*
+
+**AND THE SEAT'S OWN REASONING IS BETTER THAN THE RULE:** *"A peer asking is not what makes a push
+permitted, and the fetch makes the question moot."* **IT REFUSED TO RESOLVE THE §1b AMBIGUITY UNDER
+TIME PRESSURE ON A PEER'S REQUEST, WHEN A ROUTE EXISTED THAT NEEDED NO AMBIGUITY RESOLVED AT ALL.**
+
+*The best answer to a contested permission is often a path that does not require the permission.*
