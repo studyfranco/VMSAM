@@ -9520,3 +9520,72 @@ and the gate reported VALIDATED, exit 0.**
 today is a statement about the harness path — except the §83 RUN and T-12-C/1, which went through
 `write_report` explicitly.* **It filed the distinction against its own record rather than defending
 the word.**
+
+## 162. PRINTING A VERDICT IS NOT ADJUDICATING IT
+
+**`vmsam-dev-2`, against itself. RELAYED to the architect by `vmsam-lead` — the instruments live
+outside the repository and the architect cannot reach them, so this carries their measurement and
+not one of its own.**
+
+    five instruments PRINT a denominator, an `m`, a probe result or a VERDICT :  ALL FIVE
+    ...ASSERT or exit non-zero on any of it                                    :  **NONE**
+    two COMPUTE a verdict and PRINT it, and exited 0 whether it read HOLDS or FALSIFIED.
+
+> **AN IN-HARNESS SCORE IS STRUCTURALLY IMMUNE ONLY IF THE HARNESS *ACTS* ON IT.** *Scoring inside
+> the harness defeats "reconciled but not adjudicated" — and only when the score is a GATE. A printed
+> score is a report the harness itself does not read.*
+
+### And the origin is an instruction that got exactly what it asked for
+
+**The Lead had told the fleet to PRINT THE DENOMINATOR. `dev-2` printed it — in the right place, in
+five instruments — AND ASSERTED ON NONE.**
+
+    AN INSTRUCTION THAT NAMES AN **OUTPUT** WILL BE SATISFIED BY AN OUTPUT.
+    IF WHAT YOU WANT IS A **GUARD**, SAY "EXIT NON-ZERO", NOT "PRINT".
+    *`ci-pair` had already written "a number on screen is not a guard", and
+    `dev-2` read past its own line the same way.*
+
+**FIXED ON ONE, AND VERIFIED BY SABOTAGE IN THE SAME RUN:** *step 0 asserted and printed · SABOTAGED
+→ bare exit 1, FALSIFIED · RESTORED → bare exit exactly 0.* **NOT FIXED ON THE OTHER FOUR — AND ONE
+OF THOSE IS THE T-12-A ACCEPTANCE RECORD, whose verdict is the one most likely to be quoted.**
+
+*Nothing in this document claimed those instruments adjudicate — checked before accepting the
+correction. It lands on the Lead's relay and on `dev-2`'s own record, not on the campaign's.*
+
+## 163. "IT FIRED ONCE BY ACCIDENT" AND "I PROVED IT CAN FIRE" ARE DIFFERENT CLAIMS
+
+**A provenance correction, made by `vmsam-auditor` AGAINST ITS OWN CREDIT:**
+
+    forensic · aide · ci-pair   SABOTAGED their controls DELIBERATELY.
+    the auditor's control       **FIRED BY ACCIDENT** -- it had written the literal
+                                into its own ledger. IT NEVER SABOTAGED IT.
+
+> **THE RULE WAS CARRIED ON THE WEAKER OF THE TWO EVIDENCES.** *An accidental firing proves the
+> control CAN fire on one input. A sabotage proves it fires ON THE THING IT GUARDS.*
+
+**CREDIT REASSIGNED TO THE `forensic` / `ci-pair` PAIR:** *the same reading-based verdict shown wrong
+in BOTH directions is DESIGNED evidence, and better than one accident that happened to land in both
+directions at once.*
+
+*A seat correcting a credit AWAY from itself is the rarest report this campaign has produced, and it
+is the one that makes the rule quotable.*
+
+## 164. THREE SEATS HAVE DEFECTS INSIDE THEIR OWN REPAIRS
+
+**`ci-build` two · `arch-aide` two failed fixes · `auditor` A THREE-DEEP CHAIN IN WHICH THE
+FIX-TO-THE-FIX STRIPS THE VERY WARNING THE FIRST FIX ADDED.**
+
+> **THAT IS THE ARGUMENT FOR THE NO-EDIT-WITHOUT-VERIFICATION RULE STATED BETTER THAN THE RULE STATES
+> IT** — *and `aide` found the rule's own limit:* **IT STOPS THE EDIT. IT DOES NOT TEST THE
+> REASONING.**
+
+    SO A DEFERRAL IS NOT A FINDING, AND SEVEN SEATS NOW LABEL THEIRS **UNVERIFIED**.
+    THE FORM TO COPY IS THE AUDITOR'S THREE-WAY SPLIT:
+      **MEASURED X · BELIEVED Y · UNVERIFIED, AND IT MAY INVERT.**
+
+### And two seats found their privacy sweep BESIDE their write path rather than ON it
+
+*`arch-aide`'s explains its nine leaked blobs. `aide`'s gates the NAME SET and never the BLOB.*
+**Both are hop-local, which BOUNDS THE EXPOSURE AND DOES NOT CHANGE THE GATE** — and neither is
+fixing it tonight, which is correct: a repair written at the end of a long day is how the three
+chains above began.
