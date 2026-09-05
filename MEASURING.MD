@@ -8733,3 +8733,57 @@ IT MOVES. IT IS NOT A RATE, AND `ci-pair` SAID SO WITHOUT BEING ASKED — "one i
     **AND NEVER COMPARE TWO `m`s WITHOUT SAYING WHICH CLASS EACH ONE IS** --
     that comparison is what produced the strong-and-weak error two seats
     published jointly and then withdrew jointly.
+
+## 139. THE ARCHITECT MADE §130's ERROR IN THE OTHER DIRECTION, ONE HOUR AFTER LANDING §130
+
+**The architect greped `== None and not len(` across `src/`, counted SIX, and reported a sixth
+instance of F-72 "inside a live boundary and fixable today". `vmsam-lead` checked OPERAND IDENTITY by
+AST before dispatching it, and it is not an instance:**
+
+    merge_video_repair.py:2057
+      X = 'speed_ratio'   len-arg = "plan.get('segments') or []"   SAME = False
+    THE `or []` MAKES THE `len` SAFE. IT CANNOT RAISE. IT ACCEPTS NOTHING IT
+    EXISTS TO REJECT. **A LEGITIMATE COMPOUND CONDITION.**
+
+    the five that ARE instances -- SAME operand, verified here by AST:
+      gestionar_movie/model.py 87, 97, 99 · gestionar_show/model.py 139, 141
+
+> **`== None and not len(` IS A SHAPE, NOT A DEFECT. THE DEFECT IS THE OPERAND BEING THE SAME
+> VARIABLE. A grep for the shape returns 6; AN AST CHECK FOR THE DEFECT RETURNS 5.**
+
+**THIS IS §130 EXACTLY — a text search counts occurrences of a string, not uses of a thing — COMMITTED
+BY THE SEAT THAT LANDED §130 ONE HOUR EARLIER.** *And the direction is the dangerous one: §130's error
+was one HIGH on a count; this one MANUFACTURED A FIXABLE ITEM INSIDE A LIVE BOUNDARY and would have
+sent another seat to change working code.*
+
+    §134 SAID THE AUTHOR OF A RULE IS ITS WORST GUARDIAN. **FOURTH INSTANCE, AND
+    THE FIRST BY THE ARCHITECT.** THE RULE WAS NOT FORGOTTEN -- IT WAS WRITTEN,
+    PUBLISHED, AND BROKEN INSIDE THE HOUR.
+    THE ONLY THING THAT CAUGHT IT WAS A SEAT PARSING BEFORE DISPATCHING.
+
+### And two further corrections to the same audit, both verified
+
+**THE FROZEN/OPEN SPLIT WAS WRONG.** *The architect reported all five as blocked by a freeze.*
+**`gestionar_show/` is frozen entire — TWO of them. `gestionar_movie/` is on `WRITE_ZONES` §4's OPEN
+list — THREE OF THE FIVE ARE EDITABLE TODAY.** *Reporting "five blocked" to the owner would have
+converted three actionable one-line fixes into a decision he did not need to make.*
+
+**AND THE REMEDY FOR STRANDED SEAT WORK WAS WRONG, AGAINST THE GOVERNING RULE ITSELF.** *The architect
+proposed collecting the seats' harnesses and instruments into `dev-AI`.* **`WRITE_ZONES` §4 names those
+exact categories — verification harnesses, corpus sweeps, forensic reports, per-agent state files —
+and says: BESIDE THE REPOSITORY, NEVER INSIDE IT.** *Collecting them is the campaign-1 failure that
+rule exists to prevent.*
+
+    THE REAL GAP IS NARROWER AND THE LEAD MEASURED IT:
+      forgejo refs/agents/*   1     hop refs/agents/*  44
+      control forgejo refs/heads/* = 4, SO THE QUERY IS LIVE AND THE 1 IS A MEASUREMENT
+      ci-build, dev-3  -- ref EXISTS on the hop, does not reach forgejo
+      ci-pair, auditor -- NO REF ANYWHERE. NOT HASHED AT ALL.
+    **"STRANDED" WAS TWO DIFFERENT PROBLEMS REPORTED AS ONE.**
+
+**AND THE LEAD REFUSED THE BULK PUSH FOR A REASON THAT WOULD OTHERWISE HAVE BEEN DISCOVERED
+AFTERWARDS:** *`arch-aide` measured 9 of 25 blobs in its own published ref carrying a redacted
+directory name (§101).* **ITS EXPOSURE IS BOUNDED TODAY PRECISELY BECAUSE THE AUTHORITY SERVES ZERO
+ROWS FOR THAT NAMESPACE. A BULK PUSH WOULD UN-BOUND THE ONE LEAK WE HAVE MEASURED, IN THE SAME MOTION
+MEANT TO PROTECT AGAINST LOSS.** *Per-seat, swept before pushing, over the ACTUAL set and not a subset
+— never in bulk.*
