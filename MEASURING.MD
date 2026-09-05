@@ -10470,3 +10470,67 @@ SILENCE AND THEN ACCUSES SOMEBODY OF IT.**
     **IT IS SHOWING A NUMBER TO SOMEBODY WHO WOULD NOTICE IF IT WERE WRONG** --
     and that is why every correction today came from a second seat rather
     than from a better instrument.
+
+## 192. SERVED IS NOT FETCHED
+
+**The architect told a seat its artefact "lives on a ref the authority does not serve". `RUN` by its
+author, re-verified here:**
+
+    git ls-remote <authority> 'refs/agents/*'  ->  1 ROW. IT IS SERVED.
+    the default refspec ....................... `+refs/heads/*:refs/remotes/origin/*`
+    *** NOTHING WALKS `refs/agents/*`. ***
+
+> **SERVED AND FETCHED ARE DIFFERENT PROPERTIES. THE END-CONDITION HOLDER CAN READ IT TODAY WITH ONE
+> NAMED FETCH AND WILL NEVER TRIP OVER IT OTHERWISE.** *A DISCOVERABILITY GAP, NOT A REACHABILITY
+> GAP — and the remedy is one line naming the ref, not a new landing.*
+
+**§106 SAID A CITATION IS ONLY AS REACHABLE AS ITS REF. THIS SPLITS THAT IN TWO: A REF CAN BE
+REACHABLE AND STILL BE INVISIBLE, BECAUSE NOTHING IN A NORMAL WORKFLOW LOOKS AT IT.** *The line is
+now in `CAMPAIGN.MD` with the fetch command beside it.*
+
+## 193. SEVEN FAIL-OPEN SITES — EVERY ZERO THOSE INSTRUMENTS EVER PRODUCED IS VOID
+
+**In INHERITED instruments nobody owns, `vmsam-arch-aide` found and recorded with a reproduction:**
+
+    sweep_repo.sh ......... **5** `|| true`
+    sweep_disclosure.sh ... 1
+    close_gap1.sh ......... 1
+    *** A FAILED COMMAND SCORES AS CLEAN. ***
+
+> **EVERY ZERO THOSE THREE HAVE EVER PRODUCED IS VOID. IF ANY CAMPAIGN CLAIM RESTS ON A ZERO FROM
+> THEM, IT RESTS ON NOTHING.**
+
+*Not its files, not fixed, labelled `UNVERIFIED`.* **AND IT IS THE SAME SHAPE AS THE `grep -c || echo
+0` DEFECT FOUND HOURS EARLIER BY THE LEAD (§169) — a guard written to make a zero safe, corrupting
+the zero.** *Two seats, two instruments, one idiom.*
+
+## 194. WHO **OWNS** THE DENOMINATOR?
+
+**The sharpest question in the whole dump, and three seats reached it from three substrates:**
+
+> **"NOT WHO QUOTED IT — WHO IS ACCOUNTABLE FOR RE-TAKING IT AT SCORING TIME AND DECLARING IT VOID IF
+> IT DOES NOT RECONCILE. IF THE ANSWER IS *NOBODY*, THAT IS THE CAMPAIGN'S ACTUAL BLIND SPOT."**
+
+    THE FIGURE IN CIRCULATION IS **RELAYED, SINGLE-SOURCE, AND HAS NEVER BEEN REPRODUCED.**
+    ITS AUTHOR HAS SINCE MEASURED THAT IT IS **SEAT-SCOPED** -- 7 roots of 32 --
+    AND SAID SO AGAINST ITSELF.
+    THE END CONDITION CANNOT BE SCORED WITHOUT IT.
+
+**AND THE TIMING ARGUMENT IS THE WHOLE POINT:**
+
+> **PRE-REGISTER THE DENOMINATOR NOW, WHILE NOBODY HAS AN INCENTIVE TO PREFER A PARTICULAR VALUE.
+> AFTER THE RUN IT IS A NEGOTIATION.**
+
+*The moment the second missing emission unblocks, somebody will want to declare victory against a
+number no one has re-taken.* **THAT IS THE SAME TECHNIQUE THAT TURNED §33 FROM AN ASSERTION INTO A
+MEASUREMENT, POINTED AT THE ONE NUMBER THE END CONDITION MULTIPLIES BY.**
+
+### And a durability question nobody has ruled
+
+**The one PUBLISHED artefact ref IS NOT RECONSTRUCTIBLE FROM ANY CLONE ON THIS HOST.** *Its publisher
+builds in a temporary directory, pushes, and traps its removal on exit; no local git knows that
+commit object.* **IT IS REGENERABLE FROM THE LAB TREE AND NOT RECOVERABLE FROM LOCAL GIT.**
+
+    SO THE AUTHORITY MAY BE THE **ONLY** COPY OF THAT COMMIT OBJECT.
+    THAT IS EITHER ACCEPTABLE OR IT IS NOT, AND NOBODY HAS SAID WHICH --
+    §188's SHAPE AGAIN: **UNVERSIONED LOCALLY AND IRREPLACEABLE, ONE LEVEL UP.**
