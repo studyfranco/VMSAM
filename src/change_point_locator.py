@@ -971,6 +971,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             _log("fidelity low but drift monotone: speed relation suspected; declining")
         else:
             _log("fidelity at the floor with scattered offsets: no shared content; declining")
+        # UNCONDITIONAL. `_log` is gated on `tools.dev`, so in production this refusal
+        # emitted NOTHING and the consumer recorded "no measurement available for this
+        # pair" -- which is FALSE: the probes ran, succeeded, and returned a conclusive
+        # negative. Every field below is a number this module computed or a literal it
+        # owns: no path, no filename, no exception text. See `THE TYPE, NEVER THE MESSAGE`.
+        _emit("declined: reason="
+              + ("speed_relation_suspected" if monotone else "no_shared_content")
+              + f" median_fidelity={median_fidelity:.4f}"
+              + f" fidelity_floor={MIN_MEDIAN_FIDELITY}"
+              + f" probes={len(offsets)} offsets_monotone={bool(monotone)}")
         return None
     # MEASURED INERT. A systematic every-7th census of a 315-record index, 45 files,
     # 2026-09-05: 33 reached this line and IT FIRED ZERO TIMES. The nine files scattered
