@@ -10,3 +10,23 @@ target/*
 Cargo.lock
 .claude/*
 example/*
+# RUNTIME LOGS AND REPORTS -- owner ruling 2026-09-05: `record()`'s output stays
+# BESIDE THE MEDIA or in a local ignored directory, and MUST NEVER reach a
+# repository file.
+#
+# MEASURED BEFORE ADDING THESE, so this is a belt and not a repair: every
+# write-mode `open()` in the record() chain already targets a path outside the
+# checkout --
+#   merge_video_repair.py  target      = path.join(tools.tmpFolder, ...)
+#   merge_plan_report.py   destination = report_path(produced_file_path)
+#   main_gestionar_show.py             = join(out_folder_final, basename)+'.log.error'
+# THE RULING HOLDS BY CONSTRUCTION. These patterns exist because `git check-ignore`
+# said log.error, log.out, foo.mkv.log.error and merge_plan.html would ALL have been
+# TRACKED if one ever landed here -- e.g. a run with tmpFolder inside the checkout.
+log.error
+log.out
+log.log
+*.log.error
+*.log.out
+merge_plan.html
+*.merge_plan.html
