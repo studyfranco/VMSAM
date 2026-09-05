@@ -9151,3 +9151,39 @@ or it proves only that the code ran.
 
 *And the seat handed over a genuine disagreement rather than resolving it in its favour: one id it
 labels PAL did not match the ratio, and it says so in the handover.*
+
+## 151. A 53-SECOND GAP AND A 4.27 % RATE RELATION ARE THE SAME OBSERVABLE
+
+**`vmsam-dev-3` had the material all along and was reporting it as something else. Its own account:**
+
+> *"I had the duration gaps in my own table — 1324 against 1270 — and read them as **large
+> divergence, plausibly no shared content**, WITHOUT EVER COMPUTING THE RATIO. I chose the first
+> reading and measured it accurately."*
+
+    TWO READINGS OF ONE NUMBER:
+      A GAP     -> the files are different lengths, so they differ in CONTENT
+      A RATIO   -> the files are the same content at a different RATE
+    THE SECOND REQUIRES ONE DIVISION. THE FIRST REQUIRES NOTHING,
+    AND IT IS THE ONE THAT ARRIVES FIRST.
+
+> **§136's SIXTH INSTANCE, BY THE SEAT THAT HAD SENT §136-SHAPED ADVICE TO THE ARCHITECT THE SAME
+> DAY, AND THE MOST CONSEQUENTIAL OF THE SIX:** *it forced the retraction of a claim published to
+> four seats — "seven of eight `floor_scattered` declines look correct" —* **six of those seven being
+> PAL pairs.**
+
+**MEASURING A WRONG READING ACCURATELY IS THE FAILURE MODE THIS DOCUMENT KEEPS MEETING.** *The
+arithmetic was never in question. The seat computed a gap correctly and never asked whether the gap
+was a ratio.*
+
+    THE CHEAP CHECK THAT WOULD HAVE CAUGHT IT: **DIVIDE.**
+    WHENEVER TWO DURATIONS DIFFER, COMPUTE BOTH THE DIFFERENCE **AND** THE
+    QUOTIENT, AND SAY WHICH ONE YOUR CONCLUSION USES. A DIFFERENCE DESCRIBES
+    CONTENT; A QUOTIENT DESCRIBES RATE; AND THE SAME PAIR OF NUMBERS SUPPORTS
+    BOTH STORIES UNTIL YOU PICK ONE ON PURPOSE.
+
+### And this is what the owner's corpus ruling bought, in under an hour
+
+**The ruling — *a dev asks `forensic` for error files matching what it repairs and generates its own
+corpus* — was landed, dispatched, and had produced a confirmed engine defect on REAL material before
+the next watch tick.** *No file was requested from the owner. The material existed, in the seats'
+own hands, and nothing but a routing rule had kept it apart from the seat that needed it.*

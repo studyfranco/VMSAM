@@ -998,7 +998,48 @@ fidelity alone would refuse the whole family the speed repair exists for."* THE 
 AND THE ARITHMETIC DOES NOT DELIVER IT AT THE FAMILY'S OWN RATIO.** *Same shape as F21: an invariant
 established for one object and relied upon for another.*
 
-**THE LIMITS, STATED BY THE SEAT ITSELF AND KEPT:** *the grid samples ONE point between 1.00 and 3.00,
+### CONFIRMED ON REAL FAILURES, 2026-09-05 — AND THE REFUSAL MESSAGE IS FALSE
+
+**`vmsam-forensic` supplied 19 real PAL pairs; `vmsam-dev-3` ran six arms against a SEALED
+preregistration and wrote the outcome beside the seal without touching it.**
+
+    case         lang  master/cand  dev from 25/23.976  fid_median  branch
+    curated-46   eng     1.042260        0.000449         0.601     scattered
+    curated-46   fre     1.041945        0.000764         0.616     scattered
+    curated-51   eng     1.043478        0.000769         0.609     scattered
+    curated-51   fre     1.042768        0.000059         0.618     scattered
+    curated-91   eng     1.042888        0.000179         0.608     scattered
+    curated-91   fre     1.042113        0.000597         0.610     scattered
+
+    SIX OF SIX match the PAL ratio to 0.0008.  SIX OF SIX took `scattered`.
+    **ZERO took `speed_relation_suspected`.**
+    THE VOID CONDITIONS DO NOT APPLY: every arm REACHED the sub-floor branch --
+    that branch PRINTED the verdict -- and all six sat BELOW the 0.70 floor.
+
+> **THE MODULE SAYS *"no shared content"* ABOUT PAIRS THAT SHARE ALL THEIR CONTENT AT A 4.27 % RATE
+> RATIO.** *The decline may still stand — a speed relation may be genuinely unrepairable here — but
+> **THE STATED REASON IS FALSE.***
+
+**TWO INDEPENDENT ROUTES, NEITHER SEAT BUILDING THE OTHER'S ARM:** *`dev-1` reached it synthetically
+at 4.27 %; this is the real-material counterpart.* **AND IT IS NON-CIRCULAR ONLY BECAUSE `forensic`'s
+classifier NEVER READS THE LOCATOR'S BRANCH** — ffprobe durations and a logged correlation collapse.
+*Had it labelled by the branch, the fixture could not have disagreed with the code.*
+
+**THE RETRACTION IT FORCES, PUBLISHED TO FOUR SEATS AND WITHDRAWN BY ITS AUTHOR:** *"seven of eight
+`floor_scattered` declines look correct" —* **SIX OF THOSE SEVEN ARE PAL PAIRS.**
+
+**AND THE SEAT NAMED ITS OWN FAILURE:** *it had the duration gaps in its own table — 1324 against
+1270 — and read them as "large divergence, plausibly no shared content" **without ever computing the
+ratio**.* ***A 53-SECOND GAP AND A 4.27 % RATE RELATION ARE THE SAME OBSERVABLE AT THAT
+RESOLUTION.*** *It chose the first reading and measured it accurately.*
+
+**FIXTURE KIND, STATED IN THE SAME BREATH: DRAWN from real failures, therefore EXTENSIBLE** — 16 more
+PAL ids remain with both sides on disk, taking `m` from 6 arms to roughly 38 without one
+construction. *Not a rate: 3 error ids of 19, of 303 with a computable ratio; the PAL label is a
+`TRACE` from 2026-09-03 and was not re-executed; and whether these pairs still fail TODAY was
+explicitly not checked.*
+
+**THE LIMITS OF THE SYNTHETIC RUN, STATED BY THAT SEAT ITSELF AND KEPT:** *the grid samples ONE point between 1.00 and 3.00,
 so the window is bracketed only as (1.00, 3.00) and is NOT claimed narrower. Synthetic mono 44100, one
 source, one 60 s window.* **GROUND TRUTH BY CONSTRUCTION BUYS TRUTH, NOT TYPICALITY. What settles it
 is a real PAL pair, and nobody in the fleet holds one.**
