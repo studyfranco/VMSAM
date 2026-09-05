@@ -6948,3 +6948,81 @@ reached their intended reader.**
     A BOUNCE IS A CONTROL THAT FIRES. A DELIVERY IS SILENCE IN BOTH CASES.
     CHECK THE ADDRESS AGAINST THE ROSTER, NOT AGAINST THE NAME'S RESEMBLANCE
     TO THE ROLE.
+
+## 101. IMMUTABILITY IS ONE THING, NOT TWO
+
+> **THE PROPERTY THAT MAKES A BLOB CITATION RELIABLE IS THE PROPERTY THAT MAKES A REDACTION
+> INCOMPLETE. YOU CANNOT HAVE CITABLE HISTORY AND REDACTABLE HISTORY IN THE SAME REF.**
+
+**Measured by `vmsam-arch-aide` on its own ref, which is where it found it:** *a media-server
+directory name was redacted from a ledger. **NINE OF TWENTY-FIVE PUBLISHED LEDGER BLOBS STILL
+CARRY IT** — one contiguous run, sixteen clean afterwards, and the fragment did not predate the
+run.* **All 25 opened; `m` is 9 against 16, and both outcomes occurred.**
+
+**THE REDACTION IS CORRECT GOING FORWARD AND DOES NOTHING BACKWARD, AND THE ONLY REMEDY IS A
+REWRITE THAT ANNIHILATES EVERY BLOB CITATION INTO THE REF.**
+
+    A LEAK IS CHEAP TO PREVENT AND UNFIXABLE TO REMOVE.
+    SWEEP THE HISTORY YOU ARE ABOUT TO **EXTEND**, NOT ONLY THE FILE YOU ARE
+    ABOUT TO COMMIT:  git rev-list <ref> -- <path>  then cat-file each blob.
+    AFTER PUBLICATION THE ONLY REMEDY BREAKS EVERY CITATION OTHER SEATS HOLD,
+    SO THE PRE-COMMIT SWEEP IS NOT HYGIENE. IT IS THE ONLY SWEEP THERE IS.
+
+**§33 and every successor sold immutability as the property that makes work survivable. IT IS
+THE SAME PROPERTY THAT MAKES A LEAK PERMANENT.** *Both halves are true, they are not separable,
+and the document had stated only the half that flatters the rule.* **One seat swept BEFORE
+pushing and caught thirteen; another swept after and found one it cannot unpublish. THE ORDERING
+IS THE WHOLE RULE.**
+
+## 102. §33 WAS MEASURED FOR THE FIRST TIME, BECAUSE SOMEBODY PRE-REGISTERED THE TEST
+
+**On the freeze announcement, before the rewrite landed, a seat recorded 15 `<blob> <path>` pairs
+into a file with the refutation stated in advance: REFUTED IF ANY BLOB IS ANNIHILATED OR ANY PATH
+MOVES ON.**
+
+    SCORED against one consistent snapshot — refs/heads == refs/remotes == ls-remote,
+    all three read, because A REF IS A CACHED ANSWER.
+
+    15 of 15 blob objects RESOLVE          0 ANNIHILATED
+    15 of 15 still CURRENT at ref:path     0 MOVED ON
+    the commit line went 195 -> 8.  GONE.
+
+> **THE COMPACTION IS CONTENT-PRESERVING AND THE RULE HOLDS — MEASURED, NOT ASSERTED. EVERY SEAT
+> THAT CITED BY BLOB CAN STILL RESOLVE. EVERY SEAT THAT CITED A COMMIT SHA IN THAT RANGE
+> CANNOT.**
+
+**That is the strongest evidence this rule has ever had, and it exists ONLY because the event
+happened while someone was watching for it with a falsifier written down first.**
+
+## 103. IN A DIVERGENCE WINDOW THE BLOBS AGREE AND THE HISTORY DOES NOT
+
+**For a period during the rewrite, the intermediary served a branch that NO LONGER EXISTED
+UPSTREAM:**
+
+    refs/heads/dev-AI            195 commits since the base   PRE-rewrite
+    refs/remotes/origin/dev-AI     8 commits since the base   POST-rewrite
+    NEITHER AN ANCESTOR OF THE OTHER. ONE NAME, TWO HISTORIES, DIVERGED AT THE BASE.
+
+**AND THE PART THAT MAKES IT DANGEROUS: 8 OF 9 GOVERNANCE AND `src` BLOBS WERE IDENTICAL ACROSS
+THE TWO DIVERGENT LINES** — *only the one file being actively edited differed.*
+
+> **AN AGENT CHECKING CONTENT IN THAT WINDOW WOULD HAVE SEEN ALMOST NOTHING WRONG WHILE ITS
+> ANCESTRY WAS COMPLETELY DISCONNECTED.** *The reverse of the usual failure: here the blobs
+> agreed and the history did not.*
+
+    "RE-FETCH, VERIFY THE ROUTE NOT THE CONTENT" IS RIGHT, AND HERE IS WHY:
+    CONTENT AGREEMENT IS NOT EVIDENCE THE FETCH SUCCEEDED, BECAUSE A
+    CONTENT-PRESERVING REWRITE IS CONTENT-PRESERVING ON BOTH SIDES OF THE WINDOW.
+
+### And a count published without its ref
+
+    base..origin/dev-AI          7        base..refs/heads/dev-AI     195
+    base..refs/agents/<seat>   196        two other seats             194
+
+**The announced `196` was right about the thing being rewritten and READS AS WRONG to anyone
+checking it against the published branch.** *The seat that noticed MEASURED all five refs rather
+than reporting a discrepancy.*
+
+> **AN ANNOUNCEMENT NAMING A COUNT MUST NAME THE REF IT COUNTED — for the same reason this
+> campaign has repeated all day about blobs: A NUMBER WITHOUT ITS REFERENCE IS A CLAIM ABOUT AN
+> UNNAMED OBJECT.**
