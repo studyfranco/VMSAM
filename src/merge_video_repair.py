@@ -1943,9 +1943,9 @@ def decline_detail(error):
             "undelivered_durable": getattr(error, "undelivered_durable", None)}
 
 
-def record(candidate_path, outcome, reason, detail=None):
+def record(candidate_path, outcome, reason, detail=None, cause=None):
     entry = {"candidate": candidate_path, "outcome": outcome, "reason": reason,
-             "detail": detail}
+             "detail": detail, "cause": cause}
     last_repair_report.append(entry)
     # UNCONDITIONAL, AND IT USED TO BE UNCONDITIONAL ONLY BY COINCIDENCE.
     # Found by `vmsam-dev-1`, verified here before changing anything.
@@ -1973,7 +1973,33 @@ def record(candidate_path, outcome, reason, detail=None):
     # CONSTRUCTION instead of true by coincidence. A `record()` call is by
     # definition an outcome worth recording; there is no outcome this function
     # should swallow.
-    tools.logs.append(f"repair: {outcome} for {candidate_path}: {reason}\n")
+    # THE CAUSE TOKEN GOES BEFORE THE PATH, AND THAT POSITION IS THE WHOLE POINT.
+    # Found by `vmsam-dev-4` against its own reader, on a fixture it built before
+    # any real material arrived. REPRODUCED HERE BEFORE CHANGING ANYTHING:
+    #
+    #   path  /srv/<...>/S01: cause=forged_token: E01.mkv
+    #   line  repair: declined for <that path>: the produced file does not match
+    #   dev-4's hardened parse extracts   cause=forged_token
+    #
+    # A COLON IS LEGAL IN A FILENAME, so with the token AFTER the path no
+    # delimiter closes this: a path can contain any byte but `/` and NUL, and NUL
+    # cannot travel in a log line. NO DELIMITER IS SAFE -- ONLY POSITION IS.
+    #
+    # So the token is now parsed from a PREFIX that ends before the first byte of
+    # attacker-controlled text:
+    #
+    #   repair: <outcome> cause=<token> for <path>: <prose>
+    #   ^--------- fixed, closed vocabularies ---------^
+    #
+    # WHY IT MATTERS MORE THAN A PARSER BUG: a forged token inflates
+    # `excluded_with_stated_cause`, WHICH IS THE COLUMN THE OWNER'S END CONDITION
+    # IS SCORED ON, and it fabricates a cause NO PRODUCER EMITTED -- my own
+    # acceptance R2 arriving on the consumer's side of the same interface.
+    # It is silent, and it is unfalsifiable from a corpus holding no real tokens.
+    head = f"repair: {outcome}"
+    if cause != None:
+        head += f" cause={cause}"
+    tools.logs.append(f"{head} for {candidate_path}: {reason}\n")
     return entry
 
 
@@ -2011,8 +2037,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # lecteur de dev-4 ne voie pas une population MIXTE ou un jeton reel
             # et une constante survivante sont indiscernables.
             record(candidate_path, "no_plan",
-                   f"cause=language_undetermined: could not tell which language "
-                   f"the merge measured on ({language_route})")
+                   f"could not tell which language the merge measured on "
+                   f"({language_route})", cause="language_undetermined")
             continue
         plan, plan_refusal_cause = get_plan_from_locator(
             best_video, candidate_obj, language)
@@ -2045,7 +2071,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # sur le chemin du plancher de fidelite -- les sondes ont TOURNE et
             # ont rendu un NEGATIF CONCLUANT.
             record(candidate_path, "no_plan",
-                   f"cause={plan_refusal_cause}: no plan from {plan_source}")
+                   f"no plan from {plan_source}", cause=plan_refusal_cause)
             continue
         if plan.get("kind") == "constant":
             # Troisieme issue de la mesure, et elle n'est pas la notre. Un

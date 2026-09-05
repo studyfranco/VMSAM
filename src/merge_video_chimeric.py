@@ -19,6 +19,41 @@ maitre lui-meme quand il possede la meme langue, sinon par du silence. Les deux
 sont honnetes; la troisieme option -- coller la piste d'une autre langue --
 ne l'est pas.
 
+WHERE THIS MODULE SITS IN THE CYCLE -- put here because a governing document a
+seat has to be TOLD to read is weaker than a docstring it cannot avoid, and
+because after a reset a successor has only the files. `PIPELINE.MD` is the
+interim form of the same relationship; if the two ever disagree, MEASURE THE
+CODE, and the code is this file.
+
+    THERE IS ONE CYCLE AND THE REPAIR IS A DETOUR INSIDE IT. Most files
+    correlate on a SINGLE CONSTANT DELAY, applied as a container offset -- no
+    re-encode, and bitmap subtitles survive. THIS PATH EXISTS ONLY FOR FILES
+    WHERE NO SINGLE DELAY HOLDS. The file LEAVES the normal flow at the refusal
+    and RE-ENTERS AT THE POINT IT LEFT, hung on
+    `best_video.sameAudioMD5UseForCalculation`. DOWNSTREAM -- track choice,
+    subtitles, the merge command -- NOTHING DISTINGUISHES A REPAIRED FILE FROM
+    A NORMAL ONE, and that is the point.
+
+    THE RESAMPLE IS APPLIED BEFORE THE CUTTING. They are not two routes and not
+    parallel boxes:
+
+        [0:candidate] -> speed_chain -> [spd] -> asplit -> pieces -> concat
+
+    THE SLOPE IS UNDERNEATH, THE STAIRCASE ON TOP. The candidate's `start_time`
+    is multiplied by the ratio FIRST and every slice time is then read on the
+    ALREADY-RESAMPLED candidate. `SPEC_ZONE_A.MD` s4 orders the marker
+    `chimeric+resampled` for exactly this reason. Built at the two lines that
+    prove it, not asserted: the speed chain is appended and `candidate_entry`
+    is rebound to `[spd]` BEFORE the `asplit` that makes the pieces.
+
+    A CONSTANT-OFFSET-NO-GAP PLAN IS REFUSED HERE, AND THAT REFUSAL MEANS
+    "GOES BACK TO THE CHEAP PATH", NOT "CANNOT BE HELPED". Two sentences a
+    successor must never merge. The reasoning is below, at the refusal itself.
+
+    AND `normalize_segments` REFUSES RATHER THAN CLAMPS -- not by discipline:
+    there is NO CLAMPING MACHINERY IN IT AT ALL. A gap in the plan becomes a
+    MASTER piece, never emptiness.
+
 Marquage: SPEC_ZONE_A.MD s4. La chaine est posee comme tag de piste Matroska
 `VMSAM_FABRICATED` sur le fichier produit ici. Mesure 2026-09-03: ce tag survit
 a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
