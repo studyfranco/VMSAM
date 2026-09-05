@@ -89,6 +89,31 @@ FOR:** *the check counted the files REMAINING without seeing that one had just c
       consumed by `generate_launch_merge_command` WITHOUT the delay machinery
       -- because it no longer needs one. IT IS A FILE LIKE THE OTHERS AGAIN.
 
+## 2b. THE MARKER THAT WOULD SEPARATE THEM IS COMPUTED AND THEN DROPPED
+
+> **`record(candidate_path, outcome, reason, detail)` TAKES A FOURTH ARGUMENT AND
+> ***NEVER PUTS IT IN A LOG LINE.*** VERIFIED BY AST AT THE AUTHORITY:**
+
+    record()'s only `tools.logs.append` interpolates  outcome · candidate_path · reason
+    it does NOT interpolate                           **detail**
+    `plan_kind` is passed ONLY as `detail`, at :2075 and :2080
+    -> `detail` reaches `last_repair_report` IN MEMORY and reaches NO READER.
+
+**SO A ROUTING DECISION AND A DEAD END BOTH EMIT `declined`, AND THE STRUCTURED MARKER THAT WOULD
+TELL THEM APART — `plan_kind: "constant"` — IS PUT IN A DICT AND THROWN AWAY BEFORE ANY REPORT SEES
+IT.** *Measured by `vmsam-dev-4` on its own corpus: 16 `repair: declined` lines, 4 carrying the
+constant-offset prose, **0 carrying a `plan_kind` marker**, against a control of 1706 `repair:` lines
+— the search has power.*
+
+    **IF YOU ARE WRITING A CAUSE, PUT IT IN `reason`, NEVER IN `detail`.**
+    `dev-2` avoided this an hour before it shipped, by using `reason` for its cause
+    tokens -- and it said plainly that it used `reason` BECAUSE THE OLD STRING WAS
+    THERE, not because it had checked. **INHERITANCE, NOT INSIGHT.** The next seat
+    will not inherit anything.
+
+*The value exists, it is one interpolation away from the log line, and it is inside the REPAIR
+boundary.*
+
 ## 3. THE TWO SENTENCES A SUCCESSOR MUST NOT CONFUSE
 
     "THIS FILE CANNOT BE HELPED"            -> a dead end

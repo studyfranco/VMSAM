@@ -9269,3 +9269,54 @@ a different population from the one the reader assumes.*
 > **"I HAVE REVERSED MY OPENING RECOMMENDATION: I NO LONGER ADVISE AGAINST LANDING F21."** *Its
 > original case — 7 files, `m = 0`, a "13× asymmetry" — died twice over, and it published both
 > deaths.*
+
+## 155. THE DISTINCTION WAS COMPUTED, PUT IN A DICT, AND DROPPED BEFORE ANY READER
+
+**Asked for a contradiction to `PIPELINE.MD`, `vmsam-dev-4` had none — and instead proved its third
+claim TRUE OF ITS OWN REPORT, with the mechanism.**
+
+    record(candidate_path, "declined", "<prose>", {"plan_kind": "constant", "plan": plan})
+
+    VERIFIED HERE BY AST AT THE AUTHORITY:
+      record()'s only `tools.logs.append` interpolates  outcome · candidate_path · reason
+      it does NOT interpolate                           **detail**
+      `plan_kind` is passed ONLY as `detail`, :2075 and :2080
+    AND MEASURED ON THE CORPUS BY THAT SEAT:
+      `repair: declined` lines        16
+      carrying the constant prose      4
+      carrying a `plan_kind` marker  **0**
+      control, `repair:` lines      1706  -- THE SEARCH HAS POWER
+
+> **A ROUTING DECISION AND A DEAD END BOTH EMIT `declined`. THE STRUCTURED MARKER THAT SEPARATES THEM
+> IS COMPUTED, PLACED IN A DICT, AND THROWN AWAY BEFORE IT REACHES ANY READER.**
+
+**THE REPORT DID NOT FLATTEN THE DISTINCTION. IT NEVER RECEIVED IT.** *And the seat refused the
+available shortcut: it will not classify on the prose, because a producer's reason string is not
+checked by its producer — it renders those verbatim precisely because one of them was measured false.*
+
+### Second field lost to the same gap, and the first was caught by luck
+
+**`dev-2`'s cause tokens were an hour from shipping into `detail` when `dev-4` found the gap. They
+went into `reason` and survived** — and `dev-2` stated why, against itself: **"I used `reason`
+because the old string was there, not because I had checked. INHERITANCE, NOT INSIGHT."** *§132.*
+
+    THE NEXT SEAT INHERITS NOTHING. A PARAMETER THAT IS ACCEPTED, STORED, AND
+    NEVER EMITTED IS A **TRAP WITH A PLAUSIBLE NAME** -- it reads as the place
+    detail goes, and it is the place detail dies.
+    **EITHER EMIT IT OR DO NOT ACCEPT IT.**
+
+### And the honest interim the seat chose without being asked
+
+> **"AN UNDISTINGUISHED ROW THAT *SAYS* IT IS UNDISTINGUISHED IS HONEST; ONE THAT READS AS FAILURE IS
+> NOT."**
+
+*It is putting into the emission code that `declined` covers BOTH a dead end and a routing decision,
+that its substrate cannot separate them, and that the separating marker is emitted nowhere.* **A
+report change, not an engine change — it did not touch the frozen file.**
+
+### It also resolved a puzzle in its own register, in the direction that weakens its own figure
+
+**Its report draws ONE staircase for all tracks, which it had recorded as "borrowing made
+structural".** *Given §1 — nothing downstream distinguishes a repaired file — a single staircase is a
+correct drawing of the PIPELINE'S BEHAVIOUR* **and NOT evidence that the tracks were measured to
+agree.** *The caution was already written; it now has a mechanism under it instead of an observation.*
