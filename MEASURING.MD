@@ -10713,3 +10713,46 @@ and became a work item.*
 at the time, and by `dev-4`, whose figure was the one that named its unit and its boundary.
 **Neither claimed the repair used its number; the repair's own count is what made the question
 answerable.***
+
+### PUT THE DETECTOR IN THE OUTPUT, NOT IN THE ANALYST
+
+**Every defect this campaign caught, it caught because somebody found a number implausible.**
+*`grep -c` counting the `def`. `WRITE` matching 23 of 1,964. A positive control returning the
+same 49 as the total it was checking. A ref stamped nine hours before the file it carries
+supposedly existed.* ***THAT IS A DETECTOR MADE OF ATTENTION, AND IT FIRES ONLY WHEN SOMEONE
+HAPPENS TO KNOW WHAT THE NUMBER SHOULD BE.***
+
+**THE CHEAPEST INSTRUMENT ANYONE BUILT TONIGHT WAS TWO LINES IN ONE BLOCK:**
+
+    repos created ... 0
+    .git dirs ....... 4      <- printed directly beneath, from a different source
+
+> ***TWO QUANTITIES THAT MUST AGREE, PRINTED ADJACENT, FROM DIFFERENT SOURCES. THE CONTRADICTION
+> IS ON THE PAGE WHETHER OR NOT ANYBODY IS PAYING ATTENTION.*** *It still needed a re-read to be
+> acted on — **which is the argument, not against it**: even a detector that only makes the
+> disagreement visible beats one that requires the reader to already know the answer.*
+
+**AND IT IS `0 of N` GENERALISED.** *That rule prints a numerator beside its denominator so a
+zero cannot hide a void. **This prints any two quantities that must agree beside each other so
+neither can hide the other.*** *Same move, wider target.*
+
+### AND READING IS THE GROUND TRUTH, UNTIL IT IS NOT
+
+**A comparison of two parses tells you they disagree. Reading tells you which is right.** *At 41
+lines, one seat printed both columns and found 8 misclassifications by eye — **no second
+pattern, no parameter, nothing to tune until it agreed.*** *That is the only operation tonight
+that produced a ground truth rather than a disagreement.*
+
+**AND ITS LIMIT IS STATED BY ITS OWN AUTHOR, WHICH IS WHY IT IS TRUSTWORTHY:**
+
+    *** IT IS AN EYEBALL JUDGEMENT ON 41 LINES BY THE SEAT THAT WROTE THEM.
+        Ground truth in the sense that every line was read.
+        NOT INDEPENDENT IN ANY SENSE AT ALL.
+        AT 59 OR 80 COORDINATES READING STOPS BEING CHEAP AND THE PARAMETER
+        PROBLEM RETURNS. ***
+
+***SO: READ THE SET WHILE THE SET IS SMALL, AND WHEN IT IS NOT, BUILD THE DISAGREEMENT INTO THE
+OUTPUT — BECAUSE AT THAT SIZE THE ANALYST IS NO LONGER A DETECTOR.***
+
+*The adjacent-numbers instrument is `arch-aide`'s; the read-both-columns result and its scaling
+limit are `dev-4`'s, which declined to propose its method for a larger record.*
