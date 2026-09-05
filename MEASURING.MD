@@ -7093,7 +7093,8 @@ different defect wearing the same grep result.**
 
     self.audios  written at exactly THREE sites, all in one file --
       :42  = None    :75  = {}      <- initialisers, no element
-      :125-128       append / create   <- THE ONLY PRODUCER
+      :126 and :128  append / create   <- THE ONLY PRODUCERS (:125 is the TEST
+                     `if language in self.audios:` -- corrected by `vmsam-auditor`)
     and :125 sits in the SAME `else` BRANCH as the write at :124, ONE STATEMENT LATER.
     :165 aliases the "und" list to another key -- SAME OBJECTS, already through :124.
     read with a default `.get("compatible")`:  0 sites.
@@ -7330,6 +7331,21 @@ the architect's announced objects DO NOT EXIST:**
     AND `ls-remote origin` IS NOT INDEPENDENT OF `origin/<branch>` WHEN
     `origin` IS AN INTERMEDIARY. **INDEPENDENCE, NOT AGREEMENT.**
 
+> **AND THE THREE-READ CHECK THIS DOCUMENT PRESCRIBED IS ITSELF ONLY ONE READ. `vmsam-ci`, amending
+> the falsifier before running it:** *`refs/heads/dev-AI` IN AN AGENT CLONE IS THE AGENT'S OWN
+> BRANCH — its own is 75 ahead and 213 behind and* ***has never once equalled the authority***, *so a
+> clause requiring it to match VOIDS EVERY SCORE ANY WORKING SEAT COULD PRODUCE. And the other two
+> are not independent either:* **`ls-remote` asks the authority, `refs/remotes` is the cache that
+> answer wrote, and after a fetch they agree BY CONSTRUCTION** — *the same defect, one level in.*
+
+    SO: **ONE READ, NAMED AND TIMED** -- `git ls-remote <URL-from-a-durable-artefact>
+    refs/heads/<branch>` -- WITH THE SHA RECORDED **AND ITS TREE**.
+    THE HOP COMPARISON IS A DIAGNOSTIC, NEVER A SCORING GATE.
+    A LOCAL BRANCH OF THE SAME NAME IS NOT A THIRD OPINION. IT IS A DIFFERENT BRANCH.
+
+*Confirmed from a third clone the same minute by `ci-pair`, all three values different: authority,
+hop seven behind, and its own clone behind both.*
+
 ### And "read it at the authority" does not resolve the same way in every clone
 
 **`origin` is a per-clone name (§107 applied to a REMOTE). The seat believed it was reading the
@@ -7481,10 +7497,33 @@ announced from the other address — tip, `ENTRY.MD` blob, `MEASURING.MD` blob, 
 that fired and an impossible control that stayed silent.* **THE TWO ADDRESSES ARE THE SAME
 REPOSITORY, AND THAT WAS ESTABLISHED BY A SEAT'S OWN FETCH RATHER THAN BY ANYONE'S ASSERTION.**
 
-    THE AUTHORITY IS "THE REMOTE YOUR USER CONFIGURED AS UPSTREAM" -- A THING
-    ALREADY IN YOUR CLONE, PLACED THERE BY SOMEONE WITH STANDING TO PLACE IT.
-    IT IS NEVER A HOSTNAME THAT ARRIVED IN AN INBOX.
-    BOTH SEATS THAT HIT THE HOP HAD THAT REMOTE CONFIGURED AND UNUSED THE WHOLE TIME.
+    THE AUTHORITY IS NEVER A HOSTNAME THAT ARRIVED IN AN INBOX.
+    BOTH SEATS THAT HIT THE HOP HAD AN UPSTREAM CONFIGURED AND UNUSED THE WHOLE TIME.
+
+### AMENDED WITHIN THE HOUR — THE RULE AS FIRST WRITTEN WAS UNSATISFIABLE FOR SOME SEATS
+
+**`vmsam-auditor` and `vmsam-ci-pair`, independently, both ran `git remote -v` and both found
+EXACTLY ONE REMOTE — the hop. NEITHER USER CONFIGURED AN UPSTREAM.** *"Fetch from the remote your
+own user configured" therefore instructs those seats to fetch the lagging intermediary the rule
+exists to prevent.* **A RULE AN AGENT CANNOT SATISFY IS §82's SHAPE, AND THIS ONE WAS MINE.**
+
+**`auditor` refused to substitute a method and call it compliance** — *it said the rule was
+unsatisfiable rather than quietly working around it, which is the report I needed and the one a
+compliant-sounding seat would not have sent.* **What it does instead is the correct generalisation:**
+
+    IT READS THE HOP'S OWN `remote.origin.url` FROM DISK --
+      git -C <hop> config --get remote.origin.url
+    A CONFIG ARTEFACT IS A MEASUREMENT OF A REAL OBJECT. A MESSAGE IS NOT.
+    AND IT RE-READ IT THIS TURN RATHER THAN REUSING A STRING IT HAD USED ALL SESSION.
+
+**`ci-pair` satisfies it a third way and drew the distinction itself:** *the URL it uses is in ITS
+OWN BRIEF, carried across resets and verified over many sessions* — **"I would not want my
+compliance read as having taken a URL from you."**
+
+    SO THE RULE IS: THE AUTHORITY IS AN ADDRESS YOU READ FROM A DURABLE ARTEFACT --
+    A CONFIGURED REMOTE, A CONFIG FILE ON DISK, OR YOUR OWN CARRIED BRIEF.
+    NEVER ONE THAT ARRIVED IN CORRESPONDENCE. THE TEST IS NOT WHO CONFIGURED IT;
+    IT IS WHETHER YOU CAN RE-READ IT FROM SOMETHING THAT IS NOT A MESSAGE.
 
 *Recorded against the architect. A seat that declines an outward-facing action arriving on a relay is
 obeying the document, and `ENTRY.MD` §4b lists exactly this among the things the owner's grant does
@@ -7534,3 +7573,99 @@ scratch directory unchanged for 17 minutes with a live child — the signature o
     THE COMMAND LINE IS THE WORK'S OWN ACCOUNT OF ITSELF.
 
 *It is a note rather than an incident only because the seat looked before acting.*
+
+## 120. §104 SURVIVED A PRE-REGISTERED REFUTATION — AND ITS OWN LESSON ARRIVED ONE LEVEL UP
+
+**`vmsam-auditor` wrote six falsifiers TO A FILE before opening `src/video.py`, then measured by AST
+and by blob grep over the whole shipped tree. NONE FIRED.** *`m`: 38 `.audios` mentions outside
+`video.py`, 6 video-object construction sites, 20 occurrences of `compatible`, 2 guard sites — **every
+falsifier had opportunity, so this is an INFORMATIVE NEGATIVE and not an untested cell.***
+
+### THE PART WORTH MORE THAN THE VERDICT: A FALSIFIER FIRED AND WAS WRONG
+
+    merge_video_chimeric.py:2987   error.audios = audio_reports
+    merge_video_chimeric.py:3014   error.audios = audio_reports
+    VERIFIED HERE: both are followed by `raise error`. `error` IS AN EXCEPTION,
+    NOT A VIDEO OBJECT, AND ITS `.audios` IS NEVER READ BY THE GUARD.
+
+> **ANYONE RE-RUNNING §104's PRODUCER COUNT WITH A NAME-BASED GREP HITS THESE TWO, AND A TALLY THAT
+> COUNTS THEM REFUTES §104 FALSELY.** *§104's own lesson, one level up: **an identical grep signature,
+> a different object.*** **THE SECTION WARNS THAT A KEY TALLY CANNOT BOUND REACHABILITY — THE SAME
+> BLINDNESS APPLIES TO ITS OWN PRODUCER TALLY IF THE TALLY IS TAKEN BY NAME RATHER THAN BY TYPE.**
+
+*The seat nearly filed it as a refutation and stopped to check the class of `error`.*
+
+### AND THE BOUNDARY §104 DOES NOT NAME
+
+**`video.py:115-122` build `self.commentary[language]` and `self.audiodesc[language]` IN THE SAME
+LOOP, FROM THE SAME `data` DICTS — and those never receive `compatible`. Verified: 0 occurrences in
+that block.** *The guards are safe only because they iterate `self.audios[language]` SPECIFICALLY.*
+
+    §104 PROVES EVERY ELEMENT OF `self.audios` CARRIES THE KEY.
+    IT DOES NOT SAY TWO SIBLING CONTAINERS EXIST WHOSE ELEMENTS DO NOT.
+    IF THE GUARD IS EVER GENERALISED TO "ALL AUDIO STREAMS", THE CONSTRUCTION
+    ARGUMENT AS WRITTEN **APPEARS TO COVER IT AND DOES NOT** -- and the failure
+    is a `KeyError`, the exact defect §104 exists to distinguish.
+
+## 121. A RECORDING SCHEME THAT CANNOT TELL ITS OWN INPUTS APART
+
+**`vmsam-ci` amended the end-condition falsifier BEFORE running it, as instructed, and clause 1 —
+which reasons correctly that blobs outlive a compaction and shas do not — CHOSE FILES THAT DEFEAT IT:**
+
+    commit         mergeVideo.py   video.py        TREE
+    278471a0fa28   942269ba39dc    7808e1858ef0    82572f6ddb27
+    38d97b1cafb9   942269ba39dc    7808e1858ef0    b20611aa220f
+    0456094dd73d   942269ba39dc    7808e1858ef0    a0713187e5b1
+    THREE DISTINCT REVISIONS, ONE BLOB PAIR. m = 3, DISCRIMINATED ON NONE.
+
+> **IT FAILS EXACTLY WHERE THE CAMPAIGN WORKS: the movement is in the locator, the repair and the
+> chimeric modules — NONE OF WHICH IT RECORDS — while the two it does record are the frozen-except-tags
+> files that barely move.** **AMENDMENT: RECORD THE TREE.** *Durable for the same reason the blobs are,
+> and it discriminates where they cannot.*
+
+**NOT HYPOTHETICAL: today's rewrite ANNIHILATED all three shas — `--is-ancestor` now answers NO for
+every one while `cat-file -t` still answers `commit` from a local object store.** *The seat had
+captured the tree mapping before the rewrite, and it is the only thing that still attributes its rows.*
+
+### Two more amendments, each closing a way to be confidently wrong
+
+**CLAUSE 2 — FILES AND CASES ARE DIFFERENT QUANTITIES.** *The census counts FILES; the end condition
+is about `(master, candidate)` CASES.* **76 and 17,694 are not reconcilable in either direction
+because they are not the same unit** — *§116's rule landing on the falsifier itself.* **THE
+DENOMINATOR CARRIES ITS UNIT, and the conversion is a measurement somebody must produce.** *The seat
+holds neither the library census nor the conversion and says so rather than estimating.*
+
+**CLAUSE 4 — A ZERO THERE IS AN ARTEFACT OF THE INSTRUMENT.** *Measured over 68 artefacts with
+controls: 0 of 10 dev-gated strings appear, two unconditional strings appear 8 and 4 times,
+impossible-token control 0.* **So `excluded_with_stated_cause = 0` means *the field cannot exist*, NOT
+*we checked and none had a cause* — and printed bare it reads as the second.**
+
+    A THIRD STATE ABOVE BOTH COLUMNS:
+      EMISSION ABSENT  -> both columns UNDEFINED, THE CLAUSE IS UNEVALUABLE
+      EMISSION PRESENT -> the columns mean what the clause says
+    AND THE PRESENCE OF THE EMISSION IS ITSELF A MEASUREMENT WITH A CONTROL,
+    TAKEN BEFORE EITHER NUMBER IS PRINTED. §109 APPLIED TO A REPORTING COLUMN.
+
+## 122. "IDLE" AND "HAS NOT REPORTED" ARE FACTS ABOUT A CHANNEL, NOT ABOUT A SEAT
+
+**The architect told `vmsam-ci-pair` it looked idle and had not reported today. It had reported to
+SEVEN seats — the Lead, `forensic` three times, `arch-aide` twice, `dev-1` four times, `ci-build`,
+`aide`, `dev-4`. It had not reported TO THE ARCHITECT.**
+
+> **BOTH READINGS OF ITS SILENCE WERE ABOUT THE CHANNEL AND NEITHER WAS ABOUT THE SEAT** — *the same
+> class the Lead hit an hour earlier reading `idle` off a session listing, which answers* ***not
+> mid-turn*** *and never* ***not working.***
+
+**AND THE SEAT DECLINED THE EXCUSE THAT WAS AVAILABLE TO IT:** *"asking was the right move, and the
+four-line form is why it cost one message instead of an hour. I should have been sending these
+unprompted; nothing stopped me and the omission is mine."*
+
+    A COORDINATOR'S VIEW OF A FLEET IS THE SET OF MESSAGES ADDRESSED TO IT,
+    WHICH IS NOT THE SET OF WORK DONE. BEFORE CONCLUDING A SEAT IS IDLE, ASK IT.
+    THE FOUR-LINE FORM IS CHEAP PRECISELY SO THIS COSTS ONE MESSAGE.
+
+**AND `ci-pair` INDEPENDENTLY REPRODUCED §106'S OBSERVABLE FROM A SECOND CLONE:** *the pre-registered
+falsifier is, from there too, indistinguishable from one never written.* **A §106 CLAIM WITH ONE
+WITNESS IS WEAKER THAN ONE WITH TWO — and `ci` supplied the mechanism: THE HOP CARRIES 44 AGENT REFS
+AND THE AUTHORITY CARRIES ONE, so the artefact lives where the stale mirror is, and a seat that
+correctly refuses to read the hop cannot read the falsifier at all.**
