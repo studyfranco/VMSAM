@@ -9375,3 +9375,76 @@ permitted, and the fetch makes the question moot."* **IT REFUSED TO RESOLVE THE 
 TIME PRESSURE ON A PEER'S REQUEST, WHEN A ROUTE EXISTED THAT NEEDED NO AMBIGUITY RESOLVED AT ALL.**
 
 *The best answer to a contested permission is often a path that does not require the permission.*
+
+## 158. THE TIP IS CLEAN. THE HISTORY IS NOT. AND THE PROOF OF ONE IS THE PROOF OF THE OTHER.
+
+**VERIFIED INDEPENDENTLY BY THE ARCHITECT ON THE BLOBS `origin/dev-AI` ACTUALLY SERVES, after
+telling the owner once that it was fixed when it was not:**
+
+    POSITIVE CONTROL, pre-redaction blobs   1 and 1  -> THE SEARCH HAS POWER
+    served blobs after the collection       0 and 0
+    WHOLE PUBLISHED BRANCH                  **0 files** (was 2)
+    `git cat-file -t <pre-redaction blob>`  -> **blob.** STILL THERE.
+
+> **THE POSITIVE CONTROL THAT PROVES THE REDACTION WORKED IS *ITSELF* THE PROOF THE OLD CONTENT IS
+> STILL REACHABLE.** *The Lead noticed this about its own report: it used the pre-redaction blobs as
+> its control, which is exactly what demonstrates they survive.*
+
+    A REDACTION ADDS A COMMIT. IT DOES NOT REMOVE A BLOB.
+    THE ONLY REMEDY IS A HISTORY REWRITE OF THE PUBLISHED BRANCH -- **§101** --
+    AND IT ANNIHILATES EVERY BLOB CITATION INTO IT.
+    THAT IS THE OWNER'S DECISION AND NO SEAT MAY TAKE IT ON A RELAY.
+
+### And the sentence this cost, worth the whole exchange
+
+> **A REDACTION THAT EXISTS ONLY IN A CLONE IS, FROM EVERY OTHER CLONE, THE SAME OBSERVABLE AS NO
+> REDACTION AT ALL.**
+
+*`ci` measured its own redaction correctly — planted-string positive control, negative control, a
+complete-residual complement showing no script codepoint left — and every one of those measurements
+was taken IN ITS OWN CLONE while the published branch still carried the title.* **Its own sentence
+applied to itself: a zero from a redacted file and a zero from a broken search are the same
+observation. SO IS A ZERO MEASURED IN THE WRONG REPOSITORY.**
+
+**NEITHER THE ARCHITECT NOR THE LEAD FILED IT AGAINST `ci`, AND BOTH SAID WHY: it found the exposure
+in its own file, reported it against itself before anyone asked, redacted both files, CAUGHT ITS OWN
+FIRST PASS BEING INCOMPLETE, and ran to fixpoint.** *The Lead filed the gap against itself instead —
+"promotion is my seat, and it sat while I was measuring other people's sweeps."*
+
+### ci's own first-pass defect is the day's rule committed inside the repair for it
+
+**Its redaction regex REQUIRED THE LATIN TAIL shared with the native form. It caught one romanised
+title and MISSED THE SIBLING ON THE NEXT LINE** — *twenty minutes after filing that exact
+anti-detector defect against six other instruments.*
+
+    ITS OWN BRIEF: "A SANITISER THAT NEEDS TWO PASSES LEAKS FOR EVERYONE WHO RUNS IT ONCE."
+    SO IT RAN TO **FIXPOINT** -- the loop repeats until the set is empty -- RATHER THAN
+    TRUSTING ONE PASS. AND THE PLACEHOLDER **RAISES** IF THE PRIVATE STORE IS MISSING,
+    BECAUSE A SILENT EMPTY STRING WOULD MAKE EVERY MEMBERSHIP TEST FALSE AND THE SWEEP
+    WOULD REPORT A CLEAN ZERO OVER MATERIAL IT NEVER MATCHED.
+    **IT BUILT THE FAILURE TO BE LOUD RATHER THAN CLEAN.**
+
+## 159. THE THIRD SCOPE CHECK, AND IT WOULD HAVE DELETED THE ENGINE
+
+    diff authority .. the seat's head, measured BEFORE collecting:
+      89 files · 8,352 insertions · *** 18,855 DELETIONS ***
+      including ALL of src/merge_plan_report.py, and 782 / 1,679 / 1,606 lines
+      off the locator, the chimeric and the repair modules.
+    COLLECTED BY PATH. TWO FILES. NOTHING ELSE STAGED.
+
+> **THREE COLLECTIONS TODAY, THREE COUNTERFACTUALS: 729 LINES OF GOVERNANCE, THEN ONE RETRACTED
+> STATEMENT, NOW 18,855 LINES INCLUDING THE ENGINE.** *"Promote by blob, never by tree" has been a
+> rule all campaign; today it acquired three numbers.*
+
+**A CLONE IS STALE ON EVERYTHING IT IS NOT WORKING ON. That is the normal state, not a defect — and
+it is why a tree-level promotion from any seat is a deletion of everything every other seat did
+since that seat last fetched.**
+
+### And a standing form worth more than the rule it replaces
+
+**The Lead stopped ASKING a seat for its head and began FETCHING THE CLONE AND READING IT:**
+
+> ***"A QUESTION CAN BE ANSWERED STALE, CROSSED, OR READ PAST. A FETCH CANNOT."***
+
+*Adopted after the architect proved that the blobs a seat announced were not the blobs being served —
+and the same is true of any blob in any message, including this document's.*
