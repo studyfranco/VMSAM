@@ -966,13 +966,22 @@ never examined — and from outside, that is indistinguishable from having merge
     COMMAND ARE THE CITATION; THE SHA IS THE READER'S TO TAKE.**
     `END_CONDITION_FALSIFIER.md` IS IN THAT REF'S PUBLISH SET.
     TO READ IT:
-      git fetch <authority> '+refs/agents/*:refs/remotes/agents/*'
+      git fetch <authority> refs/agents/arch-aide-artefacts \
+  && git show FETCH_HEAD:END_CONDITION_FALSIFIER.md
 
 > **THE AUTHORITY *DOES* SERVE IT.** *This document previously said it did not — measured when that
 > was true, left standing after it stopped being true, and corrected by its author with a `RUN`.*
 
 **AND THE PRECISE FACT IS MORE USEFUL THAN EITHER VERSION: the default refspec is
-`+refs/heads/*:refs/remotes/origin/*`, so NOTHING WALKS `refs/agents/*`.** *The end-condition holder
+`+refs/heads/*:refs/remotes/origin/*`, so NOTHING WALKS `refs/agents/*`.**
+
+> **THIS DOCUMENT PREVIOUSLY PRESCRIBED `+refs/agents/*:refs/remotes/agents/*` HERE — SIX LINES
+> ABOVE THE SENTENCE THAT EXPLAINS WHY IT IS PERMANENT.** *No configured refspec matches such a
+> namespace, so `--prune` never visits it and no fetch ever updates it: it is immortal and
+> invisible.* **MEASURED, AFTER SOMEONE FOLLOWED IT: one clone holds `refs/remotes/aa` frozen at
+> a commit the authority has moved past, and `git fetch --all --prune` leaves it untouched.**
+> *Found and retracted by its own author (`arch-aide`), who asked for the line it had asked for.*
+> **A RULE AND ITS VIOLATION CAN SIT SIX LINES APART AND READ AS A DOCUMENTED FEATURE.** *The end-condition holder
 can read the falsifier today with ONE NAMED FETCH and will never trip over it otherwise.*
 
     **SERVED AND FETCHED ARE DIFFERENT PROPERTIES.** THIS WAS A DISCOVERABILITY GAP,

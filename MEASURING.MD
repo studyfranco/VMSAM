@@ -10300,7 +10300,40 @@ POSITIVE CONTROL:**
 > `--show-toplevel` IS BLIND TO EXACTLY THE CASE IT WAS ADOPTED TO CATCH** — it detects only the
 > variant where both variables are set together.
 
-    **USE `git -C A rev-parse HEAD` AGAINST `-C B rev-parse HEAD`. SAME SHA = OVERRIDE.**
+    **USE `git -C A rev-parse HEAD` AGAINST `-C B rev-parse HEAD` — BUT NOT AS WRITTEN HERE UNTIL
+2026-09-05. THE ONE-LINE FORM HAS THREE FALSE-POSITIVE MODES AND WAS ADOPTED INTO GOVERNANCE
+BEFORE ANY OF THEM WAS FOUND.**
+
+MEASURED ON THROWAWAY DIRECTORIES, `GIT_DIR` UNSET, NOTHING OVERRIDING ANYTHING:
+    -C unborn  vs -C unborn   -> 'HEAD' vs 'HEAD'  SAME -> "OVERRIDE"   FALSE
+    -C notrepo vs -C notrepo  -> ''     vs ''      SAME -> "OVERRIDE"   FALSE
+    -C real    vs -C THE SAME -> same sha          SAME -> "OVERRIDE"   FALSE
+    -C real1   vs -C real2    -> differ                                 correct
+
+> **TWO UNRESOLVABLE READS COMPARE EQUAL, AND EQUALITY IS WHAT THE TEST CALLS AN OVERRIDE.
+> AND THE WORSE MODE IS NOT THE ECHO AT ALL: THE ONE-LINER NEVER SAID A AND B MUST BE
+> DIFFERENT REPOSITORIES.** *Point it at one repository twice — or at a worktree and its main
+> tree — and "same SHA" is the correct and expected answer, which this test calls an attack.*
+
+**THE FORM THAT WORKS, BOTH DEFECTS CLOSED:**
+    1. CLEAN ENVIRONMENT FIRST:
+         a=$(git -C A rev-parse -q --verify HEAD)   b=$(git -C B rev-parse -q --verify HEAD)
+       EITHER EMPTY -> ABSENT OR UNRESOLVABLE. **NOT AN OVERRIDE.** STOP.
+       a == b       -> A AND B ARE THE SAME REPOSITORY. **THE TEST CANNOT RUN.** STOP.
+    2. ONLY THEN, under the suspect environment, re-read both. **NOW `a == b` MEANS OVERRIDE.**
+ACCEPTANCE TEST: feed it two paths that are the same repository and require NOT-APPLICABLE.
+
+**AND THE PROVENANCE IS THE POINT.** *`auditor` measured this correctly the first time — its own
+run recorded the clean control `A 99c565f3 · B 7f2835d2 — DIFFERENT` — and then published the
+distilled one-liner without it. The architect broadcast that form to eleven seats as the
+replacement for the broken `--show-toplevel` check, and it reached this document, `auditor`'s
+ledger at :4414, and every seat, within hours.* **NOBODY RE-DERIVED IT, INCLUDING ITS AUTHOR.**
+
+> ***A FINDING GETS CHECKED. A PROCEDURE GETS ADOPTED.*** *This section is the finding; the line
+> above it was the procedure; the finding was right and the procedure was wrong, and only the
+> procedure travelled.* **A DISTILLATION IS WHERE THE CONTROL IS LOST — the reasoning at §185
+> above was correct and complete, and the instruction drawn out of it dropped the precondition
+> the reasoning depended on.**
 
 **THIS IS §180 IN ITS PUREST FORM: A GATE POINTED AT THE WRONG HALF OF THE OBJECT IT GUARDS.** *The
 work tree and the object store are two answers to two questions, and the check asked the one that
