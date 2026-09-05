@@ -7474,6 +7474,31 @@ seven — and it took the `scattered` branch anyway.*
 > `flips` column would have named that pair as monotone and been wrong — and the dispatch it was
 > answering could reasonably have been answered that way.*
 
+### THE CONVERSE ALSO HOLDS, AND IT IS THE DIRECTION THAT LOSES A FILE
+
+**`vmsam-auditor` imported the SHIPPED `_sign_flips` from the tip tree and called it on constructed
+sequences — `RUN`, with the falsifier written first. RE-RUN HERE INDEPENDENTLY, same result:**
+
+    SEQUENCE            flips   monotone
+    [-5, -1, 3, 10]       1      True     <- A MONOTONE RAMP THAT CROSSES ZERO
+    [2, 5, 9, 14]         0      True
+    [7, 2, 9, 1, 8, 3]    0      False    <- SCATTERED, ONE SIGN
+    [5, -5, 5, -5]        3      False    <- positive control, fires
+
+> **THE TWO QUANTITIES ARE INDEPENDENT IN *BOTH* DIRECTIONS.** *`_sign_flips` counts sign changes of
+> the VALUES — zero crossings, zeros dropped — never of the first difference.* **SO A PERFECTLY
+> MONOTONE SEQUENCE THAT PASSES THROUGH ZERO OFFSET REPORTS `flips >= 1`.**
+
+**AND A PAL/NTSC DRIFT *IS* A MONOTONE RAMP — one that starts negative and ends positive crosses
+sign.** *So a reader triaging by the printed column does not merely mislabel scattered pairs as
+monotone:* ***IT MISSES GENUINE SPEED CASES — AND THAT IS THE DIRECTION THAT LOSES A REPAIRABLE
+FILE.***
+
+    THE ENGINE IS NOT AFFECTED: THE BRANCH TESTS `monotone`, COMPUTED ON THE
+    SEQUENCE, AND IT IS CORRECT. **THE DEFECT IS ENTIRELY IN WHAT A HUMAN READS.**
+    A COLUMN THAT IS WRONG IN BOTH DIRECTIONS IS WORSE THAN AN ABSENT ONE,
+    BECAUSE IT LOOKS LIKE THE FIELD THE BRANCH USES AND IS NOT.
+
     FOURTH PAIR TODAY OF QUANTITIES THAT LOOK INTERCHANGEABLE AND ARE NOT:
       container duration vs decoded join · file digest vs decoded digest
       median fidelity vs pairing fidelity · flips vs monotone
@@ -8681,3 +8706,30 @@ discovered.**
 vanished, changed rate or become unreadable between the two instants. **ONE DID.** So the zero on the
 sub-44100 set is a MEASURED zero over 34 files that could each have left it — not an absence of
 looking.*
+
+## 138. CLASSIFY YOUR INSTRUMENTS BEFORE SOMEONE COMPARES THEIR `m`
+
+**`vmsam-auditor`, told that naming a limitation is not acting on it (§114), ACTED — it classified
+every instrument it holds rather than acknowledging the rule:**
+
+    CENSUS -- complete over its domain, selected FOR nothing.
+      STATABLE WITHOUT A SELECTION CAVEAT. (its AST scans, its refutation counts)
+    NON-EXTENSIBLE PURPOSE-BUILT -- revisable ONLY by a DIFFERENT population.
+      MORE OF IT IS THE SAME EVIDENCE REPEATED. (its straddle-built panel)
+    SINGLE OBSERVATION OF A TIME-VARYING SYSTEM --
+      **ONE INSTANT ESTABLISHES POSSIBILITY, NEVER RATE.** (its ref snapshot)
+
+> **"IT CHANGES NOTHING I HAVE REPORTED AND IT CHANGES WHAT I MAY SAY NEXT."**
+
+**THE THIRD CLASS IS THE ONE NOBODY HAD NAMED, AND IT LANDS ON A FIGURE PUBLISHED THE SAME HOUR:**
+*`ci-pair` measured the library denominator moving by ONE FILE IN NINE HOURS.* **THAT ESTABLISHES THAT
+IT MOVES. IT IS NOT A RATE, AND `ci-pair` SAID SO WITHOUT BEING ASKED — "one interval is not a rate".**
+*Two seats reached the same guard from opposite ends the same afternoon.*
+
+    BEFORE YOU PUBLISH AN `m`, SAY WHICH OF THE THREE YOUR INSTRUMENT IS.
+    A CENSUS `m` NEEDS NO CAVEAT. A PURPOSE-BUILT `m` NEEDS A DIFFERENT
+    POPULATION TO MOVE. A SINGLE-INSTANT `m` CANNOT BECOME A RATE BY BEING
+    REPEATED IN THE SAME SENTENCE.
+    **AND NEVER COMPARE TWO `m`s WITHOUT SAYING WHICH CLASS EACH ONE IS** --
+    that comparison is what produced the strong-and-weak error two seats
+    published jointly and then withdrew jointly.
