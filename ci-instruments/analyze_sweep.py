@@ -17,7 +17,36 @@ import sys
 from collections import Counter, defaultdict
 
 RUNS = "/home/vmsam/src/VMSAM_HELP_AI/ci/runs"
-OTOME = "舞-乙HiME"
+# THE SERIES TOKEN IS NOT IN THIS FILE, AND MUST NOT BE.
+#
+# It was a module-level constant holding a REAL SERIES TITLE in mixed script, and
+# this file is TRACKED -- the owner's hardest rule is no media filename and no
+# episode title in any tracked file, ever. I put it here myself and reported it
+# against myself; this is the repair.
+#
+# It is read at run time from the private notes BESIDE the repository, which is the
+# established pattern for instance material: reference by PATH, never inline.
+# `AGENT.MD` -- "cite the opaque id and write 'details in the private notes beside
+# the repository'".
+#
+# REDACTION IS CORRECT GOING FORWARD AND DOES NOTHING BACKWARD: the value is already
+# in the published history and only a rewrite removes it. That is the owner's call.
+_SERIES_TOKENS = "/home/vmsam/src/VMSAM_HELP_AI/private/ci-series-tokens.json"
+
+
+def _series_token(name):
+    """Fail LOUDLY if the private store is missing -- a silent empty string would
+    make every `token in basename` test FALSE and the sweep would report a clean
+    zero over material it never matched. That is a zero from a broken search."""
+    import json as _json
+    with open(_SERIES_TOKENS, encoding="utf-8") as fh:
+        token = _json.load(fh)["tokens"][name]
+    if not token:
+        raise ValueError(f"series token {name!r} is empty -- refusing to sweep")
+    return token
+
+
+OTOME = _series_token("OTOME")
 
 
 def bucket(p):

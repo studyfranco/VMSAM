@@ -20,8 +20,8 @@ will try them.
 
 ### Refuted 1 — match the filename against the folder name
 
-The signal in folder 103 was that error files name themselves `舞-乙HiME`
-(Mai-Otome) while the folder is `Mai-HiME`. Generalising that to "flag any error
+The signal in folder 103 was that error files name themselves `<SERIES-A-NATIVE-SCRIPT>`
+(<SERIES-B>) while the folder is `<SERIES-A>`. Generalising that to "flag any error
 file whose title does not match its folder" is wrong here, and measurably so.
 
 Folders legitimately hold releases named under a different convention for the
