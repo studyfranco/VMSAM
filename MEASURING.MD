@@ -8331,3 +8331,64 @@ correction reached the source before any successor read it.*
 revision, not read off accumulated logs.** *The owner authorised exactly that — "quitte à refaire
 1000 fois le même fichier" — and this is the measurement that shows why the authorisation was
 necessary rather than generous.*
+
+## 130. `grep -c` COUNTED THE DEFINITION AS A CALL SITE — IN THE DISPATCH AND IN TWO SEATS
+
+**`vmsam-dev-2` corrected a figure that had passed through three parties unchallenged:**
+
+    grep -c 'record('  ->  11        <- what the dispatch said, and dev-1, and dev-2
+    of which `def record(`  1
+    AST, calls to record()  ->  10   <- VERIFIED HERE INDEPENDENTLY
+
+> **THE ELEVENTH WAS THE DEFINITION.** *The seat named it as "verbatim a defect in my own ledger from
+> yesterday" — **counting MENTIONS as INSTANCES** — and it reached the dispatch because the architect
+> ran the same command and never questioned the shape of its output.*
+
+    A TEXT SEARCH COUNTS OCCURRENCES OF A STRING. IT DOES NOT COUNT USES OF A THING.
+    THE DECLARATION LOOKS EXACTLY LIKE A USE AND IS THE ONE OCCURRENCE THAT IS NOT ONE.
+    WHEN A COUNT DRIVES A DECISION -- how many sites a change must reach -- PARSE, DO
+    NOT GREP. `ast.walk` COSTS ONE LINE AND THE ERROR IS ALWAYS EXACTLY ONE HIGH.
+
+## 131. THE POSITIVE CONTROL CAUGHT THE SEAT THAT WROTE THE ACCEPTANCE TEST
+
+**`vmsam-dev-2` wrote five acceptance clauses before changing anything, and R4 — the mandatory sink
+control — is the one that would have made its result false:**
+
+> ***"This is the clause that would have caught me: my harness runs with dev off, and `record()`
+> reaches `tools.logs` for `no_plan` only through a SECOND clause. Assuming it would have been a zero
+> from a dead sink."***
+
+**IT PROVED THE SINK LIVE IN-PROCESS AT `tools.dev = False` — THE SETTING THE MEASUREMENT ACTUALLY
+RUNS AT — BEFORE CLAIMING ANY ABSENCE, with a negative control silent.** *§109 was written from
+another seat's false result the same day; this is the first time it PREVENTED one instead of
+explaining one.*
+
+### And R3 was answered structurally rather than by sampling
+
+**Instead of running one accepting pair and reporting it unchanged, the seat compared the AST: 8 of
+10 `record()` sites BYTE-IDENTICAL, 0 non-`no_plan` sites changed — then ran a pair as well.**
+
+    A SAMPLED CONTROL SAYS "THE ONE I TRIED DID NOT CHANGE".
+    A STRUCTURAL CONTROL SAYS "NONE OF THEM CHANGED", AND COSTS LESS.
+    PREFER THE PROOF THAT COVERS THE POPULATION OVER THE RUN THAT COVERS A MEMBER.
+
+## 132. "INHERITANCE, NOT INSIGHT" — AND A RESULT THAT WAS THE SEAT'S OWN SUBSTRATE
+
+**Two disclosures the seat volunteered, neither of which anyone would have caught:**
+
+**ON SURVIVING A TRAP IT HAD NOT SEEN:** *`record()`'s `detail` parameter reaches no log line — 28
+`tools.logs.append` sites, zero interpolate it. The change survives because it used `reason`.*
+> ***"But I used it because the old string was there, not because I had checked. INHERITANCE, NOT
+> INSIGHT."***
+
+**A CORRECT OUTCOME REACHED WITHOUT THE REASONING THAT MAKES IT CORRECT IS A COIN THAT LANDED WELL.**
+*It generalises to nothing, and the next site — where no old string sits — is where it fails.*
+
+**AND ON A RESULT IT NEARLY REPORTED:** *all three firings of one new token carried a route value that
+is* ***the seat's own empty dict*** *— populated upstream of its zone by a path its lab never runs.*
+**"They verify the EMISSION FORM and say nothing about how often production reaches that site."**
+
+    A FIXTURE THAT REACHES A BRANCH BECAUSE THE HARNESS LEFT SOMETHING EMPTY HAS
+    MEASURED THE BRANCH'S SHAPE AND NOT ITS FREQUENCY. SAY WHICH.
+    *The production figure from another seat STANDS BESIDE IT rather than correcting
+    it -- §85 obeyed: two measurements, each stating what it cannot conclude alone.*
