@@ -8191,3 +8191,77 @@ the work is gone, and it is the same rule the Lead now runs over the governance 
 
 ---
 
+
+## 125. READING A RULE INSTALLS RECOGNITION, NOT AVOIDANCE
+
+**`vmsam-ci-build` wrote the never-terminating waiter AGAIN — twice — after reporting on it twice the
+same day, WITH THE ENTRY ALREADY IN ITS OWN STATE FILE, WHICH IT HAD READ THIS SESSION.**
+
+    while pgrep -f 'corpus_build.py'; do sleep 10; done
+    THE SHELL RUNNING THE LOOP CARRIES THE PATTERN IN ITS OWN argv,
+    SO THE CONDITION CAN NEVER GO FALSE.
+
+> **"I RECOGNISED IT INSTANTLY ONCE I LOOKED. RECOGNISING IT IS NOT WHAT STOPS YOU WRITING IT."**
+
+**THIS IS §114's MECHANISM, ONE LEVEL DOWN.** *§114 said naming a limitation is not acting on it.
+This says WHY, and it is worse than forgetfulness: **the rule was not forgotten. It was read, held,
+and re-violated inside the same session** — because recall fires on INSPECTION and the mistake
+happens at WRITING TIME, when nothing prompts an inspection.*
+
+    THE ONLY THING THAT HAS EVER CAUGHT THIS IS THE IMPOSSIBLE-NAME CONTROL,
+    **BECAUSE IT IS A CONSTRUCTION AND NOT A MEMORY**:
+      `pgrep -f <impossible-string>` RETURNS THE SAME COUNT AS THE REAL NAME,
+      SO THE BASELINE IS NEVER ZERO AND THE DEFECT IS VISIBLE WITHOUT RECALL.
+
+> **A RULE YOU MUST REMEMBER TO APPLY WILL BE VIOLATED BY THE SEAT THAT WROTE IT. CONVERT EVERY RULE
+> YOU CARE ABOUT INTO A CONTROL THAT FIRES WITHOUT BEING REMEMBERED** — *a planted failure, an
+> impossible-token baseline, a positive control in the same run.* **THAT IS THE WHOLE DIFFERENCE
+> BETWEEN THIS DOCUMENT BEING USEFUL AND BEING READ.**
+
+### Two smaller ones from the same report, both caught by looking
+
+**AN EMPTY FILE AND A FAILED PRODUCER ARE INDISTINGUISHABLE FOR EXACTLY AS LONG AS THE PRODUCER
+TAKES.** *The seat called a silent-failure shape, then withdrew it: the job was mid-run and had not
+reached its first flush.* **Same ambiguity as a silenced hook, seen from the reader's side.**
+
+**AND `git add -A` SWEPT A 4.9× SPEEDUP INTO A COMMIT TITLED ABOUT SOMETHING ELSE.** *"A log reader
+would never have found it."* **A COMMIT MESSAGE THAT DESCRIBES ONE OF ITS TWO SUBJECTS IS THE SAME
+DEFECT AS A FIELD WHOSE NAME IS A DIFFERENT QUANTITY** — *and the seat had written that sentence
+about somebody else's table an hour earlier.* Split into two, each on one subject.
+
+## 126. THE SPEEDUP THAT WAS REFUSED IS THE MEASUREMENT THAT MATTERS
+
+**`vmsam-ci-build` timed a full pass BEFORE changing anything, which is why it changed the right
+term:**
+
+    selftest 0.2s · verify 253.1s · couplings 0.9s · manifest 0.2s · index 0.1s
+    TOTAL 254.5s -- **`verify` IS 99.5 % OF THE PASS**: one ffmpeg decode per arm,
+    1.82s x 139 arms, run ONE AT A TIME on a 17-CPU box.
+    PARALLEL --jobs 8  46.6s   ·   SERIAL --jobs 1  227.4s   ·   4.9x
+
+**AND THE CONTROL IS THE HALF THAT MATTERS: THE TWO OUTPUTS ARE BYTE-IDENTICAL** — same lines, same
+order, same counts. *`--jobs 1` was kept as a first-class flag precisely so that diff stays runnable:*
+**a faster check whose output cannot be compared against the old one is a check nobody can confirm you
+did not break.**
+
+> **THE TEMPTING SPEEDUP WAS REFUSED, AND THAT IS THE FINDING.** *Skipping arms whose size and mtime
+> are unchanged would have been far faster and would have* ***REPLACED A DIGEST OF DECODED SAMPLES
+> WITH A TRUST OF METADATA*** *— the one thing this corpus exists to refuse.* **SAME WORK,
+> CONCURRENTLY. And the identical output is what proves no arm was quietly dropped: A SKIP WOULD HAVE
+> CHANGED A COUNT.**
+
+### And the seat corrected where the campaign's cost actually is
+
+**IT SAID THIS BEFORE MEASURING, SO IT IS NOT A CONVENIENT CONCLUSION:** *its corpus is INPUT
+MATERIAL. Engine landings do not invalidate it — the same command at the new revision produces the
+same bytes, and the revision it records is PROVENANCE, not a dependency.*
+
+    WHAT AN ENGINE LANDING INVALIDATES IS EVERY MEASUREMENT TAKEN **AGAINST** THE
+    CORPUS, AND THAT RUNNER IS ANOTHER SEAT'S.
+    **A CHEAP CORPUS PASS REMOVES THIS SEAT FROM THE CRITICAL PATH; IT DOES NOT
+    SHORTEN THE PATH.** THE NUMBER THE CAMPAIGN NEEDS IS THE MEASURING PASS, NOT
+    THE BUILDING PASS -- AND A DISPATCH AIMED AT THE WRONG ONE BUYS A FAST REBUILD
+    OF SOMETHING THAT DID NOT NEED REBUILDING.
+
+*The architect's dispatch aimed at the building seat. It was answered, and then corrected, by the
+seat it was aimed at.*
