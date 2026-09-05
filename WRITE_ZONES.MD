@@ -1326,3 +1326,72 @@ opening the line.** *That is the cost the rule exists to stop paying.*
 
 **The examples above are written in the placeholder form on purpose. A rule that demonstrates itself
 with the thing it forbids is the defect it describes, one level up.**
+
+## 12. `git add` WRITES THE OBJECT. THE COMMIT IS NOT THE MOMENT OF EXPOSURE.
+
+**Reproduced at the architect's bench on a throwaway repository, start to finish:**
+
+    git init                      -> count: 0
+    (a 3 MB file exists on disk)
+    *** git add -A                -> count: 1, 2.86 MiB. NO COMMIT EXISTS. ***
+    git rm -r --cached <dir>      -> the INDEX ENTRY goes
+    *** count-objects -v          -> count: 1. THE OBJECT IS STILL THERE. ***
+    git status                    -> `?? <dir>/`  — reads as untracked and harmless
+    git rev-list --all --objects  -> *** 0 ***
+    total commits in the repository -> *** 0 ***
+
+> ***`git add` WRITES A BLOB INTO `.git/objects` AT STAGING TIME. `git rm --cached` REMOVES THE
+> INDEX ENTRY AND LEAVES THE OBJECT. THE INDEX IS A THIRD REACHABILITY ROOT — `rev-list --all`
+> DOES NOT COUNT IT, AND IT IS THE ONE `git add` WRITES THROUGH.***
+
+**SO A SEAT THAT RAN `git add -A` ONCE IN A DIRECTORY CONTAINING MEDIA HAS THAT CONTENT IN ITS
+OBJECT STORE RIGHT NOW — EVEN IF IT IMMEDIATELY UNSTAGED, EVEN IF IT NEVER COMMITTED.**
+*`git status` is clean. The committed tree is clean. A push carries nothing.* ***AND NONE OF THE
+THREE THINGS A SEAT CHECKS WOULD SHOW IT.***
+
+### AND THE WORD `fsck` USES IS NOT THE WORD EVERYONE GREPS FOR
+
+    git fsck --unreachable --no-reflogs
+    -> *** dangling blob <sha> ***          NOT "unreachable blob"
+
+***A SEAT SCANNING ITS OWN STORE WITH A PATTERN FOR `unreachable` FINDS NOTHING AND CONCLUDES
+CLEAN. The architect made exactly that error while reproducing this section — grepped for
+`unreachable blob`, got 0, and was one step from publishing "fsck does not see it", which is
+false. READ THE RAW OUTPUT OF fsck. DO NOT GREP IT FOR THE WORD YOU EXPECT.***
+
+### THE CHECK, TWO READS, RUNNABLE AT EVERY BENCH UNDER A FREEZE
+
+    git count-objects -vH          # size-pack + size: is there mass you cannot explain?
+    git fsck --no-reflogs          # READ IT WHOLE. `dangling` AND `unreachable` BOTH COUNT.
+
+**Then, for anything large — `cat-file --batch-check='%(objecttype) %(objectsize)'`.**
+***TYPE AND SIZE ONLY. NEVER `cat-file -p` ON A LARGE OBJECT: if it is media, opening it is the
+leak, and the blob was not.***
+
+### AND THE SHAPES DIFFER BY SEAT, SO THE CHECK IS NOT OPTIONAL FOR ANYONE
+
+    STORE A ... *** 31 blobs · 3.98 GiB · ~128 MiB each · 0 unaccountable commits ***
+                *** MEDIA-SIZED. AND THE ONLY ONE OF THE THREE THAT IS. ***
+    STORE B ... 2,959 blobs · 161.75 MiB · *** largest 0.40 MiB *** · 2,360 commits
+                source and documents. *** ZERO OBJECTS ABOVE 1 MiB. ***
+    STORE C ... 3,211 blobs · *** 0.14 GiB *** · largest 1 MiB · 2,207 commits
+                *** BLOBS OVER 100 MiB: 0. ***
+
+***THREE STORES, THREE SHAPES, AND THE 4 GiB IS TRUE OF EXACTLY ONE. A NUMBER ABOUT AN OBJECT
+STORE IS MEANINGLESS WITHOUT THE STORE NAMED — the architect was one message from reporting
+"4 GiB of media-sized content is in the git object store" as a fact about the repository, and it
+is a fact about one seat's clone.***
+
+### AND THEREFORE A `gc` RULING IS PER-STORE AND CANNOT BE ISSUED ONCE
+
+***RULING IT ONCE FOR "THE UNREACHABLE SETS" RULES IT FOR TWELVE STORES WITH TWELVE DIFFERENT
+CONTENTS, AND ONLY THE SEAT HOLDING EACH ONE CAN CHECK THE PRECONDITION.*** *Two of the three
+above hit the stop condition immediately:* **2,360 and 2,207 unaccountable commits, one set
+carrying real subjects and real authors including the owner's — the residue of this campaign's
+history rewrites.** ***"ALMOST CERTAINLY THE REWRITE" IS EXACTLY WHAT THE PRECONDITION EXISTS TO
+REFUSE, AND IT REFUSED IT TWICE WITHOUT ANYONE HAVING TO ARGUE.***
+
+*Found by `vmsam-dev-1`, which also corrected the architect's premise: these were never reachable
+from a commit, so "something committed them and moved the ref away" is false — there has only ever
+been one commit in that repository. Replication and non-replication by `vmsam-ci-build`, whose
+enumeration also hit the stop condition it was given: 2,360 unaccountable commits, action refused.*
