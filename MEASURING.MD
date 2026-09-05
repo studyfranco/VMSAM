@@ -10220,3 +10220,85 @@ title literals, commit message gated.** *So:*
 push of measured-clean files, so a §10 ruling would change whether the question is interesting and
 not what its answer is.* **A seat narrowing the scope of a decision it was waiting on is the cheapest
 help anyone gave the owner tonight.**
+
+## 183. A ZERO FOR A NAME IS NOT A ZERO FOR A SEAT
+
+**`vmsam-auditor` refuted its own finding from §177 WITHIN THE HOUR, and the architect had already
+amplified it fleet-wide. THE MEASUREMENT WAS TRUE AND THE CONCLUSION WAS WRONG:**
+
+    literal sender `vmsam-lead` in its transcript ...... **0**   -- STILL TRUE
+    arrivals from `vmsam-dev-sandbox`, counted BEFORE
+    the message that disproved it landed ............... **29**
+    *** THEY HAD SHARED THE CHANNEL ALL DAY. ***
+
+> **IT MEASURED THE PRESENCE OF A *NAME* AND CONCLUDED ABOUT A *SEAT*.** *§107 collecting its own
+> author: the Lead is ADDRESSABLE under one name and COMMITS under another, and the search was for
+> the committing one.* **§136 committed in the hour after quoting it.**
+
+    **A ZERO FOR A NAME IS NOT A ZERO FOR A SEAT.**
+    BEFORE CONCLUDING A CHANNEL IS EMPTY, ENUMERATE THE SENDERS THAT **DID**
+    ARRIVE AND LOOK FOR THE SEAT AMONG THEM UNDER ANY OF ITS NAMES.
+
+**AND THE ARCHITECT CARRIED IT TO THE LEAD AS URGENT, WITH A POSITIVE CONTROL, AN HOUR BEFORE THE
+REFUTATION.** *That is the amplifier the campaign has been warning about, with the architect in the
+middle — a correction outrunning nothing, because the original had already been broadcast.*
+
+## 184. ANY CONTROL WHOSE PATTERN APPEARS IN YOUR OWN REPORT DIES WHEN YOU FILE THE REPORT
+
+**The same seat's control — anchor to an attribute only a real arrival can produce, so your own
+writing cannot inflate it — WAS A SOUND PRINCIPLE AND ITS EXECUTION DIED WITHIN THE HOUR:**
+
+    the anchored pattern, first read ....... **0**
+    the same pattern, one hour on .......... **4**
+    *** ALL FOUR WERE ITS OWN WRITING *** -- quoting the attribute in its report,
+    and once inside a command editing its own brief.
+    AND THE FIRST READ RETURNED 0 **BY TIMING, NOT BY DESIGN**: the transcript had
+    not yet flushed the command that contained it.
+
+> **"I WROTE THE QUERY INTO THE CORPUS BY REPORTING IT."**
+
+    THE RULE: **ANY CONTROL WHOSE PATTERN APPEARS IN YOUR OWN REPORT DIES WHEN YOU
+    FILE THE REPORT.** A CONTROL OVER A CORPUS THAT INCLUDES YOUR OWN OUTPUT IS
+    SELF-CONTAMINATING BY CONSTRUCTION, AND A CLEAN FIRST READ MAY ONLY MEAN THE
+    WRITE HAS NOT LANDED YET.
+    WHAT SURVIVES: ANCHOR TO THE **FULL HARNESS WRAPPER** -- a structure the tool
+    emits and nobody quotes in prose. Under it the zero holds and the positive
+    control stays live.
+
+### And an occurrence count over that corpus is a CEILING, not a count
+
+    RE-READ MINUTES LATER, NO NEW TRAFFIC BETWEEN: **546 -> 552.**
+
+> **DISTINCT SENDERS IS REPLAY-ROBUST; OCCURRENCE COUNTS ARE NOT.** *Replay multiplies occurrences;
+> it can neither invent nor erase a distinct sender.* **REPORT SENDERS. REPORT OCCURRENCES AS A
+> CEILING OR NOT AT ALL.**
+
+*What survives untouched from the original finding: a transcript records ARRIVAL, never that the
+receiver ACTED; the negative control must still be counted BEFORE first use; and a floor is not a
+correction term — the anchor was simply not narrow enough.*
+
+## 185. A TEST THAT PASSES WHILE THE THING IT TESTS IS BROKEN
+
+**The fleet was about to adopt `git -C <dir> rev-parse --show-toplevel` as the check for an
+environment override. REPRODUCED HERE ON THREE THROWAWAY REPOSITORIES, WITH THE OVERRIDE FORCED AS A
+POSITIVE CONTROL:**
+
+    GIT_DIR pointed at a THIRD repository:
+      -C A --show-toplevel -> /tmp/t1     TWO DIFFERENT ANSWERS
+      -C B --show-toplevel -> /tmp/t2     -> THE TEST REPORTS "-C IS HONOURED"
+      -C A rev-parse HEAD  -> 323f4837…   ONE ANSWER
+      -C B rev-parse HEAD  -> 323f4837…   THE SAME ONE
+      -C A log -1          -> "evil"      **BOTH REPOS RETURN THE THIRD ONE'S COMMIT**
+
+> **`GIT_DIR` ALONE HIJACKS THE *OBJECT STORE* WHILE THE *WORK TREE* STILL RESOLVES FROM `-C`. SO
+> `--show-toplevel` IS BLIND TO EXACTLY THE CASE IT WAS ADOPTED TO CATCH** — it detects only the
+> variant where both variables are set together.
+
+    **USE `git -C A rev-parse HEAD` AGAINST `-C B rev-parse HEAD`. SAME SHA = OVERRIDE.**
+
+**THIS IS §180 IN ITS PUREST FORM: A GATE POINTED AT THE WRONG HALF OF THE OBJECT IT GUARDS.** *The
+work tree and the object store are two answers to two questions, and the check asked the one that
+cannot be wrong.* **AND IT WAS BROADCAST AS "THE CHECK THAT CAN ACTUALLY FAIL".**
+
+*The conclusion the Lead drew about its own environment is very likely right. The justification is
+not — and a correct conclusion reached through a blind test is a coin that landed well (§132).*
