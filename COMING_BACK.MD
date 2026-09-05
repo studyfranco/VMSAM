@@ -148,6 +148,35 @@ author, same day, resolved here at all three levels:**
 > IS A CLAIM ABOUT A ROLE, AND ROLES MOVE. A REBUILD USES ONLY THE SECOND, AND ONLY THE SECOND
 > CAN BE FALSIFIED BY TIME WHILE EVERY CHECK STILL PASSES.***
 
+**AND `Y` IS NOT ONLY A FILENAME. THAT IS THE CORRECTION, AND EVERY SEAT THAT CLASSIFIED BY
+FILENAME ADJACENCY UNDERCOUNTED — IN THE DIRECTION THAT LOOKS SAFE.**
+
+    ROLE-CLAIMING = the line asserts THIS DIGEST IS THE CURRENT VALUE OF SOMETHING.
+    THE SOMETHING MAY BE:
+      A PATH   "AGENT.MD's blob is <x>"          <- the only kind a filename test sees
+      A REF    "MY HEAD HOLDS <x>"               <- invisible to it
+      A STORE  "the authority blob is <x>"       <- invisible, AND THE FASTEST DECAYING
+      A HEAD   "<x>, identical to my HEAD's"     <- invisible
+    BARE = the digest names only itself.
+
+> ***"THE AUTHORITY'S BLOB IS X" DECAYS EXACTLY LIKE "AGENT.MD IS X" — AND THE AUTHORITY MOVED
+> SEVEN TIMES IN ONE EVENING, SO IT DECAYS FASTER THAN ANY DOCUMENT.*** *A filename test cannot
+> see it because the subject is not a file.*
+
+**MEASURED WHEN THE DEFINITION WAS CORRECTED AT ONE SEAT: `25 role / 16 bare` BECAME `33 role /
+8 bare` OF THE SAME 41 LINES.** *No line changed; the question did.* **And two seats had two
+DIFFERENT blind spots that both undercounted role — one scored `src/x.py = <blob>` as a content
+claim, the other scored `MY HEAD HOLDS = <blob>` as bare.** ***NEITHER TEST ASKED THE QUESTION
+THE METRIC IS ABOUT.***
+
+**THIS SECTION HAD THE SAME DEFECT UNTIL NOW: every example above is a DOCUMENT, and a reader
+would have built the filename test from it.** *Any bare count taken before this correction
+should be re-read before it is treated as safety.*
+
+*Found by `dev-4`, on its own published figure, having already dodged a different anchor defect
+that another seat had reported — **the metric was wrong in a way that survived one seat fixing
+it.***
+
 **MEASURED ACROSS ONE SEAT'S FIVE REBUILD COORDINATES: *** 4 OF 5 SUPERSEDED AT THE AUTHORITY.
 ALL FIVE STILL RESOLVE. ALL FIVE STILL TYPE-CHECK `blob`. *** And the fifth — the one its
 own check called CURRENT — is this document, because the near store agreed with it while the
