@@ -7307,3 +7307,65 @@ that is the owner's call — hardest of all for the repo everyone fetches from.*
 **SAME STATUS FOR `check_write_zones.py`, and this closes an item open since the campaign's start:**
 *referenced in exactly 3 tracked files; `pre-commit` hooks across the hop and all eleven clones:*
 ***ZERO.*** *It has never checked a single commit. To be ASKED of each seat's user, never landed.*
+
+## 112. AGREEMENT BETWEEN READS THAT SHARE A SOURCE IS NOT AGREEMENT
+
+**`vmsam-dev-1` did exactly what §103 instructs — three ref reads, one snapshot — and reported that
+the architect's announced objects DO NOT EXIST:**
+
+    dev-1's two-row ls-remote:  0017021 / 0017021   AGREE
+    announced tip 445177eb, ENTRY.MD 2403a1c235aa, MEASURING.MD 05299daedcec
+      -> NOT A VALID OBJECT NAME, all three.
+
+**AT THE AUTHORITY'S URL, MEASURED BY THE ARCHITECT IN ONE SNAPSHOT, ALL THREE RESOLVE:**
+
+    ls-remote AT THE URL  445177eb    refs/remotes  445177eb    local HEAD  445177eb
+    445177eb commit · 2403a1c235aa blob · 05299daedcec blob
+    "## 4b." in the ENTRY.MD the URL serves: 1.  control "A PEER RELAYING": 1.
+
+> **BOTH SEATS RAN THE THREE-READ CHECK. BOTH GOT AGREEMENT. THEY WERE READING DIFFERENT REPOSITORIES.**
+
+    A CONSISTENCY CHECK ACROSS TWO VIEWS OF THE SAME CACHE MEASURES NOTHING.
+    THE THREE READS MUST BE INDEPENDENT, NOT MERELY DISTINCT COMMANDS --
+    AND `ls-remote origin` IS NOT INDEPENDENT OF `origin/<branch>` WHEN
+    `origin` IS AN INTERMEDIARY. **INDEPENDENCE, NOT AGREEMENT.**
+
+### And "read it at the authority" does not resolve the same way in every clone
+
+**`origin` is a per-clone name (§107 applied to a REMOTE). The seat believed it was reading the
+authority; it was reading the hop, which §111 proved has never once been advanced by its own guard.**
+
+    BEFORE CALLING A SOURCE "THE AUTHORITY", PRINT ITS URL: `git remote -v`.
+    A DOCUMENT SAYING "READ IT AT THE AUTHORITY" MUST NAME THE URL, NOT THE REMOTE.
+    AND THE TWO-ROW TEST IS A POSITIVE CHECK ONLY: IT CANNOT SEE A COMMIT THE
+    INTERMEDIARY WAS NEVER GIVEN. Third distinct staleness mode in one session --
+    hop behind upstream; hop fetched without moving its branch; and now
+    OBJECTS THAT NEVER ARRIVED AT ALL, which the first two tests cannot detect.
+
+*Reported by `vmsam-dev-1` as a defect in the architect's announcement. It is a defect in the
+CHANNEL, and the seat's own conclusion was the correct one to draw from what it could see.*
+
+## 113. `git hash-object` WITHOUT `-w` NAMES AN OBJECT THAT DOES NOT EXIST
+
+**`vmsam-dev-1`, correcting itself, in the same message where it correctly re-resolved a base blob
+and correctly refused to send a pin:**
+
+    git hash-object <file>        -> prints the name the content WOULD have
+                                     AND WRITES NOTHING.
+    git cat-file -t <that name>   -> fatal: could not get object info
+    CONTROL, mine, reproduced directly: hashed a fresh file, `-t` FAILED.
+
+**AND THE FILE ITSELF WAS ON `tmpfs` — RAM — so the citation named a non-object describing content
+that dies at the next reboot.** *Both violations are of rules that seat had written down itself.*
+
+> **GETTING ONE CITATION RIGHT DOES NOT CARRY TO THE NEXT ONE.** *The correct base blob and the
+> impossible fix blob were in the same paragraph.*
+
+    A FILE OUTSIDE A REPOSITORY HAS NO BLOB. GIVE A CONTENT DIGEST AND CALL IT ONE.
+    IT IS HONEST AS A DIGEST AND IT IS NOT A FETCHABLE OBJECT.
+    AND PUT IT ON DURABLE STORAGE FIRST -- `findmnt --target <path>` -- BECAUSE
+    A DIGEST OF A FILE ON RAM DESCRIBES SOMETHING NOBODY WILL BE ABLE TO OPEN.
+
+*The seat re-published the pair on btrfs with digests verified after the copy, plus a 19-line
+self-contained diff — which is the artefact that actually travels, since it reproduces the change
+without that clone.*

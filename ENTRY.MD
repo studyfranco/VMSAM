@@ -2,20 +2,25 @@
 
 ## THEN READ THESE. PROPERLY. NOT GREPPED.
 
-    AGENT.MD        1069 lines   your role, your boundary, the restart protocol
-    WRITE_ZONES.MD   867 lines   WHAT YOU MAY EDIT AND WHAT IS FROZEN — before you
+    AGENT.MD                     your role, your boundary, the restart protocol
+    WRITE_ZONES.MD               WHAT YOU MAY EDIT AND WHAT IS FROZEN — before you
                                  touch ANYTHING in this repository
-    CAMPAIGN.MD      817 lines   what the project is for and what is measured
-    LEAD.MD          422 lines   coordinator only
-    COMING_BACK.MD   325 lines   after a restart
+    CAMPAIGN.MD                  what the project is for and what is measured
+    LEAD.MD                      coordinator only
+    COMING_BACK.MD               after a restart
 
 **READ THEM. `WRITE_ZONES.MD` was 4 724 lines an hour ago and nobody read it — IT IS NOW 867
 AND THE EXCUSE IS GONE.** *Sections 11 to 87 moved to `MEASURING.MD`; they were never about
 write zones and the numbering is unchanged, so every citation still resolves.*
 
-    MEASURING.MD    6335 lines   THE ONE FILE YOU GREP AND NEVER READ THROUGH.
+    MEASURING.MD                 THE ONE FILE YOU GREP AND NEVER READ THROUGH.
                                  Consult it WHEN YOU HAVE A RESULT AND ARE ABOUT
                                  TO BELIEVE IT.
+
+**THE LINE COUNTS THAT USED TO STAND HERE ARE GONE, AND THE REASON IS §105.** *Three of the six had
+gone stale — one by 645 lines — and the one that was still right is the trap: a partially correct
+list is trusted whole.* **A COUNT IN A DOCUMENT IS A PIN. `wc -l` COSTS NOTHING; A WRONG NUMBER IN
+THE FILE EVERYONE READS FIRST COSTS AN HOUR.**
 
 **DO NOT START WRITING IN THIS REPOSITORY UNTIL YOU HAVE READ `WRITE_ZONES.MD`. It names the
 frozen files and it names yours.**
@@ -148,9 +153,18 @@ THE SUBJECT LOST IN TRANSIT.*
 
     DO NOT EDIT OUTSIDE YOUR BOUNDARY. One owner per file. If two of you are in
       one file, one of you is wrong — say so.
-      FROZEN: everything in the table at `WRITE_ZONES.MD` §1 — that file is
-        `WRITE_ZONES.MD` and `src/change_point_locator.py` — RESOLVE THEM YOURSELF:
-        `git rev-parse origin/dev-AI:<path>`. *This line used to carry two hashes.
+      FROZEN: everything in the table at `WRITE_ZONES.MD` §1 — RESOLVE IT YOURSELF:
+        `git rev-parse origin/dev-AI:<path>`.
+        **THIS LINE USED TO NAME TWO FILES AND A FAST READ TOOK THEM AS THE FROZEN
+        SET. THEY WERE THE FILES WHOSE HASHES IT ONCE PRINTED.** `vmsam-dev-1`
+        checked instead of assuming: `change_point_locator` appears **0** times in
+        `WRITE_ZONES.MD`, control `audioCorrelation` fires **1**. ITS MODULE IS NOT
+        IN THE TABLE — the constraint on it is a **HOLD** set by its user, not a
+        **ZONE**, which is the distinction `WRITE_ZONES` §4 draws with that seat as
+        its worked example. *A seat reading it the fast way concludes its own
+        boundary is frozen and stops, and nobody inspects an agent for having been
+        too careful.*
+        *The line used to carry two hashes.
         One went stale within the hour, inside the document whose §2 says
         RE-RESOLVE BEFORE TREATING IT AS CURRENT.*
       YOURS: `AGENT_NOTES.MD`, `TASKS/`, and your own seat directory.
