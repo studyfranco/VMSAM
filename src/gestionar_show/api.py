@@ -358,10 +358,26 @@ def get_health():
     """Verification de deploiement: version, mode courant et etat d'execution"""
     status = "ok"
     is_running = False
+    # None means "the internal instance did not tell us", which is not the same
+    # as False. A caller must be able to tell an unreachable worker from a
+    # worker that answered and reported its fusion path disabled.
+    fusion_enabled = None
+    queue_length = None
+    internal_status = None
     try:
         status_code, payload = internal_client.call_internal_api("GET", "/internal/health", timeout=5)
+        internal_status = status_code
         if status_code == 200:
             is_running = bool(payload.get("is_running", False))
+            queue_length = payload.get("queue_length")
+            # `/internal/health` stays answerable precisely so it can say WHY
+            # fusion is unavailable (internal_api.py refuses to start the worker
+            # when the test output dir is unset). Reading only `is_running`
+            # threw that answer away and reported "ok" for an instance that
+            # cannot fuse anything.
+            fusion_enabled = payload.get("fusion_enabled")
+            if fusion_enabled is False:
+                status = "degraded"
         else:
             status = "degraded"
     except (urllib.error.URLError, OSError):
@@ -378,5 +394,9 @@ def get_health():
         # tools.dev stayed False and every gated diagnostic was silently dark.
         # There was no way to tell from outside; now there is.
         "dev": tools.get_dev_env_var(),
-        "is_running": is_running
+        "is_running": is_running,
+        # Reported verbatim from `/internal/health`; None means it did not answer.
+        "fusion_enabled": fusion_enabled,
+        "queue_length": queue_length,
+        "internal_status": internal_status
     }

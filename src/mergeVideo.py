@@ -277,13 +277,15 @@ class compare_video(Thread):
         delay_detected = set()
         for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
             set_delay = set()
+            window_delay = set()
             delay_fidelity_calculated = []
             for delay_fidelity in delay_fidelity_list:
                 set_delay.add(delay_fidelity[2])
+                window_delay.add(delay_fidelity[1])
                 delay_fidelity_calculated.append(delay_fidelity[0])
             if len(set_delay) == 1:
                 delay_detected.update(set_delay)
-            elif len(set_delay) == 2 and abs(list(set_delay)[0]-list(set_delay)[1]) < 127 and mean(delay_fidelity_calculated) >= 0.70:
+            elif len(set_delay) == 2 and (abs(list(set_delay)[0]-list(set_delay)[1]) < 127 or abs(list(window_delay)[0]-list(window_delay)[1]) == 1) and mean(delay_fidelity_calculated) >= 0.70:
                 second_method = True
                 if delay_fidelity_list[0][2] == delay_fidelity_list[-1][2]:
                     number_values_not_good = 0
@@ -1119,6 +1121,9 @@ def keep_best_audio(list_audio_metadata,audioRules):
                     elif float(audio_2['Channels']) > float(audio_1['Channels']):
                         if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])) > ((float(video.get_bitrate(audio_1))/float(audio_1['Channels']))*0.90):
                             audio_1['keep'] = False
+                    #else: # No winner nothing change.
+                    #    audio_2['keep'] = audio_2['keep']
+                    #    audio_2['keep'] = audio_1['keep']
                 except Exception as e:
                     sys.stderr.write(str(e))
                     tools.logs.append(str(e))
@@ -1494,7 +1499,7 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
             # enters the set as soon as any track without one is added; without this
             # guard every later audio-description track with an empty MD5 is dropped
             # silently. The audio and commentary branches above already guard it.
-            if (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added):
+            if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
                 number_track_audio += 1

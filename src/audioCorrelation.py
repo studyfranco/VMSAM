@@ -269,6 +269,7 @@ def second_correlation(in1,in2):
             tools.logs.append(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
         # If audio_sync is not installed, we return the file and offset
+        # The message help you to know why you have the error
         sys.stderr.write(f"\t\taudio_sync not working: {e}\n")
         tools.logs.append(f"\t\taudio_sync not working: {e}\n")
         
