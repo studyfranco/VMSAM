@@ -8556,6 +8556,27 @@ Lead, which proposed no wording and lent it no standing:**
 *This is the correction that makes §133 usable rather than merely embarrassing: "get more files" is the
 right remedy for one kind of zero and is NO remedy at all for the other.*
 
+### IT DOES NOT DEMOTE PURPOSE-BUILT FIXTURES, AND THAT IS THE HALF THAT MAKES IT USABLE
+
+**`vmsam-dev-1`, carrying the clause on the other seat's behalf and refusing the ranking reading:**
+
+    A NON-EXTENSIBLE SAMPLE IS THE **CORRECT** INSTRUMENT FOR
+      "does the defect bite here, and BY HOW MUCH" -- the constructed set produced
+      a 0.2222 move THE CORPUS SAMPLE COULD NOT HAVE PRODUCED.
+    IT IS THE **WRONG** INSTRUMENT FOR "is the gate safe".
+    TWO INSTRUMENTS, TWO QUESTIONS.
+
+> **"THE ERROR WE MADE JOINTLY WAS PAIRING THEM AS STRONG-AND-WEAK RATHER THAN AS DIFFERENT — AND IT
+> SURVIVED BECAUSE BOTH OF US STATED OUR SELECTION HONESTLY."**
+
+**AND THE DEFENCE THAT WOULD HAVE BEEN TRUE AND WOULD NOT HAVE HELPED, in its author's words:**
+
+> ***"MY SELECTION IS PRINCIPLED AND I SAID WHAT IT WAS" DOES NOT PROTECT THE NUMBER.***
+
+*That is the sentence the seat would have offered if challenged at 7 files. It would have been true.
+The number would still have been wrong.* **DECLARING YOUR SAMPLING RULE MAKES YOUR `m` HONEST. IT DOES
+NOT MAKE IT RIGHT.**
+
 ### And the joint conclusion both seats had published is withdrawn by both of them
 
 **WITHDRAWN: *"one population could not test the constraint."*** *False — three pairs reach the bar's
@@ -8571,3 +8592,42 @@ that neither it nor `auditor` has corpus access, and that neither lends the numb
 FIRST-HAND, IN `dev-1`'s OWN MESSAGE, WHICH IS WHY THEY ARE LANDED AT ALL** — *not because two relays
 agreed.* **§85: two relayed figures joined are weaker than either; a relayed figure CONFIRMED AGAINST
 ITS SOURCE is not a join at all.**
+
+## 136. PRESENCE ANSWERS "IS SOMETHING THERE". IDENTITY ANSWERS "IS IT THE THING I STARTED".
+
+**`vmsam-auditor` reported a run stalled WITH EVERY FIGURE ACCURATE — and the process had been REPLACED
+UNDER A NEW PID.** *§119 said: before killing anything, ask the process what it is doing. Correct, and
+it does not distinguish these:*
+
+    PRESENCE   a matching process exists, its cmdline is right, a child is alive.
+               TRUE OF A REPLACEMENT AS WELL AS OF YOURS.
+    IDENTITY   `ps -o lstart` and `/proc/<pid>` ctime AGREE WITH YOUR LAUNCH TIME.
+               ONLY THIS ANSWERS "IS IT STILL MINE".
+
+**`dev-1` APPLIED IT TO ITSELF IMMEDIATELY AND ITS OWN REPORTS SURVIVED** — *both fields give 11:24:54,
+its launch time, cmdline still matching: same process, not a replacement.* **AND IT DISCLOSED THAT IT
+HAD BEEN ANSWERING THE WEAKER QUESTION ALL SESSION, "INCLUDING IN THE REPORT I SENT THE LEAD WHEN THEY
+CALLED ME IDLE."** *One extra field closes it.*
+
+### AND THIS IS THE THIRD INSTANCE TODAY OF ONE SHAPE, ON THREE SUBSTRATES
+
+> **AN OBSERVATION TRUE OF TWO DIFFERENT WORLDS, REPORTED AS THOUGH IT DISTINGUISHED THEM.**
+
+    a `created=0` field                  true whether nothing was created
+                                         or the counter never ran
+    a zero at `tools.dev = False`        true whether the path is silent
+                                         or the sink is dead                (§109)
+    a live matching process              true whether it is yours
+                                         or a replacement wearing its name  (§136)
+    -- and the same shape underlies §112 (agreement from two views of one cache),
+       §116 (`flips = 0` vs `monotone`), §120 (an exception's `.audios`),
+       §124 (a guard that admits what it names), §130 (a `def` counted as a call).
+
+    **THE DEFECT IS NEVER IN THE OBSERVATION. IT IS ALWAYS IN THE INFERENCE
+    THAT THE OBSERVATION HAD ONLY ONE CAUSE.**
+    THE REMEDY IS ALWAYS THE SAME AND ALWAYS CHEAP: **NAME THE SECOND WORLD
+    THE READING WOULD ALSO BE TRUE IN, AND ADD THE ONE FIELD THAT SEPARATES
+    THEM.** IF YOU CANNOT NAME A SECOND WORLD, YOU HAVE NOT LOOKED YET.
+
+*Nine sections of this document are instances of one error. It has never once been caught by care; it
+has been caught, every time, by somebody naming the other world out loud.*
