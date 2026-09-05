@@ -126,6 +126,22 @@ destroys the only copy** — and every one of them is stale, so **nothing may ci
 ***SOLE-SURVIVING-COPY AND NEVER-QUOTE ARE BOTH TRUE OF THE SAME BLOB.*** *Keep the ref, cite
 the branch.*
 
+**BEFORE SPENDING ON THE EXPENSIVE FORM OF THAT QUESTION, RUN THE ONE-LINE PRE-CHECK.** *Asking
+"what does this ref uniquely keep?" per-ref UNDERCOUNTS when two refs sit at the same commit —
+each covers the other, so each honestly reports zero while the pair holds objects nothing else
+has. **CO-LOCATION IS THE TRIGGER, NOT FAMILY SIZE.***
+
+    git for-each-ref --format='%(objectname) %(refname)' | sort |
+      awk '{ if ($1==p) print "CO-LOCATED: " q " and " $2; p=$1; q=$2 }'
+    NO REPEATED objectname -> per-ref and group answers are IDENTICAL. STOP HERE.
+    A REPEAT -> ask the group question:
+      git rev-list --objects <ref-A> <ref-B> ... --not <every other ref>
+
+*Measured: one seat's three refs sit at three different commits (00:59 · 03:14 · 13:47) and
+group equals per-ref exactly — **8 and 8, nothing hidden**. Another seat's four sit at ONE
+commit and the family hid 4; a third hid 129 against a per-ref 5.* **`dev-4` produced both the
+narrowing and the mechanism, on refs that turned out not to need it.**
+
 *Found by `dev-4` on its own refs, after correcting two prior mistakes about the same three:
 first the prefix, then the owner. **`aide`'s formulation is the one that closes it —* "checking
 the owner does not settle it: the answer 'yes it is yours' is exactly what makes it
