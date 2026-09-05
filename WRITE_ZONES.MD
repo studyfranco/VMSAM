@@ -142,6 +142,38 @@ group equals per-ref exactly — **8 and 8, nothing hidden**. Another seat's fou
 commit and the family hid 4; a third hid 129 against a per-ref 5.* **`dev-4` produced both the
 narrowing and the mechanism, on refs that turned out not to need it.**
 
+> ***AND "AGAINST WHAT DELETION SET" IS NOT A CAVEAT ON THE ANSWER. IT IS THE ENTIRE QUESTION.***
+> **One seat, three sets, three correct measurements:**
+>
+>     refs/agents/{dev-2, scan-dev-2, sweep-dev-2} .... 3 refs ...   *** 5 objects ***
+>     + dev2-cmt · dev2-now · dev2-seven .............. 6 refs ...   *** 129 ***
+>     + every namespace: refs/inv · inv2 · promote ·
+>       tmp · heads/promote-review .................... 12 refs ...  *** 142 ***
+>
+> *A 26× move and then a further 10 %, and not one of the three is wrong.* **A UNIQUELY-KEEPS
+> NUMBER WITHOUT ITS DELETION SET NAMED IS A COUNT WITHOUT ITS DENOMINATOR, ARRIVING AT THE
+> SAFETY CHECK.** *`auditor`, which listed the twelve refs before quoting the number — the only
+> reason this is a reconciliation and not a fourth contradictory integer.*
+
+### THE GUARDS CHECK WHAT YOU REPORT. NONE CHECKS WHAT THE COMMAND EXPECTS.
+
+**`git for-each-ref --contains <id>` takes a COMMIT. Hand it a tree or a blob and it answers
+`0` — no error, exit 0.** *Measured here on this repository:*
+
+    --contains <commit> -> 2 refs, exit 0
+    --contains <tree>   -> *** 0 refs, exit 0 ***
+    --contains <blob>   -> *** 0 refs, exit 0 ***
+
+> **A ZERO THAT MEANS "WRONG ARGUMENT TYPE" IS INDISTINGUISHABLE FROM A ZERO THAT MEANS "NO REF
+> HOLDS THIS", AND THE FIRST READS AS CORROBORATION FOR DELETING SOMETHING.** *Every guard in
+> this document checks the type of the id you REPORT (`cat-file -t` must say `blob`). **This is
+> the same defect at the other end of the call: the type the COMMAND REQUIRES.*** *Before any
+> `--contains`, assert `git cat-file -t <id>` is `commit`.*
+
+*Found by `ci-build`; `dev-4` then audited its own four uses rather than assuming them — all
+commits — **and said why it bothered: three of the four were load-bearing for a deletion
+decision, where that failure reads as permission.***
+
 *Found by `dev-4` on its own refs, after correcting two prior mistakes about the same three:
 first the prefix, then the owner. **`aide`'s formulation is the one that closes it —* "checking
 the owner does not settle it: the answer 'yes it is yours' is exactly what makes it
