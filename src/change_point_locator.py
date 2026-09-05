@@ -23,14 +23,28 @@ THE CONTROL-FLOW RELATIONSHIP, MEASURED RATHER THAN DESCRIBED
 *** IF THIS SECTION AND `PIPELINE.MD` EVER DISAGREE, MEASURE THE CODE. ***
 
 ONE ENTRY, ONE CALL SITE. `locate_change_points` is the only name here without a
-leading underscore, and the only call from anywhere in `src/` is
-`merge_video_repair.py:294`:
+leading underscore, and the only call from anywhere in `src/` is in
+`merge_video_repair.py`, anchored on this exact line rather than a line number
+because A LINE NUMBER IS A PIN AND THIS FILE MOVES:
 
-    return change_point_locator.locate_change_points(best_video, candidate_obj, language)
+    plan = change_point_locator.locate_change_points(best_video, candidate_obj,
 
-reached through the guarded import at :289. Counted by AST over `src/*.py`, not
-by recollection. A test that drives any other function is testing something the
-consumer never calls.
+reached through a guarded `import change_point_locator`. Counted by AST over
+`src/*.py`, not by recollection. A test that drives any other function is testing
+something the consumer never calls.
+
+**I LANDED THIS PARAGRAPH CITING `:294` AND IT WAS ALREADY STALE** -- measured
+before a 52-commit fast-forward, correct at the old tip, a comment at the new one.
+Corrected to an anchor in the next commit. The rule I broke is my own.
+
+THE CONSUMER'S HALF OF `CAMPAIGN.MD`'s REFUSAL CONTRACT IS ALREADY LANDED AND
+MINE IS NOT. That wrapper returns `(plan, cause)` -- `return plan, None` on
+success, `return None, "locator_module_absent"` when the import fails -- and it
+is waiting on a producer token this module does not yet emit. NOTE THE
+CONSEQUENCE BEFORE CHANGING THIS FUNCTION'S RETURN: the call site assigns a
+single value and tests `if plan != None`, so returning a tuple from here makes
+that test ALWAYS TRUE AND SILENTLY BREAKS THE CONSUMER. The two halves land
+together or not at all.
 
 TWO LOG CHANNELS, AND THEY DIFFER IN THE ONLY WAY THAT MATTERS IN PRODUCTION:
 
