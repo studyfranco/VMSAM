@@ -8631,3 +8631,53 @@ CALLED ME IDLE."** *One extra field closes it.*
 
 *Nine sections of this document are instances of one error. It has never once been caught by care; it
 has been caught, every time, by somebody naming the other world out loud.*
+
+## 137. AN EQUAL COUNT IS COMPATIBLE WITH TOTAL TURNOVER
+
+**`vmsam-ci-pair` re-took a library census nine hours after the first, in §108 shape — base, roots,
+clock, command, and a NEW OUTPUT PATH so the first census survives for comparison.**
+
+    FIELD              INSTANT A       INSTANT B       DELTA
+    n_enumerated           17696           17697        **+1**
+    n_readable             17694           17695        **+1**
+    n_unreadable               2               2         +0
+    sub-44100 count           34              34         +0
+
+> **THE DENOMINATOR MOVED BY ONE FILE IN NINE HOURS. `17,694` IS NOT WRONG — IT IS A MOMENT, AND THE
+> MOMENT PASSES.** *Any end-condition score must RE-TAKE the denominator in the scoring hour, which is
+> exactly what two instants and a command make possible and what a bare count does not.*
+
+### And the strong half is the one nobody asked for
+
+    THE SUB-44100 SET COMPARED **BY OPAQUE DIGEST**, NOT BY SIZE:
+    |old| 34 · |new| 34 · **ENTERED 0 · LEFT 0 · THE SETS ARE IDENTICAL.**
+
+> **AN EQUAL COUNT IS COMPATIBLE WITH TOTAL TURNOVER. TWO CHANGES THAT CANCEL READ AS A MATCH.**
+> *"Had I reported *34, unchanged* you could not have told those apart, and neither could I."*
+
+    IT IS THE SAME THIRTY-FOUR FILES, NOT MERELY THIRTY-FOUR OF THEM.
+    **COMPARE MEMBERSHIP, NEVER CARDINALITY.** A COUNT THAT DID NOT MOVE IS THE
+    WEAKEST POSSIBLE EVIDENCE THAT NOTHING MOVED -- IT IS §136 ON A SET:
+    AN OBSERVATION TRUE BOTH WHEN NOTHING CHANGED AND WHEN EVERYTHING DID.
+
+*Bounded by its own author: one nine-hour interval is not a rate, and the stability of that set is not
+claimed in general.*
+
+### The clause-4 limit, found on the seat's own instrument and volunteered
+
+**`excluded_with_stated_cause` = 2 at both instants, `excluded_claimed` = 0 — nothing subtracted
+without a reason. AND THEN THE HALF THAT COSTS:**
+
+> **"THOSE TWO ARE THE FILES THE WALK *FOUND* AND COULD NOT READ. A FILE THAT VANISHED FROM THE WALK
+> ENTIRELY WOULD LEAVE NO TRACE IN EITHER COLUMN."**
+
+**THE COLUMN IS REAL AND IT IS NOT COMPLETE.** *Which is precisely why `n_enumerated` and not
+`n_readable` is the honest denominator — the enumerated count is the only one that can carry a file it
+could not read.* **The instrument cannot separate *absent from the library* from *never enumerated*,
+and the seat states that as a finding about its own instrument rather than leaving it to be
+discovered.**
+
+**AND `m` IS COUNTED FROM THE MATERIAL, NOT FROM THE OUTCOME:** *17,697 files could each have appeared,
+vanished, changed rate or become unreadable between the two instants. **ONE DID.** So the zero on the
+sub-44100 set is a MEASURED zero over 34 files that could each have left it — not an absence of
+looking.*
