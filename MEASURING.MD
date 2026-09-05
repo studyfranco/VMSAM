@@ -8265,3 +8265,69 @@ same bytes, and the revision it records is PROVENANCE, not a dependency.*
 
 *The architect's dispatch aimed at the building seat. It was answered, and then corrected, by the
 seat it was aimed at.*
+
+## 127. ELEVEN OF ELEVEN SEATS READ THE HOP. NONE READS THE AUTHORITY.
+
+**`vmsam-lead` censused the fleet's remote topology, with a control that discriminates:**
+
+    ALL ELEVEN SEATS: `origin` = THE HOP. NOT ONE READS THE AUTHORITY DIRECTLY.
+    upstream CONFIGURED (7): aide · ci · dev-1 · dev-2 · dev-3 · dev-4 · forensic
+    upstream ABSENT     (4): arch-aide · auditor · ci-build · ci-pair
+    CONTROL: the same probe returns AUTHORITY for the hop's own origin,
+             so the reader CAN print the other answer and did not.
+    m = 11, every one could have returned AUTHORITY. NOT an untested cell.
+
+> **EVERY "I CHECKED AT THE AUTHORITY" CLAIM MADE FROM A SEAT CLONE TODAY WAS A CHECK AGAINST A
+> CACHE — UNLESS THE SEAT NAMED `upstream` EXPLICITLY. AND FOUR SEATS HAD NO SUCH REMOTE TO NAME.**
+
+**§117's amendment is not a minority accommodation. IT WAS UNSATISFIABLE FOR FOUR OF ELEVEN, and the
+other seven satisfied it only by remembering to type a remote name that is not the default.** *That
+is §125 exactly: a rule you must remember to apply will be violated by the seat that wrote it.*
+
+**AND THE HOP WAS LIVE-STALE AT THAT MOMENT — serving `00170217` while HOLDING `f5c05967`.** *The
+Lead fast-forwarded it before promoting and filed the cause against itself: it had fetched for a read
+during other work and never completed the promotion half.* **THIRD TIME THE SAME DAY.**
+
+## 128. A PUBLISHED ERROR IS NOT MORE AUTHORITATIVE THAN A RELAYED ONE. IT IS HARDER TO NOTICE.
+
+**`vmsam-dev-4`, on refusing a `TASKS/` file that named a FROZEN file as its own:**
+
+> ***"When a TASKS file published at the authority says a frozen file is yours, the document that
+> would normally settle the question is the thing that is wrong — and a successor reading it after a
+> Doomsday has NO MESSAGE TO WEIGH IT AGAINST, ONLY THE FILE."***
+
+    THIS CAMPAIGN TEACHES SEATS TO DISTRUST RELAYS AND TRUST THE DOCUMENT.
+    THAT IS RIGHT, AND IT HAS A COST NOBODY HAD NAMED: **IT MAKES A MISTAKE IN
+    THE DOCUMENT THE HARDEST KIND TO CATCH.** A RELAY ARRIVES WITH A VISIBLE
+    SENDER AND INVITES A CHECK. A PUBLISHED LINE ARRIVES AS SETTLED FACT.
+    THE FIX IS NOT LESS TRUST IN DOCUMENTS. IT IS THAT A DOCUMENT NAMING A
+    PERMISSION MUST BE CHECKED **AGAINST THE ZONE FILE**, NOT AGAINST MEMORY --
+    AND THE SEAT THAT DOES SO IS OBEYING, NOT OBSTRUCTING.
+
+*Written because the architect published exactly such a line and this seat refused it. The
+correction reached the source before any successor read it.*
+
+## 129. THE MIXED POPULATION IS PERMANENT ACROSS **TIME**, NOT ACROSS SITES
+
+**Measured by `vmsam-lead` from the emission substrate rather than from the repair seat's:**
+
+    ALL 19 EXISTING `no_plan` LINES CARRY THE OLD CONSTANT.
+    ZERO CARRY A CAUSE TOKEN.
+
+> **THE REPAIR CHANGE FIXES EVERY LOG WRITTEN FROM NOW ON AND CANNOT REACH THE ONES ALREADY
+> WRITTEN.** *That is not a defect in the change — it is what the emission will have to render
+> honestly, and it is a THIRD population beside the two `dev-4` was already told to separate.*
+
+    THE REPORT MUST DISTINGUISH:
+      cause STATED            -- the emission worked
+      cause ABSENT, log NEW   -- a real refusal the new code did not name: A DEFECT
+      cause ABSENT, log OLD   -- written before the emission existed: **UNDATABLE**,
+                                 and by the falsifier's clause 3, UNDATABLE COUNTS
+                                 AS NOT MERGED -- not a failure, not a pass.
+    COLLAPSING THE SECOND INTO THE THIRD HIDES A DEFECT.
+    COLLAPSING THE THIRD INTO THE SECOND INVENTS ONE.
+
+**AND IT SHARPENS THE END CONDITION'S ONLY HONEST ROUTE: the run must be REDONE at the current
+revision, not read off accumulated logs.** *The owner authorised exactly that — "quitte à refaire
+1000 fois le même fichier" — and this is the measurement that shows why the authorisation was
+necessary rather than generous.*
