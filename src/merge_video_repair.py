@@ -1947,8 +1947,33 @@ def record(candidate_path, outcome, reason, detail=None):
     entry = {"candidate": candidate_path, "outcome": outcome, "reason": reason,
              "detail": detail}
     last_repair_report.append(entry)
-    if tools.dev or outcome in ("repaired", "failed", "declined", "no_plan"):
-        tools.logs.append(f"repair: {outcome} for {candidate_path}: {reason}\n")
+    # UNCONDITIONAL, AND IT USED TO BE UNCONDITIONAL ONLY BY COINCIDENCE.
+    # Found by `vmsam-dev-1`, verified here before changing anything.
+    #
+    # The guard was `if tools.dev or outcome in ("repaired", "failed",
+    # "declined", "no_plan")`. MEASURED, by AST over every call site:
+    #
+    #     outcomes actually passed   declined x6 . no_plan x2 . failed x1
+    #                                . repaired x1
+    #     the whitelist              the SAME FOUR STRINGS
+    #     outcomes not whitelisted   NONE
+    #
+    # So the `tools.dev or` left operand COULD NEVER CHANGE THE RESULT: a dead
+    # clause that made a reader think the line was debug-gated when it was not.
+    # And the line fired in production only because the used-outcome set HAPPENED
+    # to equal the whitelist -- ONE NEW OUTCOME STRING would have silently
+    # re-gated it to `tools.dev` only.
+    #
+    # THAT IS F26 EXACTLY: A REFUSAL THAT EMITS NOTHING IN PRODUCTION BECAUSE ITS
+    # EMISSION IS DEV-GATED -- reintroduced, one word away, inside the module
+    # that exists to consume F26's victims.
+    #
+    # Removing the condition is BEHAVIOUR-IDENTICAL TODAY (all ten outcomes were
+    # whitelisted, so the guard was always true) and makes the property TRUE BY
+    # CONSTRUCTION instead of true by coincidence. A `record()` call is by
+    # definition an outcome worth recording; there is no outcome this function
+    # should swallow.
+    tools.logs.append(f"repair: {outcome} for {candidate_path}: {reason}\n")
     return entry
 
 

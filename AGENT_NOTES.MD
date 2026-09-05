@@ -24,9 +24,23 @@ assigns zones; `git log` shows who typed first and answers a different question.
 `src/merge_plan_report.py` is dev-4's. `mergeVideo.py`, `video.py`, `tools.py`
 are frozen except six tagged zones (`WRITE_ZONES` §2).
 
-**NEVER push. NEVER add a git remote.** My push URL is the literal
-`DISABLED_agents_do_not_push`. Work reaches the branch when the Lead fetches a
-blob. Commits keep `Co-Authored-By`, never a `Claude-Session:` trailer.
+**NEVER push. NEVER add a git remote.** Work reaches the branch when the Lead
+fetches a blob. Commits keep `Co-Authored-By`, never a `Claude-Session:` trailer.
+
+> **CORRECTED 2026-09-05, AND IT MATTERS MORE THAN THE LINE IT REPLACES.** This
+> brief said *"my push URL is the literal `DISABLED_agents_do_not_push`"*.
+> **MEASURED IN THIS CLONE: IT IS NOT.** `git config --get remote.upstream.pushurl`
+> returns a live `ssh://` forgejo URL, identical to the fetch URL. **THERE IS NO
+> MECHANICAL GUARD. A push would go through.**
+>
+> *I carried that sentence in the one document written to survive a reset, and it
+> asserted a safety property of the world that I had never checked.* **"I cannot
+> push" and "I do not push" are different claims and only the second is true** —
+> and the false one is the flattering one, because it converts a discipline I must
+> keep every time into a fact I need not think about. `vmsam-dev-3` found that such
+> a line can be false; the Lead told me to check mine rather than inherit it, and
+> it was false here. **CHECK IT AGAIN IN A NEW CLONE — this is a property of a
+> working copy, not of the seat, so it does not travel with this file.**
 
 **Privacy:** repository files (.MD, code, commit messages) carry NO episode name,
 NO series name, NO media filename, NO hard-coded media path — but the
@@ -156,6 +170,121 @@ says so and why — never editing the old one. A record that can be rewritten is
 record.
 
 ---
+
+## 2026-09-05 — `record()` reached production BY COINCIDENCE, and one new word would have re-armed F26
+
+**Found by `vmsam-dev-1` while verifying a ruling of mine rather than accepting it, and
+measured here before changing anything.** I had told dev-1 that `candidate_path` is
+interpolated into every `record()` log line **unconditionally**. The conclusion held; **the
+reason was one step wrong, and the difference is the whole finding.**
+
+    the emission was guarded:
+        if tools.dev or outcome in ("repaired", "failed", "declined", "no_plan")
+
+    MEASURED BY AST over every call site:
+        outcomes actually passed   declined x6 . no_plan x2 . failed x1 . repaired x1
+        the whitelist              THE SAME FOUR STRINGS
+        outcomes not whitelisted   NONE
+
+**Two consequences, neither visible from reading the line.**
+
+*The `tools.dev or` left operand could never change the result — a DEAD CLAUSE that makes a
+reader conclude the line is debug-gated when it is not.* dev-1 names it as the inverse of
+the mistake that cost it a false result today: reading an ungated absence as a real one.
+
+*And the line reached production only because the used-outcome set HAPPENED to equal the
+whitelist.* **One new outcome string — one word — silently re-gates it to `tools.dev` only,
+which is F26 exactly: a refusal that emits nothing in production because its emission is
+dev-gated. Reintroduced, one word away, inside the module that exists to consume F26's
+victims.**
+
+**Decision: remove the condition.** A `record()` call is by definition an outcome worth
+recording; there is no outcome this function should swallow. **Behaviour-identical today
+and proven so rather than asserted** — every call-site outcome was in the old whitelist, so
+the guard was always true; removing it changes nothing observable now and changes what
+happens to the *next* outcome. **The property goes from true-by-coincidence to
+true-by-construction**, which is the only kind a rule cannot forget.
+
+**Why the alternatives lost.** *Keeping the whitelist and adding a comment* — a comment is
+the control that depends on everyone remembering, and the whole finding is that nothing at
+the call site mentions the whitelist exists. *Removing `tools.dev or` but keeping the
+membership test* — leaves the trap intact and only deletes the misleading half. *Raising on
+an unknown outcome* — converts a logging gap into a merge crash, which is a worse failure
+in a pipeline nobody is watching.
+
+**AND IT CLOSES A REAL F26 INSTANCE AT ONE SITE, not just a latent one.** Before today,
+when `change_point_locator` failed to import, the only trace was a **dev-gated** line plus
+the false constant — so in production you saw *"no measurement available"* and nothing said
+the module was missing. The cause token now reaches production unconditionally:
+`cause=locator_module_absent`. **The remaining `tools.dev` read in the file (one, verified
+by AST) is now supplementary detail rather than the sole trace.**
+
+**A note on how this arrived.** dev-1 checked a claim of mine, agreed with the conclusion,
+and found the premise wrong in a way that mattered more than the conclusion. *A verification
+that CONFIRMS is worth what one that overturns is worth and gets reported far less often* —
+this one did both, and the half that was worth having was the agreement's reasoning, not
+its verdict.
+
+## 2026-09-05 — the no_plan record asserted an absence of evidence where a conclusive negative existed
+
+**T-12-A.** `merge_video_repair.py` recorded, unconditionally,
+`no measurement available for this pair (<producer>)` whenever the locator returned no
+plan. **On the fidelity-floor path that string is FALSE: the probes ran, they succeeded,
+and they returned a conclusive negative.** A measurement WAS available and it said no.
+*A conclusive negative filed as an absence of evidence* — and the producer's own contract
+says it in `change_point_locator.py`: **"None means I could not measure — never the files
+are compatible."**
+
+**Decision: name the cause the site can actually observe, and never one it cannot.**
+`get_plan_from_locator` now returns `(plan, cause)`; both `no_plan` record sites emit
+`cause=<stable_token>: <prose>`.
+
+    cause_unavailable      the locator RAN, returned no plan, and supplied no cause
+    locator_module_absent  the module did not import -- nothing to attempt with
+    language_undetermined  could not tell which language the merge measured on
+
+**Why not `unknown`, which dev-4 offered as the safe default:** `cause_unavailable` is not
+a cause at all, it is *this consumer's own observation that the producer told it nothing*
+— checkable here, and strictly stronger than `unknown`, which conflates *nobody knows*
+with *I was not told*. dev-4 accepted it against its own default. **Why the exception
+class is not in the token:** a token that varies is not a token; the class went to the
+prose before dev-4 had to ask.
+
+**ACCEPTANCE, written BEFORE the change** (`VMSAM_HELP_AI/dev-2/ACCEPTANCE_T12A_no_plan_cause.md`)
+**and every clause measured:**
+
+    R1 constant gone      PASS -- 6 of 6 pairs reaching the branch, KIND: RUN through
+                          `repair_not_compatible_videos`, mergeVideo.py:826's callee
+    R2 nothing invented   PASS -- both tokens emitted are observations of my own site;
+                          no locator reason is asserted, because none is emitted yet
+    R3 accepting pairs    PASS -- STRUCTURAL, covering all of them rather than one:
+                          8 of 10 `record()` sites byte-identical in the AST, and
+                          0 non-`no_plan` sites changed. Plus id 267 run: unchanged.
+    R4 positive control   PASS -- sink proven LIVE in-process AT `tools.dev = False`,
+                          the setting the measurement runs at, BEFORE any absence was
+                          claimed; negative control silent
+    R5 m from material    m = 6 reaching the branch, both tokens exercised (3 and 3)
+
+**THE LIMIT, AND IT IS THE ONE I NEARLY REPORTED AS A RESULT.** The three
+`language_undetermined` firings all carry `language_route = "no language to choose from"`
+— which is **my own substrate artefact**: `best_video.delays` is populated by
+`prepare_get_delay` upstream of zone A and my lab never runs that path, so that branch is
+reached by my empty dict. **They verify the EMISSION FORM and say nothing about how often
+production reaches that site.** dev-4 measures 0 of 19 in its production corpus, and that
+figure stands beside mine rather than being corrected by it.
+
+**Two counting corrections taken from peers, both of which I had made myself:**
+*dev-1:* the file has **10** `record()` call sites, not the 11 my `grep -c` reported — the
+eleventh is the `def`. **I counted mentions as instances**, the exact defect I catalogued
+in my own ledger, one day later. *dev-4:* `record()`'s `detail` parameter **never reaches a
+log line** — 28 `tools.logs.append` sites, 0 interpolating `detail`. I put the cause in
+`reason` and the change survives, **but I chose `reason` because the old string was there,
+not because I had checked** — inheritance, not insight, and their measurement is what makes
+it known rather than lucky.
+
+**Not fixed, and not mine to fix:** every log already written keeps the old constant
+forever — 19 in dev-4's corpus. **The population is mixed by DATE, not by site**, and no
+change of mine reaches it.
 
 ## 2026-09-05 — id 688 AMENDS the entry below: the tenfold split stands, "does not bound the worst case" does not
 
