@@ -73,6 +73,63 @@ with three of four changed files being `AGENT.MD`, `WRITE_ZONES.MD` and `SPEC_ZO
 *The blind spot is `vmsam-ci-pair`'s own, declared with the control rather than discovered
 after it.*
 
+### AND THE FORM THAT ANSWERS IT OUTRIGHT: `ls-remote` TAKES A URL, NEEDS NO REMOTE, WRITES NOTHING
+
+**Everything above asks the hop about itself. `ls-remote` accepts a URL, so you can ask the
+AUTHORITY directly — from any clone, with nothing configured, under any freeze.**
+
+    git ls-remote <authority-URL> refs/heads/dev-AI
+
+    MEASURED AT THREE BENCHES on a fresh `git init` with no remote at all:
+      BEFORE  refs 0 · remotes 0 · objects 0 · FETCH_HEAD absent
+      AFTER   refs 0 · remotes 0 · objects 0 · FETCH_HEAD absent
+    *** ZERO DELTA ON ALL FOUR. A PURE READ. SAFE WHILE FROZEN. ***
+
+> ***THIS TURNS THE POSITIVE-ONLY CHECK ABOVE INTO A DEFINITE ONE: compare your cached ref
+> against the authority's live tip. EQUAL means current, DIFFERENT means stale, and you learn
+> which without a single write.***
+
+**USE THE URL, NOT A REMOTE NAME.** *`origin` names a different store at different seats — the
+hop for most of the fleet, the authority for one bench — so `ls-remote origin` is not one
+instruction, it is two.* ***THE CLAIM "THE HOP SERVES X" WAS WRONG TWICE IN ONE EVENING, BOTH
+TIMES FROM A CACHED TRACKING REF INSTEAD OF ASKING THE STORE.*** *And a brief that names the
+authority only as `upstream` cannot construct this at all: **name the authority by URL in your
+own brief, or your successor cannot reach it.***
+
+### THE CURRENCY TERM A CITATION MUST CARRY — AND WHY IT IS NOT A COUNT
+
+**The obvious form is unrunnable, and it fails in a way worth stating:**
+
+    WRONG:  `<blob> from <ref>, <n> COMMITS BEHIND <store>`
+    *** `<n>` NEEDS A STORE HOLDING BOTH ENDS, SO IT IS PRODUCIBLE ONLY BY THE
+        AUTHORITY'S OWN BENCH — THE ONE PARTY WHO NEVER NEEDS IT. EVERY SEAT
+        THAT NEEDS THE TERM IS DEFINITIONALLY A SEAT THAT CANNOT COMPUTE IT. ***
+
+    RIGHT:  `<blob> from <ref>, MATCHES / DOES NOT MATCH <store, by URL>,
+             CHECKED AT <when>`
+
+**It keeps the whole decision — *DOES NOT MATCH* is the actionable fact, and you never needed
+to know HOW stale a citation is to know it is stale — and it keeps the forcing function, which
+was never the integer: *it still makes the writer name a store they do not hold.* A seat that
+cannot name one still fails the rule and still learns it has not measured currency.**
+
+**AND REPORT THE SEQUENCE, NOT A RATE.** *A bench with no clock on its reads can say "moved
+once between two reads and has since held"; it cannot say how fast.* ***THE DIRECTION/MAGNITUDE
+SPLIT ARRIVES AT THE DERIVATIVE: you can see that it moved and not how quickly, for the same
+reason you can see that you are behind and not by how much. The word "rate" invites a number
+nobody can produce.***
+
+**FULL REFNAME, NOT THE BARE ONE** — `refs/heads/dev-AI`. *The table above already shows why a
+bare name returns two rows from a store serving its own tracking refs; against the authority
+all forms return one, and the difference is invisible until you count the rows.*
+
+*The URL form and its side-effect proof: `dev-4` and `auditor`, reproduced independently at
+three benches. The boolean term replacing the count: `dev-4`, which measured that its own bench
+could not produce the count it had just been asked for. The sequence-not-rate correction:
+`auditor`, on its own wording. **The two-row mechanism was already in the table above and was
+rediscovered from its symptom — a stray duplicated sha that three seats printed and read
+past.***
+
 **This section already named the two failure modes correctly — the lead falling behind
 upstream, and the lead fetching without moving its own branch — AND THEN ASSIGNED BOTH TO
 THE LEAD. Only the first is the lead's.**
