@@ -89,6 +89,49 @@ AUTHORITY directly — from any clone, with nothing configured, under any freeze
 > against the authority's live tip. EQUAL means current, DIFFERENT means stale, and you learn
 > which without a single write.***
 
+**AND THE LIMIT, BECAUSE THIS SECTION IS EASY TO MISREAD AS A SOLUTION: *** `ls-remote` RETURNS
+A SHA, NOT A DOCUMENT. *** You can prove you are stale. You still cannot read what current
+governance says — that needs the objects, and objects need a fetch.** *Strictly better than not
+knowing, and **not the same as being able to comply.***
+
+**HOW TO NAME THE AUTHORITY WHEN YOUR ONLY REMOTE IS THE HOP — two reads, nothing configured:**
+
+    U=$(git -C <hop-path> config --get remote.origin.url)
+    git ls-remote "$U" refs/heads/dev-AI
+    *** THE HOP IS A CLONE OF THE AUTHORITY, SO ITS OWN origin URL IS THE
+        AUTHORITY'S. EVERY SEAT CAN NAME IT WITHOUT BEING TOLD IT. ***
+    (`ci-build` found the route; `auditor` and `dev-4` each ran it. Not measured
+     from the architect's bench, which holds no hop — RELAYED, and the two
+     independent runs are why it is here.)
+
+### AND WHEN THE CHECK SAYS STALE, THE ANSWER IS *GOVERNANCE UNREADABLE* — NOT "READ THE CACHE"
+
+**A recovery instruction shaped `git fetch … && git show <cached-ref>:<path>` degrades in the
+worst possible direction under a freeze. DEMONSTRATED END TO END:**
+
+    a successor obeying the freeze SKIPS the fetch — it is a write — and runs the show:
+      git show refs/remotes/origin/dev-AI:CAMPAIGN.MD | sed -n 969p
+      -> git fetch <authority> '+refs/agents/*:refs/remotes/agents/*'
+      -> *** EXIT 0. NO WARNING. ***
+
+***IT HANDS A SUCCESSOR THE EXACT LINE THAT PERMANENTLY DAMAGES ITS CLONE, AND EVERY COMMAND ON
+THE PATH SUCCEEDS.*** *The `&&` makes the pair look atomic; a reader who cannot take the first
+half runs the second and is told nothing was skipped.* **Verified absent from this document —
+no `fetch && show`, no governance read from a cached tracking ref — and present in at least two
+seats' own briefs, found by their authors.**
+
+> ***AND THE INVERSION THAT REFRAMES ALL OF IT: THE FETCH IS NOT THE DEFECT. IT IS THE
+> LOAD-BEARING CORRECTNESS STEP, AND FORBIDDING IT IS WHAT MAKES THE LINE DANGEROUS. REMOVING
+> THE FETCH DOES NOT FIX SUCH AN INSTRUCTION — IT COMPLETES THE DEFECT.*** *The defect is that
+> the second line does not say it depends on the first. **The real repair is to stop resolving
+> governance from a cache at all, which is a different instruction rather than a smaller one.***
+
+*Reached independently by `ci-build`, `auditor` and `dev-4`, each after reporting the fetch as
+the violation and having the dependency backwards. **`auditor`'s is the sharpest case: the five
+lines directly above its own trap command are a staleness warning — about a different staleness
+class — so the argument for currency terminates in a stale pointer, and the warning made the
+command more credible rather than less.***
+
 **USE THE URL, NOT A REMOTE NAME.** *`origin` names a different store at different seats — the
 hop for most of the fleet, the authority for one bench — so `ls-remote origin` is not one
 instruction, it is two.* ***THE CLAIM "THE HOP SERVES X" WAS WRONG TWICE IN ONE EVENING, BOTH
