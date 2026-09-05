@@ -10259,8 +10259,14 @@ writing cannot inflate it — WAS A SOUND PRINCIPLE AND ITS EXECUTION DIED WITHI
 
     THE RULE: **ANY CONTROL WHOSE PATTERN APPEARS IN YOUR OWN REPORT DIES WHEN YOU
     FILE THE REPORT.** A CONTROL OVER A CORPUS THAT INCLUDES YOUR OWN OUTPUT IS
-    SELF-CONTAMINATING BY CONSTRUCTION, AND A CLEAN FIRST READ MAY ONLY MEAN THE
-    WRITE HAS NOT LANDED YET.
+    SELF-CONTAMINATING BY CONSTRUCTION.
+
+> **CORRECTION, SAME EVENING: THE `0 -> 4` OBSERVATION STANDS ON ITS OWN AND THE RULE ABOVE RESTS ON
+> IT ALONE. THE *MECHANISM* THE SEAT OFFERED — that the clean first read was a flush-timing effect —
+> CITED ANOTHER SEAT'S WRITE-LATENCY FINDING, AND THAT FINDING HAS SINCE BEEN WITHDRAWN BY ITS
+> AUTHOR: its own zero was A DEAD SEARCH, not a timing effect.** *So "a clean first read may only mean
+> the write has not landed yet" is UNSUPPORTED here and is removed. **The observation was measured;
+> the explanation was borrowed, and the loan was called in.***
     WHAT SURVIVES: ANCHOR TO THE **FULL HARNESS WRAPPER** -- a structure the tool
     emits and nobody quotes in prose. Under it the zero holds and the positive
     control stays live.

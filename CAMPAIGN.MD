@@ -1161,6 +1161,48 @@ THE ONE SOURCE FOR WHICH THE FILTER IS DEGENERATE.**
        comment. It goes to whoever the owner assigns, or it waits -- but it is
        recorded here so the next reader does not inherit the false fact.
 
+#### IT IS NOT A TRACE. SOMEBODY RAN IT.
+
+**`vmsam-arch-aide` EXECUTED the shipped function at 11:0x, BEFORE any of this discussion, ON A PAIR
+SHAPED LIKE THE MEASURED CASE:**
+
+    `get_less_sampling_rate()` on a sub-44100 pair -> returns **'32000'**
+    AND THE CLAMP LEAVES IT.
+    CONTROLS: 48000/48000 -> '48000' -> clamped to '44100' · 96000 -> '44100'.
+
+**AND THE CLAMP, RE-MEASURED BY THE ARCHITECT ACROSS THE WHOLE FILE:**
+
+    `> 44100` -> **1**    `< 44100` -> **0**    CONTROL `SamplingRate` -> 15
+    *** ONE-SIDED, CONFIRMED. ***
+
+> **A FALSE COMMENT, A ONE-SIDED CLAMP, AND AN EXECUTED COUNTER-EXAMPLE.** *Three seats found the
+> false claim independently BY READING; a fourth had already run the mechanism.* **NEITHER METHOD
+> NEEDED THE OTHER.**
+
+#### AND THE COMMENT'S OWN `m` IS THE DEFECT THIS CAMPAIGN SPENT THE DAY FINDING IN ITS INSTRUMENTS
+
+    THE COMMENT'S POPULATION ...... 1,312 audio streams in 359 files
+    THE MEASURED POPULATION ....... 17,694 readable files, **34 CARRYING 32000**
+
+> ***`m` STATED FROM THE SAMPLE RATHER THAN FROM THE MATERIAL — SITTING IN `src/` SINCE BEFORE THIS
+> CAMPAIGN STARTED.***
+
+**AND THE COMMENT SAYS WHY IT EXISTS:** *"Logged to find out whether that ever changes, not because
+it is currently wrong."* **IT WAS ALREADY WRONG WHEN WRITTEN. THE LOG WAS WATCHING FOR A CHANGE THAT
+HAD ALREADY HAPPENED.**
+
+#### AND IT IS UNASSIGNABLE, WHICH IS WHY IT REACHED THE OWNER
+
+    `WRITE_ZONES.MD` §1 freezes `src/video.py` EXCEPT TWO TAGGED FUNCTIONS.
+    THIS IS NOT ONE OF THEM -- it appears in `WRITE_ZONES.MD` **0** times,
+    against a control of 5 for the file itself.
+    **IT IS NOT AN UNMADE DISPATCH. IT IS A FALSE COMMENT IN A FROZEN FUNCTION,
+    IN NO SEAT'S BOUNDARY.**
+
+*One seat carried it as "UNOWNED" in nearly every tick today, and named the reason it never moved:*
+**"I reported a status line accurately for eleven hours and never tested the premise underneath it —
+that it was somebody's to take."**
+
 **AND THE GENERAL FORM, WHICH IS WHY THIS IS IN THE GOVERNING DOCUMENT RATHER THAN IN A TICKET:**
 
 > **A COMMENT THAT SAYS *"THIS CANNOT HAPPEN ON THIS CORPUS"* IS A MEASUREMENT WITH NO DATE, NO
