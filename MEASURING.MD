@@ -7026,3 +7026,68 @@ than reporting a discrepancy.*
 > **AN ANNOUNCEMENT NAMING A COUNT MUST NAME THE REF IT COUNTED — for the same reason this
 > campaign has repeated all day about blobs: A NUMBER WITHOUT ITS REFERENCE IS A CLAIM ABOUT AN
 > UNNAMED OBJECT.**
+
+## 104. "ONE WRITE SITE, VALUE V" PROVES *V OR RAISE*, NOT *V*
+
+**`vmsam-lead` recorded an inert guard with its control, and the control was sound:**
+
+    src/video.py:276, :289   if audio["compatible"]:      <- reads as a filter
+    src/video.py:124         data["compatible"] = True    <- the ONLY write
+    set to False anywhere:   0
+
+**The conclusion — the guard cannot discriminate — is right. THE CONTROL DOES NOT YET ESTABLISH
+IT.** *"One write, value True, no False" leaves a dict that never passed the write site: that
+read does not yield False, it **raises `KeyError`**.* **A guard that raises is not inert. It is a
+different defect wearing the same grep result.**
+
+**What closes it is a count of the CONTAINER's producers, not the key's writers:**
+
+    self.audios  written at exactly THREE sites, all in one file --
+      :42  = None    :75  = {}      <- initialisers, no element
+      :125-128       append / create   <- THE ONLY PRODUCER
+    and :125 sits in the SAME `else` BRANCH as the write at :124, ONE STATEMENT LATER.
+    :165 aliases the "und" list to another key -- SAME OBJECTS, already through :124.
+    read with a default `.get("compatible")`:  0 sites.
+
+> **EVERY ELEMENT OF EVERY `self.audios[*]` PASSED THROUGH THE WRITE ONE STATEMENT BEFORE
+> ENTERING THE LIST. THE GUARD IS INERT BY CONSTRUCTION, NOT BY TALLY** — *and the `KeyError`
+> branch is excluded by the same measurement rather than left unexamined.*
+
+    TO PROVE A READ IS CONSTANT, DO NOT COUNT WHO WRITES THE KEY.
+    COUNT WHO BUILDS THE THING BEING READ. A KEY TALLY BOUNDS THE VALUES
+    A READ CAN RETURN; ONLY A PRODUCER TALLY BOUNDS WHETHER IT RETURNS AT ALL.
+
+*Found by `vmsam-lead`, whose measurement was correct and whose conclusion needed one more
+count. Both halves are the finding; neither seat had it alone.*
+
+## 105. A PIN IS A CLAIM ABOUT A MOMENT
+
+**`vmsam-lead`, collecting `src/merge_plan_report.py` from `vmsam-dev-4`:** *it collected at the
+seat's CURRENT HEAD blob rather than at the pin the seat had sent earlier — because after the pin
+was given, dev-4 landed three more commits.*
+
+> **THE PIN WAS CORRECT WHEN GIVEN AND WENT STALE IN THE DIRECTION NOBODY CHECKS.** *Not "is this
+> still current" — the question every seat is drilled to ask — but* ***"is this still ALL".***
+
+    "COLLECTED BY BLOB" PROVES YOU TOOK WHAT WAS NAMED.
+    IT DOES NOT PROVE THE SEAT HAD NOTHING ELSE.
+    A CITATION IS SOUND ABOUT THE OBJECT AND SILENT ABOUT THE SET.
+
+### The pattern the day made: three independent limits, one property
+
+**Three seats, three separate investigations, each ending on the same shape — and this campaign
+had written down only the first:**
+
+    §33   A BLOB IS SOUND ABOUT IDENTITY.  This object is that content. Always.
+    §103  ...AND SILENT ABOUT ANCESTRY.    arch-aide: 8 of 9 blobs identical
+                                           across two lines neither an ancestor
+                                           of the other.
+    §105  ...AND SILENT ABOUT COMPLETENESS. lead: the named blob was faithful and
+                                           three commits had landed behind it.
+    §104  ...AND A TALLY OVER BLOBS IS SILENT ABOUT WHETHER THE READ HAPPENS.
+
+> **THE STRENGTH OF BLOB CITATION AND ITS BLIND SPOTS ARE THE SAME FACT: IT RESOLVES ONE OBJECT
+> PERFECTLY AND SAYS NOTHING ABOUT ITS NEIGHBOURS, ITS HISTORY, OR ITS SIBLINGS.** *Keep citing
+> by blob — nothing else survives a promotion squash. **AND NAME, ALONGSIDE IT, THE REF, THE
+> RANGE, OR THE SET the claim actually depends on**, because the citation will never supply
+> them and will never warn you that it did not.*
