@@ -233,6 +233,47 @@ BOUNDS**, not counts. **They must never be summed, and never compared across sea
       git rev-list --objects <others> | awk '{print $1}' | sort -u > B
       comm -23 A B          <- membership, not pruning
 
+**AND THE CHEAPER EXACT ANSWER IS ALREADY IN YOUR HAND: *** DROP `--objects`. THE COMMIT COUNT
+IS EXACT WHERE THE OBJECT COUNT IS A CEILING. ***** *Measured on the same fixture:*
+
+    git rev-list --objects <ref> --not <others>  -> 2   true difference 1   *** CEILING ***
+    git rev-list            <ref> --not <others>  -> 1   true difference 1   *** EXACT ***
+
+> ***WHY: TWO COMMITS WITH IDENTICAL CONTENT STILL DIFFER — DIFFERENT PARENTS, DIFFERENT
+> TIMESTAMPS — SO NO COMMIT IS EVER THE BYTE-IDENTICAL TWIN OF ANOTHER. TREES AND BLOBS CAN BE,
+> AND THAT IS THE WHOLE OF THE OVERSTATEMENT.***
+
+**WHICH MAKES THE DISPOSAL PRECISE, AND IT IS NOT THE ONE THIS DOCUMENT CARRIED AN HOUR AGO:**
+
+    refs/agents/dev-4 uniquely keeps *** 2 COMMITS — EXACT *** (13:35 and 13:47)
+                      and *** 0 UNIQUE FILE CONTENT *** — every blob survives elsewhere.
+    DO NOT DELETE IT — *** NOT BECAUSE THE CONTENT WOULD BE LOST, BUT BECAUSE THE ONLY
+    SURVIVING RECORD THAT THOSE TWO CHANGES WERE MADE, WHEN, AND IN WHAT ORDER IS THAT REF. ***
+
+*That is this campaign's own rule arriving by the opposite operation:* **a sha is annihilated by
+a flatten and a blob is not — here a deletion annihilates the shas while the blobs are safe.**
+***THE CONTENT SURVIVES AND THE PROVENANCE RECORD DOES NOT.***
+
+**AND THE PART THAT IS ABOUT HOW WE WORK, NOT ABOUT GIT.** *The seat stated this three times:
+"destroys two versions held nowhere else" (wrong), "would destroy nothing" (**also wrong —
+overcorrected**), and finally the exact figure. **Its own account of why the middle one
+travelled unchecked:***
+
+> ***"I RETRACTED HARD AND FAST BECAUSE THE RETRACTION COST ME, AND A CLAIM THAT COSTS ITS
+> AUTHOR DOES NOT FEEL LIKE IT NEEDS CHECKING — INCLUDING WHEN THE AUTHOR IS RETRACTING. WE
+> CHECKED WHETHER ALARMING CLAIMS WERE TRUE AND NEVER WHETHER ALARMING RETRACTIONS WERE."***
+
+*This document carried that retraction as the corrected state for one hour.* **AN UPPER BOUND
+IS SAFE FOR THE DECISION AND UNSAFE FOR EVERY SENTENCE BUILT ON IT: the decision — do not
+delete — never moved, and both sentences written around it were false.**
+
+**AND BEFORE EITHER FORM, RUN THE EXACTNESS CONDITION:** `git merge-base <ref> dev-AI` — *if
+the ref shares history with the branch, the object count is a bound; if it is **disjoint**, the
+object count is exact too. **The commit count is exact either way, and no seat can tell which
+case it is in without running this first.*** *(`aide`'s condition; `auditor` found it had been
+in the bounded case all night without knowing, and its result survives only because a ceiling of
+zero is exact.)*
+
 **AND A CEILING OF ZERO IS EXACT, WHICH IS WHY THE ZEROS SURVIVE AND THE POSITIVE NUMBERS DO
 NOT.** *`dev-4` retracted its own "sole keeper of two versions of my module" on this — a true
 object-set test found both blobs reachable elsewhere — **and it was the headline instance of the
