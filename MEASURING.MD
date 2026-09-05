@@ -3310,13 +3310,26 @@ MEASURED.* **On a 32 kHz pair the correct grid is 32000 and the fallback yields 
 
 ### And an error rate, published by the instrument itself
 
-*`vmsam-ci-pair` volunteered its own reliability before anyone weighed its findings: five
-filings tonight, TWO corrected by their subjects within the hour; its gate wrong three times,
-TWICE BY CONDEMNING CORRECT WORK.*
+*`vmsam-ci-pair` volunteered its own reliability before anyone weighed its findings.*
 
-> **A GATE VALIDATED ONLY ON ITS AUTHOR'S EXAMPLES HAS BEEN VALIDATED AGAINST THE BLIND SPOTS
-> IT INHERITED** — *every one of its three was found by running it on somebody else's
-> fixture.*
+> **BOTH FIGURES BELOW WERE STALE AND THE SEAT CORRECTED THEM AGAINST ITSELF, IN THE DIRECTION THAT
+> COSTS IT.** *"Five filings, two corrected within the hour" was PRE-RESET — **today alone lists
+> ELEVEN distinct corrections.** "Its gate wrong three times" is **SIX** by its own last count:
+> **3 false positives AND 3 FALSE ASSURANCES** — and a false assurance is the worse half, because
+> nobody goes looking after one.*
+
+**AND THE SENTENCE THIS DOCUMENT PUBLISHED — *a gate validated only on its author's examples has been
+validated against the blind spots it inherited* — STANDS, AND THE SEAT SAYS IT UNDERSTATES THE CASE.
+MEASURED BY IT TONIGHT:**
+
+    ITS SELF-TEST CALLS **NONE** OF THE SIX REAL GAPS -- not the dispatch,
+    not the manifest loader, NOT THE FUNCTION THAT COMPUTES `m`.
+    SO IT IS NOT "VALIDATED ON ITS AUTHOR'S EXAMPLES".
+    *** IT IS VALIDATED ON THE **AXES** AND NEVER ON THE **CHAIN**. ***
+
+*A gate that exercises every dimension separately and no path through them end to end will pass while
+the thing it guards is unreachable — §161's shape, one level in: not the wrong entry point, but no
+entry at all.*
 
 **And the sharpest line of the night on why attribution errors survive:** *an attribution
 error is invisible to everyone except the wrongly-credited and the wrongly-uncredited, AND
@@ -9589,3 +9602,53 @@ FIX-TO-THE-FIX STRIPS THE VERY WARNING THE FIRST FIX ADDED.**
 **Both are hop-local, which BOUNDS THE EXPOSURE AND DOES NOT CHANGE THE GATE** — and neither is
 fixing it tonight, which is correct: a repair written at the end of a long day is how the three
 chains above began.
+
+## 165. ALL SEVEN OF A SEAT'S PUBLISHED `m` ROWS WERE THE ROW COUNT
+
+**`vmsam-forensic`, auditing its own denominators after the campaign made `m` load-bearing:**
+
+    SEVEN published `m` rows. ALL SEVEN WERE **THE NUMBER OF ROWS IN THE POPULATION.**
+    TWO were legitimately so -- presence screens, where every row CAN express the shape.
+    **FIVE WERE SHAPE SWEEPS, WHERE MOST ROWS CANNOT EXPRESS THE SHAPE AT ALL.**
+      182 -> 39     1013 -> 620     27 -> 5
+
+> **THE SEAT'S OWN SENTENCE, AND IT IS THE DEFINITION THIS DOCUMENT HAS BEEN CIRCLING ALL CAMPAIGN:**
+> ***"`m` IS WHAT SEPARATES *I LOOKED AND FOUND NOTHING* FROM *THERE WAS NOTHING TO FIND* — AND MINE
+> SAID THE FIRST WHILE MEASURING THE SECOND."***
+
+    A ROW COUNT IS AN **UPPER BOUND** ON `m`, NEVER `m`.
+    `m` IS THE NUMBER OF ROWS THAT **COULD HAVE COME OUT THE OTHER WAY**.
+    IF THE SHAPE YOU ARE SWEEPING FOR CANNOT EXIST IN A ROW, THAT ROW IS NOT
+    AN OPPORTUNITY -- IT IS A NON-MEMBER (§84's reaching denominator, applied
+    to a sweep rather than to a gate).
+
+### And the inflation does not carry between populations
+
+    4.7x · 1.6x · 5.4x  -- THREE SWEEPS, THREE DIFFERENT FACTORS.
+
+> **SO YOU CANNOT DISCOUNT A REPORTED `m` BY A REMEMBERED RATIO.** *There is no "usually about half";
+> the ratio is a property of THAT population against THAT shape, and it must be recomputed each
+> time.* **A CORRECTION FACTOR IS ITSELF A MEASUREMENT.**
+
+*The `27 of 27` this document carried as the support for one finding is `27 of 5`. The finding is
+unchanged; its strength is not — and the seat filed that distinction rather than letting the number
+stand.*
+
+## 166. FIXED, AND THE RECORD MUST SAY SO — §161 IS ALREADY OUT OF DATE
+
+**`vmsam-dev-4` repaired the gate that §161 was written about, and the correction belongs beside the
+rule rather than replacing it.** *RELAYED — the instrument is outside the repository and the
+architect cannot reach it.*
+
+    `validate_merge_plan.py` now calls `report.write_report`  -- 1 site
+    traced AT RUN TIME: **45 of 46 consumer-path functions execute**
+    BLIND REGION **0**, was 3
+    SABOTAGE -> NOT VALIDATED, bare exit 1 · RESTORED -> clean exit 0
+
+**THE ONE UNEXECUTED FUNCTION IS `redact`, UNREACHABLE BECAUSE A FLAG IS FALSE UNDER THE OWNER'S
+STANDING RULING — A CONFIGURATION, NOT A HOLE IN THE GATE'S AIM.** *Naming which of the two it is,
+rather than reporting 45 of 46 and leaving the reader to guess, is the whole difference between a
+coverage number and a coverage claim.*
+
+**AND TWO OF THE THREE DEFECTS THAT SEAT REPAIRED TONIGHT WERE IN ITS OWN EARLIER FIXES.** *§164's
+chain, caught one link earlier than the seats it was written about.*
