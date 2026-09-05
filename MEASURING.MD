@@ -9883,3 +9883,59 @@ DELETE THE ONLY ARTEFACT-VISIBLE EVIDENCE THAT THE SPEED ROUTE WAS EVER SPECIFIE
 
 *One question remains and it costs a READ rather than a landing: if the held half already emits
 these keys, the producer EXISTS AND IS MERELY UNLANDED — a third answer only its author can give.*
+
+## 173. A NEED REPORTED AS A STATUS IS ACCURATE EIGHT TIMES AND MOVES NOTHING
+
+**`vmsam-dev-2`, given the fifth line, checked its own record rather than recalling it:**
+
+> ***"I have been reporting *waiting on forensic* as STATE in every tick for hours. I CONVERTED A
+> NEED INTO A STATUS AND REPORTED IT ACCURATELY EIGHT TIMES."***
+
+    IT HAD SENT A DETAILED SPECIFICATION AND RECEIVED NO REPLY.
+    EVERY TICK AFTERWARDS WAS **TRUE**: "blocked on forensic, for material."
+    AND A STATUS FIELD CANNOT SHOW AN ABSENCE, SO EIGHT ACCURATE REPORTS
+    CARRIED THE SAME INFORMATION AS SILENCE.
+
+**THE OTHER THREE ARE THE SAME SHAPE AT THREE DIFFERENT DISTANCES, AND THE SEAT NAMED EACH AGAINST
+ITSELF:**
+
+    (ii) IT DECLARED A THING **UNVERIFIABLE** AND NEVER ASKED THE SEATS WHO COULD DO IT.
+         It wrote "needs another seat" in its brief, routed it upward as a FINDING,
+         and sent no request to either seat that holds the substrate.
+         *** "That is my omission, not theirs." ***
+    (iii) ITS SEALED PREDICTION HAS A **READ CONDITION** AND IT NEVER CHECKED WHETHER
+         THE CONDITION HAD BEEN MET -- it carried "sealed, unreadable" all day
+         without once asking the seat that would know.
+         *** A SEAL WHOSE READ CONDITION NOBODY CHECKS IS INDISTINGUISHABLE FROM
+             ONE THAT WILL NEVER BE READ. ***
+    (iv) AND ONE THE OWNER COULD HAVE ANSWERED AT ANY POINT, SITTING IN ITS OWN BRIEF
+         UNDER `OWNER-PENDING`, NEVER RAISED ONCE ALL SESSION.
+
+> **`UNVERIFIABLE` IS A VERDICT ABOUT AN INSTRUMENT, NOT ABOUT A QUESTION. BEFORE YOU FILE IT, NAME
+> THE SEAT THAT COULD ANSWER IT — AND THEN ACTUALLY ASK THAT SEAT.** *Routing a finding upward is not
+> the same act as sending a request sideways, and the campaign's report form only has a slot for the
+> first.*
+
+### The open ruling it surfaced, and it is cheap
+
+**WHICH AUDIO TRACK SHOULD A SUBTITLE FOLLOW WHEN ITS OWN LANGUAGE HAS NO AUDIO IN THE FILE?**
+*Measured instance: one file carries **14 subtitle languages against 6 audio** — eight subtitle
+languages with no audio to follow.*
+
+**IT IS INSIDE THAT SEAT'S BOUNDARY — the chimeric builder re-times subtitles — AND IT IS NOT A
+PREFERENCE: TODAY THE CODE PICKS, AND NOTHING RECORDS THAT A CHOICE WAS MADE.** *It sits beside the
+per-language delay divergence this campaign already measured at 48 of 81 judgeable pairs.*
+
+    A SILENT CHOICE IS NOT A DEFAULT. A DEFAULT IS A DECISION SOMEBODY MADE AND
+    WROTE DOWN; **A SILENT CHOICE IS A DECISION THE CODE MAKES AND NOBODY OWNS.**
+
+### And a count that hid a repair
+
+**The architect reported "four of five instruments print without asserting". EXACT AND CURRENT — and
+the seat corrected what it hides:** *one of the four had a SECOND defect, separately fixed and
+verified on both branches — its `m` sentence was a CAPTION reading "0 files could have gone either
+way" AT ZERO.* **Two different defects in one instrument, one repaired and one deferred, and the
+count of four erases the first.**
+
+> **A COUNT OF DEFECTIVE THINGS HIDES THE REPAIRS INSIDE THEM. IF A SEAT FIXED HALF OF SOMETHING,
+> THE TALLY THAT STILL COUNTS IT WHOLE IS TAKING CREDIT AWAY FROM WORK THAT WAS DONE.**
