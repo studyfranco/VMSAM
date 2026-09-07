@@ -1,6 +1,6 @@
 import argparse
 from datetime import datetime
-from multiprocessing import Pool
+from multiprocessing import Pool, set_start_method, get_context
 from os import path,chdir
 import traceback
 import tools
@@ -30,6 +30,7 @@ if __name__ == '__main__':
     tools.dev = args.dev
     
     try:
+        set_start_method('fork', force=True)
         tools.software = tools.config_loader(args.config, "software")
         if (not tools.make_dirs(tools.tmpFolder)):
             raise Exception("Impossible to create the temporar dir")
@@ -66,8 +67,16 @@ if __name__ == '__main__':
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
-        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
-        video.ffmpeg_pool_big_job = Pool(processes=1)
+        # Python 3.14 changed the default start method on Linux away from fork.
+        # Everything the workers read -- tools.software, tools.mergeRules, the
+        # language configuration -- is set as a module global ABOVE this line and
+        # never passed as an argument, so only fork carries it into a worker.
+        # Under forkserver a worker sees tools.software == {} and the run fails.
+        # The context is pinned per-Pool as well as globally: `set_start_method`
+        # alone is defeated by anything that sets a method first, and it is set
+        # with force=True at the top of this try for the same reason.
+        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use, mp_context=get_context("fork"))
+        video.ffmpeg_pool_big_job = Pool(processes=1, mp_context=get_context("fork"))
 
         mergeVideo.merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)

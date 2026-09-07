@@ -1,13 +1,27 @@
 # VMSAM — AI Agent Context & Directives
 
+> ### THIS FILE IS REFERENCE. **`ENTRY.MD` IS WHAT YOU READ FIRST.**
+> *The mandatory documents total ~7 000 lines and this one is 1 000 of them.* **NOBODY
+> READS 7 000 LINES BEFORE THEIR FIRST ACT** — and "read AGENT.MD first" was a rule
+> with no mechanical check, which §34 says is a habit. **`ENTRY.MD` is the
+> construction that replaces it: short enough to actually be read, sufficient to act
+> from, and it points back here BY PHRASE.** *Grep this file. Do not read it through.*
+
 **This file governs `master`.** Campaign 1 had its own copy with its own rules; do
 not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive — measured
 knowledge to consult, not instructions to follow. It is all that survives of it:
 **nothing outside this repository is a source you can go and read.**
 
-Budget: **450 lines.** A rule that does not fit is not a rule, it is a finding, and
-it belongs in the archive. This ceiling exists because the previous campaign's
-equivalent reached 1191 lines and stopped being read before acting.
+**No line budget, deliberately.** This file declared 450 lines and stood at 654 —
+45 % over and unenforced, and *a ceiling nobody honours teaches that ceilings are
+decorative*. The number also caused harm: **a rule squeezed to fit names its
+mechanism and drops its consequence, which is exactly what makes it fail.** Four
+failures in a single day were rules whose mechanism was written down and whose
+consequence was not.
+
+So the test is not length. **A rule earns its lines by naming what goes wrong when it
+is broken**, in the reader's own terms. A rule that only names the mechanism is worse
+than absent: a reader who knows the mechanism files it as handled.
 
 ---
 
@@ -20,8 +34,14 @@ equivalent reached 1191 lines and stopped being read before acting.
 | `FILE_MAP.MD` | where everything is and what it does | to find your way |
 | `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
+| `PIPELINE.MD` | **the engine, the handled cases, the `fabricated` marker, and TARGET-FIRST** — what a good output IS | before changing engine behaviour |
+| `MEASURING.MD` | **the evidence.** Every rule's derivation, every refutation, every retraction. `grep` it, never read it through | when you doubt a rule, or are about to repeat a mistake |
+| `ENTRY.MD` | the only document read BEFORE acting, and the entry test | first, and after every restart |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
-| `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
+| `TASKS/` | **finished reports** — one per closed group of actions: context, result, technical account. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/` | when a group of actions closes |
+| `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
+| `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
+| `MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
@@ -107,239 +127,61 @@ timelines frame-accurately, and assembles one `.mkv` carrying the best video, au
 and subtitle streams available — **with no human checking any of it**. That last
 clause is the whole difficulty: every automated decision is destructive if wrong.
 
-## 🔄 Synchronization pipeline
+## 🔄 The engine, the cases, and what a good output is → `PIPELINE.MD`
 
-```
-merge_videos(files, out_folder, merge_sync=True)
-  └─ sync_merge_video                       language selection, MD5 audio grouping
-       ├─ get_delay_and_best_video          no reference imposed: tournament of pairs
-       │    or get_delay                    forced_best_video: every file against it
-       │      └─ prepare_get_delay          extraction of the comparison windows
-       │      └─ compare_video (Thread)     one per pair
-       │           └─ test_if_constant_good_delay
-       │                ├─ first_delay_test        1 · Chromaprint, per window
-       │                └─ second_delay_test       2 · FFT / Rust, one long block
-       │           └─ get_best_video                3 · PSNR + VMAF, only if no
-       │                                                reference is imposed
-       │           └─ adjust_delay_to_frame         frame snap
-       │      └─ remove_not_compatible_video        4 · refusal  ← repair zone A
-       └─ generate_launch_merge_command     ffmpeg passes, then mkvmerge
-```
+**The synchronisation pipeline, the handled cases, the `fabricated` marker, and TARGET-FIRST — be
+certain of what you must obtain before you touch anything — are in `PIPELINE.MD`.**
 
-**Why stage 2 is in Rust** (owner's design intent, absent from the code): the FFT
-correlation was Python, and it ran out of memory on long files. `audio_sync` is its
-optimised rewrite; the Python implementation survives as a fallback. Rust buys
-memory, not accuracy — the tolerances above are unchanged by it.
+    THEY ARE DOMAIN REFERENCE. YOU CONSULT THEM WHEN THE WORK NEEDS THEM.
+    THEY ARE NOT READ-BEFORE-EVERY-ACTION, AND THEY WERE COSTING EVERY SEAT
+    EVERY LINE ON EVERY RESTART.
+    `git rev-parse -q --verify origin/dev-AI:PIPELINE.MD` -- RESOLVE IT YOURSELF.
+    **An EMPTY answer means ABSENT, never "unchanged": the bare form echoes its own
+    argument on failure. And `cat-file -t` must say `blob`.**
 
-**The rule the whole design rests on: one constant offset for the pair.** It is
-enforced in three places, not one — do not mistake the last for the rule:
+**IF YOU ARE ABOUT TO CHANGE ENGINE BEHAVIOUR, READ IT FIRST.** *Target-first especially: a change
+that improves a measurement and worsens the delivered file is not an improvement.*
 
-- `first_delay_test` requires the delays to agree **across windows and across track
-  pairs**. Pairs that disagree go to `ignore_audio_couple`; too wide a disagreement
-  raises. This is where constancy is actually established.
-- `second_delay_test` has its own variance tolerance,
-  `max_delay_variance_second_method` = **0.004 s**.
-- `test_if_constant_good_delay` then checks that **stage 2's correction stays under
-  500 ms**. Stage 2 re-extracts the candidate already shifted by stage 1's answer,
-  so it measures a *residual*, not a second independent offset: the check
-  `abs(calculated_delay - delay_first_method) < 500` reduces algebraically to
-  `abs(delay_second_method * 1000) < 500`.
+## 🏗️ Where you work, and what counts as done → `COMMITTING.MD`
 
-**Why 500, and why stage 2 at all** (owner's design intent, recorded here because the
-code does not say it): fingerprint peaks were observed putting stage 1 off by
-roughly **±250 ms**. Rather than trying to filter those peaks, stage 2 runs
-unconditionally and *corrects* them — a residual inside the band is applied, one
-beyond it means stage 1 was not merely imprecise but wrong, and the pair is refused.
-So the threshold is not a confidence margin: it is the width of the error stage 2 is
-expected to absorb.
+**The four tiers, the promotion commands, `--squash`, and the two roles that decide a task is
+finished are in `COMMITTING.MD`.** *They are promotion mechanics and that is the promotion document.*
 
-The side effect is precision. Stage 2's own tolerance is 4 ms against a frame of
-41.7 ms, so the residual is fine enough to expose **a cut that is one frame longer
-than its counterpart** — which is how a structural difference first becomes visible.
+    THE ONE LINE YOU MUST NOT GET WRONG, KEPT HERE:
+    YOU DO NOT EDIT `master` DIRECTLY. THE CAMPAIGN BRANCH IS A TIER, NOT THE
+    RECORD -- COMMIT THERE AS FREELY AS THE WORK NEEDS. **ONE COMMIT PER
+    PROMOTION**, AND `--squash` IS WHAT MAKES THAT STRUCTURAL RATHER THAN A
+    RULE YOU HAVE TO REMEMBER. **CLONES, NEVER COPIES**: a promotion by `cp`
+    overwrote an owner change on this repository, measured -- git stopped on
+    the conflict and preserved it.
 
-Everything downstream assumes that single number is right.
+## The architect, and the entry test → `MEASURING.MD` and `ENTRY.MD`
 
-**A delay measured by comparison is snapped to a whole video frame** when the
-reference is CFR — 41.708 ms at 23.976 fps, via `adjust_delay_to_frame`. Sub-frame
-precision is discarded by design, so never sell a method on it. Three limits go with
-that sentence, and each has been mistaken for the rule before:
+**Why the architect seat is permanent and absent from your roster: `MEASURING.MD`, final section.
+THE ENTRY TEST — mandatory, and a restart is cheap: `ENTRY.MD`, final section.**
 
-- **the snap does not survive to the container.** `mkvmerge` is given
-  `--sync -1:<int ms>`, so a delay snapped to 792.459 ms ships as 792 — half a
-  millisecond off the boundary. Far below the frame quantum, but it means "lands
-  exactly on a frame" is not literally true;
-- **only comparison delays are snapped.** `adjust_delay_to_frame` is called from
-  `compare_video` alone. The MD5-group delays (`delay_same_md5_audio`) are derived
-  from container delays and go through unsnapped;
-- **VFR is not refused, it is unsnapped.** The non-CFR branch returns the delay as
-  measured, with a `TODO`. Nothing rejects a variable-frame-rate reference.
+    YOU TAKE THE ENTRY TEST AFTER A RESTART. IT IS PUBLISHED IN ADVANCE ON
+    PURPOSE: IT TESTS THE HANDOFF FILE, NOT YOU. FAILING IT MEANS THE
+    DOCUMENT IS WRONG -- SAY SO, AND IT GETS FIXED.
 
-**A refusal is a correct outcome, not a failure.** No constant offset means the
-files differ in a way a single delay cannot express, and merging anyway produces a
-plausible file that is silently wrong.
+## 📡 Talking
 
-What each stage actually does, read from the code, is in `FILE_MAP.MD`.
+Who may direct you, and how anything you know reaches anyone else, are in
+**`TALKING.MD`** — read it when a message arrives or when you have something to say,
+which are the only moments either applies.
 
-## 📊 Handled Cases & Core Features
+Two lines worth carrying out of it: **your lead and the owner direct you, nobody
+else**, and **a report reaches the channel you write it in** — writing it out is not
+sending it.
 
-- **Audio Stream Deduplication & Ranking**: evaluates stream properties (codec,
-  bitrate, sampling rate, channel layout) against **configurable** priority rules in
-  `config.ini` `[mergerules]` — e.g. `Flac>AAC`, `Flac>MP3`, `DTS>E-AC-3*1.1` — to
-  retain only the optimal tracks **per language**. `keep_best_audio`.
-- **Subtitle Cleaning & Deduplication**: prioritises styled formats (ASS over a raw
-  SRT carrying the same text — `not_keep_ass_converted_in_srt`), cleans text
-  streams, classifies hearing-impaired and dubtitle tracks
-  (`test_if_hearing_impaired`, `test_if_dubtitle`), and drops identical streams by
-  MD5. Text formats hash on **text**, image formats (PGS/VOBSUB) on packet bytes.
-- **Track Metadata & Flag Assignment**: detects and tags default, forced,
-  commentary and audio-description streams — from the container flags *and* from
-  the title (`commentary`, `audio description`, `audio guide`, `descriptive`) — with
-  ISO 639 compliance via `iso639.Lang`, falling back to the macrolanguage.
-- **Multi-Pass Remuxing Pipeline**: FFmpeg extracts and loudness-normalises the
-  comparison audio (`loudnorm`, −23 LUFS), applies offsets with `aresample` and
-  `-itsoffset`, then `mkvmerge` assembles the container and receives the final
-  per-track `--sync` in integer milliseconds.
+## 📦 Committing
 
-## 🏷️ The `fabricated` marker
+Everything about what earns a commit, when a note may travel alone, and the hourly
+clock is in **`COMMITTING.MD`** — read it when you are about to commit, which is the
+only moment it applies.
 
-A track that the pipeline **built** is not a track it **copied**, and after the mux
-nothing tells them apart. One key carries the difference, on the audio stream dict:
-
-| `fabricated` | |
-| :--- | :--- |
-| absent or empty | the track is untouched — it came from a source file as it was |
-| a non-empty string | the track was **built**, and the string says how: `chimeric`, `resampled:<factor>`, `chimeric+resampled:<factor>` |
-
-**Test truthiness, never equality.** A value you do not recognise still means
-fabricated, so a method added later needs no change at any consumer.
-
-On the produced file the same string is a Matroska track tag, `VMSAM_FABRICATED`,
-so the origin survives the merge and is recoverable months later:
-
-```sh
-ffprobe -v error -show_entries stream_tags=VMSAM_FABRICATED -of compact <file>
-```
-
-**Nothing sets the key today** — `keep_best_audio` already reads it (a fabricated
-track loses to an intact one before any codec rule) and the branch is inert until
-the repair marks its tracks. The full contract is `SPEC_ZONE_A.MD` §4.
-
-**Why it is defined before it exists.** Provenance is knowable only at the moment
-of production; after that it is gone. Campaign 1 measured the consequence: **zero of
-110 measurements could be attributed to the code that produced them**, and three
-separate tools reconstructed track provenance from emission order, from track
-counts and from codec — three methods, three answers, no tiebreak.
-
-## 🎯 Target-first — be certain of what you must obtain
-
-You are free on the method. You are not free on knowing what a correct result is
-**before** you produce one.
-
-1. **Build the expected file by hand, first.** Whatever the change, produce the
-   output you say the code should produce — manually, with whatever tools you like
-   — and check it yourself. This is the target, and it exists before the code does.
-2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
-   crashes, files that never appear, a path never taken.
-3. **When the code holds, ask for a run in the test instance.** A local run proves
-   your code executes; only a real run proves the pipeline produces the result. You
-   do not operate that instance. **Its rules are deliberately absent from this
-   repository — you are given them in the prompt.** Copy them into `VMSAM_HELP_AI/`
-   the moment you receive them; do not plan around them, and do not infer any of
-   them from the runs you have seen.
-4. **Compare.** The produced file and your target must be **identical to what you
-   expected**. Not close, not plausible — identical on the properties you named in
-   step 1.
-
-**A test run is batched, exactly like a commit.** A pass costs the same whether it
-carries one line or a finished feature — so ask when you hold something worth the
-pass, and state what you expect it to show *before* it runs. And never assume the
-instance carries your latest code: name the revision you believe is under test, and
-when a result contradicts what you read in the source, question that assumption
-before you question the code.
-
-**Why in this order.** A target built afterwards is fitted to whatever came out,
-and then any result looks like a success. Campaign 1 has the example: a method was
-tuned until its numbers looked excellent — the tightest spread of a whole benchmark,
-0.008 ms — while it correlated the wrong language and was wrong by 21 ms. A file you
-built and verified yourself cannot be argued with by a plausible number.
-
-**And it is the only check dead code cannot pass.** Five times, code was written,
-reviewed, unit-tested green, and never called by anything: every suite passed. A
-unit test calls the function directly, which is exactly what production does not do.
-Comparing a produced artefact against a target you built proves the path ran.
-
-State the target **and the acceptance condition before running** — including what
-result would refute you. A prediction written after the fact is not a prediction.
-
-## 🏗️ Where you work — three clones, one commit
-
-You do not edit the main repository directly. Three tiers, each a **git clone** of
-the one below it:
-
-| tier | what it is for | commits |
-| :--- | :--- | :--- |
-| `/tmp/…` | experiments — try things, break things | as many as you like |
-| `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
-| the main repository | what is finished | **one per feature** |
-
-**Clones, never copies.** A promotion by `cp` overwrites without warning, and the
-owner commits to the main repository while you work — measured on this repository:
-a copy silently erased an owner change to the same file, while the same promotion
-through git stopped on the conflict and preserved it.
-
-```sh
-# promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
-git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
-
-# promote VMSAM_WIP -> main : one commit, whatever the history behind it
-git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
-```
-
-`--squash` is what makes `AGENT.MD` § Commits structural instead of a rule to
-remember: the command cannot produce two commits.
-
-**Pull down often, push up rarely.** Sync the main repository *into* `VMSAM_WIP`
-before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
-is cheap to resolve daily and expensive to resolve once.
-
-**Run `WRITE_ZONES.MD` §5 in `VMSAM_WIP`, not at the promotion.** The checks take a
-second. Discovering at the last hop that half your work sits outside a tagged zone
-is how a campaign ends up negotiating its own rules.
-
-Never write the main repository's path in a tracked file — Privacy, below.
-
-## 📦 Commits — what earns one
-
-A commit is a unit of **result**, not of activity. What earns one:
-
-- a feature that works end to end — the code *and* the measurement that shows it works;
-- a blocking bug fixed;
-- a complete, coherent change to one zone.
-
-What does not: a line added to `AGENT_NOTES.MD`, a comment, a rename, a
-reformatting, a half-written function, "work in progress". Those wait and travel
-with the work they belong to.
-
-**What this rule is made of.** Campaign 1 produced **1914 commits in six days**.
-Of the 1451 that carry files:
-
-| | |
-| :--- | ---: |
-| commits touching documentation only | **70 %** |
-| commits touching a single file | **70 %** |
-| commits touching only a notes / state / task file | **393** |
-| merge commits | **489** |
-| commits touching `mergeVideo.py`, the engine | **63** |
-
-`DOMAIN_INVARIANTS.MD` was committed **217 times** — three and a half times more
-often than the file the campaign existed to improve. A history in that shape cannot be reviewed:
-the work that mattered is not hidden by the noise, it is *indistinguishable* from it.
-
-And `WRITE_ZONES.MD` §5's checks run per commit, so a commit carrying nothing
-still costs a full verification.
-
-If a day's work produced nothing that fits the list above, it produces **no commit**.
-That is a normal outcome, and `AGENT_NOTES.MD` is where it is recorded.
+The one line worth carrying: **commit freely everywhere below the last hop, work in
+progress included.** Only `master` takes one squashed commit per feature.
 
 ## 🔐 Privacy — the repository is potentially public
 
@@ -349,7 +191,12 @@ Container and tooling paths are fine: `/config`, `/config/output`, `/tmp`,
 - the media library root, or the error/sync trees that mirror it;
 - **any media filename** — a real title with `.mkv`/`.mka`/`.mp4`/`.ass`/`.srt`.
   Names the pipeline generates for its own temp files are fine;
-- show titles, season/episode names, release-group identifiers.
+- show titles, season/episode names, release-group identifiers;
+- **extracted frames, thumbnails or any image of the content.** A filename still
+  needs a search to resolve; a frame identifies the work at a glance. Extract them
+  when a question needs them — they stay in `/tmp`, are never committed, never
+  attached to a message, and are described by what they show structurally: *end
+  credits*, *dialogue scene*, *black frames*. Never by what is in the picture.
 
 Use `<LIBRARY_ROOT>`, `<ERROR_TREE>`, `<TEST_OUTPUT>`, `<show>`, `<season>`,
 `<episode>`, and keep real values outside the repository. Need the path of a file in
@@ -359,6 +206,12 @@ links and no host paths.
 ## 📜 Coding Directives
 
 **Naming Conventions**: STRICTLY use `snake_case` for all new functions, variables, and methods. Do NOT use `camelCase`. Exclusive use of `snake_case` is required for all new variables, functions, and classes. Do not reproduce the `camelCase` that might still exist in the older legacy code.
+
+**Comments, docstrings and commit messages are in English.** The code, the rules and
+every agent working on them are; a French comment is readable by two people, one of
+whom does not edit code. Campaign 2 has written 175 lines of French comment across
+four modules — convert them as you touch each file rather than in a sweep of their
+own, so the change travels with work instead of taking a commit.
 
 **Global state.** Route shared settings through `tools`, nowhere else.
 
@@ -429,27 +282,244 @@ episode locks land in different trees and stop excluding anything, while
 `tools.load_merge_runtime_from_env()` at startup and does not depend on the start
 method. Do not remove that call.
 
-## 🧪 Testing and Execution
+## Finishing is an ACT, not a state — owner's ruling, 2026-09-04
 
-Validate your code with files in `/config/example/`. Each folder is a couple of files to sync together. Save your tests file in `/config/output` and yout temporary files in `/tmp`
-Rust compilation via `cargo build` / `cargo check` is allowed and recommended.
+> **A TASK IS NOT FINISHED WHEN THE WORK IS DONE. IT IS FINISHED WHEN YOU HAVE DONE THE ACT THAT
+> ENDS IT** — landed the change, published the measurement, or SAID PLAINLY THAT YOU ARE BLOCKED AND
+> ON WHAT. *A seat holding completed work it has not delivered is, from every other seat, identical
+> to a seat that did nothing.*
 
-`python3 -m compileall -q src -x '__pycache__'` must fail on exactly one file:
-`frame_compare.py`, pre-existing since `da1c191`. Any second failure is yours.
+    GOING QUIET IS THE ONE OUTCOME THAT COSTS THIS CAMPAIGN MORE THAN BEING WRONG.
+    "BLOCKED ON MY USER" IS A FINISHED REPORT. SILENCE IS NOT.
 
-**A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
-pieces of code — a guard, a refined measurement, a policy branch, an order check, a
-subtitle repair — that were written, reviewed and unit-tested green, and that nothing
-ever called. Every suite passed. A test calls the function directly, which is exactly
-what production did not do. Any new guard needs a test that pins its **call site**.
+*The ruling's full derivation is in `MEASURING.MD`'s appendix.*
 
-**And an armed guard that has never fired is indistinguishable from a working one.**
-Campaign 1's success metric sat in the third branch of a function nothing reached:
-315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
-meant *nothing reached the check*. Fire every guard deliberately, with literals,
-plus a case proving it can return the **other** answer.
+## 📏 Believing a result
 
-**Never restate a finding more strongly than its author did.** A campaign-1 lead
-turned an agent's *"unsupported"* into *"false"* and dispatched thirteen files on
-the stronger claim; the agent retracted and the premise was wrong. If you are
-reporting someone else's measurement, carry their hedges with it.
+**`ENTRY.MD` §2 is the authority: the five kinds, the `RUN` rule, and `m`.** *Two things repeated here
+because they are the ones seats lose first:*
+
+    A ZERO WITH NO POSITIVE CONTROL SAYS NOTHING -- prove the sink is LIVE in the
+      same process at the same setting BEFORE you report an absence.
+    `m` IS COUNTED FROM THE MATERIAL, NEVER INFERRED FROM THE OUTCOME.
+      m = 0 IS AN UNTESTED CELL, NOT A CLEAN ONE.
+
+## THE REDRAW — THREE CODE BOUNDARIES, NOT FOUR ROLES
+
+    LOCATOR      change_point_locator.py                         -> dev-1
+    REPAIR       merge_video_repair · _chimeric · _resample       -> dev-2
+    EMISSION     merge_plan_report · gestionar_show/fusion        -> dev-4
+    FIXTURES     no src/ at all -- BUILDS THE MATERIAL OTHERS NEED -> dev-3
+
+> **NAMED, 2026-09-05, BY THE ARCHITECT UNDER THE OWNER'S GRANT. THIS TABLE PREVIOUSLY SAID
+> "ONE OWNER" TWICE AND NAMED NOBODY, AND THAT IS WHY SEATS DID NOT KNOW WHERE TO GO.**
+
+    A BOUNDARY OWNED BY "ONE OWNER" IS OWNED BY NOBODY.
+    AN ARCHITECTURE DOCUMENT THAT DESCRIBES A SHAPE WITHOUT NAMING THE SEATS
+    IS A DESCRIPTION, NOT A DISPATCH -- AND A SEAT READING IT CORRECTLY
+    CONCLUDES THAT SOMEONE ELSE HAS PROBABLY TAKEN THE WORK, AND STOPS.
+    **THE COST OF THAT OMISSION WAS PAID IN IDLE SEATS, NOT IN ARGUMENTS.**
+
+**`dev-3` TAKES FIXTURES AND IT IS A PROMOTION, NOT A RELEASE.** *It holds the corpus, it produced
+the 16-pair census that §84's third clause rests on, and it answered the monotone question from
+captured verdicts with a control — while every code owner is currently blocked or slowed by MATERIAL
+THAT DOES NOT EXIST YET.* **The seat that can build an arm is worth more than a fourth seat editing
+`src/`, and `m = 0` is the campaign's most common result: FIXTURES IS THE ROLE THAT KILLS IT.**
+
+**`dev-4` TAKES EMISSION AND ONLY EMISSION** — it has produced most of that path's work already
+and at a rate nobody predicted. **Its five-module spread ends today.**
+
+> **THE FILES ARE THE BOUNDARY. NOT THE JOB TITLE.** *Two agents in one file must coordinate on
+> every change; two agents in two files never have to.*
+
+## AND THE GRANT'S OWN LIMIT
+
+    THE RESEARCH SAYS: START WITH FEWER AGENTS AND ADD ONLY WHEN CONTEXT
+    TRULY ISOLATES. A GRANT OF AUTHORITY IS NOT EVIDENCE THAT MORE
+    ARCHITECTURE IS THE ANSWER.
+
+**Three boundaries replace four overlapping seats. Nothing is added.** *The campaign has to
+finish, and a reorganisation is a cost paid immediately against a benefit paid later — so it is
+spent once, on the two measurements that named themselves.*
+
+## THE THREE CLASSES, AND THERE ARE ONLY THREE
+
+    OWNERS      hold a FILE BOUNDARY and edit it.
+                LOCATOR · REPAIR · EMISSION — one owner each, no overlap.
+
+    INSTRUMENTS hold a SUBSTRATE and measure it. THEY DO NOT EDIT src/.
+                the code · the corpus · the production run · the fleet itself
+                They EXECUTE against known ground truth. They report m,
+                coverage, blind region, and what they could not see.
+
+    ONE COORDINATOR   the Lead. The roster, the dispatches, the promotions.
+                      NOBODY ELSE RELAYS.
+
+**AND THE ARCHITECT IS NOT A FOURTH CLASS.** *Governance is written from what the instruments
+return; it is an instrument whose substrate is the documents.*
+
+
+## THE CORPUS — OWNER'S RULING, 2026-09-05: A DEV GENERATES IT WHEN IT NEEDS IT
+
+> ***"qu'il demande des fichiers en erreur à forensic qui correspondent à ce qu'il répare et il
+> génère lui-même le corpus. les dev génèrent le corpus quand ils en ont besoin."***
+
+    A CODE OWNER DOES NOT WAIT FOR MATERIAL. IT ASKS `forensic` FOR **ERROR FILES
+    MATCHING THE DEFECT IT REPAIRS**, AND BUILDS ITS OWN CORPUS FROM THEM.
+    `forensic` HOLDS THE FAILURES. THE OWNER OF THE BOUNDARY HOLDS THE FIXTURE.
+    NEITHER WAITS FOR `ci-build`, AND NEITHER WAITS FOR THE OWNER.
+
+**THIS CLOSES THE MOST COMMON BLOCK IN THIS CAMPAIGN.** *`m = 0` — an untested cell — has been
+reported all day as though material were somebody else's to supply.* **IT IS NOT. A SEAT THAT CANNOT
+TEST ITS OWN CHANGE ASKS `forensic` FOR THE FAMILY AND GENERATES THE ARM.**
+
+    AND STATE WHICH KIND OF FIXTURE YOU BUILT (§138):
+      DRAWN from real failures  -> extensible; more files move your `m`
+      CONSTRUCTED to exhibit    -> complete when built; only a DIFFERENT
+                                   population moves it
+    **A CONSTRUCTED ARM BUYS TRUTH, NOT TYPICALITY** -- say so in the same breath.
+
+## VERIFICATION KINDS — THERE ARE **FIVE**, AND `ENTRY.MD` IS THE AUTHORITY ON THEM
+
+> **THIS FILE SAID *FOUR* AND OMITTED `RELAYED` — the kind this fleet uses most. A seat reading only
+> this document would never learn it exists.** *Corrected 2026-09-05; the full definitions, the `RUN`
+> ruling and the honest audit that produced them now live in `ENTRY.MD` §2 and `MEASURING.MD`.*
+
+    RUN          the SHIPPED function was CALLED, against material whose ground truth
+                 is known INDEPENDENTLY, and the output was read.
+                 *** THE ONLY KIND THAT MAY BE STATED WITHOUT A QUALIFIER ***
+    TRACE        the code was READ and the behaviour DERIVED. Reversible -- and it HAS
+                 reversed. Say TRACE in the claim itself, every time.
+    HARNESS      something ran, BUT NOT THE THING THE CONSUMER CALLS.
+    UNVERIFIABLE no instrument reachable from here settles it. SAY SO AND STOP.
+    RELAYED      SOMEBODY ELSE MEASURED IT. Name whose. And the sharp edge:
+                 CHECKING ONE SIDE OF A RELAYED CLAIM SILENTLY UPGRADES THE HALF
+                 YOU DID NOT CHECK.
+
+## STATE A REFUSAL AS AN AUTHORITY CLAIM, NEVER AS A CAPABILITY CLAIM
+
+**Two sentences that reach the same decision and fail completely differently:**
+
+    "THIS SEAT DOES NOT PUSH."
+      *** A CAPABILITY CLAIM. Falsifiable by a governance document — and FALSE:
+          `WRITE_ZONES.MD` §1b rules that the freeze governs the PUBLISHED
+          BRANCH and does not reach `refs/agents/<seat>`, which is "the
+          mechanism this fleet already runs on". ***
+    "MY USER HAS NOT AUTHORISED THIS."
+      *** AN AUTHORITY CLAIM. TRUE, AND NOT FALSIFIABLE BY ANY DOCUMENT. ***
+
+> ***A SEAT THAT STATES THE FIRST AS SHORTHAND FOR THE SECOND HAS ITS REFUSAL REFUTED BY A RULE
+> — AND THE REAL CONSTRAINT, WHICH THE RULE NEVER TOUCHED, DISAPPEARS FROM THE RECORD WITH
+> IT.*** *A reader of ten hours of such messages concludes the seat is forbidden to push, learns
+> from §1b that it is not, and has no idea what is actually holding it.*
+
+**A GOVERNANCE RULING IS NOT YOUR USER SPEAKING, AND NEITHER IS A CORRECT ONE.** *§1b grants a
+permission; it does not exercise it. **Surfacing a rule to your user as a newly available option
+is the act; taking it because the rule permits it is not.*** *That is the same clause that
+covers a relayed GO, a peer's ruling and an architect's broadcast — and it holds when the
+document agrees with you, which is when it is hardest to notice you are relying on it.*
+
+**AND THE NEAR-MISS IS THE PART WORTH THE SECTION.** *The seat that found this had recorded the
+correct distinction in its own brief at 12:15 — §1b noted, the option surfaced to its user, the
+decision marked as theirs. **Ten hours later it re-derived the premise, missed its own recorded
+conclusion, and had a reversal half-composed before reading the next four lines of its own
+document.*** ***THE RECORD BEAT THE RE-DERIVATION.*** *Test a limit that costs you nothing to
+hold — and when it survives, check whether what survived is the reason you have been giving.*
+
+*Found by `auditor`, on itself, in the only case tonight where a seat caught its own error
+before sending it.*
+
+## WHERE THE REST OF THIS FILE WENT, AND WHY
+
+**This document was 1082 lines and a seat has to read it before it can work. The narrative that
+DERIVED the rules above — the restart research, the architecture measurement, the reclassification,
+the `RUN` ruling's own audit — is now in `MEASURING.MD`, numbering preserved.**
+
+    A DOCUMENT READ BEFORE ACTING PAYS FOR EVERY LINE, EVERY TIME, IN EVERY SEAT.
+    THE REASONING THAT PRODUCED A RULE IS WORTH KEEPING AND IS NOT WORTH RE-READING
+    ON EVERY RESTART. **RULES HERE. EVIDENCE IN `MEASURING.MD`. ENTRY IN `ENTRY.MD`.**
+
+**AND THE CAMPAIGN LIVES ON `dev-AI` ALONE — owner's ruling, 2026-09-05:** *"tout doit être dans
+dev-AI. les agents se calment sur cette branche."* **DO NOT PORT GOVERNANCE TO `master`. `master` is
+not where this campaign is decided, and a seat that finds campaign-2 rules there is reading something
+that was never promoted.**
+
+## ROUTING: A CRASH OR AN IMPROVEMENT IS A DEV TASK, NOT A CAVEAT
+
+**Owner's ruling, 2026-09-05:** *"le moindre crash / amélioration peut être demandé à un dev."*
+
+    ANY CRASH A MEASUREMENT SEAT HITS, AND ANY IMPROVEMENT IT CAN SEE, GOES TO A
+    DEV SEAT AS A TASK. IT IS NOT ABSORBED, NOT WORKED AROUND, AND NOT CARRIED AS
+    A LIMITATION ON THAT SEAT'S OWN OUTPUT.
+
+**This changes what a blocker is worth.** *Before it, hitting a crash mid-analysis meant the
+measurement got a caveat and the crash got a note.* **After it, a dev gets a task and the fix path is
+open.** *A seat that goes quiet for a day is most often a seat holding something with nowhere to send
+it — that is the shape this rule exists to end.*
+
+### HOW TO HAND ONE OVER
+
+    THE TYPE. THE SITE `<module>:<line>`. THE ID. *** AND WHICH IMAGE YOU WERE ON. ***
+    AND WHAT YOU EXPECTED INSTEAD — a report naming the expected behaviour is a
+    TASK; one naming only the crash is a ticket nobody can close.
+
+**NEVER THE EXCEPTION MESSAGE.** *Measured at the authority: all 17 `raise Exception` sites in
+`src/mergeVideo.py` interpolate a file path into their message.* **THE TYPE, NEVER THE MESSAGE.**
+*`vmsam-dev-4` classified 317 tracebacks without reading one message, and that is the only reason its
+output was publishable.*
+
+### AND THE DESTINATION DEPENDS ON THE ZONE, NOT ON WHO FOUND IT
+
+    src/mergeVideo.py · src/video.py ......... FROZEN — route to the Lead
+    src/change_point_locator.py .............. dev-1
+    src/merge_video_repair|chimeric|resample . dev-2
+    src/merge_plan_report.py ................. dev-4
+    ci-instruments/ .......................... ci
+
+**A LINE NUMBER WITHOUT ITS BLOB IS NOT A CITATION.** *`vmsam-dev-4` measured that 0 of 317 job-log
+artefacts carry any build identity field, so a histogram of crash sites across them is an aggregate
+over an unknown number of builds.* **Emit the build identity at EMISSION time, never captured at
+startup** — *a field written once at startup reports the same value regardless of what is running,
+which is worse than an empty field: an empty field is honest, and a constant one is a lie that
+survives every rebuild.*
+
+### NAMING A REF IS NOT NAMING A STORE
+
+**`git show <ref>:<path>` was circulated as the fix for stale checkouts, and it is right as far as
+it goes.** *It bypasses the working tree entirely — no update, no reset, no rebase, none of which
+git would allow a diverged clone anyway.* ***AND IT IS UNDERSPECIFIED, MEASURED AT A SEAT WHERE IT
+FAILED WHILE LOOKING CORRECT:***
+
+    that seat's `origin` URL ................ THE HOP, not the authority
+    its cached origin/dev-AI ................ four tip-moves behind
+    the hop's dev-AI ........................ current
+    the authority's dev-AI .................. the same, by ls-remote
+    `git show origin/dev-AI:<path>` there ... *** A THIRD STALE BLOB, DELIVERED
+                                              WITH THE CONFIDENCE OF A NAMED REF ***
+    and the current object was ABSENT FROM THAT STORE ENTIRELY:
+      `cat-file -t <sha>` -> *** fatal: Not a valid object name ***
+
+> ***THREE STALE LAYERS, AND NAMING THE REF FIXES ONE: the blob you hold, the tracking ref you
+> cache, and WHAT `origin` POINTS AT AT ALL. A tracking ref answers "what did I last see", never
+> "what is there now" — and it answers confidently either way.***
+
+**AND THE HARDER HALF: A CITATION YOU CANNOT RESOLVE IS RELAYED, NO MATTER HOW PRECISE ITS BLOB
+IS.** *That seat could not confirm a correct citation from its own clone under any form, because
+the object was not in its store. Verifying it required reading a different repository.* **PRECISION
+IS NOT PROVENANCE.**
+
+### THE FORM THAT WORKS — TWO PURE READS, RUNNABLE UNDER A FREEZE
+
+    git -C <store> ls-remote <authority-URL> <branch>
+    git -C <store> rev-parse <branch>          # *** REQUIRE THESE TWO EQUAL ***
+    git -C <store> show <branch>:<path>        # only then is the content current
+    # if they differ: report the tip you measured and DO NOT READ THE FILE
+
+***NO FETCH. NO REF WRITTEN. NO `FETCH_HEAD`. NO OBJECTS TRANSFERRED.*** *The fetch-first form is
+not runnable under a write freeze —* **and a freeze is exactly when a seat most needs to read the
+authority.** *A rule that cannot be followed in the condition it was written for is not a rule.*
+
+*Found and measured by `vmsam-auditor`, correcting a form the architect had broadcast to eleven
+seats; the underlying "read from a named ref" rule is `vmsam-dev-4`'s and survives intact —* **it
+was right and incomplete, which is a different thing from wrong.** *The wrong form stays in the
+record beside the right one:* ***A DELETED DEFECT IS ONE A RE-READER RE-DERIVES.***

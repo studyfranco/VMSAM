@@ -874,21 +874,21 @@ run-to-completion rule.
 
 | Capability | Evidence |
 | :--- | :--- |
-| PAL speed prebuild (fusion-integrated) | Log Horizon S02E23: corrected 1472→1411.7 s vs master 1408.1 s; detection positive/negative controls pass. |
-| Chimeric structural repair (fusion-integrated) | Synthetic ground truth 23/23 (residuals +0.1/−1.8/−1.8 ms, gap proven master-sourced); Rick & Morty S01E09 via the fusion path: built in 42 s, duration exact. |
-| PAL + content-step chain | R&M S01E01: 1.296 s step at cand_t 508 s repaired; alignment −40/0/0 ms at 120/600/1100 s. |
-| Sign-fixed measured recovery | Ragnarok S02E03 merged; cross-provenance same-language check +0/+0/+10 ms (was −170 ms). |
+| PAL speed prebuild (fusion-integrated) | series-C ep 23: corrected 1472→1411.7 s vs master 1408.1 s; detection positive/negative controls pass. |
+| Chimeric structural repair (fusion-integrated) | Synthetic ground truth 23/23 (residuals +0.1/−1.8/−1.8 ms, gap proven master-sourced); series-D ep 09 via the fusion path: built in 42 s, duration exact. |
+| PAL + content-step chain | series-D ep 01: 1.296 s step at cand_t 508 s repaired; alignment −40/0/0 ms at 120/600/1100 s. |
+| Sign-fixed measured recovery | series-E ep 03 merged; cross-provenance same-language check +0/+0/+10 ms (was −170 ms). |
 
 ### Measurement corpus (sub-agent team)
 
 - `pal_factors.json`: all 21 PAL files match 1.042708 within 0.006% by slope; 12
-  are PAL **plus one content step** (all 11 R&M + Suicide Squad ISEKAI S01E06);
+  are PAL **plus one content step** (all 11 series-D + series-B ep 06);
   2 files where the endpoint duration ratio lies (content, not speed).
 - `cut_points.json`: 57/57 pairs mapped, 156–161 change points, 96% within ≤5 s
   brackets (133 to ~1 s), median step ~1.0 s. Noir E23 reclassified
   (not pure tail; correlation-ambiguous A→B→A signature — excluded from
-  chimeric). 0-saiji S01E04 reclassified: constant −476 ms, not structural.
-- Log Horizon verdict: master is a pitch-preserved phase-vocoder stretch whose
+  chimeric). series-G ep 04 reclassified: constant −476 ms, not structural.
+- series-C verdict: master is a pitch-preserved phase-vocoder stretch whose
   Chromaprint fidelity floor (~0.57) is unreachable for ANY clean source;
   envelope NCC is the only viable alignment signal for it. `asetrate`
   correction leaves +0.7 semitone error on such masters (classic PAL masters
@@ -909,8 +909,8 @@ run-to-completion rule.
 ### Campaign state at write time
 
 E_corr pass under the new build was cut short by the runner bug above (3 files
-correctly IN_SYNC from the earlier pass; 0-saiji ×3 remain the verified
-resolutions there, plus local Ragnarok). B_fps running live against `7b81ee7`
+correctly IN_SYNC from the earlier pass; series-G ×3 remain the verified
+resolutions there, plus local series-E). B_fps running live against `7b81ee7`
 with PAL prebuild + step chain; D_trim (chimeric) follows; E_corr re-run last.
 Results land in `batch_state.json` and the next worklog entry.
 
@@ -921,7 +921,7 @@ Results land in `batch_state.json` and the next worklog entry.
 ### 1. Provenance investigation settled the recovery question
 
 A dedicated investigator established per-stream provenance of the merged
-Ragnarok output by correlating every merged stream against both sources
+series-E output by correlating every merged stream against both sources
 (peaks 0.998–1.000): **the applied shift lands in the output** — all
 candidate-derived tracks moved exactly −80 ms — but the required shift was
 +70/+90 ms. **Correct magnitude, inverted sign**; same-language check
@@ -953,13 +953,13 @@ parsed metadata; measurement functions now take explicit stream indices.
   and reached through `merge_videos_with_repair()`, which `run_fusion_job` calls
   in place of `merge_videos`. (These lived in `gestionar_show/fusion.py` until
   the fusion-intelligence move; fusion is now only a queue worker.) On any failure it falls back to the original file. Positive
-  control (Log Horizon S02E23 → 0.959041) and negative control (0-saiji → None)
+  control (series-C ep 23 → 0.959041) and negative control (series-G → None)
   both pass. **The theoretical factor is always used, never the endpoint ratio**
   — the endpoint absorbs trims and left 2.66 s residual drift vs 2 ms.
 
 ### 4. OPEN — Chromaprint disagrees with envelope NCC on the corrected pair
 
-End-to-end PAL merge of Log Horizon S02E23: prebuild correct (1472→1411.7 s vs
+End-to-end PAL merge of series-C ep 23: prebuild correct (1472→1411.7 s vs
 master 1408.1 s), but the fingerprint stage reports fidelity 0.56–0.59 with
 scattered offsets (0 / −198.9 s / −207.0 s) and rejects the pair — while
 envelope NCC on the same corrected audio measures +17 ms flat. Under
@@ -1019,10 +1019,10 @@ frame indices directly, which is exact for every `sizePoint`. Wired in as
 alternatives beside the existing constants at the three gates — tests 2, 3 and 4
 — so nothing that passed before changes.
 
-**Result:** `0-saiji ... S01E07`, the file that motivated this, now merges. It
+**Result:** `series-G ... ep 07`, the file that motivated this, now merges. It
 needs **no recovery at all** — the standard refinement loop converges once the
 gates stop rejecting it. Locally: 94 s, one merged file produced. The same three
-files (S01E04, S01E07, S01E08) are the only ones in the library with a 138 ms
+files (ep 04, ep 07, ep 08) are the only ones in the library with a 138 ms
 frame, and they are exactly the ones the constant rejected.
 
 ### 3. Sound replacement for the disproven consensus vote
@@ -1033,7 +1033,7 @@ points along the timeline, and only returns a delay when the windows agree withi
 40 ms. A profile that varies is a structural edit and is declined for the
 trimming/patching strategies.
 
-Measured on the Ragnarok S02E03 pair: **+80.0 ms at 60 s, 480 s and 900 s** —
+Measured on the series-E ep 03 pair: **+80.0 ms at 60 s, 480 s and 900 s** —
 perfectly uniform. The fingerprint method could only say "0 or 1 frame" because
 80 ms sits *inside* one 125 ms frame. That is precisely why voting on quantised
 residuals produced the 130 ms desync recorded in the previous entry.
@@ -1045,11 +1045,11 @@ master-derived and candidate-derived tracks inside each merged output:
 
 | File | Outcome | Max lag | Peak |
 | :--- | :--- | :--- | :--- |
-| `0-saiji … S01E04` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
-| `0-saiji … S01E07` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
-| `0-saiji … S01E08` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
+| `series-G … ep 04` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
+| `series-G … ep 07` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
+| `series-G … ep 08` | **MERGED_IN_SYNC** | 10.0 ms | 0.999 |
 
-10 ms is one bin of the measurement envelope. Locally the same S01E07 pair
+10 ms is one bin of the measurement envelope. Locally the same ep 07 pair
 measures **−480 ms between the two sources** and **−10 ms inside the merged
 output**, with the master track bit-aligned to its source (+0.0 ms, peak 0.997).
 
@@ -1068,7 +1068,7 @@ constant 130 ms out of sync, and that the recovery delay "does not reach the
 output". **Both conclusions were wrong, and the cause was my own measurement.**
 
 The sync check compared "the first two tracks of the merged file in the shared
-language". For the Ragnarok pair the **master itself carries two `jpn` tracks**
+language". For the series-E pair the **master itself carries two `jpn` tracks**
 (`aac` and `eac3`) and those two are **+130 ms apart in the source file**:
 
 ```
@@ -1093,13 +1093,13 @@ beyond is candidate-derived; the check now compares `streams[0]` against
 deduplicated away as an inferior copy — the honest answer is `unverifiable`, not
 a number.
 
-**What survives.** The three `0-saiji` resolutions in §4 are unaffected: that
+**What survives.** The three `series-G` resolutions in §4 are unaffected: that
 master has exactly one `jpn` track, so the merged file's two `jpn` tracks are
 genuinely one per source. Their −10 ms stands.
 
 **What is now reopened.** Whether the measured-offset recovery works is *undecided*
 again, not disproven. It was disabled on the strength of the wrong conclusion. The
-Ragnarok merged output's only cross-source comparison available is cross-language
+series-E merged output's only cross-source comparison available is cross-language
 (candidate `fre` against master `jpn`), which measured +160 ms at peaks
 0.56–0.85 — too biased to rule on, since only music and effects align between two
 different dubs.
@@ -1123,7 +1123,7 @@ different dubs.
 > identifies them. A naive fps-ratio test would have skipped 7 correctable files.
 
 All 21 `linear_speed` cases are the same PAL relation, factor **1.042708**.
-`Lazarus S01E01` is 918 s against a 1452 s master (ratio 0.632) — almost certainly
+`series-F ep 01` is 918 s against a 1452 s master (ratio 0.632) — almost certainly
 a truncated file, not a merge problem.
 
 **Cut / trim, 58 files** (`/config/output/vmsam_agent/trim_analysis.json`):
@@ -1141,7 +1141,7 @@ a truncated file, not a merge problem.
 > absolute timestamps in both files, so a head insertion would have shown as an
 > equal non-zero lag in both windows; none did. The 6 TAIL cases are the only
 > cheap ones (body aligned, 80–380 ms constant offset, difference entirely after
-> the body). The INCONCLUSIVE file (`Secrets of the Silent Witch S01E12`) has a
+> the body). The INCONCLUSIVE file (`series-A ep 12`) has a
 > best peak of 0.42 with no consistent lag across five windows and all stream
 > combinations — it looks **mis-paired**, not merely trimmed.
 

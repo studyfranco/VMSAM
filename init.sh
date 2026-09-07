@@ -45,7 +45,8 @@ mkdir -p /config/error
 mkdir -p /config/output
 mkdir -p /config/models
 
-chown -R "$PUID":"$PGID" /config /home/vmsam
+chown -R "$PUID":"$PGID" /config /home/vmsam || true
+chmod 555 /home/vmsam/run.sh
 rm -r /tmp/* 2>/dev/null || true
 chown -R "$PUID":"$PGID" /tmp
 exec gosu "$USER" "/home/vmsam/run.sh"
