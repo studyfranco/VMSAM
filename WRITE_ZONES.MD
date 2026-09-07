@@ -52,6 +52,34 @@ nine commits in a single night while the fleet landed two files. A rule written 
 cheaper than the error and it is not free, and a document nobody can finish reading has the reach
 problem this campaign already named twice.*
 
+## 0b. NO TAGS — OWNER'S RULING, 2026-09-07
+
+***DO NOT CREATE A TAG ON THIS REPOSITORY.*** *The owner's words:* **"tu peux eviter les tag ? il y
+en a trop dans la branch qui n'ont aucun interets."** *Six existed and none marked a release or a
+decision — every one was a safety pin from a rewrite somebody was about to perform.*
+
+> ***A SAFETY PIN GOES TO `refs/backup/<name>`, NEVER TO `refs/tags/`.*** *This is not cosmetic.*
+> **A TAG IS FETCHED BY DEFAULT: every clone in the fleet carries every pin anyone ever set, for
+> ever. `refs/backup/*` is outside the default refspec** — *it holds the identical object, the
+> authority still serves it, and nobody drags it around unasked.*
+
+**HOW THE SIX WERE RETIRED, and the order matters because five of them were the SOLE ANCHOR of
+their commit — the tag was the only thing holding that history:**
+
+    1. MEASURE FIRST. For each tag, is its commit reachable from any branch, backup ref
+       or agent ref? *** FIVE WERE REACHABLE FROM NOTHING ELSE. *** And is its TREE
+       duplicated on a live branch? *** NO. All six trees were unique content. ***
+       Two tags shared one commit, so exactly ONE was free to delete.
+    2. ANCHOR, THEN VERIFY. Push each commit to `refs/backup/<name>`, then read it back
+       from the AUTHORITY object by object and compare ids. *** DELETE NOTHING UNTIL
+       EVERY ANCHOR VERIFIES. ***
+    3. ONLY THEN DELETE, tag and local copy together.
+    4. CONFIRM AFTER: tags 0, and every retired commit still served by the authority.
+
+> ***"CLEAN THIS UP" AND "LOSE NOTHING" ARE THE SAME INSTRUCTION, AND THE SECOND ONE DECIDES THE
+> ORDER.*** *A deletion that turns out to be safe and a deletion that was PROVEN safe before it ran
+> are indistinguishable afterwards — and only one of them is a method.*
+
 ## 1. Frozen — no modification, ever
 
 | path | why |
