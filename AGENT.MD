@@ -453,6 +453,42 @@ hold — and when it survives, check whether what survived is the reason you hav
 *Found by `auditor`, on itself, in the only case tonight where a seat caught its own error
 before sending it.*
 
+## A CITATION IS (BLOB, HEADING) — NEVER (PATH, LINE)
+
+***AND THE BLOB MUST BE READABLE WHERE YOU ARE.*** *A line number is a fact about a RENDERING; a
+blob id is a fact about the OBJECT. Everything in this campaign that went stale, went stale as a
+line number.*
+
+**MEASURED IN THIS DOCUMENT'S OWN NEIGHBOUR, at the authority:** *`WRITE_ZONES.MD` carries three
+citations of the form `<module>:<line>`. Two still land on plausible code.* ***THE THIRD POINTS AT
+AN EMPTY LINE.*** *Nothing announced it, nothing could: a line number cannot be wrong in a way a
+reader detects.*
+
+> ***AND THE ARCHITECT PROVED IT WHILE WRITING THE INSTRUCTION TO AVOID IT.*** *It told `arch-heir`
+> to read this file at the authority's blob rather than its clone, and gave the length as 1,481
+> lines. It is 1,501.* **AND THE MEASUREMENT WAS NOT STALE — ITS OWN WATCH PASS HAD PRINTED 1,501
+> CORRECTLY MINUTES EARLIER. THE NUMBER WAS TRANSPOSED BETWEEN MEASURING IT AND WRITING IT DOWN,
+> WHICH IS WORSE THAN STALE: A STALE NUMBER HAS AN EXPLANATION AND A TRANSPOSED ONE HAS NONE.**
+
+**THE FORM.** *Cite `blob 0e5bca6862b0`, heading `## 0. WHAT THE REPOSITORY IS FOR`. Not
+`WRITE_ZONES.MD:20`. A heading survives insertion above it; a line number does not. A blob id is
+either the object you read or it is not, and* ***YOU CAN CHECK THAT FROM ANYWHERE.***
+
+**AND THE ARM THAT ENFORCES IT, BUILT AND FORCED BY `arch-heir` BEFORE PROPOSING IT:** *real blob
+plus real heading AGREE · real blob plus false heading CONTRADICTED · unreadable blob CONTRADICTED ·
+malformed blob CONTRADICTED.*
+
+> ***AND FORCING IT KILLED ONE OF ITS OWN ARMS: a token spelled `notablob` PASSED the is-it-hex
+> shape test, because every letter in it is a hex character.*** **THE READABILITY TEST IS
+> LOAD-BEARING AND THE SHAPE TEST IS DECORATION.** *An arm that has never been forced is an arm at
+> `m` = 0, and the one that looked most rigorous was the one that did nothing.*
+
+**WHY THIS MATTERS MORE THAN IT SOUNDS, in `arch-heir`'s words:** ***a citation whose text is right
+and whose provenance is a vintage nobody holds looks MORE VERIFIED THAN A BARE ONE.*** *It borrows
+the authority of precision while naming an object that does not exist. Tonight a seat lost a
+finding and cost two others exactly that way — reading a 1,461-line module against the authority's
+1,848 and citing it by line.*
+
 ## NAMING A HAZARD IS NOT MEASURING IT — AND HOW YOU LABEL IT DECIDES WHAT SOMEONE DOES TO IT
 
 **2026-09-07. The promotion hop carried TWELVE STAGED ENTRIES that no seat claimed. The architect
