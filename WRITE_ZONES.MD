@@ -338,9 +338,21 @@ named here: `src` 21 mentions, `CAMPAIGNS` 5, `docs` 4, `TASKS` 1, `.github` 1, 
 > `deploy_condition.py`'s fetch while believing the file was its own — **the warning was right
 > and its standing to give it was imaginary.***
 
-**UNTIL THE OWNER RULES OTHERWISE THIS DIRECTORY IS `ci`'s, AND THE SAME TWO RULES APPLY TO IT
-AS TO ANY ZONE: another seat REPORTS a defect in it and does not repair one.** *Verify before
-claiming a file:* `git log -1 --format='%an %s' -- <path>`.
+**THE OWNER RULED ON 2026-09-07: THIS DIRECTORY DOES NOT BELONG IN THE REPOSITORY.** *Asked
+directly whether `ci-instruments/` should sit here, he answered that it should not, and said
+"Go". It is `ci`'s working store, it lives on `refs/agents/ci` — 213 files there today — and
+`dev-AI` carries none of it.*
+
+> ***THE ZONE CHECKER REFUSING COMMITS HERE WAS CORRECT, AND THE SENTENCE THAT USED TO STAND IN
+> THIS PLACE WAS THE DEFECT.*** *For a full session `ci` reported "the checker refuses my own
+> zone" and the architect carried that to the owner as a fault in the tool, proposing a one-line
+> change to its open list. The tool was right. The paragraph that assigned the directory was
+> wrong, and it had been wrong since it was written.*
+
+***A DIRECTORY NAMED AFTER A SEAT IS NOT THAT SEAT'S ZONE, ANY MORE THAN A CHECKOUT PATH IS.***
+*A seat's working store goes to `refs/agents/<seat>`. Naming it in this file does not make it a
+zone, and did not make it one.* *Verify before claiming a file:* `git log -1 --format='%an %s'
+-- <path>`.
 
 **AND THE NAMING HAZARD THAT MADE THIS SURVIVE — a seat asking "what is mine?" by name glob
 gets another seat's answer.** *Measured across the 13 seat names:* **`ci` is a substring of

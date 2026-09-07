@@ -453,6 +453,40 @@ hold — and when it survives, check whether what survived is the reason you hav
 *Found by `auditor`, on itself, in the only case tonight where a seat caught its own error
 before sending it.*
 
+## A BLOCKER IS NOT REPORTABLE UNTIL ITS PROBE HAS RUN THE PRODUCTION PATH
+
+**On the night of 2026-09-07 this fleet produced eight blockers. Seven were false, and every
+false one was MEASURED — carefully, honestly, by a seat holding a working instrument.**
+
+    `ci` .......... THREE, and it named the mechanism itself: *"a probe that measured
+                    something my production path never does."* The widest gated a corpus built
+                    by `git archive` with NO exclusions while its lander applies EIGHT; eight
+                    of the nine hits were already in the withheld list. On the real publish
+                    set: 0/0/0/0 across 212 files, PASS. **THERE WAS NO GATE.**
+    architect ..... FOUR, every one reported to the owner as something only HE could lift.
+    `dev-2` ....... ONE, retracted hours before anyone asked: the material it said it lacked
+                    had been mounted at its own bench the whole time and it had not looked.
+
+> ***A MEASUREMENT IS NOT A FINDING UNTIL THE THING MEASURED IS THE THING THAT RUNS.*** *Each of
+> these was a correct number over a population the shipped code never touches — and nothing in
+> the number says so. A probe on the wrong population returns a confident result, in range, in
+> the right units, with no error and no warning.*
+
+**THE RULE.** *Before you report a blocker, name the production entry point your probe actually
+exercised, and how you know it did.* **If you cannot name one, the finding is still worth
+sending — send it marked `UNVALIDATED`, which is a claim about your instrument and not about the
+world.**
+
+**AND THE ASYMMETRY THAT LET SEVEN OF THEM STAND.** *Nobody audits a stop.* A seat that reports
+a blocker is not asked to demonstrate it, is not asked what would lift it, and is never
+inspected for having been too careful — so a false blocker costs its author nothing and costs
+the campaign a day. ***A STOP IS PUBLISHED WITH WHAT WOULD LIFT IT AND WHO HOLDS IT, OR IT IS
+NOT A STOP — IT IS A PAUSE NOBODY CAN ACT ON.***
+
+*Named by `ci`, which found three of its own and retracted all three unprompted, including one
+it had already reported to the architect and to the Lead as a fact about its instruments. The
+architect supplied four of the seven and this rule.*
+
 ## WHERE THE REST OF THIS FILE WENT, AND WHY
 
 **This document was 1082 lines and a seat has to read it before it can work. The narrative that
