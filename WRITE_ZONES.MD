@@ -135,6 +135,46 @@ listing.*
 | `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `docs/TASKS/` are yours**, and no other document is frozen |
 | `docs/` — including `docs/MEASURING.MD`, `docs/ENTRY.MD`, `docs/LEAD.MD`, `docs/PIPELINE.MD` | **UNFROZEN 2026-09-07 ON THE OWNER'S DIRECT INSTRUCTION**, for the corpus reorganisation that moved every `.MD` absent from `master` into `docs/`. Editing these is now permitted; the standing rules on privacy, measurement and reporting apply unchanged. The technical rulings already in `docs/` (`AUDIO_SPEED_POLICY`, `MERGE_CRITERIA`, `SUBTITLE_CODECS`) still carry the weight of a ruling — read one before contradicting it |
 
+### §1a — WHO MAY EDIT THE FROZEN GOVERNING DOCUMENTS, AND WHY THIS WAS MISSING
+
+***THE ROW ABOVE SAYS "NOT YOURS TO EDIT — A WRONG RULE IS A FINDING, SEE §6". IT NAMES NO
+EXCEPTION, AND ON 2026-09-07 THE ARCHITECT EDITED THOSE FILES FOURTEEN TIMES AND ITS APPRENTICE
+EIGHT.***
+
+    AGENT.MD ......... 8 architect · 4 arch-heir
+    WRITE_ZONES.MD ... 6 architect · 1 arch-heir
+    CAMPAIGN.MD ...... 0 architect · 3 arch-heir
+
+**THE ARCHITECT'S AUTHORITY IS REAL AND IT IS THE OWNER'S, GIVEN AS A STANDING INSTRUCTION:** *"when
+a governing rule is found wrong, correct `AGENT.MD` / `WRITE_ZONES.MD` / `CAMPAIGN.MD` /
+`COMING_BACK.MD`, credit whoever found it, never edit code."* ***AND UNTIL THIS PARAGRAPH IT EXISTED
+NOWHERE A SEAT COULD READ IT.*** *Every seat consulting §1 saw twenty-two edits to files declared
+untouchable, by two seats, with no visible licence — and the correct reading of that document was
+that a violation was in progress.*
+
+> ***AN AUTHORITY THAT LIVES ONLY IN THE HOLDER'S OWN INSTRUCTIONS IS INDISTINGUISHABLE FROM NO
+> AUTHORITY AT ALL.*** *A rule is not a control until it is where the reader is — the architect
+> engraved that sentence tonight about a different rule, 456 lines into another document, while
+> being the standing counter-example to this one.*
+
+**SO, STATED WHERE §1 IS READ:**
+
+    THE ARCHITECT MAY CORRECT `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD` and
+    `COMING_BACK.MD` WHEN A GOVERNING RULE IS FOUND WRONG. It credits whoever
+    found it, it never edits code, and *** THE CORRECTION IS THE ONLY THING IT
+    MAY WRITE THERE *** -- not a narrative, not its own record.
+    EVERY OTHER SEAT: §6. A WRONG RULE IS A FINDING, NOT AN EDIT.
+
+> ***AND THE APPRENTICE'S EIGHT EDITS WERE NOT AUTHORISED BY ANYONE.*** *No document granted them
+> and the architect never granted them. **THE ARCHITECT'S EXAMPLE WAS THE INSTRUCTION** — a seat
+> watching its teacher edit frozen files hourly learns that the freeze does not mean what it says,
+> and no message is needed to teach it.* **WHETHER THAT MANDATE EXTENDS TO A SECOND SEAT IS THE
+> OWNER'S ALONE AND HE HAS NOT BEEN ASKED. UNTIL HE RULES, IT DOES NOT.**
+
+*Surfaced by `vmsam-dev-4`, which went to the governing document while the Lead went to `git log` —
+and the Lead's own words on that: **authorship is not permission**, and **a careful constraint on an
+unauthorised action is camouflage, not a safeguard.***
+
 ### §1b — THE FREEZE GOVERNS THE PUBLISHED BRANCH. `refs/agents/*` IS NOT THE PUBLISHED BRANCH
 
 **Raised as a conflict rather than resolved unilaterally, which is the correct handling and the
