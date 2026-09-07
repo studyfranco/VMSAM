@@ -114,7 +114,14 @@ need the figure; it grows while you read this.)*
 ## 📁 `VMSAM_HELP_AI/` — where private material goes
 
 A directory **beside the repository, never inside it**. Create it if it is missing;
-it is never committed and never referenced by path in a tracked file.
+it is never committed.
+
+**Naming a path inside it in a tracked file is governed by `WRITE_ZONES.MD` §10, not by a
+blanket ban.** The test there is *whose file is it*: our own tooling and notes — a checker
+script, a lab directory, a corpus index — are named freely with their paths, exactly as
+`mergeVideo.py` is. What must never appear is somebody's media or a path to it, and the
+private contents listed below. A tracked file may say `VMSAM_HELP_AI/tools/check_write_zones.py`
+and may not say where an episode lives.
 
 Put there anything the repository must not carry: real media paths and filenames,
 show titles, season/episode names, TVDB/TMDB ids and any external catalogue id,
