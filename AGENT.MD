@@ -95,8 +95,10 @@ There is no `done/` subdirectory and there never was one: `docs/TASKS/` **is** t
 state. An abandoned effort is still worth a report — it says why it was abandoned, which
 stops a successor re-deriving it.
 
-*(Do not write a bare `done/` in this corpus: `VMSAM_HELP_AI/<seat>/inbox/done/` is a live
-protocol carrying 379 read-debt pointers across 14 directories, and the two are unrelated.)*
+*(Do not write a bare `done/` in this corpus. `VMSAM_HELP_AI/` carries a live read-debt
+protocol in directories named `done` — under `<seat>/inbox/` for most seats and directly under
+`<seat>/` for at least one — and it is unrelated to anything in `docs/TASKS/`. Count it when you
+need the figure; it grows while you read this.)*
 
 ## 📁 `VMSAM_HELP_AI/` — where private material goes
 
