@@ -338,6 +338,37 @@ named here: `src` 21 mentions, `CAMPAIGNS` 5, `docs` 4, `TASKS` 1, `.github` 1, 
 > `deploy_condition.py`'s fetch while believing the file was its own — **the warning was right
 > and its standing to give it was imaginary.***
 
+## A GATE ON THE TIP SAYS NOTHING ABOUT WHAT A PUSH MOVES
+
+***A LANDER GATES ONE TREE. A PUSH TRANSFERS EVERY COMMIT THE RECEIVER LACKS.*** *Measured by
+`forensic` on 2026-09-07, with its own gate run once per commit over the whole transferred set,
+after it had already redacted its tip clean:*
+
+    TIP .................. rc=0, LEAKS 0, m=115 -- a TESTED zero, all four controls fired
+    COMMITS THAT WOULD TRAVEL ............................................. 35
+    *** COMMITS CARRYING AT LEAST ONE LEAK ................................ 34 ***
+    *** LEAK OCCURRENCES IN THE TRANSFERRED SET .......................... 374 ***
+
+> ***THE TIP IS CLEAN AND THE PUSH IS NOT — AND THE GATE RETURNS 0 ON EXACTLY THAT STATE.***
+> *Because the ref is ABSENT at the receiver, the transferred set is the ENTIRE HISTORY and not a
+> delta.* **A FIRST PUBLICATION MOVES EVERYTHING THAT WAS EVER COMMITTED, INCLUDING EVERY STATE
+> THE AUTHOR LATER REPAIRED.** *Redaction was necessary and it is not sufficient; nothing done to
+> the tip can move that number.*
+
+**AND THE INCIDENTAL FINDING, WHICH IS ITS OWN RULE:** *the two safety copies of a working file
+contributed 4 of the 11 occurrences and* ***ZERO NEW VALUES***. **COPIES MADE FOR SAFETY WERE 36%
+OF THE EXPOSURE.** *A backup is a second publication of whatever it copied.*
+
+***THIS IS WHY COLLECTION IS DONE BY BLOB AND NOT BY MERGE.*** *Promotion that takes CONTENT
+carries no history and no repaired state; promotion that takes a REF carries both. The Lead
+reached the same conclusion the same night from the opposite direction — taking an agent ref's
+TREE would have reverted three governance documents, because the ref is stale in everything it
+did not touch.* **TAKE THE BLOB. NEVER THE REF.**
+
+**AND THE SHAPE ALL THREE SHARE, NAMED BY `forensic`:** *the Lead's fifth decision was MESSAGE vs
+TREE; its own link arm was MESSAGE vs TREE; this is TIP vs HISTORY.* ***EACH INSTRUMENT WAS FIXED
+FOR THE OBJECT IN FRONT OF IT AND NEVER WIDENED TO THE OBJECT THAT ACTUALLY TRAVELS.***
+
 **THE OWNER RULED ON 2026-09-07: THIS DIRECTORY DOES NOT BELONG IN THE REPOSITORY.** *Asked
 directly whether `ci-instruments/` should sit here, he answered that it should not, and said
 "Go". It is `ci`'s working store, it lives on `refs/agents/ci` — 213 files there today — and
