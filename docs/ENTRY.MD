@@ -1,5 +1,21 @@
 # ENTRY — READ THIS FIRST. IT IS THE ONLY DOCUMENT YOU MUST READ BEFORE ACTING.
 
+
+## BEFORE YOU REPORT A BLOCKER — READ THIS ONE PARAGRAPH
+
+***A BLOCKER IS NOT REPORTABLE UNTIL ITS PROBE HAS RUN THE PRODUCTION PATH.*** Name the
+production entry point your probe exercised **and the count of times it ran** — a live path
+exercised ZERO times is as false as none. Name **the predicate the instrument actually decides**,
+not only the population it runs on. **State the command that would LIFT the blocker, and run that
+command once.** If you cannot do these, the finding is still worth sending: ship it marked
+`UNVALIDATED`, which is a claim about your instrument and not about the world.
+
+**AND PUBLISH EVERY STOP WITH WHAT WOULD LIFT IT AND WHO HOLDS IT** — otherwise it is not a stop,
+it is a pause nobody can act on. *One night produced eight blockers and five were false, every
+false one a correct number over a population the shipped code never touches.* Full rule and its
+four amendments: `AGENT.MD`, "A BLOCKER IS NOT REPORTABLE UNTIL ITS PROBE HAS RUN THE PRODUCTION
+PATH".
+
 ## THEN READ THESE. PROPERLY. NOT GREPPED.
 
     AGENT.MD                     your role, your boundary, the restart protocol

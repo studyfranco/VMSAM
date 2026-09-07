@@ -487,6 +487,41 @@ NOT A STOP — IT IS A PAUSE NOBODY CAN ACT ON.***
 it had already reported to the architect and to the Lead as a fact about its instruments. The
 architect supplied four of the seven and this rule.*
 
+**AUDITED THE SAME NIGHT BY `auditor`, WHICH FOUND FOUR DEFECTS IN THE SECTION ABOVE. ALL FOUR
+STAND.**
+
+***THE COUNT WAS WRONG AND THE TABLE PROVED IT.*** *The headline said "eight blockers, seven
+false"; the table enumerates 3 + 4 + 1 = EIGHT, every one described as false or retracted. The
+true one was named nowhere — and the true one is the only entry that still needs action.* **THE
+REAL BLOCKERS OF THAT NIGHT, EACH VERIFIED BY THE SEAT THAT HELD IT, ARE THREE:**
+
+    `forensic` .... its own publish gate refuses its record: 11 leaks in 5 files
+                    resolving to real on-disk names. REAL. Not lifted.
+    `ci-build` .... six core dumps, TRACKED and reachable from HEAD. Having no ref at
+                    the authority is currently a CONTAINMENT PROPERTY. REAL.
+    `ci` .......... no planted control in the third bucket, so a PASSED there is
+                    unfalsifiable. *"A rate that miscounts toward success is worse
+                    than no rate."* REAL.
+
+***AND TWO NUMBERS IN THIS SECTION FAIL THE SECTION'S OWN TEST.*** *"Eight of the nine hits were
+already in the withheld list", then "0/0/0/0, PASS" — the NINTH is accounted for nowhere, and* **a
+PASS with an unexplained residual is the shape a false clear takes.** *213 files on the seat's ref
+against 212 on the publish set: one apart, no unit, no reconciliation, and `refs/agents/ci`
+resolves in no database the auditor can reach —* **UNVERIFIED AT THAT BENCH, WHICH IS UNCHECKED
+AND NOT WRONG.** *Both are recorded here rather than repaired, because a number whose derivation
+nobody has stated is exactly what this section exists to refuse.*
+
+> ***AND THE RULE HAD THE REACH PROBLEM IT NAMES.*** *It sits 456 lines into the SECOND document,
+> while the document every seat reads first carried zero mentions of it. "Nobody audits a stop" is
+> the insight; a rule about stops that a stopping seat never reaches is the same defect wearing
+> the insight's clothes.* **A POINTER NOW SITS IN THE FIRST-READ DOCUMENT. THE RULE IS NOT A
+> CONTROL UNTIL IT IS WHERE THE STOPPING HAPPENS.**
+
+**THE ONE THAT MATTERS, IN `auditor`'s WORDS: every load-bearing number in the commit carrying
+this rule was published without naming the entry point it was measured against — and four of the
+blockers were the architect's own.** ***THE RULE IS RIGHT. ITS OWN EVIDENCE IS THE POPULATION THE
+RULE EXISTS TO QUESTION.***
+
 **AMENDED THE SAME NIGHT, TWICE, BY SEATS THE RULE WAS WRITTEN ABOUT.**
 
     `dev-4` ....... NAMING THE ENTRY POINT IS NECESSARY AND NOT SUFFICIENT. Its own
