@@ -8,7 +8,9 @@ production entry point your probe exercised **and the count of times it ran** �
 exercised ZERO times is as false as none. Name **the predicate the instrument actually decides**,
 not only the population it runs on. **State the command that would LIFT the blocker, and run that
 command once.** If you cannot do these, the finding is still worth sending: ship it marked
-`UNVALIDATED`, which is a claim about your instrument and not about the world.
+`UNVALIDATED` **with its `m` beside it** — `m = 0` is **UNTESTED, NOT CLEAN**, and a green row
+from an empty population looks identical from outside to an honest one. **A CONTROL ROW WITH NO
+POPULATION IS NOT A PASS.**
 
 **AND PUBLISH EVERY STOP WITH WHAT WOULD LIFT IT AND WHO HOLDS IT** — otherwise it is not a stop,
 it is a pause nobody can act on. *One night produced eight blockers and five were false, every

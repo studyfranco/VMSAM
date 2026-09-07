@@ -487,6 +487,30 @@ NOT A STOP — IT IS A PAUSE NOBODY CAN ACT ON.***
 it had already reported to the architect and to the Lead as a fact about its instruments. The
 architect supplied four of the seven and this rule.*
 
+**AND THE TWIN OF THIS RULE, FROM THE OTHER END, FOUND BY `aide` TWICE IN ONE NIGHT.**
+
+***A CONTROL ROW WITH NO POPULATION IS NOT A PASS.*** *A freshness check compared a
+negative-control count against the population size, both read from the same store at the same
+instant — so at population ZERO the row passed* **VACUOUSLY**. *A derived-expectation audit
+returned "0 violations" over a population of ZERO CALL SITES: the harness defines its arming
+function and nothing calls it.*
+
+> ***m = 0 IS UNTESTED, NOT CLEAN.*** **AND A GREEN ROW FROM m = 0 LOOKS IDENTICAL FROM OUTSIDE
+> TO AN HONEST `UNVALIDATED` SHIPMENT.** *That is a defect in the rule above, not beside it: the
+> marker this section prescribes does not distinguish "I could not validate" from "I validated
+> nothing and it passed".* **SO THE `m` TRAVELS WITH THE MARKER, ALWAYS. `UNVALIDATED` WITHOUT
+> ITS COUNT IS THE FORGEABLE HALF.**
+
+**AND THE MECHANISM THAT MAKES IT VISIBLE, WHICH IS NOT A BETTER VERDICT.** *A two-line STUB
+scored a full OK in that seat's forcing harness — because acceptance was an exit code plus a
+marker, and a stub supplies both* ***BY CONSTRUCTION***. *The repair was not a stricter verdict.
+It was* **EVIDENCE AS A COLUMN**: *the arming function now counts non-marker output lines and
+prints `ev=` in every row, so `ev=0` reads* **MARKER AND EXIT CODE ONLY, NO EVIDENCE.**
+
+> ***FORGERY IS NOT PREVENTABLE. IT IS ONLY MAKEABLE VISIBLE.*** *Same disease as the caveat that
+> reads as rigour and stops the next measurement — a FORM standing in for a MEASUREMENT. Every
+> control in this campaign that failed tonight failed toward the reassuring answer.*
+
 **AUDITED THE SAME NIGHT BY `auditor`, WHICH FOUND FOUR DEFECTS IN THE SECTION ABOVE. ALL FOUR
 STAND.**
 
