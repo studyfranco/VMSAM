@@ -472,12 +472,12 @@ class video():
 Preparation function
 """
 def generate_begin_and_length_by_segment(min_video_duration_in_sec):
-    if min_video_duration_in_sec > 540:
-        begin_in_second = 120
-        length_time = int((min_video_duration_in_sec-240)/(number_cut+1))
+    if min_video_duration_in_sec > 300:
+        begin_in_second = 45
+        length_time = int((min_video_duration_in_sec-90)/(number_cut+1))
     elif min_video_duration_in_sec > 60:
-        begin_in_second = 30
-        length_time = int((min_video_duration_in_sec-45)/(number_cut+1))
+        begin_in_second = 15
+        length_time = int((min_video_duration_in_sec-30)/(number_cut+1))
     elif min_video_duration_in_sec > 5:
         begin_in_second = 0
         length_time = int(min_video_duration_in_sec-2/(number_cut+1))
