@@ -15,6 +15,33 @@ The repair happens **at the moment of refusal**, inside
 `remove_not_compatible_video`, against `best_video`. Not before the merge, not
 during it. Contract: `SPEC_ZONE_A.MD`.
 
+### And the repair targets the defective zone, to the frame
+
+The owner's requirement, 2026-09-07: *do not replace the whole problematic stretch —
+repair the exact zone, to the frame.* Two instruments, because neither reaches the
+other's resolution:
+
+    fpcalc   locates the ZONE      1 fingerprint point = 126.6 ms = 3 to 4 frames
+    pHash    decides the FRAME     `frame_compare.py`, DCT 8x8, 64 bits
+
+Three constraints, all measured, none of them optional:
+
+- **Work from the raw fingerprint list, not from `correlation()`.** That function
+  averages the per-point Hamming similarity and returns one number: a 2 s defect in a
+  60 s window moves it by 2 %, and the position is gone. *Keeping the per-point vector
+  locates the same defect to 27.7–30.8 s for an injection at 28.0–30.0 s, in one pass.*
+  The averaging is why a descent looked necessary.
+- **Index in frame numbers, not milliseconds.** Measured: the PAL relation applied to
+  240 frames gives 240 frames and a duration of 10.010 s -> 9.600 s. *The frame index is
+  invariant under the resample; a millisecond boundary needs a factor and is wrong
+  without it.*
+- **Do not route through `cross_correlation`.** Below `min_overlap` it returns without a
+  value and without a message, and that `None` has the shape of "nothing found". Both the
+  32-point floor and the silent failure belong to the layer the new method stops using.
+
+Window floor: **30 s**, as the main software bounds its cut-time search. The hard wall is
+4.05 s, so the margin is sevenfold.
+
 ## What is refused today, and why
 
 > **ONE ROW IS NO LONGER CAMPAIGN 1's. `vmsam-forensic` RE-ESTABLISHED THE SPEED FAMILY ON
@@ -36,13 +63,36 @@ other document is a figure with no measurement behind it.
 | :--- | ---: | :--- |
 | different cuts | **57 %** | the offset is piecewise-constant — a staircase. Content one side has and the other does not |
 | trimmed edges | 18 % | the same, with a single step at one end |
-| speed mismatch | **8.9 %** — *re-measured* | PAL 25 fps against 23.976: the offset drifts linearly, ~1 s per half-hour. **The method is already ruled on** — `docs/AUDIO_SPEED_POLICY.MD` |
+| speed mismatch | **8.9 %** — *re-measured* · PAL 6.3 · **NTSC 2.5** | the offset drifts linearly. **The two halves behave oppositely and must not be treated as one family** — see below |
 | weak correlation | 10 % | heavy re-encodes, differently mixed dubs, music-only stretches: no confident peak |
 | no shared language | 2 % | no audio language in common, or the tags lie |
 
 **The largest family is not speed.** Over 79 measured files, **zero** showed a clean
 slope near a constant (`CAMPAIGNS/01-dev-AI/FINDINGS.MD` §15). A repair that only handles speed
 addresses a tenth of the problem.
+
+### PAL and NTSC are one number and two problems
+
+The speed row is 6.3 % PAL and 2.5 % NTSC, and the ratios differ by forty-two times.
+Measured drift, same relation applied to a 30 s window and to a 24-minute episode:
+
+    PAL   25 / 23.976  = 1.042709    1281 ms per window   30.7 frames   ->  61.5 s per episode
+    NTSC  1000 / 999   = 1.001001      30 ms per window    0.72 frames  ->   1.44 s per episode
+
+**PAL breaks loudly.** Thirty frames of drift inside one window smears the correlation
+peak, the offsets scatter, and the file is refused. A refused file is parked, not
+delivered wrong.
+
+**NTSC passes silently.** Under one frame of drift per window, so every window-scoped
+check agrees and the peak stays sharp — and the episode still ends 34 frames out of
+sync. *It is the case that satisfies every control we have and produces a bad file.*
+
+    A per-window check cannot see a drift smaller than its own window.
+
+So the two halves need opposite work. PAL needs a branch that is currently unreachable.
+**NTSC needs a check that spans the whole file, because no windowed instrument will ever
+report it.** The owner has NTSC material in the error tree; it is the half that can be
+worked on today, and the half a delivered file can carry.
 
 Two files were proven genuinely unrepairable: one truncated at source, one
 encrypted. Whatever the corpus size turns out to be, the ceiling is far away.
