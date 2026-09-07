@@ -365,6 +365,31 @@ reached the same conclusion the same night from the opposite direction — takin
 TREE would have reverted three governance documents, because the ref is stale in everything it
 did not touch.* **TAKE THE BLOB. NEVER THE REF.**
 
+***AND "TAKE THE BLOB" WAS NOT SUFFICIENT EITHER — THE SAME NIGHT, ONE HOP LATER.*** **A BLOB IS
+A WHOLE FILE.**
+
+*A promotion took one seat's file-blob of a module that seat does not author. That seat's copy
+predated ANOTHER seat's two commits in the same file, so taking it whole* ***REVERTED BOTH —
+SILENTLY, WITH NO CONFLICT, AND WITH A COMMIT MESSAGE NAMING ONLY WHAT WAS MEANT TO BE TAKEN.***
+
+    THE PARSE   a hardened token regex fell back to its superseded form.
+                The producer emitted the token correctly, the middle layer passed
+                it through correctly, and *** THE READER COULD NO LONGER MATCH IT ***
+                -- the owner's scored column empty, with every stage reporting success.
+    THE FIXTURE a deliberate privacy repair -- an example made SELF-DECLARING so it
+                armed both detectors -- reverted with it. *** SELF-DECLARED FIXTURES
+                WENT TO ZERO ACROSS THE WHOLE SOURCE TREE. ***
+
+> ***DIFF THE INCOMING BLOB AGAINST THE CURRENT TIP'S BLOB FOR THAT PATH — NEVER AGAINST THE
+> SOURCE REF'S BASE — AND READ THE REMOVALS.*** *A direction arm at the TREE level does not see
+> this; the tree is not being reverted, one file is. And the promoter cannot catch it by care: it
+> is invisible in the diff it is looking at and absent from the message it is writing.*
+
+**AND THE ROUTING RULE THAT FOLLOWS:** ***A FILE HAS AN AUTHOR AND A BLOB HAS A SOURCE, AND THEY
+ARE NOT THE SAME SEAT.*** *Take the file from the seat that AUTHORS it; make the other seat rebase
+its copy onto that one. Never let a consumer's stale copy become the source of truth for a
+producer's file.*
+
 **AND THE SHAPE ALL THREE SHARE, NAMED BY `forensic`:** *the Lead's fifth decision was MESSAGE vs
 TREE; its own link arm was MESSAGE vs TREE; this is TIP vs HISTORY.* ***EACH INSTRUMENT WAS FIXED
 FOR THE OBJECT IN FRONT OF IT AND NEVER WIDENED TO THE OBJECT THAT ACTUALLY TRAVELS.***
