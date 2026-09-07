@@ -2999,11 +2999,21 @@ lengths, because the chromaprint quantum is computed per call. Re-measuring a st
 would disagree with the measurement half and neither would be wrong. A zero is
 quantum-independent.
 
-*Why `repair_verify` defaults ON inside a feature that is off by default:*
-`WRITE_ZONES.MD` §4's rule is that new capability must not run unless enabled, and
-that is held by `repair_chimeric`. The verification is not a further capability; it
-is what stops the repair shipping a silently wrong track. A safety you have to
-remember to arm is not a safety.
+*Why there is no `repair_verify` flag, and why there was one:* this passage used to explain
+why verification defaulted ON inside a capability that was off by default, citing
+`WRITE_ZONES.MD` §4. **§4 rules the opposite — "It must not be conditioned on a parameter...
+The gate is the measurement, not a setting" (the rule is at line 703, inside a section that
+begins at 602) — and the flag machinery was removed entire: seven `[features]` keys from
+`src/config.ini`, six functions from `merge_video_repair.py`, and the `disabled` outcome that
+existed only because the flag did.** The reasoning is kept because it names a property the code
+still has: **a safety you have to remember to arm is not a safety.** Verification is not gated
+now; it is what the repair does.
+
+*Note for whoever reads this next:* `BRIEF_COMMON.md:66` still instructs the opposite — "a flag
+for new capability goes in `config.ini` `[features]`, off by default". It is outside the
+repository and it is the document agents are told to read first. **`BRIEF_COMMON`'s own line 6
+defers to `WRITE_ZONES`, so §4 governs.** `tools/check_write_zones.py` was measured conformant:
+it requires a campaign-added flag to be REMOVABLE and fails nothing for lacking one.
 
 *Why a verification refusal is `declined` and not `failed`:* the module ran,
 inspected what it had produced, and said no. Collapsing the two would drop the
