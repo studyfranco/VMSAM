@@ -18,7 +18,7 @@ work — including, once, by the author of this file.
 git log --oneline -8         # what actually landed
 git status --porcelain       # what did NOT land — see step 2
 cat AGENT_NOTES.MD           # what you were deciding, and why
-ls TASKS/                    # what you were asked for
+ls docs/TASKS/                    # what you were asked for
 ```
 
 ## 2. Find your work — it is not where you left it
@@ -140,7 +140,7 @@ author, same day, resolved here at all three levels:**
       *** EXPIRED AT TWO LEVELS. INSPECTION FINDS NOTHING. ***
 
     LINE 82, A CONTENT CLAIM WITH ITS STORE:
-      "I was handed ENTRY.MD at 7c91928fd998 — TRUE OF THE HOP, STALE AT THE
+      "I was handed docs/ENTRY.MD at 7c91928fd998 — TRUE OF THE HOP, STALE AT THE
        AUTHORITY, and the 12 lines the hop lacked were exactly RELAYED"
       *** STILL EXACTLY TRUE. IT WILL BE TRUE FOREVER. ***
 
@@ -552,7 +552,7 @@ you are trying to discard. Other agents' tmux sessions are independent and survi
 nobody else has must be in a file first. For a lead that is the roster — who exists,
 what each is on, what was granted to whom. **A lead whose roster lives only in its
 window is not a lead you can restart, which makes it a single point of failure rather
-than an architecture.** Write it to `TASKS/` and the restart becomes routine.
+than an architecture.** Write it to `docs/TASKS/` and the restart becomes routine.
 
 ## 8. Say where you are before doing more
 

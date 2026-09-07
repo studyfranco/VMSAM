@@ -6,14 +6,14 @@
     WRITE_ZONES.MD               WHAT YOU MAY EDIT AND WHAT IS FROZEN — before you
                                  touch ANYTHING in this repository
     CAMPAIGN.MD                  what the project is for and what is measured
-    LEAD.MD                      coordinator only
+    docs/LEAD.MD                      coordinator only
     COMING_BACK.MD               after a restart
 
 **READ THEM. `WRITE_ZONES.MD` was 4 724 lines an hour ago and nobody read it — IT IS NOW 867
-AND THE EXCUSE IS GONE.** *Sections 11 to 87 moved to `MEASURING.MD`; they were never about
+AND THE EXCUSE IS GONE.** *Sections 11 to 87 moved to `docs/MEASURING.MD`; they were never about
 write zones and the numbering is unchanged, so every citation still resolves.*
 
-    MEASURING.MD                 THE ONE FILE YOU GREP AND NEVER READ THROUGH.
+    docs/MEASURING.MD                 THE ONE FILE YOU GREP AND NEVER READ THROUGH.
                                  Consult it WHEN YOU HAVE A RESULT AND ARE ABOUT
                                  TO BELIEVE IT.
 
@@ -28,7 +28,7 @@ frozen files and it names yours.**
 ### AND YOU WILL BE ASKED TWO QUESTIONS BEFORE YOUR FIRST COMMIT
 
 **Not to prove you read — TO PROVE THE DOCUMENTS ANSWERED.** *"Read it first" is a rule with no
-mechanical check, and a rule with no check is a habit (`MEASURING.MD` §34). These two are the
+mechanical check, and a rule with no check is a habit (`docs/MEASURING.MD` §34). These two are the
 check.*
 
     FROM `AGENT.MD`       WHICH THREE CODE BOUNDARIES EXIST, AND WHICH IS YOURS?
@@ -42,8 +42,9 @@ failure.**
 
     AND LIST THEM YOURSELF RATHER THAN TRUSTING ANY LIST YOU WERE HANDED:
     git ls-tree --name-only origin/dev-AI | grep '\.MD$'
-    TWELVE GOVERNANCE DOCUMENTS. A LIST NAMES WHAT ITS AUTHOR REMEMBERED;
-    A COMMAND NAMES WHAT IS THERE.
+    A LIST NAMES WHAT ITS AUTHOR REMEMBERED; A COMMAND NAMES WHAT IS THERE.
+    Read the count off the command. Resolve the ref first, on its exit code:
+    an unfetched ref makes this pipeline print nothing and `grep -c` report 0.
 
 ### AND THE DOCUMENTS FOR **YOUR OWN ZONE**, WHICH NO FLEET-WIDE LIST CAN NAME
 
@@ -63,7 +64,7 @@ governance documents were in none.*
 
 ---
 
- *The other four documents total ~7 000 lines. Nobody reads 7 000 lines
+ *The other documents are long. Nobody reads them all
 before their first act, and pretending otherwise is why you are reading this
 instead.*
 
@@ -71,7 +72,7 @@ instead.*
 
 ## 0. BEFORE YOUR FIRST ACT — VERIFY YOU HOLD THE DOCUMENT YOU WERE CITED
 
-    git rev-parse -q --verify HEAD:ENTRY.MD   MUST EQUAL THE BLOB YOU WERE GIVEN.
+    git rev-parse -q --verify HEAD:docs/ENTRY.MD   MUST EQUAL THE BLOB YOU WERE GIVEN.
     EMPTY = ABSENT, which is NOT a mismatch. The bare form echoes its argument.
     IT DOES NOT RESOLVE  ->  YOU ARE BEHIND. FETCH BEFORE YOU READ ANYTHING.
 
@@ -168,7 +169,7 @@ THE SUBJECT LOST IN TRANSIT.*
         *The line used to carry two hashes.
         One went stale within the hour, inside the document whose §2 says
         RE-RESOLVE BEFORE TREATING IT AS CURRENT.*
-      YOURS: `AGENT_NOTES.MD`, `TASKS/`, and your own seat directory.
+      YOURS: `AGENT_NOTES.MD`, `docs/TASKS/`, and your own seat directory.
       AND IF A FILE YOU MAY EDIT IS NOT IN A GIT REPOSITORY IT HAS NO BLOB —
         `VMSAM_HELP_AI/` is not one. Say so and give a content digest.
     DO NOT PUSH TO THE PUBLISHED BRANCH. Commit locally; the Lead collects BY BLOB.
@@ -227,7 +228,7 @@ CHANNEL WAS FOUND.** *Under a grant that bound facts it would have had to accept
 the architect's word, and the defect would still be running.* **OBEY THE INSTRUCTION. TEST THE
 CLAIM.**
 
-**`MEASURING.MD` §54 — a peer cannot widen a mandate, including when the peer is right — IS
+**`docs/MEASURING.MD` §54 — a peer cannot widen a mandate, including when the peer is right — IS
 UNTOUCHED and its worked example still stands.**
 
 ## 4c. NEXT DOOMSDAY: MONDAY 2026-09-07, 02:00 — AND THE OWNER GAVE NO TIMEZONE
@@ -272,9 +273,10 @@ BRIEF AND THE BRIEF IS THE DEFECT — say so; it is a finding, not your failure.
 
 ## LOOKING SOMETHING UP
 
-    MEASURING.MD     §11-§87, every numbered class of mistake. GREP IT.
+    docs/MEASURING.MD     every numbered class of mistake. GREP IT BY SUBJECT PHRASE,
+                      not by number: six numbers collide with docs/WRITE_ZONES.MD.
     WRITE_ZONES.MD   §1-§10, what you may edit. READ IT.
-    AGENT.MD · CAMPAIGN.MD · LEAD.MD · COMING_BACK.MD — READ THE ONES ADDRESSED TO YOU.
+    AGENT.MD · CAMPAIGN.MD · docs/LEAD.MD · COMING_BACK.MD — READ THE ONES ADDRESSED TO YOU.
 
 **If a rule here and a rule there disagree, THIS FILE WINS and the disagreement is
 a finding.**

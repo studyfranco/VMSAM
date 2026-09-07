@@ -30,7 +30,8 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `MEASURING.MD`, `LEAD.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `docs/TASKS/` are yours**, and no other document is frozen |
+| `docs/` — including `docs/MEASURING.MD`, `docs/ENTRY.MD`, `docs/LEAD.MD`, `docs/PIPELINE.MD` | **UNFROZEN 2026-09-07 ON THE OWNER'S DIRECT INSTRUCTION**, for the corpus reorganisation that moved every `.MD` absent from `master` into `docs/`. Editing these is now permitted; the standing rules on privacy, measurement and reporting apply unchanged. The technical rulings already in `docs/` (`AUDIO_SPEED_POLICY`, `MERGE_CRITERIA`, `SUBTITLE_CODECS`) still carry the weight of a ruling — read one before contradicting it |
 
 ### §1b — THE FREEZE GOVERNS THE PUBLISHED BRANCH. `refs/agents/*` IS NOT THE PUBLISHED BRANCH
 
@@ -49,7 +50,7 @@ reason it is being ruled here instead of answered in a message.**
     WHAT IS STILL FORBIDDEN, UNCHANGED: pushing anything into `CAMPAIGNS/` on
     `dev-AI`. The archive is frozen on the branch and a path that merely LOOKS
     like an archive path, in another namespace, is not the archive.
-    AND `ENTRY.MD` §4's "DO NOT PUSH" MEANS THE PUBLISHED BRANCH. Publishing to
+    AND `docs/ENTRY.MD` §4's "DO NOT PUSH" MEANS THE PUBLISHED BRANCH. Publishing to
     your own `refs/agents/<seat>` is the mechanism this fleet already runs on.
 
 **The agent held the conflict open, did not push, and asked for a ruling that reaches it AS
@@ -604,7 +605,7 @@ flags, and it is why the removal needed no ruling.
 > **§2 SAYS ONE MODIFICATION OUTSIDE A TAGGED ZONE INVALIDATES THE CAMPAIGN, NOT THE COMMIT — AND
 > THE ONLY THING BETWEEN THAT SENTENCE AND A COMMIT IS AN AGENT REMEMBERING TO TYPE A COMMAND.**
 >
-> *`MEASURING.MD` §34 inside this document: a rule with no mechanical check is a habit.* **And it
+> *`docs/MEASURING.MD` §34 inside this document: a rule with no mechanical check is a habit.* **And it
 > is the INVERSE of the class three sections earlier — code written, reviewed, tested green and
 > never called.** *Here the checker IS called correct: comprehensively self-tested at 35/35, and*
 > **ITS CORRECTNESS IS PRECISELY WHY NOBODY ASKED WHETHER IT RUNS. A GREEN SUITE INVITES THE
@@ -1226,7 +1227,7 @@ privacy cost, it is a measurement cost, and it would have arrived looking like c
 
 ---
 
-# §11 TO §87 HAVE MOVED TO `MEASURING.MD`
+# §11 TO §87 HAVE MOVED TO `docs/MEASURING.MD`
 
 **They were written here and they were never about write zones.** *This file governs WHAT YOU
 MAY EDIT: frozen files, tagged zones, verification, privacy, the repository boundary. Sections
@@ -1234,7 +1235,7 @@ MAY EDIT: frozen files, tagged zones, verification, privacy, the repository boun
 is where the fleet was writing, not because they belonged here.*
 
     THE NUMBERS ARE UNCHANGED. A citation to §27, §33, §54, §78 STILL RESOLVES —
-    it resolves in `MEASURING.MD`. Nothing was renumbered, because a renumbering
+    it resolves in `docs/MEASURING.MD`. Nothing was renumbered, because a renumbering
     would have broken every citation in the campaign.
 
 **THIS FILE IS NOW ~850 LINES AND YOU ARE EXPECTED TO READ IT** — before you touch anything in

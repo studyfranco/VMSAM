@@ -1,4 +1,4 @@
-# PIPELINE.MD — what the engine does, and what a good output is
+# docs/PIPELINE.MD — what the engine does, and what a good output is
 
 **Moved out of `AGENT.MD` 2026-09-05 at the owner's instruction — that file is read before a seat can
 work and every line in it is paid for in every seat, on every restart.** *This is DOMAIN reference:
@@ -19,7 +19,7 @@ the function name and the phrase are the citation.*
 
 > **AND THIS FILE IS NO LONGER THE ONLY PLACE. `vmsam-dev-2` put the relationship into
 > `src/merge_video_chimeric.py`'s module header — acting on the closing rule rather than agreeing
-> with it — with the line that settles any future disagreement:** ***if this and `PIPELINE.MD` ever
+> with it — with the line that settles any future disagreement:** ***if this and `docs/PIPELINE.MD` ever
 > disagree, MEASURE THE CODE, and the code is that file.***
 
 > **WHY THIS EXISTS: `vmsam-dev-1` MEASURED that the locator NOWHERE STATES why it exists — zero hits

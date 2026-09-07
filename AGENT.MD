@@ -1,9 +1,9 @@
 # VMSAM — AI Agent Context & Directives
 
-> ### THIS FILE IS REFERENCE. **`ENTRY.MD` IS WHAT YOU READ FIRST.**
+> ### THIS FILE IS REFERENCE. **`docs/ENTRY.MD` IS WHAT YOU READ FIRST.**
 > *The mandatory documents total ~7 000 lines and this one is 1 000 of them.* **NOBODY
 > READS 7 000 LINES BEFORE THEIR FIRST ACT** — and "read AGENT.MD first" was a rule
-> with no mechanical check, which §34 says is a habit. **`ENTRY.MD` is the
+> with no mechanical check, which §34 says is a habit. **`docs/ENTRY.MD` is the
 > construction that replaces it: short enough to actually be read, sufficient to act
 > from, and it points back here BY PHRASE.** *Grep this file. Do not read it through.*
 
@@ -34,18 +34,18 @@ than absent: a reader who knows the mechanism files it as handled.
 | `FILE_MAP.MD` | where everything is and what it does | to find your way |
 | `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
 | `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
-| `PIPELINE.MD` | **the engine, the handled cases, the `fabricated` marker, and TARGET-FIRST** — what a good output IS | before changing engine behaviour |
-| `MEASURING.MD` | **the evidence.** Every rule's derivation, every refutation, every retraction. `grep` it, never read it through | when you doubt a rule, or are about to repeat a mistake |
-| `ENTRY.MD` | the only document read BEFORE acting, and the entry test | first, and after every restart |
+| `docs/PIPELINE.MD` | **the engine, the handled cases, the `fabricated` marker, and TARGET-FIRST** — what a good output IS | before changing engine behaviour |
+| `docs/MEASURING.MD` | **the evidence.** Every rule's derivation, every refutation, every retraction. `grep` it, never read it through | when you doubt a rule, or are about to repeat a mistake |
+| `docs/ENTRY.MD` | the only document read BEFORE acting, and the entry test | first, and after every restart |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
-| `TASKS/` | **finished reports** — one per closed group of actions: context, result, technical account. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/` | when a group of actions closes |
+| `docs/TASKS/` | **finished reports** — one per closed group of actions: context, result, technical account. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/` | when a group of actions closes |
 | `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
 | `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
-| `MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
+| `docs/MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
-**These documents are frozen — `AGENT_NOTES.MD` and `TASKS/` excepted, and this file
+**These documents are frozen — `AGENT_NOTES.MD` and `docs/TASKS/` excepted, and this file
 included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
@@ -75,15 +75,15 @@ Campaign 1's archive, in `CAMPAIGNS/01-dev-AI/`. **Consult, do not follow:**
 None of it is authority. It was written by agents under time pressure, and the
 corrections it carries are the reason to trust the numbers more than the conclusions.
 
-## 📋 `TASKS/` — the work, and its history
+## 📋 `docs/TASKS/` — the work, and its history
 
-```
-TASKS/
-├── <NNN>-<slug>.MD     an open task: the owner states the goal, you fill in the rest
-└── done/               closed tasks, moved here — the campaign's history
-```
+`docs/TASKS/<NNN>-<slug>.MD` — one **closed** report per group of actions. One task, one
+file, one number.
 
-One task, one file, one number. You fill it in as you go, not at the end:
+**Work in progress does not live in the repository.** It lives in `VMSAM_WIP/TASK/`, and a
+file arrives in `docs/TASKS/` only once the work is finished and its commit exists.
+
+A report carries:
 
 - **what you changed** — files and zones, so a reviewer goes straight there;
 - **what you measured** — the numbers that show it works, never the claim that it does;
@@ -91,8 +91,12 @@ One task, one file, one number. You fill it in as you go, not at the end:
   it stops a successor re-deriving it;
 - **what stayed blocked** — the findings of `WRITE_ZONES.MD` §6.
 
-A task moves to `done/` when its goal is met **and** its commit exists — not when you
-stop working on it. An abandoned task stays open and says why it was abandoned.
+There is no `done/` subdirectory and there never was one: `docs/TASKS/` **is** the closed
+state. An abandoned effort is still worth a report — it says why it was abandoned, which
+stops a successor re-deriving it.
+
+*(Do not write a bare `done/` in this corpus: `VMSAM_HELP_AI/<seat>/inbox/done/` is a live
+protocol carrying 379 read-debt pointers across 14 directories, and the two are unrelated.)*
 
 ## 📁 `VMSAM_HELP_AI/` — where private material goes
 
@@ -127,15 +131,15 @@ timelines frame-accurately, and assembles one `.mkv` carrying the best video, au
 and subtitle streams available — **with no human checking any of it**. That last
 clause is the whole difficulty: every automated decision is destructive if wrong.
 
-## 🔄 The engine, the cases, and what a good output is → `PIPELINE.MD`
+## 🔄 The engine, the cases, and what a good output is → `docs/PIPELINE.MD`
 
 **The synchronisation pipeline, the handled cases, the `fabricated` marker, and TARGET-FIRST — be
-certain of what you must obtain before you touch anything — are in `PIPELINE.MD`.**
+certain of what you must obtain before you touch anything — are in `docs/PIPELINE.MD`.**
 
     THEY ARE DOMAIN REFERENCE. YOU CONSULT THEM WHEN THE WORK NEEDS THEM.
     THEY ARE NOT READ-BEFORE-EVERY-ACTION, AND THEY WERE COSTING EVERY SEAT
     EVERY LINE ON EVERY RESTART.
-    `git rev-parse -q --verify origin/dev-AI:PIPELINE.MD` -- RESOLVE IT YOURSELF.
+    `git rev-parse -q --verify origin/dev-AI:docs/PIPELINE.MD` -- RESOLVE IT YOURSELF.
     **An EMPTY answer means ABSENT, never "unchanged": the bare form echoes its own
     argument on failure. And `cat-file -t` must say `blob`.**
 
@@ -155,10 +159,10 @@ finished are in `COMMITTING.MD`.** *They are promotion mechanics and that is the
     overwrote an owner change on this repository, measured -- git stopped on
     the conflict and preserved it.
 
-## The architect, and the entry test → `MEASURING.MD` and `ENTRY.MD`
+## The architect, and the entry test → `docs/MEASURING.MD` and `docs/ENTRY.MD`
 
-**Why the architect seat is permanent and absent from your roster: `MEASURING.MD`, final section.
-THE ENTRY TEST — mandatory, and a restart is cheap: `ENTRY.MD`, final section.**
+**Why the architect seat is permanent and absent from your roster: `docs/MEASURING.MD`, final section.
+THE ENTRY TEST — mandatory, and a restart is cheap: `docs/ENTRY.MD`, final section.**
 
     YOU TAKE THE ENTRY TEST AFTER A RESTART. IT IS PUBLISHED IN ADVANCE ON
     PURPOSE: IT TESTS THE HANDOFF FILE, NOT YOU. FAILING IT MEANS THE
@@ -292,11 +296,11 @@ method. Do not remove that call.
     GOING QUIET IS THE ONE OUTCOME THAT COSTS THIS CAMPAIGN MORE THAN BEING WRONG.
     "BLOCKED ON MY USER" IS A FINISHED REPORT. SILENCE IS NOT.
 
-*The ruling's full derivation is in `MEASURING.MD`'s appendix.*
+*The ruling's full derivation is in `docs/MEASURING.MD`'s appendix.*
 
 ## 📏 Believing a result
 
-**`ENTRY.MD` §2 is the authority: the five kinds, the `RUN` rule, and `m`.** *Two things repeated here
+**`docs/ENTRY.MD` §2 is the authority: the five kinds, the `RUN` rule, and `m`.** *Two things repeated here
 because they are the ones seats lose first:*
 
     A ZERO WITH NO POSITIVE CONTROL SAYS NOTHING -- prove the sink is LIVE in the
@@ -379,11 +383,11 @@ TEST ITS OWN CHANGE ASKS `forensic` FOR THE FAMILY AND GENERATES THE ARM.**
                                    population moves it
     **A CONSTRUCTED ARM BUYS TRUTH, NOT TYPICALITY** -- say so in the same breath.
 
-## VERIFICATION KINDS — THERE ARE **FIVE**, AND `ENTRY.MD` IS THE AUTHORITY ON THEM
+## VERIFICATION KINDS — THERE ARE **FIVE**, AND `docs/ENTRY.MD` IS THE AUTHORITY ON THEM
 
 > **THIS FILE SAID *FOUR* AND OMITTED `RELAYED` — the kind this fleet uses most. A seat reading only
 > this document would never learn it exists.** *Corrected 2026-09-05; the full definitions, the `RUN`
-> ruling and the honest audit that produced them now live in `ENTRY.MD` §2 and `MEASURING.MD`.*
+> ruling and the honest audit that produced them now live in `docs/ENTRY.MD` §2 and `docs/MEASURING.MD`.*
 
     RUN          the SHIPPED function was CALLED, against material whose ground truth
                  is known INDEPENDENTLY, and the output was read.
@@ -433,11 +437,11 @@ before sending it.*
 
 **This document was 1082 lines and a seat has to read it before it can work. The narrative that
 DERIVED the rules above — the restart research, the architecture measurement, the reclassification,
-the `RUN` ruling's own audit — is now in `MEASURING.MD`, numbering preserved.**
+the `RUN` ruling's own audit — is now in `docs/MEASURING.MD`, numbering preserved.**
 
     A DOCUMENT READ BEFORE ACTING PAYS FOR EVERY LINE, EVERY TIME, IN EVERY SEAT.
     THE REASONING THAT PRODUCED A RULE IS WORTH KEEPING AND IS NOT WORTH RE-READING
-    ON EVERY RESTART. **RULES HERE. EVIDENCE IN `MEASURING.MD`. ENTRY IN `ENTRY.MD`.**
+    ON EVERY RESTART. **RULES HERE. EVIDENCE IN `docs/MEASURING.MD`. ENTRY IN `docs/ENTRY.MD`.**
 
 **AND THE CAMPAIGN LIVES ON `dev-AI` ALONE — owner's ruling, 2026-09-05:** *"tout doit être dans
 dev-AI. les agents se calment sur cette branche."* **DO NOT PORT GOVERNANCE TO `master`. `master` is

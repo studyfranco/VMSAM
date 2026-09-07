@@ -1155,7 +1155,7 @@ silently as tokens accrete.* **NAME WHERE THE ENUMERATION LIVES, ONCE IT EXISTS.
       GOOD   `no_shared_content` · `speed_relation_suspected` · `fidelity_below_floor`
       WRONG  `cannot_repair` · `give_up` -- those are the CONSUMER's conclusions.
 
-    AND IT MUST DISTINGUISH THE TWO SENTENCES `PIPELINE.MD` §3 SEPARATES:
+    AND IT MUST DISTINGUISH THE TWO SENTENCES `docs/PIPELINE.MD` §3 SEPARATES:
       A MEASUREMENT THAT RAN AND SAID NO  is not
       A MEASUREMENT THAT COULD NOT RUN.
     Today both arrive as `None` and the consumer records the second for both --
