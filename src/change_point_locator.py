@@ -167,6 +167,7 @@ files before it was believed.
 from os import path, remove
 from statistics import median
 
+import hashlib
 import tools
 import json
 import subprocess
@@ -288,13 +289,81 @@ REFINE_WINDOW_SECONDS = 8.0
 REFINE_STEP_SECONDS = 4.0
 
 
+def _digest(*parts):
+    """Opaque, stable, one-way identifier for a tuple of strings.
+
+    USED FOR PATHS AND EMITTED IN THEIR PLACE. The paths themselves may never reach a
+    log line this fleet quotes into a report (`WRITE_ZONES` section 8: where the input is
+    free text you do not own, WITHHOLD it rather than sanitise it -- a pattern redactor
+    was measured failing on a path containing spaces). A digest carries the FACT that two
+    specific files were paired, which is all a consumer needs to join rows, and carries
+    none of the content.
+    """
+    # *** A MISSING INPUT RETURNS A WORD, NEVER A HASH. `vmsam-dev-4` found the defect in
+    # the coercion this replaces: `_digest(None, None)` and `_digest("", "")` produced the
+    # SAME 12-hex value, so every unresolvable pair carried an IDENTICAL, REAL-LOOKING join
+    # key. Not absent, not unique -- A SENTINEL WEARING THE SHAPE OF A REAL KEY. ***
+    #
+    # AND IT FAILS THIS MODULE'S OWN RULE HARDER THAN THE ASYMMETRY IT WAS PART OF FIXING:
+    # a consumer does not see those rows as unjoinable, it sees N rows OF THE SAME PAIR, and
+    # joins them silently. A census would report one pair with N refusals.
+    #
+    # THE DILEMMA dev-4 POSED, SETTLED BY READING `video.py`: `self.filePath` is assigned
+    # UNCONDITIONALLY and BEFORE the constructor's only `raise`, so any object that survives
+    # construction carries it, and for the engine chain this branch is UNREACHABLE -- m = 0.
+    # **THAT IS EXACTLY WHY IT IS NOT LEFT AS A SENTINEL.** An untested cell is not a clean
+    # one, and the cost of being wrong here is a silent false join in somebody else's census.
+    for part in parts:
+        if part is None or str(part) == "":
+            # NOT `unidentified`. `vmsam-dev-4` measured that it is **12 CHARACTERS
+            # LONG -- EXACTLY THE WIDTH OF A REAL DIGEST** -- so a `len(...) == 12` or a
+            # truthiness check joins on it happily. My claim that it "cannot be joined on"
+            # was a claim about MY OWN charset predicate, never about a consumer's:
+            # section 7 one level down, the producer asserting a property of a value while
+            # THE CONSUMER IS THE ONE MAKING THE CLAIM ABOUT WHAT THE BYTES MEAN.
+            #
+            # *** AND THE HONEST LIMIT: NO VALUE DEFEATS A TRUTHINESS TEST. A producer can
+            # only make the sentinel HARDER to mistake -- wrong width, non-hex,
+            # self-describing -- and then TELL THE CONSUMER. The width was free; the
+            # telling is the part that actually protects `forensic`'s pair-keyed map. ***
+            return "pair_unidentified"
+    joined = "\x00".join(str(p) for p in parts)
+    return hashlib.sha256(joined.encode("utf-8", "surrogatepass")).hexdigest()[:12]
+
+
+def _build_digest():
+    """Digest of THIS module's source, read AT CALL TIME.
+
+    Deliberately not cached at import: the rule it satisfies says emit build identity at
+    EMISSION time, and a value captured once cannot report that the code changed under a
+    long-lived process. It costs one small file read per pair, which is nothing beside the
+    ffmpeg probes this function has already run by the time it is called.
+
+    Returns `unknown` rather than raising: a missing build id must never be the reason a
+    merge fails, and `unknown` is an honest value where a stale constant would not be.
+    """
+    try:
+        with open(__file__, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()[:12]
+    except OSError:
+        return "unknown"
+
+
 def _log(message):
     if tools.dev:
         tools.logs.append(f"\t\t[change_point_locator] {message}\n")
 
 
 def _emit(message):
-    """Unconditional. For the ONCE-PER-PAIR success line and nothing else.
+    """Unconditional. Once per pair: the success line, or the refusal that replaces it.
+
+    *** "AND NOTHING ELSE" WAS TRUE WHEN WRITTEN AND STOPPED BEING TRUE WHEN `_decline`
+    STARTED CALLING THIS. The docstring kept saying it. I read this file all day and read
+    past it, and only noticed when I checked WHICH SINK A REFUSAL GOES THROUGH rather than
+    assuming -- the prefix is shared between the two sinks, so the output does not tell you
+    which one produced it. A COMMENT THAT WAS ACCURATE WHEN WRITTEN IS NOT A COMMENT THAT IS
+    ACCURATE. The per-pair limit is the real invariant and it still holds: success OR refusal,
+    never both, never twice. ***
 
     NOT A POLICY THAT `_log` SHOULD FOLLOW. The limit is per-pair, and the reason
     lives in the SINK rather than in this module:
@@ -332,6 +401,121 @@ def _emit(message):
     was repaired.
     """
     tools.logs.append(f"\t\t[change_point_locator] {message}\n")
+
+
+DECLINE_REASONS = (
+    "audio_duration_unavailable",
+    "every_probe_failed",
+    "no_shared_content",
+    "no_stream_for_language",
+    "no_usable_segments",
+    "offsets_scattered",
+    "primary_below_pairing_bar",
+    "speed_relation_suspected",
+    "stream_unmeasurable_at_centre",
+    "too_few_probes_with_signal",
+    "too_few_usable_probes",
+)
+
+DECLINE_MEASUREMENTS = ("ran_conclusive_negative", "could_not_run")
+
+
+def _decline(reason, measurement, **fields):
+    """The ONE emission every boundary refusal of `locate_change_points` goes through.
+
+    CAMPAIGN.MD's refusal contract specifies a `(plan, cause)` RETURN; `vmsam-dev-4`
+    added the clause that decides whether the work counts:
+
+        "THE TOKEN MUST APPEAR IN AN EMITTED LOG LINE. A cause that reaches only an
+         in-memory structure SATISFIES NOTHING."
+
+    That clause is why this is a helper and not a return value. `_log` is gated on
+    `tools.dev`, which is False in production -- so a cause carried only by the ten
+    `_log` sentences below emits NOTHING in the one configuration that runs the
+    library, and the consumer records "no measurement available" for every refusal.
+    That is not hypothetical: this module's own `_emit` docstring records the same
+    defect happening three times in sequence, each invisible until the previous was
+    repaired.
+
+    ONE SHAPE, AND THE INVARIANT IS THE PREFIX:
+
+        declined: reason=<snake_case_token> measurement=<token> [name=value ...]
+
+    *** `declined: reason=` NOW CATCHES 10 OF 10. IT USED TO CATCH 1 OF 3. ***
+    The three emissions that existed before this change put `stream=` and `lang=`
+    ahead of `reason=`, so the natural grep -- the one that names a token -- saw a
+    third of the declines and a reader had no way to know. The fields did not move
+    out of the line, they moved along it; every reader that resolves BY NAME
+    (`WRITE_ZONES.MD` section 7, rule 1) is unaffected, and a positional reader was
+    already broken by the two different field orders.
+
+    `measurement` carries the distinction the consumer demonstrably needs and could
+    not make -- `merge_video_repair.py` states it at its own call site: a conclusive
+    negative filed as an absence of evidence is the substitution this module warns
+    against in its own first docstring.
+
+        ran_conclusive_negative  the probes RAN, they SUCCEEDED, and the answer is no
+        could_not_run            no usable measurement was obtained at all
+
+    PRIVACY, BY CONSTRUCTION AND NOT BY REDACTION (`WRITE_ZONES.MD` section 8): every
+    value this function can emit is a number this module computed, a stream index, a
+    language code, or a literal token from the vocabulary above. No path, no
+    filename, no exception text, and no caller-supplied free text -- the reason is a
+    literal at every call site, never an argument that reached the module from
+    outside. Nothing here is sanitised, because nothing here is borrowed.
+
+    *** A CAUSE IS NOT A ROUTING INSTRUCTION, AND THE TWO AXES ARE ORTHOGONAL. ***
+    The architect's ruling, 2026-09-07, correcting the contract's own citation:
+    `PIPELINE.MD` section 3 separates what the CONSUMER should do -- "this file cannot be
+    helped" (a dead end) against "this file goes back to the cheap path" (a routing
+    decision). `measurement` above is the PRODUCER's epistemic status, which is a
+    different question. **A consumer that reads `could_not_run` and infers "dead end" has
+    made exactly the confusion section 3 warns about, using a token introduced here.** The
+    consumer needs both axes and MUST NOT DERIVE ONE FROM THE OTHER: `could_not_run` says
+    nothing about whether the file is helpable, and `ran_conclusive_negative` does not
+    make it hopeless. Nothing in this module emits a routing decision, deliberately --
+    `CAMPAIGN.MD` is explicit that a token "names WHAT THE MEASUREMENT FOUND, never what
+    the consumer should do".
+
+    THE ENUMERATION ABOVE IS A GATE, NOT A LIST -- architect's ruling on the contract's
+    reserved line, the whole reason it lives here rather than in a document:
+
+        A VOCABULARY IN ITS ONLY PRODUCER CANNOT DRIFT FROM IT.
+        A NEW TOKEN IS NOT EMITTABLE WITHOUT BEING ENUMERATED IN THE SAME EDIT.
+
+    *** AND IT MARKS RATHER THAN RAISES, WHICH IS THE ONLY SAFE FAILURE HERE. *** VMSAM
+    runs with nobody watching. A validator that raised would turn a mistyped token into a
+    crashed merge, and one that refused to emit would DESTROY THE REFUSAL LINE -- which is
+    the exact defect this whole helper exists to close. So an unenumerated value still
+    emits, and carries `reason_enumerated=false` beside it: the refusal always reaches the
+    sink, and the vocabulary breach is greppable in the same line. **A gate that can only
+    fail by making the output NOISIER is one that cannot make the engine worse.**
+
+    Returns None so that a call site reads `return _decline(...)`: the emission and
+    the refusal cannot drift apart if they are one statement.
+    """
+    parts = [f"declined: reason={reason}", f"measurement={measurement}"]
+    if reason not in DECLINE_REASONS:
+        parts.append("reason_enumerated=false")
+    if measurement not in DECLINE_MEASUREMENTS:
+        parts.append("measurement_enumerated=false")
+    for key in sorted(fields):
+        parts.append(f"{key}={fields[key]}")
+    # BUILD IDENTITY ON THE REFUSAL LINE TOO, AND IT IS NOT SYMMETRY FOR ITS OWN SAKE.
+    # `vmsam-forensic` reads refusals to census which branch fired; without a build id
+    # "this branch did not fire" and "this artefact predates the branch existing" are
+    # THE SAME ABSENT ROW, and the outcome that disappears is always THE INSTRUMENT DID
+    # NOT RUN. The success line carries it; a refusal that did not would leave exactly
+    # the population a consumer most needs to date undateable.
+    #
+    # NO `pair=` HERE, DELIBERATELY: the two paths are not in scope at the earliest
+    # refusals -- they are read after the language and duration checks -- and a field
+    # present on some refusals and absent on others is worse than one absent from all,
+    # because a consumer cannot tell a missing pair from an early refusal. STATED
+    # RATHER THAN LEFT AS AN INCONSISTENCY SOMEBODY LATER "FIXES".
+    parts.append(f"build={_build_digest()}")
+    _emit(" ".join(parts))
+    return None
 
 
 def _start_times_ms(source_path):
@@ -503,6 +687,48 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
                 remove(temporary)
             except OSError:
                 pass
+
+
+def _shared_languages(master_obj, candidate_obj):
+    """Which audio languages BOTH sides carry. Language codes only, never names.
+
+    *** WHY THIS EXISTS. `no_stream_for_language` conflates two different worlds and I
+    emitted the same row for both:
+
+        the REQUESTED language is missing, but the pair shares another one
+            -> a different `language` argument would let this pair proceed.
+        THE PAIR SHARES NO AUDIO LANGUAGE AT ALL
+            -> NO language argument exists that would let it proceed. AUDIO IS EXHAUSTED.
+
+    The consumer could not tell them apart from my row. The per-side stream counts say
+    how many streams of the REQUESTED language each side has; they say nothing about
+    whether any OTHER language is shared.
+
+    `vmsam-arch-heir` measured the consequence on six real rejected pairs: five align on
+    the video channel, and TWO OF THE FIVE SHARE NO AUDIO LANGUAGE AT ALL -- one carries
+    French only, the other English and Japanese, same episode, same duration. *** AUDIO
+    CORRELATION CANNOT TOUCH THOSE TWO BY CONSTRUCTION. THE VIDEO CHANNEL ALIGNS THEM. ***
+
+    So my decline is CORRECT and it is also A FLOOR. This module's contract says None means
+    "I could not measure", never "the files are compatible" -- and that stays exactly true.
+    What was missing is that a reader could not tell WHICH KIND of could-not-measure it had:
+    *** NOT UNMEASURABLE. UNMEASURABLE BY AUDIO. ***
+
+    THIS FUNCTION CHANGES NO DECISION AND ADDS NO ENUMERATED TOKEN. It adds a field, so the
+    allowlist ruling (both halves in one batch, never after) is not engaged. I am not
+    claiming the video channel works -- that is not my measurement and arch-heir marked its
+    own result RUN for comparability and m=0 for drift. I am stating the audio floor, which
+    IS mine.
+    """
+    a = getattr(master_obj, "audios", None) or {}
+    b = getattr(candidate_obj, "audios", None) or {}
+    try:
+        return sorted(set(a) & set(b))
+    except TypeError:
+        # A non-mapping `audios` is a caller defect, not a shared-language answer.
+        # Return None so the field reads `unknown` rather than a confident zero --
+        # ABSENT IS NOT EMPTY, and a wrong zero here would read as "audio exhausted".
+        return None
 
 
 def _streams_for(video_obj, language):
@@ -857,17 +1083,40 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     maps it to `no_plan` and the refusal stands. Those are different answers and
     collapsing them is the mistake this campaign exists to avoid.
     """
+    # COMPUTED AT ENTRY, BEFORE ANY REFUSAL CAN BE TAKEN. `master_path` and
+    # `candidate_path` are not bound until after the language and duration checks, so the
+    # two EARLIEST refusals used to carry no join key at all.
+    #
+    # `vmsam-forensic` named the consequence and it is fatal on its side, not mine: an
+    # early-refusal row carrying NEITHER a pair NOR an error id is UNJOINABLE TO ANY FILE
+    # FROM THE ARTEFACT ALONE. For my own arm that is harmless -- I know what I fed in.
+    # For a retrospective census over artefacts, it is the whole population lost.
+    # *** THE ASYMMETRY I DEFENDED WAS AN ACCIDENT OF WHERE TWO LOCALS WERE ASSIGNED, NOT
+    # A PROPERTY OF THE REFUSALS. The attributes were available at entry all along. ***
+    pair_id = _digest(getattr(best_video, "filePath", None),
+                      getattr(candidate_video, "filePath", None))
     master_streams = _streams_for(best_video, language)
     candidate_streams = _streams_for(candidate_video, language)
     if not master_streams or not candidate_streams:
         _log(f"no {language} stream on one side; declining")
-        return None
+        _shared = _shared_languages(best_video, candidate_video)
+        return _decline("no_stream_for_language", "could_not_run", pair=pair_id,
+                        lang=language,
+                        master_streams=len(master_streams),
+                        candidate_streams=len(candidate_streams),
+                        shared_langs=("unknown" if _shared is None
+                                      else ",".join(_shared) if _shared else "none"),
+                        audio_exhausted=("unknown" if _shared is None
+                                         else str(not _shared).lower()))
 
     master_duration = _audio_duration_seconds(best_video, language)
     candidate_duration = _audio_duration_seconds(candidate_video, language)
     if not master_duration or not candidate_duration:
         _log("audio duration unavailable; declining")
-        return None
+        return _decline("audio_duration_unavailable", "could_not_run", pair=pair_id,
+                        lang=language,
+                        master_duration_s=master_duration,
+                        candidate_duration_s=candidate_duration)
 
     shortest = min(master_duration, candidate_duration)
     work_dir = work_dir or tools.tmpFolder
@@ -951,7 +1200,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             raw.append((probe_start, result))
     if len(raw) < 3:
         _log(f"only {len(raw)} usable probes over {shortest:.0f}s; declining")
-        return None
+        return _decline("too_few_usable_probes", "could_not_run", pair=pair_id,
+                        probes_raw=len(raw),
+                        probes_attempted=len(starts),
+                        probes_required=3,
+                        span_s=f"{shortest:.0f}")
 
     # --- no-signal guard -----------------------------------------------------
     median_energy = median([r[1][4] for r in raw])
@@ -961,7 +1214,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         _log(f"dropped {dropped} probe(s) below {LOW_SIGNAL_FRACTION:.0%} of median energy")
     if len(kept) < 3:
         _log("too few probes carry signal; declining")
-        return None
+        return _decline("too_few_probes_with_signal", "could_not_run", pair=pair_id,
+                        probes_kept=len(kept),
+                        probes_raw=len(raw),
+                        probes_required=3,
+                        signal_floor_fraction=LOW_SIGNAL_FRACTION)
 
     offsets = [r[1][0] for r in kept]
     fidelities = [r[1][1] for r in kept]
@@ -990,16 +1247,41 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         # pair" -- which is FALSE: the probes ran, succeeded, and returned a conclusive
         # negative. Every field below is a number this module computed or a literal it
         # owns: no path, no filename, no exception text. See `THE TYPE, NEVER THE MESSAGE`.
-        _emit("declined: reason="
-              + ("speed_relation_suspected" if monotone else "no_shared_content")
-              + f" median_fidelity={median_fidelity:.4f}"
-              + f" fidelity_floor={MIN_MEDIAN_FIDELITY}"
-              + f" probes={len(offsets)} offsets_monotone={bool(monotone)}")
-        return None
-    # MEASURED INERT. A systematic every-7th census of a 315-record index, 45 files,
-    # 2026-09-05: 33 reached this line and IT FIRED ZERO TIMES. The nine files scattered
-    # enough to trip it -- dp=32 fl=14, dp=32 fl=17, dp=33 fl=15, dp=32 fl=15 -- were
-    # already refused by the fidelity floor above, which is tested first and returns.
+        return _decline("speed_relation_suspected" if monotone else "no_shared_content",
+                        "ran_conclusive_negative", pair=pair_id,
+                        median_fidelity=f"{median_fidelity:.4f}",
+                        fidelity_floor=MIN_MEDIAN_FIDELITY,
+                        probes=len(offsets),
+                        offsets_monotone=bool(monotone))
+    # NO LONGER INERT -- AND THE MECHANISM THE OLD NOTE GAVE IS REFUTED, NOT JUST ITS COUNT.
+    #
+    # IT SAID: "MEASURED INERT. A systematic every-7th census of a 315-record index, 45
+    # files, 2026-09-05: 33 reached this line and IT FIRED ZERO TIMES. The nine files
+    # scattered enough to trip it -- dp=32 fl=14, dp=32 fl=17, dp=33 fl=15, dp=32 fl=15 --
+    # were already refused by the fidelity floor above, which is tested first and returns."
+    #
+    # MEASURED 2026-09-07, RUN, real corpus, 5 files drawn from a SPEED-MISMATCH family:
+    # THIS BRANCH FIRED THREE TIMES.
+    #   dp=31 fl=4 · dp=26 fl=3 · dp=21 fl=4
+    # Every one PASSED the fidelity floor -- it is tested above and returns, so reaching
+    # this line proves it -- and then tripped here.
+    #
+    # THE DISTINGUISHING VARIABLE IS SIGN FLIPS, NOT SCATTER. The census's nine carried
+    # fl=14..17; mine carry fl=3..4, barely over MAX_SIGN_FLIPS. A file whose offsets flip
+    # sign fifteen times has no coherent correlation left and the fidelity floor catches it
+    # first, exactly as the old note said. A file that drifts across many distinct points
+    # with FEW flips keeps its fidelity and arrives here. THE OLD NOTE DESCRIBED THE
+    # HIGH-FLIP CASE AND GENERALISED IT TO ALL SCATTER.
+    #
+    # AND THE CENSUS COULD NOT HAVE SEEN THIS: it sampled every 7th record of a general
+    # index -- a BASE RATE. These five were TARGETED at the one family that produces
+    # low-flip drift. 0 of 33 general and 3 of 5 targeted are both true and measure
+    # different things. THE BRANCH IS NOT INERT, IT IS SELECTIVE, and a base-rate sample of
+    # a rare-but-clustered condition reports zero and reads as dead code.
+    #
+    # THIS IS WHY THE `AND` IS LOAD-BEARING AND AN `OR` WOULD BE WRONG: these three have
+    # dp WELL over the max and flips barely over it. Under OR, the dp alone would refuse a
+    # genuine staircase, which has many distinct points and ZERO flips.
     #
     # NOTHING ARRIVES HERE BOTH SCATTERED AND CONFIDENT.
     #
@@ -1017,7 +1299,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # this branch starts mattering and has never been exercised.
     if distinct_points > MAX_DISTINCT_POINTS and flips > MAX_SIGN_FLIPS:
         _log(f"offsets scattered ({distinct_points} distinct, {flips} flips); declining")
-        return None
+        return _decline("offsets_scattered", "ran_conclusive_negative", pair=pair_id,
+                        distinct_points=distinct_points,
+                        distinct_points_max=MAX_DISTINCT_POINTS,
+                        sign_flips=flips,
+                        sign_flips_max=MAX_SIGN_FLIPS)
 
     runs = _group_plateaus([(r[0], r[1][0]) for r in kept])
 
@@ -1070,9 +1356,10 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # UNCHANGED: the repair rebuilds every stream of this language, so one it
             # cannot measure at all is a refusal of the whole plan.
             _log(f"stream {stream} ({language}) could not be probed at all; declining")
-            _emit(f"declined: stream={stream} lang={language} reason=every_probe_failed "
-                  f"pairing_fidelity=None pairing_bar={MIN_PAIRING_FIDELITY}")
-            return None
+            return _decline("every_probe_failed", "could_not_run", pair=pair_id,
+                            stream=stream, lang=language,
+                            pairing_fidelity=None,
+                            pairing_bar=MIN_PAIRING_FIDELITY)
         # Measurable, and not the same content as any master stream of its language.
         # No entry, and NOT a decline: the plan stays valid for the streams that do
         # match, and the consumer refuses this one rather than borrowing an offset.
@@ -1088,11 +1375,10 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
              f"({_pairing_detail(primary_stream)})")
         # ONCE PER PAIR, ON A DECISION PATH, NUMBERS ONLY -- the same shape the Lead
         # ruled on for the success line, and the same limit: nothing per-probe.
-        _emit(f"declined: stream={primary_stream} lang={language} "
-              f"reason=primary_below_pairing_bar "
-              f"pairing_fidelity={measured_fidelity.get(primary_stream)} "
-              f"pairing_bar={MIN_PAIRING_FIDELITY}")
-        return None
+        return _decline("primary_below_pairing_bar", "ran_conclusive_negative", pair=pair_id,
+                        stream=primary_stream, lang=language,
+                        pairing_fidelity=measured_fidelity.get(primary_stream),
+                        pairing_bar=MIN_PAIRING_FIDELITY)
     extra_streams = [s for s in sorted(pairing) if s not in candidate_streams]
     if extra_streams:
         _log(f"pairing adds {len(extra_streams)} stream(s) outside {language}: "
@@ -1123,7 +1409,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                     # UNCHANGED for the measured language: a stream the repair will
                     # rebuild and cannot measure is a refusal, not a gap.
                     _log(f"stream {stream} unmeasurable at {centre:.1f}s; declining")
-                    return None
+                    return _decline("stream_unmeasurable_at_centre", "could_not_run", pair=pair_id,
+                                    stream=stream, lang=language,
+                                    centre_s=f"{centre:.1f}")
                 # A stream outside the measured language is dropped ENTIRELY rather
                 # than measured in some segments and not others: a track placed in
                 # segments 0 and 2 and missing from 1 is a gap in the middle of a
@@ -1288,7 +1576,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
 
     if not segments:
         _log("every segment unusable after clamping; declining")
-        return None
+        return _decline("no_usable_segments", "ran_conclusive_negative", pair=pair_id,
+                        segments_kept=0,
+                        segments_dropped=dropped_segments)
     if dropped_segments:
         _log(f"{dropped_segments} segment(s) dropped as unusable, {len(segments)} kept")
     # A change point is only meaningful between two segments that both survived.
@@ -1384,7 +1674,64 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           f"offset_monotone={str(_monotone).lower()} "
           f"offset_ms={offset_ms:.1f} points={int(round(offset_ms / quantum_ms))} "
          f"quantum_ms={quantum_ms} window_s={PROBE_WINDOW_SECONDS} "
-         f"segments={len(segments)} change_points={len(change_points)}")
+         f"segments={len(segments)} change_points={len(change_points)} "
+          # THE SEVEN BELOW ARE FOR A CONSUMER, NOT FOR THIS MODULE'S OWN DECISIONS.
+          # `vmsam-forensic` holds 315 failure records and can census NEITHER the
+          # low-signal population NOR the offset-scatter population, because
+          # `probe`, `energy`, `silence` and `sign` appear in ZERO of them. The
+          # module COMPUTES all of this, DECIDES on it, and threw it away -- the
+          # same defect the refusal contract closed one level up, one level down.
+          #
+          # RAW COUNTS, NEVER THE VERDICT. The scatter guard is
+          # `distinct_points > MAX_DISTINCT_POINTS AND flips > MAX_SIGN_FLIPS`;
+          # emitting the counts lets a consumer census the DISTRIBUTION instead of
+          # inheriting this module's thresholds, and a threshold in an artefact is
+          # one that two modules then have to keep in step.
+          #
+          # AND THE STRUCTURAL BLANK, WHICH MUST NOT BE READ AS ZERO: a pair that
+          # declines BEFORE the energy step emits none of these, because they are
+          # not computed yet. That absence is a property of the pipeline, not a
+          # gap in the emission.
+          f"probe_energy_median={median_energy:.6g} "
+          f"probes_raw={len(raw)} probes_kept={len(kept)} "
+          f"probes_dropped_low_signal={dropped} "
+          f"signal_floor_fraction={LOW_SIGNAL_FRACTION} "
+          # NOT `offset_distinct_points`. `points` IS ALREADY A UNIT OF TIME IN THIS
+          # CODEBASE -- `audioCorrelation` returns `offset_in_points` and ONE POINT IS
+          # 125 ms, the chromaprint frame -- and THIS VERY LINE prints
+          # `points=offset_ms/quantum_ms` twelve fields earlier. `..._points=7` beside
+          # `points=3` cannot be read: seven distinct offsets, or a spread of seven
+          # chromaprint frames? Both are plausible on this line. `_count` costs three
+          # characters and is the `codec_delay`/`start_time` collision this campaign has
+          # already paid for once. Caught by `vmsam-forensic` reviewing the field names
+          # BEFORE the first emission, which is the whole reason they were announced.
+          f"offset_distinct_count={distinct_points} "
+          f"offset_sign_flips={flips} "
+          # THE JOIN IS MANY-TO-ONE AND THE CONSUMER FOUND IT BEFORE I DID. This line is
+          # once per PAIR; `vmsam-forensic`'s census is keyed one row per ERROR ID, and
+          # pairs-per-id varies. Without a pair key its reader takes whichever pair it saw
+          # last, and A MEDIAN OVER PAIRS IS NOT A MEDIAN OVER IDS -- with nothing in the
+          # field name to say which you computed.
+          #
+          # A DIGEST, NEVER THE PATHS: `WRITE_ZONES` section 8 -- carry the FACT of the
+          # line, not its content. This is stable per pair, opaque, and keeps the
+          # `carries_path: False` property this line was measured to have.
+          #
+          # I CANNOT EMIT THE ERROR ID: the locator is never told it. That is a real
+          # limit of this boundary, not an omission, and closing it needs the CALLER to
+          # pass one.
+          f"pair={_digest(master_path, candidate_path)} "
+          # BUILD IDENTITY AT EMISSION TIME, NEVER CAPTURED AT STARTUP (`AGENT.MD`): a
+          # field written once at startup reports the same value whatever is running,
+          # which is worse than an empty one -- an empty field is honest and a constant
+          # one is a lie that survives every rebuild.
+          #
+          # AND IT IS WHAT MAKES THE STRUCTURAL BLANK READABLE: "never reached the energy
+          # step" and "this artefact predates the emission" are THE SAME ABSENT FIELD
+          # without it, and the outcome that goes missing is always THE INSTRUMENT DID NOT
+          # RUN. Precedent, not a new shape: `merge_video_repair` already ships
+          # `build <module>:<digest>`.
+          f"build={_build_digest()}")
 
     return {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
             "master_path": master_path,
