@@ -406,7 +406,7 @@ def _emit(message):
 DECLINE_REASONS = (
     "audio_duration_unavailable",
     "every_probe_failed",
-    "no_shared_content",
+    "median_fidelity_below_floor",
     "no_stream_for_language",
     "no_usable_segments",
     "offsets_scattered",
@@ -1224,8 +1224,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     if len(kept) < 3:
         _log("too few probes carry signal; declining")
         return _decline("too_few_probes_with_signal", "could_not_run", pair=pair_id,
+            # *** `probes_attempted` ADDED. ci measured that the artefact cannot say whether a
+            # probe was lost to an EXTRACTION FAILURE or to the ENERGY GUARD. The two are
+            # recoverable only as differences:  attempted-raw = EXTRACTION,  raw-kept = GUARD.
+            # This row carried kept and raw and NOT attempted, so the second subtraction was
+            # available and THE FIRST WAS NOT.  *** THE VALUE WAS IN SCOPE THE WHOLE TIME --
+            # not a measurement I could not make, one I never emitted. ONE MISSING VALUE MAKES
+            # A MECHANISM UNRECOVERABLE, AND m ON IT WAS 0 UNTIL THIS LINE. ***
                         probes_kept=len(kept),
                         probes_raw=len(raw),
+                        probes_attempted=len(starts),
                         probes_required=3,
                         signal_floor_fraction=LOW_SIGNAL_FRACTION)
 
@@ -1256,12 +1264,31 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         # pair" -- which is FALSE: the probes ran, succeeded, and returned a conclusive
         # negative. Every field below is a number this module computed or a literal it
         # owns: no path, no filename, no exception text. See `THE TYPE, NEVER THE MESSAGE`.
-        return _decline("speed_relation_suspected" if monotone else "no_shared_content",
+        # *** `no_shared_content` RETIRED: A CLAIM ABOUT THE WORLD FROM AN INSTRUMENT THAT CAN
+        # ONLY SPEAK ABOUT ITS OWN MEASURABILITY -- and it contradicted this module's OWN
+        # contract: "None means I could not measure -- never the files are compatible."
+        # I wrote that rule and emitted a token breaking it WITH THE SIGN FLIPPED.
+        # `vmsam-dev-2` CONSTRUCTED the proof rather than sampling for it: one file resampled
+        # from the other at the PAL constant -- SAME SOURCE, ALL CONTENT SHARED -- declines
+        # here at median_fidelity 0.6012. THE TOKEN ASSERTED THEY SHARE NONE.
+        # The monotone branch cannot save it: a 4.27% rate difference drifts ~20 chromaprint
+        # points INSIDE one probe window, so the correlation returns noise, and *** NOISE IS
+        # NOT MONOTONE -- THE GUARD FOR THE SPEED FAMILY IS DEFEATED BY THE SPEED RELATION
+        # BEING LARGE ENOUGH TO DESTROY THE MEASUREMENT THAT WOULD DETECT IT. ***
+        # (mechanism `vmsam-arch-aide`; constructed pair `vmsam-dev-2`.)
+        # `speed_relation_suspected` STAYS -- a SUSPICION is a thing an instrument may report.
+        # AND AN ARTEFACT THAT ASSERTS SOMETHING FALSE IS A DEFECT EVEN IF NO REAL FILE
+        # TRIGGERS IT TODAY.
+        return _decline("speed_relation_suspected" if monotone else "median_fidelity_below_floor",
                         "ran_conclusive_negative", pair=pair_id,
                         median_fidelity=f"{median_fidelity:.4f}",
                         fidelity_floor=MIN_MEDIAN_FIDELITY,
                         probes=len(offsets),
-                        offsets_monotone=bool(monotone))
+                        offsets_monotone=bool(monotone),
+                        # *** WHAT THIS ROW DOES NOT KNOW, STATED IN THE ROW. Below the floor,
+                        # "unrelated" and "related but unmeasurable by THIS correlator" are
+                        # INDISTINGUISHABLE TO ME, and the retired token picked one of them.
+                        distinguishes_unrelated_from_unmeasurable="no")
     # NO LONGER INERT -- AND THE MECHANISM THE OLD NOTE GAVE IS REFUTED, NOT JUST ITS COUNT.
     #
     # IT SAID: "MEASURED INERT. A systematic every-7th census of a 315-record index, 45
@@ -1702,7 +1729,8 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           # not computed yet. That absence is a property of the pipeline, not a
           # gap in the emission.
           f"probe_energy_median={median_energy:.6g} "
-          f"probes_raw={len(raw)} probes_kept={len(kept)} "
+          f"probes_attempted={len(starts)} "
+            f"probes_raw={len(raw)} probes_kept={len(kept)} "
           f"probes_dropped_low_signal={dropped} "
           f"signal_floor_fraction={LOW_SIGNAL_FRACTION} "
           # NOT `offset_distinct_points`. `points` IS ALREADY A UNIT OF TIME IN THIS
