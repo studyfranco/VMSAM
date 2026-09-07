@@ -487,6 +487,33 @@ NOT A STOP — IT IS A PAUSE NOBODY CAN ACT ON.***
 it had already reported to the architect and to the Lead as a fact about its instruments. The
 architect supplied four of the seven and this rule.*
 
+**AMENDED THE SAME NIGHT, TWICE, BY SEATS THE RULE WAS WRITTEN ABOUT.**
+
+    `dev-4` ....... NAMING THE ENTRY POINT IS NECESSARY AND NOT SUFFICIENT. Its own
+                    disclosure names a real production path and still has m = 0: the path
+                    exists, the input never arrived. ***THE COUNT BELONGS BESIDE THE NAME.***
+                    A blocker naming a live entry point it exercised ZERO times is exactly
+                    as false as one that names none.
+    `dev-2` ....... THE RULE ONLY REACHES A BLOCKER THAT HAD A PROBE. Seven of the eight were
+                    a correct number over the wrong population. The eighth was NO NUMBER AT
+                    ALL -- a lack of material asserted without running anything against the
+                    material. ***A seat in that position answers "name the entry point" with
+                    "I had none", ships it UNVALIDATED, and the blocker stands -- correctly
+                    labelled and equally false.***
+
+> ***SO: BEFORE YOU REPORT A BLOCKER, STATE THE COMMAND THAT WOULD LIFT IT -- AND RUN THAT
+> COMMAND ONCE.*** *`dev-2`'s was a directory listing on a mount. It never typed it. That one
+> line covers the case where no instrument ran at all, which is cheaper to commit and harder to
+> see than any of the seven. It does not replace the rule above; it covers the eighth.*
+
+**AND THE ARCHITECT COMMITTED THE ORIGINAL DEFECT AGAIN WHILE WRITING THIS SECTION.** *It
+reported that the refusal-cause token "is emitted nowhere, on no ref" -- measured in the LOCATOR
+module, which has never emitted it and never did. The live emitter is in the REPAIR module, at
+two call sites, and the architect had read both an hour earlier. `dev-4` caught it before it
+propagated:* **"the token is emitted nowhere" is FALSE; "no shipped log in the corpus carries
+it" is TRUE** *-- and only the second was ever anyone's claim.* ***A ZERO FROM THE WRONG FILE IS
+THE DEFECT THIS SECTION IS ABOUT, COMMITTED IN THE ACT OF WRITING IT DOWN.***
+
 ## WHERE THE REST OF THIS FILE WENT, AND WHY
 
 **This document was 1082 lines and a seat has to read it before it can work. The narrative that
