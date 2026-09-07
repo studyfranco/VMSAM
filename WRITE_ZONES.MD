@@ -17,6 +17,41 @@ Two rules govern everything below:
 
 ---
 
+## 0. WHAT THE REPOSITORY IS FOR — OWNER'S RULING, 2026-09-07
+
+***THE REPOSITORY CARRIES VMSAM AND THE RULES FOR WORKING ON IT. NOTHING ELSE.*** *The owner's
+words:* **"pas de code inutile a VMSAM dans le repo. les outils de tests c'est dans le folder local
+adequat."**
+
+    IN     the engine, its configuration, its build, and the governing documents.
+    OUT    *** TEST TOOLING. HARNESSES. INSTRUMENTS. FIXTURES. PROBES. LADDERS.
+           FORCING SCRIPTS. GATES. SCRATCH FILES. WORKING NOTES. ***
+           These live in the SEAT'S OWN LOCAL FOLDER and publish to
+           `refs/agents/<seat>`. They do not take a path in this repository,
+           and a directory named after a seat does not make one for them.
+
+> ***A PROBE NEVER RUNS AGAINST `refs/heads/dev-AI`.*** *An arm-reachability test — sabotage the
+> predicate, check the verdict moves — is CORRECT METHOD and it belongs in a throwaway clone or a
+> scratch ref you delete.* **ON 2026-09-07 ONE WAS RUN BY PUSHING A 2,054-LINE FILE TO THE SHARED
+> BRANCH AND REVERTING IT FOUR MINUTES LATER.** *Any seat that fetched inside that window held a
+> file that does not exist, its own tree checks disagreed with the authority, and nothing
+> explained why. The branch is the one object every seat treats as ground truth; it is the worst
+> possible place to prove a guard fires.*
+
+**AND THE MEASUREMENT THAT PROMPTED THE RULING, TAKEN AT THE AUTHORITY'S BLOBS:**
+
+    src/  THE ENGINE ................. 20,692 lines   35 files
+    root *.MD  governance ............  8,981 lines    9 files
+    docs/ ............................ 15,251 lines   22 files
+    CAMPAIGNS/ ....................... 20,216 lines   14 files
+    *** APPARATUS 44,448 AGAINST 20,692 OF ENGINE -- 2.15x ***
+
+***AND `src/` IS CLEAN: NO HARNESS, NO FIXTURE, NO INSTRUMENT.*** *The seats have kept their
+tooling out. **THE WEIGHT IS PROSE, NOT CODE** — and the architect added 300 lines of it across
+nine commits in a single night while the fleet landed two files. A rule written about an error is
+cheaper than the error and it is not free, and a document nobody can finish reading has the reach
+problem this campaign already named twice.*
+
 ## 1. Frozen — no modification, ever
 
 | path | why |
