@@ -363,6 +363,19 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     # AND NOT SUFFICIENT. Reader-side classification cannot repair a sentinel that is lexically
     # a member of the accepted set, so THIS SIDE HAS TO MOVE FIRST OR THE NEW COLUMN NEVER FILLS.
     if locator_cause is None:
+        # *** THE PARENTHESES ARE THE MECHANISM. THEY ARE NOT PUNCTUATION, NOT STYLE, AND NOT
+        # DECORATION. The consuming parser accepts `cause=([A-Za-z0-9_]+)`. A parenthesis
+        # CANNOT satisfy that class, which is the entire reason this value is excluded.
+        #     cause=cause_unavailable  -> ACCEPTED as a stated cause  (the live miscount)
+        #     cause=(unstated)         -> NOT ACCEPTED                (this line)
+        #     cause=unstated           -> ACCEPTED                    (this line, "tidied")
+        # *** DELETING TWO CHARACTERS FOR NEATNESS SILENTLY RESTORES THE INFLATION OF THE
+        # COLUMN THE CAMPAIGN'S END CONDITION IS SCORED ON, AND NOTHING AT RUN TIME WILL SAY
+        # SO. *** dev-4 asked for this comment; the guard below it is mine, because a rule that
+        # has to be remembered is a habit, and this one is two keystrokes from being forgotten.
+        # A TEST EXISTS FOR EXACTLY THIS: `lab/ladder_token.sh::sentinel_ladder` in the records
+        # repository reads THIS literal and the parser's class FROM SOURCE and fails if the
+        # sentinel ever becomes acceptable. If you change this line, run it.
         return None, "(unstated)"
     return None, locator_cause
 
