@@ -1283,6 +1283,50 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         "ran_conclusive_negative", pair=pair_id,
                         median_fidelity=f"{median_fidelity:.4f}",
                         fidelity_floor=MIN_MEDIAN_FIDELITY,
+                        # *** THE SPREAD OF THE SURVIVORS, NOT JUST HOW MANY SURVIVED. `vmsam-dev-2` measured
+                        # that stability under widening is NECESSARY AND NOT SUFFICIENT, and saw the second
+                        # half only because it PRINTED THE SPREAD INSTEAD OF COUNTING: on a real population
+                        # half the probes survived AND THE SURVIVORS DISAGREED WITH EACH OTHER BY 13.7-18.8
+                        # SECONDS. A COUNT WOULD HAVE SHOWN 0.44 AND HIDDEN FIFTEEN SECONDS OF DISAGREEMENT.
+                        # A lag that survives widening came from the CONTENT; one that moves came from the
+                        # SEARCH -- and only the spread separates them.
+                        # *** ITS CONTROL REQUIREMENT, WHICH IS dev-2's AND TRAVELS WITH THE FIELD: A KNOWN-
+                        # RELATED PAIR MUST READ ~0. WITHOUT THAT CONTROL A LARGE SPREAD IS UNINTERPRETABLE --
+                        # IT COULD BE THE INSTRUMENT. dev-2 measured 0 ms on a pure-delay control; I HAVE NOT
+                        # RUN ONE MYSELF, so this field is EMITTED AND NOT YET CALIBRATED AT THIS BENCH.
+                        # m = 0 ON THE CONTROL HERE, AND THE FIELD SAYS SO RATHER THAN LOOKING MEASURED. ***
+                        # *** THE MINIMUM, NOT ONLY THE MEDIAN, AND IT WAS COMPUTED AND DISCARDED. `vmsam-ci`
+                        # carried `arch-heir`'s reasoning: A DECISION IS STABLE UNDER PROBE ATTRITION IFF
+                        # min(per-probe fidelity) > FLOOR -- AN ORDER-STATISTIC PROPERTY NEEDING NO REPETITION,
+                        # because a median cannot fall below a threshold when NO OBSERVATION is below it.
+                        # *** THAT CONCLUSION IS PUBLISHED TO THE FLEET AND IT CANNOT BE CHECKED WITHOUT THIS
+                        # VALUE. The list existed in memory two lines above and ONLY THE MEDIAN SURVIVED TO ANY
+                        # EMISSION -- SO AN INSTRUMENTATION GAP WAS INVALIDATING AN ANALYSIS CONCLUSION, WHICH
+                        # IS STRONGER THAN "IT WOULD BE USEFUL". ***
+                        # AND THE CAVEAT THAT TRAVELS WITH IT, ALSO ci's: THE ORDER-STATISTIC ARGUMENT HOLDS
+                        # ONLY IF LOST PROBES ARE LOST AT RANDOM. If the energy guard systematically removes
+                        # QUIET passages, attrition is BIASED toward exactly where fidelity would be low and
+                        # the conclusion does not apply. min alone cannot show that; the attempted/raw/kept
+                        # triple is what lets a reader test it.
+                        # *** AND THE MINIMUM OVER `raw`, WHICH IS THE ONE THAT ANSWERS THE BIAS QUESTION.
+                        # `ci` said the property needs min over KEPT for the stability claim as stated, and that
+                        # min-over-kept is EXACTLY THE STATISTIC THAT CANNOT SEE THE BIAS, because the probes
+                        # the guard removed are the ones excluded from it. It proposed min over ATTEMPTED.
+                        # *** MIN OVER ATTEMPTED IS NOT COMPUTABLE: a probe that fails EXTRACTION returns None
+                        # and HAS NO FIDELITY AT ALL. THE QUANTITY THAT EXISTS IS MIN OVER `raw` -- everything
+                        # that RETURNED, including what the energy guard then dropped -- BECAUSE `kept` IS
+                        # `raw` FILTERED BY ENERGY, NOT BY FIDELITY, SO A DROPPED PROBE STILL CARRIES ONE. ***
+                        # THE COMPARISON IS THE TEST: if min_raw is far below min_kept, the guard removed
+                        # LOW-FIDELITY probes and the attrition is BIASED toward exactly where fidelity is low,
+                        # which is the condition under which the order-statistic argument does not apply.
+                        # Neither of us named this quantity; both of us named one that does not exist or cannot
+                        # see. IT IS NOT MY PROPERTY TO RULE ON -- arch-heir owns the claim -- BUT THE NUMBER IT
+                        # WOULD NEED IS NOW ON THE ROW INSTEAD OF BEING DISCUSSED.
+                        fidelity_min_raw=f"{min(r[1][1] for r in raw):.4f}",
+                        fidelity_min=f"{min(fidelities):.4f}",
+                        fidelity_max=f"{max(fidelities):.4f}",
+                        offset_spread_ms=f"{(max(offsets) - min(offsets)):.1f}",
+                        offset_spread_control_run="no",
                         probes=len(offsets),
                         offsets_monotone=bool(monotone),
                         # *** WHAT THIS ROW DOES NOT KNOW, STATED IN THE ROW. Below the floor,
