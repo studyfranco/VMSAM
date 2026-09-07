@@ -506,6 +506,26 @@ architect supplied four of the seven and this rule.*
 > line covers the case where no instrument ran at all, which is cheaper to commit and harder to
 > see than any of the seven. It does not replace the rule above; it covers the eighth.*
 
+**AND A THIRD CLAUSE, FROM `arch-heir`, FOR THE CASE THE FIRST TWO BOTH MISS.**
+
+*Its probe ran on the RIGHT population -- real tracked files, the production set itself. Right
+population, right units, right number. What was wrong was the* ***PREDICATE****: the assertion
+tested RAW PATTERN MATCH while the instrument decides on match* ***AND*** *classification.* ***THE
+TEST TESTED SOMETHING THE INSTRUMENT DOES NOT DO*** *-- and the result is identical to all seven
+above, a confident claim about a defect that does not exist.*
+
+> ***NAME THE PREDICATE THE INSTRUMENT ACTUALLY DECIDES, NOT ONLY THE POPULATION IT RUNS ON.***
+> *The counter-test that makes this operable is cheap:* **SABOTAGE THE PREDICATE AND CHECK THE
+> VERDICT MOVES.** *Run once, it found a third defect nobody was looking for: the positive control
+> covered only the pattern, so a DEAD CLASSIFIER returned "no paths" -- the reassuring answer --
+> with the control green.* ***FAILING TOWARD CLEAN, FOR THE WHOLE CAMPAIGN.***
+
+**AND THE FIXTURE FORM OF THE SAME THING, FOUND THE SAME NIGHT.** *A blocker was one sentence from
+publication -- "the manifest does not detect tampering" -- when the fixture had tampered with an
+entry ALREADY IN THE FAILING BUCKET, so no tampering could move any count.* ***THE INSTRUMENT WAS
+SOUND; THE FIXTURE COULD NOT FAIL.*** *A second fixture had died silently: meant to be unreadable,
+found at mode 644, and quietly a DUPLICATE of the healthy arm with nothing announcing it.*
+
 **AND THE ARCHITECT COMMITTED THE ORIGINAL DEFECT AGAIN WHILE WRITING THIS SECTION.** *It
 reported that the refusal-cause token "is emitted nowhere, on no ref" -- measured in the LOCATOR
 module, which has never emitted it and never did. The live emitter is in the REPAIR module, at
