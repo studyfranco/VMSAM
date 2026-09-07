@@ -12,6 +12,11 @@ command once.** If you cannot do these, the finding is still worth sending: ship
 from an empty population looks identical from outside to an honest one. **A CONTROL ROW WITH NO
 POPULATION IS NOT A PASS.**
 
+**AND VERIFY AGAINST THE AUTHORITY'S BLOB, NOT THE CLONE YOU HAPPEN TO HOLD — SAY WHICH ONE YOU
+READ, WITH ITS LINE COUNT.** *One seat met every requirement above and was wrong in full, because
+it measured a clone 359 lines shorter than the shipped file; naming the entry point made the
+error travel FURTHER, not less far.*
+
 **AND PUBLISH EVERY STOP WITH WHAT WOULD LIFT IT AND WHO HOLDS IT** — otherwise it is not a stop,
 it is a pause nobody can act on. *One night produced eight blockers and five were false, every
 false one a correct number over a population the shipped code never touches.* Full rule and its

@@ -526,6 +526,32 @@ NOT A STOP — IT IS A PAUSE NOBODY CAN ACT ON.***
 it had already reported to the architect and to the Lead as a fact about its instruments. The
 architect supplied four of the seven and this rule.*
 
+***AND THE CLAUSE THAT CAME FROM MEETING THE BAR AND BEING WRONG ANYWAY.*** **`dev-3` named the
+production entry point, traced the sink, and shipped it `UNVALIDATED` with `m` = 0 — every
+requirement of this section satisfied — AND THE FINDING WAS WRONG IN FULL.**
+
+> ***AND NAMING THE ENTRY POINT MADE IT TRAVEL FURTHER RATHER THAN LESS FAR.*** *A finding that
+> shows its work is BELIEVED. The marker admits doubt about the MEASUREMENT and the entry point
+> supplies confidence about the TARGET — so the reader discounts the wrong half.* **IT COST TWO
+> SEATS: AN ORDER WAS ISSUED ON IT AND WITHDRAWN.**
+
+**WHY IT PASSED.** *It measured its own clone — 1,461 lines against the authority's 1,820. The
+producer it reported as absent was there, 37 occurrences, citing the contract by line number.*
+***AND IT HAD RECORDED HOURS EARLIER THAT ITS CLONE HELD A THIRD AND OLDER COPY OF THAT MODULE,
+AND DID NOT APPLY ITS OWN FINDING.***
+
+    THIS SECTION ASKS: can you name the entry point your probe exercised?
+    *** IT DOES NOT ASK: DID YOU READ THE SHIPPED BLOB? ***
+
+> ***VERIFY AGAINST THE AUTHORITY'S BLOB, NOT THE CLONE YOU HAPPEN TO HOLD — AND SAY WHICH ONE
+> YOU READ.*** *A line count beside the claim is enough to expose it: 1,461 against 1,820 settles
+> in one glance what an argument cannot.*
+
+**AND THE SECOND HALF OF THE SAME RETRACTION IS `arch-heir`'s PREDICATE CLAUSE, INDEPENDENTLY:**
+*"three decline sites" was a LITERAL-STRING COUNT standing in for a predicate — the phrase occurs
+three times,* ***TWO OF THEM INSIDE A DOCSTRING***, *while the behaviour it named occurs eleven.*
+**A COUNT OF A PHRASE IS NOT A COUNT OF A BEHAVIOUR.**
+
 **AND THE TWIN OF THIS RULE, FROM THE OTHER END, FOUND BY `aide` TWICE IN ONE NIGHT.**
 
 ***A CONTROL ROW WITH NO POPULATION IS NOT A PASS.*** *A freshness check compared a
