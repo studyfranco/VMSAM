@@ -491,8 +491,17 @@ def _decline(reason, measurement, **fields):
     sink, and the vocabulary breach is greppable in the same line. **A gate that can only
     fail by making the output NOISIER is one that cannot make the engine worse.**
 
-    Returns None so that a call site reads `return _decline(...)`: the emission and
-    the refusal cannot drift apart if they are one statement.
+    Returns `(None, reason)` so that a call site reads `return _decline(...)`: the
+    emission and the refusal cannot drift apart if they are one statement, AND the
+    token reaches the caller as a value rather than only as a log line.
+
+    *** IT USED TO RETURN None, AND THAT WAS MY ERROR, NOT AN OPEN QUESTION.
+    CAMPAIGN.MD lines 1153-1164 already specified `(plan, cause)` with a stable token on
+    EVERY boundary return. I read dev-4's clause -- "the token must appear in an EMITTED
+    LOG LINE; a cause that reaches only an in-memory structure satisfies nothing" -- AS
+    EXCLUSIVE OF THE RETURN, AND BUILT THE EMISSION HALF ONLY. THEY WERE NEVER EXCLUSIVE.
+    IT CAN EMIT AND RETURN, AND THE CONTRACT SAID SO IN WRITING THE WHOLE TIME.
+    The consumer had no cause to state, so a real run resolved to `cause_unavailable`. ***
     """
     parts = [f"declined: reason={reason}", f"measurement={measurement}"]
     if reason not in DECLINE_REASONS:
@@ -515,7 +524,7 @@ def _decline(reason, measurement, **fields):
     # RATHER THAN LEFT AS AN INCONSISTENCY SOMEBODY LATER "FIXES".
     parts.append(f"build={_build_digest()}")
     _emit(" ".join(parts))
-    return None
+    return (None, reason)
 
 
 def _start_times_ms(source_path):
@@ -1733,7 +1742,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           # `build <module>:<digest>`.
           f"build={_build_digest()}")
 
-    return {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
+    # *** `(plan, cause)`: cause is None WHEN A PLAN IS RETURNED -- CAMPAIGN.MD 1153-1164.
+    # The pair is returned from ONE place, as the plan is built in one place. ***
+    plan = {"kind": "constant" if len(segments) == 1 else "piecewise_constant",
             "master_path": master_path,
             "candidate_path": candidate_path,
             "language": language,
@@ -1806,3 +1817,4 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             "segments_offset_unverified": sum(1 for seg in segments
                                               if seg["offset_unverified"]),
             "constant_floor_ms": MIN_STEP_MS if len(segments) == 1 else None}
+    return (plan, None)

@@ -296,18 +296,28 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # LE JETON EST STABLE; la classe d'exception va dans la PROSE. dev-4
         # classe sur le jeton, donc un jeton qui varie n'est pas un jeton.
         return None, "locator_module_absent"
-    plan = change_point_locator.locate_change_points(best_video, candidate_obj,
-                                                     language)
-    if plan != None:
+    # *** THE PRODUCER HALF LANDED. `locate_change_points` now returns `(plan, cause)`
+    # per CAMPAIGN.MD 1153-1164 -- cause is None when a plan is returned, and a stable
+    # snake_case token on every one of the ten boundary refusals.
+    # UNPACKED, NOT TRUTH-TESTED. The old line read `if plan != None`, and a `(None, token)`
+    # TUPLE IS NOT None AND IS TRUTHY -- so leaving that test in place would have read EVERY
+    # REFUSAL AS A SUCCESSFUL PLAN. Measured before landing: bool((None, "tok")) is True.
+    # That is why both halves are in one commit and why this line changed shape rather than
+    # gaining a branch. ***
+    plan, locator_cause = change_point_locator.locate_change_points(
+        best_video, candidate_obj, language)
+    if plan is not None:
         return plan, None
-    # THE LOCATOR RAN AND RETURNED None, AND SAID NOTHING ABOUT WHY.
+    # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
     #
-    # I MAY NOT NAME THE CAUSE. The producer half that would emit one is
-    # dev-1's and is unlanded, held by ITS user -- so any cause I wrote here
-    # would be INVENTED, NOT READ, which is the acceptance test's own R2 and
-    # the defect the whole campaign is convened against.
+    # This block used to say the producer half was unlanded and held by dev-1's user,
+    # so any cause written here would be INVENTED, NOT READ. That was true when it was
+    # written and it is no longer true. THE CAUSE BELOW IS READ, NOT INVENTED.
     #
-    # `cause_unavailable` IS A TRUE STATEMENT AND THE OLD STRING WAS NOT.
+    # HISTORICAL, AND KEPT BECAUSE THE REASONING STILL DECIDES THINGS: the token that used
+    # to stand here was `cause_unavailable`, and it replaced a string claiming no measurement
+    # existed. THAT TOKEN IS GONE TOO -- see below -- but the argument for why it beat its
+    # predecessor is the argument for why the producer's token beats it in turn.
     # "no measurement available" claims a property of the WORLD -- that no
     # measurement exists. For the fidelity-floor path that is FALSE: the probes
     # RAN, they SUCCEEDED, and they returned a CONCLUSIVE NEGATIVE. A
@@ -315,11 +325,46 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     # substitution change_point_locator warns about in its own words:
     # "None means I could not measure -- never the files are compatible."
     #
-    # What I can honestly say is a property of THIS CONSUMER: the producer told
-    # me nothing. WHEN THE PRODUCER HALF LANDS, READ ITS CAUSE HERE AND PASS IT
-    # THROUGH UNCHANGED -- one site, this one. Do not translate it, do not
-    # normalise it, and do not add a cause of your own beside it.
-    return None, "cause_unavailable"
+    # This file's own instruction, followed to the letter: READ ITS CAUSE HERE AND PASS
+    # IT THROUGH UNCHANGED -- one site, this one. NOT TRANSLATED, NOT NORMALISED, AND NO
+    # CAUSE OF MY OWN ADDED BESIDE IT.
+    #
+    # *** I WROTE `or "cause_unavailable"` HERE AN HOUR AGO, IN THE SAME EDIT WHERE I QUOTED
+    # THIS FILE'S INSTRUCTION NOT TO ADD A CAUSE OF MY OWN BESIDE THE PRODUCER'S. THAT `or`
+    # IS A CAUSE OF MY OWN. I violated the line I was citing, in the comment citing it.
+    #
+    # AND IT WAS WORSE THAN UNTIDY. `cause_unavailable` MATCHES dev-4'S ACCEPTING REGEX, so a
+    # producer that returned no token would have been counted as A STATED CAUSE -- silently
+    # inflating the column the campaign's end condition is scored on, with a non-cause.
+    # arch-heir's ruling, and it generalises past this file: *** A FALLBACK TOKEN MUST NOT BE A
+    # MEMBER OF THE SET IT FALLS BACK FROM. A sentinel that satisfies the predicate it exists to
+    # signal the absence of is not a sentinel, it is a silent pass. *** And "unreachable by
+    # construction" is not a defence: reachability is a property of today's call graph, not of
+    # the token.
+    #
+    # THE CAUSE PASSES THROUGH UNCHANGED WHENEVER THERE IS ONE. NOT TRANSLATED, NOT NORMALISED,
+    # NOTHING ADDED BESIDE IT.
+    #
+    # *** THE ONE CASE THAT IS NOT A PASS-THROUGH, AND dev-4 IS RIGHT THAT IT NEEDS A VALUE:
+    # the producer RAN and returned NO TOKEN. Under the contract that CANNOT HAPPEN -- every
+    # boundary return carries one -- so this is a CONTRACT VIOLATION and it must be LOUD.
+    # Passing None here would have emitted NO cause field at all, which is a DIFFERENT and
+    # legitimate outcome for other call sites of `record`, and folding the two together would
+    # hide a violation inside an ordinary row. I had them collapsed; they are not the same.
+    #
+    # THE SENTINEL IS LEXICALLY OUTSIDE THE ACCEPTED CLASS, NOT MERELY A DIFFERENT WORD.
+    # dev-4 accepts `cause=([A-Za-z0-9_]+)`; parentheses cannot satisfy that class, so
+    # `(unstated)` is excluded BY CONSTRUCTION rather than by a denylist in the reader.
+    # *** A NAME-BASED EXCLUSION DOWNSTREAM WOULD LEAVE THE SENTINEL A MEMBER OF THE SET AND
+    # THE NEXT SENTINEL ANYONE ADDS WOULD WALK STRAIGHT PAST IT. *** That is arch-heir's rule
+    # taken literally: not a member, rather than a member that is filtered.
+    #
+    # ORDERING, STATED BECAUSE IT DECIDES WHO MOVES FIRST: dev-4's reader change is NECESSARY
+    # AND NOT SUFFICIENT. Reader-side classification cannot repair a sentinel that is lexically
+    # a member of the accepted set, so THIS SIDE HAS TO MOVE FIRST OR THE NEW COLUMN NEVER FILLS.
+    if locator_cause is None:
+        return None, "(unstated)"
+    return None, locator_cause
 
 
 def drop_unverified_segments(segments):
