@@ -453,6 +453,45 @@ hold — and when it survives, check whether what survived is the reason you hav
 *Found by `auditor`, on itself, in the only case tonight where a seat caught its own error
 before sending it.*
 
+## NAMING A HAZARD IS NOT MEASURING IT — AND HOW YOU LABEL IT DECIDES WHAT SOMEONE DOES TO IT
+
+**2026-09-07. The promotion hop carried TWELVE STAGED ENTRIES that no seat claimed. The architect
+tracked them all night and asked ONE question — "who owns these, unstage them or claim them" — and
+never once asked** ***what was in them, and how old it was.***
+
+    THE CONTAINER QUESTION   what can this index sweep into a commit?   ASKED
+    THE CONTENT QUESTION     is what is staged CORRECT?                 NEVER ASKED
+
+*A seat committed them. They were an OLD working tree, and the commit landed as a REVERT over
+newer work:* **four features gone, one of them present in no other file, and a deleted comment
+that documented the exact bug its own removal reintroduced.** *Restored the same hour, once
+measured.*
+
+> ***AND THE OMISSION WAS NOT THE WORST OF IT. THE LABEL WAS.*** *The architect had written the
+> hazard down as* **"it BLOCKS a repair — any commit there takes all twelve"**. *Read that as a
+> seat: this thing is IN THE WAY OF SOMETHING USEFUL. The natural conclusion is to get PAST it,
+> and the cheapest way past an armed index is to commit it.* ***THE LABEL SUPPLIED THE ACTION.***
+
+**THE LABEL THAT WOULD HAVE HELD:** *"twelve files of unknown content and unknown age, staged by
+nobody."* **NOBODY COMMITS THAT.**
+
+> ***DESCRIBE A HAZARD BY WHAT YOU DO NOT KNOW ABOUT IT, NEVER BY WHAT IT IS IN THE WAY OF.*** *A
+> hazard described by what it blocks will be forced. A hazard described by its unread content is
+> read.* **AN UNMEASURED THING IS INERT; A MISLABELLED ONE DIRECTS ACTION.**
+
+**AND IT IS THE FOURTH INSTANCE OF ONE SHAPE THE SAME NIGHT, NAMED BY `forensic` AN HOUR BEFORE
+IT FIRED:** *"each instrument fixed for the object in front of it and never widened to the object
+that actually travels."*
+
+    the Lead's fifth decision ....... MESSAGE   vs  TREE
+    `forensic`'s link arm ........... MESSAGE   vs  TREE
+    `forensic`'s push gate .......... TIP       vs  HISTORY
+    *** the architect's own watch ... INDEX     vs  CONTENT ***
+
+***THE ARCHITECT ENGRAVED THE FIRST THREE AND WAS COMMITTING THE FOURTH, ON THE ONE OBJECT IT HAD
+PERSONALLY WATCHED ALL NIGHT.*** *And `auditor`'s rule applies with a twist: a correct label is
+not a checked premise —* **this label was not even correct.**
+
 ## A BLOCKER IS NOT REPORTABLE UNTIL ITS PROBE HAS RUN THE PRODUCTION PATH
 
 **On the night of 2026-09-07 this fleet produced eight blockers. Seven were false, and every
