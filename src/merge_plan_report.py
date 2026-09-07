@@ -189,7 +189,10 @@ def measure_corpus(log_paths, read=None):
     # so. Subtracting silent files is how a campaign declares victory over the
     # files it never looked at, and from outside that is indistinguishable from
     # having merged them.
+    # `untokened` FUSIONNAIT TROIS MONDES DIFFERENTS. On garde le total pour ne pas
+    # casser les lecteurs existants, et on le decompose.
     excluded = {"claimed": 0, "with_stated_cause": 0, "cause_anywhere": 0,
+                "no_cause_stated": 0, "no_cause_field": 0, "unclassified_cause": 0,
                 "tokened": 0, "untokened": 0, "tokens": {}}
     # READING THE `no_plan` CAUSE WITHOUT EVER PARSING THE PATH.
     #
@@ -224,15 +227,40 @@ def measure_corpus(log_paths, read=None):
     # as `tokened=1, stated_cause=1`. THAT INFLATES THE ONE COLUMN THE OWNER'S END
     # CONDITION IS SCORED ON, FROM A FILENAME.
     #
-    # `record()` emits `repair: no_plan for {path}: {reason}` and the reason is
-    # `cause={token}: {prose}`, so a real token is preceded by ": " and followed
-    # by ":". A path segment is bounded by "/" and cannot satisfy both.
+    # CORRIGE 2026-09-06. LA FORME PRECEDENTE ETAIT INVERSEE, MESURE:
+    #   `: cause=X:`  ligne reelle -> AUCUNE CORRESPONDANCE
+    #                 jeton forge dans un chemin -> CORRESPOND
+    # Elle rejetait toutes les vraies causes et acceptait la seule forgerie.
+    # Une version anterieure a moi, `cause=X`, lisait les vraies ET les deux
+    # forgeries. AUCUN DELIMITEUR N'EST SUR: `:` est legal dans un nom de
+    # fichier, donc rien apres le chemin ne peut etre borne.
     #
-    # RESIDUAL, STATED RATHER THAN HIDDEN: a path containing the literal
-    # `: cause=<word>:` would still forge one. That is not excludable from this
-    # substrate -- it needs a delimiter only the producer can give -- and dev-2
-    # has been told rather than left to find it.
-    _TOKEN = re.compile(r": cause=([A-Za-z0-9_]+):")
+    # dev-2 a retire l'ancien format EXPRES et a ecrit le contrat, en toutes
+    # lettres, dans `merge_video_repair.py` (voir sa note et la construction
+    # `head = f"repair: {outcome}"` / `head += f" cause={cause}"` /
+    # `f"{head} for {candidate_path}: {reason}"`):
+    #
+    #   repair: <outcome> cause=<jeton> for <chemin>: <prose>
+    #   ^------- vocabulaire ferme, avant tout octet controle -------^
+    #
+    # ON LIT DONC PAR POSITION, JAMAIS PAR DELIMITEUR. Le jeton est encadre
+    # par `repair: `, un `<outcome>` sans espace, ` cause=` et ` for ` -- tous
+    # emis par le producteur -- et le chemin ne commence qu'apres.
+    _TOKEN = re.compile(r"^\s*repair: \S+ cause=([A-Za-z0-9_]+) for ")
+    # UN SENTINELLE N'EST PAS UN MEMBRE DE L'ENSEMBLE QU'IL SIGNALE L'ABSENCE DE.
+    # `(unstated)` porte des parentheses, que `[A-Za-z0-9_]+` NE PEUT PAS contenir:
+    # l'exclusion est LEXICALE, donc aucune liste noire ici, et aucune a maintenir.
+    # LES TROIS CAS COTE A COTE, MESURES -- c'est de les voir ensemble qui rend la
+    # ponctuation lisible comme un MECANISME et non comme du style:
+    #   cause=cause_unavailable -> ACCEPTE  (le sur-comptage vu en production le 07)
+    #   cause=(unstated)        -> refuse
+    #   cause=unstated          -> ACCEPTE  (le meme correctif, "nettoye")
+    # RETIRER LES PARENTHESES RETABLIT LE SUR-COMPTAGE EN SILENCE.
+    _TOKEN_UNSTATED = re.compile(r"^\s*repair: \S+ cause=\(unstated\) for ")
+    # N'IMPORTE QUEL champ `cause=`. Distingue "champ absent" de "champ present mais
+    # non reconnu". UN JETON INCONNU DOIT ETRE BRUYANT, JAMAIS ABSORBE: avec trois
+    # colonnes il tomberait par defaut dans une des deux vraies.
+    _TOKEN_ANYFIELD = re.compile(r"^\s*repair: \S+ cause=\S+ for ")
     # L'ETAT DE LA PORTE AU MOMENT OU CES FICHIERS ONT ETE PRODUITS.
     # Le proprietaire a tranche que `enforcing` passe a True. Un artefact portant
     # `would_refuse=True` a donc ete produit SOUS UNE PORTE INERTE et ne serait
@@ -261,15 +289,33 @@ def measure_corpus(log_paths, read=None):
         _cause = _job_for_exclusion.get("declined")
         if _cause:
             excluded["cause_anywhere"] += 1
-        _noplan = [ln for ln in text.splitlines() if "repair: no_plan for " in ln]
+        # LE FILTRE SELECTIONNAIT EXACTEMENT LES LIGNES SANS CAUSE. Le
+        # producteur insere ` cause=<jeton>` ENTRE l'outcome et ` for `, donc
+        # une ligne QUI PORTE UNE CAUSE ne contient jamais `repair: no_plan for `
+        # -- verifie sur les deux formes emises. Le motif ci-dessous ne pouvait
+        # donc voir aucun jeton, et corriger le seul `_TOKEN` n'aurait rien
+        # change: les lignes n'arrivaient pas jusqu'a lui.
+        _noplan = [ln for ln in text.splitlines() if "repair: no_plan" in ln]
         for ln in _noplan:
             hit = _TOKEN.search(ln)
             if hit:
                 excluded["tokened"] += 1
                 excluded["tokens"][hit.group(1)] = (
                     excluded["tokens"].get(hit.group(1), 0) + 1)
+            elif _TOKEN_UNSTATED.search(ln):
+                # LE PRODUCTEUR A TOURNE ET N'AVAIT PAS DE JETON. C'est un CONSTAT,
+                # pas une cause: un blanc etiquete. Il ne doit jamais grossir la
+                # colonne sur laquelle la condition de fin est notee.
+                excluded["untokened"] += 1
+                excluded["no_cause_stated"] += 1
+            elif _TOKEN_ANYFIELD.search(ln):
+                # UN CHAMP cause= PRESENT QUE JE NE RECONNAIS PAS. Bruyant par
+                # construction: m = 0 est NON TESTE, pas propre.
+                excluded["untokened"] += 1
+                excluded["unclassified_cause"] += 1
             else:
                 excluded["untokened"] += 1
+                excluded["no_cause_field"] += 1
         if not (_job_for_exclusion.get("plan") or {}).get("pieces"):
             excluded["claimed"] += 1
             if _cause or any(_TOKEN.search(ln) for ln in _noplan):
@@ -543,6 +589,9 @@ def measure_corpus(log_paths, read=None):
         # THE PAIR, EMITTED SIDE BY SIDE SO A DIFFERENCE IS VISIBLE WITHOUT A JOIN.
         "excluded_claimed": excluded["claimed"],
         "excluded_with_stated_cause": excluded["with_stated_cause"],
+        "excluded_no_cause_stated": excluded["no_cause_stated"],
+        "excluded_no_cause_field": excluded["no_cause_field"],
+        "excluded_unclassified_cause": excluded["unclassified_cause"],
         "exclusion_note": (
             f"AN ABSENT LINE IS NOT AN EXCLUSION. {excluded['claimed']} file(s) "
             f"handed to this render emitted NO PLAN -- these are the ones a merge "
@@ -966,8 +1015,10 @@ def parse_job_log(text):
                 # observee est
                 #   `['<chemin>'] not compatible with the others videos`
                 # ou le chemin PORTE DES ESPACES, donc un titre de serie
-                # survit a toute redaction par motif -- j'ai mesure
-                # `Suicide Squad` traversant la mienne.
+                # survit a toute redaction par motif -- j'ai mesure UN TITRE
+                # REEL DE DEUX MOTS traversant la mienne. Le titre lui-meme
+                # n'a rien a faire ici: details dans les notes privees a cote
+                # du depot. La MESURE est le fait; le NOM ne l'etaye pas.
                 #
                 # UN REDACTEUR QUI NE PEUT PAS GARANTIR SON RESULTAT NE DOIT PAS
                 # ETRE LA DEFENSE. On enregistre donc l'EXISTENCE de la ligne,
@@ -2388,7 +2439,16 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                      master=job.get("master_opaque_id") or "",
                      candidate=job.get("candidate_opaque_id") or "",
                      # LE BASENAME, PAS LE CHEMIN, et le champ dit ce qu'il
-                     # porte. Je rendais `/srv/.../Season 17/X.mkv` dans un champ
+                     # porte. Je rendais
+                     # `/srv/ZZ-FIXTURE-NOT-A-LIBRARY/Season 17/ZZ-FIXTURE-NOT-A-TITLE.mkv`
+                     # EXEMPLE AUTO-DECLARE. Il DECLENCHE les deux detecteurs -- racine
+                     # ET extension -- et se separe A LA MACHINE par son marqueur, donc
+                     # aucune liste blanche, aucune exclusion, aucune connaissance locale
+                     # au siege. Une racine ELIDEE suivie d'un nom d'une lettre n'armait
+                     # pas la branche racine, et un exemple entierement entre chevrons
+                     # n'arme aucune des deux: un exemple qui n'arme pas le
+                     # detecteur laisse sa branche de declenchement a m = 0, donc NON
+                     # TESTEE et pas REUSSIE. Dans un champ
                      # nomme `_name`: la valeur etait juste et L'ETIQUETTE
                      # PROMETTAIT AUTRE CHOSE -- meme classe que le jeton d'etat
                      # dans la legende, corrige une heure plus tot.
