@@ -2455,3 +2455,47 @@ quantity exactly.* **Nothing in the prediction's text reveals that it has expire
 
 ---
 
+
+---
+
+## Les démonstrations de la réparation à la frame — 2026-09-07
+
+Descendues de `CAMPAIGN.MD` sur la règle de l'architecte : *une revendication qui reste
+spécifique sans son chiffre est une revendication ; une revendication qui devient une
+préférence sans son chiffre porte le chiffre comme contenu.* Les deux ci-dessous passent le
+test comme démonstrations ; les proportions PAL/NTSC ne le passent pas et restent dans
+`CAMPAIGN.MD`.
+
+### 1. Garder le vecteur par point localise la zone — mesuré
+
+Bruit rose synthétique, 60 s, 463 points d'empreinte, `sizePoint` 129,6 ms. Défaut injecté
+en coupant le volume de 28,00 s à 30,00 s.
+
+    ce que `correlation()` rend — la moyenne ......... 0,9798
+      le défaut la déplace de 2,02 %. Une valeur pour 463 points ; la position est perdue.
+
+    ce que `correlation()` jette — la similarité par point
+      24 points contigus sous le seuil
+      *** ZONE LOCALISÉE : 27,73 s -> 30,84 s ***
+
+Trois points de marge de chaque côté, soit la résolution de l'instrument. **En une seule
+passe de 60 s, sans descente.** La dilution qui motivait une descente itérative n'existait
+que parce que la moyenne était le seul produit conservé.
+
+### 2. L'index d'image est invariant sous le rééchantillonnage — mesuré
+
+Mire de test, 240 images à 24000/1001, relation PAL appliquée avec `-c copy` (aucune image
+ré-encodée) :
+
+    origine   durée 10,010 s   images 240
+    PAL       durée  9,600 s   images 240
+
+La durée change du rapport 1,042709 ; le compte d'images ne change pas. Une frontière
+exprimée en numéro d'image traverse le rééchantillonnage sans conversion.
+
+### Ce que ces deux mesures ne disent pas
+
+Matériau **synthétique** dans les deux cas. Le comportement sur un vrai fichier PAL et sur
+un vrai NTSC de `/erreur` n'est pas mesuré, et c'est le travail des sièges dev. Le
+découpage sans les bornes 0 → fin, demandé par l'owner, n'est pas fait non plus : ces
+mesures portent toutes sur une fenêtre entière.

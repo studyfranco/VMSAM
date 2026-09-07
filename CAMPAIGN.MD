@@ -27,14 +27,13 @@ other's resolution:
 Three constraints, all measured, none of them optional:
 
 - **Work from the raw fingerprint list, not from `correlation()`.** That function
-  averages the per-point Hamming similarity and returns one number: a 2 s defect in a
-  60 s window moves it by 2 %, and the position is gone. *Keeping the per-point vector
-  locates the same defect to 27.7–30.8 s for an injection at 28.0–30.0 s, in one pass.*
-  The averaging is why a descent looked necessary.
-- **Index in frame numbers, not milliseconds.** Measured: the PAL relation applied to
-  240 frames gives 240 frames and a duration of 10.010 s -> 9.600 s. *The frame index is
-  invariant under the resample; a millisecond boundary needs a factor and is wrong
-  without it.*
+  averages the per-point Hamming similarity and returns one number, and the position is
+  gone with it. **The per-point vector locates the zone in a single pass**, which is why
+  the iterative descent looked necessary and is not. *Measured in `docs/MEASURING_NOTES.MD`.*
+- **Index in frame numbers, not milliseconds.** A speed relation changes the duration and
+  not the frame count, so **the frame index is invariant under the resample** while a
+  millisecond boundary needs a conversion factor and is silently wrong without it, by an
+  amount that grows with position in the file. *Measured in `docs/MEASURING_NOTES.MD`.*
 - **Do not route through `cross_correlation`.** Below `min_overlap` it returns without a
   value and without a message, and that `None` has the shape of "nothing found". Both the
   32-point floor and the silent failure belong to the layer the new method stops using.
@@ -63,7 +62,7 @@ other document is a figure with no measurement behind it.
 | :--- | ---: | :--- |
 | different cuts | **57 %** | the offset is piecewise-constant — a staircase. Content one side has and the other does not |
 | trimmed edges | 18 % | the same, with a single step at one end |
-| speed mismatch | **8.9 %** — *re-measured* · PAL 6.3 · **NTSC 2.5** | the offset drifts linearly. **The two halves behave oppositely and must not be treated as one family** — see below |
+| speed mismatch | **8.9 %** — *re-measured* · PAL 6.3 · **NTSC 2.5** *(parts rounded; they do not sum to the total as printed)* | the offset drifts linearly. **The two halves behave oppositely and must not be treated as one family** — see below |
 | weak correlation | 10 % | heavy re-encodes, differently mixed dubs, music-only stretches: no confident peak |
 | no shared language | 2 % | no audio language in common, or the tags lie |
 
@@ -73,7 +72,10 @@ addresses a tenth of the problem.
 
 ### PAL and NTSC are one number and two problems
 
-The speed row is 6.3 % PAL and 2.5 % NTSC, and the ratios differ by forty-two times.
+The speed row is 6.3 % PAL and 2.5 % NTSC — **rounded, and they do not sum to the 8.9 %
+printed beside them.** The unrounded values are in the forensic agent's report; a reader
+checking the arithmetic here gets a discrepancy that this document cannot resolve.
+The ratios differ by forty-two times.
 Measured drift, same relation applied to a 30 s window and to a 24-minute episode:
 
     PAL   25 / 23.976  = 1.042709    1281 ms per window   30.7 frames   ->  61.5 s per episode
