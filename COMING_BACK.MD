@@ -18,8 +18,12 @@ work — including, once, by the author of this file.
 git log --oneline -8         # what actually landed
 git status --porcelain       # what did NOT land — see step 2
 cat AGENT_NOTES.MD           # what you were deciding, and why
-ls docs/TASKS/                    # what you were asked for
+ls VMSAM_WIP/TASK/           # what you were IN THE MIDDLE OF — outside the repository
+ls docs/TASKS/               # what was FINISHED, here and before you — the history
 ```
+
+`docs/TASKS/` is not a queue and holds nothing you still owe: a file arrives there only when
+its task is complete. What you were asked for, and had not finished, is in `VMSAM_WIP/TASK/`.
 
 ## 2. Find your work — it is not where you left it
 
