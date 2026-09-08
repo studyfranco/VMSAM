@@ -511,6 +511,28 @@ SILENTLY, WITH NO CONFLICT, AND WITH A COMMIT MESSAGE NAMING ONLY WHAT WAS MEANT
 > this; the tree is not being reverted, one file is. And the promoter cannot catch it by care: it
 > is invisible in the diff it is looking at and absent from the message it is writing.*
 
+***AND THE CONSEQUENCE NOBODY DREW UNTIL IT BROKE A CENSUS: IF COLLECTION IS BY BLOB, THEN
+ANCESTRY CAN NEVER REGISTER IT.*** *The promoter takes the CONTENT and never the COMMIT, so a
+seat's commit is not an ancestor of the authority however many times its work is landed.*
+
+    MEASURED, seven agent refs carrying `src/`, against the tip:
+    *** ANCESTORS OF THE AUTHORITY: **0 OF 7.** BLOBS SHARED WITH IT: **20 TO 27 OF 28.** ***
+
+> ***SO A CONVERGENCE TEST KEYED ON ANCESTRY REPORTS EVERY COLLECTED SEAT AS DIVERGENT FOR EVER,
+> AND "AHEAD N" DOES NOT MEAN N COMMITS ARE BEING HOARDED.*** **A SEAT THAT DOES EVERYTHING RIGHT
+> ACCUMULATES AN AHEAD-COUNT THAT NEVER FALLS — AND A ZERO-DELTA TARGET IS THEREFORE UNREACHABLE BY
+> CONSTRUCTION, NOT BY NEGLECT.**
+
+**THE STOPPING CONDITION THAT TERMINATES:** *no seat is BEHIND at its own check · no seat has
+uncommitted tracked work ·* ***AND EVERY SEAT'S AHEAD-COMMITS EITHER CARRY CONTENT ALREADY AT THE
+AUTHORITY BY BLOB, OR ARE NAMED AS PENDING COLLECTION.*** *The last clause is the only one that
+matches how work actually lands here. `behind` is measurable; `ahead` is not, for the reason above.*
+
+*Found by the Lead auditing a convergence figure. Corroborated within the minute by `aide` from the
+opposite direction —* ***"CITE THE BLOB, NOT THE TIP: IDENTITY IS VOLATILE, CONTENT IS THE WITNESS"
+— FIVE AUTHORITY TIPS IN NINETY MINUTES WHILE ONE GOVERNANCE BLOB DID NOT MOVE ONCE.*** *Neither
+seat had the other's route.*
+
 **AND THE ROUTING RULE THAT FOLLOWS:** ***A FILE HAS AN AUTHOR AND A BLOB HAS A SOURCE, AND THEY
 ARE NOT THE SAME SEAT.*** *Take the file from the seat that AUTHORS it; make the other seat rebase
 its copy onto that one. Never let a consumer's stale copy become the source of truth for a
