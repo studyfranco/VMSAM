@@ -453,6 +453,41 @@ hold — and when it survives, check whether what survived is the reason you hav
 *Found by `auditor`, on itself, in the only case tonight where a seat caught its own error
 before sending it.*
 
+## BEING UP TO DATE IS A PRECONDITION OF COMMITTING — OWNER'S RULE, 2026-09-08
+
+***THE OWNER'S WORDS:*** *"fais en sorte que tout le monde ait un repo a jour ! limite, c'est une
+regle qui doit etre imposee a chaque commit. (d'ou le fait de grouper les commit)"*
+
+    BEFORE YOU COMMIT: resolve the authority with `ls-remote` and compare.
+    *** IF YOU ARE BEHIND, YOU DO NOT COMMIT. YOU UPDATE FIRST. ***
+    NOT PERIODIC HYGIENE — A CONDITION AT THE MOMENT OF THE ACT.
+
+> ***AND THE COROLLARY IS THE SAME MECHANISM, NOT A SECOND INSTRUCTION: GROUP YOUR COMMITS.*** *If
+> every commit is a mandatory synchronisation point, then multiplying commits multiplies the cost
+> and batching them reduces it.* **THE RULE AND THE PRACTICE HOLD EACH OTHER UP.**
+
+**WHY IT IS A CONDITION AND NOT A PARAGRAPH — MEASURED, AND THE MEASUREMENT IS THE ARGUMENT.**
+*The architect wrote a rule saying that a rule placed where the reader SHOULD be is not a rule
+placed where the reader IS, and put it in the first-read document.* ***`arch-heir` — THE SEAT
+CARRYING THE UPDATE ORDER — COULD NOT READ IT. ITS FAST-FORWARD WAS +1235/−73, AND THE ARCHITECT'S
+THREE COMMITS OF THAT EVENING WERE AMONG THE 261 LINES ITS OWN ARMED INDEX HAD BEEN HIDING.***
+*The thirteen lines were cut on that evidence.*
+
+    THE CENSUS THAT PROMPTED THE RULE, twelve seats, counted by document:
+      `docs/ENTRY.MD` at 340 (current) ....................... 2
+      `docs/ENTRY.MD`, stale ................................. 2
+      *** `ENTRY.MD` AT THE ROOT — A PATH THAT DOES NOT
+          EXIST AT THE AUTHORITY ............................. 6 ***
+      no ENTRY at all ........................................ 2
+
+> ***A GOVERNANCE FIX DELIVERED THROUGH THE CHANNEL IT REPAIRS CANNOT REACH THE SEATS THAT NEED IT:
+> THEY ARE DEFINED BY NOT HAVING RECEIVED IT.*** *Found by `aide`.* **A CONTROL THAT RUNS WITHOUT
+> BEING REMEMBERED BEATS A RULE YOU MUST HAVE READ TO APPLY — AND TO READ IT YOU MUST ALREADY BE UP
+> TO DATE.**
+
+*And the update recovers rather than destroys: measured on a real case, not inferred. Verdict that
+the thirteen lines were unreachable: `arch-heir`, on its own tree, against its own interest.*
+
 ## A CITATION IS (BLOB, HEADING) — NEVER (PATH, LINE)
 
 ***AND THE BLOB MUST BE READABLE WHERE YOU ARE.*** *A line number is a fact about a RENDERING; a
@@ -489,19 +524,6 @@ malformed blob CONTRADICTED.*
 > shape test, because every letter in it is a hex character.*** **THE READABILITY TEST IS
 > LOAD-BEARING AND THE SHAPE TEST IS DECORATION.** *An arm that has never been forced is an arm at
 > `m` = 0, and the one that looked most rigorous was the one that did nothing.*
-
-> ***AND THE LIMIT OF THE RULE ABOVE, WHICH POINTS THE OTHER WAY: VERIFYING AT THE AUTHORITY TELLS
-> YOU THE TEXT IS CORRECT. IT TELLS YOU NOTHING ABOUT WHETHER ANYONE IS READING IT.*** *The architect
-> was told its blocker rule had a reach problem and fixed it with a pointer in the first-read
-> document — then verified the fix at the authority, where it is correct.* **TWO SEATS HOLD A ROOT
-> `ENTRY.MD` OF 314 AND 315 LINES THAT DOES NOT EXIST UPSTREAM AT ALL, SO THE FIX FOR THE REACH
-> PROBLEM DID NOT REACH EITHER.**
-
-***A RULE PLACED WHERE THE READER SHOULD BE IS NOT A RULE PLACED WHERE THE READER IS.*** *And it
-generalises past governance: every seat that verified something at the authority and concluded it
-was in force made the same move.* **TO KNOW WHAT A DOCUMENT SAYS, READ THE AUTHORITY. TO KNOW
-WHETHER A RULE IS IN FORCE, YOU MUST KNOW WHAT THE READERS HOLD — AND THAT IS A CENSUS, NOT A
-FETCH.**
 
 **WHY THIS MATTERS MORE THAN IT SOUNDS, in `arch-heir`'s words:** ***a citation whose text is right
 and whose provenance is a vintage nobody holds looks MORE VERIFIED THAN A BARE ONE.*** *It borrows
