@@ -804,7 +804,7 @@ def _all_audio_streams(video_obj):
 
 
 def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_path,
-                            shortest, work_dir, runs, sample_rate):
+                            shortest, work_dir, runs, sample_rate, sites=None):
     """Give every candidate audio stream a master partner OF ITS OWN LANGUAGE.
 
     Returns (accepted, measurements). `accepted` keys only the streams whose best
@@ -888,7 +888,7 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
             for index, centre in enumerate(positions):
                 probe = _probe(master_path, master_stream, candidate_path, stream,
                                centre, PROBE_WINDOW_SECONDS, work_dir,
-                               f"pair{master_stream}_{stream}_{index}", sample_rate)
+                               f"pair{master_stream}_{stream}_{index}", sample_rate, sites=sites)
                 if probe is None:
                     scores = []
                     break
@@ -1270,7 +1270,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         probes_raw=len(raw),
                         probes_attempted=len(starts),
                         probes_required=3,
-                        signal_floor_fraction=LOW_SIGNAL_FRACTION)
+                        signal_floor_fraction=LOW_SIGNAL_FRACTION,
+                        # *** THE TALLY RODE ONE DECLINE ROW OF ELEVEN AND WAS THEREFORE NEVER OBSERVED. ci
+                        # deployed it and ran five entries: `refusal_sites` appeared in ZERO. The reason is not
+                        # that probes never fail -- it is that I emitted the tally ONLY on `too_few_usable_probes`,
+                        # so a run whose probes fail but which still has enough to CONTINUE said nothing at all.
+                        # *** THE CASE ci CARES ABOUT -- PROBES LOST WHILE THE RUN PROCEEDS -- WAS THE ONE CASE
+                        # THE FIELD COULD NOT REPORT. AN INSTRUMENT PLACED ONLY ON THE FAILURE PATH CANNOT
+                        # MEASURE ATTRITION THAT DOES NOT CAUSE FAILURE. *** Same dict, still in scope.
+                        refusal_sites=(",".join(f"{k}:{v}" for k, v in sorted(probe_sites.items()))
+                                       or "none"))
 
     offsets = [r[1][0] for r in kept]
     fidelities = [r[1][1] for r in kept]
@@ -1429,9 +1438,19 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # Every candidate audio stream gets a master partner of its OWN language, so
     # the table below covers tracks outside the measured language instead of
     # leaving them to be assigned another language's offset by a consumer.
+    # *** ci RESOLVED EVERY DECLINE BY AST AND NAMED THE MEMBER I MISSED: `every_probe_failed`
+    # FIRES **12 OF 13** IN THE CORPUS, AND MY TALLY WAS ON TWO ROWS THAT HAVE FIRED **0**
+    # TIMES. I wrote that an instrument on the failure path cannot see attrition that does
+    # not cause failure -- CORRECT PRINCIPLE, WRONG MEMBERS: I then placed it on two failure
+    # paths THAT NEVER EXECUTE. The reasoning was sound and only the membership was wrong.
+    # *** AND THIS IS A **DIFFERENT** TALLY, NOT THE SAME DICT MOVED: `every_probe_failed`
+    # LIVES IN THE PAIRING PHASE AND ITS PROBES ARE NOT THE MAIN LOOP'S. Emitting the main
+    # loop's tally there would have named sites from probes that had nothing to do with the
+    # refusal -- a plausible number attached to the wrong population. ***
+    pairing_sites = {}
     pairing, pairing_measurements = _pair_candidate_streams(
         best_video, candidate_video, master_path, candidate_path, shortest, work_dir,
-        runs, comparison_grid_hz)
+        runs, comparison_grid_hz, sites=pairing_sites)
     # A measured-language stream missing from the pairing is missing for one of two
     # DIFFERENT reasons and they must not be collapsed. The first version of this
     # block re-added every measured-language stream unconditionally, which put a
@@ -1474,7 +1493,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             return _decline("every_probe_failed", "could_not_run", pair=pair_id,
                             stream=stream, lang=language,
                             pairing_fidelity=None,
-                            pairing_bar=MIN_PAIRING_FIDELITY)
+                            pairing_bar=MIN_PAIRING_FIDELITY,
+                            refusal_sites=(",".join(f"{k}:{v}" for k, v in sorted(pairing_sites.items()))
+                                           or "none"))
         # Measurable, and not the same content as any master stream of its language.
         # No entry, and NOT a decline: the plan stays valid for the streams that do
         # match, and the consumer refuses this one rather than borrowing an offset.
@@ -1808,6 +1829,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           # not computed yet. That absence is a property of the pipeline, not a
           # gap in the emission.
           f"probe_energy_median={median_energy:.6g} "
+          # AND ON THE SUCCESS LINE: probes lost on a run that SUCCEEDS are the attrition
+          # arch-heir's order-statistic argument depends on being random. Silent until now.
+          f"refusal_sites={','.join(f'{k}:{v}' for k, v in sorted(probe_sites.items())) or 'none'} "
           f"probes_attempted={len(starts)} "
             f"probes_raw={len(raw)} probes_kept={len(kept)} "
           f"probes_dropped_low_signal={dropped} "
