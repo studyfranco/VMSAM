@@ -903,6 +903,48 @@ IN THE EXCLUDED CLASS?**
     MEASURED to share no content — not because it refused, not because it errored,
     and not because nobody reached it.
 
+## OBJECTIVE 3 IS NOT DOWNSTREAM OF OBJECTIVE 2 — ARCHITECT'S RULING, 2026-09-08
+
+***A RATE RELATION CANNOT BE DETECTED BY CORRELATION, BECAUSE CORRELATION IS WHAT IT BREAKS.***
+*`dev-2`'s sentence, and it is the whole argument:* **"IF A PAIR IS RATE-RELATED, THE MEASUREMENT
+THAT WOULD PROVE IT IS THE ONE THE RATE RELATION BREAKS."**
+
+    VERIFIED AT `change_point_locator.py`, blob `88b9f7cadf89be3b`, 1992 lines:
+      `speed_relation_suspected` ..... 3 occurrences, ALL in the locator. *** ZERO ELSEWHERE ***
+      `median_fidelity_below_floor` .. 2, both in the locator. *** ZERO ELSEWHERE ***
+      control `quantum_ms` ........... 13 + two other modules, so the search discriminates
+      the monotone discriminator ..... 3 kept probes: *** 33.3% OF RANDOM ORDERINGS PASS ***
+                                       4: 8.3% · 5: 1.7%
+
+**THREE FACTS DECIDE IT, AND THE THIRD ALONE WOULD:**
+
+*1. THE HANDOFF CHANNEL DOES NOT EXIST.* The docstring promises to refuse on monotone drift and
+hand the pair to objective 3; the refusal is a token with no reader. ***A DOCUMENTED CONTRACT WITH
+NO CHANNEL IS NOT A HANDOFF, IT IS A NOTE.***
+
+*2. WHERE IT CAN FIRE, THE EVIDENCE IS AT ITS WORST.* PAL at 4.27% reads fidelity 0.602 and 0.669
+on two independently constructed pairs — sub-floor, declined, and `merge_video_repair` has no
+fallback. Fewest probes means the monotone test sits at 33.3% false-pass.
+
+> ***3. AND EVEN WITH A CHANNEL IT WOULD NEVER FIRE FOR THE POPULATION THE OWNER NAMED. NTSC AT
+> 0.1001% READS FIDELITY 0.9614 — THE 0.70 GATE IS NEVER ENTERED AND NOTHING DECLINES THE PAIR.***
+> **THE CAPABILITY COVERS THE RELATION THAT BARELY MATTERS AND MISSES THE ONE IT WAS BUILT FOR, AND
+> NOBODY CHOSE THAT.**
+
+***THE RULING: MEASURE THE RATE BY A METHOD THAT DOES NOT DEPEND ON CORRELATION FIDELITY. OBJECTIVE
+3 RUNS BEFORE OR BESIDE OBJECTIVE 2, NEVER AFTER IT.*** *A pitch-based arm separating resample from
+stretch is a DIRECT measurement rather than an inference from a degraded one.*
+
+**AND WHAT THE RULING DOES NOT DO, stated because a design ruling is read as permission otherwise:**
+***IT LIFTS NO `no-go`. IT AUTHORISES NO RUN AGAINST THE ERROR CORPUS OR AGAINST REAL MEDIA.*** *The
+owner's gate stands and `dev-2`'s own result is why —* **RESAMPLING A FILE THAT NEEDED NOTHING WAS
+TWICE AS FREQUENT AS THE INVERTING CASE, SO NOTHING APPLIES WITHOUT AN EXPLICIT VERDICT, AND NO
+PRODUCER OF THAT VERDICT EXISTS EITHER.** *Building the measurement does not build the permission.*
+
+*`dev-2`'s limit, recorded rather than softened, and stated by it before anyone could state it:*
+***TWO CONSTRUCTED PAIRS CONDEMN THE GATE AND DO NOT CERTIFY THAT OPENING IT PRODUCES A CORRECT
+REPAIR.*** *Monotone arithmetic by `dev-1`; boundary raised by the Lead.*
+
 ## Open questions the owner has not decided
 
 ### On the pipeline itself
