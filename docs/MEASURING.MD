@@ -5,7 +5,7 @@ licenses. Every entry below is a way a result can look sound and be worthless, a
 each was paid for on this corpus rather than reasoned about.
 
 Consulte ce fichier PAR GREP quand tu as un résultat. Ne le lis pas d'un bout à l'autre.
-Le préambule de campagne est dans `docs/MEASURING_NOTES.MD`.
+Le préambule de campagne est dans `CAMPAIGNS/02-dev-chimeric-resample/MEASURING_NOTES.MD`.
 
 # SECTIONS 11–87 — MOVED HERE FROM `WRITE_ZONES.MD`, 2026-09-05
 

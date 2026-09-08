@@ -116,11 +116,11 @@ Three constraints, all measured, none of them optional:
 - **Work from the raw fingerprint list, not from `correlation()`.** That function
   averages the per-point Hamming similarity and returns one number, and the position is
   gone with it. **The per-point vector locates the zone in a single pass**, which is why
-  the iterative descent looked necessary and is not. *Measured in `docs/MEASURING_NOTES.MD`.*
+  the iterative descent looked necessary and is not. *Measured in `CAMPAIGNS/02-dev-chimeric-resample/MEASURING_NOTES.MD`.*
 - **Index in frame numbers, not milliseconds.** A speed relation changes the duration and
   not the frame count, so **the frame index is invariant under the resample** while a
   millisecond boundary needs a conversion factor and is silently wrong without it, by an
-  amount that grows with position in the file. *Measured in `docs/MEASURING_NOTES.MD`.*
+  amount that grows with position in the file. *Measured in `CAMPAIGNS/02-dev-chimeric-resample/MEASURING_NOTES.MD`.*
 - **Do not route through `cross_correlation`.** Below `min_overlap` it returns without a
   value and without a message, and that `None` has the shape of "nothing found". Both the
   32-point floor and the silent failure belong to the layer the new method stops using.
