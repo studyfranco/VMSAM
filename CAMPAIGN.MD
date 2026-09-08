@@ -967,6 +967,40 @@ fabrication this campaign is convened against.*
 > THROUGH THE BACK IS THE FABRICATION DEFECT WEARING A COMPLETENESS COSTUME.*** *`dev-2` refused
 > that before anyone offered it.*
 
+***AMENDED AGAIN, BY THE RUN. "12 COVERED, 8 NOT" IS NOT SUFFICIENT AS A SCOPE — AND THE REASON IS
+THE THIRD APPEARANCE OF THIS CAMPAIGN'S OLDEST DEFECT.*** *`dev-2` sealed its verdict contract and
+its gate before the runner existed, then ran six rungs on constructed material:*
+
+    1 identity ......... no_rate_relation        k=1.000000  spread 0.000000
+    2 pure delay ....... no_rate_relation        k=0.999996  spread 0.000005
+    3 PAL resample ..... rate_relation_measured  k=1.042482  spread 0.000389
+    5 NTSC resample .... rate_relation_measured  k=1.001024  spread 0.000234
+    6 no shared content  *** ambiguous, NO k, spread 0.005288 -- THE MUST-CATCH HOLDS ***
+    *** 4 PAL STRETCH, A 4.27% RELATION, PITCH PRESERVED ->
+        `no_rate_relation`, k=0.999986, spread 0.000072 ***
+
+> ***IT IS NOT BLIND. IT EMITS AN AFFIRMATIVE VERDICT THAT A PAIR WITH A 4.27% RATE RELATION HAS
+> NONE — AT THE TIGHTEST AGREEMENT OF ANY RUNG EXCEPT IDENTITY. A CONFIDENT, WELL-MEASURED, WRONG
+> ANSWER.*** *An instrument that can only speak about PITCH, making a claim about RATE. This is
+> `no_shared_content` a third time, and `dev-2` named it as its own.*
+
+***THE FIX IS IN THE VOCABULARY, NOT THE THRESHOLD: A PITCH-BASED PRODUCER MAY NEVER EMIT
+`no_rate_relation`. ITS CLEAN ANSWER IS `no_pitch_relation` — A STATEMENT ABOUT WHAT IT MEASURED,
+NEVER ABOUT THE WORLD.*** **AN UNCOVERED FAMILY THAT RECEIVES A CLEAN VERDICT IS WORSE THAN ONE
+THAT RECEIVES NOTHING, AND A SCOPE NOTE IS A RULE SOMEONE HAS TO REMEMBER WHILE THE VOCABULARY IS A
+RULE NOBODY CAN FORGET.**
+
+**AND THE RULE `dev-2` ASKED BE CARRIED INSTEAD OF ITS VERDICT TABLE, BECAUSE IT NEARLY COST THE
+FINDING:** ***EXCLUDING A FAMILY FROM COVERAGE IS NOT EXCLUDING IT FROM THE TEST.*** *Its own
+amended scope put stretch out, so an honest application of that amendment would have DELETED THE
+RUNG THAT FOUND THIS. The runner still required rung 4 and the run followed the runner.* **IT
+RECORDS THAT AS LUCK RATHER THAN METHOD, AND IT IS RIGHT TO.**
+
+*And on rung 6, which decides whether the other five are believable: prominence ran 1.10–1.14
+against 1.10–1.45 on the passing rungs —* ***IT DOES NOT SEPARATE. A PROMINENCE THRESHOLD WOULD
+HAVE BEEN THE WRONG GATE, AND THAT IS KNOWN ONLY BECAUSE THE GATE WAS SEALED BEFORE THE ROW WAS
+SEEN.***
+
 *`dev-2`'s limit, recorded rather than softened, and stated by it before anyone could state it:*
 ***TWO CONSTRUCTED PAIRS CONDEMN THE GATE AND DO NOT CERTIFY THAT OPENING IT PRODUCES A CORRECT
 REPAIR.*** *Monotone arithmetic derived independently by `dev-2` — dated in a sealed header written
