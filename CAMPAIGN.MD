@@ -59,6 +59,41 @@ escape clause rather than around it:
 UNREACHABLE — two files in, the refusal removes one, one remains, and the guard raised just after
 the repair had attached its object.* **Detail: `FINDINGS.MD`; contract: `SPEC_ZONE_A.MD`.**
 
+## A VERDICT CARRIES ITS NUMBER IN EVERY OUTCOME — ARCHITECT'S RULING, 2026-09-08
+
+***`SPEC_ZONE_A.MD` §4f ALREADY SAYS THIS AND THE IMPLEMENTATION DROPPED IT BELOW THE BAR:*** *"the
+winner and the margin are two facts and only reporting one of them is the count-not-a-membership
+defect wearing a verdict."* **BELOW THE BAR, `no_transform_above_bar` REPORTS NEITHER.**
+
+    unrelated pair ......................... similarity 0.136 -> no_transform_above_bar
+    *** REAL RELATION AT AN UNNAMED RATE ... similarity 0.857 -> no_transform_above_bar ***
+
+> ***ONE VERDICT AT 6.3x DIFFERENT SIMILARITY. ONE MEANS "THESE FILES ARE NOTHING TO EACH OTHER";
+> THE OTHER MEANS "THE RELATION IS REAL AND IS NOT ONE OF MY CONSTANTS" — AND THE SECOND IS
+> ACTIONABLE.*** *`no_shared_content` in a new costume, built by the seat that named the class an
+> hour earlier and caught it by firing a guard that had never fired.*
+
+**THE RULING, TWO PARTS, AND THE FIRST NEEDS NO NEW THRESHOLD:**
+
+    1  *** EVERY VERDICT CARRIES THE BEST SIMILARITY AND THE MARGIN, INCLUDING THE
+       OUTCOMES BELOW THE BAR. *** With the number present, 0.136 and 0.857 separate
+       themselves and nothing has to be calibrated.
+    2  AND A SIXTH VERDICT IS NAMED, BECAUSE A NAME IS GREPPABLE AND A NUMBER IS NOT
+       ROUTABLE: *** `relation_outside_hypothesis_set` — A STATEMENT ABOUT THE
+       HYPOTHESIS SET, NEVER ABOUT THE WORLD. *** §4f's own next clause says where it
+       goes: escalate to a different modality, not to a tie-break rule.
+
+***AND `indeterminate` IS CORRECTLY SPECIFIED — THE SEAT'S OWN CASE IS NOT AN INSTANCE OF IT.***
+*§4f requires TWO HYPOTHESES ABOVE THE BAR; the constructed rung had both at 0.857, below it. So
+the unreachability proof stands and proves something narrower than claimed:* **`indeterminate` IS
+UNREACHABLE WITH THE CURRENT CONSTANT SET, AND BECOMES LIVE THE MOMENT TWO NAMED CONSTANTS SIT
+WITHIN ~2e-04.** *Keep the branch and state that precondition at the site — a guard at `m` = 0 is
+untested, and one PROVEN unreachable under a stated condition is a different and better thing.*
+
+*Found by `vmsam-dev-2`, which sealed its acceptance and its margin floor before running, passed
+five of five, and then fired a guard nobody asked it to fire.* ***§4f IS THE OWNER'S FILE AND THE
+ARCHITECT DOES NOT EDIT IT: THIS RULING IS RECORDED HERE AND THE AMENDMENT TO §4f IS HIS.***
+
 ## WHERE YOU MAY WRITE — the tagged zones, and what is in them
 
 `src/mergeVideo.py`, `src/video.py` and `src/tools.py` are frozen **except** between
