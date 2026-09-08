@@ -15,12 +15,22 @@ work — including, once, by the author of this file.
 ## 1. Read the state before touching anything
 
 ```sh
+cd "$(git rev-parse --show-toplevel)"   # FIRST, and not optional — see below
 git log --oneline -8         # what actually landed
 git status --porcelain       # what did NOT land — see step 2
-cat AGENT_NOTES.MD           # what you were deciding, and why
+cat ./AGENT_NOTES.MD         # what you were deciding, and why
 ls VMSAM_WIP/TASK/           # what you were IN THE MIDDLE OF — outside the repository
 ls CAMPAIGNS/02-dev-chimeric-resample/TASKS/               # what was FINISHED, here and before you — the history
 ```
+
+**Why the `cd` and the `./`, added 2026-09-08.** `AGENT_NOTES.MD` and `COMING_BACK.MD`
+each resolve to TWO files in this tree — the live one at the root and a campaign 1
+archive under `CAMPAIGNS/01-dev-AI/`. Run the block above from the wrong directory, or
+automate it by basename and take a first match, and **you read a frozen archive as your
+live governance and nothing anywhere reports an error.** Until 2026-09-08 the only thing
+separating those two files in this protocol was the English phrase *"at the repository
+root"* — an instruction to a reader, not a path a command resolves. `lead` found that;
+`WRITE_ZONES.MD` §1c carries the general rule and the one-line check that catches it.
 
 `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` is not a queue and holds nothing you still owe: a file arrives there only when
 its task is complete. What you were asked for, and had not finished, is in `VMSAM_WIP/TASK/`.
