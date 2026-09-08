@@ -823,12 +823,37 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
         repaired_videos = []
         global merge_plan
         emitted_before_repair = len(tools.logs)
+        # LA SIXIEME ISSUE, QUE LE DESIGN CI-DESSUS NE NOMMAIT PAS. Le commentaire
+        # promet que la reparation inscrit LAQUELLE DE SES CINQ ISSUES s'est produite.
+        # Un module ABSENT n'en produit AUCUNE: `ModuleNotFoundError`, `ImportError`,
+        # `SyntaxError` et `IndentationError` sont toutes des `Exception`, donc l'import
+        # tombait dans le meme `except` que la reparation qui echoue. En sortie, une
+        # zone de reparation SUPPRIMEE et un merge sain SANS RIEN A REPARER etaient le
+        # meme observable: `repaired_videos == []`, exit 0, aucun `repair: `.
+        #
+        # LA TOLERANCE EST CONSERVEE -- un deploiement partiel ne fait toujours pas
+        # tomber le merge, ce que le commentaire ci-dessus exige explicitement. Ce qui
+        # change est qu'elle SE NOMME. Deplacer l'import hors du `try` le rendrait
+        # FATAL: c'est un changement de design, donc la decision du proprietaire, pas
+        # la mienne.
+        #
+        # LIMITE, MESUREE ET NON SUPPOSEE: cette ligne atteint `tools.logs`, pas
+        # l'artefact `merge_plan` -- celui-ci est ferme plus bas par
+        # `if len(repaired_videos):`, qui reste vide precisement dans ce cas. Les deux
+        # etats deviennent distinguables DANS LE LOG, pas encore dans l'artefact.
+        # `vmsam-dev-1` a la moitie correspondante et ne la propose pas pendant le run.
         try:
             import merge_video_repair
-            repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video)
         except Exception as e:
-            sys.stderr.write(f"The repair raised and was abandoned: {e}\n")
-            tools.logs.append(f"The repair raised and was abandoned: {e}\n")
+            merge_video_repair = None
+            sys.stderr.write(f"repair: MODULE_ABSENT cause=repair_module_absent detail={type(e).__name__}\n")
+            tools.logs.append(f"repair: MODULE_ABSENT cause=repair_module_absent detail={type(e).__name__}\n")
+        if merge_video_repair != None:
+            try:
+                repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video)
+            except Exception as e:
+                sys.stderr.write(f"The repair raised and was abandoned: {e}\n")
+                tools.logs.append(f"The repair raised and was abandoned: {e}\n")
         # SEULEMENT si une version a ete produite: `merge_plan` reste `None`
         # quand la reparation n'a rien rendu, et c'est ce `None` qui porte
         # l'information "pas de version resample/chimerique". Une reparation qui
