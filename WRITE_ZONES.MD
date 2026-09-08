@@ -117,7 +117,7 @@ MORE CARE FROM THE READER.** *Named by the Lead across three seats' instruments.
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **the ROOT `AGENT_NOTES.MD` — `./AGENT_NOTES.MD`, not `CAMPAIGNS/01-dev-AI/AGENT_NOTES.MD` — and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` are yours**, and no other document is frozen. Every name in this row is a PATH from the repository root: `COMING_BACK.MD` means `./COMING_BACK.MD`, and the copy under `CAMPAIGNS/01-dev-AI/` is frozen by the `CAMPAIGNS/` entry, see §1c |
 | `docs/` — including `docs/MEASURING.MD`, `docs/ENTRY.MD`, `docs/LEAD.MD`, `docs/PIPELINE.MD` | **UNFROZEN 2026-09-07 ON THE OWNER'S DIRECT INSTRUCTION**, for the corpus reorganisation that moved every `.MD` absent from `master` into `docs/`. Editing these is now permitted; the standing rules on privacy, measurement and reporting apply unchanged. The technical rulings already in `docs/` (`AUDIO_SPEED_POLICY`, `MERGE_CRITERIA`, `SUBTITLE_CODECS`) still carry the weight of a ruling — read one before contradicting it |
 <!-- FROZEN-TABLE:END -->
 
@@ -204,6 +204,90 @@ in the library and deletes the source. It has been reviewed and corrected — at
 
 Need something from a frozen file? Do not edit it: open a question for the owner
 and keep working elsewhere.
+
+### §1c — A NAME THAT RESOLVES TWICE IS A DEFECT NO BY-NAME GUARD CAN SEE
+
+Found by **lead**, at its own bench, on `FINDINGS.MD`. The instrument that failed was
+**arch-aide**'s `title_sweep.sh`, which resolved a document by name and ended in `head -1`:
+it took campaign 1 and silently dropped the file that had just received 1,082 moved lines.
+That corpus is a SUBTRACTION corpus, so the omission did not shrink the answer — **it
+inflated every count below it.** arch-aide has fixed its own; lead measured 0 remaining
+sites at its bench with one declared near-miss.
+
+**The cause was my restructure, and the correction is mine.** I measured it at
+`b334aeef` and it is worse than reported — not one ambiguous name but **three**:
+
+| basename | resolves to | bare references in the corpus | path-qualified |
+|---|---|---|---|
+| `AGENT_NOTES.MD` | `./` and `CAMPAIGNS/01-dev-AI/` | **24** | **0** |
+| `COMING_BACK.MD` | `./` and `CAMPAIGNS/01-dev-AI/` | **12** | **0** |
+| `FINDINGS.MD` | `CAMPAIGNS/01-dev-AI/` and `CAMPAIGNS/02-dev-chimeric-resample/` | 5 | 2 |
+
+`FINDINGS.MD` is the one that was found and the *least* dangerous of the three. The two
+nobody reported are the ones every seat addresses by name every day: **`AGENT_NOTES.MD` is
+where you write, `COMING_BACK.MD` is a rule that binds you, and neither has a single
+path-qualified citation anywhere in the corpus to fall back on.**
+
+**THE RULE.**
+
+> **A path that dies announces itself. A name that doubles does not.**
+> A by-name guard has an arm for *resolves nowhere* — it refuses, loudly, and you fix it.
+> It has no arm for *resolves twice*: the tool takes a first match, returns a real file,
+> and every downstream number is computed against the wrong document. **The failure is
+> indistinguishable from success at every point where a guard could look.**
+
+This is the missing half of *the path decays, the name does not*, which the fleet proved
+in four materials tonight and which stands. Both halves are needed: **a name survives a
+move, and a name stops being an address the moment a second file answers to it.**
+
+**WHAT THIS OBLIGES.**
+
+1. **Every `head -1`, `| head`, or first-match after a name resolution is a site.** Not a
+   style problem — the place where this lands silently. It became a coin toss the moment a
+   second campaign directory existed, and nothing in the tree announced the change.
+2. **Never resolve a governing document by basename.** The frozen table above is now
+   path-qualified for exactly this reason: an unqualified name in it means the file at the
+   repository root, and the copy under `CAMPAIGNS/` is frozen by the `CAMPAIGNS/` entry.
+   Before this correction the row said `CAMPAIGNS/` is frozen AND `AGENT_NOTES.MD` is
+   yours — **and `CAMPAIGNS/01-dev-AI/AGENT_NOTES.MD` was both.** A seat resolving that
+   row by name and taking the first match could have written into the campaign 1 archive
+   believing the row permitted it.
+3. **A restructure must count its own basenames before it lands.** The instrument is one
+   line and it is cheaper than the audit it replaces:
+
+   ```sh
+   git ls-tree -r --name-only <ref> | grep -i '\.MD$' | awk -F/ '{print $NF}' | sort | uniq -d
+   ```
+
+   Empty output is the only passing result. Run it against the ref you are about to push,
+   not against your working tree — an untracked file does not collide and a tracked one does.
+
+   **The `.MD` filter is not tidiness, and I got this wrong first.** I wrote this instrument
+   without it, ran it against `b334aeef`, and it returned **six** names: the three real ones
+   plus `api.py`, `model.py` and `__init__.py`. Those are Python package files, duplicated by
+   design, resolved by import path and never by basename — **they can never be the defect.**
+   An instrument whose passing condition is unreachable is not a strict instrument; it is a
+   silent one, because the first reader to see six names on a healthy tree learns to ignore
+   the output. Scope it to the material where by-name resolution actually happens.
+4. **A name made ambiguous is a governance event, not a cleanup.** It changes what an
+   existing, unedited sentence MEANS, in every file, without any of them being touched. No
+   diff shows it, no rename detection scores it, and no line count moves. It is only ever
+   caught by counting the basenames.
+
+**AND THE LIMIT OF THIS CORRECTION.** Fixing the frozen table repairs the sentences that
+grant and withhold permission. It does NOT repair the other 33 bare references, and it
+cannot: they are prose in files across the corpus, and rewriting 36 citations to add a
+path would trade a rare ambiguity for the failure mode the fleet already measured — **the
+path decays, the name does not.** The right repair is the guard, not the rewrite: a tool
+that resolves a name must refuse on two matches exactly as it refuses on none.
+
+Credit: **lead** (found it, on `FINDINGS.MD`, and ran the sweep at its own bench),
+**arch-aide** (owned and fixed the instrument that failed), **auditor** and **ci-build**
+(established that a line count cannot witness an operation inside a file that stays put,
+the same class of blindness), **forensic** (that deleting a correction's site is worse
+than leaving a stale claim — which is why the fix above qualifies a path and deletes
+nothing), **aide** (266 of the 613 bare `§N` citations outside `MEASURING.MD` sit in
+`CAMPAIGNS/01-dev-AI/`).
 
 ## 2. Tagged zones — the only writable places in shared engine files
 
