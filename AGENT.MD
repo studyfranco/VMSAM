@@ -38,14 +38,14 @@ than absent: a reader who knows the mechanism files it as handled.
 | `docs/MEASURING.MD` | **the evidence.** Every rule's derivation, every refutation, every retraction. `grep` it, never read it through | when you doubt a rule, or are about to repeat a mistake |
 | `docs/ENTRY.MD` | the only document read BEFORE acting, and the entry test | first, and after every restart |
 | `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
-| `docs/TASKS/` | **the permanent record of completed development work.** One report per finished task: context, result, technical account. Every task an agent completes is stored here — that is what the directory is for. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/`; **not work in progress**, which lives in `VMSAM_WIP/TASK/` | when a task finishes |
+| `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` | **the permanent record of completed development work.** One report per finished task: context, result, technical account. Every task an agent completes is stored here — that is what the directory is for. **Not live state**, which lives in `VMSAM_HELP_AI/<agent>/`; **not work in progress**, which lives in `VMSAM_WIP/TASK/` | when a task finishes |
 | `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
 | `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
 | `docs/MEASURING.MD` | the ways a result can look sound and be worthless | when you hold a number and are about to believe it |
 | `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
-**These documents are frozen — `AGENT_NOTES.MD` and `docs/TASKS/` excepted, and this file
+**These documents are frozen — `AGENT_NOTES.MD` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` excepted, and this file
 included.** Campaign 1's `AGENT.MD` carried the line *"You
 are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
 reached 1191 lines, and the campaign shipped more documentation than engine. An
@@ -75,14 +75,14 @@ Campaign 1's archive, in `CAMPAIGNS/01-dev-AI/`. **Consult, do not follow:**
 None of it is authority. It was written by agents under time pressure, and the
 corrections it carries are the reason to trust the numbers more than the conclusions.
 
-## 📋 `docs/TASKS/` — the development history of this project
+## 📋 `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` — the development history of this project
 
 **This directory is the permanent record of every development task an agent has completed.**
 It is not a queue, not a workspace, and not a status board. It is the history — the place a
 successor reads to learn what was built, what was measured, and what was rejected, without
 having to ask anyone who was there.
 
-    a task FINISHES        ->  its report is stored in `docs/TASKS/`, in the repository
+    a task FINISHES        ->  its report is stored in `CAMPAIGNS/02-dev-chimeric-resample/TASKS/`, in the repository
     a task is IN PROGRESS  ->  it lives in `VMSAM_WIP/TASK/`, outside the repository
     live seat state        ->  `VMSAM_HELP_AI/<seat>/`, outside the repository
 
@@ -90,7 +90,7 @@ having to ask anyone who was there.
 that is never written down leaves the project with working code and no account of why it
 works that way — which is the cost this directory exists to prevent.
 
-`docs/TASKS/<NNN>-<slug>.MD` — one task, one file, one number. A report carries:
+`CAMPAIGNS/02-dev-chimeric-resample/TASKS/<NNN>-<slug>.MD` — one task, one file, one number. A report carries:
 
 - **what you changed** — files and zones, so a reviewer goes straight there;
 - **what you measured** — the numbers that show it works, never the claim that it does;
@@ -98,7 +98,7 @@ works that way — which is the cost this directory exists to prevent.
   it stops a successor re-deriving it;
 - **what stayed blocked** — the findings of `WRITE_ZONES.MD` §6.
 
-There is no `done/` subdirectory and there never was one: **arriving in `docs/TASKS/` is
+There is no `done/` subdirectory and there never was one: **arriving in `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` is
 what "done" means.** A file is written here when the work is finished and its commit exists —
 not when you stop working on it.
 
@@ -108,7 +108,7 @@ successor needs more than a success is.
 
 *(Do not write a bare `done/` in this corpus. `VMSAM_HELP_AI/` carries a live read-debt
 protocol in directories named `done` — under `<seat>/inbox/` for most seats and directly under
-`<seat>/` for at least one — and it is unrelated to anything in `docs/TASKS/`. Count it when you
+`<seat>/` for at least one — and it is unrelated to anything in `CAMPAIGNS/02-dev-chimeric-resample/TASKS/`. Count it when you
 need the figure; it grows while you read this.)*
 
 ## 📁 `VMSAM_HELP_AI/` — where private material goes

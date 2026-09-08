@@ -117,7 +117,7 @@ MORE CARE FROM THE READER.** *Named by the Lead across three seats' instruments.
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `docs/TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` are yours**, and no other document is frozen |
 | `docs/` — including `docs/MEASURING.MD`, `docs/ENTRY.MD`, `docs/LEAD.MD`, `docs/PIPELINE.MD` | **UNFROZEN 2026-09-07 ON THE OWNER'S DIRECT INSTRUCTION**, for the corpus reorganisation that moved every `.MD` absent from `master` into `docs/`. Editing these is now permitted; the standing rules on privacy, measurement and reporting apply unchanged. The technical rulings already in `docs/` (`AUDIO_SPEED_POLICY`, `MERGE_CRITERIA`, `SUBTITLE_CODECS`) still carry the weight of a ruling — read one before contradicting it |
 <!-- FROZEN-TABLE:END -->
 

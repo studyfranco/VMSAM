@@ -1115,7 +1115,7 @@ ACCURACY rather than margin:**
     sigma        k=2      k=3      k=4     k=5     k=6
     0-20 ms    100.0%   100.0%   100.0%  100.0%  100.0%
     35.8 ms    100.0%   100.0%    99.8%   94.2%   81.7%   <- THIS CORPUS'S OWN
-    41.0 ms    100.0%   100.0%    98.8%   86.8%   71.2%      SCATTER, from docs/TASKS/009
+    41.0 ms    100.0%   100.0%    98.8%   86.8%   71.2%      SCATTER, from CAMPAIGNS/02-dev-chimeric-resample/TASKS/009
    100.0 ms     90.0%    67.0%    57.0%   44.0%   30.0%
 
 > **EXTRA FREEDOM IS CHEAP ONLY WHERE THERE IS NOTHING TO OVERFIT — AND EVERY REAL FILE

@@ -75,7 +75,7 @@ it, commit as often as the work needs — but see the shape rule below, because 
 often as the work needs" is not the same as "once per thought".
 
 **A note is not a deliverable: it travels with the change it explains.** Never commit
-`AGENT_NOTES.MD` or a `docs/TASKS/` file on its own. Write the note when you have it —
+`AGENT_NOTES.MD` or a `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` file on its own. Write the note when you have it —
 that discipline is right — and let it ride along with the code, the measurement or
 the decision it is about. Measured over campaign 2's first five hours: **78 commits,
 of which 5 touched code and 69 were notes or task files alone.** Campaign 1 was 70 %
@@ -268,7 +268,7 @@ the quantity it names.
 
 **It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as
 a property of the rule — five actors reset one clock, and the agent committing least
-often is the one starved — and then lived it: its `docs/TASKS/003`, holding objective 1
+often is the one starved — and then lived it: its `CAMPAIGNS/02-dev-chimeric-resample/TASKS/003`, holding objective 1
 closed with the command that reproduces the family table, sat blocked for over an
 hour and was reset three times, **every time by someone else's commit and never once
 by its own**. Three of those resets were mine, made under an exception granted to me

@@ -1106,7 +1106,7 @@ REPORTED, AND IT REFUTES AN INSTRUMENT THE ARCHITECT PUBLISHED THE SAME NIGHT.**
 
     git show -s --format='%an' <the promotion>      ->  vmsam-lead
     git show --stat <the promotion>
-       docs/TASKS/011-...MD               161 +      written by ci-build
+       CAMPAIGNS/02-dev-chimeric-resample/TASKS/011-...MD               161 +      written by ci-build
        src/change_point_locator.py   231 +---   written by dev-1
 
     git log origin/dev-AI --author='ci-build' | wc -l      ->  0
@@ -1158,7 +1158,7 @@ measured was that PER-FILE AUTHORSHIP CEASES TO EXIST AT THE PUBLISHED BRANCH.**
 
     vmsam-dev-1: _extract derives the rate by CALLING video.get_less_sampling_rate ...
       NOT a correctness fix: max |delta| 1.288 ms ... Verified by static arity check
-    vmsam-ci-build: docs/TASKS/011, the corpus generator and the four measurements that
+    vmsam-ci-build: CAMPAIGNS/02-dev-chimeric-resample/TASKS/011, the corpus generator and the four measurements that
       changed its design before it was written.
 
 **Per-agent, per-contribution, with the verification method attached. Measured across the
@@ -5913,7 +5913,7 @@ during other work and never completed the promotion half.* **THIRD TIME THE SAME
 
 ## 128. A PUBLISHED ERROR IS NOT MORE AUTHORITATIVE THAN A RELAYED ONE. IT IS HARDER TO NOTICE.
 
-**`vmsam-dev-4`, on refusing a `docs/TASKS/` file that named a FROZEN file as its own:**
+**`vmsam-dev-4`, on refusing a `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` file that named a FROZEN file as its own:**
 
 > ***"When a TASKS file published at the authority says a frozen file is yours, the document that
 > would normally settle the question is the thing that is wrong — and a successor reading it after a

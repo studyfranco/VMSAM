@@ -19,10 +19,10 @@ git log --oneline -8         # what actually landed
 git status --porcelain       # what did NOT land — see step 2
 cat AGENT_NOTES.MD           # what you were deciding, and why
 ls VMSAM_WIP/TASK/           # what you were IN THE MIDDLE OF — outside the repository
-ls docs/TASKS/               # what was FINISHED, here and before you — the history
+ls CAMPAIGNS/02-dev-chimeric-resample/TASKS/               # what was FINISHED, here and before you — the history
 ```
 
-`docs/TASKS/` is not a queue and holds nothing you still owe: a file arrives there only when
+`CAMPAIGNS/02-dev-chimeric-resample/TASKS/` is not a queue and holds nothing you still owe: a file arrives there only when
 its task is complete. What you were asked for, and had not finished, is in `VMSAM_WIP/TASK/`.
 
 ## 2. Find your work — it is not where you left it
@@ -556,7 +556,7 @@ you are trying to discard. Other agents' tmux sessions are independent and survi
 nobody else has must be in a file first. For a lead that is the roster — who exists,
 what each is on, what was granted to whom. **A lead whose roster lives only in its
 window is not a lead you can restart, which makes it a single point of failure rather
-than an architecture.** Write it to `docs/TASKS/` and the restart becomes routine.
+than an architecture.** Write it to `CAMPAIGNS/02-dev-chimeric-resample/TASKS/` and the restart becomes routine.
 
 ## 8. Say where you are before doing more
 

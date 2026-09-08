@@ -8,7 +8,7 @@ apply to the fleet — which you now establish yourself, up to ten developers an
 
 **The roster.** Who exists, what each is on, what is blocked on whom, and which tagged
 zone was granted to whom. **It lives in `VMSAM_HELP_AI/lead/`, never in your window
-and never in `docs/TASKS/`** — the repository holds finished reports, not live state.
+and never in `CAMPAIGNS/02-dev-chimeric-resample/TASKS/`** — the repository holds finished reports, not live state.
 
 Write it as you dispatch, not before you restart. A roster reconstructed from memory
 at the moment of stopping is the one thing a restart cannot recover.

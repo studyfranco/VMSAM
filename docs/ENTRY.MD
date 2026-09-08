@@ -192,7 +192,7 @@ THE SUBJECT LOST IN TRANSIT.*
         *The line used to carry two hashes.
         One went stale within the hour, inside the document whose §2 says
         RE-RESOLVE BEFORE TREATING IT AS CURRENT.*
-      YOURS: `AGENT_NOTES.MD`, `docs/TASKS/`, and your own seat directory.
+      YOURS: `AGENT_NOTES.MD`, `CAMPAIGNS/02-dev-chimeric-resample/TASKS/`, and your own seat directory.
       AND IF A FILE YOU MAY EDIT IS NOT IN A GIT REPOSITORY IT HAS NO BLOB —
         `VMSAM_HELP_AI/` is not one. Say so and give a content digest.
     DO NOT PUSH TO THE PUBLISHED BRANCH. Commit locally; the Lead collects BY BLOB.

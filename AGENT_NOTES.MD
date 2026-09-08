@@ -18,7 +18,7 @@ handing it to me.
 ### WHO I AM AND WHAT I MAY TOUCH
 Zone A — repair. **MINE:** `src/merge_video_repair.py` (blob `882867d78bf3`),
 `src/merge_video_chimeric.py` (`c164b75128ff`), `SPEC_ZONE_A.MD` (`cd33e0caac33`),
-`AGENT_NOTES.MD`, `docs/TASKS/`. **NOT MINE:** `src/change_point_locator.py` — dev-1's
+`AGENT_NOTES.MD`, `CAMPAIGNS/02-dev-chimeric-resample/TASKS/`. **NOT MINE:** `src/change_point_locator.py` — dev-1's
 by `WRITE_ZONES.MD` (authority blob `9bf31072f75d`), which is the document that
 assigns zones; `git log` shows who typed first and answers a different question.
 `src/merge_plan_report.py` is dev-4's. `mergeVideo.py`, `video.py`, `tools.py`
@@ -531,7 +531,7 @@ by a factor of four.**
 
 ## 2026-09-03 — pHash IS resolution-independent, and both my corpus controls for 010 were the wrong controls
 
-Two results from `docs/TASKS/010`, the second more useful than the first.
+Two results from `CAMPAIGNS/02-dev-chimeric-resample/TASKS/010`, the second more useful than the first.
 
 ### The `CAMPAIGN.MD` open question, answered
 
@@ -829,7 +829,7 @@ they propagate further.
 
 **1. The speed family is not NTSC-only.** `vmsam-forensic` has corrected itself:
 there are **19 PAL files**, roughly twice the NTSC population. My eight-file
-measurement (`docs/TASKS/008`) covers the **NTSC subfamily only**. The hedge I insisted
+measurement (`CAMPAIGNS/02-dev-chimeric-resample/TASKS/008`) covers the **NTSC subfamily only**. The hedge I insisted
 on carrying is what proved load-bearing — *2.5 % is a floor, not a count, because a
 PAL-rate file collapses to weak correlation and is structurally invisible to the
 method that found these* — and PAL files were hiding exactly there. **A stated limit
@@ -2066,7 +2066,7 @@ probe), and forensic's 45 ms POST drift is very likely the third instance.
 **A linear fit cannot distinguish a drift from a step unless you look at the
 residuals.** Three agents produced a spurious rate on one file within an hour.
 
-**This lands on `docs/TASKS/008` and 008 survives, for a stated reason rather than by
+**This lands on `CAMPAIGNS/02-dev-chimeric-resample/TASKS/008` and 008 survives, for a stated reason rather than by
 luck.** Those coefficients come from exactly this kind of fit over ten windows.
 What protects them is the residual check: 38.3 and 41.0 ms measured against
 `124/√12` = 35.8 ms predicted by pure quantisation. **Residuals at the floor mean
@@ -2676,7 +2676,7 @@ degradation. Well supported, not demonstrated — I have not driven the pipeline
 produce the artefact on demand.
 **Not established:** any rate. **Four files, not a proportion.**
 
-**Decision for `docs/TASKS/006`: `locate_change_points` re-measures absolute offsets
+**Decision for `CAMPAIGNS/02-dev-chimeric-resample/TASKS/006`: `locate_change_points` re-measures absolute offsets
 itself, unshifted.** It does not derive segments from `delayFirstMethodAbort`.
 `SPEC_ZONE_A.MD` §1's *"you do not need to re-run the correlation that just
 failed"* holds for knowing **that** a pair failed and roughly where, and not for
@@ -2738,9 +2738,9 @@ Still a finding, not an edit: outside every tagged zone.
 
 ## 2026-09-03 — measured: the chromaprint point is 124–142 ms, not 125, and ten gates hardcode 125
 
-`BRIEF_COMMON.md` and `docs/TASKS/006`/`008` state *"One point = 125 ms, the chromaprint
+`BRIEF_COMMON.md` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/006`/`008` state *"One point = 125 ms, the chromaprint
 frame. Every delay you see is a multiple of it."* **Measured, that is true for a
-band of episode lengths and false outside it.** This changed the `docs/TASKS/005`
+band of episode lengths and false outside it.** This changed the `CAMPAIGNS/02-dev-chimeric-resample/TASKS/005`
 ruling: it is why the video instrument must return a frame displacement rather
 than a refined time, so it is recorded here and not only as a number.
 
@@ -2802,7 +2802,7 @@ real ones.
 
 ## 2026-09-03 — `da1c191` stripped every `[0]` subscript from two files; `get_cut_time.py` retired
 
-`WRITE_ZONES.MD` §4, `FILE_MAP.MD` and `docs/TASKS/005` all describe the damage as a
+`WRITE_ZONES.MD` §4, `FILE_MAP.MD` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/005` all describe the damage as a
 list literal lost from three initialisers of `frame_compare.py`. **Measured, the
 corruption is larger and of a different kind:**
 
@@ -2822,7 +2822,7 @@ are syntax errors; **eight more compile and raise at runtime**, in
 per-window fidelity summary) — the two functions objectives 006 and 008 would have
 been built on. They have never run.
 
-**Decision (`docs/TASKS/005`): repair the pHash front end, reject the alignment back
+**Decision (`CAMPAIGNS/02-dev-chimeric-resample/TASKS/005`): repair the pHash front end, reject the alignment back
 end, retire `get_cut_time.py`.**
 
 *Why repairing the whole of `frame_compare` lost.* `_align_and_find_gap`
@@ -2853,7 +2853,7 @@ is an owner decision, not ours.
 
 *Consequence for the frozen documents.* `python3 -m compileall -q src -x '__pycache__'`
 now exits **0**. `AGENT.MD` § Testing (*"must fail on exactly one file"*) and
-`WRITE_ZONES.MD` §5 check 4 both still expect one failure. That was `docs/TASKS/005`'s
+`WRITE_ZONES.MD` §5 check 4 both still expect one failure. That was `CAMPAIGNS/02-dev-chimeric-resample/TASKS/005`'s
 stated acceptance condition, so the change is intended — and reported here rather
 than edited into either document.
 
@@ -2887,7 +2887,7 @@ correlation, not twelve, so §1's promise is mostly preserved.
 - **Windows are 10, not 12.** `video.number_cut = 10` (`video.py:21`);
   `generate_cut_with_begin_length` loops `range(0, number_cut)` and
   `get_delay_fidelity` loops `range(0, video.number_cut)`. `BRIEF_COMMON.md`,
-  `dev-1/BRIEF.md` and `docs/TASKS/006` all say the record is *"filled at 12 points"*.
+  `dev-1/BRIEF.md` and `CAMPAIGNS/02-dev-chimeric-resample/TASKS/006` all say the record is *"filled at 12 points"*.
   The rest of the geometry in those documents is correct: window length is twice
   the spacing (`length_time_converted = gmtime(length_time*2)`,
   `mergeVideo.py:756`), and coverage runs 120 s to duration−120 s, ~83 %.
@@ -3231,7 +3231,7 @@ shipping five pieces of code that were reviewed, tested green, and never called.
 
 ## 2026-09-03 — the locator has been checked against an instrument that shares nothing with it, and it agreed to 8 ms
 
-`docs/TASKS/010` set out to bound the audio path's blind spot with a video instrument.
+`CAMPAIGNS/02-dev-chimeric-resample/TASKS/010` set out to bound the audio path's blind spot with a video instrument.
 It produced something better than the bound, and the reason is worth more than the
 number.
 

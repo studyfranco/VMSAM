@@ -325,7 +325,7 @@ was missing.*
                               scene fallback. NOT retired. Clean.
        src/get_cut_time.py    RETIRED. Its own header: "Do not import, do not
                               build on this file... it has no importer and MUST
-                              NOT ACQUIRE ONE." Ruled dead weight by docs/TASKS/005.
+                              NOT ACQUIRE ONE." Ruled dead weight by CAMPAIGNS/02-dev-chimeric-resample/TASKS/005.
 
    **An earlier revision of this section told the fleet to wire
    `get_cut_time.py:363 _refine_cut`. That was wrong and is retracted**
