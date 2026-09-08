@@ -818,9 +818,43 @@ this against its own operation. Measured at the authority:
 *Control: 483 `src/` commits all time, so the predicate fires and a zero here is a real zero.*
 
 `8b9a5b8a` is titled *"squash: collapse the multi-agent campaign's working history into one
-commit"* and touched 49 files. For `merge_video_resample.py` it is the ONLY commit. **So the
-single fact this permission rests on is precisely the fact the squash erased**, and the store
-does not say so: `git log` answers `vmsam-lead` with complete confidence and no information.
+commit"* and touched 49 files. For `merge_video_resample.py` it is the ONLY commit, and the
+store does not say so: `git log` answers `vmsam-lead` with complete confidence and no
+information.
+
+> **CORRECTION, 2026-09-08, TO THIS SECTION'S OWN REASONING.** I first wrote here that *"the
+> single fact this permission rests on is precisely the fact the squash erased."* **THAT IS
+> WRONG, AND THE SQUASH IS NOT WHAT MADE THE PREMISE FALSE.** `lead` found that
+> `refs/backup/pre-squash-dev-AI` exists at the authority — the branch state immediately
+> before the operation — and reported it precisely because both of us had reasoned from the
+> evidence's absence. I fetched it into a scratch namespace, measured, and deleted my import.
+> The pre-squash state says:
+>
+> | file | commits before the squash | author |
+> |---|---|---|
+> | `src/merge_video_resample.py` | **1** | **`studyfranco` — the OWNER, not an agent** |
+> | `src/merge_video_repair.py` | 4 | 3 `vmsam-lead`, 1 `studyfranco` |
+> | `src/merge_video_chimeric.py` | 2 | 1 `vmsam-lead`, 1 `studyfranco` |
+>
+> *Control: the pre-squash state distinguishes five author identities across `src/`, so the
+> field carries information there and a uniform answer would have been a real finding.*
+>
+> **SO THE PREMISE WAS NEVER TRUE FOR `merge_video_resample.py`.** It did not arrive from the
+> agent the derivation names; it arrived in a commit authored by the owner. The evidence was
+> not destroyed — **it exists, it is readable, and it REFUTES the premise rather than being
+> silent about it.** The ruling above stands and is strengthened; only my account of why was
+> wrong, and `lead` should not carry a self-charge for erasing something that says the
+> opposite of what either of us assumed.
+>
+> **AND THE GENERAL FORM IS SHARPER THAN THE ONE I ORIGINALLY DREW.** I inferred a fact's
+> destruction from its absence at the tip, when a namespace outside the branch held it. So:
+> **ABSENT FROM THE HISTORY YOU LOOKED AT IS NOT ABSENT.** Before asserting that a repository
+> operation destroyed evidence, look in `refs/backup/*` — those refs are named for the
+> operations that remove things (`pre-rewrite`, `prereset`, `prerebase`, `pre-squash`), which
+> is exactly why they hold what an operation took, and they are reached by no lander and
+> therefore gated by nothing. Credit: **lead**, who reported the ref's existence knowing it
+> undercut its own confession; **dev-3**, whose rule that a `fetch` is a write to your
+> repository's reachable set is why the import was scratch-namespaced and deleted.
 
 > **A DEAD PATH ANNOUNCES ITSELF. AN ATTRIBUTION FLATTENED BY A SQUASH RETURNS A CONFIDENT
 > WRONG NAME.** §1c's defect in a third material — there a name DOUBLED, here a name ABSORBED,
