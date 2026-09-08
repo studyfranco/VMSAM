@@ -164,7 +164,7 @@ because each carries its own quantum. Established three separate times on three
 files before it was believed.
 """
 
-from os import path, remove
+from os import path, stat as os_stat, remove
 from statistics import median
 
 import hashlib
@@ -559,6 +559,16 @@ def _start_times_ms(source_path):
     return out
 
 
+class ExtractProducedNothing(Exception):
+    """ffmpeg exited 0 and produced no audio. A type I own, so the site tally can name it.
+
+    *** NOT a generic Exception: `_probe` already catches everything and reports
+    `extract_or_correlate_raised`, which would fold this into the correlator's failures.
+    This is the one failure mode `vmsam-ci` traced to a root cause, and it deserves to be
+    distinguishable from a correlation that ran and failed. ***
+    """
+
+
 def _extract(source_path, stream_order, start_seconds, length_seconds, out_path,
              sample_rate):
     """`sample_rate` IS REQUIRED AND HAS NO DEFAULT, DELIBERATELY.
@@ -599,7 +609,32 @@ def _extract(source_path, stream_order, start_seconds, length_seconds, out_path,
            "-i", source_path, "-map", f"0:{stream_order}",
            "-vn", "-ac", "1", "-ar", str(sample_rate),
            "-acodec", "pcm_s16le", out_path]
+    # *** THE EXIT CODE IS CHECKED AND THE OUTPUT IS NOT, AND THE FAILURE MODE IS ONE THAT
+    # EXITS ZERO. `launch_cmdExt` raises on a non-zero return, so that half is covered --
+    # but REPRODUCED HERE: seeking past the end of a source makes ffmpeg EXIT 0, WRITE A
+    # 78-BYTE HEADER-ONLY WAV, AND SAY NOTHING ON STDERR. ffprobe then reports its duration
+    # as N/A, which is `vmsam-ci`'s root cause: the per-stream files THIS FUNCTION WRITES
+    # are what audio_sync chokes on, and the locator then cannot probe at all.
+    # *** A COMMAND THAT SUCCEEDS IS NOT A COMMAND THAT PRODUCED SOMETHING. THE LAUNCHER CAN
+    # ONLY CHECK THE CALL; ONLY THE CALLER KNOWS WHAT THE CALL WAS FOR. ***
     tools.launch_cmdExt(cmd)
+    # *** MY FIRST THRESHOLD WAS `size <= 44` ON THE ASSUMPTION OF A CANONICAL WAV HEADER, AND
+    # IT DID NOT FIRE: ffmpeg WRITES A LARGER HEADER (LIST/INFO CHUNKS), SO THE HEADER-ONLY FILE
+    # WAS 78 BYTES AND SAILED THROUGH. A guard whose threshold is wrong is a guard that runs and
+    # reports nothing, which is the shape I have spent the night finding elsewhere. ***
+    # ONE SECOND OF AUDIO AT THE REQUESTED RATE IS THE FLOOR. The caller only ever asks for whole
+    # probe windows -- 60 s, or a tail start computed so the window fits -- so a file under one
+    # second cannot be a legitimate short tail. THE NUMBER IS CHOSEN, NOT DERIVED: it is two
+    # orders of magnitude below any window this module requests, which is why it cannot
+    # false-refuse rather than because it is the true boundary.
+    _floor = sample_rate * 2          # 1 s, 16-bit mono
+    try:
+        _written = os_stat(out_path).st_size
+    except OSError:
+        raise ExtractProducedNothing("extract wrote no file at the requested position")
+    if _written < _floor:
+        raise ExtractProducedNothing(
+            f"extract wrote {_written} bytes, under {_floor} for one second at {sample_rate} Hz")
 
 
 def _rms(wav_path):
@@ -695,6 +730,12 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
             master_window, candidate_window, window_seconds)
         quantum = int(round(delay_ms / -points)) if points else None
         return offset_ms, fidelity, -points, quantum, signal
+    except ExtractProducedNothing:
+        # ITS OWN SITE. ci traced this to a root cause; folding it into the generic
+        # catch would report "something raised" for the one failure we can now name.
+        _note_site(sites, "extract_produced_no_audio")
+        _log(f"probe at {start_seconds:.1f}s: extract produced no audio")
+        return None
     except Exception as error:                        # noqa: BLE001 — logged, not swallowed
         # THE TYPE, NEVER THE MESSAGE. `_extract` is called on `master_path` and
         # `candidate_path` two lines up, so an ffmpeg/ffprobe failure there raises with
