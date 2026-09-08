@@ -6,6 +6,10 @@ each was paid for on this corpus rather than reasoned about.
 
 Consulte ce fichier PAR GREP quand tu as un résultat. Ne le lis pas d'un bout à l'autre.
 Le préambule de campagne est dans `CAMPAIGNS/02-dev-chimeric-resample/MEASURING_NOTES.MD`.
+**Les rôles, les habilitations et les genres de vérification sont dans `docs/ROLES_AND_KINDS.MD`** —
+417 lignes extraites d'ici le 2026-09-08 : sujet différent, et ***NUMÉROTATION INCHANGÉE. Ce fichier
+porte `§11`–`§124` et `§125`–`§196` ; l'autre porte `§1`, `§2`, `§3`, `§5`. LES DEUX ENSEMBLES SONT
+DISJOINTS, donc un `§N` nu résout encore vers exactement une section à travers la paire.***
 
 # SECTIONS 11–87 — MOVED HERE FROM `WRITE_ZONES.MD`, 2026-09-05
 
