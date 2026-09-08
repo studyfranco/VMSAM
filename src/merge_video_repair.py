@@ -127,6 +127,21 @@ def get_speed_ratio(plan):
                       "the same correlations is not a third opinion")
     # LA CONVENTION DU RAPPORT, VERIFIEE CONTRE LES DUREES ET NON CONTRE UN NOM.
     #
+    # ATTRIBUTION CORRECTED 2026-09-05, AND THE DEFECT IT RECORDS IS UNCHANGED.
+    # The line below named `vmsam-dev-1` as having emitted `speed_ratio` in the
+    # reciprocal convention. MEASURED AT THE AUTHORITY, with a control:
+    #     "speed_ratio" in change_point_locator.py   0
+    #     control "quantum_ms"                      12   (the grep fires)
+    #     the plan dict it returns carries 25 keys, and NONE is speed_ratio.
+    # SO THE ATTRIBUTION NAMED A PRODUCER THAT DOES NOT EXIST HERE -- the same
+    # class as the four margin keys documented below, and the same class dev-4
+    # filed and corrected to NO WRITER EXISTS. The CONVENTION statement that is
+    # correct lives in merge_video_resample.py's own docstring, as an equation.
+    #
+    # THE HAZARD BELOW IS REAL AND STAYS: two reciprocal conventions for one
+    # name, where taking the wrong one stretches a track the wrong way by 8.7 %
+    # and nothing inside a sweep can catch it.
+    # (historical, kept per the append-only rule:)
     # vmsam-dev-1 a emis `speed_ratio` dans SA convention -- candidat/maitre --
     # la ou `TASKS/009` definit maitre/candidat. RECIPROQUES. Sur l'id 70 cela
     # aurait etire la piste de 0.9590 la ou il faut 1.0425: 8.7 % dans le MAUVAIS
