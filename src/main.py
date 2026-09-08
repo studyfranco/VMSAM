@@ -67,8 +67,8 @@ if __name__ == '__main__':
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
-        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use, mp_context=get_context("fork"))
-        video.ffmpeg_pool_big_job = Pool(processes=1, mp_context=get_context("fork"))
+        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+        video.ffmpeg_pool_big_job = Pool(processes=1)
 
         mergeVideo.merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)

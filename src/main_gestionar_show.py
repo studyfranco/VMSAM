@@ -393,6 +393,7 @@ def run_uvicorn_public(database_url, tmpFolder):
     env_path = os.path.join(tmpFolder, "gestionar_show_api.env")
     write_api_env_file(env_path, database_url)
     write_api_env_file("gestionar_show/.env", database_url)
+    stderr.write(f"Start external fusion worker on 0.0.0.0:8080\n")
     uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, env_file=env_path, workers=5, log_level="error")
 
 def run_uvicorn_internal(database_url, tmpFolder):
@@ -409,6 +410,9 @@ def run_uvicorn_internal(database_url, tmpFolder):
 
     env_path = os.path.join(tmpFolder, "gestionar_show_internal_api.env")
     write_api_env_file(env_path, database_url, with_merge_runtime=True)
+    stderr.write(f"Start internal fusion worker on 127.0.0.1:{tools.internal_api_port}\n")
+    if tools.dev:
+        stderr.write(f"The tmpFolder_original = {tools.tmpFolder_original}\n")
     uvicorn.run("gestionar_show.internal_api:app", host="127.0.0.1", port=tools.internal_api_port, env_file=env_path, workers=1, log_level="error")
 
 if __name__ == '__main__':
@@ -462,7 +466,6 @@ if __name__ == '__main__':
         with setup_database(database_url_param["database_url"], create_tables=True) as session:
             pass
 
-        stderr.write(f"Start internal fusion worker on 127.0.0.1:{tools.internal_api_port}\n")
         internal_uvicorn_process = Process(target=run_uvicorn_internal, args=(database_url_param["database_url"], tools.tmpFolder))
         internal_uvicorn_process.start()
 
