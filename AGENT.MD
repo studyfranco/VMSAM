@@ -512,6 +512,14 @@ name answers from whichever store you happen to stand in, confidently and withou
 UNIT.** *And a COPY of a ref is not a HOLDER of the commit: two seats counted redundancy tonight by
 unioning `ls-remote` with their own tracking refs — the same ref through two lenses, counted twice.*
 
+> ***AND WHY THIS RULE KEEPS BEING BROKEN BY SEATS WHO HAVE READ IT: A CACHE THAT CAN ONLY
+> UNDER-READ NEVER ANNOUNCES ITSELF, BECAUSE EVERY VALUE IT GIVES IS ONE THAT **WAS** TRUE.*** *No
+> reading of it ever looks wrong. The architect's own deploy marker recorded "the tip I asked
+> about" while another seat also deploys, so it could only ever be stale in one direction — the
+> world has moved and I have not — and it went two deploys behind while its every answer stayed
+> defensible.* **RESOLVE THE FACT FROM ITS SOURCE. AND ITS LIMIT, `ci`'s: SWAPPING ONE CACHED FACT
+> FOR ONE LIVE FACT DOES NOT MAKE THE OTHER FIELDS BESIDE IT MEAN MORE THAN THEY DO.**
+
 **THE FORM.** *Cite `blob 0e5bca6862b0`, heading `## 0. WHAT THE REPOSITORY IS FOR`. Not
 `WRITE_ZONES.MD:20`. A heading survives insertion above it; a line number does not. A blob id is
 either the object you read or it is not, and* ***YOU CAN CHECK THAT FROM ANYWHERE.***
