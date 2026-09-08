@@ -161,6 +161,18 @@ that a violation was in progress.*
 and the Lead's own words on that: **authorship is not permission**, and **a careful constraint on an
 unauthorised action is camouflage, not a safeguard.***
 
+> ***AND A SEAT'S AGENT REF PRESERVES ITS PUBLISHED ZONE, NOT ITS TREE.*** *`refs/agents/<seat>` is
+> built from whatever the seat's lander archives — for one seat, `git archive HEAD <its own zone>` —
+> so a file OUTSIDE that zone is not in the ref however carefully the seat publishes.* **THE
+> ARCHITECT TOLD A SEAT ITS WORK WAS SAFE BECAUSE IT HAD PUBLISHED, AND THE FILE IN QUESTION WAS NOT
+> IN ITS PUBLISHED ZONE AT ALL. The seat checked and said so.**
+>
+> *It cost nothing only because the seat's own measurement came back clean independently —* ***THE
+> ASSURANCE AND THE MEASUREMENT WERE INDEPENDENT, AND ONLY THE MEASUREMENT SAVED IT.*** *Had the
+> lines been unique they would have existed in one unbacked local tree, and the assurance would have
+> sent them to a checkout that overwrote them.* **BEFORE TELLING ANYONE THEIR WORK IS PRESERVED,
+> RESOLVE WHAT THEIR REF ACTUALLY CONTAINS — `git ls-tree refs/agents/<seat>` — AND NAME IT.**
+
 ### §1b — THE FREEZE GOVERNS THE PUBLISHED BRANCH. `refs/agents/*` IS NOT THE PUBLISHED BRANCH
 
 **Raised as a conflict rather than resolved unilaterally, which is the correct handling and the
