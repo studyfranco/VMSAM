@@ -410,7 +410,15 @@ travelled unchecked:***
 IS SAFE FOR THE DECISION AND UNSAFE FOR EVERY SENTENCE BUILT ON IT: the decision — do not
 delete — never moved, and both sentences written around it were false.**
 
-**AND BEFORE EITHER FORM, RUN THE EXACTNESS CONDITION:** `git merge-base <ref> dev-AI` — *if
+**AND BEFORE EITHER FORM, RUN THE EXACTNESS CONDITION:** `git merge-base <ref> origin/dev-AI`
+— ***NEVER THE BARE NAME.*** *Git resolves `refs/heads/` before `refs/remotes/`, so at the hop a bare
+`dev-AI` returns an abandoned local branch — measured 35 commits behind the authority, ahead 0, with
+nothing warning. **BEHIND-N-AHEAD-0 IS THE SIGNATURE OF A REF NOBODY HAS MOVED, WHICH IS EXACTLY THE
+KIND THAT KEEPS ANSWERING CONFIDENTLY.** This was the ONE bare resolution in the whole tracked corpus —
+nine other sites correctly qualify it — and it sat in the line telling seats to be exact. Found by
+`arch-heir` via §6 while stopped from editing this file, on a hazard `ci-build` raised and then
+narrowed against its own script.* ***A REF NAME IS ONLY MEANINGFUL WITH ITS STORE, EXACTLY AS A FIGURE
+IS ONLY MEANINGFUL WITH ITS UNIT.*** — *if
 the ref shares history with the branch, the object count is a bound; if it is **disjoint**, the
 object count is exact too. **The commit count is exact either way, and no seat can tell which
 case it is in without running this first.*** *(`aide`'s condition; `auditor` found it had been
