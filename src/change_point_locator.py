@@ -623,8 +623,34 @@ def _rms(wav_path):
     return (total / count) ** 0.5
 
 
+def _note_site(sites, token):
+    """Tally WHICH refusal site inside `_probe` fired. Closed vocabulary, two members.
+
+    *** `vmsam-ci` ASKED FOR THIS AND IT IS THE ONE OF ITS THREE ASKS I HAD NOT BUILT: it has
+    FOUR REFUSALS ON REAL MATERIAL AND CANNOT ATTRIBUTE ANY OF THEM. `probes_attempted` minus
+    `probes_raw` says HOW MANY probes were lost; it does not say WHERE. ***
+
+    THE VOCABULARY IS TWO TOKENS AND BOTH ARE MINE:
+        correlator_named_neither_window -- the correlator returned a path that is neither of the
+            two windows I extracted. A disagreement about identity, not a failure to measure.
+        extract_or_correlate_raised     -- anything raised inside the try. Extraction, RMS, or
+            either correlation call.
+
+    *** THE EXCEPTION CLASS IS DELIBERATELY NOT A TOKEN HERE, AND THE REASON IS THIS MODULE'S OWN
+    RULE: A TOKEN MUST COME FROM A VOCABULARY YOU OWN, AND EXCEPTION CLASSES ARE AN OPEN SET
+    NOBODY OWNS. The class is still emitted per probe through `_log`, which is GATED -- so in
+    production you get the SITE and not the CLASS. That is a real limit and it is the honest one:
+    a closed tally I can promise, or an open one I cannot. ***
+    m = 0 ON WHETHER TWO SITES IS THE RIGHT GRANULARITY -- `ci` first counted 14 reachable sites
+    and corrected to 2 explicit plus 2 except paths; mine are the 2 that can be told apart from
+    the caller without inventing a vocabulary.
+    """
+    if sites is not None:
+        sites[token] = sites.get(token, 0) + 1
+
+
 def _probe(master_path, master_stream, candidate_path, candidate_stream,
-           start_seconds, window_seconds, work_dir, tag, sample_rate):
+           start_seconds, window_seconds, work_dir, tag, sample_rate, sites=None):
     """Both sides extracted at the SAME absolute time, so the fingerprint grids
     stay aligned and no fractional-hop shift is involved.
 
@@ -662,6 +688,7 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
         elif path.abspath(which_file) == path.abspath(candidate_window):
             offset_ms = seconds * 1000.0
         else:
+            _note_site(sites, "correlator_named_neither_window")
             return None
         # quantised, kept only to cross-check against the pipeline's own numbers
         fidelity, points, delay_ms = audioCorrelation.correlate(
@@ -689,6 +716,7 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
         # `_log` would expose; the leak is on the GATED path, so it was live in every
         # dev-mode run all along, which is the configuration ci and forensic read.
         _log(f"probe at {start_seconds:.1f}s failed: {type(error).__name__}")
+        _note_site(sites, "extract_or_correlate_raised")
         return None
     finally:
         for temporary in (master_window, candidate_window):
@@ -1200,11 +1228,14 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     tail_start = shortest - PROBE_WINDOW_SECONDS
     if tail_start > 0 and (not starts or tail_start - starts[-1] > 1.0):
         starts.append(tail_start)
+    # THE PER-SITE TALLY ci ASKED FOR. `probes_attempted - probes_raw` says HOW MANY
+    # probes were lost; this says WHERE. Closed vocabulary, two members, both mine.
+    probe_sites = {}
     raw = []
     for index, probe_start in enumerate(starts):
         result = _probe(master_path, reference_stream, candidate_path, primary_stream,
                         probe_start, PROBE_WINDOW_SECONDS, work_dir, f"s{index}",
-                        comparison_grid_hz)
+                        comparison_grid_hz, sites=probe_sites)
         if result is not None:
             raw.append((probe_start, result))
     if len(raw) < 3:
@@ -1213,6 +1244,10 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         probes_raw=len(raw),
                         probes_attempted=len(starts),
                         probes_required=3,
+                        # WHERE the lost probes were lost. Empty means every attempted probe
+                        # returned -- the decline is then about the COUNT and not about failure.
+                        refusal_sites=(",".join(f"{k}:{v}" for k, v in sorted(probe_sites.items()))
+                                       or "none"),
                         span_s=f"{shortest:.0f}")
 
     # --- no-signal guard -----------------------------------------------------
