@@ -281,6 +281,28 @@ path would trade a rare ambiguity for the failure mode the fleet already measure
 path decays, the name does not.** The right repair is the guard, not the rewrite: a tool
 that resolves a name must refuse on two matches exactly as it refuses on none.
 
+**AND THE SCOPE OF THAT SENTENCE IS NOT OPTIONAL — arch-heir found it missing hours after
+this section landed.** I scoped the INSTRUMENT above to `.MD` and left the RULE it serves
+unscoped, so read literally it refuses on `__init__.py`, which appears three times in this
+tree by construction and in every Python package ever written. The full unfiltered
+inventory at the tip is **six** names, not three: the three governing documents, plus
+`__init__.py` (3), `api.py` (2) and `model.py` (2).
+
+> **The rule governs documents ADDRESSED BY NAME IN PROSE, never sources addressed by
+> import path.** `__init__.py` is never cited bare by a seat; `COMING_BACK.MD` is cited
+> bare constantly, sixteen times, and not once with a path.
+
+That is the whole distinction, and without it the guard refuses on a healthy Python tree —
+**and a guard that refuses wrongly gets switched off**, which is `ci`'s standing line and
+the reason a false positive is more expensive than a missed one.
+
+**AND ONE CLAIM IN THIS SECTION'S OWN LINEAGE WAS WRONG, WHICH arch-heir RETRACTED ITSELF.**
+It argued that `SPEC_ZONE_A.MD`'s ~36 bare citations were part of this defect and needed
+repairing. They are not: `SPEC_ZONE_A.MD` resolves to exactly ONE path. Its form of the
+error is the one the fleet keeps making — **a property measured on three files applied to a
+fourth that was never measured** — and this time it would have bought work that had nothing
+to repair.
+
 Credit: **lead** (found it, on `FINDINGS.MD`, and ran the sweep at its own bench),
 **arch-aide** (owned and fixed the instrument that failed), **auditor** and **ci-build**
 (established that a line count cannot witness an operation inside a file that stays put,
