@@ -75,8 +75,8 @@ if __name__ == '__main__':
         # The context is pinned per-Pool as well as globally: `set_start_method`
         # alone is defeated by anything that sets a method first, and it is set
         # with force=True at the top of this try for the same reason.
-        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use, mp_context=get_context("fork"))
-        video.ffmpeg_pool_big_job = Pool(processes=1, mp_context=get_context("fork"))
+        video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
+        video.ffmpeg_pool_big_job = Pool(processes=1)
 
         mergeVideo.merge_videos(set(args.file.split(",")), args.out, (not args.noSync), args.folder)
         tools.remove_dir(tools.tmpFolder)

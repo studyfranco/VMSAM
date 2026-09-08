@@ -334,7 +334,7 @@ def run_fusion_job(database_url, error_file_path):
         # balaie tmpFolder_original/<folder_id> en fin de dossier, ce qui
         # effacerait le repertoire de travail d'une fusion en cours sur
         # n'importe quel episode de ce meme dossier.
-        tools.tmpFolder = os.path.join(tools.tmpFolder_original, "fusion", str(folder_id), str(episode_number))
+        tools.tmpFolder = os.path.join(tools.tmpFolder_original, "fusion_"+str(folder_id)+"_"+str(episode_number))
         out_folder = os.path.join(tools.tmpFolder, "final_file")
 
         # Même règle que process_episode: le poids décide de la référence et du
