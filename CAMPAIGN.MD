@@ -941,9 +941,37 @@ owner's gate stands and `dev-2`'s own result is why —* **RESAMPLING A FILE THA
 TWICE AS FREQUENT AS THE INVERTING CASE, SO NOTHING APPLIES WITHOUT AN EXPLICIT VERDICT, AND NO
 PRODUCER OF THAT VERDICT EXISTS EITHER.** *Building the measurement does not build the permission.*
 
+***AMENDED THE SAME DAY: THE RULING COVERS THE RESAMPLE FAMILY AND NOT THE STRETCH FAMILY, AND THAT
+IS A SCOPE AND NOT A GAP.*** *`dev-2` wrote the verdict contract BEFORE building and the writing
+surfaced the conflict:*
+
+    a RESAMPLE moves pitch WITH speed .... `k` is readable from the audio alone. Clean.
+    a STRETCH preserves pitch ............ *** k_pitch = 1.000, AND THE ONLY REMAINING
+                                          SIGNAL IS HOW LONG THE FILE IS. ***
+
+> ***SO FOR THE STRETCH FAMILY THE ONLY AVAILABLE RATIO IS THE DURATION-DERIVED ONE — WHICH IS
+> EXACTLY THE RATIO THE BOUNDARY FORBIDS.*** *`merge_video_repair.py:93-100` states it at the site:
+> the verdict decides and not the number, because* **RESAMPLING A FILE THAT NEEDED NOTHING WAS TWICE
+> AS FREQUENT AS THE INVERTING CASE THE DETECTOR EXISTS TO FIND.**
+
+**AND ONE MEASURED PAIR SHOWS THE BOUNDARY IS RIGHT RATHER THAN MERELY CAUTIOUS:** *pitch preserved
+at k = 1.000131, duration off by +0.4649%,* ***AND THE EXCESS WAS CONTENT.*** *A duration-derived
+ratio would have resampled a file whose only defect was carrying more material — the exact
+fabrication this campaign is convened against.*
+
+    SCOPE, STATED RATHER THAN PATCHED AROUND: 12 RESAMPLE COVERED · 8 STRETCH NOT.
+    The stretch family needs a CONTENT-ANCHORED timing measurement -- *** WHERE EVENTS
+    FALL, NOT HOW LONG THE FILE IS *** -- and that instrument does not exist.
+
+> ***A NAMED EXCLUSION IS A RESULT. A LADDER THAT LOOKS COMPLETE BECAUSE A DURATION RATIO WAS LET IN
+> THROUGH THE BACK IS THE FABRICATION DEFECT WEARING A COMPLETENESS COSTUME.*** *`dev-2` refused
+> that before anyone offered it.*
+
 *`dev-2`'s limit, recorded rather than softened, and stated by it before anyone could state it:*
 ***TWO CONSTRUCTED PAIRS CONDEMN THE GATE AND DO NOT CERTIFY THAT OPENING IT PRODUCES A CORRECT
-REPAIR.*** *Monotone arithmetic by `dev-1`; boundary raised by the Lead.*
+REPAIR.*** *Monotone arithmetic derived independently by `dev-2` — dated in a sealed header written
+before its run — and by `dev-1`; the record first showed only `dev-1` and that was my error.
+Boundary raised by the Lead.*
 
 ## Open questions the owner has not decided
 
