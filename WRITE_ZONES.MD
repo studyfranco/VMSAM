@@ -97,6 +97,15 @@ which needed it, missed it, and measured the miss.*
 
 ## 1. Frozen — no modification, ever
 
+*Read this table with the markers, never with a heading range:* `sed -n '/FROZEN-TABLE:BEGIN/,/FROZEN-TABLE:END/p'`.
+***THREE INSTRUMENTS FAILED ON THE SAME NIGHT BECAUSE THIS DOCUMENT HAD NO MACHINE-READABLE
+BOUNDARY AND EACH READER RECONSTRUCTED ONE:*** *a heading range overran into the prose below and
+scored `merge_video_chimeric.py` as FROZEN — matching the sentence that says it is FULLY EDITABLE;
+the `why` column was read as a domain description and a frozen file was assigned from it; and a
+whole-document pattern returned 15 frozen paths against 7.* **THE REPAIR IS A CLAUSE RANGE, NOT
+MORE CARE FROM THE READER.** *Named by the Lead across three seats' instruments.*
+
+<!-- FROZEN-TABLE:BEGIN -->
 | path | why |
 | :--- | :--- |
 | `src/gestionar_show/` (all of it) | the API and the fusion worker: destructive paths, database writes, atomic file replacement |
@@ -110,6 +119,7 @@ which needed it, missed it, and measured the miss.*
 | `.github/`, `.forgejo/` | CI/CD |
 | `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `COMMITTING.MD`, `TALKING.MD`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `docs/TASKS/` are yours**, and no other document is frozen |
 | `docs/` — including `docs/MEASURING.MD`, `docs/ENTRY.MD`, `docs/LEAD.MD`, `docs/PIPELINE.MD` | **UNFROZEN 2026-09-07 ON THE OWNER'S DIRECT INSTRUCTION**, for the corpus reorganisation that moved every `.MD` absent from `master` into `docs/`. Editing these is now permitted; the standing rules on privacy, measurement and reporting apply unchanged. The technical rulings already in `docs/` (`AUDIO_SPEED_POLICY`, `MERGE_CRITERIA`, `SUBTITLE_CODECS`) still carry the weight of a ruling — read one before contradicting it |
+<!-- FROZEN-TABLE:END -->
 
 ### §1a — WHO MAY EDIT THE FROZEN GOVERNING DOCUMENTS, AND WHY THIS WAS MISSING
 
