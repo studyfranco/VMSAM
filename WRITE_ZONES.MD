@@ -112,7 +112,7 @@ MORE CARE FROM THE READER.** *Named by the Lead across three seats' instruments.
 | `src/main_gestionar_show.py` | the daemon, its loop and its two uvicorn instances |
 | `src/audioCorrelation.py` | the delay measurement the whole pipeline trusts |
 | `src/main.py`, `src/infinite_wrapper.py` | the other entry points |
-| `src/tools/` | the database module |
+| `src/tools/` | the database module — **the DIRECTORY, and it holds one file.** `src/tools.py` is a different object and is NOT frozen by this row: it is frozen by §2, which names it and opens one module-level zone at the end of the file. Consulting this table alone gives the wrong answer for it |
 | `src/video.py` | **except the two tagged functions below** — media handling, ffmpeg pools, MD5 threads: the part that touches disk and processes |
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
