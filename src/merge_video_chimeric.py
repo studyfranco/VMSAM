@@ -1808,11 +1808,24 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         if abs(Decimal(str(short))) <= output_duration_tolerance_ms:
             continue
         predicted_refusals.append(report)
+        # LE JETON EST STABLE; LA PROSE N'ENTRE PAS DANS UN CHAMP `key=`.
+        # Ce site emettait UNE PHRASE ANGLAISE COMPLETE dans le champ `reason=`,
+        # que les consommateurs tokenisent. NOMMER LA FORME, NE PAS LA CITER:
+        # ecrire l'ancienne valeur ici la ferait retrouver par tout recensement
+        # cherchant le defaut, et le compte-rendu d'un defaut ne doit pas
+        # correspondre au detecteur du defaut. Mesure de `vmsam-dev-4` sous
+        # /config/output: le champ se lisait comme un jeton d'un seul mot,
+        # 6 occurrences, un fantome qui pollue tout recensement de causes. Le site :2605 du meme module fait deja la chose
+        # correcte -- `reason={type(error).__name__}` -- donc le module portait
+        # la regle a un endroit et la brisait a un autre.
+        # Le parseur de dev-4 lit POSITIONNELLEMENT et attend [A-Za-z0-9_]+:
+        # un jeton sans espace est la seule forme qu'il peut extraire.
+        # Les deux nombres au-dessus portent deja le detail; le jeton porte la CLASSE.
         tools.logs.append(
             f"repair: PREDICTED_REFUSAL track={report.get('stream_order')} "
             f"fill_short_by_ms={short} "
             f"tolerance_ms={output_duration_tolerance_ms} "
-            f"reason=the plan targets a duration the fill source cannot supply\n")
+            f"reason=fill_source_too_short\n")
 
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
                       timeout)
