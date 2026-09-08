@@ -33,3 +33,8 @@ merge_plan.html
 
 # ci seat working notes -- lives outside the repo at /home/vmsam/src/ci-instruments
 ci-instruments/
+
+# Crash artefacts. Additive and reversible: this makes a dump invisible to `git add -A`
+# WITHOUT opening or deleting it, so the standing rule on core dumps is untouched.
+core
+core.*
