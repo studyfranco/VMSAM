@@ -490,6 +490,19 @@ malformed blob CONTRADICTED.*
 > LOAD-BEARING AND THE SHAPE TEST IS DECORATION.** *An arm that has never been forced is an arm at
 > `m` = 0, and the one that looked most rigorous was the one that did nothing.*
 
+> ***AND THE LIMIT OF THE RULE ABOVE, WHICH POINTS THE OTHER WAY: VERIFYING AT THE AUTHORITY TELLS
+> YOU THE TEXT IS CORRECT. IT TELLS YOU NOTHING ABOUT WHETHER ANYONE IS READING IT.*** *The architect
+> was told its blocker rule had a reach problem and fixed it with a pointer in the first-read
+> document — then verified the fix at the authority, where it is correct.* **TWO SEATS HOLD A ROOT
+> `ENTRY.MD` OF 314 AND 315 LINES THAT DOES NOT EXIST UPSTREAM AT ALL, SO THE FIX FOR THE REACH
+> PROBLEM DID NOT REACH EITHER.**
+
+***A RULE PLACED WHERE THE READER SHOULD BE IS NOT A RULE PLACED WHERE THE READER IS.*** *And it
+generalises past governance: every seat that verified something at the authority and concluded it
+was in force made the same move.* **TO KNOW WHAT A DOCUMENT SAYS, READ THE AUTHORITY. TO KNOW
+WHETHER A RULE IS IN FORCE, YOU MUST KNOW WHAT THE READERS HOLD — AND THAT IS A CENSUS, NOT A
+FETCH.**
+
 **WHY THIS MATTERS MORE THAN IT SOUNDS, in `arch-heir`'s words:** ***a citation whose text is right
 and whose provenance is a vintage nobody holds looks MORE VERIFIED THAN A BARE ONE.*** *It borrows
 the authority of precision while naming an object that does not exist. Tonight a seat lost a
