@@ -800,6 +800,69 @@ defect in it as a blocked need. `src/merge_video_repair.py` and
 from `master`, authored by the same agent — and are treated the same. **The owner named
 the first explicitly; the other two follow by the same reasoning and not by his word.**
 
+> **THAT DERIVATION IS VOID AS OF 2026-09-08, AND NOBODY MAY EDIT `src/merge_video_repair.py`
+> OR `src/merge_video_resample.py` ON THE STRENGTH OF THE SENTENCE ABOVE.** I am not
+> withdrawing a permission the owner gave — he gave one, for `merge_video_chimeric.py`, and
+> that one stands untouched. I am withdrawing an inference *I* let stand, because its premise
+> no longer exists and because the paragraph immediately below already contradicts it.
+
+**FIRST: THE PREMISE IS UNAVAILABLE, AND FOR THE ONE FILE WHERE IT IS NEEDED.** `lead` found
+this against its own operation. Measured at the authority:
+
+| file | blob | lines | commits | beyond the squash |
+|---|---|---|---|---|
+| `src/merge_video_resample.py` | `8db18543923a` | 184 | **1 — the squash, and nothing else** | **0** |
+| `src/merge_video_repair.py` | `ea523c009683` | 2280 | 4 | 3 |
+| `src/merge_video_chimeric.py` | `46fb07f0ec5a` | 3064 | 2 | 1 |
+
+*Control: 483 `src/` commits all time, so the predicate fires and a zero here is a real zero.*
+
+`8b9a5b8a` is titled *"squash: collapse the multi-agent campaign's working history into one
+commit"* and touched 49 files. For `merge_video_resample.py` it is the ONLY commit. **So the
+single fact this permission rests on is precisely the fact the squash erased**, and the store
+does not say so: `git log` answers `vmsam-lead` with complete confidence and no information.
+
+> **A DEAD PATH ANNOUNCES ITSELF. AN ATTRIBUTION FLATTENED BY A SQUASH RETURNS A CONFIDENT
+> WRONG NAME.** §1c's defect in a third material — there a name DOUBLED, here a name ABSORBED,
+> and neither has an arm that fires.
+
+**SECOND, AND IT DOES NOT DEPEND ON THE SQUASH AT ALL: THE NEXT PARAGRAPH ALREADY SAYS NO.**
+Six lines below, this document rules *"a file becomes shared by being useful and imported, not
+by anyone deciding it is."* Measured at the authority tip, importers inside `src/` excluding
+the file itself:
+
+    merge_video_resample.py   2 importers      merge_video_chimeric.py   2 importers
+    merge_video_repair.py     3 importers
+
+**All three are imported. By this document's own test they are shared files, and the
+derivation was arguing the opposite of the rule printed underneath it.** That defect predates
+the squash and would have been there had `lead` never run it.
+
+**THIRD: `zone A` IS NOT THIS FAMILY, AND THE DOCUMENT INVITES THE MISREADING.** `zone A` is
+`remove_not_compatible_video` in `mergeVideo.py` — see the zone table above.
+`src/merge_video_resample.py` appears in this entire document exactly ONCE, in the prose
+sentence above, and in no zone table anywhere. `dev-2` read it as "zone A, mine" in good
+faith, and this family has already misread itself once: an instrument scored
+`merge_video_chimeric.py` FROZEN while the sentence above it said fully editable.
+
+**WHAT HAPPENS NOW.** The permission on these two files is the owner's to grant or refuse, and
+it is with him as an open item. Until he rules, work on them is built inert in the agent's own
+lab and does not land. `lead` has already told `dev-2` exactly that, before asking me.
+
+**AND THE RULE THIS LEAVES BEHIND, WHICH IS THE PART THAT GENERALISES:**
+
+> **A DERIVED PERMISSION IS ONLY AS DURABLE AS ITS PREMISE, AND A REPOSITORY OPERATION CAN
+> DESTROY A PREMISE WITHOUT TOUCHING THE SENTENCE THAT USES IT.** Same signature as §1c: no
+> diff shows it, no line count moves, and the sentence still reads correctly. **So a permission
+> must rest on a property that is CHECKABLE AT THE TIP** — absent from `master`, no importer,
+> named in a zone table — **never on a property of the history, which any rewrite can flatten.**
+
+Credit: **lead** (found it, against its own squash, and proposed nothing); **auditor** (whose
+four-commit authorship check on `merge_video_repair.py` survives on its three post-squash
+commits — the verdict holds, the METHOD does not generalise, and it fails silently on exactly
+the file where it is needed); **arch-aide** (the doubling half of the same defect);
+**dev-2** (whose good-faith misreading located the zone-table gap).
+
 **A file becomes shared by being useful and imported, not by anyone deciding it is.**
 So the only defence against backing into a standard is **the file saying what it is
 not.** An agent asked to build a fleet harness drew the line itself and drew it better
