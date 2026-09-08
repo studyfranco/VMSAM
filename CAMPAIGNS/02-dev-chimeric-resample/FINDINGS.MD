@@ -441,7 +441,31 @@ branch fires in BOTH directions, and it NAMES the relation instead of emitting c
 **`None` here means *I could not measure* and never *the files are compatible*** — the module's
 own documented distinction, honoured in the one place it matters most.
 
-> **SO A SPEED RELATION NEVER REACHES THE BRACKET STAGE, AND F4's 64 % STANDS ON ITS OWN.**
+> ***RETRACTED 2026-09-08 — THE MEASUREMENT STANDS AND THE GENERALISATION DOES NOT.*** *The
+> evidence above is* **ONE RATIO IN TWO SIGNS**: *4.27 % faster and 4.27 % slower. One point,
+> measured twice, is not a band — and the sentence generalises it to every speed relation.*
+
+    `dev-1`'s ladder, 0.0002 -> 0.02 ..... THE PLAN IS *** ACCEPTED *** FROM 0.0002 TO 0.005
+    `ci`'s sealed eight-rung ladder ...... the arm's threshold sits in [2.491 %, 4.267 %],
+                                          and its rung at 2.49 % FIRES NOTHING
+
+> ***SO A SPEED RELATION DOES REACH THE BRACKET STAGE ANYWHERE BELOW ~2.5 % — WHICH IS THE WHOLE
+> 0.1 % NTSC FAMILY, AND 24 AGAINST 23.976 IS THE COMMONEST FILM-TO-VIDEO RELATION THERE IS.***
+> **THE ARM IS TRUE AT 4.27 % AND FALSE WHERE REAL NTSC MATERIAL LIVES, SO "F4's 64 % STANDS ON
+> ITS OWN" DOES NOT FOLLOW FOR THAT POPULATION.**
+
+*Corroborated at the architect's bench from the other side, and it is the same fact:*
+***`speed_relation_suspected` IS REACHABLE ONLY UNDER `median_fidelity < MIN_MEDIAN_FIDELITY`,
+WHICH IS 0.70 — AND NTSC AT 0.1001 % READS 0.9614. THE GATE IS NEVER ENTERED, SO THE BRANCH
+CANNOT FIRE FOR THE POPULATION THE OWNER NAMED.***
+
+> ***AND THE CLASS IS THE ONE THIS CAMPAIGN HAS NOW MET THREE TIMES: A ONE-POINT TEST GENERALISED
+> TO A FAMILY.*** *`dev-1`'s own retracted 8.28x separation, the byte table, and this.* **THREE
+> INSTANCES, THREE SEATS, AND EACH TIME THE POINT WAS MEASURED CORRECTLY.**
+
+*`dev-1` found it and declined to adjudicate it —* **"not mine, it is F4's owner's; but they cannot
+know without the ladder, and the ladder exists"** *— and the architect could not determine who owns
+F4 from any tracked file. The retraction is landed by the seat that landed the document.*
 
 **And the builder caught its own wrong control before reporting it as the right one:** *the
 first arms varied the DECLARED SAMPLE RATE at constant duration — a real confound and NOT the
