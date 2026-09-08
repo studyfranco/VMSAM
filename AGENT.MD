@@ -470,6 +470,13 @@ reader detects.*
 > CORRECTLY MINUTES EARLIER. THE NUMBER WAS TRANSPOSED BETWEEN MEASURING IT AND WRITING IT DOWN,
 > WHICH IS WORSE THAN STALE: A STALE NUMBER HAS AN EXPLANATION AND A TRANSPOSED ONE HAS NONE.**
 
+***AND THE SAME RULE FOR A REF: NAME ITS STORE.*** *`refs/heads/dev-AI` is authoritative at the
+forge and an abandoned local branch at the hop, and git resolves `refs/heads/` first — so a bare
+name answers from whichever store you happen to stand in, confidently and without warning.*
+**A REF NAME IS ONLY MEANINGFUL WITH ITS STORE, EXACTLY AS A FIGURE IS ONLY MEANINGFUL WITH ITS
+UNIT.** *And a COPY of a ref is not a HOLDER of the commit: two seats counted redundancy tonight by
+unioning `ls-remote` with their own tracking refs — the same ref through two lenses, counted twice.*
+
 **THE FORM.** *Cite `blob 0e5bca6862b0`, heading `## 0. WHAT THE REPOSITORY IS FOR`. Not
 `WRITE_ZONES.MD:20`. A heading survives insertion above it; a line number does not. A blob id is
 either the object you read or it is not, and* ***YOU CAN CHECK THAT FROM ANYWHERE.***

@@ -80,44 +80,20 @@ their commit — the tag was the only thing holding that history:**
 > ORDER.*** *A deletion that turns out to be safe and a deletion that was PROVEN safe before it ran
 > are indistinguishable afterwards — and only one of them is a method.*
 
-## 0c. PRESENT IS NOT REACHABLE IS NOT PRESERVED — AND UNIQUENESS DOES NOT SUM
+## 0c. BEFORE DELETING ANY REF, MEASURE THE DELETION AS A SET
 
-***BEFORE DELETING ANY REF, MEASURE WHAT THE DELETION ORPHANS — AS A SET, NEVER ONE AT A TIME.***
+***PER-REF UNIQUENESS DOES NOT SUM.*** *Each ref's "unique" count is taken with the others still
+present, so they mask one another.* **FIVE REFS WHOSE INDIVIDUAL FIGURES TOTALLED 156 ORPHANED 226
+WHEN DELETED TOGETHER.**
 
-**THREE PROBES WERE RUN ON THE SAME QUESTION ON 2026-09-07 AND THEY DISAGREED BY A FACTOR OF
-TWENTY:**
+> ***AND PRESENT IS NOT REACHABLE IS NOT PRESERVED.*** *Deleting a ref destroys no object; it moves
+> commits to PRESENT-BUT-UNREACHABLE, which survives only while the abstention from `gc` holds — and
+> an abstention is an agreement, not a property of the store.* **A REF THAT PINS NOTHING COSTS ONE
+> LINE IN A LISTING; THE COST OF BEING WRONG IS UNBOUNDED.**
 
-    architect, FUNCTION-NAME SET .... 11 names absent  -> "delete five, nothing is lost"
-    `arch-heir`, PER-REF UNIQUENESS . 156 commits      -> "delete one"
-    *** SET-LEVEL ................... 226 commits *** -> confirms one, and BOTH
-                                                          EARLIER NUMBERS WERE LOW
-
-> ***THE ARCHITECT'S PROBE MEASURED CONTENT. THE DECISION WAS ABOUT REACHABILITY. DIFFERENT AXES.***
-> *A commit carrying no unique function still carries a unique history, message and parentage — a
-> file-content diff cannot see it, and mine could not.*
-
-> ***AND PER-REF UNIQUENESS DOES NOT SUM: each ref's "unique" count is computed WITH THE OTHERS
-> STILL PRESENT, so they mask one another and the total UNDERCOUNTS a joint deletion.*** *156 was
-> the sum of five individual figures; deleting those same five orphans 226.* **A SET DELETION IS
-> MEASURED AS A SET OR IT IS NOT MEASURED.**
-
-**AND THE DISTINCTION UNDER ALL OF IT, `arch-heir`'s:** ***PRESENT ≠ REACHABLE ≠ PRESERVED.***
-*Deleting a ref destroys no object; it moves commits from PRESERVED to PRESENT-BUT-UNREACHABLE,*
-**which survives only while the abstention from `gc` holds — and an abstention is a standing
-agreement, not a property of the store.**
-
-> *The architect then proved the same distinction on itself, minutes after writing it down: it
-> checked survival with a grep for the commit id in a ref LISTING, which answers* **"is this a ref
-> TIP"** *and not* **"is this REACHABLE"**. *The commit was reachable the whole time, from another
-> backup ref.*
-
-**THE ASYMMETRY THAT DECIDES IT, and it is not close:** ***A REF THAT PINS NOTHING COSTS ONE LINE
-IN A LISTING. A REF THAT PINS EIGHTY-THREE COMMITS IS THE ONLY THING BETWEEN THEM AND A FUTURE
-`gc`.*** **THE COST OF KEEPING IS A LINE; THE COST OF BEING WRONG IS UNBOUNDED.**
-
-*One ref was deleted on this measurement — the only one orphaning ZERO — and the deletion was
-verified afterwards by finding which surviving ref still contains it, not by finding it in a
-listing.*
+*Derivation retired 2026-09-08: it sat beside the counting MISTAKE instead of beside the COUNTING,
+and two seats re-derived it the hard way while it was landed and correct. Found by `arch-heir`,
+which needed it, missed it, and measured the miss.*
 
 ## 1. Frozen — no modification, ever
 
