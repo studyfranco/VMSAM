@@ -1094,3 +1094,42 @@ Pointers only; nothing below is duplicated here.
 - `MEASURING.MD` (this directory) — the complete measurement journal.
 - `DOCS_EXTRACTS.MD` — the dated campaign-2 material extracted from `docs/` (grants, incidents,
   measured tables), verbatim, with provenance headers.
+
+## Owner ruling, 2026-09-14 — repair scope: the divergent zone only
+
+Relayed by the Architect, verbatim intent: the campaign is stalling on the
+precision of the requirement. **The repair replaces only the divergent zone,
+never the whole comparison zone.** A splice that rebuilds the entire compared
+span where releases only diverge for a segment is over-repair: it discards
+master-quality material the ruling says to keep. Every repair plan and every
+target built by hand must state which span is divergent and leave the rest
+untouched.
+
+## Salvaged from the retired labs, 2026-09-14 (Architect)
+
+The old labs were emptied before deletion. Durable facts not carried anywhere
+else in the tree, condensed; full notes die with the labs, their unique git
+history is bundled beside the repository.
+
+- The fingerprint quantum is 124–142 ms in practice, not a constant 125 ms;
+  threshold 127 encodes "one frame plus two", not a magic number.
+- `lowpass=f=16000` on a 32000 Hz source saturates (~25x) — a Nyquist bug that
+  poisons correlation upstream of any repair (dev-3, confirmed).
+- A PAL constant rounded 0.200 ms wrong turned a test green that should have
+  failed: rate constants must be written at full precision (dev-2).
+- Duration ratio alone cannot separate resample from time-stretch; pitch
+  separates them perfectly (4.25 % gap) — hence the `no_pitch_relation` verdict
+  family (dev-2).
+- Delay-to-frame architecture: SHIFT, not ROUND — settled by three independent
+  routes (dev-3).
+- `max(...) or [0.0]` conflates "measured zero lag" with "never measured" — the
+  campaign's `None`-means-could-not-measure rule, violated in one expression
+  (dev-2, latent in production).
+- Four contract keys (`speed_margin`, `fidelity_margin`, `decided_by`, …) have
+  no producer anywhere and always read `absent` (dev-4).
+- Chimeric fill on 42 files: median 200 s, max 352 s — the scale of what "only
+  the divergent zone" saves is measured, not hypothetical (dev-2).
+- Two unmerged pipeline variants (`audio_offset_gccphat.py`,
+  `candidate_repair.py`) are staged beside the repository for the Lead Dev's
+  ruling — GCC-PHAT offset and post-correlation repair decision with speed
+  compensation, both absent from `src/`.
