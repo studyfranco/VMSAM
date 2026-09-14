@@ -1133,3 +1133,23 @@ history is bundled beside the repository.
   `candidate_repair.py`) are staged beside the repository for the Lead Dev's
   ruling — GCC-PHAT offset and post-correlation repair decision with speed
   compensation, both absent from `src/`.
+
+## Recovered 2026-09-14 — the owner's frame-accurate spec was lost, and is back
+
+`OWNER_SPEC_FRAME_REPAIR.MD` (owner, direct, 2026-09-07 — repair the exact zone
+TO THE FRAME; fpcalc's per-point vector locates the zone at ~3-4 frames, pHash
+decides the frame; index in FRAME NUMBERS, invariant under resample; never route
+through cross_correlation) and `ARCH_FRAME_ACCURATE.MD` (its transposition onto
+the existing code, naming four defects that defeat frame accuracy: integer-coerced
+fps, pHash gated on fps equality, fabricated default frame rate, no VFR gate)
+survived only in a retired lab. They are the precision requirement the campaign
+has been missing, and they now live here. The 2026-09-14 "divergent zone only"
+ruling is this spec's first line restated.
+
+Related instruments beside the repository: `VMSAM_CORPUS/docs/REPAIR_TARGETING.md`
+(the id-level denominator: attempt/do-not/cannot-help per file) and
+`VMSAM_CORPUS/docs/CORPUS_MISFILING.md` (the content-identity instrument and its
+refuted alternatives). Open owner item from the latter: four files (ids 12, 13,
+45, 108) are refused by a single outlier window while nine of ten windows agree
+to ~2 ms — `mergeVideo.py:582-594`, frozen, awaiting a ruling; note the variance
+constant 0.004 is seconds-squared (sigma ~63 ms), not 4 ms.
