@@ -1172,3 +1172,12 @@ targeting stage: it bounds the divergent zone cheaply. pHash then validates the
 cut by proving the 50 frames before and the 50 frames after it are identical
 between master and candidate. Recorded in OWNER_SPEC_FRAME_REPAIR.MD as a dated
 addendum; TASKS/013/014 acceptance criteria inherit it.
+
+## Owner ruling, 2026-09-14 — the outlier-window cases are settled by experiment, not by edit
+
+The stage-2 check stays frozen. Ids 12, 13, 45, 108 (nine windows agreeing to
+~2 ms, refused on one outlier) are routed through the finished chimeric path,
+which rules: no divergence found on audio AND images means the refusal was
+unjustified; a found divergence (owner expects 1-2 frames) means it was right.
+The repair path must return "no difference found" as a first-class verdict —
+same contract as TASKS/013 §3. Details: TASKS/015.
