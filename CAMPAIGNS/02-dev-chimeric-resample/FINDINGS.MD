@@ -1199,3 +1199,15 @@ e2691f639b5df620235a43030d158fcba2630fca (the pushed tip) within ~30 s of the
 hook. Command and workflow: the deployment document beside the repository.
 Caveat that stands: fire the hook only ~10 min after a push — early firing
 redeploys the previous image and looks like success.
+
+## Owner rulings, 2026-09-15 — end-condition parameters closed, calibration delegated
+
+1. **Denominator**: the content of `/errors` at the instant of the final
+   validation — deliberately unfrozen so the owner can add test files;
+   reclassified by the REPAIR_TARGETING method at that date.
+2. **Validation**: the Forensic agent builds the expected file BY HAND, with
+   its own vision and tools, never the pipeline under test; the product is
+   compared to that target. Bit-exactness not required.
+3. **Delegation**: the 50-frame boundary window (~2 s) is an arbitrary
+   placeholder — window length, similarity floor, and the nearest-cut
+   alternative are delegated to measurement (TASKS/016).

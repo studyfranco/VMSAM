@@ -107,3 +107,10 @@ to TARGET the zone between master and candidate and avoid excess computation.
 Then **pHash must VALIDATE that the 50 frames before and the 50 frames after
 the cut are the same** on both sides. The zone comes from chromaprint; the
 cut's frame and its validation come from pHash, over that 50-frame window.
+
+### Note on the 50-frame figure (owner, 2026-09-15)
+
+The 50 frames (~2 s) are an arbitrary placeholder. The owner does not know the
+right window length, the minimum similarity, nor whether the window should
+extend to the nearest frame change in both directions — he delegated those
+numbers to measurement: TASKS/016.

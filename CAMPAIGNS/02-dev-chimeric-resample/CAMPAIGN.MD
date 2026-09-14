@@ -61,12 +61,17 @@ Rows, not summaries: the three numbers (repaired / damaged / declined) are
 computed over the blessed denominator, and a file with no row is a sweep
 defect, not a success.
 
-**Open parameters for the owner** (defaults apply until ruled):
-- *Denominator*: default = the live error tree at sweep time, classified by the
-  REPAIR_TARGETING method re-run at that date (its 2026-08 counts are a
-  snapshot, not the authority).
-- *Validation of "passes"*: default = target-first + 50-frame pHash + audio
-  correlation flat across the repaired zone; bit-exactness is NOT required.
+**Both parameters are ruled (owner, 2026-09-15):**
+- *Denominator*: the content of `/errors` **at the instant of the final
+  validation** — deliberately not frozen, so the owner may add test files at
+  any time. Classified by the REPAIR_TARGETING method re-run at that date.
+- *Validation of "passes"*: the **Forensic agent builds the expected file by
+  hand** — with its own vision and its own tools, built from its own
+  calculations, **never with the pipeline under test** — and the software's
+  product is compared against that hand-built target. Bit-exactness is not
+  required. The boundary check (pHash window) uses a length and a similarity
+  threshold **calibrated by TASKS/016** — the 50-frame figure was a ~2 s
+  placeholder, and the owner has delegated the real numbers to measurement.
 
 ## 5. The stages
 
