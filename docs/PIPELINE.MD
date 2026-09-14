@@ -10,22 +10,13 @@ subject matter.**
 **FILES THIS DESCRIBES:** `src/mergeVideo.py` · `src/change_point_locator.py` ·
 `src/merge_video_repair.py` · `src/merge_video_chimeric.py` · `src/merge_video_resample.py` ·
 `src/gestionar_show/fusion.py`
-**MEASURED AT** `origin/dev-AI` tip `a4b57808`. *`vmsam-dev-2` measured that the first version of
-this file named ZERO source files against a control of 121 — **a successor grepping for the module
-this document is about never found the document.** Its eight line citations all resolved correctly
-and carried no revision anchor:* **CORRECT-TODAY-AND-UNANCHORED IS THE DANGEROUS STATE, NOT THE SAFE
-ONE** *— that seat's own file moved four times in one day. Line numbers below are a convenience;
-the function name and the phrase are the citation.*
+*Line numbers below are a convenience; the function name and the phrase are the citation —
+**correct-today-and-unanchored is the dangerous state, not the safe one.***
 
-> **AND THIS FILE IS NO LONGER THE ONLY PLACE. `vmsam-dev-2` put the relationship into
-> `src/merge_video_chimeric.py`'s module header — acting on the closing rule rather than agreeing
-> with it — with the line that settles any future disagreement:** ***if this and `docs/PIPELINE.MD` ever
-> disagree, MEASURE THE CODE, and the code is that file.***
-
-> **WHY THIS EXISTS: `vmsam-dev-1` MEASURED that the locator NOWHERE STATES why it exists — zero hits
-> for "constant delay", "single delay", "re-encode", "subtitle", against a control at 39 that fires.
-> THE RELATIONSHIP BELOW LIVES ACROSS TWO OWNERS' FILES AND IS IN NEITHER DOCSTRING.** *A successor
-> reading either module alone learns the wrong thing and acts on it.*
+> **This file is not the only place: `src/merge_video_chimeric.py`'s module header carries the
+> same relationship, with the line that settles any future disagreement — if the two ever
+> differ, MEASURE THE CODE, and the code is that file.** *(The measurements that forced this
+> file to exist: `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.)*
 
 ## 1. THERE IS **ONE CYCLE**, AND THE REPAIR IS A DETOUR INSIDE IT
 
@@ -66,8 +57,7 @@ bitmap subtitles preserved. THE REPAIR EXISTS ONLY FOR FILES WHERE NO SINGLE DEL
 
 ### THERE ARE **TWO** ENTRIES, AND PRODUCTION TAKES THE ONE THIS DIAGRAM DID NOT DRAW
 
-**Found by `vmsam-ci`, re-derived by `vmsam-lead`, RE-VERIFIED HERE BY AST — enclosing function
-computed from the tree, never from indentation:**
+**Re-verified by AST — enclosing function computed from the tree, never from indentation:**
 
     mergeVideo.py:remove_not_compatible_video  DEFINED 798-868, TWO call sites:
       :958  enclosing `get_delay_and_best_video`  -- no reference imposed. CLI / tournament.
@@ -78,10 +68,6 @@ computed from the tree, never from indentation:**
       else:                          -> get_delay
     AND gestionar_show/fusion.py SETS IT IN **BOTH ARMS** OF ONE if/else, :343 and :348.
     **NO PATH THROUGH THE FUSION WORKER LEAVES IT UNSET.**
-
-> **EVERY REPAIR THE CONTAINER HAS EVER PERFORMED ENTERED AT `:988`. The first version of this
-> document drew `:958`.** *A successor reading it to understand the PRODUCTION repair path would have
-> studied the wrong function — which is exactly the failure this file was written to prevent.*
 
 **THE SHAPE IS UNCHANGED AND HOLDS FOR BOTH ENTRIES:** *both call the same function at `:798`, and
 both hang the result on `best_video.sameAudioMD5UseForCalculation`.*
@@ -140,23 +126,17 @@ FOR:** *the check counted the files REMAINING without seeing that one had just c
 
 **SO A ROUTING DECISION AND A DEAD END BOTH EMIT `declined`, AND THE STRUCTURED MARKER THAT WOULD
 TELL THEM APART — `plan_kind: "constant"` — IS PUT IN A DICT AND THROWN AWAY BEFORE ANY REPORT SEES
-IT.** *Measured by `vmsam-dev-4` on its own corpus: 16 `repair: declined` lines, 4 carrying the
-constant-offset prose, **0 carrying a `plan_kind` marker**, against a control of 1706 `repair:` lines
-— the search has power.*
+IT.**
 
     **IF YOU ARE WRITING A CAUSE, PUT IT IN `reason`, NEVER IN `detail`.**
-    `dev-2` avoided this an hour before it shipped, by using `reason` for its cause
-    tokens -- and it said plainly that it used `reason` BECAUSE THE OLD STRING WAS
-    THERE, not because it had checked. **INHERITANCE, NOT INSIGHT.** The next seat
-    will not inherit anything.
 
 *The value exists, it is one interpolation away from the log line, and it is inside the REPAIR
 boundary.*
 
 ## 2c. A LATENT HAZARD: THE PLAN'S OFFSETS ARE MEASURED ON THE **UNRESAMPLED** PAIR
 
-**`vmsam-dev-1` contradicted the step-3 framing and DISSOLVED the interface question rather than
-answering it. VERIFIED HERE at `src/change_point_locator.py`:**
+**Verified at `src/change_point_locator.py` — the step-3 ordering question DISSOLVES at this
+interface rather than needing an answer:**
 
     speed_ratio 0 · asetrate 0 · atempo 0 · resample 0
     CONTROL `quantum_ms` -> 12, FIRES.   its only kinds: "constant" | "piecewise_constant"
@@ -186,8 +166,7 @@ There is a stronger constraint:*
 **No plan produced anywhere in the tree can carry `kind == "speed"`, so that conjunct is TRUE for
 every producible plan and never changes the outcome.** *The line still behaves correctly — it
 reduces to "if there is no ratio, do nothing" — but the test is INERT, and a reader seeing a
-`"speed"` branch infers a producer that does not exist.* **`dev-1` inferred exactly that for ten
-minutes, about its own module.**
+`"speed"` branch infers a producer that does not exist.*
 
 ### And a source comment that names the wrong module
 

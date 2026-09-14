@@ -103,33 +103,10 @@ the right reason. The text class holds seventeen codecs ffmpeg can convert, and
 adding the rest speculatively is how a list stops being evidence. **Add one when a
 codec is measured to break something**, and say which file showed it.
 
-## OCR of bitmap subtitles: measured benefit is ZERO today
+## OCR of bitmap subtitles — moved
 
-Full corpus, metadata only: **41 of 300 files with subtitles carry a bitmap
-track; 37 carry ONLY bitmap.** That looked like a real population. It is not,
-and three measurements close it:
-
-- **36 of the 37 masters already supply TEXT subtitles**, in many languages. The
-  37th has **no master recorded at all** — and *absent master* and *master
-  without subtitles* are different facts, only one of which is evidence.
-- **Zero files end with no subtitle track.** But the denominator is the finding:
-  **only 1 of the 37 has a published output at all.** The other 36 are the
-  population Phase 2 closed — they fail on **7 to 126 seconds of unaccounted
-  content** (§11). **They do not lose subtitles because they never produce a
-  file.**
-- **Zero carry a language the master lacks.** The only apparent case is the file
-  with no master, so the comparison has no second term.
-
-**And the 37 are 3 series-groups of 26 / 10 / 1 — not 37 independent
-observations.**
-
-**A PREMISE OF THIS DOCUMENT WAS WRONG.** The claim that bitmap subtitles are
-skipped and the candidate contributes none holds for the **chimeric** path. **The
-one file that did publish carries 53 subtitle streams, two of them
-`hdmv_pgs_subtitle`** — so the plain merge path **passes bitmap through**. The
-decline is path-specific and that had not been established.
-
-**So OCR would benefit no file on today's evidence.** That is a statement about
-the corpus **now**, not about the feature: if those 36 ever merge — they currently
-cannot, for reasons unrelated to subtitles — **re-ask the question against their
-OUTPUTS rather than their candidates.**
+**The measured OCR analysis (corpus counts, the path-specific decline, the premise that was wrong)
+moved to `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.** Its conclusion when taken: OCR
+would have benefited no file — a statement about that corpus at that time, not about the feature.
+If the population blocked on unaccounted content ever merges, re-ask the question against their
+OUTPUTS rather than their candidates.

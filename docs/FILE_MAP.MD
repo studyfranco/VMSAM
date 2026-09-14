@@ -60,6 +60,19 @@ is authoritative and comes from `WRITE_ZONES.MD`.
 only.** `config.json`, `param_template.json`, `titles_subs_group.json` — frozen
 unless the owner decides otherwise.
 
+## Documents — where the `.MD` files live
+
+| where | what |
+| :--- | :--- |
+| repository root | `AGENT.MD`, `WRITE_ZONES.MD` — the entry point and the write authority |
+| `docs/` | governance and domain reference: `ENTRY`, `TALKING`, `COMMITTING`, `COMING_BACK`, `FILE_MAP`, `LEAD`, `PIPELINE`, `MERGE_CRITERIA`, `AUDIO_SPEED_POLICY`, `SUBTITLE_CODECS`, `ROLES_AND_KINDS`, `GIT_CURRENCY`, `MEASURING`. **Frozen — Architect/Lead edits only** |
+| `CAMPAIGNS/02-dev-chimeric-resample/` | the current campaign: `CAMPAIGN.MD`, `FINDINGS.MD`, `MEASURING.MD` (journal), `AGENT_NOTES_DEV2.MD`, `DOCS_EXTRACTS.MD`, `SPEC_ZONE_A.MD`, `TASKS/` |
+| `CAMPAIGNS/01-dev-AI/` | campaign 1's archive — frozen history, never live governance |
+
+`TALKING.MD`, `FILE_MAP.MD`, `COMMITTING.MD` and `COMING_BACK.MD` moved from the root into
+`docs/`; `CAMPAIGN.MD` and the agent notes moved into the campaign directory. **No
+`AGENT_NOTES.MD` or `CAMPAIGN.MD` lives at the root any more** — a root path to either is stale.
+
 ## Data flow
 
 `run.sh` → `main_gestionar_show` → scan → regex → `process_episode` →
@@ -68,7 +81,7 @@ unless the owner decides otherwise.
 
 ## The merge, stage by stage
 
-The call tree is in `AGENT.MD` § Synchronization pipeline; this is what each step
+The call tree is in `docs/PIPELINE.MD` § Synchronization pipeline; this is what each step
 actually does, read from the code.
 
 **Preparation.** `prepare_get_delay_sub` picks the comparison audio parameters —

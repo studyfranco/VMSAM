@@ -1080,3 +1080,17 @@ that it was somebody's to take."**
 *Every such sentence in this repository is a claim inheriting §105: a pin, in prose, with no revision
 beside it.*
 
+
+---
+
+## Carriers — where campaign 2's record lives
+
+Pointers only; nothing below is duplicated here.
+
+- `CAMPAIGN.MD` (this directory) — what BINDS: the owner rulings of 2026-09-05 and 2026-09-08,
+  the stage-2 gate, and the campaign's end condition.
+- `AGENT_NOTES_DEV2.MD` — the developer's own record: the 89 ms retraction, the pHash verdict,
+  and the (plan, cause) contract.
+- `MEASURING.MD` (this directory) — the complete measurement journal.
+- `DOCS_EXTRACTS.MD` — the dated campaign-2 material extracted from `docs/` (grants, incidents,
+  measured tables), verbatim, with provenance headers.

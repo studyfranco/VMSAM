@@ -1,8 +1,8 @@
 # Lead — read this after a restart, and only you need it
 
-`AGENT.MD`, `WRITE_ZONES.MD` and `COMING_BACK.MD` first. This file carries what is
-yours alone: the roster, the restart you perform on yourself, and the cadence you
-apply to the fleet — which you now establish yourself, up to ten developers and five forensics (§3b).
+`AGENT.MD`, `WRITE_ZONES.MD` and `docs/COMING_BACK.MD` first. This file carries what
+is yours alone: the roster, the restart you perform on yourself, and the cadence you
+apply to the fleet.
 
 ## 1. What you hold that nobody else does
 
@@ -21,17 +21,15 @@ at the moment of stopping is the one thing a restart cannot recover.
     tmux ls                                 the four sessions, AND the relauncher
 
 **Check the relauncher is gone. It is supposed to have exited on its own, and
-nobody else will notice if it did not.** `tmux ls` should show your four agents and
-no `vmsam-dev-sandbox-relauncher`. If it is still there it is an orphan holding a
-session, and it will keep holding it silently — that is how seventeen waiters
-survived six hours in this campaign without anyone seeing them.
+nobody else will notice if it did not.** `tmux ls` should show your agents and no
+`vmsam-dev-sandbox-relauncher`. If it is still there it is an orphan holding a
+session, and it will keep holding it silently.
 
     tmux ls | grep relauncher                     # must print nothing
     ps -eo pid,ppid,etime,cmd | grep -v grep | grep relauncher   # LOOK, then act
 
 **Look at what you matched before you kill it.** Identify by parentage, never by a
-path substring — `COMING_BACK.MD` §3 records why, and it cost another agent an
-80-minute decode.
+path substring — a substring match kills whatever happens to share the path.
 
 **Read all five before dispatching anything.** Three of them can disagree with your
 roster, and when they do the roster is the one that is wrong.
@@ -52,10 +50,10 @@ than a tired one.
       it EXITS
 
 **The relauncher exits on its own; it never waits to be killed, and your first act
-on returning is to confirm it did.** §2 carries the check. A process waiting to
-be killed is a waiter, and unbounded waiters cost this campaign seventeen orphaned
-shells in one day. Whether you came back is answered by whoever next runs
-`ListAgents` — not by something holding a session open to check.
+on returning is to confirm it did.** §2 carries the check. A process waiting to be
+killed is a waiter, and an unbounded waiter holds a session silently forever. Whether
+you came back is answered by whoever next runs `ListAgents` — not by something
+holding a session open to check.
 
 `--continue` is the flag whose whole purpose is to restore what you are discarding.
 Its absence is the point of the exercise.
@@ -63,96 +61,23 @@ Its absence is the point of the exercise.
 **The four agents' tmux sessions are independent of your process and survive this.**
 What you lose is the roster, which is why §1 comes first.
 
-## 3b. ESTABLISHMENT — up to TEN developers and FIVE forensics, spawned by you
+## 3b. — moved
 
-**Owner's grant, 2026-09-05, verbatim in substance:** *the lead dev may have up to 10 dev
-agents as needed; let it rotate them according to need; it must not ask me to spawn them.
-It may spawn them whenever it wants, PROVIDED THEY START IN REMOTE.* **Extended the same
-evening:** *and up to 5 forensics as needed.*
+**§3b (a dated establishment grant: ceilings of ten developers and five forensics, spawn and
+rotation mechanics, R19) moved to `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.**
+The durable rules it carried:
 
-    CEILING      10 developers + 5 forensics concurrently. Not a target -- a ceiling.
-    SPAWNING     yours, unilaterally, no owner approval, at any hour.
-    CONDITION    they START IN REMOTE. That is the one hard constraint.
-    ROTATION     by NEED. A slot is a resource you reclaim, not an appointment.
-
-**The two ceilings are not the same instrument, and §4 already says why: a developer's
-objective CLOSES and a forensic's charter DOES NOT.** *That difference decides everything
-below about how each slot comes back.*
-
-**THE BOTTLENECK THE OWNER JUST REMOVED WAS HIMSELF, AND HE REMOVED IT SO THAT WORK STOPS
-WAITING ON A HUMAN BEING ASLEEP.** *That is the whole reason for the grant, so the failure
-that wastes it is not overspending the ceiling -- it is leaving a question parked for six
-hours when a spawn would have answered it.*
-
-### A ceiling is not a target
-
-**Ten idle developers are worse than four working ones**: they consume roster attention,
-they answer inbox messages with restatements, and **every one of them is a session that can
-report progress that is not progress.** Spawn against a NAMED piece of work with an
-observable that ends it. If you cannot say what would make the slot free again, the slot is
-not needed yet.
-
-    SPAWN WHEN     a piece of work exists, is unblocked, and nobody free can take it
-    DO NOT SPAWN   to parallelise a thing that is blocked on a ruling or on the owner
-    RECLAIM WHEN   its objective closes, or its work becomes blocked with no second front
-
-**Do not spawn to work around a block.** A second agent on a blocked question produces a
-second copy of the block, plus a disagreement to reconcile. **R19 has been unanswered since
-last night; ten agents would not have advanced it by one minute** -- that is the shape of
-work a spawn cannot help.
-
-### The five forensics — a ceiling on a role that never closes
-
-**§4 classes forensic as a CONTINUOUS CHARTER: nothing about it finishes.** *A developer
-frees its own slot by completing something; a forensic never does.* So the reclamation rule
-that works for developers — *wait for the objective to close* — **applied to forensics fills
-the ceiling once and holds it there forever**, and five permanent measurers is a standing
-cost nobody chose.
-
+    SPAWN against a NAMED piece of work with an observable that ends it; if you
+      cannot say what frees the slot again, the slot is not needed yet.
+    DO NOT SPAWN to work around a block -- a second agent on a blocked question
+      produces a second copy of the block, plus a disagreement to reconcile.
     A CONTINUOUS CHARTER'S SLOT IS RECLAIMED DELIBERATELY OR NEVER.
-    Spawn a forensic against a NAMED BODY OF MEDIA, not against a standing
-    question. When that body is measured, the slot comes back -- you took it
-    back, it did not fall free.
-
-**PARTITION BY CORPUS, NEVER BY QUESTION.** *Five forensics pointed at one standing question
-produce five readings of the same fixture and a reconciliation problem you then own.* Five
-pointed at five bodies of media produce five independent results — **and the second
-arrangement is the only one where their disagreement means something**, because a
-disagreement between two agents measuring the SAME thing is a bug in the fleet, while a
-disagreement between two measuring DIFFERENT things is data.
-
-**And forensic is where a measurement becomes ground truth for everyone else** (`CAMPAIGN.MD`:
-*the REALISED parameter is the truth, not the intended one*). **A wrong forensic result does
-not stay in its lane — it is consumed as fact by every developer downstream.** Which is why
-the ceiling is 5 and not 10: *the failure mode here is not slowness, it is CONFIDENT
-CONTAMINATION AT SCALE.*
-
-### Rotation is the point, and §4's rule already tells you when
-
-**A rotation is a RESTART WITH A DIFFERENT OBJECTIVE, so §4 governs it unchanged**: never
-between writing and debugging, and always on the second correction of the same fact. What
-3b adds is that **the closing of an objective is now a chance to REDIRECT rather than merely
-to restart** -- the same slot, pointed at the next named piece of work.
-
-### The three duties that scale with the roster and are the ones that break first
-
-**A new agent is invisible to the fleet until you announce it, and an unannounced agent
-receives no work it did not invent for itself.**
-
-    1. ANNOUNCE every arrival to every agent, by name and by charter -- inbox rule.
-    2. BRIEF it against the CURRENT authority. A brief built from your window is
-       a STALE BRIEF, and a stale brief produces a CORRECT REFUSAL (`WRITE_ZONES.MD` §12).
-    3. RECORD it in the roster AS YOU SPAWN, never afterwards (§1).
-
-**The roster is the only artefact that survives your own restart.** *A tenth agent you
-spawned and did not write down is an agent that outlives your memory of granting it a
-tagged zone* -- and the next lead grants that zone again.
-
-### The one hard constraint
-
-**REMOTE. Every developer starts remote.** A locally-started agent dies with the session
-that spawned it, which means **your own restart would take the fleet with it** -- and the
-whole establishment above exists to keep work running across restarts, including yours.
+    PARTITION forensics BY CORPUS, NEVER BY QUESTION -- disagreement between two
+      agents measuring the SAME thing is a bug in the fleet; between two
+      measuring DIFFERENT things it is data.
+    ANNOUNCE every arrival, BRIEF it against the CURRENT authority, RECORD it in
+      the roster AS YOU SPAWN -- the roster is the only artefact that survives
+      your own restart.
 
 ## 4. Restarting the four
 
@@ -220,23 +145,12 @@ three pieces; that grouping is visible mechanically and needs no judgement.*
 *Twelve single-file commits out of twenty-two means the fleet is committing by GESTURE
 rather than by CHANGE. That ratio, not the raw count, is the signal.*
 
-### A CORRECTION SEQUENCE IS ATOMIC — measured, on a rewrite that dropped one
+### A CORRECTION SEQUENCE IS ATOMIC
 
-**On 2026-09-04 a compaction replicated ONE commit of a three-commit sequence on
-`SPEC_ZONE_A.MD` §4h. The section survived; the two commits that CORRECTED it did not.**
-
-    916b622   §4h written -- "wire get_cut_time.py:363 _refine_cut"
-    10b4839   RETRACTS that instruction: the module is RETIRED, eight sites raise
-              at runtime, its audio fallback is wrong by a factor of ~24
-    4b9c89f   adds where the refinement belongs, and the 372 s substitution
-
-**After the rewrite the branch carried `916b622` alone.** *The published specification told
-the fleet to import a retired module — the exact instruction an agent had stopped the
-architect from sending hours earlier — put back into circulation by a compaction.*
-
-> **A SQUASH THAT KEEPS A SUBSET OF A CORRECTION SEQUENCE PRODUCES A STATE NOBODY EVER
-> AUTHORED.** *It is syntactically valid, it reads coherently, and it says the wrong thing.
-> Losing all three would have been visible; keeping the first is not.*
+**A squash that keeps a subset of a correction sequence produces a state nobody ever authored.**
+It is syntactically valid, it reads coherently, and it says the wrong thing: losing the whole
+sequence would be visible; keeping only its first commit is not. *(The measured incident, with its
+SHAs, is in `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.)*
 
     IF COMMIT B CORRECTS OR RETRACTS COMMIT A, THEY COMPRESS TOGETHER OR NOT AT ALL.
     Group by FILE **and by CHAIN**: when a later commit edits text a earlier one
@@ -313,10 +227,10 @@ judgement. You decide it by running the exam on a volunteer and reading which it
 simplement un reset de tous les agents, pas forcément une suppression des fichiers."*
 **A DOOMSDAY RESETS THE SESSIONS. IT DOES NOT DELETE THE FILES.**
 
-    SURVIVES     the published governance — ~4400 lines across the four documents.
+    SURVIVES     the published governance.
     SURVIVES     EVERY agent ledger, scan archive, flag log, role map and fixture
                  that lives outside the repository. THEY ARE ON DISK AND THE DISK
-                 IS NOT TOUCHED. R22 IS NOT A BLOCKER FOR THIS OPERATION.
+                 IS NOT TOUCHED.
     DOES NOT     every session transcript, by definition.
     DOES NOT     any in-flight measurement — a live probe, a client budget, a queue
                  position nobody has written down.
@@ -365,58 +279,30 @@ it, because the knowledge feels like the document.*
 > THAT WAS NEVER WRITTEN.** *That is why it is worth doing, and exactly why it must never be
 > done before someone has measured what that half contains.*
 
-### DOOMSDAY — ORDERED BY THE OWNER, 2026-09-05. THE EXECUTABLE SEQUENCE
+### The executable sequence — moved
 
-> ***"que chacun sauvegarde ses informations importantes et compacte son brief. même si
-> certains ont des choses en cours, qu'ils sauvegardent leur état."***
+**The Doomsday sequence the owner ordered (phases 0–5: announce, save state, compact the brief,
+reset in order, entry test cold, second announcement) moved to
+`CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.** The timeless part is above: the entry
+test is the admission ticket, the flush warning comes before, the second announcement after — an
+agent that discovers by inference that its context moved spends its next hour re-deriving what it
+already knew.
 
-**THE ORDER RESOLVES THE ONLY OBJECTION THAT STOOD: in-flight work is not a blocker, IT IS A
-SAVE OBLIGATION.** *Nothing waits for a probe to finish. The probe's state gets written down.*
+## 7. A refused promotion must leave an artefact
 
-    PHASE 0   ANNOUNCE. Every seat, by name. "A Doomsday is coming. Not a compaction —
-              a RESET. Your transcript does not survive. Your FILES DO."
+**A promotion you decline is a decision, and a decision that lives only in your window dies with
+it.** Every refusal writes a queue file in `VMSAM_HELP_AI/lead/`: what was offered, by whom, why it
+was refused, and what would unblock it. A refusal with no artefact reads, later, exactly like a
+promotion that was never requested — and the agent who was refused cannot tell the difference
+either.
 
-    PHASE 1   SAVE STATE. Not a summary — the state.
-              - every finding not yet in a ledger
-              - every SEALED PREDICTION not yet in a file (a sealed prediction that
-                exists only in a transcript is INDISTINGUISHABLE, afterwards, from
-                one that was never made)
-              - IN-FLIGHT WORK, explicitly: what is running, what its next reading
-                would have been, what would have decided it
-              - the corrections you made to your OWN standing prompt
-              - what your instrument CANNOT see, in the substrate it cannot see it in
+## 8. When to restart a session
 
-    PHASE 2   COMPACT THE BRIEF. THIS IS THE PHASE THAT DECIDES EVERYTHING.
-              *** WHAT IS NOT IN YOUR BRIEF, YOU WILL NOT HAVE. ***
-              An agent's freshest knowledge and its freshest document diverge and the
-              gap is invisible from inside (§80). A Doomsday is the ONLY operation
-              that forces them to converge — BY DELETING THE HALF THAT WAS NEVER
-              WRITTEN. Write that half now or lose it.
-              The brief must be SHORTER and MORE SUFFICIENT. Cite by BLOB.
-
-    PHASE 3   RESET, IN ORDER. Anything holding an irreversible reading goes LAST,
-              and the operator goes LAST OF ALL — a coordinator reset mid-coordination
-              loses exactly the state the operation runs on.
-
-    PHASE 4   ENTRY TEST, COLD, SIX ITEMS, UNSOFTENED, FROM THE DOCUMENTS ALONE.
-              NO COACHING — a coached pass measures the coach.
-              FAIL ANY ITEM -> re-brief from the documents, restart, re-test cold.
-              FAIL TWICE FROM THE SAME BRIEF -> THE BRIEF IS THE DEFECT, and that
-              is a finding about the handoff file, not about the agent.
-
-    PHASE 5   SECOND ANNOUNCEMENT, and it matters more than the first. An agent that
-              discovers BY INFERENCE that its context moved spends its next hour
-              re-deriving what it already knew — the loss arriving through the
-              remedy instead of the disease.
-
-**WHAT THE OPERATION IS ACTUALLY FOR, stated so nobody mistakes it for hygiene:**
-
-> **A DOOMSDAY IS A TEST OF THE DOCUMENTS AND THE AGENTS ARE WHAT IT COSTS TO RUN IT.** *After
-> it, every seat has ONLY what it can fetch.* **THE PASS RATE ON THE ENTRY TEST IS THE
-> MEASUREMENT OF WHETHER THIS CAMPAIGN'S 4400 LINES ARE SUFFICIENT — and that is a number
-> nobody has ever had.**
-
-**AND THE ONE THING THAT MUST BE RECORDED BEFORE PHASE 3: WHAT EACH SEAT KNEW THAT ITS FILES DO
-NOT CONTAIN.** *Nine agents were warned before ONE compaction and NINE OF NINE HAD SOMETHING TO
-FLUSH.* **That number, taken again now, is the honest measure of the gap §80 describes — and it
-is the last chance to take it.**
+    RESTART ON    its objective closes -- at that boundary, nowhere else
+                  it corrects the same fact twice -- it is now reasoning about
+                    its own history, and retracted beliefs read like current ones
+                  a continuous charter has run with no bound placed on it
+    NEVER         between two phases of one piece of work -- writing and
+                    debugging share the premise a restart discards
+    PRECONDITION  the roster is in a file. A restart that depends on your memory
+                  of who holds what is a restart that grants a zone twice.
