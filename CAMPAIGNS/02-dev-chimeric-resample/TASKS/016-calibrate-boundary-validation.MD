@@ -2,8 +2,9 @@
 
 Owner delegation, 2026-09-15: "50 frames" was arbitrary (~2 s). The owner does
 NOT know how many frames the check needs, nor what minimum similarity to
-require, nor whether the window should instead extend to the nearest frame
-change (cut/scene change) in both directions. He delegated the numbers to
+require, nor whether the window should instead extend to the nearest SCENE CHANGE
+(owner's clarification 2026-09-15: "changement de frame" means scene cut,
+not the adjacent frame) in both directions. He delegated the numbers to
 measurement — Architect and agents decide, with evidence.
 
 ## The question, split in three
@@ -19,8 +20,8 @@ measurement — Architect and agents decide, with evidence.
    REPAIR BOUNDARIES specifically: encode artefacts at a splice point may
    depress similarity on genuinely identical frames. Freeze the threshold
    BEFORE the validation run, from a calibration set that is not the test set.
-3. **The alternative: nearest-cut anchoring.** Instead of a fixed window,
-   extend the check to the nearest frame change (scene cut) on each side —
+3. **The alternative: nearest-scene-change anchoring.** Instead of a fixed
+   window, extend the check to the nearest scene change on each side —
    the window becomes content-defined. Evaluate: does it beat the fixed window
    on the corpus (fewer false accepts/rejects), and what does it cost when the
    nearest cut is minutes away (a bound is needed)?

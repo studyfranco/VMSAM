@@ -112,5 +112,6 @@ cut's frame and its validation come from pHash, over that 50-frame window.
 
 The 50 frames (~2 s) are an arbitrary placeholder. The owner does not know the
 right window length, the minimum similarity, nor whether the window should
-extend to the nearest frame change in both directions — he delegated those
+extend to the nearest scene change in both directions (his clarification:
+"changement de frame" = scene change) — he delegated those
 numbers to measurement: TASKS/016.
