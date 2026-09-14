@@ -1153,3 +1153,14 @@ refuted alternatives). Open owner item from the latter: four files (ids 12, 13,
 45, 108) are refused by a single outlier window while nine of ten windows agree
 to ~2 ms — `mergeVideo.py:582-594`, frozen, awaiting a ruling; note the variance
 constant 0.004 is seconds-squared (sigma ~63 ms), not 4 ms.
+
+## Owner rulings, 2026-09-14 — the frame-accurate spec is confirmed and extended
+
+1. `OWNER_SPEC_FRAME_REPAIR.MD` is confirmed **as is**: it is THE precision
+   reference of the campaign. Tasks 005-010 are to be reread against it.
+2. The corpus ground truth is to carry the expected boundary **as a master video
+   frame number** — for the ENTIRE corpus, not only the synthetic cases (real
+   pairs get annotated once the pHash instrument can measure them). See TASKS/014.
+3. An audio-only divergence is still bounded **in master video frames**: one
+   reference clock for everything, consistent with frame-index invariance under
+   resample.
