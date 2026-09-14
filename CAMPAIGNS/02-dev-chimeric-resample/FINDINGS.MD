@@ -1181,3 +1181,11 @@ which rules: no divergence found on audio AND images means the refusal was
 unjustified; a found divergence (owner expects 1-2 frames) means it was right.
 The repair path must return "no difference found" as a first-class verdict —
 same contract as TASKS/013 §3. Details: TASKS/015.
+
+## Carriers addendum, 2026-09-14 — recovered task results beside the repository
+
+`VMSAM_HELP_AI/salvage-labs-20260904/` holds two recoveries the tree lacked:
+the MEASURED RESULTS of forensic tasks 003 and 004 (TASKS/003-* and 004-* here
+carry only the briefs), and the dev-3 "shift, do not round" decision series
+(T01-T07, three independent routes) behind the delay-application rule already
+summarized above. Consult them there; they stay beside the repository.
