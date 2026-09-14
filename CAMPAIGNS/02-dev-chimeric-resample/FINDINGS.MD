@@ -1189,3 +1189,13 @@ the MEASURED RESULTS of forensic tasks 003 and 004 (TASKS/003-* and 004-* here
 carry only the briefs), and the dev-3 "shift, do not round" decision series
 (T01-T07, three independent routes) behind the delay-application rule already
 summarized above. Consult them there; they stay beside the repository.
+
+## Measured 2026-09-15 — the deploy chain works end to end (C2 closed)
+
+The chain push -> CI image -> recreate hook -> verified SHA, which the previous
+campaign left untested with a live reason to expect failure, was exercised once
+deliberately. The test container's /health moved from git_commit b1954d45 to
+e2691f639b5df620235a43030d158fcba2630fca (the pushed tip) within ~30 s of the
+hook. Command and workflow: the deployment document beside the repository.
+Caveat that stands: fire the hook only ~10 min after a push — early firing
+redeploys the previous image and looks like success.
