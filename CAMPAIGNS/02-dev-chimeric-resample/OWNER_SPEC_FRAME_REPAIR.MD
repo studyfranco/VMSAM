@@ -98,3 +98,12 @@ seats implement. Reading src/ is in scope; writing it is not.
 The error set is 172-of-172 disclosure-bearing (Lead, measured). Localisation
 output is a set of timestamps AGAINST A FILENAME. Shape and count, never content,
 including in whatever the dev seats report back.
+
+## ADDENDUM — owner, 2026-09-14, direct
+
+The two instruments' division of labour, restated and extended:
+chromaprint correlation DETECTS the divergences — at ~125 ms, which is enough
+to TARGET the zone between master and candidate and avoid excess computation.
+Then **pHash must VALIDATE that the 50 frames before and the 50 frames after
+the cut are the same** on both sides. The zone comes from chromaprint; the
+cut's frame and its validation come from pHash, over that 50-frame window.

@@ -1164,3 +1164,11 @@ constant 0.004 is seconds-squared (sigma ~63 ms), not 4 ms.
 3. An audio-only divergence is still bounded **in master video frames**: one
    reference clock for everything, consistent with frame-index invariance under
    resample.
+
+## Owner ruling, 2026-09-14 (addendum) — the 50-frame pHash validation
+
+Chromaprint's ~125 ms resolution is not a limitation to overcome but the
+targeting stage: it bounds the divergent zone cheaply. pHash then validates the
+cut by proving the 50 frames before and the 50 frames after it are identical
+between master and candidate. Recorded in OWNER_SPEC_FRAME_REPAIR.MD as a dated
+addendum; TASKS/013/014 acceptance criteria inherit it.
