@@ -1211,3 +1211,13 @@ redeploys the previous image and looks like success.
 3. **Delegation**: the 50-frame boundary window (~2 s) is an arbitrary
    placeholder — window length, similarity floor, and the nearest-cut
    alternative are delegated to measurement (TASKS/016).
+
+## Precision, 2026-09-15 (owner concern) — the bit-exactness waiver is narrow
+
+"Bit-exactness is not required" was a negative licence an agent could stretch.
+Restated positively in CAMPAIGN.MD §4: byte identity is waived only for
+streams a named transform re-encoded; untouched zones must be bit-identical to
+their source; structure, boundary pHash, flat correlation, and attributability
+of every remaining difference are all required; an unexplained difference of
+any size is a FAIL. Skipping a leg because of the waiver is a broken
+validation, not a pass.

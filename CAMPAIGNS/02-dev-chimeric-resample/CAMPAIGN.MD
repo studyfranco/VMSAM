@@ -68,10 +68,24 @@ defect, not a success.
 - *Validation of "passes"*: the **Forensic agent builds the expected file by
   hand** — with its own vision and its own tools, built from its own
   calculations, **never with the pipeline under test** — and the software's
-  product is compared against that hand-built target. Bit-exactness is not
-  required. The boundary check (pHash window) uses a length and a similarity
-  threshold **calibrated by TASKS/016** — the 50-frame figure was a ~2 s
-  placeholder, and the owner has delegated the real numbers to measurement.
+  product is compared against that hand-built target.
+
+  **What "not bit-exact" licenses, and what it does not** (owner concern
+  2026-09-15 — this waiver is narrow, not a "close enough"): byte identity is
+  waived ONLY for streams a **named transform** re-encoded (a resample, a
+  splice re-encode). Everything else stays exact, and a pass requires ALL of:
+  1. structure identical to the hand-built target — tracks, kinds, languages,
+     order, flags; durations within one master frame;
+  2. zones the repair did not touch are **bit-identical to their source**
+     (stream copy proves itself; a changed byte outside the repaired zone is a
+     FAIL);
+  3. every repair boundary passes the calibrated pHash check (TASKS/016;
+     placeholder 50 frames / threshold 12 until it rules);
+  4. audio correlation flat across the repaired zone;
+  5. every remaining difference is **attributable to the named transform** —
+     an unexplained difference of any size is a FAIL, not a rounding.
+  Skipping any leg "because bit-exactness is not required" is a broken
+  validation, not a pass.
 
 ## 5. The stages
 
