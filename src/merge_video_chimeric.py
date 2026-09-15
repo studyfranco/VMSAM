@@ -120,6 +120,21 @@ class chimeric_error(Exception):
     pass
 
 
+class chimeric_bound_error(chimeric_error):
+    '''Le plan sort de la piste decoupee. SOUS-CLASSE et pas un message a
+    reconnaitre: l'appelant reessaie CE refus-la et aucun autre, et un test de
+    chaine se serait casse au premier reformulage.
+
+    Porte `stream_order` et `bound_ms` pour que l'appelant sache contre quoi le
+    refus a ete prononce sans relire le texte.
+    '''
+
+    def __init__(self, message, stream_order=None, bound_ms=None):
+        super().__init__(message)
+        self.stream_order = stream_order
+        self.bound_ms = bound_ms
+
+
 def delay_in_ms(track):
     """`Delay` en millisecondes, AVEC SON UNITE VERIFIEE CONTRE UN SECOND OUTIL.
 
@@ -303,7 +318,7 @@ def offset_fidelity(segment, stream_order=None):
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None,
                        master_path=None, candidate_path=None,
-                       fps_num=None, fps_den=None):
+                       fps_num=None, fps_den=None, bound_label=None):
     '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
 
     Chaque morceau est un dict: `source` ("candidate" | "master" | "silence"),
@@ -451,9 +466,16 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         candidate_start = master_start + offset
         candidate_end = master_end + offset
         if candidate_start < 0 or candidate_end > candidate_duration_ms:
-            raise chimeric_error(
+            # LA GARDE DIT CE QU'ELLE A VERIFIE. Sans `bound_label` ce message
+            # citait un nombre sans dire de quelle piste il venait -- et pendant
+            # qu'il etait la borne du FICHIER et non celle de la piste decoupee,
+            # il PASSAIT, donc personne ne l'a jamais lu. Le numero de flux est
+            # ce qui distingue les deux pistes `en` d'un meme fichier.
+            raise chimeric_bound_error(
                 f"segment reads the candidate at [{candidate_start},"
-                f"{candidate_end}) ms, outside its {candidate_duration_ms} ms")
+                f"{candidate_end}) ms, outside its {candidate_duration_ms} ms"
+                + (f" [{bound_label}]" if bound_label != None else ""),
+                stream_order=stream_order, bound_ms=candidate_duration_ms)
         # Monotonie cote candidat: exigee par la nature du probleme (les deux
         # timelines avancent), et exigee par l'implementation (le filtre concat
         # tire ses segments dans l'ordre; un retour en arriere obligerait
@@ -1075,8 +1097,21 @@ def pick_best_master_audio(tracks):
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                           out_path, timeout, speed_ratio=None,
                           reference_stream=None, comparison_language=None,
-                          candidate_duration_ms=None):
-    '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.'''
+                          track_bound_ms=None):
+    '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.
+
+    `track_bound_ms` est l'etendue de CETTE piste -- pas celle du fichier. Le
+    parametre s'appelait `candidate_duration_ms` et recevait le maximum sur
+    toutes les pistes audio du candidat: la coupe de queue plus bas s'en sert
+    comme fin de la source, donc elle annoncait une queue de PLUSIEURS SECONDES
+    trop longue des que le fichier portait une piste plus longue que celle-ci
+    (mesure: 3005.7 ms et 1835.61 ms sur deux fichiers). C'est le meme nombre
+    faux que la garde d'extraction, dans un second consommateur -- et celui-ci
+    est un JOURNAL, ecrit pour etre cru.
+
+    Renomme et pas seulement corrige: le nom precedent est ce qui rendait la
+    confusion invisible a la relecture.
+    '''
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     encoder_arguments, family, bitrate_origin = get_encoder_arguments(
         audio, codec_name, candidate_obj.filePath)
@@ -1362,8 +1397,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 # au lieu d'un seul `offset=measured` qui les ecrase tous.
                 "offset_ms": str(source_start - piece["master_start_ms"])})
             previous_candidate_end = source_end
-    if previous_candidate_end != None and candidate_duration_ms != None:
-        tail = Decimal(str(candidate_duration_ms)) - previous_candidate_end
+    if previous_candidate_end != None and track_bound_ms != None:
+        tail = Decimal(str(track_bound_ms)) - previous_candidate_end
         if tail > 0:
             # COUPE DE QUEUE: du candidat apres la derniere lecture. Rien ne
             # tournait apres la boucle, donc elle etait invisible.
@@ -1372,9 +1407,9 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             # au-dela du dernier morceau.
             cut_regions.append({
                 "candidate_start_ms": str(previous_candidate_end),
-                "candidate_end_ms": str(candidate_duration_ms),
+                "candidate_end_ms": str(track_bound_ms),
                 "dropped_ms": str(tail), "where": "tail"})
-    elif previous_candidate_end != None and candidate_duration_ms == None:
+    elif previous_candidate_end != None and track_bound_ms == None:
         # ON NE SUPPOSE PAS ZERO. Sans la duree du candidat la queue est
         # INCONNUE, et une absence de ligne se lirait comme "rien n'a ete
         # coupe". On le DIT.
@@ -1678,6 +1713,194 @@ def get_candidate_audio_length_ms(candidate_obj):
     return longest
 
 
+def get_track_audio_length_ms(audio):
+    '''L'etendue de CETTE piste-la, ou `None` quand elle n'est pas mesurable.
+
+    C'est la quantite que la garde d'extraction aurait toujours du comparer.
+    `get_candidate_audio_length_ms` repond a une AUTRE question -- "quelle est
+    la plus longue piste audio de ce fichier" -- et sa reponse est correcte
+    pour cette question-la; la confondre avec celle-ci est le defaut, et il
+    etait invisible parce que la garde PASSAIT.
+
+    Mesure, deux fichiers, `mediainfo --Output=JSON`, hors du pipeline:
+        E04  flux 1 en/AAC 1428.646 s   vs  max du fichier 1435.008 s (flux 2, ja)
+        E06  flux 1 en/AAC 1429.520 s   vs  max du fichier 1434.976 s (flux 2, en)
+    E06 porte DEUX pistes `en`, flux 1 et 2. LA LANGUE NE LES SEPARE PAS, le
+    numero de flux si -- c'est pourquoi la borne est une propriete de la PISTE
+    et jamais d'une langue, et pourquoi la ligne de journal cite le flux.
+
+    `None` et non un repli silencieux: une piste sans `Duration` est une piste
+    NON MESUREE, pas une piste de longueur connue. L'appelant decide quoi en
+    faire et le DIT.
+    '''
+    if "Duration" not in audio:
+        return None
+    return Decimal(str(audio["Duration"])) * Decimal("1000")
+
+
+def measure_track_extent_ms(file_path, stream_order, timeout=300):
+    '''L'etendue REELLE de cette piste lue dans les paquets, ET POURQUOI quand
+    elle manque. Renvoie `(extent_ms | None, reason)`.
+
+    POURQUOI ELLE EXISTE, et c'est une mesure et pas une precaution: `Duration`
+    est un champ de CONTENEUR et il SOUS-ESTIME parfois son propre flux. Mesure
+    sur les plans de production disponibles -- 59 couples (fichier, piste),
+    `tools/blast_radius.py`: **16 pistes sur 59 declarent une `Duration`
+    INFERIEURE a leur etendue reelle**, jusqu'a **120 ms**. Refuser une piste sur
+    ce nombre-la seul reviendrait a refuser, un jour, une paire qui fonctionne.
+
+    On ne paye JAMAIS ce sondage sur le chemin qui passe: il ne tourne que
+    lorsque la borne declaree a deja prononce un refus. Cout mesure: 310 ms pour
+    un episode de 24 minutes, contre 0 sur les 57 couples qui passent.
+
+    POURQUOI UN COUPLE ET PAS UN SEUL `None` (revue du Lead, 2026-09-15). Un
+    `None` nu voulait dire TROIS choses a la fois -- ffprobe pas enregistre,
+    ffprobe a tourne et n'a rien rendu, ffprobe a expire -- et depuis le journal
+    UN INSTRUMENT EN PANNE ETAIT INDISCERNABLE D'UNE PISTE NON MESURABLE. C'est
+    la cinquieme regle de `BRIEF_COMMON.md`: *"je n'ai pas pu mesurer" et "ce
+    fichier est inverifiable" sont deux reponses differentes, et l'issue
+    manquante est toujours L'INSTRUMENT N'A PAS TOURNE*.
+
+    Le risque concret est petit et c'est exactement la pathologie de la
+    campagne: si `ffprobe` se retrouve non enregistre dans un enfant forkserver
+    (`AGENT.MD`, Python 3.14), CHAQUE escalade renvoie `None`, chaque refus sur
+    borne declaree tient sans elargissement, les refus montent -- et le journal
+    dit `unmeasured` partout sans rien qui designe l'instrument.
+
+    `reason` vaut `measured` en cas de succes, sinon: `binary-absent`,
+    `probe-exit-<code>`, `timeout`, `probe-failed(<type>)`, `no-packets`.
+    L'etendue n'est JAMAIS inventee: absente, elle est `None`, et l'appelant
+    laisse tenir le refus d'origine.
+    '''
+    # LE BINAIRE EST CHERCHE DANS LE `try`, ET CE N'EST PAS UN DETAIL DE STYLE.
+    # `tools.software["ffprobe"]` leve `KeyError` quand l'outil n'est pas
+    # enregistre. Cette exception sortait d'ici comme une exception quelconque et
+    # faisait tomber la piste dans `failed` AU LIEU DE `declined`: une panne
+    # d'INSTRUMENT deguisee en un autre verdict. Trouve en tirant la garde sans
+    # ffprobe enregistre, pas en relisant le code.
+    try:
+        probe = tools.software["ffprobe"]
+    except Exception:
+        return None, "binary-absent"
+    command = [probe, "-v", "error", "-select_streams", str(stream_order),
+               "-show_entries", "packet=pts_time,duration_time",
+               "-of", "csv=p=0", file_path]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except Exception as error:
+        return None, f"probe-failed({type(error).__name__})"
+    if result.returncode != 0:
+        return None, f"probe-exit-{result.returncode}"
+    last = None
+    for line in result.stdout.splitlines():
+        parts = line.split(",")
+        if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+            continue
+        try:
+            last = (Decimal(parts[0].strip()) + Decimal(parts[1].strip())) \
+                * Decimal("1000")
+        except Exception:
+            continue
+    # RIEN DE LISIBLE N'EST UN RESULTAT, ET IL A SON PROPRE NOM. Un flux qui
+    # n'existe pas et un flux sans paquet exploitable tombent tous deux ici; ce
+    # qui compte est que ce n'est PAS la meme chose qu'un instrument absent.
+    if last == None:
+        return None, "no-packets"
+    return last, "measured"
+
+
+def normalize_with_measured_bound(probe_path, probe_stream_order, speed_ratio,
+                                  bound_label, timeout, *args, **kwargs):
+    '''`normalize_segments`, mais SANS JAMAIS REFUSER SUR UN CHAMP DE CONTENEUR
+    SEUL.
+
+    `Duration` sous-estime parfois son propre flux -- 16 pistes sur 58 dans les
+    plans de production disponibles, jusqu'a 120 ms (`tools/blast_radius.py`).
+    Un refus prononce sur ce nombre-la seul finirait par refuser une paire qui
+    marche, et ce serait un FAUX REFUS DANS UNE GARDE AJOUTEE POUR SUPPRIMER UN
+    FAUX PASSAGE -- la pire facon de corriger ce defaut.
+
+    Alors quand, et seulement quand, la borne declaree prononce un refus, on
+    demande au FLUX. Cout: zero sur le chemin qui passe, 310 ms mesures sur un
+    episode de 24 minutes sur celui qui refuse.
+
+    LA MESURE NE PEUT QU'ELARGIR. Plus courte, absente, ou impossible a prendre:
+    le refus d'origine tient. Une seconde mesure n'est pas une seconde chance --
+    elle ne sert qu'a ne pas croire un champ sur parole quand le croire coute un
+    refus.
+
+    Ne rattrape que `chimeric_bound_error`, par SOUS-CLASSE et pas par texte: les
+    autres refus de `normalize_segments` (plan vide, chevauchement, decalage
+    constant, lecture a rebours) ne sont pas des questions de borne et rien ici
+    ne les concerne.
+    '''
+    declared_bound = args[2] if len(args) > 2 else kwargs.get("candidate_duration_ms")
+    try:
+        return normalize_segments(*args, bound_label=bound_label, **kwargs), \
+            declared_bound, "declared"
+    except chimeric_bound_error:
+        measured_ms, probe_reason = None, "no-probe-target"
+        if probe_path != None and probe_stream_order != None:
+            measured_ms, probe_reason = measure_track_extent_ms(
+                probe_path, probe_stream_order, timeout)
+        if measured_ms != None and speed_ratio != None:
+            measured_ms = measured_ms * Decimal(str(speed_ratio))
+        if measured_ms == None or measured_ms <= declared_bound:
+            # `probe=` PORTE LE POURQUOI, PAS SEULEMENT L'ABSENCE. Sans lui,
+            # `ffprobe` non enregistre dans un enfant forkserver produirait des
+            # refus en hausse et un journal disant `unmeasured` partout, sans
+            # rien qui designe l'instrument (revue du Lead, 2026-09-15).
+            tools.logs.append(
+                f"chimeric: extraction bound {bound_label} REFUSED "
+                f"declared_ms={declared_bound} packets_ms="
+                f"{measured_ms if measured_ms != None else 'unmeasured'} "
+                f"probe={probe_reason} decided_by=declared\n")
+            raise
+        tools.logs.append(
+            f"chimeric: extraction bound {bound_label} declared_ms="
+            f"{declared_bound} UNDER-REPORTS packets_ms={measured_ms} "
+            f"probe={probe_reason}: re-testing against the stream\n")
+        widened = list(args)
+        widened[2] = measured_ms
+        try:
+            pieces = normalize_segments(*widened, bound_label=bound_label, **kwargs)
+        except chimeric_bound_error:
+            # LE REFUS LE PLUS FORT ETAIT LE MOINS DOCUMENTE. Quand meme
+            # l'etendue REELLE refuse, c'est la conclusion la plus solide que
+            # cette garde puisse produire -- et elle ressortait sans une ligne,
+            # parce que le `raise` traversait. Trouve en tirant la garde.
+            tools.logs.append(
+                f"chimeric: extraction bound {bound_label} REFUSED "
+                f"declared_ms={declared_bound} packets_ms={measured_ms} "
+                f"probe={probe_reason} decided_by=packets\n")
+            raise
+        tools.logs.append(
+            f"chimeric: extraction bound {bound_label} PASSES on the stream's "
+            f"real extent {measured_ms} ms probe={probe_reason} "
+            f"decided_by=packets\n")
+        return pieces, measured_ms, "packets(declared under-reported)"
+
+
+def describe_candidate_track(audio, language):
+    '''De quoi la garde parle, en toutes lettres: flux + langue + codec.
+
+    Exigence de conception ratifiee par l'Architecte, et elle a une raison
+    mesuree et pas une raison d'elegance: sur E06 une ligne disant "la piste
+    en" ne distingue PAS la bonne reponse de la mauvaise -- il y a deux pistes
+    `en` dans ce fichier. Une ligne portant le numero de flux, si.
+
+    Une garde qui ne peut pas dire ce qu'elle a verifie ne peut pas etre
+    auditee contre ce qu'elle AURAIT DU verifier.
+    '''
+    codec = (audio.get("ffprobe", {}).get("codec_name")
+             or audio.get("Format") or "unknown")
+    return (f"stream_order={audio.get('StreamOrder')} "
+            f"language={language or 'unknown'} codec={codec}")
+
+
 def parse_positive_rate(value):
     '''The ONE normaliser, used everywhere a rate enters this module: parse
     to an exact positive rational, or `None`. `None` in, `None` out; a blank
@@ -1799,16 +2022,48 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     master_fps_den = master_grid.denominator
 
     master_duration_ms = get_master_timeline_length_ms(master_obj)
+    # CE QUE CETTE VALEUR EST, ET CE QU'ELLE N'EST PAS.
+    #
+    # C'est le MAXIMUM sur toutes les pistes audio du candidat -- une borne DE
+    # FICHIER. Ce n'est PAS l'etendue d'une piste, et elle ne doit jamais servir
+    # de borne d'extraction pour une piste: la garde d'extraction a compare a ce
+    # nombre-la et PASSAIT, sur un plan qui lisait des secondes au-dela de la
+    # fin reelle de la piste decoupee. La docstring de la fonction nomme deja le
+    # risque, et c'est exactement ce qui a persuade le lecteur suivant qu'il
+    # etait traite. Pour une piste, `get_track_audio_length_ms(audio)`.
+    #
+    # Elle reste juste ici pour deux usages de FICHIER: l'admission ci-dessous
+    # (le plan tient-il dans la piste la plus permissive) et le plan des
+    # SOUS-TITRES, qui consomme `pieces` plus bas.
     candidate_duration_ms = get_candidate_audio_length_ms(candidate_obj)
     if speed_ratio != None:
         # Apres reechantillonnage le candidat dure `ratio` fois plus longtemps,
         # et c'est cette timeline-la que les tranches decoupent. Garder l'ancienne
         # borne refuserait des plans corrects.
         candidate_duration_ms = candidate_duration_ms * Decimal(str(speed_ratio))
-    pieces = normalize_segments(segments, master_duration_ms, candidate_duration_ms,
-                                speed_ratio, master_path=master_obj.filePath,
-                                candidate_path=candidate_obj.filePath,
-                                fps_num=master_fps_num, fps_den=master_fps_den)
+    # LE MEME REFUS D'ECOUTER UN CHAMP SUR PAROLE, A L'ADMISSION.
+    #
+    # Cette passe-ci est de FICHIER: sa borne est le maximum, donc le flux a
+    # sonder quand elle refuse est CELUI QUI PORTE CE MAXIMUM. Sans cela un
+    # candidat A UNE SEULE PISTE AUDIO serait refuse ici, sur une `Duration`
+    # sous-estimee, AVANT que la passe par piste ait la moindre chance de
+    # sonder -- trouve en tirant la garde, pas en la relisant.
+    longest_stream_order = None
+    longest_seen = None
+    for _language, _audio in iterate_candidate_audios(candidate_obj):
+        _extent = get_track_audio_length_ms(_audio)
+        if _extent == None:
+            continue
+        if longest_seen == None or _extent > longest_seen:
+            longest_seen = _extent
+            longest_stream_order = int(_audio["StreamOrder"])
+    pieces, _admission_bound, _admission_source = normalize_with_measured_bound(
+        candidate_obj.filePath, longest_stream_order, speed_ratio,
+        "file-wide admission (longest audio track)", timeout,
+        segments, master_duration_ms, candidate_duration_ms,
+        speed_ratio, master_path=master_obj.filePath,
+        candidate_path=candidate_obj.filePath,
+        fps_num=master_fps_num, fps_den=master_fps_den)
 
     tools.make_dirs(work_dir)
     audio_reports = []
@@ -1821,18 +2076,61 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         track_path = path.join(work_dir, f"audio_{index}.mka")
         index += 1
         try:
+            # LA BORNE D'EXTRACTION EST L'ETENDUE DE CETTE PISTE-CI, jamais le
+            # maximum du fichier. Le fait par piste est deja en main ici --
+            # `audio` est le dict du flux qu'on s'apprete a decouper.
+            track_bound_ms = get_track_audio_length_ms(audio)
+            track_label = describe_candidate_track(audio, language)
+            if track_bound_ms == None:
+                # "JE N'AI PAS PU MESURER" N'EST PAS "LA PISTE VA JUSQU'AU
+                # BOUT". Sans `Duration` on retombe sur la borne de fichier --
+                # le comportement d'avant, ni meilleur ni pire -- et LA LIGNE LE
+                # DIT, au lieu de laisser croire qu'une borne par piste a ete
+                # appliquee. Refuser ici rejetterait des fichiers qui passent
+                # aujourd'hui, ce qui deborde ce defaut.
+                track_bound_ms = candidate_duration_ms
+                bound_source = "file-wide-fallback(track Duration unmeasured)"
+            else:
+                if speed_ratio != None:
+                    # MEME MISE A L'ECHELLE QUE LA BORNE DE FICHIER plus haut,
+                    # et par le ratio DEMANDE, qui est celui du fichier. Le
+                    # ratio EFFECTIF est par piste (`build_speed_filter_chain`
+                    # le quantifie sur la frequence de CETTE piste) et s'en
+                    # ecarte de 0.35 a 2.75 ms sur 1435 s -- mesure, sous le
+                    # cadre video de 41.708 ms. Effet SEPARE, pas replie ici.
+                    track_bound_ms = track_bound_ms * Decimal(str(speed_ratio))
+                bound_source = "track"
+            # UNE GARDE QUI N'A JAMAIS TIRE EST INDISCERNABLE D'UNE GARDE QUI
+            # MARCHE. Cette ligne sort a CHAQUE piste, passante ou non, et nomme
+            # le flux verifie -- sur un fichier portant deux pistes `en`, "la
+            # piste en" ne distingue pas la bonne reponse de la mauvaise.
+            tools.logs.append(
+                f"chimeric: extraction bound {track_label} "
+                f"bound_ms={track_bound_ms} source={bound_source} "
+                f"file_wide_ms={candidate_duration_ms}\n")
             # Les frontieres sur la timeline du MAITRE sont les memes pour toutes
             # les pistes; seul l'endroit ou l'on lit le candidat change. On
             # recalcule donc les morceaux avec le decalage de CE flux.
-            track_pieces = normalize_segments(
-                segments, master_duration_ms, candidate_duration_ms, speed_ratio,
+            track_pieces, track_bound_ms, decided_by = normalize_with_measured_bound(
+                candidate_obj.filePath, int(audio["StreamOrder"]), speed_ratio,
+                track_label, timeout,
+                segments, master_duration_ms, track_bound_ms, speed_ratio,
                 stream_order=int(audio["StreamOrder"]),
                 master_path=master_obj.filePath, candidate_path=candidate_obj.filePath,
                 fps_num=master_fps_num, fps_den=master_fps_den)
+            if decided_by != "declared":
+                bound_source = decided_by
             report = build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
                 timeout, speed_ratio, reference_stream, comparison_language,
-                candidate_duration_ms)
+                track_bound_ms)
+            # LE RAPPORT PORTE LA BORNE ET SA PROVENANCE. La coupe de queue est
+            # calculee contre elle (`build_one_audio_track`), donc un lecteur
+            # qui trouve la queue etrange doit pouvoir voir contre QUOI elle a
+            # ete mesuree sans relire le code.
+            report["extraction_bound_ms"] = str(track_bound_ms)
+            report["extraction_bound_source"] = bound_source
+            report["extraction_bound_track"] = track_label
             # Cette piste a-t-elle son propre decalage, ou emprunte-t-elle celui
             # de la langue mesuree? La table par flux ne couvre que cette
             # langue-la, donc toute autre langue emprunte, silencieusement, avec
