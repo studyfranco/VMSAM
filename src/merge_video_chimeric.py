@@ -1506,9 +1506,46 @@ def classify_subtitle(codec_name):
 def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     '''Reecrit les timestamps des repliques sur la timeline du maitre.
 
-    Une replique dont le temps ne tombe dans aucun morceau du candidat designe
-    du contenu que le maitre n'a pas: elle est SUPPRIMEE, pas deplacee. Renvoie
-    (gardees, supprimees).
+    Une replique dont le temps ne tombe dans aucun morceau du candidat tombe
+    dans un morceau MAITRE -- head_gap, interior_bracket ou tail_gap.
+
+    H-A2 (2026-09-16). Deux versions de cette fonction, dans la meme nuit.
+    La PREMIERE retimait ces repliques par le decalage du morceau candidat
+    voisin le plus proche -- "la meilleure preuve disponible". Mesuree sur
+    id 12 (forensic Table 4): cette preuve est confirmee FAUSSE loin de sa
+    piece source (diff=58.07 a l'interieur d'un morceau maitre non modelise,
+    contre diff=3.19 au vrai decalage), et confirmee VRAIE tout pres. La
+    RULING de l'Architecte (2026-09-16, apres mesure du live locator sur le
+    meme id) a tranche: **aucune proximite ne rend un emprunt defendable.**
+    Sa raison, plus nette que la mienne: un morceau maitre etroit qu'un plan
+    recent (frame-tier, `88290537`+`2b36d376`) laisse encore ouvert EST la
+    divergence localisee elle-meme -- une replique qui y tombe designe un
+    endroit ou aucun decalage candidat n'est, PAR CONSTRUCTION, defini. Et un
+    morceau maitre LARGE est une dette du PLAN (H-A3), jamais un probleme du
+    retimer: le corriger ici cacherait le vrai defaut sous un decalage
+    invente.
+
+    Donc: UNE SEULE piece candidate emet un decalage -- celle qui couvre
+    reellement le temps source de la replique (`:1536`ish). Toute replique
+    qui ne tombe dans AUCUNE piece candidate est un DROP NOMME, jamais un
+    emprunt -- distingue par la largeur du morceau maitre concerne
+    (`gap_ms`) pour qu'un lecteur (ou un futur routeur H-A3) separe la
+    divergence etroite, correcte par construction, de la dette de plan
+    large. Deux causes, jamais confondues: `dropped_master_filled_span`
+    (aucune piece candidate ne couvre ce temps, mais le morceau maitre
+    concerne est identifiable) et `dropped_no_offset_evidence` (la piste ne
+    porte AUCUNE piece candidate du tout -- aucun morceau n'est meme
+    identifiable). Une troisieme cause preexistante, `dropped_degenerate_duration`,
+    reste inchangee: l'intervalle degenere (fin <= debut) apres un decalage
+    par ailleurs valide.
+
+    Renvoie (gardees, supprimees, decalages_appliques, decisions).
+    `decisions` porte une entree PAR SUPPRESSION, groupee par empan contigu
+    de meme nature (jamais par correspondance candidate ordinaire -- le cas
+    attendu n'a pas besoin d'etre nomme, sinon la ligne finit ignoree).
+    Chaque entree: outcome, cue_count, source_start_ms, source_end_ms,
+    shift_ms (toujours None ici -- rien n'est plus emprunte), piece_reason,
+    gap_ms.
     '''
     import pysubs2
     subtitles = pysubs2.load(subtitle_path)
@@ -1520,14 +1557,76 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
         import merge_video_resample
         merge_video_resample.retime_subtitle_events_by_ratio(subtitles, speed_ratio)
     candidate_pieces = [p for p in pieces if p["source"] == "candidate"]
+    piece_index = {id(p): i for i, p in enumerate(pieces)}
+
+    def bordering_master(piece, direction):
+        '''Le morceau juste avant (direction=-1) ou apres (+1) `piece` dans
+        `pieces`, si c'est un morceau MAITRE -- sinon None.'''
+        i = piece_index[id(piece)] + direction
+        if 0 <= i < len(pieces) and pieces[i]["source"] == "master":
+            return pieces[i]
+        return None
+
+    def find_gap_piece(event_start):
+        '''Le morceau MAITRE dans lequel tombe un temps source non couvert
+        par aucune piece candidate -- SEULEMENT pour NOMMER le drop (raison,
+        largeur). Ne calcule aucun decalage: l'Architecte a tranche qu'aucun
+        n'est defendable ici. None si la piste ne porte aucune piece
+        candidate du tout (population separee: `dropped_no_offset_evidence`).'''
+        if not candidate_pieces:
+            return None
+        prev_piece, next_piece = None, None
+        for p in candidate_pieces:
+            source_start = p["source_start_ms"]
+            source_end = source_start + (p["master_end_ms"] - p["master_start_ms"])
+            if source_end <= event_start:
+                prev_piece = p
+            elif next_piece is None and source_start > event_start:
+                next_piece = p
+        if next_piece is not None:
+            return bordering_master(next_piece, -1)
+        if prev_piece is not None:
+            return bordering_master(prev_piece, +1)
+        return None
+
     kept_events = []
-    dropped = 0
+    dropped_master_filled_span = 0
+    dropped_no_offset_evidence = 0
+    dropped_degenerate_duration = 0
     # LES DECALAGES REELLEMENT APPLIQUES, comptes par morceau. Une piste dont
     # toutes les repliques tombent dans UN morceau rend un seul decalage -- ce
     # qui est precisement pourquoi deux langues atterrissent sur la meme
     # constante, et ce n'est pas un defaut.
     applied = {}
+    decisions = []
+    pending_span = None
+
+    def flush_span():
+        nonlocal pending_span
+        if pending_span is not None:
+            pending_span.pop("_key")
+            decisions.append(pending_span)
+            pending_span = None
+
+    def record(outcome, original_start, original_end, shift, master_piece):
+        nonlocal pending_span
+        span_key = (outcome, str(shift), id(master_piece) if master_piece else None)
+        if pending_span is not None and pending_span["_key"] == span_key:
+            pending_span["cue_count"] += 1
+            pending_span["source_end_ms"] = str(original_end)
+        else:
+            flush_span()
+            pending_span = {
+                "_key": span_key, "outcome": outcome, "cue_count": 1,
+                "source_start_ms": str(original_start),
+                "source_end_ms": str(original_end),
+                "shift_ms": str(shift) if shift is not None else None,
+                "piece_reason": master_piece.get("reason") if master_piece else None,
+                "gap_ms": (str(master_piece["master_end_ms"] - master_piece["master_start_ms"])
+                          if master_piece else None)}
+
     for event in subtitles.events:
+        original_start, original_end = event.start, event.end
         shift = None
         for piece in candidate_pieces:
             source_start = piece["source_start_ms"]
@@ -1536,15 +1635,24 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
                 shift = piece["master_start_ms"] - source_start
                 break
         if shift == None:
-            dropped += 1
+            gap_piece = find_gap_piece(Decimal(str(event.start)))
+            if gap_piece is not None:
+                dropped_master_filled_span += 1
+                record("dropped_master_filled_span", original_start, original_end, None, gap_piece)
+            else:
+                dropped_no_offset_evidence += 1
+                record("dropped_no_offset_evidence", original_start, original_end, None, None)
             continue
         applied[str(shift)] = applied.get(str(shift), 0) + 1
         event.start = int(event.start + shift)
         event.end = int(event.end + shift)
         if event.end <= event.start:
-            dropped += 1
+            dropped_degenerate_duration += 1
+            record("dropped_degenerate_duration", original_start, original_end, shift, None)
             continue
+        flush_span()  # correspondance candidate ordinaire: attendue, non nommee, mais ne fusionne pas a travers elle
         kept_events.append(event)
+    flush_span()
     subtitles.events = kept_events
     subtitles.save(subtitle_path)
     # QUEL DECALAGE A ETE APPLIQUE, ET DEPUIS QUEL MORCEAU. `vmsam-ci` ne pouvait
@@ -1558,7 +1666,9 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     # publie sans sa fenetre. Une quantite calculee et non emise, quand le
     # controle qui en a besoin vit HORS du processus. Ma propre phrase: c'est un
     # saut manquant, et le saut est a moi.
-    return len(kept_events), dropped, applied
+    return (len(kept_events),
+            dropped_master_filled_span + dropped_no_offset_evidence + dropped_degenerate_duration,
+            applied, decisions)
 
 
 def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir,
@@ -1600,7 +1710,25 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
         raise chimeric_error(
             "the source subtitle track carries no cue at all: nothing was "
             "dropped, there was never anything to drop")
-    kept, dropped, shifts_applied = retime_subtitle_file(out_path, pieces, speed_ratio)
+    kept, dropped, shifts_applied, decisions = retime_subtitle_file(out_path, pieces, speed_ratio)
+    # UNE SUPPRESSION EST UNE DECISION ET RECOIT UNE LIGNE --
+    # H-A2 (2026-09-16), meme forme que ea233239 (mergeVideo.py:1746-1747):
+    # le drapeau que le code portait deja implicitement se dit maintenant a
+    # cote du nombre. NI chemin NI titre NI nom de fichier ici (PRIVACY,
+    # BRIEF_COMMON.md): stream_order, langue, l'issue, les bornes SOURCE (le
+    # temps du candidat extrait, pas un chemin), le compte et la cause.
+    # Verifiee des DEUX cotes (tools/verify_keep_false_line.py-style): une
+    # piste sans decision n'ecrit RIEN ici, une piste avec en ecrit une par
+    # empan -- et ceci tourne que `tools.dev` soit vrai ou faux, ce n'est pas
+    # un aide au debogage.
+    for decision in decisions:
+        tools.logs.append(
+            f"chimeric: subtitle stream_order={subtitle['StreamOrder']} "
+            f"language={language} decision={decision['outcome']} "
+            f"cue_count={decision['cue_count']} "
+            f"source_span_ms=[{decision['source_start_ms']},{decision['source_end_ms']}) "
+            f"shift_ms={decision['shift_ms']} piece_reason={decision['piece_reason']} "
+            f"gap_ms={decision['gap_ms']}\n")
     if not kept:
         # TOUTES les repliques sont tombees hors des morceaux gardes du
         # candidat. `pysubs2` ecrit alors un .srt de ZERO OCTET -- un .ass garde
@@ -1624,6 +1752,13 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
             # entree, et c'est la reponse a "pourquoi deux langues ont-elles la
             # meme constante".
             "shifts_applied_ms": shifts_applied,
+            # PAR SUPPRESSION, jamais par correspondance
+            # ordinaire (le cas attendu n'a pas besoin d'une ligne) -- la
+            # famille de `head_decisions` / `cut_regions` (audio), etendue au
+            # sous-titre pour fermer l'asymetrie que H-A2 a mesuree: le
+            # compte-rendu audio portait des DECISIONS avec bornes, celui des
+            # sous-titres ne portait que des comptes.
+            "subtitle_decisions": decisions,
             "title": subtitle.get("Title")}
 
 
