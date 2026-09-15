@@ -65,6 +65,51 @@ build the consumer: that scope is not `vmsam-dev-frame`'s.
 Defects 1 and 4 are unaffected — `frame_compare.py` and `merge_video_chimeric.py`
 are open under `WRITE_ZONES.MD` §4 and proceed.
 
+**R3 — `vmsam-dev-frame`'s defects 1 and 4 are not accepted yet.** One blocking
+finding, measured by firing the new guard on literals (five of six cases correct,
+which is what makes the sixth credible): `master_frame_grid_is_unmeasured` tests
+`frame_rate_original is None`, but the assignment above it can set that field to
+`""`, so a VFR master with a **blank** `FrameRate_Original` is accepted on a grid
+nobody measured — the defect the guard exists to stop, one field over. Named
+correctly by the F1 contract's rule 6: an unknown grid must be *unrepresentable*,
+so "unmeasured" is a property of the value, not of its absence. Second finding,
+to be fixed or stated: dropping the `fps=` filter moved extraction from `fps=10`
+to native cadence, so `max_search_frames=50` fell from 5.0 s of content to
+**2.09 s** and `band_width=20` from ±2.0 s to **±0.83 s** — a behaviour change
+riding inside a fix for something else. Sent back with a target-first requirement
+on the fix.
+
+*Update, same day, second review.* Both closed, **verified by the Lead rather than
+accepted on report**: the guard now declines on empty, blank, zero, negative,
+zero-numerator, zero-denominator, malformed and wrong-type rates — 20 of 21 cases
+in the Lead's own table, five of which the seat had not tried. The 21st is a leak:
+`"inf"` is accepted, because the predicate decides by `float(x) > 0`. Low severity
+— MediaInfo will not emit it — but it names the shape: the Architect ruled a
+**normaliser returning an exact rational or `None`**, and a float-comparison
+predicate both admits `inf` and discards the exactness `RULING_20260915`'s rule 2
+requires. Returning `Fraction | None` makes `inf` unrepresentable instead of
+merely rejected. The seconds-based defaults are confirmed restored: 48 / 120
+frames at 24000/1001, measured coverage 2.002 s / 5.005 s against the old 2.0 /
+5.0. Constructor guard fires both ways on literals.
+
+**R5 — a precondition is probed at admission, not at delivery** (Architect,
+2026-09-15, raised from R4). The grid probe must move to the entry of
+`assemble_on_master_timeline` and the `mark_output` REFUSED-rename block for that
+path must be **deleted, not mirrored** — with nothing yet written there is nothing
+to un-say. The deeper reason: under the landed F1 contract an unmeasured grid
+cannot legitimately reach the assembler at all, so the late gate is
+dead-by-construction. Measured as not yet done: the call still sits at
+`merge_video_chimeric.py:2020` in a function beginning at `:1648`. Directed at
+the seat; open-zone code, no governance gesture needed. **The Lead's first review
+told the seat this was not theirs to act on — that reversal is the Lead's to
+carry, not the seat's.**
+
+**R4 — an architecture finding held, not assigned.** The grid refusal fires
+*after* the mux completes, which is the only reason it needs the `mark_output`
+REFUSED-rename mirror. `FrameRate_Mode` is knowable before any work starts;
+moving the probe forward would make the refusal cheap and delete the mirrored
+crash path. Larger than the seat's ticket — routed to the Architect.
+
 **R2 — the seat reporting a stale brief is right and the brief is not corrected by
 the seat.** `vmsam-dev-frame` measured that its brief omits `get_cut_time.py`'s
 retirement and calls `change_point_locator.py` "a new runtime module" when it
@@ -77,7 +122,17 @@ Architect, not edited.
 | date | subject | checker | compileall | pushed |
 |---|---|---|---|---|
 | 2026-09-15 | baseline at open, nothing staged | exit 0, 35/35 | exit 0 | — |
-| 2026-09-15 | docket + stage-0 findings + the `AGENT.MD` quantum correction | see the commit | see the commit | this commit |
+| 2026-09-15 | stage-0 corrections + the frame-indexed boundary contract | **exit 1, six §1 lines, every one an authorised path** — the owner's one-time bypass, spent | exit 0 | `1ea300f1` |
+| 2026-09-15 | `vmsam-dev-frame` defects 1 and 4 | **not gated — sent back**, see R3 | exit 0 | — |
+
+The `1ea300f1` row is the only commit in this campaign that landed at exit 1, and
+it did so under an explicit single-use owner authorisation recorded in
+`FINDINGS.MD` ("Governance bypass"). **It is not a precedent and may not be cited
+as one.** Procedure actually run: staged exactly the authorised paths; `--staged`
+gave six violations, all §1, all on the list, none frozen/tagged/config/compile;
+re-run on the landed rev gave the identical six — no drift, nothing rode along.
+`vmsam-dev-frame`'s two `src/` files were deliberately left out: the exceptional
+and the normal do not share a commit.
 
 ## 5. Standing blocks that are nobody's ticket yet
 

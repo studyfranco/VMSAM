@@ -61,6 +61,7 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 '''
 
 from decimal import Decimal
+from fractions import Fraction
 import os
 from os import path, replace as replace_file
 import re
@@ -1598,6 +1599,52 @@ def get_candidate_audio_length_ms(candidate_obj):
     return longest
 
 
+def parse_positive_rate(value):
+    '''The ONE normaliser, used everywhere a rate enters this module: parse
+    to an exact positive rational, or `None`. `None` in, `None` out; a blank
+    or whitespace-only string, a non-positive value, and anything
+    `Fraction()` cannot parse (including `"inf"`/`"nan"`/a non-finite float,
+    a malformed `"num/den"`, a wrong type) all collapse to the SAME `None` --
+    "I could not measure" is a property of the value, not of its absence
+    (Architect's ruling, frame-indexed contract rule 6, `1ea300f1`).
+
+    Returning `Fraction | None` rather than a bool is the point, not a style
+    choice: it makes an infinite or non-finite rate UNREPRESENTABLE rather
+    than merely rejected by a comparison. `Fraction(float("inf"))` raises
+    before any `> 0` check runs -- caught here, never reaches one (the Lead
+    measured a float-based predicate accepting `"inf"` for exactly this
+    reason, 2026-09-15). Every downstream call reduces to `grid is None`.
+    '''
+    if value is None:
+        return None
+    try:
+        rate = Fraction(value)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+    return rate if rate > 0 else None
+
+
+def resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original):
+    '''The exact rational the master's frame numbers are actually expressed
+    on, or `None` when none is measured -- ARCH_FRAME_ACCURATE.MD defect 4.
+
+    Follows the codebase's own CFR convention (`mergeVideo.py:679`): tested
+    against the exact string "CFR", never a looser truthy check, so an absent
+    or empty mode is NOT CFR -- silently trusting it would be the same
+    "invented default" shape as ARCH_FRAME_ACCURATE.MD defect 3's 25.0 fps.
+    CFR trusts the nominal `FrameRate` (that is what CFR means, and nothing
+    downstream of this module does arithmetic with it that would need the
+    more precise `FrameRate_Original` preferred instead -- that preference
+    belongs to `adjust_delay_to_frame`, `mergeVideo.py`, frozen, not this
+    module). Any other mode resolves only through a genuinely parseable
+    `FrameRate_Original` -- it is the rate the frames were actually authored
+    on, per the field's own MediaInfo semantics.
+    '''
+    if frame_rate_mode == "CFR":
+        return parse_positive_rate(frame_rate)
+    return parse_positive_rate(frame_rate_original)
+
+
 def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                                 out_path, marker_value, timeout=3600,
                                 verify=True, verify_tolerance_ms=100,
@@ -1611,6 +1658,61 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     docs/SUBTITLE_CODECS.MD: "count a declined codec separately from a failed
     extract".
     '''
+    # LA CADENCE DU MAITRE, SONDEE A L'ADMISSION. Architect's ruling,
+    # 2026-09-15: "a precondition is probed at admission, before any work
+    # begins; a refusal must cost a probe, not a mux." `FrameRate_Mode` est
+    # une propriete de L'ENTREE et rien de ce qui suit ne la rend plus
+    # connaissable -- donc rien de ce qui suit ne doit tourner avant qu'elle
+    # ait ete verifiee.
+    #
+    # DEUX CHAMPS, ET LEUR DESACCORD EST L'INFORMATION. vmsam-dev-3: sur les
+    # deux seuls fichiers dont la cadence est inhabituelle, `FrameRate` et
+    # `FrameRate_Original` DIFFERENT -- 23.839 contre 23.976, 47.281 contre
+    # 29.970. Emettre un seul champ collapse precisement ce qui rend ces
+    # fichiers interessants, et un lecteur qui calcule une periode d'image
+    # obtient 41.948 ms la ou le nominal est 41.708.
+    #
+    # Et le MODE se dit aussi, parce que la branche de collage ne teste pas
+    # "VFR": elle teste l'egalite avec la chaine exacte "CFR". Un mode absent
+    # ou vide prend donc silencieusement le chemin non colle, et rien ne
+    # disait lequel avait tourne.
+    frame_rate = None
+    frame_rate_mode = None
+    frame_rate_original = None
+    try:
+        frame_rate = master_obj.video.get("FrameRate")
+        frame_rate_mode = master_obj.video.get("FrameRate_Mode")
+        original = master_obj.video.get("FrameRate_Original")
+        if original != None and str(original) != str(frame_rate):
+            frame_rate_original = original
+    except Exception:
+        pass
+    # ARCH_FRAME_ACCURATE.MD defect 4, refused AT ADMISSION rather than
+    # mirrored after the mux: `segments`, a parameter of THIS call, already
+    # carries frame-indexed boundaries the CALLER computed. If nothing
+    # anchors the master's grid, those boundaries are not a coordinate, and
+    # no amount of correct audio mixing changes that.
+    #
+    # No `mark_output`/`partial_assembly` here, unlike the refusal below that
+    # follows the mux: at this point NOTHING has been produced -- no ffmpeg
+    # call, no track, no content at `out_path` -- so there is nothing to
+    # rename and nothing partial to report. Mirroring that scaffolding here
+    # would be inventing a decline record for work that never started.
+    if resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original) is None:
+        # NEUTRAL, AND NAMES ALL THREE VALUES: which field actually failed to
+        # parse depends on the path (CFR resolves through `frame_rate`, any
+        # other mode through `frame_rate_original` -- `resolve_master_grid`
+        # above), and a message written for one path is a wrong accusation on
+        # the other. Lead's finding, 2026-09-15: the previous wording always
+        # named `FrameRate_Original` and always parenthesised the mode against
+        # `"CFR"`, so a CFR file with an unparseable `FrameRate` produced
+        # `'CFR' (not "CFR")` and blamed the field that was never in question.
+        raise chimeric_error(
+            f"the master's frame grid is not measurable -- FrameRate_Mode="
+            f"{frame_rate_mode!r} FrameRate={frame_rate!r} "
+            f"FrameRate_Original={frame_rate_original!r}: this candidate's "
+            f"segment boundaries are not expressed on a measured grid")
+
     master_duration_ms = get_master_timeline_length_ms(master_obj)
     candidate_duration_ms = get_candidate_audio_length_ms(candidate_obj)
     if speed_ratio != None:
@@ -1934,30 +2036,11 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # supposee identique pour tout le corpus est fausse pour ces deux-la, et rien
     # dans le journal ne le disait.
     #
-    # `unread` et non zero quand mediainfo ne la donne pas.
-    #
-    # DEUX CHAMPS, ET LEUR DESACCORD EST L'INFORMATION. vmsam-dev-3: sur les deux
-    # seuls fichiers dont la cadence est inhabituelle, `FrameRate` et
-    # `FrameRate_Original` DIFFERENT -- 23.839 contre 23.976, 47.281 contre
-    # 29.970. Emettre un seul champ collapse precisement ce qui rend ces
-    # fichiers interessants, et un lecteur qui calcule une periode d'image
-    # obtient 41.948 ms la ou le nominal est 41.708.
-    #
-    # Et le MODE se dit aussi, parce que la branche de collage ne teste pas
-    # "VFR": elle teste l'egalite avec la chaine exacte "CFR". Un mode absent ou
-    # vide prend donc silencieusement le chemin non colle, et rien ne disait
-    # lequel avait tourne.
-    frame_rate = None
-    frame_rate_mode = None
-    frame_rate_original = None
-    try:
-        frame_rate = master_obj.video.get("FrameRate")
-        frame_rate_mode = master_obj.video.get("FrameRate_Mode")
-        original = master_obj.video.get("FrameRate_Original")
-        if original != None and str(original) != str(frame_rate):
-            frame_rate_original = original
-    except Exception:
-        pass
+    # `unread` et non zero quand mediainfo ne la donne pas. `frame_rate` /
+    # `frame_rate_mode` / `frame_rate_original` are captured once, at
+    # admission (top of this function, alongside the grid refusal) -- reused
+    # here rather than re-read, so there is exactly one place this module
+    # asks the master what its grid is.
     return {"path": out_path, "pieces": pieces, "audios": audio_reports,
             "master_frame_rate": frame_rate,
             "master_frame_rate_mode": frame_rate_mode,
