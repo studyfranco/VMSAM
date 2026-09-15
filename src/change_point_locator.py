@@ -1014,6 +1014,131 @@ def _group_plateaus(samples):
     return merged
 
 
+def _merge_narrow_runs(runs):
+    """The measurement-retention invariant, applied to `_group_plateaus`'s own
+    output (Architect's ruling, 2026-09-15): *"A measurement, once made, is
+    never silently discarded."* `_group_plateaus` already separates every run
+    correctly at the level of raw probes -- id 12, measured 2026-09-15: three
+    small runs at the head (four probes, offsets -642/-588/-567 ms) came out
+    as three DISTINCT runs, not folded into the body's -1412.3356 ms plateau.
+    What was lost was downstream: the per-segment usability filter drops any
+    run whose bracketed window collapses to zero width, and it ran BEFORE
+    anything compared the head against the body -- so the 845 ms difference
+    between them was never evaluated, because every run that could have
+    anchored one side of that comparison was, on its own, too narrow to
+    survive. *"It didn't fail measuring. It failed keeping what it
+    measured."*
+
+    This function runs BEFORE the usability filter rather than repairing
+    after it, so every measured run reaches the comparison stage. It does not
+    replace the usability filter -- an unusable segment is still real and is
+    still dropped, later, on its own merits (`WRITE_ZONES` note: "the
+    usability filter is not the enemy"). It only stops SMALL runs from being
+    discarded one at a time before anyone asks whether, taken together, they
+    say something the survivors alone do not.
+
+    NO NEW CONSTANT. Two thresholds, both already calibrated for a different
+    question and reused for this one rather than invented:
+
+    "NARROW" -- a run whose own probe span (`last - first`) is under
+    `PROBE_WINDOW_SECONDS`. The exact test the segment-building loop already
+    applies to flag `offset_unverified` a few screens down: a run this thin
+    contains no probe whose window does not overlap a neighbouring run, by
+    the same reasoning that comment gives for segments.
+
+    "NOISE" -- a maximal run of consecutive narrow runs is noise, and is
+    absorbed with NOTHING carried forward, only when it has a real
+    (non-narrow) run flanking it on BOTH sides and those two flanking means
+    agree within `MIN_STEP_MS` -- the exact statistic `_group_plateaus`'s own
+    merge pass already uses to call a gap between two plateaus noise rather
+    than a step. id 12's single interior probe at t=520 (offset -1433.7 ms,
+    one member) sits between two runs both reading -1412.3356 ms: the
+    question the Architect posed -- should one uncorroborated interior probe
+    be allowed to split a plateau -- is answered by this same test, not by a
+    separate rule: NO, when the two sides it would split already agree with
+    each other, because at that point nothing distinguishes it from a probe
+    that read the SAME plateau slightly wrong. A cluster with no flanking
+    context on one side (it sits at the very start or end of the scan, id
+    12's head and tail both) can never be called noise by a test that needs
+    both sides -- there is nothing to compare it against, so it is kept.
+
+    Everything narrow that is not noise is EVIDENCE: a maximal cluster of
+    consecutive narrow runs is merged into ONE wider run -- the mean of every
+    probe across the whole cluster, spanning its full range -- so the
+    transition/segment stage downstream sees one candidate wide enough to
+    keep or flag as unverified, instead of several individually too narrow
+    to survive. Merging within a cluster, never across a non-narrow run:
+    `PLATEAU_TOLERANCE_MS`/`MIN_STEP_MS` already decided a non-narrow run is
+    its own plateau, and this function does not re-open that.
+
+    A run this function keeps but could not disprove as noise may still be
+    SUB-QUANTUM -- id 12's own head spread is ~70 ms against a ~129 ms
+    chromaprint quantum on this file, below what any audio instrument can
+    resolve as one step or several. Merging the cluster to one mean is the
+    conservative answer to that, not a claim about how many real steps live
+    inside it: the owner's own division of labour is unchanged by this
+    function -- fpcalc targets a zone, pHash decides the frame, and a merged
+    run here is a zone, not a frame-accurate answer.
+    """
+    n = len(runs)
+    is_narrow = [(run["last"] - run["first"]) < PROBE_WINDOW_SECONDS for run in runs]
+    result = []
+    index = 0
+    while index < n:
+        if not is_narrow[index]:
+            result.append(runs[index])
+            index += 1
+            continue
+        cluster_end = index
+        while cluster_end < n and is_narrow[cluster_end]:
+            cluster_end += 1
+        cluster = runs[index:cluster_end]
+        before = result[-1] if result else None
+        after = runs[cluster_end] if cluster_end < n else None
+        if (before is not None and after is not None
+                and abs(before["mean"] - after["mean"]) < MIN_STEP_MS):
+            _log(f"absorbed {len(cluster)} narrow run(s) at "
+                 f"[{cluster[0]['first']:.1f},{cluster[-1]['last']:.1f}]s as noise: "
+                 f"flanking runs agree within {MIN_STEP_MS} ms "
+                 f"({before['mean']:.1f} vs {after['mean']:.1f})")
+        else:
+            members = [member for run in cluster for member in run["members"]]
+            merged_run = {
+                "members": members,
+                "mean": sum(member[1] for member in members) / len(members),
+                "first": cluster[0]["first"],
+                "last": cluster[-1]["last"],
+            }
+            _log(f"merged {len(cluster)} narrow run(s) at "
+                 f"[{merged_run['first']:.1f},{merged_run['last']:.1f}]s into one "
+                 f"evidence run, mean={merged_run['mean']:.1f}ms "
+                 f"({len(members)} probe(s)) -- "
+                 + (f"no run before it" if before is None else f"before={before['mean']:.1f}ms")
+                 + ", "
+                 + (f"no run after it" if after is None else f"after={after['mean']:.1f}ms"))
+            result.append(merged_run)
+        index = cluster_end
+
+    # ABSORBING A NOISE CLUSTER CAN NEWLY PLACE TWO REAL PLATEAUS ADJACENT TO
+    # EACH OTHER that `_group_plateaus` never compared directly, because the
+    # noise run used to sit between them. id 12: runs 3 and 5 both read
+    # -1412.3356 ms and disagree only in a trailing digit once run 4 (the
+    # t=520 outlier) is absorbed -- without this pass they survive as two
+    # separate runs with a spurious ~0 ms "change point" between them. Same
+    # test, same constant, `_group_plateaus`'s own second pass, reapplied
+    # because absorption can create the adjacency it was written to see.
+    reconciled = result[:1]
+    for run in result[1:]:
+        if abs(run["mean"] - reconciled[-1]["mean"]) < MIN_STEP_MS:
+            previous = reconciled[-1]
+            previous["members"] = previous["members"] + run["members"]
+            previous["mean"] = sum(m[1] for m in previous["members"]) / len(previous["members"])
+            previous["last"] = run["last"]
+        else:
+            reconciled.append(run)
+    return reconciled
+
+
 def _discards(samples):
     """How many refine probes read NEITHER plateau and were thrown away.
 
@@ -1471,6 +1596,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         sign_flips_max=MAX_SIGN_FLIPS)
 
     runs = _group_plateaus([(r[0], r[1][0]) for r in kept])
+    # MEASUREMENT-RETENTION INVARIANT: every measured run reaches the
+    # transition/segment stage, or is absorbed as noise against a named,
+    # calibrated test -- never dropped one at a time by a filter that runs
+    # before anything compares it to its neighbours. See `_merge_narrow_runs`.
+    runs = _merge_narrow_runs(runs)
 
     # --- per-stream plateau offsets -----------------------------------------
     # The transitions are shared: every stream of the language shows the same
@@ -1520,6 +1650,26 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # that declines leaves nothing to re-judge.
     measured_fidelity = {m["candidate_stream"]: m.get("fidelity")
                          for m in pairing_measurements}
+    # THE DECLINE PATH USED TO KEEP ONLY THE MINIMUM AND LOSE THE REST --
+    # `_pair_candidate_streams` always computed every position's score, but a
+    # decline here only ever emitted the one number the bar was applied to.
+    # Found reconstructing id 108's refusal by hand, position by position,
+    # because nothing on this path had kept them: "a file that declines
+    # leaves nothing to re-judge" was true of the two lines above THIS one
+    # and stayed true of the number that actually decided the case. Read at
+    # the SAME site as `measured_fidelity`, for the same reason.
+    #
+    # POSITION COUNT ONLY -- not the per-position scores. Those belong to the
+    # pairing fix's own producer (`_pair_candidate_streams`'s
+    # `position_scores`), which this file does not carry standalone: emitting
+    # a key whose producer is absent would always read `None`, and `None`
+    # means "could not measure" everywhere else in this module, never "the
+    # code that would have told you was removed elsewhere in the same patch
+    # split." The count alone is still real: it distinguishes a two-probe
+    # minimum from a fallback geometry, live from `_pair_candidate_streams`
+    # whichever selection rule is in the tree.
+    measured_positions = {m["candidate_stream"]: m.get("positions")
+                          for m in pairing_measurements}
     def _pairing_detail(stream):
         fid = measured_fidelity.get(stream)
         return (f"{fid} against {MIN_PAIRING_FIDELITY}" if fid is not None
@@ -1555,7 +1705,8 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         return _decline("primary_below_pairing_bar", "ran_conclusive_negative", pair=pair_id,
                         stream=primary_stream, lang=language,
                         pairing_fidelity=measured_fidelity.get(primary_stream),
-                        pairing_bar=MIN_PAIRING_FIDELITY)
+                        pairing_bar=MIN_PAIRING_FIDELITY,
+                        pairing_positions=measured_positions.get(primary_stream))
     extra_streams = [s for s in sorted(pairing) if s not in candidate_streams]
     if extra_streams:
         _log(f"pairing adds {len(extra_streams)} stream(s) outside {language}: "
@@ -1662,6 +1813,14 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     segments = []
     kept_runs = set()
     dropped_segments = 0
+    # MEASUREMENT-RETENTION INVARIANT, the emission half: a run this filter
+    # drops is a measurement, and the drop must carry its own reason in the
+    # same structured stream the kept segments travel in -- not only `_log`,
+    # which is gated and reaches no production artefact. Found needing this
+    # first-hand: reconstructing id 12's drops took `tools.dev=True` and
+    # hand instrumentation, because nothing else could show which runs were
+    # dropped or why.
+    dropped_segment_detail = []
     candidate_end_ms = candidate_duration * 1000.0
     master_end_ms = round(shortest * 1000.0, 2)
     boundary = 0.0
@@ -1701,6 +1860,15 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # a guard written for a real hazard, firing correctly, with a scope
             # one case too wide — the fourth time that shape has bitten us.
             dropped_segments += 1
+            dropped_segment_detail.append({
+                "position": position,
+                "candidate_offset_ms": round(offset_ms, 2),
+                "master_start_ms": round(start_ms, 2),
+                "master_end_ms": round(end_ms, 2),
+                "probes_in_run": len(run["members"]),
+                "reason": "bracketed window collapsed to zero width after the "
+                          "leading-gap/boundary clamp",
+            })
             _log(f"segment {position} unusable (offset {offset_ms:.0f} ms, "
                  f"master [{start_ms},{end_ms}]); dropped, not declining")
             continue
@@ -1984,6 +2152,7 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # a second thing to keep true and a second thing to get wrong.
             "master_reference_start_time_ms": reference_start_ms,
             "segments_dropped_unusable": dropped_segments,
+            "segments_dropped_unusable_detail": dropped_segment_detail,
             # Surfaced at the top level so a consumer does not have to scan the
             # segment list to discover that part of the plan is unverified.
             "segments_offset_unverified": sum(1 for seg in segments
