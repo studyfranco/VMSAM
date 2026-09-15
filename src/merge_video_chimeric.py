@@ -116,8 +116,38 @@ audio_encoder_by_codec = {
 
 
 class chimeric_error(Exception):
-    '''Le plan ne peut pas etre execute. Refus explicite, jamais un fallback.'''
-    pass
+    '''Le plan ne peut pas etre execute. Refus explicite, jamais un fallback.
+
+    Porte `cause`: UN JETON STABLE, pose AU SITE DE LEVEE et non chez
+    l'appelant. `merge_video_repair.py:2215` attrape cette classe et doit
+    ecrire `cause=<jeton>` dans son journal -- et il ne peut pas le DEDUIRE,
+    parce que 23 sites levent cette exception et que la seule chose qui les
+    distingue chez l'appelant est un message libre. RECONNAITRE UNE CHAINE
+    SERAIT LE DEFAUT QUE `chimeric_bound_error` EXISTE DEJA POUR EVITER: un
+    test de message se casse au premier reformulage, et c'est pour cela que la
+    sous-classe porte `stream_order` et `bound_ms` en ATTRIBUTS. Meme forme
+    ici, une raison de plus: le jeton alimente `excluded_with_stated_cause`,
+    LA COLONNE SUR LAQUELLE LA CONDITION DE FIN DU PROPRIETAIRE EST NOTEE.
+
+    `None` PAR DEFAUT, ET CE DEFAUT EST UN REFUS DE DEVINER. Les 23 sites
+    passent leur message en positionnel, donc ajouter ce parametre ne change
+    le sens d'AUCUN site existant. Deux seulement le posent aujourd'hui --
+    ceux que la production a reellement fait tourner (18 et 5 occurrences sur
+    59 artefacts, mesure dev-cause 2026-09-15) -- sur autorisation explicite
+    du Lead (R2), qui a BORNE la modification a ces deux-la: deux sites
+    achetent 23 declins sur 26, les 21 autres en achetent 3 pour un large
+    diff dans un module porteur.
+
+    LES AUTRES N'ONT DONC PAS DE JETON, ET C'EST DIT PLUTOT QUE COMBLE.
+    L'appelant ecrit alors un SENTINELLE hors de la classe acceptee -- voir
+    `merge_video_repair.py` -- et surtout PAS un jeton grossier du genre
+    `assembly_refused`: remplir la colonne avec une valeur qui ne classe rien
+    est PIRE qu'une colonne vide, parce que ca ressemble a une note.
+    '''
+
+    def __init__(self, message, cause=None):
+        super().__init__(message)
+        self.cause = cause
 
 
 class chimeric_bound_error(chimeric_error):
@@ -3268,8 +3298,19 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     report["measured"] = bool(len(streams)) and not len(unmeasured) and bool(
         [x for x in streams if x["codec_type"] == "audio"])
     if len(problems) and output_check_enforcing:
+        # LE JETON EST POSE ICI, A LA DECISION, ET NON CHEZ L'APPELANT.
+        # C'est le site DOMINANT en production: 18 des 26 declins mesures sur
+        # les 59 artefacts de `/config/output` (dev-cause, 2026-09-15). Le
+        # jeton nomme CE controle-la -- le fichier produit relu et compare a ce
+        # qui a ete construit -- et non "l'assemblage a refuse", qui couvrirait
+        # 24 decisions distinctes et n'en classerait aucune.
+        #
+        # LA PARTIE QUI VARIE RESTE DANS LA PROSE. `problems` change d'un
+        # fichier a l'autre; le jeton non. Un jeton qui varie n'est pas un
+        # jeton -- il ne s'agrege pas, donc il ne compte rien.
         error = chimeric_error("the produced file does not match what was built: "
-                               + "; ".join(problems))
+                               + "; ".join(problems),
+                               cause="output_check_mismatch")
         error.output_check = report
         raise error
     return report
@@ -3486,11 +3527,20 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             # localiser un facteur 23 entre son plan et ma mesure, et il a fallu
             # rejouer le fichier pour les produire. Un refus qui ne peut pas
             # etre diagnostique coute plus cher que le refus lui-meme.
+            # SECOND SITE AUTORISE (Lead, R2): 5 des 26 declins mesures.
+            # Le jeton dit CE QUE LA MESURE A CONTREDIT -- le plan affirme un
+            # alignement unique sur une piece, la piste dit le contraire --
+            # parce que c'est la chose sur laquelle un correctif futur agit:
+            # un point de changement que la mesure a MANQUE. Distinct de
+            # `output_check_mismatch`, qui dit que le FICHIER PRODUIT est faux;
+            # ici le fichier produit est fidele au plan et c'est LE PLAN qui
+            # est incomplet. Deux corrections differentes, donc deux jetons.
             error = chimeric_error(
                 f"the plan says one alignment holds across a piece and the track "
                 f"says otherwise: {detail}. That is a change point the measurement "
                 f"missed, not a splice error -- the track may be correctly aligned "
-                f"on both sides of a boundary nobody modelled")
+                f"on both sides of a boundary nobody modelled",
+                cause="alignment_contradicts_plan")
             error.verification = results + [
                 {"track": report["stream_order"], "language": language,
                  "produced_index": produced_index,

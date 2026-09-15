@@ -97,20 +97,38 @@ def get_speed_ratio(plan):
     l'erreur destructrice -- reechantillonner un fichier qui n'avait besoin de
     rien -- etait DEUX FOIS plus frequente que le cas inversant que le detecteur
     existe pour trouver. On n'applique donc rien sans verdict explicite.
+
+    REND `(ratio, refus, jeton)`. Le troisieme element est un jeton stable en
+    snake_case, produit ICI -- a la decision -- et non au site de journalisation.
+
+    ONZE REFUS DISTINCTS PASSENT PAR CETTE FONCTION, et non neuf: quatre sont
+    rendus directement ci-dessous, un vient de `check_ratio_convention` et
+    TROIS de `check_ratio_labelled`, puis trois autres directement. Un appelant
+    ne peut pas les distinguer -- il ne voit qu'une prose libre -- donc un seul
+    jeton pose chez lui aurait effondre onze decisions en une. Mesure
+    dev-cause 2026-09-15, confirmee par le Lead; le compte de neuf qui
+    circulait comptait les `return` de cette fonction, ce qui est exact et
+    n'est pas la meme quantite.
     """
     if plan.get("kind") != "speed" and plan.get("speed_ratio") == None:
-        return None, None
+        return None, None, None
     verdict = plan.get("verdict")
     if verdict == None:
         return None, ("the measurement carries a speed ratio but no verdict; "
                       "AUDIO_SPEED_POLICY.MD requires three outcomes and a decline, "
                       "and applying asetrate on a bare coefficient would let an "
-                      "inverting case through undetected")
+                      "inverting case through undetected"), "speed_verdict_absent"
     if verdict == "leave_alone":
+        # PAS DE CORRECTIF A FAIRE SUR CETTE POPULATION, et le jeton doit le
+        # dire: la paire va bien. Un seat futur qui compte les fichiers
+        # recuperables doit pouvoir SOUSTRAIRE ceux-ci, pas les empiler avec
+        # des refus qui attendent un outil.
         return None, ("the measurement says LEAVE IT ALONE: the pair already "
-                      "matches and a correction would take it apart")
+                      "matches and a correction would take it apart"
+                      ), "speed_verdict_leave_alone"
     if verdict == "decline":
-        return None, "the measurement declined to name a transformation"
+        return (None, "the measurement declined to name a transformation",
+                "speed_verdict_declined")
     if verdict == "indeterminate":
         # SPEC_ZONE_A s4f: DEUX HYPOTHESES AU-DESSUS DE LA BARRE ET TROP PROCHES
         # POUR ETRE SEPAREES EST *INDETERMINE*, PAS PAL. Le proprietaire l'a
@@ -124,7 +142,8 @@ def get_speed_ratio(plan):
                       "above the bar: INDETERMINATE, not a rate. "
                       "SPEC_ZONE_A.MD s4f requires escalation to scene detection "
                       "-- a different modality -- and a tie-break computed from "
-                      "the same correlations is not a third opinion")
+                      "the same correlations is not a third opinion"
+                      ), "speed_hypotheses_indeterminate"
     # LA CONVENTION DU RAPPORT, VERIFIEE CONTRE LES DUREES ET NON CONTRE UN NOM.
     #
     # ATTRIBUTION CORRECTED 2026-09-05, AND THE DEFECT IT RECORDS IS UNCHANGED.
@@ -161,22 +180,32 @@ def get_speed_ratio(plan):
     # cadence de 1.001 -- LE CANDIDAT EST PLUS LONG PARCE QU'IL PORTE DU CONTENU
     # DIFFERENT. Un rapport de durees N'EST PAS UNE CADENCE, et un controle qui
     # l'oublierait refuserait l'id 33 a tort.
-    convention = check_ratio_convention(plan)
+    # LES JETONS DES DEUX AIDES PASSENT INCHANGES. Ni traduits, ni normalises,
+    # et aucun jeton a moi ajoute a cote: c'est la regle que
+    # `get_plan_from_locator` applique au producteur de plans, et elle vaut
+    # entre deux fonctions du meme fichier pour la meme raison -- celui qui
+    # decide nomme, celui qui transporte se tait.
+    convention, convention_cause = check_ratio_convention(plan)
     if convention != None:
-        return None, convention
-    labelled = check_ratio_labelled(plan)
+        return None, convention, convention_cause
+    labelled, labelled_cause = check_ratio_labelled(plan)
     if labelled != None:
-        return None, labelled
+        return None, labelled, labelled_cause
     if verdict == "rubberband":
         return None, ("the measurement says rubberband -- the inverting case, a "
                       "source already pitch-corrected at origin. Not implemented: "
-                      "applying asetrate here would drag the pitch 72.4 cents flat")
+                      "applying asetrate here would drag the pitch 72.4 cents flat"
+                      ), "speed_verdict_rubberband_unimplemented"
     if verdict != "asetrate":
-        return None, f"unknown speed verdict {verdict!r}"
+        # LE VERDICT INCONNU VA DANS LA PROSE, LE JETON RESTE FIXE. Regle
+        # lexicale 4: un jeton qui porterait `verdict` varierait a chaque
+        # valeur inattendue et ne compterait rien.
+        return None, f"unknown speed verdict {verdict!r}", "speed_verdict_unknown"
     ratio = plan.get("speed_ratio")
     if ratio == None:
-        return None, "verdict asetrate with no speed_ratio"
-    return Decimal(str(ratio)), None
+        return (None, "verdict asetrate with no speed_ratio",
+                "speed_ratio_absent_for_asetrate")
+    return Decimal(str(ratio)), None, None
 
 
 def get_speed_margin(plan):
@@ -611,7 +640,7 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
     tools.make_dirs(work_dir)
     out_path = path.join(work_root, f"{key}_repaired.mkv")
 
-    speed_ratio, _ = get_speed_ratio(plan)
+    speed_ratio, _refusal, _cause = get_speed_ratio(plan)
     segments = plan.get("segments")
     if not segments:
         # Un plan de VITESSE SEULE n'a pas de tranche: la relation couvre tout le
@@ -783,7 +812,15 @@ def _track_shortfall_ms(assembly, report):
 
 
 def check_ratio_convention(plan):
-    """`speed_ratio` est-il dans MA convention? Renvoie un refus, ou None.
+    """`speed_ratio` est-il dans MA convention? Renvoie `(refus, jeton)`.
+
+    PAIRE `(prose, jeton)`, comme `get_plan_from_locator` rend `(plan, cause)`
+    et `locate_change_points` rend `(plan, cause)`: le jeton est produit LA OU
+    LA DECISION EST PRISE, jamais au site de journalisation. Un jeton pose chez
+    l'appelant ne peut pas etre plus fin que le site d'appel, et ce site-ci
+    couvre onze decisions distinctes.
+
+    `(None, None)` quand il n'y a pas de refus.
 
     Ma convention, `TASKS/009`: r = duree_maitre / duree_candidat, donc r > 1
     veut dire que le candidat court VITE et doit etre RALENTI.
@@ -797,24 +834,30 @@ def check_ratio_convention(plan):
     master_s = plan.get("duration_master_s")
     candidate_s = plan.get("duration_candidate_s")
     if ratio == None or master_s in (None, 0) or candidate_s in (None, 0):
-        return None
+        return None, None
     try:
         r = Decimal(str(ratio))
         expected = Decimal(str(master_s)) / Decimal(str(candidate_s))
     except Exception:
-        return None
+        return None, None
     if r == 0:
-        return None
+        return None, None
     direct = abs(r - expected)
     inverse = abs((Decimal(1) / r) - expected)
     near = expected * Decimal("0.01")
     if inverse <= near and direct > near:
+        # JETON DISTINCT DE CELUI DE `check_ratio_labelled`, ET LA DIFFERENCE
+        # EST CE SUR QUOI UN CORRECTIF AGIT. Ici RIEN N'EST DECLARE: la
+        # convention est DEDUITE des durees du plan. La-bas elle est ECRITE par
+        # le producteur. Corriger l'arithmetique d'un producteur muet et ecrire
+        # un traducteur pour un producteur qui declare sa convention sont deux
+        # gestes differents, donc deux jetons.
         return ("the speed_ratio looks like the RECIPROCAL of this module's "
                 "convention: TASKS/009 defines r = master_span / candidate_span, "
                 "and the value shipped matches candidate_span / master_span "
                 "against the durations in the same plan. Applying it would "
-                "resample in the WRONG DIRECTION")
-    return None
+                "resample in the WRONG DIRECTION"), "speed_ratio_reciprocal_vs_durations"
+    return None, None
 
 
 # LA OU LES DUREES NE PEUVENT PAS TRANCHER, ET C'EST LE CAS DESTRUCTEUR.
@@ -880,32 +923,58 @@ def normalise_convention(stated):
 
 
 def check_ratio_labelled(plan):
-    """La convention est-elle DECLAREE, et est-ce la mienne? Refus, ou None."""
+    """La convention est-elle DECLAREE, et est-ce la mienne? `(refus, jeton)`.
+
+    TROIS REFUS DISTINCTS ET TROIS JETONS, parce qu'un correctif futur agit
+    DIFFEREMMENT sur chacun -- c'est la regle de granularite du Lead (R1), et
+    le defaut qu'elle vise n'est pas un jeton qui contredit sa prose, c'est
+    deux refus qu'on corrigerait autrement portant la meme etiquette:
+
+        convention declaree INVERSE      -> le producteur SAIT ce qu'il emet et
+                                            c'est l'autre sens: un traducteur
+                                            est ecrivable sans risque
+        convention declaree ILLISIBLE    -> etendre le vocabulaire de
+                                            `normalise_convention`
+        AUCUNE convention, pres de 1     -> faire EMETTRE le champ au
+                                            producteur. C'est le cas
+                                            DESTRUCTEUR: 0.999001 contre
+                                            1.000999 passe toute borne et
+                                            toute tolerance
+
+    Les trois disaient "la direction du coefficient n'est pas etablie", et un
+    seul jeton pour les trois aurait rempli la colonne sans rien classer.
+    """
     ratio = plan.get("speed_ratio")
     if ratio == None:
-        return None
+        return None, None
     stated = plan.get("speed_ratio_convention")
     if stated != None:
         named = normalise_convention(stated)
         if named == "mine":
-            return None
+            return None, None
         if named == "inverse":
             return (f"the plan states its ratio convention as {stated!r}, which "
                     f"is the RECIPROCAL of {RATIO_CONVENTION!r}; this module will "
-                    f"not reinterpret a coefficient whose meaning it did not define")
+                    f"not reinterpret a coefficient whose meaning it did not define"
+                    ), "speed_convention_stated_reciprocal"
+        # LA VALEUR DECLAREE VA DANS LA PROSE, PAS DANS LE JETON. `stated` est
+        # du texte du producteur: un jeton qui la porterait varierait a chaque
+        # fichier et ne s'agregerait pas. Regle lexicale 4.
         return (f"the plan states a ratio convention this module does not "
                 f"recognise ({stated!r}); it applies {RATIO_CONVENTION!r} and a "
-                f"convention it cannot read is not a convention it can trust")
+                f"convention it cannot read is not a convention it can trust"
+                ), "speed_convention_unrecognised"
     try:
         distance = abs(Decimal(str(ratio)) - Decimal(1))
     except Exception:
-        return None
+        return None, None
     if distance < CONVENTION_FREE_MARGIN:
         return ("the plan carries no speed_ratio_convention and the ratio is "
                 "within 1% of unity, where NEITHER the bounds check NOR the "
                 "verifier can tell the two directions apart. An unlabelled "
-                "near-unity coefficient is not applied")
-    return None
+                "near-unity coefficient is not applied"
+                ), "speed_convention_absent_near_unity"
+    return None, None
 
 
 def _margin_fields(plan):
@@ -1032,7 +1101,7 @@ def _margin_fields(plan):
 
 
 def compare_plan_master(plan, best_video):
-    """Le plan a-t-il ete mesure contre CE maitre? Renvoie une raison, ou None.
+    """Le plan a-t-il ete mesure contre CE maitre? Rend `(raison, jeton)`.
 
     TROIS ETATS ET NON DEUX, et le troisieme a ete trouve en faisant tourner ce
     lecteur sur les VRAIS octets de vmsam-dev-1 plutot que sur le contrat:
@@ -1053,6 +1122,19 @@ def compare_plan_master(plan, best_video):
     l'identite du maitre n'autorise pas a l'assumer -- mais la raison DIT
     laquelle des deux choses s'est produite. `AGENT.MD`: je n'ai pas pu mesurer
     n'est pas un verdict sur le fichier.
+
+    TROIS REFUS, TROIS JETONS, ET LE REGROUPEMENT SERAIT LE DEFAUT QUE CETTE
+    FONCTION EXISTE DEJA POUR EVITER. Deux d'entre eux disent *je n'ai pas pu
+    verifier* et le troisieme dit *j'ai verifie, et ils different*. Les fondre
+    classerait un NEGATIF CONCLUANT comme une absence de preuve -- exactement
+    la substitution que `BRIEF_COMMON.md` regle 5 nomme, et exactement la
+    raison pour laquelle l'ancienne ligne unique disait `mesure contre un autre
+    maitre` sur un plan qui portait un jeton opaque, ce qui etait FAUX.
+
+    Et les correctifs different: un digest qui ne correspond pas se repare en
+    normalisant CE QU'ON HACHE; un jeton incomparable se repare en APPRENANT le
+    schema au lecteur; un maitre reellement different veut dire que le plan est
+    PERIME et qu'il faut remesurer.
     """
     # LE DIGEST D'ABORD QUAND IL EXISTE: c'est la seule forme comparable qui ne
     # fait voyager aucun texte libre. `WRITE_ZONES.MD` s8.
@@ -1068,21 +1150,27 @@ def compare_plan_master(plan, best_video):
         import hashlib
         mine = hashlib.sha256(best_video.filePath.encode()).hexdigest()
         if mine == digest:
-            return None
+            return None, None
         return ("the plan's master path digest does not match this master's. "
                 "NOTE: a path digest proves two agents were handed the same "
                 "STRING, not the same FILE -- a symlink, a mount prefix or a "
                 "different unicode normalisation differs here too, so this is "
-                "UNVERIFIED rather than proof of a different master")
+                "UNVERIFIED rather than proof of a different master"
+                ), "master_digest_mismatch_unverified"
     stated = plan.get("master_path")
     if stated == None or stated == best_video.filePath:
-        return None
+        return None, None
     if not str(stated).startswith("/"):
         return ("the plan names its master with a token this reader cannot "
                 "compare to a filesystem path, so the master's identity is "
-                "UNVERIFIED -- this is not evidence of a different master")
+                "UNVERIFIED -- this is not evidence of a different master"
+                ), "master_identity_token_uncomparable"
+    # LE SEUL DES TROIS QUI AFFIRME QUELQUE CHOSE SUR LE MONDE. Les deux
+    # au-dessus disent `UNVERIFIED`; celui-ci a compare et les chemins
+    # different. Le jeton ne porte AUCUN des deux chemins -- une raison qui
+    # contient un chemin media voyage avec lui.
     return ("the plan was measured against a different master than the "
-            "one selected here")
+            "one selected here"), "master_path_differs"
 
 
 def _head_pad_summary(report):
@@ -2016,6 +2104,115 @@ def decline_detail(error):
             "undelivered_durable": getattr(error, "undelivered_durable", None)}
 
 
+def chimeric_cause(error):
+    """Le jeton d'un `chimeric_error`, ou une SENTINELLE hors classe acceptee.
+
+    23 sites levent `chimeric_error` et un 24e leve `chimeric_bound_error`, qui
+    en est une SOUS-CLASSE et tombe donc sur le meme `isinstance` que les
+    autres. DEUX SEULEMENT portent un jeton aujourd'hui, sur bornage explicite
+    du Lead (R2): ce sont les deux que la production a fait tourner -- 18 et 5
+    declins sur les 26 mesures dans 59 artefacts. Les 22 restants sont
+    ATTEIGNABLES depuis le chemin de reparation (mesure statique, zero
+    inatteignable) et ont ZERO occurrence en production.
+
+    POURQUOI PAS UN JETON GROSSIER POUR LES 22. Un `assembly_refused` aurait
+    rempli la colonne avec une valeur couvrant 22 decisions distinctes et n'en
+    classant aucune. Une colonne remplie d'une valeur qui ne classe rien est
+    PIRE qu'une colonne vide: elle a l'air notee. Ils sont donc NON COMPTES,
+    et non FAUSSEMENT COMPTES.
+
+    POURQUOI PAS `(unstated)`, QUI EXISTE DEJA. Cette sentinelle-la signifie
+    *le producteur a tourne et n'a rendu AUCUN jeton alors que son contrat
+    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 22
+    sites ici sont un MANQUE CONNU, DELIBERE ET AUTORISE. Depenser le signal
+    d'alarme sur 22 faux positifs detruit le sens du signal, et c'est ce
+    signal-la qui protege la colonne. Deux etats qu'un correctif futur traite
+    differemment ne partagent pas une etiquette: c'est la meme regle de
+    granularite que pour les jetons, appliquee aux sentinelles.
+
+    LES PARENTHESES SONT LE MECANISME, PAS DE LA PONCTUATION. Le lecteur
+    accepte `cause=([A-Za-z0-9_]+)`; une parenthese ne peut pas satisfaire
+    cette classe, donc la valeur est exclue PAR CONSTRUCTION et ne peut pas
+    gonfler `excluded_with_stated_cause`. Ne pas "ranger" ces parentheses --
+    voir le bloc en capitales plus haut, et `tools/check_cause_sentinel.py`,
+    qui echoue si l'une ou l'autre sentinelle devient acceptable.
+
+    LE NUMERO DE LIGNE VOYAGE AVEC LA SENTINELLE quand la trace le porte, si
+    bien que la liste classee des 22 sites se lit dans les artefacts au lieu de
+    demander une seconde mesure. Il est lu sur la trace de l'exception, donc il
+    designe le site de LEVEE et pas ce site-ci. Absent, la sentinelle reste
+    valide et simplement moins precise -- elle ne devient jamais un jeton.
+    """
+    cause = getattr(error, "cause", None)
+    if cause != None:
+        return cause
+    line = None
+    traceback_entry = getattr(error, "__traceback__", None)
+    while traceback_entry != None:
+        if traceback_entry.tb_frame.f_code.co_filename.endswith(
+                "merge_video_chimeric.py"):
+            line = traceback_entry.tb_lineno
+        traceback_entry = traceback_entry.tb_next
+    if line == None:
+        return "(untokened_raise_site)"
+    return f"(untokened_raise_site_{line})"
+
+
+def detail_summary(detail):
+    """Le NOYAU DECISIONNEL du `detail`, compact et SANS TABLEAU DE SONDES.
+
+    POURQUOI CE RESUME EXISTE SEPAREMENT DU VIDAGE COMPLET, ET C'EST LE PIEGE
+    DE LA PARTIE B. Le proprietaire a demande des informations "en mode
+    tools.dev". MAIS L'INSTANCE DE TEST TOURNE `dev: false` -- donc tout ce qui
+    est garde y est INVISIBLE, et une consigne suivie a la lettre aurait produit
+    exactement l'inverse de ce qu'elle demandait: du diagnostic que le seul
+    endroit ou on diagnostique ne voit pas.
+
+    D'ou DEUX LIGNES ET NON UNE:
+
+        ce resume            INCONDITIONNEL -- ce que le pipeline a DECIDE:
+                             combien de pistes refusees par politique, quel
+                             genre de plan, quel verdict, un controle de sortie
+                             a-t-il leve, un artefact est-il reste non livre
+        le vidage complet    GARDE par `tools.dev` -- les sondes, les tableaux
+                             de verification, les valeurs par flux: du materiau
+                             qui fait arriver PLUS VITE a une conclusion deja
+                             correcte
+
+    La regle du brief, appliquee ligne a ligne: si un lecteur en tire une
+    conclusion differente sur le fait que le pipeline a eu RAISON, c'est une
+    DECISION. `declined=3` sur des pistes est une decision -- trois pistes ont
+    ete ecartees par politique. `probes=[...]` ne l'est pas: il dit COMMENT on
+    l'a su, pas CE QU'ON A FAIT.
+
+    RIEN DE CE QUI EST GARDE N'EST PORTEUR: cette fonction ne lit aucune valeur
+    calculee sous un `if tools.dev`, et personne ne lit son resultat -- il est
+    ecrit dans le journal et rien d'autre ne le consulte.
+    """
+    if not detail:
+        return ""
+    fields = []
+    for key in ("plan_kind", "verdict", "plan_source", "marker",
+                "undelivered_state", "undelivered_durable"):
+        value = detail.get(key)
+        if value != None:
+            fields.append(f"{key}={value}")
+    for key in ("audios", "subtitles", "declined", "failed", "coarse_brackets"):
+        value = detail.get(key)
+        # UN COMPTE, PAS LE CONTENU. `len` sur une liste de pistes ecartees est
+        # la decision; la liste elle-meme est du diagnostic.
+        if isinstance(value, (list, tuple)):
+            fields.append(f"{key}={len(value)}")
+    for key in ("output_check", "verification"):
+        value = detail.get(key)
+        # PRESENT / ABSENT, ET C'EST UNE DECISION: un controle de sortie qui a
+        # LEVE et un controle qui n'a jamais tourne sont deux etats differents,
+        # et de l'exterieur ils produisaient le meme silence.
+        if value != None:
+            fields.append(f"{key}=present")
+    return " ".join(fields)
+
+
 def record(candidate_path, outcome, reason, detail=None, cause=None):
     entry = {"candidate": candidate_path, "outcome": outcome, "reason": reason,
              "detail": detail, "cause": cause}
@@ -2073,6 +2270,42 @@ def record(candidate_path, outcome, reason, detail=None, cause=None):
     if cause != None:
         head += f" cause={cause}"
     tools.logs.append(f"{head} for {candidate_path}: {reason}\n")
+    # LE `detail` N'ATTEIGNAIT AUCUN ARTEFACT. Mesure, `grep -rn` sur tout
+    # `src/`: `last_repair_report` a TROIS occurrences -- sa definition, cet
+    # `append`, et le `del` qui le vide au debut de chaque passage. PERSONNE NE
+    # LE LIT. Tout ce que `decline_detail` rassemble -- le rapport de controle
+    # de sortie, les resultats de verification, l'etat de non-livraison -- etait
+    # calcule, empaquete, et jete. C'est la classe de defaut que `AGENT.MD`
+    # nomme: ecrit, relu, teste vert, et jamais appele; le seul symptome est que
+    # rien ne change.
+    #
+    # PREFIXE DISTINCT, ET CE N'EST PAS COSMETIQUE. Le jeton est lu sur un
+    # PREFIXE A VOCABULAIRE FERME `repair: <outcome> cause=<jeton> for `. Une
+    # ligne `repair: detail ... for <chemin>` serait lue par ce parseur comme un
+    # OUTCOME nomme `detail` et polluerait le decompte. `repair_detail:` ne peut
+    # pas entrer dans cette forme.
+    #
+    # BORNE A `declined` ET `failed`, qui est exactement le perimetre de
+    # l'acceptation pre-enregistree. `repaired` (site 2277) n'est pas touche:
+    # changer ce qu'une ligne `repaired` donne a lire changerait une interface
+    # que d'autres lecteurs analysent deja, et ce n'est pas ma decision.
+    if outcome in ("declined", "failed") and detail:
+        summary = detail_summary(detail)
+        if summary:
+            # DECISION -> INCONDITIONNEL. Visible sur l'instance de test, qui
+            # tourne `dev: false`.
+            tools.logs.append(f"repair_detail: {outcome} {summary}\n")
+        if tools.dev:
+            # DIAGNOSTIC -> GARDE. Les sondes et les tableaux par flux, qui font
+            # gagner du temps sur une conclusion deja atteignable sans eux.
+            # `default=str` parce que le plan porte des `Decimal`: sans lui la
+            # serialisation LEVE, et une levee dans un enregistrement de refus
+            # remplacerait le refus par une panne.
+            try:
+                dump = json.dumps(detail, default=str, sort_keys=True)
+            except Exception as error:
+                dump = f"<undumpable: {type(error).__name__}: {error}>"
+            tools.logs.append(f"repair_detail_verbose: {outcome} {dump}\n")
     return entry
 
 
@@ -2095,8 +2328,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     for candidate_path in list_not_compatible_video:
         candidate_obj = dict_file_path_obj.get(candidate_path)
         if candidate_obj == None:
+            # UNE SEULE DECISION ICI, DONC UN SEUL JETON, et il n'est pas
+            # grossier: la zone A a refuse un chemin dont elle n'a jamais porte
+            # l'objet. Un correctif agit sur la comptabilite de la zone A.
             record(candidate_path, "declined",
-                   "the rejected path has no video object in dict_file_path_obj")
+                   "the rejected path has no video object in dict_file_path_obj",
+                   cause="candidate_object_absent")
             continue
         language, language_route = get_delay_language(best_video, candidate_obj)
         if language == None:
@@ -2171,26 +2408,44 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    f"drop bitmap subtitles. NOT a warrant for a container delay: "
                    f"'constant' means no step was VISIBLE, and the measurement is "
                    f"blind to the head of the file ({plan_source})",
-                   {"plan_kind": "constant", "plan": plan})
+                   {"plan_kind": "constant", "plan": plan},
+                   # LE JETON NOMME CE QUE LA MESURE A RAPPORTE, PAS CE QUE LE
+                   # FICHIER EST. `plan_kind_constant` aurait decrit le champ;
+                   # celui-ci decrit la DECISION, et il dit au seat suivant ou
+                   # frapper: elargir la couverture du locator, qui ne voit
+                   # structurellement pas la tete du fichier. 3 des 26 declins
+                   # mesures en production passent ici.
+                   cause="plan_reports_no_change_point")
             continue
-        speed_ratio, speed_refusal = get_speed_ratio(plan)
+        speed_ratio, speed_refusal, speed_cause = get_speed_ratio(plan)
         if speed_refusal != None:
+            # LE JETON VIENT DE `get_speed_ratio`, QUI L'A PRODUIT A LA
+            # DECISION. Onze refus distincts arrivent ici et la prose est la
+            # seule chose qui les separe -- un jeton pose sur cette ligne les
+            # aurait tous appeles pareil, ce qui remplit la colonne et ne
+            # classe rien.
             record(candidate_path, "declined", f"{speed_refusal} ({plan_source})",
-                   {"plan_kind": plan.get("kind"), "verdict": plan.get("verdict")})
+                   {"plan_kind": plan.get("kind"), "verdict": plan.get("verdict")},
+                   cause=speed_cause)
             continue
         if speed_ratio == None and not len(plan.get("segments") or []):
             record(candidate_path, "declined",
                    f"the measurement returned neither a segment nor a speed "
-                   f"relation ({plan_source})")
+                   f"relation ({plan_source})",
+                   cause="plan_has_neither_segment_nor_speed")
             continue
-        master_check = compare_plan_master(plan, best_video)
+        master_check, master_cause = compare_plan_master(plan, best_video)
         if master_check != None:
             # LA RAISON NE PORTE PAS LE CHEMIN. `record` ecrit deja le fichier
             # sur sa propre ligne; une RAISON, elle, se cite -- dans un rapport,
             # dans un message a un autre agent, dans un resume -- et une raison
             # qui contient un chemin media voyage avec lui. On redige avant que
             # l'extrait ne parte, pas apres.
-            record(candidate_path, "declined", master_check)
+            # TROIS JETONS POSSIBLES, PRODUITS PAR `compare_plan_master`. Deux
+            # veulent dire `je n'ai pas pu verifier` et un seul `j'ai verifie et
+            # ils different`; les confondre remettrait un negatif concluant dans
+            # le sac des absences de preuve.
+            record(candidate_path, "declined", master_check, cause=master_cause)
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
@@ -2213,7 +2468,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # jamais dire QUELLE piste ni de combien. La levee le porte
                 # (`error.output_check = report`) et le pilote le jetait.
                 record(candidate_path, "declined", str(error),
-                       decline_detail(error))
+                       decline_detail(error), cause=chimeric_cause(error))
                 sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
             else:
                 # LE MEME DETAIL SUR `failed` QUE SUR `declined`, ET C'EST CE
@@ -2222,7 +2477,23 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # peut le nommer est celui-ci. L'omettre remettrait le fichier
                 # hors de tout compte rendu, ce que le renommage existe pour
                 # empecher.
-                record(candidate_path, "failed", str(error), decline_detail(error))
+                # LA CLASSE D'EXCEPTION ENTRE DANS LA PROSE, ET LE JETON RESTE
+                # FIXE. `str(error)` seul ne porte PAS le nom de la classe:
+                # une `TypeError` et une `OSError` arrivaient ici avec le seul
+                # message, donc la partie qui varie n'atteignait AUCUN artefact
+                # -- ni le jeton (regle lexicale 4 l'interdit) ni la prose. Le
+                # jeton unique n'avait alors RIEN pour etre decoupe.
+                #
+                # ET C'EST PRECISEMENT PARCE QUE CE SITE N'A JAMAIS TOURNE EN
+                # PRODUCTION (0 ligne sur 59 artefacts) QUE CA NE POUVAIT PAS
+                # ATTENDRE: le jour ou il tourne, ce premier artefact est
+                # TOUTE la base de preuve, et une classe absente est absente
+                # pour toujours. On n'ajoute pas un champ a un chemin mort, on
+                # rend lisible sa premiere levee. Autorise par le Lead, hors du
+                # perimetre des sept tampons.
+                record(candidate_path, "failed",
+                       f"{type(error).__name__}: {error}", decline_detail(error),
+                       cause="repair_raised_unhandled")
                 sys.stderr.write(f"repair: failed for {candidate_path}: {error}\n")
             continue
 
