@@ -903,15 +903,71 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
     # The largest plateau is the one with the most probes agreeing, so it is both the
     # furthest from any boundary and the best-evidenced place to ask whether two
     # streams are the same recording.
-    positions = []
-    for run in sorted(runs, key=lambda r: -len(r["members"]))[:2]:
-        centre = (run["first"] + run["last"] + PROBE_WINDOW_SECONDS) / 2.0
-        positions.append(max(0.0, min(centre, shortest - PROBE_WINDOW_SECONDS)))
-    while len(positions) < 2:
-        # A single-plateau file has no boundary to straddle, so a blind second position
-        # is safe here and nowhere else.
-        fraction = PAIRING_POSITION_FRACTIONS[len(positions)]
-        positions.append(max(0.0, min(shortest * fraction, shortest - PROBE_WINDOW_SECONDS)))
+    #
+    # TWO PROBES, MINIMUM, DRAWN FROM *INSIDE* THE DOMINANT PLATEAU -- not one from
+    # the dominant plateau and one from a second, disagreeing plateau. Lead's
+    # correction, 2026-09-15: `MIN_PAIRING_FIDELITY` was calibrated on 26 files /
+    # 127 pairs specifically against the MINIMUM OF TWO PROBES ("the two-position
+    # minimum is load-bearing" -- the comment above the constant). A single probe
+    # is a DIFFERENT STATISTIC than the one the bar was measured against, so
+    # deciding on one dominant-plateau probe alone -- my first version of this
+    # patch -- would have made the calibration stop applying to what it gates,
+    # even though it fixed id 108. Taking the minimum of two points *within* the
+    # dominant plateau keeps the calibrated statistic (still two draws, still a
+    # minimum) while no longer letting an honest, differently-offset SECOND
+    # plateau veto a pairing the dominant plateau's own evidence otherwise
+    # supports -- id 108, measured 2026-09-15: 89% of the file (31 of 35 coarse
+    # probes) sits in one plateau at 0.9289; a 3-probe island 503 ms away, itself
+    # perfectly clean, used to be one of the two votes and dragged the minimum to
+    # 0.8319. Frame extraction confirmed the island is a real, spliceable local
+    # divergence, not a measurement failure.
+    #
+    # NOT FULLY EQUIVALENT TO THE ORIGINAL CALIBRATION'S TWO DRAWS: two points
+    # inside one plateau are LESS INDEPENDENT than two points from different
+    # plateaus (same underlying alignment, same neighbourhood) -- so a
+    # coincidental cross-language spike that reached ~0.94 at one position could
+    # plausibly repeat at a second, nearby position more easily than at a second,
+    # DISTANT one. This narrows the exposure the original calibration measured
+    # (min-of-two across the whole file); it does not reproduce it and does not
+    # claim to. Carry that hedge forward -- it is not settled by this change.
+    #
+    # RULED, not merely re-measured: Architect, 2026-09-15, under the owner's
+    # delegation ("tu devrais pouvoir débloquer ce genre de chose -- investigue
+    # et solutionne"). Grounds: (1) MIN_PAIRING_FIDELITY untouched, so the
+    # 127-pair calibration formally still applies; (2) forensic's two-arm
+    # measurement -- 14/14 commentary negatives reject under both geometries,
+    # margin >=0.19 (0.573-0.618 against 0.85); 11/11 controls accept
+    # (0.941-0.988); (3) cross-language material still refuses earlier, at
+    # median_fidelity_below_floor, on every proxy tested. Hedges carried, not
+    # softened: one show / 11 episodes; forensic's method cannot reliably
+    # reproduce values in the 0.83-0.90 band. Compensating tripwire for
+    # exactly that gap: any ACCEPT whose minimum lands in [0.85, 0.87] is a
+    # flagged forensic review row in the sweep (not built here -- the sweep's
+    # own module). Refutation condition, stated by the ruling: one measured
+    # commentary or cross-language acceptance under this geometry reopens it.
+    if runs:
+        dominant_run = max(runs, key=lambda r: len(r["members"]))
+        plateau_start = dominant_run["first"]
+        plateau_end = dominant_run["last"] + PROBE_WINDOW_SECONDS
+        span = plateau_end - plateau_start
+        positions = [max(0.0, min(plateau_start + fraction * span, shortest - PROBE_WINDOW_SECONDS))
+                    for fraction in PAIRING_POSITION_FRACTIONS]
+    else:
+        # No plateau at all -- the pre-existing whole-file blind fallback,
+        # unchanged in shape, just no longer reached by "fewer than two
+        # plateaus" (a single plateau now yields two positions from its own
+        # span, above) -- only by zero.
+        positions = [max(0.0, min(shortest * fraction, shortest - PROBE_WINDOW_SECONDS))
+                    for fraction in PAIRING_POSITION_FRACTIONS]
+
+    # THE SECOND-LARGEST PLATEAU, PROBED SEPARATELY, DIAGNOSTIC ONLY. Never part
+    # of `scores`, never part of `min()`, never able to change `accepted`. This is
+    # what makes a real local divergence VISIBLE without giving it a vote.
+    minority_run = None
+    if len(runs) >= 2:
+        minority_run = sorted(runs, key=lambda r: -len(r["members"]))[1]
+        minority_centre = (minority_run["first"] + minority_run["last"] + PROBE_WINDOW_SECONDS) / 2.0
+        minority_centre = max(0.0, min(minority_centre, shortest - PROBE_WINDOW_SECONDS))
 
     accepted, measurements = {}, []
     for stream, language in candidate_streams_all:
@@ -936,12 +992,11 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
                 scores.append(probe[1])
             if not scores:
                 continue
-            # THE MINIMUM, not the mean: a pair that agrees at one position and not
-            # the other is a coincidence, and cross-language pairs reach 0.94 at a
-            # single position.
+            # THE MINIMUM, of the two within-plateau draws -- the calibrated
+            # statistic, restored. See the comment above `positions`.
             score = min(scores)
             if best is None or score > best[1]:
-                best = (master_stream, score)
+                best = (master_stream, score, scores)
         if best is None:
             _log(f"candidate stream {stream} ({language}): no {language} master stream "
                  f"could be probed; no entry")
@@ -949,19 +1004,45 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
                                  "master_stream": None, "fidelity": None,
                                  "accepted": False, "reason": "every probe failed"})
             continue
+        master_stream, score, all_scores = best
+        rounded_scores = [round(float(s), 4) for s in all_scores]
         record = {"candidate_stream": stream, "language": language,
-                  "master_stream": best[0], "fidelity": round(float(best[1]), 4),
-                  "positions": len(positions),
-                  "accepted": bool(best[1] >= MIN_PAIRING_FIDELITY)}
+                  "master_stream": master_stream, "fidelity": round(float(score), 4),
+                  "positions": len(positions), "position_scores": rounded_scores,
+                  "accepted": bool(score >= MIN_PAIRING_FIDELITY)}
+        # THE MINORITY PROBE, AGAINST THE SAME WINNING MASTER STREAM -- diagnostic
+        # only, run whether the decision above accepted or declined, never fed
+        # into `score`. A `None` probe (unmeasurable) leaves the field absent
+        # rather than fabricating a value -- absent, never zero, same rule as
+        # everywhere else in this module.
+        if minority_run is not None:
+            minority_probe = _probe(master_path, master_stream, candidate_path, stream,
+                                    minority_centre, PROBE_WINDOW_SECONDS, work_dir,
+                                    f"minority{master_stream}_{stream}", sample_rate, sites=sites)
+            if minority_probe is not None:
+                minority_score = round(float(minority_probe[1]), 4)
+                record["minority_score"] = minority_score
+                if minority_score < MIN_PAIRING_FIDELITY:
+                    # DIAGNOSTIC, NOT A DECISION. A minority plateau below the bar
+                    # is exactly the shape a real local divergence takes --
+                    # recorded so the repair chain can look there, never
+                    # subtracted from `accepted`.
+                    record["minority_disagreement"] = True
         if not record["accepted"]:
-            record["reason"] = f"below {MIN_PAIRING_FIDELITY} on the minimum of {len(positions)} positions"
+            record["reason"] = (f"below {MIN_PAIRING_FIDELITY} on the minimum of "
+                                f"{len(positions)} positions within the dominant plateau")
             _log(f"candidate stream {stream} ({language}): best partner master "
-                 f"{best[0]} at {best[1]:.4f}, below {MIN_PAIRING_FIDELITY}; no entry")
+                 f"{master_stream} at {score:.4f} (dominant-plateau minimum), "
+                 f"below {MIN_PAIRING_FIDELITY}; no entry (positions: {rounded_scores})")
         else:
-            accepted[stream] = {"master_stream": best[0],
-                                "fidelity": round(float(best[1]), 4),
+            accepted[stream] = {"master_stream": master_stream,
+                                "fidelity": round(float(score), 4),
                                 "language": language,
-                                "positions": len(positions)}
+                                "positions": len(positions),
+                                "position_scores": rounded_scores}
+            if record.get("minority_disagreement"):
+                accepted[stream]["minority_disagreement"] = True
+                accepted[stream]["minority_score"] = record["minority_score"]
         measurements.append(record)
     return accepted, measurements
 
