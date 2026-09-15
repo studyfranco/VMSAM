@@ -3,6 +3,45 @@
 **Agent:** `vmsam-dev-2` (repair). **Pairs with 006.** **State:** open.
 **Campaign objective 2, the repair half.**
 
+> **AMENDED 2026-09-15 (Architect, owner-authorised).** Four supersessions. This
+> ticket's measured results — ids 8/12/13, the gap sizes, the lag tables — are
+> history and stand untouched. What follows supersedes its **contracts**.
+>
+> **1. The assembly must preserve what it does not repair.** This ticket rebuilds
+> the whole track through one `filter_complex`, re-encoding every piece. Under the
+> campaign's end condition (`../CAMPAIGN.MD` §4 clause 2, owner 2026-09-15)
+> **zones the repair did not touch must be bit-identical to their source** — a
+> whole-track re-encode makes that unreachable by construction, however correct
+> the splice. The contract now: pieces taken from the candidate are cut **without
+> re-encoding** (stream copy); a re-encode is licensed only inside a located
+> divergent zone, as a named transform. **Master fill remains legitimate** — a gap
+> IS a divergent zone and filling it is that zone's repair — but each fill
+> boundary is a repair boundary and carries the boundary check. What changes is
+> not *where* content comes from; it is that everything outside the located zones
+> passes through untouched, **provably**.
+>
+> **2. The plan is frame-indexed.** Every cut, placement and fill boundary is
+> expressed under the F1 contract
+> (`../RULING_20260915_FRAME_INDEXED_BOUNDARY.MD`): master frame numbers, grid
+> attached, half-open. The ticket's ms plans and its **100 ms verification
+> tolerance are superseded** — 100 ms is ~2.4 frames at 24000/1001, and boundary
+> acceptance is the pHash identity check (placeholder 50 frames / threshold 12
+> until TASKS/016 rules), not an audio tolerance. The audio-alignment figures
+> recorded here remain valid as *corroboration*; they are no longer *acceptance*.
+>
+> **3. The `[features]` record is corrected.** This ticket records "`[features]`
+> removed entirely". Measured 2026-09-15: that section has **never existed** in
+> `src/config.ini` (`git log -S'[features]'` empty, with a firing control) —
+> nothing was removed, and the §4 citation given for the removal governs source
+> modules, not configuration. Owner policy 2026-09-15 rules the question this
+> ticket and TASKS/009 disagreed on: **as few flags as possible; a flag is a last
+> resort.** Whether the repair path ships behind one off-by-default key is decided
+> at promotion time by the Lead with the owner — it was not this ticket's call,
+> and it was not TASKS/009's either.
+>
+> **4. "No difference found" is a first-class verdict** (TASKS/013 §3, TASKS/015)
+> and joins this module's outcome set; `None`/empty stays "could not measure".
+
 ## Goal
 
 Given a change point located by 006, produce a **chimeric** audio or subtitle

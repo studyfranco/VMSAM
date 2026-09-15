@@ -148,6 +148,36 @@ enforced in three places, not one — do not mistake the last for the rule:
   `abs(calculated_delay - delay_first_method) < 500` reduces algebraically to
   `abs(delay_second_method * 1000) < 500`.
 
+**The chromaprint point is not 125 ms, and nothing may hardcode it.** It is read
+per call — `audioCorrelation.py:132` passes `int(lengthFile/len(fingerprint_source)*1000)`
+— so it is a property of *the window this pair was measured over*, not of the
+instrument. Measured across window lengths it runs **124 to 142 ms**, and it is
+125 exactly only for a window of 160-286 s (`TASKS/005` §5, corroborated by a gcd
+of 124 ms measured on real files in `TASKS/008`). Campaign 1 saw the same thing
+from the other end and recorded **138 ms observed**.
+
+Mapped through the pipeline's own window arithmetic — `video.py:474-485` with
+`number_cut = 10`, doubled at `mergeVideo.py:774`, so
+`L = 2*int((shortest_audio_duration - 90)/11)` on the `> 300 s` branch — that band
+is an episode of **16.2 to 27.9 minutes**; from 27.9 minutes up the quantum is
+**124**, and **below 16.2 minutes it is 126 or more** (005's measured `L = 100 ->
+127 ms` is a ~10.7-minute episode). *`TASKS/005` §5 states this mapping as 18.7 to
+30.4 minutes; it transcribed the formula as `(duration - 240)/11` on a `> 540 s`
+branch, which the function does not say. The L-to-quantum sweep in that ticket is
+a real measurement and stands; its episode-duration mapping does not.*
+
+125 ms is the *common* value and this changes no algorithm (owner, 2026-09-15) —
+which is exactly why it is dangerous: **code that hardcodes 125 is right for a
+22-minute episode and quietly wrong for a 45-minute one**, and quietly is the
+whole problem, because nothing downstream recomputes it and no test fails. Read
+the quantum from the pair. If you find a constant `125`, `127` or `128` standing
+in for "one point" or "one frame", you have found a defect, not a convention.
+
+The common shorthand *"125 ms +/- 1"* is true for an episode of about 16 minutes
+and up. It is **not** true below that — a ~10.7-minute episode reads 127 — and
+between those two points nothing has been measured. Short-format content is
+ordinary, so do not carry the shorthand as though it were universal.
+
 **Why 500, and why stage 2 at all** (owner's design intent, recorded here because the
 code does not say it): fingerprint peaks were observed putting stage 1 off by
 roughly **±250 ms**. Rather than trying to filter those peaks, stage 2 runs

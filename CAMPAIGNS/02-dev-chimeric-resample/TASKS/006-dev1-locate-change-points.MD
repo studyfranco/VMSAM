@@ -3,6 +3,21 @@
 **Agent:** `vmsam-dev-1` (measurement). **Pairs with 007.** **State:** open.
 **Campaign objective 2, the measurement half.**
 
+> **AMENDED 2026-09-15 (Architect, owner-authorised).** Three corrections, none
+> touching this ticket's measurements. (1) Change points are delivered in
+> **master video frame numbers** under the F1 contract
+> (`../RULING_20260915_FRAME_INDEXED_BOUNDARY.MD`), not in seconds. (2) The
+> frame-level video refiner this ticket dropped is **reinstated** — the reason it
+> was dropped is voided by the same contract. (3) The locator runs on the
+> **already-resampled candidate** (resample -> locate -> splice, TASKS/008's own
+> derivation); its output grid is therefore the master's in every case.
+>
+> Units, throughout: where this ticket says the located change point is expressed
+> "in master-timeline seconds" or "in seconds", the deliverable unit is the
+> **master frame index**, grid attached, half-open interval. Seconds remain in the
+> measured tables below as what the 2026-09-08 runs actually recorded; new runs
+> emit frames and may carry seconds only as derived values.
+
 ## The signal
 
 A window sequence reading
@@ -12,8 +27,14 @@ A window sequence reading
 ```
 
 is **one content with a small insertion or deletion**: correlation stays high
-throughout while the offset steps by whole points. One point = **125 ms**, the
-chromaprint frame — every delay in this corpus is a multiple of it.
+throughout while the offset steps by whole points. One point is
+`lengthFile / n_items` — **125 ms +/- 1 for an episode of roughly 16 minutes and
+up** (125 exact for a window L in [160, 286] s, 124 at L >= 288). The
+multiples-of-125 reading held on this corpus because its windows sat in that
+band: it is a property of the window, not of the corpus, and **below about 16
+minutes it does not hold** — a ~10.7-minute episode reads 127. Never hardcode
+125; derive the quantum from the window actually passed (TASKS/008 measured a
+real pair at gcd 124 ms).
 
 That is the shape. `first_delay_test` sees the disagreement across windows and
 refuses the pair, which is correct: no single constant offset exists. It records
@@ -83,9 +104,16 @@ one instrument, one file, and a coarser step — favourable, **not confirmation*
 
 ## What was dropped
 
-- **The frame-level video refiner.** dev-2's repair fills the bracket from the
-  master, correct by definition, at 0.49 % of an episode against 15 %. An
-  instrument with no consumer.
+- **The frame-level video refiner — REINSTATED 2026-09-15.** It was dropped as
+  *"dev-2's repair fills the bracket from the master, correct by definition, at
+  0.49 % of an episode against 15 %. An instrument with no consumer."* The
+  frame-indexed contract voids that justification: a payload keyed on frame
+  numbers has no producer of frame-level precision other than this refiner, and
+  no validator of a repair boundary other than pHash. The refiner is the
+  contract's consumer, and it carries the boundary check (placeholder: 50 frames
+  each side, Hamming threshold 12, until TASKS/016 rules the window and floor).
+  The original reasoning is quoted above for the record: it was correct against
+  the ms contract and is wrong against the frame contract.
 - **`_align_and_find_gap`** (`frame_compare`): aggregates cost only where a
   reference frame matched, so inserted content is invisible to its argmax.
 - **`get_cut_time.py`** as a starting point: divides `second_correlation`'s

@@ -1221,3 +1221,288 @@ their source; structure, boundary pHash, flat correlation, and attributability
 of every remaining difference are all required; an unexplained difference of
 any size is a FAIL. Skipping a leg because of the waiver is a broken
 validation, not a pass.
+
+## Stage 0, 2026-09-15 — TASKS/005-010 reread against the frozen requirement
+
+Two independent passes: the Lead's, and a sub-agent launched by the Architect on
+the six tickets **before** the Lead's findings reached it, so it never saw them.
+Verdicts: **005, 006, 007 CONTRADICT** the requirement; **008, 009, 010 are
+INCOMPLETE** against it. The tickets are dated 2026-09-08 and parts of the
+requirement are owner-dated 2026-09-14, so some of this is staleness — but
+006's dropped refiner, 007's fill policy and 007's flag removal are **positive
+statements that say the opposite of the frozen text**, and staleness does not
+cover those.
+
+### S0-1 — the boundary key is specified in milliseconds; the requirement says frame numbers
+
+`TASKS/005` L287-289 fixes the locator-to-splicer contract as
+`{master_start_ms, master_end_ms, candidate_offset_ms}`; `TASKS/006` carries the
+same convention; `TASKS/007` works to a **100 ms** alignment tolerance
+(L205, L399), which is ~2.4 frames at 23.976 fps — **no frame-accuracy claim can
+rest on it**. `CAMPAIGN.MD` §2 and `OWNER_SPEC_FRAME_REPAIR.MD` constraint 2
+require master video frame numbers, because the frame index is invariant under
+resample and a millisecond boundary needs a factor to be right at all.
+
+`TASKS/005` **contradicts itself** on this: L67-69 states the deliverable is *"a
+signed displacement in whole reference frames"*, L287-289 delivers the millisecond
+dict. A dev cannot satisfy both. Reached by both passes independently; the 007
+extension and the self-contradiction are the Architect's sub-agent's.
+
+### S0-2 — the requirement's second instrument was dropped as useless
+
+`TASKS/006` §"What was dropped": *"**The frame-level video refiner.** dev-2's
+repair fills the bracket from the master, correct by definition, at 0.49 % of an
+episode against 15 %. **An instrument with no consumer.**"* Verified verbatim by
+two readers. This is the highest-order item of the pass: the refiner is the only
+component that can satisfy *"to the frame"*, and the only one that can run the
+pHash boundary validation. It was dropped on a consumer argument, and §2 then made
+it mandatory — so the drop must be **reversed, not extended**.
+
+### S0-3 — nothing owns the pHash boundary check
+
+None of the six tickets contains the 50-frames-each-side validation (owner
+addendum, 2026-09-14). `TASKS/016` calibrates its numbers; no ticket implements
+it. `TASKS/007` L83-84 substitutes audio alignment within 100 ms as its closure
+evidence and L115 already declines to claim the boundaries are right. A ticket is
+missing between 013 and 016; the Architect opens it.
+
+### S0-4 — the repair is specified to rebuild far more than the divergent zone
+
+`CAMPAIGN.MD` §2: repair **only the divergent zone, never the whole comparison
+zone**. `TASKS/007` L8-11 places the candidate's pieces on the master timeline and
+**fills the gaps from the master itself**; L126 *"filled from the master, never
+spliced"*; L131-133 measures master fill of **21.9 %, 31.6 % and 22.4 %** of the
+output on real ids 8, 12, 13. Verified.
+
+Correction to the Lead's first pass, recorded because the first pass was read by
+others: the Lead wrote that no ticket proposes replacing the whole comparison
+zone. Literally true — 007 replaces no zone wholesale — and it **missed the
+finding**, which is that repairing 22-32 % of a timeline is not repairing the
+divergent zone either. The Architect's sub-agent caught it. The consequence
+reaches `CAMPAIGN.MD` §4 clause 5: master fill is not a *named transform*, so
+every filled second is an unexplained difference, and clause 5 makes an
+unexplained difference of any size a FAIL.
+
+### S0-5 — the chromaprint point is not 125 ms (owner ruled 2026-09-15)
+
+`BRIEF_COMMON.md` L81 states *"One point = 125 ms … if a delay is not a multiple
+of 125, question the reading before you question the media"*, and `TASKS/006`
+L15-16 states it as a general rule. **Measured false as a general rule**:
+`audioCorrelation.py:132` computes the quantum per call as
+`int(lengthFile/len(fingerprint_source)*1000)`, giving **124-142 ms**, and 125
+exactly only for a window of 160-286 s (`TASKS/005` §5). `TASKS/008` L66
+independently measures a **gcd of 124 ms** on real files. Campaign 1 recorded
+*"138 ms observed"*; both figures are the same mechanism seen from different
+window lengths, and this entry carries that hedge rather than sharpening it.
+
+**Correction to the strength of this finding, and to its arithmetic.** Two
+things were wrong in the first telling, both the Lead's to own. (i) *"Measured
+false"* was too strong — the Architect re-verified against 005's table and the
+owner's *"125 is the norm at +/- 1"* holds for every window the pipeline passes
+at ordinary episode length. (ii) The episode-duration mapping was inherited from
+005 §5 and 005 §5 mis-transcribed the code. The real function is `video.py:474-485`
+with `number_cut = 10` (`:21`), doubled at `mergeVideo.py:774`:
+`L = 2*int((duration - 90)/11)` on the **`> 300 s`** branch — not
+`int((duration - 240)/11)` on `> 540 s` as the ticket states. Recomputed, the
+125 ms band is an episode of **16.2 to 27.9 minutes** (005 says 18.7 to 30.4),
+124 ms from **27.9** minutes up, and 005's own measured `L = 100 -> 127 ms` is a
+**~10.7-minute** episode, not a 13.2-minute one.
+
+So *"+/- 1 for every episode-length file"* is over-strong at the short end: **it
+holds from about 16 minutes up; a ~10.7-minute episode reads 127**, and between
+L=100 and L=160 nothing was measured, so 126 there is interpolation and is **not
+claimed**. Short-format episodes are an ordinary case, not a corner one.
+
+**Where the universal quantifier came from, since it matters more than the
+number.** The owner's words were *"125 ms est **généralement** la norme à +/- 1
+ms"*. He carried the hedge; the Architect dropped it in relaying, and the
+unhedged form reached `BRIEF_COMMON.md`. The Architect identified this as their
+own violation of rule 4 — *never restate a finding more strongly than its author
+did* — committed against the owner himself, and has corrected that file under
+the freeze instrument that governs it, citing the real formula by line and naming
+the withdrawn version. So the narrower statement here is **not a softening of the
+owner's ruling; it is his ruling, restored.**
+
+A third artefact of the same mis-read line, found by the Architect on re-reading
+the source: 005 §5's *"a 45-minute episode gives L = 436"*. Under the real formula
+a 44-minute file gives `length_time = 231`, so **L = 462**. The conclusion
+survives — the table reads 124 from L >= 288 either way — but the figure is
+wrong. It sits in `TASKS/005` §5 prose and is corrected there in place; the
+`L = 436` in that section's sweep *table* is a legitimate swept value and stands.
+
+**The method finding underneath the number, which outlasts it.** Not "the ticket
+was wrong". This: **a measured table and a transcribed formula sat side by side
+in the same section of `TASKS/005` §5, carrying the same apparent authority, and
+the formula poisoned every consumer for hours — the Architect, the Lead,
+`BRIEF_COMMON.md`, `AGENT.MD`, the 006 amendment — while the table beside it
+stayed true.** Nobody checked it precisely *because* half the section was
+genuinely measured. The rule with its consequence attached: **a number copied
+from code is not a measurement, and it inherits none of the authority of the
+measurements beside it. Cite code by `file:line`, or re-read it.**
+
+Both seats re-derived the real formula independently from
+`src/video.py:475-477` (`number_cut = 10` at `:21`) and `src/mergeVideo.py:774`,
+and agreed to the minute on all three band edges: L=160 -> 970 s (16.2 min),
+L=288 -> 1674 s (27.9 min), L=100 -> 640 s (10.7 min). `grep` for `-240` or `540`
+in either file returns nothing: **005's formula exists nowhere in the code.**
+
+**Owner, 2026-09-15**, asked whether to correct the documents: *"Agent.md have
+right! But not commit the brief_common. Save this finding. 125ms is the common
+value, but this will not change the algorithm."* So:
+
+- `AGENT.MD` is corrected and now states the quantum as per-pair with the band.
+  **It never carried the false claim** — the Lead's first report said it did, and
+  that limb was wrong; the correction is an addition, not a repair.
+- `BRIEF_COMMON.md` is **left as it stands** and is now frozen mechanically. It
+  therefore freezes a sentence measured false, **by the owner's explicit choice
+  and not by oversight** — recorded here so no successor reads it as authority.
+- **No code change is licensed by this.** The owner bounds the consequence:
+  125 ms is the common value and the algorithm does not change. In particular
+  this does **not** authorise touching the `127`/`128` gates of S0-6.
+
+### S0-6 — two frozen-file defects, unowned since 2026-09-08
+
+From `TASKS/005` §Blocked, reached by the Lead's pass only: the ten hardcoded
+`127`/`128` one-frame gates in `first_delay_test`, which encode "within one frame"
+only at a 125 ms quantum; and `get_delays_dict(..., delayUse=0)` at
+`mergeVideo.py:489` and `:502`, which record a post-shift residual as if it were
+absolute. Both sit outside any tagged zone: findings by `WRITE_ZONES.MD` rule 1,
+frozen, and no ticket carries them. **Still findings after this entry.**
+
+### S0-7 — `config.ini [features]` has never existed
+
+Every brief, `CAMPAIGN.MD` §6 and `WRITE_ZONES.MD` §4 send agents to
+`config.ini` `[features]`. `TASKS/007` L69 records removing it *"entirely"* citing
+§4, while `TASKS/009` L32 and L211 still block waiting on it — two seats on
+opposite contracts. Measured by the Lead, with a firing control:
+
+    git ls-files | grep -i 'config\.ini'          -> src/config.ini only
+    git log -S'[features]' --oneline -- src/config.ini   -> EMPTY, exit 0
+    git log -S'mergerules' --oneline -- src/config.ini   -> c5a73159  (control fires)
+    src/config.ini holds [mergerules] and [software], nothing else
+
+So it was never removed and §3's *additions only* was never breached — **the
+section was never implemented**, which is a different and more honest finding than
+the one 007 recorded against itself. Creating `[features]` is an **addition**,
+expressly allowed by §3. Note also that 007 cited **§4** for a `config.ini` rule
+and §4 governs source modules, not configuration: the justification did not
+support the act even where the act was permissible.
+
+### S0-8 — the stage-3 validation instrument cannot see a frame
+
+`TASKS/010` L68 and L111-113: the video probe's resolution is **500 ms**, and
+*"below 25 ms nothing in this campaign can see anything"*. 500 ms is twelve frames
+at 23.976 fps. The instrument meant to validate stage 3 is two orders of magnitude
+coarser than the quantity the requirement is about, and 010 states no
+frame-resolution acceptance criterion. Architect's sub-agent; verified in the text.
+
+### S0-9 — `no_pitch_relation` is in no ticket's verdict vocabulary
+
+A standing ruling absent from the verdict sets of `TASKS/008` and `TASKS/009`
+(L195). Architect's sub-agent. Unresolved.
+
+### What held clean under both passes
+
+No ticket routes through `cross_correlation` — zero mentions across all six.
+`TASKS/008` L390-398 independently derives **resample -> locate -> splice** and
+honestly flags that it has never run end to end, because the resampled candidate
+is built inside the assembly and never exposed as a file. `WRITE_ZONES.MD` §5
+check 4 is already reconciled with 005's compileall result.
+
+### Open against this entry
+
+`TASKS/005` §6 and `TASKS/006` are **not rewritten**. The owner, asked, answered
+*"Ask to the architect. I will reply if needed."* — the ms-to-frame contract
+question is delegated to the Architect, who is drafting corrected text for 005,
+006, 008 and 009 in the lab, unlanded.
+
+## Governance bypass, 2026-09-15 — one commit, owner-authorised, spent on use
+
+`WRITE_ZONES.MD` §1 permits the Architect or the Lead Dev to edit governance
+documents **with the owner's authorisation**. §5 check 1b requires the staged
+governance diff to be **empty, unconditionally**, and `check_write_zones.py`
+faithfully implements 1b: `GOVERNANCE` is a flat tuple, `classify()` prefix-matches
+it, and the violation is appended with no authorisation path of any kind. **The
+document contradicts itself**, and no change to the checker could fix it —
+loosening the instrument would breach §5, which names the instrument the authority.
+
+Measured before raising it (Lead), against landed history:
+
+    --rev 523ec97e -> exit 1   --rev 7068b07e -> exit 1   --rev 47817068 -> exit 1
+    --rev c6f73d12 -> exit 1   --rev 1a6a290b -> exit 1
+
+**Correction to the Lead's first telling of this, recorded because it was
+reported before it was refuted.** The Lead wrote "five of five, the whole
+restart". The Architect refuted the scope: `check_write_zones.py` is **not under
+version control** (`git log --all -- '*check_write_zones*'` is empty), its only
+date is an mtime of 2026-09-14 23:27, so `1a6a290b` (14 15:04) predates the
+instrument's last write by eight hours and its content at that moment is recorded
+nowhere. The defensible claim is **four commits, from the last hour of 09-14
+onward**. And the reason the fifth is unmeasurable is itself a finding: **the
+mechanical authority on write zones has no auditable history of its own.**
+
+### The owner's answer — a fourth shape, not one of the three options
+
+Asked to choose between teaching the checker an authorisation path, letting
+governance ride with code, or committing the files himself, the owner chose none.
+Verbatim, to the Architect: *"il faut juste faire attention au autorisation.
+bypass juste cette fois ci le checker. il faut faire en sorte que ces
+modifications exceptionnelle ne viennent pas perturber la suite du travail."* And
+independently, in the same minutes, to the Lead: *"Only this time you can modify
+the governance files. Always ask me next time."*
+
+Two seats put the question separately and received the same ruling in two
+languages. **The checker does not change. The owner is the authorisation path,
+manually, per occasion.** This resolves §1-vs-§5 without editing `WRITE_ZONES.MD`:
+§1's "with the owner's authorisation" has a concrete form — an explicit owner
+order per batch — and §5 check 1b remains the mechanical default that makes every
+*unauthorised* governance diff fail.
+
+**This bypass is spent on use. Every future governance edit needs a fresh,
+explicit owner authorisation. No seat may cite this entry as precedent** — citing
+it is the failure it was designed to prevent.
+
+### What was authorised, exactly
+
+    AGENT.MD
+    CAMPAIGNS/02-dev-chimeric-resample/FINDINGS.MD
+    CAMPAIGNS/02-dev-chimeric-resample/RULING_20260915_FRAME_INDEXED_BOUNDARY.MD
+    CAMPAIGNS/02-dev-chimeric-resample/TASKS/005-dev1-frame-compare-ruling.MD
+    CAMPAIGNS/02-dev-chimeric-resample/TASKS/006-dev1-locate-change-points.MD
+    CAMPAIGNS/02-dev-chimeric-resample/TASKS/007-dev2-chimeric-splice.MD
+
+`TASKS/DOCKET.md` rides at the repository root, which is open zone and needs no
+authorisation. **Not covered, and not touched:** `WRITE_ZONES.MD`, `docs/`,
+`TASKS/008`/`009`/`010` (gaps, not contradictions — the landed ruling corrects
+them at the contract level), anything under `src/`, and `BRIEF_COMMON.md`.
+
+The procedure followed: stage exactly those paths; run `--staged`; **expect exit
+1 and require every violation line to be a §1-governance line naming a path on
+the list** — one violation of any other kind aborts; re-run on the landed rev
+afterwards and confirm the same governance-only set. The captured output of both
+runs is recorded in the task file rather than the commit message (privacy: commit
+messages stay minimal and carry no links or ids).
+
+**The exceptional and the normal did not share a commit.** `vmsam-dev-frame`'s
+work on `src/frame_compare.py` and `src/merge_video_chimeric.py` was already in
+the working tree when this batch was staged, and was deliberately left out of it:
+it lands separately, through the normal gate, at exit 0, or it does not land.
+That separation is what "ne pas perturber la suite du travail" compiles to.
+
+### What this batch carries
+
+The stage-0 entry above (S0-1 to S0-9); the `AGENT.MD` quantum correction; the F1
+frame-indexed boundary contract as a campaign ruling; and amendments to 005, 006
+and 007 pointing at it — 006's dropped refiner reinstated, 007's whole-track
+re-encode and 100 ms tolerance superseded, its master fill **retained** as a
+legitimate repair of a divergent zone.
+
+### Owner policy recorded in passing, 2026-09-15 — flags are a last resort
+
+*"je pense qu'il faut le moins de flag possible. vous pouvez rajouter qu'en
+dernier recours."* **As few flags as possible; a flag is a last resort, not a
+default pattern.** This settles the 007-vs-009 contradiction in a direction
+neither ticket took: 007's no-flag instinct was the closer of the two. In review,
+a seat proposing a flag must first show why the behaviour cannot simply be correct
+unconditionally. `config.ini [features]` may be created when that case is made —
+it has never existed (S0-7) — and creating it is an addition, allowed by §3.

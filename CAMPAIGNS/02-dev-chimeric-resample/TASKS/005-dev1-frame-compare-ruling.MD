@@ -2,6 +2,25 @@
 
 **Agent:** `vmsam-dev-1`. **State:** ruled, edit applied. **Do this before 006.**
 
+> **AMENDED 2026-09-15 (Architect, owner-authorised).** This ticket's §6
+> interface is superseded by the frame-indexed boundary contract
+> (`../RULING_20260915_FRAME_INDEXED_BOUNDARY.MD`). The ticket's internal tension —
+> §"the instrument's job" promises *a signed displacement in whole reference
+> frames*, §6 delivered *milliseconds* — is resolved in favour of frames, which
+> is what this ticket argued for before its own interface contradicted it. All
+> measurements in this ticket are untouched and remain the reference.
+>
+> **One correction, Lead, 2026-09-15, to a figure rather than a measurement.**
+> §5's `fpcalc` sweep of window length against quantum is a real measurement and
+> stands. Its *mapping of that band onto episode durations* does not: §5 states
+> the window as `int((duration - 240)/11)` on a `> 540 s` branch, and the function
+> (`video.py:474-485`, `number_cut = 10` at `:21`, doubled at `mergeVideo.py:774`)
+> says `L = 2*int((duration - 90)/11)` on the **`> 300 s`** branch. Recomputed:
+> the 125 ms band is an episode of **16.2 to 27.9 minutes**, not 18.7 to 30.4;
+> 124 ms applies from **27.9** minutes up; and §5's measured `L = 100 -> 127 ms`
+> is a **~10.7-minute** episode. Read the quantum from the pair, never from a
+> duration.
+
 ## Goal
 
 `src/frame_compare.py` does not compile — `frame_compare.py:109`, pre-existing
@@ -253,13 +272,36 @@ pair (`fpcalc -raw -length L`, items counted, `int(L/n*1000)`):
 Band edges, measured by sweeping L in 4 s steps: the quantum is **125 ms exactly
 for L ∈ [160, 286]**, 126+ below it, 124 at and above 288.
 
-The pipeline passes `lengthFile = lenghtTime*2` and
-`lenghtTime = int((shortest_audio_duration − 240)/11)` for durations > 540 s
-(`video.generate_begin_and_length_by_segment`), so L ∈ [160, 286] corresponds to
-**shortest audio duration ∈ [1120 s, 1824 s)** — about 18.7 to 30.4 minutes. The
-`ore1` pair is 1420 s, inside that band, so it reads 125. A 45-minute episode
-(≈2640 s) gives L = 436 and a quantum of **124 ms**; a short file on the
-`> 60 s` branch reads 132–142 ms.
+**CORRECTED 2026-09-15 (Lead, under the owner's governance authorisation) — the
+paragraph that stood here transcribed the formula wrongly, and every duration in
+it was wrong as a result.** It read `lenghtTime = int((shortest_audio_duration −
+240)/11)` for durations `> 540 s`. The function says neither number, and `grep`
+for `-240` or `540` returns nothing in either file. What the code actually says,
+`src/video.py:475-477` with `number_cut = 10` at `:21`, doubled at
+`src/mergeVideo.py:774`:
+
+    if min_video_duration_in_sec > 300:
+        length_time = int((min_video_duration_in_sec - 90)/(number_cut+1))
+    ...
+    length_time_converted = strftime('%H:%M:%S', gmtime(length_time*2))
+
+so `L = 2*int((shortest_audio_duration - 90)/11)` on the `> 300 s` branch.
+Recomputed, and confirmed independently by the Architect against the source:
+
+| band | this section claimed | measured from the code |
+| :--- | :--- | :--- |
+| L ∈ [160, 286], quantum 125 | duration 1120–1824 s, 18.7–30.4 min | **970–1674 s, 16.2–27.9 min** |
+| L ≥ 288, quantum 124 | "a 45-minute episode, L = 436" | **from 1674 s / 27.9 min**; a 44-minute file gives `length_time = 231`, so **L = 462**, not 436 |
+| L = 100, quantum 127 | ≈13.2-minute episode | **≈10.7-minute episode** |
+
+The `ore1` pair at 1420 s is inside the band either way and does read 125. A
+short file on the `> 60 s` branch reads 132–142 ms — that part stands.
+
+**The sweep table above is a real `fpcalc` measurement and is untouched.** Only
+this mapping from window length to episode duration was wrong, and it was
+arithmetic on a mis-read line rather than anything measured. The consequence is
+recorded in `FINDINGS.MD`: a number copied from code is not a measurement, and it
+inherits none of the authority of the measurements printed beside it.
 
 This is **not a new discovery** — campaign 1 recorded it, and I am carrying their
 hedge rather than restating it more strongly. `CAMPAIGNS/01-dev-AI/DOMAIN_INVARIANTS.MD`
@@ -284,9 +326,22 @@ corrections in §5 above and in my reply. Shape:
 
 - **new module, mine**, `src/` — imported by dev-2's repair module, lazily, behind
   the off-by-default `config.ini` `[features]` key that is dev-2's to add;
-- it returns **numbers, not files**: a partition of the master's timeline as
-  `{master_start_ms, master_end_ms, candidate_offset_ms}` under the stated
-  equation `candidate_time_ms = master_time_ms + candidate_offset_ms`;
+- it returns **numbers, not files**: a partition of the master's timeline under
+  the F1 contract (`../RULING_20260915_FRAME_INDEXED_BOUNDARY.MD`) —
+
+      { "grid": {"num": <int>, "den": <int>},   # master's exact rational rate, MANDATORY, no default
+        "master_start_frame": <int>,             # inclusive
+        "master_end_frame":   <int>,             # EXCLUSIVE -- half-open [start, end)
+        "candidate_offset_frames": <int>,        # same grid
+        "similarity": <float>, "margin": <float>,
+        "derived_ms": { ... } }                  # derived from index+grid, never authoritative
+
+  A payload without `grid` is malformed, not defaulted; a producer that cannot
+  state the grid as an exact rational **declines**. Milliseconds appear only
+  inside `derived_ms` and no consumer reads them back as authority. The
+  displacement this instrument returns is `candidate_offset_frames`, in whole
+  frames on the master grid — exactly the unit this ticket's own §"the
+  instrument's job" demanded;
 - exactly **one caller**, and it is dev-2's zone-A path. Nothing else imports it.
 
 `frame_compare.FrameComparer`'s pHash front end is called by that module. That is
