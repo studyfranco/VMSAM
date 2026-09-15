@@ -1743,6 +1743,8 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     for language,subs in video_obj.subtitles.items():
         if language in tools.language_to_completely_remove:
             for sub in subs:
+                sub['keep'] = False
+                tools.logs.append(f"Track {sub['StreamOrder']} not added for {language} from {video_obj.filePath}. It is excluded by language policy (config.json language_to_completely_remove).\n")
                 sub_track_to_remove.append(sub)
         else:
             for sub in subs:
