@@ -405,6 +405,19 @@ def _emit(message):
 
 DECLINE_REASONS = (
     "audio_duration_unavailable",
+    # Architect's grant, 2026-09-16, TASKS/013 §3: the scan RAN, the probe-count
+    # floors (too_few_usable_probes / too_few_probes_with_signal) already
+    # PASSED, and the ACHIEVED coverage of the scanned region -- read from the
+    # probes that SURVIVED, never the attempted grid -- has a hole inside it.
+    # Distinct from every count guard above and below: those ask "how many
+    # probes came back", this asks "does what came back cover the span". Always
+    # paired with measurement=could_not_run, never ran_conclusive_negative --
+    # a hole means the scan cannot conclude, not that it concluded negatively.
+    # Detail carries the hole bounds (coverage_gap_bounds) and total
+    # (coverage_gap_total_s), never only the count: TASKS/013's own lesson on
+    # `primary_below_pairing_bar` -- "a row saying rejected cannot be
+    # re-judged; a row saying '0.8477, rejected at 0.85' can."
+    "coverage_incomplete",
     "every_probe_failed",
     "median_fidelity_below_floor",
     "no_stream_for_language",
@@ -1358,6 +1371,42 @@ def _bracket_transition(master_path, master_stream, candidate_path, candidate_st
             _discards(samples), len(samples))
 
 
+def _coverage_gaps(starts, window_seconds, span_start, span_end):
+    """Intervals inside [span_start, span_end] that NO SURVIVING PROBE covered.
+
+    `starts` are the starts of the probes that reached the plateau grouping --
+    NEVER the attempted grid. Measured: TASKS/013 §3, a 30-probe grid losing
+    probes 8-17 still reported scanned_seconds=[0.0, 1200.0] -- this function
+    is what tells the two cases apart, by reading what actually survived.
+
+    Windows overlap by PROBE_WINDOW_SECONDS - PROBE_STEP_SECONDS (20 s), so
+    coverage is contiguous ONLY while adjacent probes survive; one lost probe
+    opens 20 s, N consecutive open 40*N - 20.
+
+    Returns a list of (low, high) in seconds, empty when the span is fully
+    covered -- a MEASUREMENT, not a default: the caller must not read an empty
+    list as "no gaps" unless this function ran.
+    """
+    if span_end <= span_start:
+        return []
+    covered = []
+    for start_seconds in starts:
+        low = max(float(start_seconds), span_start)
+        high = min(float(start_seconds) + window_seconds, span_end)
+        if high > low:
+            covered.append((low, high))
+    covered.sort()
+    gaps = []
+    cursor = span_start
+    for low, high in covered:
+        if low > cursor:
+            gaps.append((cursor, low))
+        cursor = max(cursor, high)
+    if cursor < span_end:
+        gaps.append((cursor, span_end))
+    return gaps
+
+
 def locate_change_points(best_video, candidate_video, language, work_dir=None):
     """Locate where `candidate_video`'s timeline diverges from `best_video`'s.
 
@@ -1676,6 +1725,26 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         sign_flips=flips,
                         sign_flips_max=MAX_SIGN_FLIPS)
 
+    # --- achieved coverage, read from `kept` (SURVIVED), never `starts`
+    # (ATTEMPTED) -- the predicate the Architect's grant requires, and the same
+    # separation `scanned_seconds` below still gets wrong for the field, not
+    # for this guard: this guard reads the honest side of that split.
+    coverage_span = (min(starts), max(starts) + PROBE_WINDOW_SECONDS)
+    coverage_gaps = _coverage_gaps([r[0] for r in kept], PROBE_WINDOW_SECONDS,
+                                   coverage_span[0], coverage_span[1])
+    if coverage_gaps:
+        coverage_gap_total = round(sum(high - low for low, high in coverage_gaps), 3)
+        _log(f"achieved coverage has {len(coverage_gaps)} hole(s) totalling "
+             f"{coverage_gap_total:.1f}s inside the scanned span "
+             f"[{coverage_span[0]:.0f},{coverage_span[1]:.0f}]s; declining")
+        return _decline("coverage_incomplete", "could_not_run", pair=pair_id,
+                        coverage_gaps_n=len(coverage_gaps),
+                        coverage_gap_total_s=coverage_gap_total,
+                        coverage_gap_bounds=(",".join(
+                            f"{round(lo, 1)}-{round(hi, 1)}" for lo, hi in coverage_gaps)),
+                        probes_attempted=len(starts), probes_raw=len(raw),
+                        probes_kept=len(kept))
+    coverage_gap_total = 0.0
     runs = _group_plateaus([(r[0], r[1][0]) for r in kept])
     # MEASUREMENT-RETENTION INVARIANT: every measured run reaches the
     # transition/segment stage, or is absorbed as noise against a named,
@@ -2159,6 +2228,13 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             f"probes_raw={len(raw)} probes_kept={len(kept)} "
           f"probes_dropped_low_signal={dropped} "
           f"signal_floor_fraction={LOW_SIGNAL_FRACTION} "
+          # Achieved-coverage fields on the SUCCESS line too, not only in the
+          # returned plan: the two channels carry different fields and neither
+          # is a superset (merge_plan_report.py:3469-3478 files plan-dict fields
+          # as NO_PRODUCER reading only this channel -- correct about the log,
+          # wrong about the module). Always 0/[] here: a non-empty value would
+          # have declined above and never reached this line.
+          f"coverage_gaps_n=0 coverage_gap_total_s=0.0 "
           # NOT `offset_distinct_points`. `points` IS ALREADY A UNIT OF TIME IN THIS
           # CODEBASE -- `audioCorrelation` returns `offset_in_points` and ONE POINT IS
           # 125 ms, the chromaprint frame -- and THIS VERY LINE prints
@@ -2222,6 +2298,13 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # never presented, and it looks like a clean constant offset. This
             # module scans [0, shortest] contiguously including an end-anchored
             # tail probe, so its coverage is stated rather than assumed.
+            #
+            # THIS VALUE IS THE ATTEMPTED GRID, NOT WHAT WAS ACHIEVED -- unchanged
+            # here by the Lead's correction to the Architect's grant, TASKS/013 §3,
+            # because a live consumer (merge_plan_report.py) already parses it. A
+            # reader who wants what actually came back wants the three fields
+            # beside it instead: `coverage_measured`, `coverage_gaps_seconds`,
+            # `coverage_gap_total_seconds`.
             "scanned_seconds": [round(min(starts), 3) if starts else None,
                                 round(max(starts) + PROBE_WINDOW_SECONDS, 3) if starts else None],
             # The smallest step this scan can resolve. A divergence below it
@@ -2243,7 +2326,26 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # floor to survive merging. Stated so nobody has to re-derive the interaction.
             "effective_step_floor_ms": max(PLATEAU_TOLERANCE_MS, MIN_STEP_MS),
             "probes_used": len(kept),
+            # ATTEMPTED reached the log line and never the plan -- the two
+            # subtractions are the only way to tell WHY a probe is missing
+            # (attempted-raw = EXTRACTION FAILURE, raw-kept = ENERGY GUARD,
+            # :1512) and a consumer holding only the plan could compute neither.
+            "probes_attempted": len(starts),
+            "probes_raw": len(raw),
             "probes_dropped_low_signal": dropped,
+            # What `scanned_seconds` actually is, named rather than left to its
+            # name: the ATTEMPTED grid's span, unchanged by this landing at the
+            # Lead's correction -- a live consumer (merge_plan_report.py)
+            # already reads it and its meaning does not move.
+            "scanned_seconds_basis": "attempted_probe_grid",
+            # What was ACHIEVED inside that span -- the coverage_incomplete
+            # guard's own predicate. Always empty/0.0 here BY CONSTRUCTION: a
+            # non-empty value declines above and this line is never reached in
+            # that case. `coverage_measured=True` says the instrument RAN, so
+            # this absence is a measurement, never a default silently agreeing.
+            "coverage_measured": True,
+            "coverage_gaps_seconds": [],
+            "coverage_gap_total_seconds": 0.0,
             "segments": segments,
             "change_points": change_points,
             "median_fidelity": round(median_fidelity, 4),
