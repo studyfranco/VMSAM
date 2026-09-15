@@ -301,7 +301,9 @@ def offset_fidelity(segment, stream_order=None):
 
 
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
-                       speed_ratio=None, stream_order=None):
+                       speed_ratio=None, stream_order=None,
+                       master_path=None, candidate_path=None,
+                       fps_num=None, fps_den=None):
     '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
 
     Chaque morceau est un dict: `source` ("candidate" | "master" | "silence"),
@@ -356,6 +358,8 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
     pieces = []
     cursor = Decimal("0")
     previous_candidate_end = None
+    previous_offset = None
+    previous_segment = None
 
     for segment in ordered:
         master_start = Decimal(str(segment["master_start_ms"]))
@@ -373,6 +377,77 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 f"segment ends at {master_end} ms, past the master's "
                 f"{master_duration_ms} ms")
 
+        # THE FRAME TIER -- SPEC_ZONE_A.MD S4h: this is where the refinement
+        # belongs, downstream of the locator, which only bracketed the gap.
+        # UNCONDITIONAL when the inputs to run it are present (WRITE_ZONES.MD
+        # S4: "must not be conditioned on a parameter") -- the two call sites
+        # in `assemble_on_master_timeline` always pass them; a caller that
+        # omits them (a test building `pieces` directly) gets the old,
+        # unnarrowed behaviour rather than an error, which is what lets this
+        # stay a default parameter instead of a required one without being a
+        # feature flag.
+        #
+        # Fires ONLY on an INTERIOR gap (`cursor > 0`) whose PRECEDING
+        # segment carries `bracket_is_bound_only` -- never on the head/tail
+        # gap, which is not a locator bracket at all, and never as a search:
+        # `locate_bracket_boundary` REFINES the exact [cursor, master_start)
+        # this assembly already has, it does not go looking for one.
+        narrowed_low = narrowed_high = None
+        frame_tier_result = None
+        if (cursor > 0 and master_start > cursor and previous_segment is not None
+                and previous_offset is not None
+                and (previous_segment.get("following_bracket") or {}).get(
+                    "bracket_is_bound_only")
+                and master_path is not None and candidate_path is not None
+                and fps_num is not None and fps_den is not None):
+            import frame_compare
+            frame_tier_result = frame_compare.locate_bracket_boundary(
+                master_path, candidate_path, fps_num, fps_den,
+                float(cursor), float(master_start),
+                float(previous_offset), float(offset))
+            if not frame_tier_result["declined"]:
+                frame_ms = 1000.0 * fps_den / fps_num
+                lo = Decimal(str(frame_tier_result["derived_ms"]["master_start_ms"]))
+                hi = Decimal(str(frame_tier_result["derived_ms"]["master_end_ms"]))
+                # DEFENSIVE CLAMP: never let the frame tier WIDEN the gap the
+                # locator already bracketed, whatever it returns -- the
+                # bracket is the search interval (F1 rule 1), and widening it
+                # here would let a refiner bug turn into candidate content
+                # read from outside where it was ever measured.
+                lo = min(max(lo, cursor), master_start)
+                hi = min(max(hi, lo), master_start)
+                narrowed_low, narrowed_high = lo, hi
+
+        if narrowed_low is not None:
+            # EXTEND THE PREVIOUS PIECE, DON'T INSERT A NEW ONE: it is
+            # already the candidate content read at `previous_offset`: more
+            # of the SAME read, up to where the frame tier says it stops
+            # matching, is exactly what "extend" means here.
+            if narrowed_low > cursor:
+                extended_end_candidate = narrowed_low + previous_offset
+                if extended_end_candidate <= candidate_duration_ms:
+                    pieces[-1]["master_end_ms"] = narrowed_low
+                    pieces[-1]["frame_tier"] = frame_tier_result
+                else:
+                    # The frame tier's answer would read the candidate past
+                    # its own end -- decline the narrowing, not the file.
+                    narrowed_low = cursor
+            if narrowed_high is None or narrowed_high < narrowed_low:
+                narrowed_high = narrowed_low
+            if narrowed_high > narrowed_low:
+                pieces.append({"source": "master", "master_start_ms": narrowed_low,
+                               "master_end_ms": narrowed_high,
+                               "source_start_ms": narrowed_low,
+                               "reason": "interior_bracket_frame_narrowed",
+                               "frame_tier": frame_tier_result})
+            # THIS SEGMENT NOW READS THE CANDIDATE FROM THE NARROWED POINT,
+            # not from its original `master_start` -- the frame tier already
+            # established the candidate matches from here on, under THIS
+            # segment's own offset.
+            if narrowed_high > master_start:
+                narrowed_high = master_start
+            master_start = narrowed_high
+
         candidate_start = master_start + offset
         candidate_end = master_end + offset
         if candidate_start < 0 or candidate_end > candidate_duration_ms:
@@ -389,7 +464,7 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 f"after having read up to {previous_candidate_end} ms")
         previous_candidate_end = candidate_end
 
-        if master_start > cursor:
+        if master_start > cursor and narrowed_low is None:
             # POURQUOI CE MORCEAU DE MAITRE EST LA, ET C'EST L'ARCHITECTE QUI A
             # MONTRE QUE PERSONNE NE POUVAIT LE DIRE.
             #
@@ -402,7 +477,9 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             #                     opposes qui produisaient la meme ligne.
             #   interior_bracket  le trou EST l'incertitude du localisateur entre
             #                     deux plateaux; sa largeur est `bracket_high -
-            #                     bracket_low`.
+            #                     bracket_low` -- ou, quand la troisieme grille de
+            #                     cadres a pu l'affiner, la largeur RESIDUELLE
+            #                     apres narrowing (branche ci-dessus).
             #   tail_gap          rien apres le dernier segment.
             #
             # LA DISTINCTION EST LA QUESTION DU PROPRIETAIRE. Sa regle dit de
@@ -418,6 +495,8 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        "master_end_ms": master_end,
                        "source_start_ms": candidate_start})
         cursor = master_end
+        previous_offset = offset
+        previous_segment = segment
 
     if cursor < master_duration_ms:
         pieces.append({"source": "master", "master_start_ms": cursor,
@@ -1698,7 +1777,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # call, no track, no content at `out_path` -- so there is nothing to
     # rename and nothing partial to report. Mirroring that scaffolding here
     # would be inventing a decline record for work that never started.
-    if resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original) is None:
+    master_grid = resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original)
+    if master_grid is None:
         # NEUTRAL, AND NAMES ALL THREE VALUES: which field actually failed to
         # parse depends on the path (CFR resolves through `frame_rate`, any
         # other mode through `frame_rate_original` -- `resolve_master_grid`
@@ -1712,6 +1792,11 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             f"{frame_rate_mode!r} FrameRate={frame_rate!r} "
             f"FrameRate_Original={frame_rate_original!r}: this candidate's "
             f"segment boundaries are not expressed on a measured grid")
+    # KEPT AS THE EXACT RATIONAL, NEVER RE-DERIVED. `master_grid` is already a
+    # `Fraction` (RULE 2, `parse_positive_rate`) -- `.numerator`/`.denominator`
+    # ARE the grid `locate_bracket_boundary` needs, not a float rounding of it.
+    master_fps_num = master_grid.numerator
+    master_fps_den = master_grid.denominator
 
     master_duration_ms = get_master_timeline_length_ms(master_obj)
     candidate_duration_ms = get_candidate_audio_length_ms(candidate_obj)
@@ -1721,7 +1806,9 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         # borne refuserait des plans corrects.
         candidate_duration_ms = candidate_duration_ms * Decimal(str(speed_ratio))
     pieces = normalize_segments(segments, master_duration_ms, candidate_duration_ms,
-                                speed_ratio)
+                                speed_ratio, master_path=master_obj.filePath,
+                                candidate_path=candidate_obj.filePath,
+                                fps_num=master_fps_num, fps_den=master_fps_den)
 
     tools.make_dirs(work_dir)
     audio_reports = []
@@ -1739,7 +1826,9 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             # recalcule donc les morceaux avec le decalage de CE flux.
             track_pieces = normalize_segments(
                 segments, master_duration_ms, candidate_duration_ms, speed_ratio,
-                stream_order=int(audio["StreamOrder"]))
+                stream_order=int(audio["StreamOrder"]),
+                master_path=master_obj.filePath, candidate_path=candidate_obj.filePath,
+                fps_num=master_fps_num, fps_den=master_fps_den)
             report = build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_pieces, track_path,
                 timeout, speed_ratio, reference_stream, comparison_language,

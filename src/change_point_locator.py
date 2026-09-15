@@ -1811,6 +1811,13 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # refuses the whole plan. Master [0, -offset) is a LEADING GAP filled from
     # the master, which is correct rather than a compromise. Mirror at the tail.
     segments = []
+    # PARALLEL TO `segments`, NOT MERGED INTO IT: the run index each appended
+    # segment came from, so a POST-PASS below can tell two segments are
+    # actually ADJACENT (nothing dropped between them) before attaching the
+    # bracket that separates them. `position` alone cannot do this inline --
+    # the run after `position` may still be dropped later in this same loop,
+    # which is only known once the loop finishes.
+    segment_positions = []
     kept_runs = set()
     dropped_segments = 0
     # MEASUREMENT-RETENTION INVARIANT, the emission half: a run this filter
@@ -1918,6 +1925,32 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             "probes_in_segment": len(run["members"]),
             "offset_unverified": unverified,
         })
+        segment_positions.append(position)
+
+    # TRANSPORT ONLY -- THIS MODULE DOES NOT REFINE ANYTHING. Attach, to the
+    # segment BEFORE an interior gap, the bracket that bounds that gap
+    # (`following_bracket`) -- the same dict already emitted in `change_points`,
+    # copied rather than shared so a later mutation of one cannot leak into the
+    # other. SPEC_ZONE_A.MD S4h ruled the refinement itself belongs in
+    # `merge_video_chimeric.py`, downstream of this locator: "the comparison
+    # stage produces COARSE ZONES ... it does not adopt them." This is the
+    # carrier, not the refiner -- `merge_video_repair.py` (closed, WRITE_ZONES.MD
+    # S4) is the only call site that has `plan` in scope on the way to
+    # `assemble_on_master_timeline`, and it forwards `segments` UNCHANGED
+    # (`parse_segments` copies the whole raw dict, see its own docstring on
+    # field whitelists in a transport). A new key on the segment reaches the
+    # open module for free; a new parameter on that closed call site would not.
+    #
+    # ONLY WHEN NOTHING WAS DROPPED BETWEEN THEM. `change_points[p]` is the
+    # bracket between RUN p and RUN p+1; if the run right after `p` was later
+    # dropped as unusable, the two SURVIVING segments either side are no
+    # longer separated by that one bracket alone, and attaching it would
+    # understate the gap the assembler actually has to cross.
+    for index in range(len(segment_positions) - 1):
+        this_position = segment_positions[index]
+        next_position = segment_positions[index + 1]
+        if next_position == this_position + 1 and this_position < len(change_points):
+            segments[index]["following_bracket"] = dict(change_points[this_position])
 
     if not segments:
         _log("every segment unusable after clamping; declining")
