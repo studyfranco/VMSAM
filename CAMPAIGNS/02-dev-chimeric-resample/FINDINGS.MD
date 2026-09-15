@@ -1506,3 +1506,109 @@ neither ticket took: 007's no-flag instinct was the closer of the two. In review
 a seat proposing a flag must first show why the behaviour cannot simply be correct
 unconditionally. `config.ini [features]` may be created when that case is made —
 it has never existed (S0-7) — and creating it is an addition, allowed by §3.
+
+## Governance gesture #2, 2026-09-15 — owner: *"j'autorise"*
+
+Second and last authorised governance batch of the day. **Spent on use**, like
+the first: a third batch needs a fresh, explicit authorisation.
+
+Contents: the two `AGENT.MD` corrections below, the `WRITE_ZONES.MD` §1 revocation,
+`RULING_20260915_MEASUREMENT_RETENTION.MD`, `RULING_20260915_DECISION_ROUTING.MD`,
+the F1 ruling's blocked need closed by measurement, `TASKS/017`, and these entries.
+
+**`TASKS/017` is the reason this batch could not wait.** Its final 106 lines
+existed **only on disk** from the moment root `TASKS/` was closed until now — two
+copies beside the repository, nothing in git. That is the largest loss risk the
+campaign carried today, and it is closed by this commit.
+
+## Owner rulings recorded verbatim, 2026-09-15
+
+**Privacy, stated at its cleanest** — *"Les log.error sont bien tels quels. Ils
+nous aident et restent internes. La privacy s'applique qu'au repo."*
+**The repository is the privacy surface** — tracked files, commit messages,
+branch names. **Internal artefacts carry full paths and names by design, because
+that is what makes them useful.** The surviving nuance: `VMSAM_TEST_OUTPUT_DIR`'s
+tree mirrors library paths, so anything that **publishes or commits from** it
+still crosses the boundary. This killed a parked log-sanitizer proposal outright.
+
+**An intact track always wins** — *"une piste intacte de même langue gagne
+toujours contre une piste réparée."* Unconditional, **no quality override.**
+With `SPEC_ZONE_A` §6 this closes the `fabricated` question entirely. **No code
+changes: it is what the code already does.**
+
+**Language policy is intentional** — *"Faut qu'il comprenne que c'est bien
+intentionnel ! Et que c'est totalement voulu. Qu'il fasse avec les
+paramétrages."* Seats work **with** the configuration, never around it.
+
+**Flags are a last resort** — *"je pense qu'il faut le moins de flag possible.
+vous pouvez rajouter qu'en dernier recours."*
+
+**Repair only the divergent zone, to the frame** — *"Je veux que le script
+prenne du master QUE la partie problématique, À LA FRAME PRÈS"* — and its
+sharpening: ***"les 140 secondes ne sont PAS la cible de la réparation — elles
+indiquent OÙ CHERCHER."*** **Indication is not localisation.**
+
+**The two repair verbs** — *"On utilise le master pour les rajouts. Si c'est 3
+secondes EN PLUS, on rajoute. Si c'est 3 secondes EN TROP, on coupe."* A
+conforming plan contains **passthrough, ADD-from-master, and CUT. Nothing else.**
+
+**`AGENT.MD` is read IN FULL** — no `head`, no truncation. The onboarding read of
+a binding document is integral; *"grep, don't load"* governs reference lookups
+only. **You cannot be bound by rules you have not read.**
+
+## The same wrong rule, invented twice in one day, in opposite directions
+
+**The Lead** read `AGENT.MD` to line 200 only, invented *"no host paths in
+tracked files"*, and made a seat redact **five lines the document expressly
+permits** (`AGENT.MD`:379 — *"container and tooling paths are fine"*).
+**The Architect**, independently and hours later, drafted the **same invented
+rule** into the `AGENT.MD` amendment — where it would have become the document's
+own text, and then been **uncatchable by reading**, because the two sections
+would have agreed with each other.
+
+**It was caught only because the full-read order forced both of us over the
+sections we had skipped.** The rule that survives is the real one: **container
+and tooling paths are fine; media identity in a tracked file is not.**
+
+## Two self-indictments, recorded beside the cases that produced them
+
+**The Lead: a gate nobody revisits is not a gate, it is a stop.** The wide sweep
+was held on a condition that batch 1 had already satisfied, and never
+re-examined while attention was elsewhere. **Both containers idled 74 minutes
+against a standing owner instruction.** Compounding it: the sweep is what
+**generates** the material the open questions need, so holding it was circular.
+
+**The Lead again, on parking:** the pairing patch sat most of a day because
+*"the cross-language risk call"* was routed upward **with no named decider, no
+stated default, and no date.** The decision had nowhere to go. That is the case
+the anti-parking rule in `RULING_20260915_DECISION_ROUTING.MD` exists for.
+
+**The Architect: a mechanism read before its ruling nearly became a defect
+report.** Having traced the `fabricated` branch, it drafted the question to the
+owner as an (a)/(b) choice **with a lean toward "fix it"** — when
+`SPEC_ZONE_A` §6 already answered it in the owner's own words, including *"do
+not 'fix' this."* It retracted before the owner acted. **The discipline is the
+full-read order pointed at `CAMPAIGNS/`: a mechanism finding checks the rulings
+before it grows a verdict.**
+
+## Method findings paid for today
+
+**A measurement of an intermediate is not a measurement of the product.** Two
+Lead escalations died on this: 43 % master fill that **never shipped** (the
+chimeric track lost to ranking), and four subtitle languages *"silently lost"*
+that were **configured policy**. Both corrections came from seats that went and
+looked at the **delivered file** instead of trusting the log.
+
+**A guard that silently matches nothing looks exactly like a guard that passes.**
+`send_to_agent.sh` accumulated **five defects of one family** — checking a proxy
+instead of the thing: text *arrived* for text *submitted*; a `\xNN` escape that
+matched **zero** lines; the message's **first** 24 characters, which scrolled out
+of view when the opener grew; five Enters where a fresh TUI needs more; and
+`[[:space:]]` for "empty" when the empty prompt is `❯` + a **non-breaking
+space**. Every one was caught by firing the check in **both** directions against
+real state.
+
+**Salvage the method, never the material.** Applied twice: `vmsam-dev-frame`'s
+hand-built targets and firing tests reached `VMSAM_CORPUS/`; `vmsam-bench-sync`'s
+three independent instruments reached `tools/` and its err_12 derivation reached
+`VMSAM_CORPUS/docs/`. The media, extracts and scratch went with the seats.

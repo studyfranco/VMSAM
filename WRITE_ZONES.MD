@@ -32,7 +32,7 @@ Two rules govern everything below:
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
 | `AGENT.MD`, `WRITE_ZONES.MD`, `docs/` (all of it) | the rules that bind you and the standing rulings — modified **only by the Architect or the Lead Dev, with the owner's authorisation**. A wrong rule is a finding, see §6 |
-| `CAMPAIGNS/` | the campaign records — `CAMPAIGN.MD`, `SPEC_ZONE_A.MD`, `FINDINGS.MD`, `MEASURING.MD` and the archives. Written by the **Architect and the Lead Dev only**; history is even less yours to rewrite than a rule. **`TASKS/` at the repository root is yours**, and no other document is open |
+| `CAMPAIGNS/` | the campaign records — `CAMPAIGN.MD`, `SPEC_ZONE_A.MD`, `FINDINGS.MD`, `MEASURING.MD` and the archives. Written by the **Architect and the Lead Dev only**; history is even less yours to rewrite than a rule. **In-progress task files live in THEIR AGENT'S folder** — `VMSAM_HELP_AI/<agent>/` — so a file's location is its ownership (owner, 2026-09-15: the old *"`TASKS/` at the repository root is yours"* rule is revoked, and the root `TASKS/` directory is closed and removed). The repository carries only finished, synthesized work, landed by governance gesture; no document here is open to an agent |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic

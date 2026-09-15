@@ -253,9 +253,27 @@ so the origin survives the merge and is recoverable months later:
 ffprobe -v error -show_entries stream_tags=VMSAM_FABRICATED -of compact <file>
 ```
 
-**Nothing sets the key today** — `keep_best_audio` already reads it (a fabricated
-track loses to an intact one before any codec rule) and the branch is inert until
-the repair marks its tracks. The full contract is
+**The key is set, live, since 2026-09-15**: `mux_repaired_file` writes
+`VMSAM_FABRICATED=<marker>` on every repaired audio stream
+(`merge_video_chimeric.py:1533`, `:1539` — the container tag) and, the key this
+branch actually reads, `merge_video_repair.py:744` sets `fabricated` on every
+repaired audio dict. **`keep_best_audio`'s fabricated branch therefore FIRES**
+(`mergeVideo.py:1132`) — as its own comment anticipated: "il changera de
+lui-même le jour où la réparation marquera ses pistes". **The outcome is the
+system working, not a defect**: a repaired track loses to an intact track of
+the same language BY STANDING RULING (`SPEC_ZONE_A.MD` §6 — "the repair exists
+to add languages in the cases where they are absent"; "do not 'fix' this").
+The rule is UNCONDITIONAL — no quality override: "une piste intacte de même
+langue gagne toujours contre une piste réparée" (owner, 2026-09-15, closing
+the last open edge). What the repair delivers on such a pair is everything
+else the candidate uniquely carries — id 12 shipped 13 candidate subtitle
+languages on exactly this path. The invariant "downstream, a repaired file is indistinguishable
+from a normal one" refers to the FLOW — the repaired pair re-enters the normal
+cycle with no special-casing — while the marker is data the normal ranking
+deliberately consumes; the two are compatible and this sentence exists so
+nobody re-derives the collision.
+
+The full contract is
 `CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD` §4.
 
 **Why it is defined before it exists.** Provenance is knowable only at the moment
@@ -306,54 +324,42 @@ result would refute you. A prediction written after the fact is not a prediction
 task without a stated refutation is a task nobody can lose.
 (`LESSONS_FROM_MASTER_DOCS.MD` §3.)
 
-## 🏗️ Where you work — four tiers, one published commit
+## 🏗️ Where you work — one common repository, and your own lab
 
-You do not edit `master` directly. Each tier is a **git clone** of the one above it:
+The era of per-agent clones (`/tmp` clones, `VMSAM_WIP/`, promotion chains) is
+over — those tiers no longer exist. The model since 2026-09-14:
 
-| tier | what it is for | commits |
+| place | what it is for | who commits |
 | :--- | :--- | :--- |
-| `/tmp/…` | experiments — try things, break things | as many as you like |
-| `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
-| the **campaign branch** | what CI builds and the test instance runs | as many as you like — **a deploy requires a push** |
-| `master` | the published history | **one per feature**, by squash |
+| `/home/vmsam/src/VMSAM/` | **the Common Repository** — everyone works here, on the campaign branch | **the Lead Dev only** |
+| `VMSAM_HELP_AI/<you>/` | your laboratory — experiments, targets, reports, in-progress task files | outside git, never committed |
+| `/tmp/…` | scratch — RAM, wiped on restart, delete what you finish with | nothing survives here |
 
-**The campaign branch is a tier, not the record.** § Commits binds the last hop
-only: testing costs a push, and a rule that made you hesitate to test would be
-worse than a noisy branch. Commit there as freely as the work needs.
+**The workflow: test, import, never commit.** Validate in your lab or `/tmp`,
+then apply your changes directly to the common repository's working tree and
+tell the Lead. The Lead reviews, runs the write-zone checker (exit status
+only; 2 is not a pass), commits, and pushes — a push is what builds the test
+container. **A commit is a state the full CI can test** (owner, 2026-09-15),
+so the Lead batches; nobody else commits, pushes, or holds a clone.
 
-**Clones, never copies.** A promotion by `cp` overwrites without warning, and the
-owner commits while you work: a copy silently erases an owner change, where the same
-promotion through git stops on the conflict and preserves it — measured on this
-repository (`LESSONS_FROM_MASTER_DOCS.MD` §15).
+**Ownership by location** (owner, 2026-09-15): an in-progress task file lives
+in ITS AGENT'S folder — never at the repository root. The repository carries
+only finished, synthesized work: `CAMPAIGNS/<campaign>/TASKS/`, landed by the
+Architect and the Lead through governance gestures.
 
-```sh
-# promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
-git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
+**Sequencing replaces merging.** With one working tree there are no promotion
+conflicts — there is a ONE-WRITER rule instead: one agent at a time inside a
+file or tagged zone, the Lead sequences, and if you need a zone someone else
+holds, you ask the Lead — you do not wait silently and you do not write anyway.
 
-# promote VMSAM_WIP -> campaign branch : ONE commit per promotion
-git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit && git push
+**Run `WRITE_ZONES.MD` §5's checker via `--self-test` before telling the Lead
+your work is ready.** Discovering at review that half your work sits outside
+an open zone is how a campaign ends up negotiating its own rules.
 
-# campaign branch -> master : one commit, whatever the history behind it
-git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
-```
+Media identity never reaches a tracked file — Privacy, below.
 
-`--squash` is what makes § Commits structural instead of a rule to remember: the
-command cannot produce two commits — but it fixes the mechanism, not the cadence.
 
-**Promote when the branch needs to carry it** — when it must be tested in the
-container, or when another agent needs it to proceed. Not per fix, and never on a
-rhythm. If your next promotion continues the last one, it was one promotion. The two
-measured drifts behind this rule are in `LESSONS_FROM_MASTER_DOCS.MD` §4.
-
-**Pull down often, push up rarely.** Sync the tier above *into* the one below
-before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
-is cheap to resolve daily and expensive to resolve once.
-
-**Run `WRITE_ZONES.MD` §5 in `VMSAM_WIP`, not at the promotion.** The checks take a
-second. Discovering at the last hop that half your work sits outside a tagged zone
-is how a campaign ends up negotiating its own rules.
-
-Never write a tier's filesystem path in a tracked file — Privacy, below.
+# --- SECOND CORRECTION, same gesture (measured by the Lead + dev-subs + forensic, 2026-09-15) ---
 
 ## 📡 Talking
 

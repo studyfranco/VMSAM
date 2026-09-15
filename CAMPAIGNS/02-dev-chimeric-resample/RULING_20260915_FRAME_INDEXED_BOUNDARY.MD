@@ -97,12 +97,24 @@ A master with **no video stream at all** has no master frame grid, so rule 4 has
 nothing to anchor on. I am not inventing a fallback clock for it: that is exactly
 the class of invention rule 6 exists to forbid.
 
-**Blocked need, routed for measurement, not for decision:** does the error tree
-contain pairs whose MASTER carries no video stream? The answer is a count, and it
-belongs to the corpus instruments (`VMSAM_CORPUS/docs/REPAIR_TARGETING.md`). If
-the count is zero, the contract is complete as written and a guard must DECLINE on
-the case anyway. If it is not zero, the contract needs a stated second clock and
-that is an owner question, not mine.
+**Blocked need — CLOSED by measurement (forensic, 2026-09-15): ZERO of 5956.**
+Every media file in every one of the 315 resolvable destination folders was
+probed for video streams — **over-inclusive by design, so that an empty result
+answers the narrower question with no identity assumption anywhere**: the masters
+are a subset of what was swept. Distribution: 4897 files with one video stream,
+1034 with two, 25 with four, **none with zero**. A failed probe returns no output
+rather than a spurious positive, so the zero is signal and not silence.
+
+**So the contract is complete as written and no second clock is needed.** The
+guard must still **DECLINE** on the case per rule 6 if it ever appears —
+**rarity is not absence**, and the state stays unrepresentable rather than
+defaulted.
+
+*Coverage bound, stated by the measurer rather than discovered later: ids
+694-699 postdate the mapping snapshot and were not swept; a live pull the same
+day showed 317+ ids. It does not move the verdict — a growing error tree does
+not make a video library start containing audio-only masters — but it is the
+honest edge of what was checked.*
 
 ## What would refute this ruling
 
