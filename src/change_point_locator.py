@@ -1705,35 +1705,103 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     if median_fidelity < MIN_MEDIAN_FIDELITY:
         monotone = (all(offsets[i] <= offsets[i + 1] for i in range(len(offsets) - 1))
                     or all(offsets[i] >= offsets[i + 1] for i in range(len(offsets) - 1)))
+        # E2 (Architect's finding, FINDING_median_ignores_consistency_20260916.md,
+        # 2026-09-16): the MEDIAN alone cannot tell a real-but-quiet alignment
+        # from a genuinely scattered one. A probe scores low fidelity for
+        # reasons that have nothing to do with whether the offset is real
+        # (quiet audio, a low-signal scene, a mix difference); the offsets
+        # ALREADY COMPUTED ABOVE (`distinct_points`, `flips`) are evidence
+        # this branch never consulted before landing here.
+        #
+        # WHAT ACTUALLY SEPARATES THE TWO REQUIRED CONTROLS, STATED SO
+        # ADJACENCY IS NOT MISREAD AS AN ARGUMENT (Lead's correction,
+        # 2026-09-16): `fidelity_max` ALONE separates errid:307 (0.9527)
+        # from errid:250 (0.6266) -- 250 declines because 0.6266 < 0.70,
+        # full stop, regardless of what `distinct_points`/`flips` read.
+        # `distinct_points`/`flips` do NOT discriminate this pair; do not
+        # read the paragraph below as claiming they do.
+        #
+        # `flips` is INERT on this pair specifically: `_sign_flips` reads
+        # the SIGN of the raw offset, and both 307's and 250's published
+        # offsets are all-positive, so `flips=0` for both regardless of
+        # scatter. Present as a guard (reused from the sibling check), not
+        # as a discriminator here.
+        #
+        # `distinct_points` earns its place on a DIFFERENT, UNTESTED hazard:
+        # a scattered pair whose `fidelity_max` happens to clear the floor
+        # anyway -- neither 307 nor 250 exercises this. Fired as a literal
+        # (dev-subcue's ARM C, TASK_E2_MEDIAN_CONSISTENCY_DESIGN.MD):
+        # 250-shaped scatter (distinct_points=35) with `fidelity_max`
+        # artificially raised to 0.95 still declines, on `35 > 4` alone --
+        # that is the case this term exists to catch.
+        #
+        # MEASURED, errid:307 (forensic, REPORT_S2_id307_fidelity_vs_
+        # offset_conflict.md): 37 probes, median_fidelity 0.6039 (below
+        # floor) yet fidelity_max 0.9527, and 35 of 37 offsets agree to one
+        # quantum (distinct_points=3, computed by hand from the artefact's
+        # own published raw list, quantum=129ms -- INFERRED, not re-run on
+        # the original media). CONTROL, errid:250: fidelity_max 0.6266 --
+        # never clears the floor. **`distinct_points` for errid:250 is a
+        # SYNTHETIC STAND-IN built from its published aggregate statistics
+        # (spread, probe count), NOT the real artefact's number -- no raw
+        # per-probe log for 250 could be found (checked `/config/output`,
+        # `/tmp` scratch, and three seats' docs under `VMSAM_HELP_AI/`) and
+        # the real value could not be obtained.**
+        #
+        # Reused thresholds (`MAX_DISTINCT_POINTS`, `MAX_SIGN_FLIPS`),
+        # already calibrated for the sibling `offsets_scattered` guard below
+        # -- not a new number invented for this one pair; if a
+        # purpose-specific threshold is wanted instead, that is the
+        # Architect's call. ONLY evaluated on the non-monotone path: a
+        # monotone drift already routes to `speed_relation_suspected` and
+        # that ROUTING is UNCHANGED (Architect's reserved block) --
+        # `consistent` is forced False whenever `monotone` is True so the
+        # existing routing is never touched by this addition.
+        fidelity_max = max(fidelities)
+        consistent = (not monotone and distinct_points <= MAX_DISTINCT_POINTS
+                     and flips <= MAX_SIGN_FLIPS and fidelity_max >= MIN_MEDIAN_FIDELITY)
         if monotone:
             # Low fidelity with a monotone drift is a SPEED relation, which is
             # objective 3's problem. Refusing on fidelity alone would refuse the
             # whole family the speed repair exists for.
             _log("fidelity low but drift monotone: speed relation suspected; declining")
+        elif consistent:
+            # MEASURABLE: the survivors agree with each other within the
+            # reused scatter thresholds, and the best probe clears the floor
+            # -- the low MEDIAN is explained by a few weak-but-real probes,
+            # not by the alignment being false. Falls through below: no
+            # decline, exactly today's behaviour when `median_fidelity`
+            # itself already clears the floor.
+            _log(f"{language}: median fidelity {median_fidelity:.3f} below floor but "
+                 f"offsets consistent (distinct_points={distinct_points}<="
+                 f"{MAX_DISTINCT_POINTS}, flips={flips}<={MAX_SIGN_FLIPS}) and "
+                 f"fidelity_max={fidelity_max:.4f} clears it: measurable, not "
+                 f"declining on the median alone")
         else:
             _log("fidelity at the floor with scattered offsets: no shared content; declining")
-        # UNCONDITIONAL. `_log` is gated on `tools.dev`, so in production this refusal
-        # emitted NOTHING and the consumer recorded "no measurement available for this
-        # pair" -- which is FALSE: the probes ran, succeeded, and returned a conclusive
-        # negative. Every field below is a number this module computed or a literal it
-        # owns: no path, no filename, no exception text. See `THE TYPE, NEVER THE MESSAGE`.
-        # *** `no_shared_content` RETIRED: A CLAIM ABOUT THE WORLD FROM AN INSTRUMENT THAT CAN
-        # ONLY SPEAK ABOUT ITS OWN MEASURABILITY -- and it contradicted this module's OWN
-        # contract: "None means I could not measure -- never the files are compatible."
-        # I wrote that rule and emitted a token breaking it WITH THE SIGN FLIPPED.
-        # `vmsam-dev-2` CONSTRUCTED the proof rather than sampling for it: one file resampled
-        # from the other at the PAL constant -- SAME SOURCE, ALL CONTENT SHARED -- declines
-        # here at median_fidelity 0.6012. THE TOKEN ASSERTED THEY SHARE NONE.
-        # The monotone branch cannot save it: a 4.27% rate difference drifts ~20 chromaprint
-        # points INSIDE one probe window, so the correlation returns noise, and *** NOISE IS
-        # NOT MONOTONE -- THE GUARD FOR THE SPEED FAMILY IS DEFEATED BY THE SPEED RELATION
-        # BEING LARGE ENOUGH TO DESTROY THE MEASUREMENT THAT WOULD DETECT IT. ***
-        # (mechanism `vmsam-arch-aide`; constructed pair `vmsam-dev-2`.)
-        # `speed_relation_suspected` STAYS -- a SUSPICION is a thing an instrument may report.
-        # AND AN ARTEFACT THAT ASSERTS SOMETHING FALSE IS A DEFECT EVEN IF NO REAL FILE
-        # TRIGGERS IT TODAY.
-        return _decline("speed_relation_suspected" if monotone else "median_fidelity_below_floor",
-                        "ran_conclusive_negative", pair=pair_id,
+        if not consistent:
+            # UNCONDITIONAL. `_log` is gated on `tools.dev`, so in production this refusal
+            # emitted NOTHING and the consumer recorded "no measurement available for this
+            # pair" -- which is FALSE: the probes ran, succeeded, and returned a conclusive
+            # negative. Every field below is a number this module computed or a literal it
+            # owns: no path, no filename, no exception text. See `THE TYPE, NEVER THE MESSAGE`.
+            # *** `no_shared_content` RETIRED: A CLAIM ABOUT THE WORLD FROM AN INSTRUMENT THAT CAN
+            # ONLY SPEAK ABOUT ITS OWN MEASURABILITY -- and it contradicted this module's OWN
+            # contract: "None means I could not measure -- never the files are compatible."
+            # I wrote that rule and emitted a token breaking it WITH THE SIGN FLIPPED.
+            # `vmsam-dev-2` CONSTRUCTED the proof rather than sampling for it: one file resampled
+            # from the other at the PAL constant -- SAME SOURCE, ALL CONTENT SHARED -- declines
+            # here at median_fidelity 0.6012. THE TOKEN ASSERTED THEY SHARE NONE.
+            # The monotone branch cannot save it: a 4.27% rate difference drifts ~20 chromaprint
+            # points INSIDE one probe window, so the correlation returns noise, and *** NOISE IS
+            # NOT MONOTONE -- THE GUARD FOR THE SPEED FAMILY IS DEFEATED BY THE SPEED RELATION
+            # BEING LARGE ENOUGH TO DESTROY THE MEASUREMENT THAT WOULD DETECT IT. ***
+            # (mechanism `vmsam-arch-aide`; constructed pair `vmsam-dev-2`.)
+            # `speed_relation_suspected` STAYS -- a SUSPICION is a thing an instrument may report.
+            # AND AN ARTEFACT THAT ASSERTS SOMETHING FALSE IS A DEFECT EVEN IF NO REAL FILE
+            # TRIGGERS IT TODAY.
+            return _decline("speed_relation_suspected" if monotone else "median_fidelity_below_floor",
+                        "could_not_run", pair=pair_id,
                         median_fidelity=f"{median_fidelity:.4f}",
                         fidelity_floor=MIN_MEDIAN_FIDELITY,
                         # *** THE SPREAD OF THE SURVIVORS, NOT JUST HOW MANY SURVIVED. `vmsam-dev-2` measured
@@ -1782,6 +1850,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         offset_spread_control_run="no",
                         probes=len(offsets),
                         offsets_monotone=bool(monotone),
+                        # THE RIDER (E2 mission): a mission touching an emission site
+                        # adopts the canonical names at that site. These two fields are
+                        # NEW on this call (it never consulted them before this landing),
+                        # so they are born under the success line's own spellings
+                        # (`:2549`-ish) rather than the older `distinct_points=`/
+                        # `sign_flips=` names the sibling `offsets_scattered` decline
+                        # below still uses -- no rename, no grep-compat pair needed,
+                        # because there is no prior spelling on THIS call to break.
+                        offset_distinct_count=distinct_points,
+                        offset_sign_flips=flips,
                         # *** WHAT THIS ROW DOES NOT KNOW, STATED IN THE ROW. Below the floor,
                         # "unrelated" and "related but unmeasurable by THIS correlator" are
                         # INDISTINGUISHABLE TO ME, and the retired token picked one of them.
