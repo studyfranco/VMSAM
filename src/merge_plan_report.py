@@ -3520,9 +3520,21 @@ def blank_cells(job, corpus=None):
         # audit d'emission, 2026-09-16, a partir de a3ee9dbf -- un controle
         # borne a un fichier avait ete generalise a l'arbre entier (recompte:
         # `grep -c decided_by src/merge_video_chimeric.py` -> 6). Compte par
-        # fichier: `decided_by` report:13 chimeric:6 repair:5; `speed_margin`
-        # report:27 repair:13; `speed_margin_absent_reason` report:5 repair:2;
-        # `fidelity_margin` report:12 repair:5. Les trois autres restent sans
+        # fichier, en LIGNES (`grep -c`, chacune nommee): `decided_by`
+        # chimeric:6 (`grep -c decided_by src/merge_video_chimeric.py`)
+        # repair:5 (`grep -c decided_by src/merge_video_repair.py`);
+        # `speed_margin` repair:11 (`grep -c 'speed_margin\b'
+        # src/merge_video_repair.py` -- `\b` necessaire: le motif nu compte
+        # aussi les lignes de `speed_margin_absent_reason`, comptant la meme
+        # ligne dans deux rangees); `speed_margin_absent_reason` repair:2
+        # (`grep -c speed_margin_absent_reason src/merge_video_repair.py`);
+        # `fidelity_margin` repair:5 (`grep -c fidelity_margin
+        # src/merge_video_repair.py`).
+        # (Un compte DE ce fichier, STOCKE dans ce fichier, ne peut pas etre
+        # enonce de facon stable -- l'ecrire le change, et chaque correction
+        # serait un nouvel increment. Non enonce ici pour cette raison; la
+        # preuve tient aux comptes CROISES ci-dessus, que cet ecrit ne
+        # perturbe pas.) Les trois autres restent sans
         # ECRIVAIN hors de ce module -- chaque occurrence y est une LECTURE
         # (`plan.get(...)`), une EMISSION (`merge_video_repair.py:1089,1092,
         # 1095`, `parts.append(f"...")`) ou un commentaire -- trois
@@ -3546,11 +3558,23 @@ def blank_cells(job, corpus=None):
                    "an unrelated extraction-bound decision (`decided_by=declared`"
                    "/`decided_by=packets`, `:2313,2331,2336` -- `grep -c "
                    "decided_by src/merge_video_chimeric.py` -> 6), a second, "
-                   "different decision under the same name. Per-file "
-                   "occurrence counts: `decided_by` report:13 chimeric:6 "
-                   "repair:5; `speed_margin` report:27 repair:13; "
-                   "`speed_margin_absent_reason` report:5 repair:2; "
-                   "`fidelity_margin` report:12 repair:5. `speed_margin`, "
+                   "different decision under the same name. Cross-file line "
+                   "counts (`grep -c`, each named): `decided_by` chimeric:6 "
+                   "(`grep -c decided_by src/merge_video_chimeric.py`) "
+                   "repair:5 (`grep -c decided_by src/merge_video_repair.py`); "
+                   "`speed_margin` repair:11 (`grep -c 'speed_margin\\b' "
+                   "src/merge_video_repair.py` -- `\\b` needed: the bare "
+                   "pattern also matches `speed_margin_absent_reason`'s own "
+                   "lines, double-counting the same line into two rows); "
+                   "`speed_margin_absent_reason` repair:2 (`grep -c "
+                   "speed_margin_absent_reason src/merge_video_repair.py`); "
+                   "`fidelity_margin` repair:5 (`grep -c fidelity_margin "
+                   "src/merge_video_repair.py`). (A count OF this "
+                   "file, STORED in this file, cannot be stated stably -- "
+                   "writing it changes it, and every correction would be "
+                   "another increment; not stated here for that reason. The "
+                   "claim rests on the cross-file counts above, which this "
+                   "text does not disturb.) `speed_margin`, "
                    "`speed_margin_absent_reason` and `fidelity_margin` outside "
                    "this module remain a READ (`plan.get(...)`), an EMISSION "
                    "(`merge_video_repair.py:1089,1092,1095`, "
