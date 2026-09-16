@@ -2852,6 +2852,68 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             verification = verify_on_master_timeline(
                 out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
                 verify_search_ms, reference_stream)
+
+        # VERIFY-THE-FILL (Architect's ruling, verification half, 2026-09-16),
+        # distinct from the VMSAM_ERA tag elsewhere in this file. UNCONDITIONNEL --
+        # ne depend PAS de `verify`, qui gouverne une question DIFFERENTE
+        # (l'alignement AV) et n'est deja plus jamais False en production.
+        # ENTOUREE DE SON PROPRE try/except: `verify_fill_content` ne leve
+        # rien PAR CONSTRUCTION, mais cette ligne ne doit jamais pouvoir
+        # transformer un bug futur dans cette fonction en refus de fichier --
+        # le Lead a trace la limite: cette capacite ENREGISTRE, elle ne
+        # REFUSE JAMAIS, et cette garde tient cette limite meme si le corps
+        # de la fonction se trompe un jour.
+        fill_content = []
+        try:
+            fill_content = verify_fill_content(
+                out_path, master_obj, audio_reports, master_duration_ms)
+        except Exception as error:
+            tools.logs.append(
+                f"chimeric: fill_content_verification_failed "
+                f"{type(error).__name__}: {error}\n")
+        if fill_content:
+            # `verify=False` NE DOIT PAS FAIRE DISPARAITRE CE CONTROLE --
+            # c'est le drapeau EXISTANT et sans rapport que ce controle
+            # refuse justement de partager. `verification` peut donc naitre
+            # ICI, pour la piste qui en a besoin, meme quand l'alignement AV
+            # n'a jamais tourne.
+            if verification is None:
+                verification = []
+            by_track = {entry.get("track"): entry for entry in verification}
+            for fc in fill_content:
+                entry = by_track.get(fc["track"])
+                if entry is None:
+                    # PAS DE SUPPOSITION SUR LA CAUSE. `verify=False`, ou
+                    # `verify_on_master_timeline` qui n'a produit aucune
+                    # entree POUR CETTE PISTE (ex: aucun morceau candidat
+                    # assez long a sonder sur AUCUNE piste, retour global
+                    # `{"track": None, ...}`) sont deux causes distinctes
+                    # du meme fait observable -- ne pas en affirmer une.
+                    entry = {"track": fc["track"], "produced_index": fc["produced_index"],
+                            "outcome": "skipped",
+                            "reason": "no AV-alignment result recorded for this track"}
+                    verification.append(entry)
+                    by_track[fc["track"]] = entry
+                entry["fill_content"] = fc["regions"]
+                # PROMEUT `skipped` (le maitre n'a pas cette langue -- rien a
+                # aligner) EN UN VRAI VERDICT DE CONTENU quand ce controle EN A
+                # UN. NE TOUCHE JAMAIS un verdict de synchronisation deja
+                # significatif (`aligned`/`misaligned`/`inconsistent`): ce
+                # controle COMBLE une case vide, il n'en ECRASE aucune. C'est
+                # exactement le mecanisme `verified_count` (merge_video_repair.py)
+                # qui ferme `verified=1/5` -- par le compte qui existe deja,
+                # pas par un nouveau.
+                if entry.get("outcome") == "skipped":
+                    outcomes = [r["outcome"] for r in fc["regions"]]
+                    if any(o == "content_mismatch" for o in outcomes):
+                        entry["outcome"] = "content_mismatch"
+                    elif any(o == "content_indiscriminate" for o in outcomes):
+                        entry["outcome"] = "content_indiscriminate"
+                    elif any(o == "content_verified" for o in outcomes):
+                        entry["outcome"] = "content_verified"
+                    # Sinon: toutes les regions sont skipped_silent /
+                    # skipped_unmeasurable -- `outcome` reste `skipped`,
+                    # honnetement, et `fill_content` dit pourquoi.
     except Exception as error:
         # LA PREDICTION EST MESUREE SUR LES DEUX BRANCHES. Ne la mesurer que sur
         # le chemin qui rend serait ne la mesurer que quand elle a echoue.
@@ -4041,4 +4103,193 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
         error.verification = results
         error.audios = audio_reports
         raise error
+    return results
+
+
+def _log_mel_z(samples, rate, n_fft=2048, hop=441, n_mels=40):
+    '''Log-mel, z-scored per band -- PORTED from `VMSAM_HELP_AI/tools/tool_logmel_ncc.py`
+    (forensic's reference instrument, `REPORT_owner_flagged_borrowed_fill_
+    correlation.md`) and its sibling `VMSAM_HELP_AI/tools/verify_fill_provenance.py`.
+    Same math, credited at the port site per the mission's own instruction.
+    '''
+    import numpy
+    import scipy.signal
+    _, _, spectrum = scipy.signal.stft(samples, fs=rate, nperseg=n_fft,
+                                       noverlap=n_fft - hop, boundary=None)
+    magnitude = numpy.abs(spectrum)
+
+    def hz_to_mel(hz):
+        return 2595 * numpy.log10(1 + hz / 700)
+
+    def mel_to_hz(mel):
+        return 700 * (10 ** (mel / 2595) - 1)
+
+    mel_points = numpy.linspace(hz_to_mel(50), hz_to_mel(rate / 2), n_mels + 2)
+    hz_points = mel_to_hz(mel_points)
+    bins = numpy.floor((n_fft + 1) * hz_points / rate).astype(int)
+    bank = numpy.zeros((n_mels, n_fft // 2 + 1))
+    for i in range(1, n_mels + 1):
+        left, centre, right = bins[i - 1], bins[i], bins[i + 1]
+        for k in range(left, centre):
+            if centre > left:
+                bank[i - 1, k] = (k - left) / (centre - left)
+        for k in range(centre, right):
+            if right > centre:
+                bank[i - 1, k] = (right - k) / (right - centre)
+    log_mel = numpy.log1p(bank @ magnitude)
+    mean = log_mel.mean(axis=1, keepdims=True)
+    std = log_mel.std(axis=1, keepdims=True) + 1e-8
+    return (log_mel - mean) / std
+
+
+def _ncc_at_zero_offset(a, b):
+    '''NCC at the KNOWN offset (zero), never searched -- unlike
+    `tool_logmel_ncc.py`'s sliding `ncc_search`: a filled region's offset is
+    ASSERTED by construction (`normalize_segments` sets `source_start_ms =
+    cursor` on both master-piece branches, so `[a,b]` of the master always
+    fills at master `[a,b]`, no shift) -- a search would answer a question
+    this site does not have. Stated deviation from the ported tool, per the
+    mission's instruction to record one.
+    '''
+    import numpy
+    length = min(a.shape[1], b.shape[1])
+    if length < 2:
+        return None
+    flat_a, flat_b = a[:, :length].flatten(), b[:, :length].flatten()
+    norm_a, norm_b = numpy.linalg.norm(flat_a), numpy.linalg.norm(flat_b)
+    if norm_a < 1e-6 or norm_b < 1e-6:
+        return None
+    return float(numpy.dot(flat_a, flat_b) / (norm_a * norm_b))
+
+
+fill_content_ncc_floor = 0.85  # forensic's controls; a constant, never re-derived per run.
+fill_content_control_min_offset_ms = Decimal("60000")  # forensic's own separation: "130 s away".
+
+
+def _fill_control_window_ms(start_ms, span_ms, master_duration_ms):
+    '''A DELIBERATELY MISMATCHED window of the SAME claimed master source --
+    a known-WRONG pairing, which needs no ground truth to build, only
+    distance (Architect's ruling on the control, 2026-09-16). Same logic as
+    `verify_fill_provenance.py`'s `_find_master_window`, ported for the same
+    reason as the NCC math above.
+    '''
+    offset = max(fill_content_control_min_offset_ms, span_ms * 4)
+    forward = start_ms + offset
+    if forward + span_ms <= master_duration_ms:
+        return forward
+    backward = start_ms - offset
+    if backward >= 0:
+        return backward
+    if start_ms > (master_duration_ms - (start_ms + span_ms)):
+        return Decimal("0")
+    return max(Decimal("0"), master_duration_ms - span_ms)
+
+
+def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms):
+    '''Does a shipped master-fill span carry the content it claims to?
+
+    RECORDS, NEVER REFUSES (Lead's ruling, 2026-09-16, scope boundary on this
+    function specifically): this function raises NOTHING. What ships on a
+    cross-language fill is `SPEC_ZONE_A.MD` s4c's mandatory territory, not
+    this function's; a `content_mismatch` is reported on the plan, exactly
+    like `content_verified` or `content_indiscriminate`, and changes nothing
+    about the file already on disk. Every extraction/probe failure degrades
+    to `"skipped_unmeasurable"`, never an exception -- "I could not measure"
+    is a different answer from "it does not match", and this function must
+    be able to say the first without ever risking the second by accident.
+
+    UNCONDITIONAL: no parameter here can turn this check off. Called for
+    every produced file, independent of the (pre-existing, unrelated)
+    `verify` flag that gates the AV-alignment probe in
+    `verify_on_master_timeline` -- that flag exists for a different question
+    and piggybacking this one on it would be exactly the kind of
+    sub-option-on-an-unconditional-capability `WRITE_ZONES.MD` s4 names as
+    the same defect one level down.
+
+    KNOWN OFFSET, NEGATIVE CONTROL, THREE-STATE decision -- same design as
+    the sweep-side `tools/verify_fill_provenance.py`, fired on synthetic
+    material with all three outcomes plus the "nothing to check" case before
+    this production site was written. `fill_content_ncc_floor` (0.85) is
+    forensic's controls, applied as a CONSTANT to both readings: a positive
+    (identity) control is impossible in production (needs a known answer a
+    live job does not have), but a negative control needs only a
+    deliberately-wrong pairing, which is always constructible.
+    '''
+    results = []
+    for produced_index, report in enumerate(audio_reports):
+        if report.get("gap_fill") != "master":
+            continue
+        fill_stream_order = report.get("fill_stream_order")
+        if fill_stream_order is None:
+            continue
+        regions = []
+        for region in report.get("filled_regions") or []:
+            if region.get("source") != "master":
+                continue
+            try:
+                start_ms = Decimal(str(region["master_start_ms"]))
+                end_ms = Decimal(str(region["master_end_ms"]))
+            except Exception:
+                regions.append({"master_start_ms": region.get("master_start_ms"),
+                               "master_end_ms": region.get("master_end_ms"),
+                               "outcome": "skipped_unmeasurable",
+                               "reason": "region bounds unreadable"})
+                continue
+            span_ms = end_ms - start_ms
+            if span_ms <= 0:
+                regions.append({"master_start_ms": str(start_ms), "master_end_ms": str(end_ms),
+                               "outcome": "skipped_unmeasurable", "reason": "degenerate span"})
+                continue
+            control_start_ms = _fill_control_window_ms(start_ms, span_ms, master_duration_ms)
+            entry = {"master_start_ms": str(start_ms), "master_end_ms": str(end_ms),
+                    "fill_source_class": region.get("fill_source_class")}
+            try:
+                produced_samples = read_mono_samples(
+                    out_path, f"0:a:{produced_index}", start_ms, span_ms, verify_probe_rate)
+                reading_samples = read_mono_samples(
+                    master_obj.filePath, f"0:{fill_stream_order}", start_ms, span_ms,
+                    verify_probe_rate)
+                control_samples = read_mono_samples(
+                    master_obj.filePath, f"0:{fill_stream_order}", control_start_ms, span_ms,
+                    verify_probe_rate)
+            except Exception as error:
+                entry.update({"outcome": "skipped_unmeasurable",
+                             "reason": f"extraction failed: {type(error).__name__}"})
+                regions.append(entry)
+                continue
+            if (get_rms(produced_samples) < verify_min_rms
+                   or get_rms(reading_samples) < verify_min_rms):
+                entry["outcome"] = "skipped_silent"
+                regions.append(entry)
+                continue
+            try:
+                reading_ncc = _ncc_at_zero_offset(
+                    _log_mel_z(produced_samples, verify_probe_rate),
+                    _log_mel_z(reading_samples, verify_probe_rate))
+                control_ncc = _ncc_at_zero_offset(
+                    _log_mel_z(produced_samples, verify_probe_rate),
+                    _log_mel_z(control_samples, verify_probe_rate))
+            except Exception as error:
+                entry.update({"outcome": "skipped_unmeasurable",
+                             "reason": f"NCC computation failed: {type(error).__name__}"})
+                regions.append(entry)
+                continue
+            if reading_ncc is None or control_ncc is None:
+                entry.update({"outcome": "skipped_unmeasurable",
+                             "reason": "degenerate window for NCC"})
+                regions.append(entry)
+                continue
+            if control_ncc >= fill_content_ncc_floor:
+                outcome = "content_indiscriminate"
+            elif reading_ncc >= fill_content_ncc_floor:
+                outcome = "content_verified"
+            else:
+                outcome = "content_mismatch"
+            entry.update({"outcome": outcome, "reading_ncc": round(reading_ncc, 4),
+                         "control_ncc": round(control_ncc, 4),
+                         "separation": round(reading_ncc - control_ncc, 4)})
+            regions.append(entry)
+        if regions:
+            results.append({"track": report["stream_order"], "produced_index": produced_index,
+                           "regions": regions})
     return results
