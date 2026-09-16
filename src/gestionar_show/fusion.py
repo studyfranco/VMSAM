@@ -41,16 +41,6 @@ worker_thread = None
 parrallel_jobs = None
 database_url = None
 shutdown_sentinel = object()
-# Owner exception, 2026-09-16 ("développé ce point stp. en suivant le
-# process."), architect/drafts/SPEC_LAST_FAILURES_RING_20260916.md, v2:
-# a ring buffer of recent silent job deaths, parent-owned so it is visible
-# to GET /fusion (run_fusion_job executes in a forked child -- a
-# module-level object mutated there never reaches this name; see the
-# rejected v1 note in the spec). Bounded, in-memory, cleared by a restart --
-# `last_failures_since` documents that so an empty buffer after a restart
-# is never mistaken for "no failures ever".
-last_failures = deque(maxlen=20)
-last_failures_since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def get_test_output_dir():
@@ -96,14 +86,11 @@ def get_fusion_status():
     with state_lock:
         active_job = None if current_job == None else dict(current_job)
         waiting = list(pending_jobs)
-        failures = list(last_failures)
     return {
         "status": status_idle if active_job == None else status_processing,
         "current_job": active_job,
         "queue_length": len(waiting),
-        "pending_jobs": [{"error_file_path": path} for path in waiting],
-        "last_failures": failures,
-        "last_failures_since": last_failures_since
+        "pending_jobs": [{"error_file_path": path} for path in waiting]
     }
 
 
@@ -156,32 +143,9 @@ def worker_loop():
         try:
             # .result() attend la fin du fils sans borne: une fusion dure ce
             # qu'elle dure, et rien ici ne doit l'interrompre.
-            failure = parrallel_jobs.submit(run_fusion_job, database_url, job).result()
-            # Owner exception, 2026-09-16, SPEC_LAST_FAILURES_RING_20260916.md
-            # v2, ARM 1: the child DESCRIBED a swallowed failure (a dict);
-            # normal completion returns None (unchanged) and appends nothing.
-            # THIS process owns `last_failures` -- the child's own return
-            # value is the only thing that crosses the fork boundary reliably.
-            if failure:
-                with state_lock:
-                    failure["started_at"] = (current_job["started_at"]
-                                             if current_job != None else None)
-                    failure["failed_at"] = now_iso()
-                    last_failures.append(failure)
+            parrallel_jobs.submit(run_fusion_job, database_url, job).result()
         except Exception as e:
             stderr.write(f"Fusion job failed for {job}: {e}\n")
-            # ARM 2, free coverage v1 could not have had: the child never
-            # reached its OWN except (killed outright -- OOM, SIGKILL,
-            # BrokenProcessPool) and ran no code that could describe itself.
-            # This except is already in the PARENT, so it is where that
-            # class of silent death becomes visible instead.
-            with state_lock:
-                last_failures.append({
-                    "error_file_path": job,
-                    "started_at": current_job["started_at"] if current_job != None else None,
-                    "failed_at": now_iso(),
-                    "error": f"worker process died: {e}",
-                    "traceback": None})
         finally:
             with state_lock:
                 current_job = None
@@ -448,17 +412,6 @@ def run_fusion_job(database_url, error_file_path):
                            f"Logs:\n{chr(10).join(tools.logs)}\n")
     except Exception as e:
         stderr.write(f"Error with the merge: {e}\n")
-        # Owner exception, 2026-09-16, SPEC_LAST_FAILURES_RING_20260916.md v2:
-        # THE CHILD RETURNS, THE PARENT RECORDS -- this function runs in a
-        # forked child (ProcessPoolExecutor, fork context); a module-level
-        # object mutated here would never reach the parent that GET /fusion
-        # reads (AGENT.MD names this exact hazard for tools.logs, in this
-        # file). Return values cross the pool; mutations do not. The swallow
-        # above is UNCHANGED -- nothing re-raises, no decision moves -- this
-        # only describes what was swallowed to the caller (worker_loop).
-        return {"error_file_path": error_file_path,
-               "error": str(e)[:500],
-               "traceback": traceback.format_exc()[-2000:]}
     finally:
         tools.release_episode_lock(lock_handle)
         tools.remove_dir(tools.tmpFolder, printError=False)
