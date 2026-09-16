@@ -1371,6 +1371,83 @@ def _bracket_transition(master_path, master_stream, candidate_path, candidate_st
             _discards(samples), len(samples))
 
 
+def _search_edge_onset(master_path, master_stream, candidate_path, candidate_stream,
+                       search_start, search_end, reference_ms, work_dir,
+                       sample_rate, find="first"):
+    '''One-sided onset search for a HEAD or TAIL CONSTRUCTED GAP -- Architect's
+    ruling, 2026-09-16: a dropped or unverified run leaves no "before" (head)
+    or "after" (tail) plateau to bisect `_bracket_transition`-style, so there
+    is nothing to bisect AGAINST. This instead scans `[search_start,
+    search_end]` seconds and finds where TWO CONSECUTIVE probes read
+    `reference_ms` (the one plateau that DOES survive) within
+    PLATEAU_TOLERANCE_MS -- the same two-clean-probes discipline
+    `_bracket_transition` uses for its own `first_after`/`last_before`.
+
+    BORROWED CONSTANT, NAMED AT THE BORROW SITE (house rule, 2026-09-16,
+    after this exact function shipped a defect by not doing this): the probe
+    step is `REFINE_STEP_SECONDS` (4.0s), `_bracket_transition`'s OWN
+    constant. Its origin assumption: that function REFINES an
+    ALREADY-NARROW locator bracket (an interior gap, typically single-digit
+    seconds), where a 4s step still resolves the transition usefully. THIS
+    function does something the origin never had to: a COLD search over a
+    WIDE, initially-unknown range (here, up to `head_run["first"]` seconds
+    from position 0). The assumption that licensed 4s AT THE ORIGIN --
+    "the bracket is already narrow, so 4s is fine precision" -- does NOT
+    transfer to a cold, wide search, and importing the constant unexamined
+    is exactly what produced H-A3/H-TIER's second borrowed-parameter
+    defect: on real E04 media, the true onset (~2732ms) fell INSIDE the
+    unsampled gap between probes at t=0 and t=4, and the two-consecutive-
+    match rule reported the confirmed transition at t=4 as if it were exact
+    -- a claim fifteen times finer than a 4-second grid can support.
+
+    THE FIX, and it is now this function's OWN contract, not the caller's
+    obligation to remember: **the honest output of a step-S search that
+    first matches at probe t is the interval [t-S, t]** (head) or
+    [t, t+S] (tail) -- the true transition PROVABLY lies between the last
+    non-matching probe and the first (pair-confirmed) matching one, and
+    reporting anything narrower is fabricated precision. Returning the
+    step alongside the onset makes this the CALLER's contract too: build
+    the bracket from `[onset - step, onset]`, never from `[onset -
+    2*quantum, onset + 2*quantum]` (a locator-quantum-scale window has no
+    relation to what THIS search actually resolved).
+
+    `find="first"` (HEAD): the FIRST confirmed matching pair -- content
+    starts matching the surviving plateau there; `[onset-step, onset)` is
+    the evidenced divergence, honestly bounded by what this step size can
+    prove.
+    `find="last"` (TAIL): the LAST confirmed matching pair -- content stops
+    matching there; `[onset, onset+step)` mirrors the same honesty.
+
+    Returns (onset_seconds, discards, probes, step_seconds). `onset_seconds`
+    is None when no two-consecutive-match exists anywhere in the interval --
+    the caller's OWN law, not this function's: "onset not found -> an
+    honest bracket ships and NOTHING is filled." Never read a None as
+    "onset at 0" or "onset at search_end".
+    '''
+    samples = []
+    probe_at = max(0.0, search_start)
+    while probe_at <= search_end:
+        result = _probe(master_path, master_stream, candidate_path, candidate_stream,
+                        probe_at, REFINE_WINDOW_SECONDS, work_dir,
+                        f"edge{int(probe_at * 10)}", sample_rate)
+        matches = result is not None and abs(result[0] - reference_ms) <= PLATEAU_TOLERANCE_MS
+        samples.append((probe_at, matches))
+        probe_at += REFINE_STEP_SECONDS
+    onset = None
+    if find == "first":
+        for index in range(1, len(samples)):
+            if samples[index][1] and samples[index - 1][1]:
+                onset = samples[index - 1][0]
+                break
+    else:
+        for index in range(len(samples) - 2, -1, -1):
+            if samples[index][1] and samples[index + 1][1]:
+                onset = samples[index + 1][0]
+                break
+    discards = sum(1 for _, matches in samples if not matches)
+    return onset, discards, len(samples), REFINE_STEP_SECONDS
+
+
 def _coverage_gaps(starts, window_seconds, span_start, span_end):
     """Intervals inside [span_start, span_end] that NO SURVIVING PROBE covered.
 
@@ -1994,6 +2071,15 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         # measurements, so the boundary stays fractional too. Found by dev-2 on
         # error id 8, mid-sweep, rather than by me.
         start_ms = max(boundary, max(0.0, -offset_ms))
+        # H-A3 (2026-09-16): `widened` is computed here but NOT committed to
+        # `boundary` yet -- THE EDGE IS COMMITTED BEFORE THE RUN IS DROPPED
+        # was the defect, verbatim, and the fix is the ordering, not the
+        # arithmetic. `widened` stays a local until this run is confirmed
+        # KEPT, below the `if end_ms <= start_ms: ... continue` that decides
+        # that. A run this loop is about to drop cannot leave its bracket
+        # edge behind for the next run to inherit -- that edge belongs to a
+        # measurement artifact that no longer exists in the output.
+        widened = None
         if position < len(runs) - 1:
             change = change_points[position]
             end_ms = change["bracket_low_ms"]
@@ -2002,7 +2088,6 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                 widened = max(widened, end_ms - change["step_ms"])
             change["gap_start_ms"] = round(end_ms, 2)
             change["gap_end_ms"] = round(widened, 2)
-            boundary = widened
         else:
             end_ms = min(master_end_ms, candidate_end_ms - offset_ms)
         if end_ms <= start_ms:
@@ -2029,6 +2114,12 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             _log(f"segment {position} unusable (offset {offset_ms:.0f} ms, "
                  f"master [{start_ms},{end_ms}]); dropped, not declining")
             continue
+        # THE EDGE COMMITS ONLY NOW -- this run survived the check above, so
+        # its bracket's far edge is a real boundary the NEXT run's start_ms
+        # may legitimately inherit. `widened` is None on the last position
+        # (no next transition to bound), which is correctly a no-op here.
+        if widened is not None:
+            boundary = widened
         kept_runs.add(position)
         by_stream = per_stream[position]
         fidelity_here = per_stream_fidelity[position]
@@ -2101,6 +2192,180 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         next_position = segment_positions[index + 1]
         if next_position == this_position + 1 and this_position < len(change_points):
             segments[index]["following_bracket"] = dict(change_points[this_position])
+
+    # H-TIER/H-A3 (2026-09-16), Architect's ruling. Head and tail carry NO
+    # bracket today by construction -- `following_bracket` above is
+    # interior-only. This fills that gap, additively (a new key on the
+    # first/last segment, `leading_bracket`/`trailing_bracket`), SAME SHAPE
+    # as `following_bracket` (width fields + `bracket_is_bound_only`) plus
+    # `edge` and `evidence_class` -- so the chimeric-side width predicate can
+    # gate the frame tier on these spans exactly like an interior one.
+    # Interior brackets' own shape is UNTOUCHED (dev-locator's standard,
+    # `2b36d376`: keys added, none removed, no shared key's value changed).
+    #
+    # GATED ON THE ARTIFACT, NEVER ON A PROXY FOR WHY IT SHOULD BE ABSENT --
+    # the law the owner stated after rejecting the first version of this:
+    # the only question that matters is whether a master-fill piece will
+    # actually exist, not WHY one might not. `master_start_ms == 0` (head)
+    # / the tail segment already reaching `master_end_ms` (tail) means NO
+    # FILL WILL EXIST, so there is nothing for a bracket to bound -- that is
+    # case 1, checked first, and it needs no domain reasoning at all.
+    if segments:
+        head_position = segment_positions[0]
+        head_run = runs[head_position]
+        head_offset_ms = head_run["mean"]
+        head_dropped_before = any(d["position"] < head_position
+                                  for d in dropped_segment_detail)
+        if round(segments[0]["master_start_ms"], 6) <= 0:
+            pass  # CASE 1: the head fill span has zero width -- nothing filled.
+        elif not head_dropped_before and head_offset_ms < 0:
+            # CASE 2, MEASURED ABSENCE: the outermost surviving plateau's own
+            # offset PROVES the candidate lacks [0, B). Narrow by
+            # construction -- the audio tier already predicted B; the
+            # bracket exists only for the frame tier to confirm/adjust it.
+            # E04's head is exactly this case (forensic: B ~ 2732ms).
+            b_ms = -head_offset_ms
+            low = max(0.0, b_ms - 2 * quantum_ms)
+            high = b_ms + 2 * quantum_ms
+            segments[0]["leading_bracket"] = {
+                "bracket_low_ms": round(low, 2), "bracket_high_ms": round(high, 2),
+                "bracket_is_bound_only": False, "step_ms": round(head_offset_ms, 2),
+                "edge": "head", "evidence_class": "measured_absence",
+                # WHERE THE CONSUMER'S `locate_match_onset` DUAL-BASELINE
+                # SHOULD LOOK: a point comfortably inside the surviving
+                # plateau (known to match), and master 0 (known absent by
+                # this very evidence class). Computed here, not re-derived
+                # downstream -- these are locator-internal quantities
+                # (`head_run["first"]`) the chimeric side does not have.
+                "known_match_ms": round(head_run["first"] * 1000.0, 2),
+                "known_absent_ms": 0.0}
+        else:
+            # CASE 3, CONSTRUCTED GAP: a run before the head was dropped (no
+            # offset prediction survives for this span at all), OR -- the
+            # ANOMALY the artifact-gated rewrite exists to catch -- neither
+            # a drop nor a negative offset explains why `master_start_ms` is
+            # still > 0. Either way, no trustworthy offset covers [0,
+            # head_run["first"]): search for where content starts matching
+            # the plateau that DOES survive, instead of extrapolating a
+            # number that was never measured there.
+            anomalous = (not head_dropped_before) and head_offset_ms >= 0
+            search_end_s = head_run["first"]
+            onset_s, onset_discards, onset_probes, search_step_s = _search_edge_onset(
+                master_path, reference_stream, candidate_path, primary_stream,
+                0.0, search_end_s, head_offset_ms, work_dir, comparison_grid_hz,
+                find="first")
+            if onset_s is not None:
+                onset_ms = onset_s * 1000.0
+                search_step_ms = search_step_s * 1000.0
+                # STEP-HONEST BRACKET (Architect's ruling, 2026-09-16,
+                # replacing a defect this exact shape shipped): the true
+                # onset provably lies between the last non-matching probe
+                # and this confirmed matching one, no tighter than the
+                # search's OWN step -- a quantum-scale window here
+                # (`+/-2*quantum_ms`, the ORIGINAL form) fabricated
+                # precision the search never measured. `low` is exact
+                # (never fabricated below 0); `high` is the confirmed
+                # onset itself, never widened past it.
+                low = max(0.0, onset_ms - search_step_ms)
+                high = onset_ms
+                segments[0]["leading_bracket"] = {
+                    "bracket_low_ms": round(low, 2), "bracket_high_ms": round(high, 2),
+                    "bracket_is_bound_only": False, "step_ms": None,
+                    "search_step_ms": round(search_step_ms, 2),
+                    "edge": "head", "evidence_class": "constructed_gap",
+                    "onset_anomalous": anomalous, "onset_discards": onset_discards,
+                    "onset_probes": onset_probes,
+                    "known_match_ms": round(head_run["first"] * 1000.0, 2),
+                    "known_absent_ms": 0.0}
+            else:
+                # Onset not found: an HONEST, UNNARROWED bracket ships --
+                # never a silent fill. bound_only=True so the chimeric-side
+                # width gate still offers the whole span to the frame tier
+                # rather than skipping it unexamined.
+                segments[0]["leading_bracket"] = {
+                    "bracket_low_ms": 0.0,
+                    "bracket_high_ms": round(search_end_s * 1000.0, 2),
+                    "bracket_is_bound_only": True, "step_ms": None,
+                    "edge": "head", "evidence_class": "constructed_gap_onset_not_found",
+                    "onset_anomalous": anomalous, "onset_discards": onset_discards,
+                    "onset_probes": onset_probes,
+                    "known_match_ms": round(head_run["first"] * 1000.0, 2),
+                    "known_absent_ms": 0.0}
+            if anomalous:
+                _log(f"ANOMALY: head segment starts at "
+                     f"{segments[0]['master_start_ms']} ms with neither a "
+                     f"dropped run before it nor a negative offset to "
+                     f"explain the gap -- named, not silently accepted")
+
+        tail_position = segment_positions[-1]
+        tail_run = runs[tail_position]
+        tail_offset_ms = tail_run["mean"]
+        tail_dropped_after = any(d["position"] > tail_position
+                                 for d in dropped_segment_detail)
+        tail_ends_at_master_end = (round(segments[-1]["master_end_ms"], 6)
+                                   >= round(master_end_ms, 6))
+        tail_predicted_end_ms = candidate_end_ms - tail_offset_ms
+        if tail_ends_at_master_end:
+            pass  # CASE 1: no tail gap -- nothing filled, nothing to bound.
+        elif not tail_dropped_after and tail_predicted_end_ms <= master_end_ms:
+            # CASE 2, MEASURED ABSENCE, mirrored: the candidate runs out
+            # before the master does, at the boundary the plateau's own
+            # offset and the two durations already predict.
+            t_ms = tail_predicted_end_ms
+            low = max(0.0, t_ms - 2 * quantum_ms)
+            high = t_ms + 2 * quantum_ms
+            segments[-1]["trailing_bracket"] = {
+                "bracket_low_ms": round(low, 2), "bracket_high_ms": round(high, 2),
+                "bracket_is_bound_only": False, "step_ms": round(tail_offset_ms, 2),
+                "edge": "tail", "evidence_class": "measured_absence",
+                "known_match_ms": round(tail_run["last"] * 1000.0, 2),
+                "known_absent_ms": round(master_end_ms, 2)}
+        else:
+            # CASE 3, CONSTRUCTED GAP, mirrored: search FORWARD from the
+            # last surviving plateau's own last supporting probe for the
+            # LAST position that still matches it -- past that is the
+            # evidenced divergence, exactly as undropped/negative-offset
+            # would have predicted, had the run behind it survived.
+            anomalous = (not tail_dropped_after) and tail_predicted_end_ms > master_end_ms
+            search_start_s = tail_run["last"] + PROBE_WINDOW_SECONDS
+            search_end_s = master_end_ms / 1000.0
+            onset_s, onset_discards, onset_probes, search_step_s = _search_edge_onset(
+                master_path, reference_stream, candidate_path, primary_stream,
+                search_start_s, search_end_s, tail_offset_ms, work_dir,
+                comparison_grid_hz, find="last")
+            if onset_s is not None:
+                onset_ms = onset_s * 1000.0
+                search_step_ms = search_step_s * 1000.0
+                # STEP-HONEST BRACKET, mirrored (see the head branch above
+                # for the full ruling): content is CONFIRMED matching at
+                # `onset_ms`; the divergence lies somewhere in the next
+                # step, never claimed tighter than that.
+                low = onset_ms
+                high = min(master_end_ms, onset_ms + search_step_ms)
+                segments[-1]["trailing_bracket"] = {
+                    "bracket_low_ms": round(low, 2), "bracket_high_ms": round(high, 2),
+                    "bracket_is_bound_only": False, "step_ms": None,
+                    "search_step_ms": round(search_step_ms, 2),
+                    "edge": "tail", "evidence_class": "constructed_gap",
+                    "onset_anomalous": anomalous, "onset_discards": onset_discards,
+                    "onset_probes": onset_probes,
+                    "known_match_ms": round(tail_run["last"] * 1000.0, 2),
+                    "known_absent_ms": round(master_end_ms, 2)}
+            else:
+                segments[-1]["trailing_bracket"] = {
+                    "bracket_low_ms": round(search_start_s * 1000.0, 2),
+                    "bracket_high_ms": round(master_end_ms, 2),
+                    "bracket_is_bound_only": True, "step_ms": None,
+                    "edge": "tail", "evidence_class": "constructed_gap_onset_not_found",
+                    "onset_anomalous": anomalous, "onset_discards": onset_discards,
+                    "onset_probes": onset_probes,
+                    "known_match_ms": round(tail_run["last"] * 1000.0, 2),
+                    "known_absent_ms": round(master_end_ms, 2)}
+            if anomalous:
+                _log(f"ANOMALY: tail segment ends at "
+                     f"{segments[-1]['master_end_ms']} ms with neither a "
+                     f"dropped run after it nor a predicted overrun to "
+                     f"explain the gap -- named, not silently accepted")
 
     if not segments:
         _log("every segment unusable after clamping; declining")

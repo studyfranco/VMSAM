@@ -432,26 +432,63 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         # stay a default parameter instead of a required one without being a
         # feature flag.
         #
-        # Fires ONLY on an INTERIOR gap (`cursor > 0`) whose PRECEDING
-        # segment carries `bracket_is_bound_only` -- never on the head/tail
-        # gap, which is not a locator bracket at all, and never as a search:
+        # H-TIER (2026-09-16, Architect's ruling). The gate used to be
+        # `bracket_is_bound_only` -- one bit, set at
+        # `change_point_locator.py:1924` as `not narrowed`, collapsing
+        # "narrowed to the bisector's own 12000ms floor" (a SUCCESS state,
+        # `:1303-1309`'s own measured history) and "never narrowed, still
+        # 100000ms wide" into the same value. A bracket the locator marks
+        # "narrowed" could still be 12000ms -- E04's real interior bracket,
+        # `bracket_is_bound_only=False`, verbatim -- and the old gate never
+        # even offered it to this tier. `bracket_is_bound_only` is now
+        # DEMOTED TO EVIDENCE: it may still travel on the record (it says HOW
+        # a bracket arose) but it gates NOTHING here.
+        #
+        # THE GATE IS WIDTH, in frames of the pair's own grid -- one frame is
+        # this repair's atomic resolution; a bracket already <=2 frames sits
+        # at the tier's own achievable precision, and anything wider is
+        # repair-at-indication-granularity, which "a la frame pres" bans.
+        # Explicitly NOT the owner's ~1s: that was his tolerance reading one
+        # artefact, a ceiling on what he would accept, not a floor to
+        # install here -- coding it as the threshold would trade today's
+        # hardcoded-quantum defect for a differently-hardcoded, coarser one
+        # wearing a tolerance's authority.
+        #
+        # UNKNOWN GRID -> the tier is still ASKED, never silently skipped.
+        # `frame_ms` needs `fps_num > 0`; when it is not (fps present as a
+        # number but unusable), the width comparison cannot rule the tier
+        # out, so the call still happens and `locate_bracket_boundary`
+        # itself declines with `grid_unmeasured` (`frame_compare.py:601`) --
+        # an honest bracket ships, nothing is silently filled. `fps_num`/
+        # `fps_den` being ABSENT (`None`) is the one case that still skips
+        # the call outright: `locate_bracket_boundary` does `int(fps_num)`
+        # at its own first line and `int(None)` raises, so calling it
+        # without a grid at all would crash, not decline.
+        #
+        # Fires ONLY on an INTERIOR gap (`cursor > 0`) for now -- head and
+        # tail have no `following_bracket` today by construction and are a
+        # separate, ruled piece of this mission, built where this comment
+        # is, not yet at this landing.
         # `locate_bracket_boundary` REFINES the exact [cursor, master_start)
         # this assembly already has, it does not go looking for one.
         narrowed_low = narrowed_high = None
+        head_frame_tier_result = None
         frame_tier_result = None
+        gap_width_ms = float(master_start - cursor) if master_start > cursor else 0.0
+        grid_known_good = fps_num is not None and fps_den is not None and fps_num > 0 and fps_den > 0
+        frame_ms = (1000.0 * fps_den / fps_num) if grid_known_good else None
+        tier_asked = (frame_ms is None) or (gap_width_ms > 2.0 * frame_ms)
         if (cursor > 0 and master_start > cursor and previous_segment is not None
                 and previous_offset is not None
-                and (previous_segment.get("following_bracket") or {}).get(
-                    "bracket_is_bound_only")
                 and master_path is not None and candidate_path is not None
-                and fps_num is not None and fps_den is not None):
+                and fps_num is not None and fps_den is not None
+                and tier_asked):
             import frame_compare
             frame_tier_result = frame_compare.locate_bracket_boundary(
                 master_path, candidate_path, fps_num, fps_den,
                 float(cursor), float(master_start),
                 float(previous_offset), float(offset))
             if not frame_tier_result["declined"]:
-                frame_ms = 1000.0 * fps_den / fps_num
                 lo = Decimal(str(frame_tier_result["derived_ms"]["master_start_ms"]))
                 hi = Decimal(str(frame_tier_result["derived_ms"]["master_end_ms"]))
                 # DEFENSIVE CLAMP: never let the frame tier WIDEN the gap the
@@ -492,6 +529,61 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             if narrowed_high > master_start:
                 narrowed_high = master_start
             master_start = narrowed_high
+
+        # HEAD CONSUMPTION (H-A3/H-TIER, 2026-09-16, Architect's ruling).
+        # `cursor == 0` here means this is the FIRST segment -- there is no
+        # `pieces[-1]` to extend (head has no preceding piece at all), so
+        # this does NOT reuse the interior block above; it only updates
+        # `master_start` in place. The generic head_gap creation below
+        # (`if master_start > cursor and narrowed_low is None`) then fires
+        # on the SAME, now-narrower `master_start` with no further change
+        # needed there. `locate_match_onset`, not `locate_bracket_boundary`
+        # -- a head span has only ONE real offset (this segment's own),
+        # and the two-hypothesis function degenerates on that (see its own
+        # docstring and `locate_match_onset`'s).
+        if cursor == 0 and master_start > cursor:
+            leading_bracket = segment.get("leading_bracket")
+            if leading_bracket is not None:
+                lb_low = Decimal(str(leading_bracket["bracket_low_ms"]))
+                lb_high = Decimal(str(leading_bracket["bracket_high_ms"]))
+                lb_width_ms = float(lb_high - lb_low) if lb_high > lb_low else 0.0
+                head_grid_ok = (fps_num is not None and fps_den is not None
+                               and fps_num > 0 and fps_den > 0)
+                head_frame_ms = (1000.0 * fps_den / fps_num) if head_grid_ok else None
+                head_tier_asked = (master_path is not None and candidate_path is not None
+                                   and fps_num is not None and fps_den is not None
+                                   and (head_frame_ms is None
+                                        or lb_width_ms > 2.0 * head_frame_ms))
+                if head_tier_asked:
+                    import frame_compare
+                    onset_result = frame_compare.locate_match_onset(
+                        master_path, candidate_path, fps_num, fps_den,
+                        float(lb_low), float(lb_high), float(offset),
+                        leading_bracket.get("known_match_ms", float(lb_high)),
+                        leading_bracket.get("known_absent_ms", float(lb_low)),
+                        edge="head")
+                    if not onset_result["declined"]:
+                        # THE TIER'S INTERVAL IS THE BOUNDARY (Architect's
+                        # ruling, 2026-09-16: "a contract's consumer must
+                        # consume"). `locate_match_onset`'s own contract
+                        # already guarantees `declined: False` implies a
+                        # valid interval inside `[lb_low, lb_high]` -- this
+                        # site consumes that value directly, it does not
+                        # re-derive a safety net that duplicates the
+                        # contract. THE DEFECT THIS REPLACES: the first
+                        # version clamped against `master_start` --
+                        # this segment's own DIFFERENT, cruder, audio-only
+                        # `max(0,-offset)` estimate, not the bracket the
+                        # question was actually asked against. On real E04
+                        # media the tier correctly answered 3753.75ms while
+                        # `master_start` was 2731.75ms, and the clamp
+                        # silently discarded every frame-tier answer back to
+                        # the unnarrowed value -- a guard firing correctly
+                        # into a void, caught only by spying the call and
+                        # finding `declined: False` with a narrower interval
+                        # thrown away one line later.
+                        head_frame_tier_result = onset_result
+                        master_start = Decimal(str(onset_result["derived_ms"]["master_end_ms"]))
 
         candidate_start = master_start + offset
         candidate_end = master_end + offset
@@ -539,10 +631,13 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             # la portee du maitre. Un lecteur ne pouvait pas verifier laquelle des
             # trois s'etait produite, donc ne pouvait pas voir qu'une substitution
             # avait remplace du materiel candidat par du maitre.
-            pieces.append({"source": "master", "master_start_ms": cursor,
-                           "master_end_ms": master_start,
-                           "source_start_ms": cursor,
-                           "reason": "head_gap" if cursor == 0 else "interior_bracket"})
+            head_piece = {"source": "master", "master_start_ms": cursor,
+                         "master_end_ms": master_start,
+                         "source_start_ms": cursor,
+                         "reason": "head_gap" if cursor == 0 else "interior_bracket"}
+            if head_frame_tier_result is not None:
+                head_piece["frame_tier"] = head_frame_tier_result
+            pieces.append(head_piece)
         pieces.append({"source": "candidate", "master_start_ms": master_start,
                        "master_end_ms": master_end,
                        "source_start_ms": candidate_start})
@@ -550,11 +645,62 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         previous_offset = offset
         previous_segment = segment
 
+    # TAIL CONSUMPTION (H-A3/H-TIER, 2026-09-16), mirroring HEAD above:
+    # `locate_match_onset(edge="tail")` finds the LAST position that still
+    # matches the surviving plateau, so a successful result PULLS `cursor`
+    # forward (shrinking the tail gap) and EXTENDS `pieces[-1]` -- unlike
+    # head, tail DOES have a preceding candidate piece to extend, same
+    # shape as the interior tier's own "extend the preceding piece" step.
+    tail_frame_tier_result = None
     if cursor < master_duration_ms:
-        pieces.append({"source": "master", "master_start_ms": cursor,
-                       "master_end_ms": master_duration_ms,
-                       "source_start_ms": cursor,
-                       "reason": "tail_gap"})
+        trailing_bracket = segment.get("trailing_bracket")
+        if trailing_bracket is not None:
+            tb_low = Decimal(str(trailing_bracket["bracket_low_ms"]))
+            tb_high = Decimal(str(trailing_bracket["bracket_high_ms"]))
+            tb_width_ms = float(tb_high - tb_low) if tb_high > tb_low else 0.0
+            tail_grid_ok = (fps_num is not None and fps_den is not None
+                           and fps_num > 0 and fps_den > 0)
+            tail_frame_ms = (1000.0 * fps_den / fps_num) if tail_grid_ok else None
+            tail_tier_asked = (master_path is not None and candidate_path is not None
+                               and fps_num is not None and fps_den is not None
+                               and (tail_frame_ms is None
+                                    or tb_width_ms > 2.0 * tail_frame_ms))
+            if tail_tier_asked:
+                import frame_compare
+                onset_result = frame_compare.locate_match_onset(
+                    master_path, candidate_path, fps_num, fps_den,
+                    float(tb_low), float(tb_high), float(offset),
+                    trailing_bracket.get("known_match_ms", float(tb_low)),
+                    trailing_bracket.get("known_absent_ms", float(tb_high)),
+                    edge="tail")
+                if not onset_result["declined"]:
+                    # THE TIER'S INTERVAL IS THE BOUNDARY, same rule as
+                    # HEAD above -- consumed directly, not re-clamped.
+                    # Structurally safe to trust without a floor/ceiling
+                    # re-derivation here (unlike head's now-fixed defect):
+                    # `cursor` at this point is the LAST segment's own end,
+                    # and the search interval `[tb_low, tb_high]` starts
+                    # FORWARD of it by construction (`tail_run["last"] +
+                    # PROBE_WINDOW_SECONDS`, always well before the
+                    # segment's own full extent) -- so `cursor <= tb_low`
+                    # holds by how the bracket was built, not by a
+                    # coincidence this site has to re-verify.
+                    onset_ms = Decimal(str(onset_result["derived_ms"]["master_start_ms"]))
+                    if onset_ms > cursor:
+                        extended_end_candidate = onset_ms + offset
+                        if extended_end_candidate <= candidate_duration_ms:
+                            pieces[-1]["master_end_ms"] = onset_ms
+                            tail_frame_tier_result = onset_result
+                            cursor = onset_ms
+
+    if cursor < master_duration_ms:
+        tail_piece = {"source": "master", "master_start_ms": cursor,
+                     "master_end_ms": master_duration_ms,
+                     "source_start_ms": cursor,
+                     "reason": "tail_gap"}
+        if tail_frame_tier_result is not None:
+            tail_piece["frame_tier"] = tail_frame_tier_result
+        pieces.append(tail_piece)
     return pieces
 
 

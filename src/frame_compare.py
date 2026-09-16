@@ -751,3 +751,197 @@ def locate_bracket_boundary(master_path, candidate_path, fps_num, fps_den,
                        f"(need exactly 1 each) "
                        f"in bracket [{bracket_low_ms},{bracket_high_ms}] ms"),
            "bracket_low_ms": bracket_low_ms, "bracket_high_ms": bracket_high_ms}
+
+
+def _hamming_series(comparer, master_path, candidate_path, start_s, end_s,
+                    shift_frames, pad_sec):
+    '''One master frame per index in `[frame_index(start_s), frame_index(end_s))`,
+    each compared to its ONE candidate counterpart under `shift_frames` --
+    a single distance series, not the two-hypothesis pairing
+    `locate_bracket_boundary` builds. Returns (frames, distances);
+    `distances[i]` is None where either side's hash could not be extracted
+    (never fabricated as 0 or as "no match" -- absent, never zero, same
+    rule as everywhere else in this module's siblings).'''
+    m_base, m_hashes = _extract_hashes(comparer, master_path, start_s - pad_sec,
+                                       (end_s - start_s) + 2 * pad_sec)
+    c_base, c_hashes = _extract_hashes(comparer, candidate_path,
+                                       start_s + shift_frames * comparer.fps_den
+                                       / comparer.fps_num - pad_sec,
+                                       (end_s - start_s) + 2 * pad_sec)
+    m_first = comparer._frame_index(start_s)
+    m_last = comparer._frame_index(end_s)
+    frames, distances = [], []
+    for m in range(m_first, m_last):
+        mi = m - m_base
+        ci = (m + shift_frames) - c_base
+        mh = m_hashes[mi] if 0 <= mi < len(m_hashes) else None
+        ch = c_hashes[ci] if 0 <= ci < len(c_hashes) else None
+        distances.append(None if (mh is None or ch is None)
+                         else FrameComparer._popcount64(mh ^ ch))
+        frames.append(m)
+    return frames, distances
+
+
+def locate_match_onset(master_path, candidate_path, fps_num, fps_den,
+                       bracket_low_ms, bracket_high_ms, offset_ms,
+                       known_match_ms, known_absent_ms, edge,
+                       pad_sec=3.0, debug=False):
+    '''H-A3/H-TIER head/tail CONSTRUCTED-GAP primitive, additive
+    (2026-09-16, Architect's ruling). `locate_bracket_boundary` is a
+    TWO-HYPOTHESIS transition finder -- `_monotone_split` needs
+    `offset_before_ms != offset_after_ms` to produce any signal at all.
+    Head/tail's constructed-gap case has only ONE real offset (there is no
+    "before" content to hypothesize about, by definition), and calling
+    that function with `before==after` makes every frame pair identical
+    (`db==da`) -- its own arithmetic then reports the FULL bracket back as
+    a "clean" `declined: False` result, a false-positive success that
+    narrows nothing while looking narrowed. Adapting that function to also
+    answer this question would overload it with two contracts -- the same
+    shape as `bracket_is_bound_only` collapsing two states into one bit,
+    one level up. This is a SEPARATE function because the question is
+    separate: "where does matching begin (edge="head") or end
+    (edge="tail"), under the ONE offset that IS known?"
+
+    RESOLUTION CONTROL FIRST, dual baseline -- forensic's own pattern
+    (fire a KNOWN shift, read it back, THEN trust the real measurement),
+    made structural here rather than left to the caller's discipline. Two
+    reference points the CALLER already has strong reason to believe in --
+    `known_match_ms` (comfortably inside the surviving plateau) and
+    `known_absent_ms` (the far, unmeasured side of the bracket) -- are
+    measured FIRST, under this SAME offset and SAME instrument. If their
+    Hamming distances do not separate on THIS content, the instrument
+    cannot see the difference here, and NOTHING it reports inside the
+    bracket can be trusted -- decline `could_not_locate_onset` before
+    scanning at all. Low-motion or already-similar content declines here
+    honestly, matching the same shape id 12's bracket 2 already produces
+    one layer up (`structure_present_could_not_narrow`) -- that is this
+    design working, not failing.
+
+    CONTRACT, enforced by the return shape, not by caller discipline:
+    `declined: False` may ONLY accompany an interval STRICTLY NARROWER
+    than `[bracket_low_ms, bracket_high_ms]`. The exact failure mode this
+    function exists to prevent -- reporting the input bracket back as
+    "located" -- is unrepresentable by this contract, not merely against
+    the rules: every return path below either declines, or returns an
+    interval provably inside the input bracket.
+
+    Tokens: `located` (declined=False) / `could_not_locate_onset`, plus
+    the grid/bracket declines `locate_bracket_boundary` already uses
+    (`grid_unmeasured`, `empty_bracket`) -- SAME vocabulary, no new
+    sibling invented for those two.
+    '''
+    fps_num = int(fps_num)
+    fps_den = int(fps_den)
+    if fps_num <= 0 or fps_den <= 0:
+        return {"declined": True, "reason": "grid_unmeasured",
+               "evidence": f"fps_num={fps_num} fps_den={fps_den}"}
+
+    m_start_s = bracket_low_ms / 1000.0
+    m_end_s = bracket_high_ms / 1000.0
+    if m_end_s <= m_start_s:
+        return {"declined": True, "reason": "empty_bracket",
+               "evidence": f"[{bracket_low_ms},{bracket_high_ms}] ms"}
+    if edge not in ("head", "tail"):
+        raise ValueError(f"edge must be 'head' or 'tail', got {edge!r}")
+
+    comparer = FrameComparer(master_path, candidate_path, m_start_s, m_end_s,
+                             fps_num, fps_den, debug=debug)
+    shift = _nominal_shift_frames(offset_ms, fps_num, fps_den)
+    probe_frames, threshold = _boundary_validation_config()
+    frame_s = fps_den / fps_num
+    baseline_span_s = max(1.0, probe_frames * frame_s)
+
+    def baseline_at(anchor_ms):
+        anchor_s = anchor_ms / 1000.0
+        _, distances = _hamming_series(comparer, master_path, candidate_path,
+                                       max(0.0, anchor_s - baseline_span_s / 2.0),
+                                       anchor_s + baseline_span_s / 2.0,
+                                       shift, pad_sec)
+        valid = [d for d in distances if d is not None]
+        return (sum(valid) / len(valid)) if valid else None
+
+    match_baseline = baseline_at(known_match_ms)
+    if match_baseline is None:
+        return {"declined": True, "reason": "could_not_locate_onset",
+               "evidence": f"match baseline frames unextractable at "
+                          f"known_match_ms={known_match_ms}"}
+    absent_baseline = baseline_at(known_absent_ms)
+    if absent_baseline is None:
+        # A None here, UNLIKE on the match side just above, is not
+        # automatically an instrument failure: the match-side extraction
+        # already proved this instrument reads THESE two files fine, so a
+        # failure only on the absent anchor is overwhelmingly a
+        # CANDIDATE-SIDE SEEK the offset places outside the candidate's
+        # own valid range (negative for `edge="head"`, past its end for
+        # `edge="tail"`) -- which is not a measurement failure, it IS the
+        # confirmation of absence this anchor exists to provide. Maximal
+        # Hamming distance (64: total mismatch on a 64-bit hash), not a
+        # fabricated "close" value -- absent, never zero, extended here to
+        # "absent, never merely unextractable" for this one anchor.
+        absent_baseline = 64.0
+    # SEPARATION, NOT JUST A THRESHOLD CROSSING. A baseline pair that both
+    # read "matching" or both read "absent" gives this instrument no way
+    # to tell the two apart on THIS content -- exactly the id-12
+    # bracket-2 shape, made explicit here instead of discovered downstream.
+    if not (match_baseline <= threshold and absent_baseline - match_baseline >= threshold):
+        return {"declined": True, "reason": "could_not_locate_onset",
+               "evidence": f"baselines do not separate: match={match_baseline:.2f} "
+                          f"absent={absent_baseline:.2f} threshold={threshold}"}
+
+    frames, distances = _hamming_series(comparer, master_path, candidate_path,
+                                        m_start_s, m_end_s, shift, pad_sec)
+    valid_frames = [(f, d) for f, d in zip(frames, distances) if d is not None]
+    if not valid_frames:
+        return {"declined": True, "reason": "could_not_locate_onset",
+               "evidence": f"no frame pair readable in "
+                          f"[{bracket_low_ms},{bracket_high_ms}] ms"}
+
+    split_threshold = (match_baseline + absent_baseline) / 2.0
+    matches = [d <= split_threshold for _, d in valid_frames]
+    onset_frame = None
+    if edge == "head":
+        # First frame where matching STARTS, and holds for the next frame
+        # too -- the same two-consecutive discipline `_bracket_transition`
+        # uses for its own onset, carried here for the same reason: one
+        # matching frame can be a coincidental low-distance outlier.
+        for i in range(len(matches) - 1):
+            if matches[i] and matches[i + 1]:
+                onset_frame = valid_frames[i][0]
+                break
+    else:
+        for i in range(len(matches) - 1, 0, -1):
+            if matches[i] and matches[i - 1]:
+                onset_frame = valid_frames[i][0]
+                break
+
+    if onset_frame is None:
+        return {"declined": True, "reason": "could_not_locate_onset",
+               "evidence": f"baselines separated (match={match_baseline:.2f} "
+                          f"absent={absent_baseline:.2f}) but no two-consecutive "
+                          f"{'match' if edge=='head' else 'match-before-divergence'} "
+                          f"found in the bracket"}
+
+    onset_ms = round(onset_frame * frame_s * 1000.0, 2)
+    if edge == "head":
+        start_ms, end_ms = bracket_low_ms, onset_ms
+    else:
+        start_ms, end_ms = onset_ms, bracket_high_ms
+    # THE CONTRACT: refuse to return anything that is not STRICTLY
+    # narrower than the input -- the caller may trust `declined: False`
+    # without re-checking width itself.
+    if not (bracket_low_ms <= start_ms < end_ms <= bracket_high_ms
+            and (end_ms - start_ms) < (bracket_high_ms - bracket_low_ms)):
+        return {"declined": True, "reason": "could_not_locate_onset",
+               "evidence": f"located interval [{start_ms},{end_ms}] does not "
+                          f"strictly narrow the input bracket -- refusing to "
+                          f"report a non-narrowing result as located"}
+    return {"declined": False, "reason": "located",
+           "grid": {"num": fps_num, "den": fps_den},
+           "edge": edge, "onset_frame": onset_frame,
+           "candidate_offset_frames": shift,
+           "derived_ms": {"master_start_ms": start_ms, "master_end_ms": end_ms},
+           "match_baseline": round(match_baseline, 2),
+           "absent_baseline": round(absent_baseline, 2),
+           "method": "single_hypothesis_onset",
+           "evidence": f"onset frame {onset_frame} ({onset_ms}ms); baselines "
+                      f"match={match_baseline:.2f} absent={absent_baseline:.2f}"}
