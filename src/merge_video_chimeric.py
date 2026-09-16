@@ -1681,7 +1681,20 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 # silence quand le maitre ne porte ni la langue de la piste ni
                 # celle de comparaison.
                 "source": "silence" if fill == "silence" else "master",
-                "language": None if fill == "silence" else fill_language})
+                "language": None if fill == "silence" else fill_language,
+                # SPEC_ZONE_A.MD s4e, ses propres mots, littéralement: "where
+                # each filled region came from -- same-language master,
+                # comparison language, or silence -- and the language
+                # actually used." Trois jetons, PAS INVENTES ICI -- ceux du
+                # texte deja en vigueur, pour qu'un lecteur qui va relire s4e
+                # retrouve exactement ces trois noms et aucun autre. Distingue
+                # les deux cas MASTER (meme langue que la piste, ou langue de
+                # comparaison) que "source"/"language" seuls laissaient a
+                # deduire en comparant deux champs plutot que de le nommer.
+                "fill_source_class": (
+                    "silence" if fill == "silence"
+                    else "same_language_master" if fill_language == language
+                    else "comparison_language_master")})
             continue
         if piece["source"] == "candidate":
             source_start = piece["source_start_ms"]

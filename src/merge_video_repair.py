@@ -1937,7 +1937,14 @@ def log_assembly(candidate_path, assembly, plan):
                 # composee d'un jeton qui existe pour que son ABSENCE ne soit pas
                 # mal lue. LA DEFENSE CONTRE `absent n'est pas zero` DEVIENT LE
                 # VECTEUR D'UN FAUX ZERO des que quelqu'un agrege.
-                f" offset_ms={master_fill_offset(region)}\n")
+                f" offset_ms={master_fill_offset(region)} "
+                # `SPEC_ZONE_A.MD` s4e, ses propres mots: "where each filled
+                # region came from -- same-language master, comparison
+                # language, or silence". `from=`/`language` ci-dessus disent
+                # DEJA la source et la langue; ce champ nomme laquelle des
+                # DEUX cas MASTER c'est, sans obliger un lecteur a comparer
+                # `from=` a la ligne `lang=` de la piste pour le deduire.
+                f"fill_source_class={region.get('fill_source_class') or 'unreported'}\n")
         # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
         # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
         # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni
