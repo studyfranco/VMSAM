@@ -1944,7 +1944,16 @@ def log_assembly(candidate_path, assembly, plan):
                 # DEJA la source et la langue; ce champ nomme laquelle des
                 # DEUX cas MASTER c'est, sans obliger un lecteur a comparer
                 # `from=` a la ligne `lang=` de la piste pour le deduire.
-                f"fill_source_class={region.get('fill_source_class') or 'unreported'}\n")
+                f"fill_source_class={region.get('fill_source_class') or 'unreported'}"
+                # LE JETON DU RAFFINEUR DE CADRES, QUAND IL A DECLINE -- OMIS,
+                # PAS `n/a`, QUAND IL NE S'APPLIQUE PAS: ce champ est rare (la
+                # plupart des regions ne touchent jamais le raffineur), et
+                # l'imprimer partout ajouterait du bruit a chaque ligne pour
+                # un cas qui presque jamais ne s'applique -- SA PRESENCE est
+                # precisement ce que cette mission demande de rendre visible,
+                # pas son apparition universelle.
+                f"{' frame_tier_declined_reason=' + str(region['frame_tier_declined_reason']) if region.get('frame_tier_declined_reason') else ''}"
+                "\n")
         # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
         # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
         # nulle part -- ni dans le plan, qui donne la timeline du MAITRE, ni

@@ -593,6 +593,13 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                         leading_bracket.get("known_match_ms", float(lb_high)),
                         leading_bracket.get("known_absent_ms", float(lb_low)),
                         edge="head")
+                    # CAPTURED UNCONDITIONALLY -- success OR decline -- so a
+                    # declined head onset reaches the piece it belongs to
+                    # (observability fix, 2026-09-16, same mission as the
+                    # interior site above). The NARROWING below is still
+                    # gated on `not declined`, unchanged: this line only
+                    # decides what gets RECORDED, never what gets DECIDED.
+                    head_frame_tier_result = onset_result
                     if not onset_result["declined"]:
                         # THE TIER'S INTERVAL IS THE BOUNDARY (Architect's
                         # ruling, 2026-09-16: "a contract's consumer must
@@ -613,7 +620,6 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                         # into a void, caught only by spying the call and
                         # finding `declined: False` with a narrower interval
                         # thrown away one line later.
-                        head_frame_tier_result = onset_result
                         master_start = exact_ms_from_frame(
                             onset_result["onset_frame"], onset_result["grid"])
 
@@ -757,12 +763,27 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             # la portee du maitre. Un lecteur ne pouvait pas verifier laquelle des
             # trois s'etait produite, donc ne pouvait pas voir qu'une substitution
             # avait remplace du materiel candidat par du maitre.
+            # `head_piece` BUILDS BOTH HEAD AND INTERIOR PIECES (its `reason`
+            # branches on `cursor` right above) -- the name itself invites the
+            # next reader to reach for a head-only variable here, which is
+            # EXACTLY the mistake this site made until this landing:
+            # `head_frame_tier_result` is set ONLY inside the head's own
+            # `cursor==0` block (:616-ish), so for an interior piece it was
+            # ALWAYS `None` and interior's own `frame_tier_result` (set
+            # unconditionally at the top of this loop iteration, success OR
+            # decline) was never even consulted at this site -- not "declined
+            # and discarded downstream", but the WRONG VARIABLE read here,
+            # which also silently dropped a SUCCESSFUL interior narrowing's
+            # own frame_tier detail, not only a declined one (Lead's finding,
+            # verified independently, 2026-09-16).
             head_piece = {"source": "master", "master_start_ms": cursor,
                          "master_end_ms": master_start,
                          "source_start_ms": cursor,
                          "reason": "head_gap" if cursor == 0 else "interior_bracket"}
-            if head_frame_tier_result is not None:
-                head_piece["frame_tier"] = head_frame_tier_result
+            relevant_frame_tier_result = (head_frame_tier_result if cursor == 0
+                                         else frame_tier_result)
+            if relevant_frame_tier_result is not None:
+                head_piece["frame_tier"] = relevant_frame_tier_result
             pieces.append(head_piece)
         candidate_piece = {"source": "candidate", "master_start_ms": master_start,
                           "master_end_ms": master_end,
@@ -808,6 +829,12 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                     trailing_bracket.get("known_match_ms", float(tb_low)),
                     trailing_bracket.get("known_absent_ms", float(tb_high)),
                     edge="tail")
+                # CAPTURED UNCONDITIONALLY -- success OR decline, same
+                # observability fix as HEAD above, 2026-09-16. Everything
+                # below (the narrowing, the `cursor` advance) stays gated on
+                # `not declined`, unchanged: this line only decides what
+                # gets RECORDED.
+                tail_frame_tier_result = onset_result
                 if not onset_result["declined"]:
                     # THE TIER'S INTERVAL IS THE BOUNDARY, same rule as
                     # HEAD above -- consumed directly, not re-clamped.
@@ -832,7 +859,6 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                         extended_end_candidate = onset_ms + offset_for_combination
                         if extended_end_candidate <= candidate_duration_ms:
                             pieces[-1]["master_end_ms"] = onset_ms
-                            tail_frame_tier_result = onset_result
                             cursor = onset_ms
 
     if cursor < master_duration_ms:
@@ -1694,7 +1720,24 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 "fill_source_class": (
                     "silence" if fill == "silence"
                     else "same_language_master" if fill_language == language
-                    else "comparison_language_master")})
+                    else "comparison_language_master"),
+                # LE VERDICT DU RAFFINEUR DE CADRES, PAS SEULEMENT SES BORNES.
+                # Mesure du Lead (2026-09-16): `piece["frame_tier"]` n'est lu
+                # NULLE PART ailleurs dans ce depot -- meme un narrowing
+                # REUSSI etait invisible avant ce site, et un declin l'etait
+                # doublement. `reason` PAS un booleen: `structure_present_
+                # could_not_narrow` et `frames_unextractable` sont deux
+                # DEFAUTS DIFFERENTS avec des PROPRIETAIRES differents, et
+                # les distinguer est la raison d'etre de cette mission.
+                # `None` couvre DEUX cas indiscernables ici a dessein (le
+                # raffineur n'a jamais tourne; il a tourne et REUSSI) --
+                # les deux se lisent deja par ailleurs sur cette region
+                # (bornes narrowed vs. bornes brutes), donc seul le DECLIN
+                # a besoin d'un champ pour exister du tout.
+                "frame_tier_declined_reason": (
+                    piece["frame_tier"]["reason"]
+                    if piece.get("frame_tier") and piece["frame_tier"].get("declined")
+                    else None)})
             continue
         if piece["source"] == "candidate":
             source_start = piece["source_start_ms"]
