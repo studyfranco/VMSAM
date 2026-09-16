@@ -1612,3 +1612,907 @@ real state.
 hand-built targets and firing tests reached `VMSAM_CORPUS/`; `vmsam-bench-sync`'s
 three independent instruments reached `tools/` and its err_12 derivation reached
 `VMSAM_CORPUS/docs/`. The media, extracts and scratch went with the seats.
+
+## Gesture #3 — 2026-09-15 evening + 2026-09-16, synthesized under the owner's carte-blanche authorization of 2026-09-16
+
+This gesture lands the rules held in trust since 2026-09-15 evening
+(`VMSAM_HELP_AI/lead/RULES_EARNED_20260915_EVENING.md`, Lead seat #2, measured
+~18:16–20:00Z that evening, checkpointed ~21:00Z), plus the dated findings
+measured across 2026-09-15 evening and 2026-09-16 by the Lead, the Architect
+and the seats under them. Evidence pointers are given as `file:line` where a
+specific line was read; a bare filename means the citation is to the document
+as a whole. Per this campaign's own rule, nothing below is restated more
+strongly than its author stated it.
+
+---
+
+### PART 1 — RULES HELD IN TRUST (46 rules, `lead/RULES_EARNED_20260915_EVENING.md`, Lead seat #2, 2026-09-15 evening)
+
+Grouped by the Architect into seven themes for landing. Each rule is carried
+**verbatim, bold kept**, with the one-line evidence context the source file
+gave it. Per the source file's own instruction: *"When FINDINGS carries them,
+delete this file — a rule in two places drifts."* `RULES_EARNED_20260915_EVENING.md`
+is deleted in this same gesture (see MANIFEST).
+
+#### 1a. Constitutional
+
+- **THE OWNER'S ORDER IS THE AUTHORITY. The checker and the frozen text are
+  both RECORDS of it, and either can lag. When they disagree, the question is
+  never *which artefact wins* — it is WHICH ONE MATCHES THE OWNER'S MOST
+  RECENT ORDER.** (`RULES_EARNED_20260915_EVENING.md:19-21`) Evidence: one
+  evening produced both lag directions on the same two owner-closed modules —
+  at ~18:00 the text matched the order and the checker lagged; at ~21:00 the
+  checker matched the order and the text lagged. **"The checker is the
+  authority" resolves both the same way and is therefore wrong about the
+  first.**
+- **Practical form for any brief: never write "X is superseded because the
+  checker is the authority." Write the order (quoted), that the checker has
+  been updated and verified, and that the text is stale-not-binding.**
+  (`:43-46`) Evidence: `WRITE_ZONES.MD` §5's "it is the authority" is scoped
+  to *which procedure to run*, not *which record wins* — a neighbouring
+  question that looks like the one being asked.
+- **THE LAYER RULE (Architect, ratified 2026-09-15): the EXTRACTOR never
+  compensates; the PLANNER decides. A projection overrun is not a
+  demonstration — it is an unread defect... a full-length file is only ever
+  produced by a plan that SAYS it filled a tail and why.** (`:220-227`)
+  Evidence: fill legitimacy requires a demonstrated divergence, named
+  decision, frame-bounded, pHash-checked boundary — never an extractor
+  compensating silently.
+- **Authorization relayed THROUGH a peer licenses non-actions and
+  independently evidenced actions; anything irreversible resting on the
+  authorization ALONE waits for the owner's own words.** (`:248-250`)
+
+#### 1b. Guards
+
+- **A GUARD THAT SPEAKS BOTH WAYS MUST BE TRIAGED ON ITS VERDICT TOKEN, NEVER
+  ON THE LINE'S PRESENCE.** (`:52-58`) Evidence: the extraction-bound audit
+  line fires on the passing path too; CI counted a clean PASS as one of the
+  two expected refusals.
+- **THE ABSENCE OF A GUARD'S LOG LINE IS A DIFFERENT FACT FROM A PASS.**
+  (`:155-158`) Evidence: the extraction guard emits its audit line for
+  passing tracks too, so `grep` returning nothing means the guard never
+  ran — not that everything passed.
+- **A scanner whose hits are never looked at is worse than no scanner: it
+  manufactures the feeling of having checked.** (`:198-200`) Evidence: the
+  Lead's privacy regex alarmed four times on `erai` inside the French word
+  *serait*.
+- **"0 false refusals in 59 was true and not good enough."** (dev-extent.)
+  **A false refusal inside a guard added to remove a false pass** is the
+  trade to refuse. (`:212-218`) Evidence: 16 of 59 tracks declare a
+  `Duration` shorter than their real packet extent (worst −120 ms); one
+  surviving plan sits at exactly 0.0 ms headroom.
+- **"A correct bound does not move the plan — it REFUSES it."** (dev-extent.)
+  (`:228-229`)
+- **Three ways a guard lies** — all three measured the same day: the
+  UNFIRED guard; the HALF guard (checks one side of a two-sided operation,
+  reports silence on the side it never looks at); and the WRONG-INPUT
+  guard — *a guard written in full awareness of the hazard, reaching for the
+  wrong number, is worse than no guard, because the comment persuades the
+  next reader the case is handled.* (`:254-258`)
+- **AN INSTRUMENT FAITHFULLY RECORDING A STATE THAT CANNOT CHANGE IS THE
+  UNFIRED-GUARD PROBLEM WEARING A TIMESTAMP.** (`:275-279`) Evidence: a
+  60-second watcher logged `E04=no E06=no` for an hour; "the queue is deep"
+  and "these two are not in the queue at all" produce identical evidence
+  from the watcher's position.
+- **A PANE'S `❯` LINE IS AN INPUT BUFFER — what was typed AT a seat, never
+  what the seat did.** Corollary: **a `❯` line neither the Lead nor the
+  Architect authored is probably the OWNER typing directly into the sessions
+  he watches** — telling a seat to disregard it puts the Lead's convenience
+  above the owner's direction. (`:323-331`) Evidence: four instances the same
+  evening of reading an input buffer as a state, including an Architect
+  relaying queued instructions to the owner as completed decisions.
+- **AND ONE THING THAT DOES NOT SCALE WITH DELEGATION: the gate.** **"Verified
+  by a sub-agent" never means verified on this seat.** (`:352-357`) Evidence:
+  four checker changes on 2026-09-15, four Lead-verified exit statuses; the
+  fourth caught a scope bug the self-test alone had passed.
+- **MUTATION-TEST A GUARD OR YOU HAVE NOT TESTED IT.** (`:380-383`) Evidence:
+  dev-cause's sentinel checker proves it can fail — exit 0 on the real file,
+  exit 1 with the two parentheses deleted.
+- **THE EXIT CODE TRAP, COMMITTED BY THE SEAT WHOSE BRIEF OPENS WITH IT.**
+  **"Never use `cmd | filter` then `$?`. A piped command hides the exit code
+  of the first command."** **Knowing a rule, having authored guidance about
+  it, and having enforced it on others all evening are not the same as
+  following it.** (`:405-423`) Evidence: `git push -q 2>&1 | grep -v
+  "^remote:" ; echo "push EXIT=$?"` read grep's status (1) as a failed push;
+  the push had succeeded. `lead/BRIEF.md` IRON LAW #1 is this defect by name.
+  See PART 2, "the pipe-trap" entry, for the second half of this family.
+- **TEST A FIX AGAINST THE FAILURE CLASS, NOT THE FAILURE INSTANCE — "the
+  same failure mode wearing the fix."** (`:425-433`) Evidence: `compileall`
+  exits 0 on a missing directory, so §5's check 4 was a green gate over zero
+  files from a wrong cwd; the proposed `test -d "$(git rev-parse
+  --show-toplevel)/src"` closed the wrong-cwd instance and left the class
+  open (any repo carrying a `src/` passes, green, on a stranger's tree). The
+  fix pins IDENTITY over SHAPE: `test -f "$R/WRITE_ZONES.MD" -a -d
+  "$R/src"` — and a git WORKTREE of VMSAM passes, and should. Lands in
+  `WRITE_ZONES.MD` §5 in this same gesture (see PART 4).
+- **A DOCUMENTED COMMAND IS A COMMAND SOMEONE WILL RUN.** **"A disclaimer
+  people read past is not a control." Every snippet left in a governance
+  document must FAIL CLOSED as written, or become prose.** (`:434-438`)
+  Evidence: §5's snippets carry the disclaimer "nobody runs them" — a seat
+  ran them, and so did the Lead, repeatedly. Lands in `WRITE_ZONES.MD` §5 in
+  this same gesture (see PART 4).
+
+#### 1c. Transport and silence
+
+- **WHEN THE BRIDGE IS DOWN, DROP A FILE IN THE SEAT'S LAB — and the
+  successor must be able to tell it from an impersonation.** **A note
+  dropped into a lab must name its author, its seat and the time in its own
+  text.** (`:68-81`) Evidence: an unsigned note appeared in inv-fill's lab at
+  18:10:40; Lead seat #2 spawned six minutes later and could not immediately
+  tell who had written it.
+- **THE TRANSPORT FAILURE IS OLDER THAN IT LOOKED. A known-broken bridge must
+  be handed over explicitly; it was not in the handover.** (`:82-85`)
+- **BEFORE YOU READ A SILENCE AS A RESULT, PROVE THE CHANNEL CAN SPEAK.**
+  (`:87-98`) Evidence: dev-extent found the test instance runs `dev: false`
+  before trusting an absence-based validation clause; verified the ungated
+  channel could carry an artefact and examined the one control that could
+  have refuted it.
+- **ENVIRONMENT FACT with consequences past one ticket: the test instance
+  runs `dev: false`.** (`:99-104`) Every `if tools.dev` diagnostic is
+  invisible there.
+- **A SEAT'S SILENCE IS NOT EVIDENCE THAT IT IS WORKING — the transport can
+  fail silently and the Lead cannot tell the difference.** **PROCEDURE: never
+  infer a seat's state from the absence of messages.** **AND THIS IS WHY THE
+  FILES RULE PAYS: "a seat's numbers exist when they exist as FILES."**
+  (`:123-137`) Evidence: `vmsam-inv-fill` finished its partition, the
+  remote-control bridge failed, and its report sat unread for ~90 minutes
+  while `ListAgents` showed it "offline" though its tmux session was alive.
+- **A seat's numbers exist when they exist as FILES.** (`:235-238`) Evidence:
+  measured twice the same evening — one seat kept 11 harnesses and zero saved
+  results; another's crown-jewel instrument sat in `/tmp`, which is RAM here
+  and dies on restart.
+- **NOTHING AN INSTRUMENT DEPENDS ON MAY LIVE IN `/tmp`** — not its fixture,
+  not its baseline, not its raw output. (`:186-194`) Evidence: nearly cost
+  three artefacts in one evening (the log-mel NCC tool, derived pairing
+  positions, a test-suite baseline); fix: extract the baseline from git, and
+  an unresolvable revision exits 2/SKIP/"the instrument did not run" — never
+  a pass, never a fail.
+
+#### 1d. Records and provenance
+
+- **A RECORD THAT IS CORRECT GOING FORWARD AND WRONG BEHIND IS WORSE THAN ONE
+  THAT IS UNIFORMLY WRONG.** **Annotate the boundary; never retro-edit an
+  audit trail.** (`:106-114`) Evidence: CI's RUNLOG carried CEST values
+  labelled UTC; fixing the format going forward without marking the
+  changeover would make the log silently mixed-unit.
+- **"NEVER RESTATE A FINDING MORE STRONGLY THAN ITS AUTHOR DID" APPLIES TO
+  YOUR OWN FINDINGS.** (`:139-146`) Evidence: dev-extent caught the Lead
+  leaking a prediction into an inbox, then went back and weakened its own
+  record accordingly, dropping the bigger claim that existed only in
+  messages.
+- **A PREDICTION THAT LIVES IN A MESSAGE CANNOT BE CHECKED BY WHOEVER SEES
+  THE RUN.** (`:148-154`) Evidence: the Lead promised an expectation would
+  travel "verbatim" into a documented open item while it existed only in an
+  inbox; caught by the seat.
+- **A DEAD HYPOTHESIS NEEDS AN ARTEFACT MORE THAN A LIVE ONE DOES.**
+  (`:172-178`) Evidence: two refutations existed only inside messages to the
+  Lead — negative results are the likeliest to live only in prose.
+- **A sub-agent's return is a REPORT to assess, not an analysis to relay.**
+  (`:244-247`) Provenance before relay; what cannot be sourced travels as
+  "reported, unverified" or not at all.
+- **The era key of a row is the DEPLOYED COMMIT SHA.** (`:251-253`) Evidence:
+  per-module `build=` stamps hash one file — a week-old locator stamp beside
+  a fresh chimeric stamp is consistent inside one clean deploy, which is
+  precisely why it deceives.
+- **PROVENANCE MUST SURVIVE EVERY HOP — AND WITH BOTH PERMANENT SEATS
+  DELEGATING, THERE ARE NOW MORE HOPS.** **THE RULE: a claim that has passed
+  through two or more synthesis layers without a principal reading its
+  source travels as "reported, unverified," however confident it sounds.**
+  **THE CHEAP FIX: name the source `file:line`.** (`:333-351`) Evidence: the
+  "coincidentally clean quantum" travelled unreviewed through the Lead to the
+  Architect and nearly reached FINDINGS; the id-196 cross-reference came from
+  the Lead's own sub-agent and made a seat disprove a claim the Lead had
+  never checked.
+- **A PATH THAT HAS NEVER FIRED IS THE ONE PLACE YOU CANNOT RECOVER THE DATA
+  LATER.** (`:368-373`) Evidence: `record()` site 2225 passes `str(error)`
+  only, so the exception class name reaches no artefact; the site has zero
+  production lines in 59 artefacts.
+
+#### 1e. Instruments and measurement
+
+- **A PREDICTION INSTRUMENT AND A VALIDATION INSTRUMENT ARE DIFFERENT THINGS,
+  and "re-run the tool" does not distinguish them.** **Label every instrument
+  by the question it can answer, and name the revision under test BEFORE
+  reading any artefact as a verdict on it.** (`:160-170`) Evidence:
+  `tools/blast_radius.py` predicts what a guard would do from plans already
+  in `/config/output`; on a growing population it returns a fresh, correct
+  and completely irrelevant number for a build that never deployed.
+- **A RE-RUN IS NOT THE ORIGINAL, and on a LIVE population that matters...
+  if a later run disagrees with the record, the re-run is the NEWER FACT —
+  go and look at what changed in the POPULATION before concluding anything
+  about the CODE.** (`:179-184`) Evidence: `/config/output` grew 58→59 pairs
+  mid-session.
+- **"The instrument did not run" binds the REVIEWER too.** (`:195-197`)
+  Evidence: the Lead ran a seat's tests without `src` on the path, got 4 of 5
+  `ModuleNotFoundError`, and nearly reported a bad invocation as a defect.
+- **A count whose author did not look behind it is a claim wearing a
+  number's clothes.** (`:201`)
+- **A SAMPLE SELECTED BY RELEVANCE TO YOUR TICKET IS THE SAMPLE LEAST LIKELY
+  TO ANSWER YOUR QUESTION.** **Two artefacts agreeing is not a population.**
+  (`:265-274`) Evidence: dev-extent's first check of "does the sweep re-run
+  existing entries" looked only at the two artefacts carrying its own audit
+  line, both new paths; checking all six found the rewrite sitting among the
+  four it had no reason to open.
+- **AN INSTRUMENT THAT STOPS LOOKING MUST SAY SO IN ITS OWN TRAIL.**
+  (`:281-288`) Evidence: dev-extent's watcher carried a 3300 s deadline
+  expiring 69 minutes before the wait it was watching could close; fixed by
+  writing the stop and its reason into the trail.
+- **A COUNTER OF FAILURES IS NOT A COUNTER OF WORK — AND IT INVERTS.**
+  (`:297-307`) Evidence: `.log.error` population counts failing jobs only,
+  so it is a floor on completion divided by an unmeasurable failure
+  fraction; measured 6 artefacts in 11 min then zero across 7 consecutive
+  minutes while 5 `.mkv` files were produced in the same window.
+- **AND IT STILL COULD NOT ANSWER THE QUESTION ASKED.** **The ordering of a
+  queue is only visible by asking what the queue does with an insertion —
+  never from watching what comes out of it.** (`:308-312`)
+- **THE SCAR IS ON THE WRONG LIMB — a fix added to expose a divergence can
+  guard a different process than the one that was wounded.** **Consequence
+  that survives regardless: `/health` proves the FLAG, never that a line
+  reached a READER.** (`:385-403`) Evidence: `/health`'s `dev` field is exact
+  for the fusion worker (same expression as the assignment) and can diverge
+  from the CLI-launched daemon, the process the original incident bit.
+- **A MEASURED COUNT BEATS AN INHERITED ONE, AND THE SAFE DIRECTION IS
+  FINER.** (`:374-379`) Evidence: the Lead specified 9 distinct decisions at
+  `get_speed_ratio` (inherited); dev-cause measured 11 — erring fine is free,
+  erring coarse is invisible.
+
+#### 1f. Verdict vocabulary
+
+- **A NUDGED EXECUTION IS NOT THE MECHANISM WORKING.** (`:115-121`) Evidence:
+  CI's auto-deploy rule had never fired unprompted in 80 cycles; the
+  2026-09-15 fire came after the Lead asked why it had not.
+- **A verdict name that cannot distinguish a correct refusal from a failure
+  inflates every failure count the campaign produces.** (`:262-263`)
+- **The prediction corollary: the reason to state a prediction is not to be
+  right — a wrong one gets killed in one measurement instead of surviving as
+  a plausible story.** (`:259-261`) Evidence: three predictions preceded the
+  Lazarus trace; all three were wrong.
+- **An instrument's output is not a media fact — and the error recurs in the
+  VOCABULARY used to describe its own fix.** (`:230-233`) Evidence: the
+  saturation rail was ruled a no-measurement marker and then called "the PAL
+  detector" within the hour, by the same seat.
+- **A SENTINEL THAT MEANS "DEFECT" MUST NEVER BE SPENT ON "KNOWN GAP" — the
+  second use destroys the first's meaning.** (`:359-367`) Evidence:
+  `merge_video_repair.py`'s `(unstated)` sentinel means producer-contract
+  violation; 22 authorized-scope raise sites left untokened would have
+  stamped 22 authorized decisions as bugs if reused. dev-cause proposed
+  `(untokened_raise_site)` instead: **uncounted, not falsely counted.**
+- **ONE IDEA AT THREE LAYERS IN A SINGLE ASSIGNMENT.** **The value of a third
+  state is that it makes "I did not run" unspellable as "I passed."**
+  (`:446-451`) Evidence: seven missing `cause=` stamps were refusals that
+  could not spell which refusal they were; `ran_conclusive_negative` vs
+  `could_not_run` is the same defect one layer down; a gate that cannot spell
+  that it did not run, found on the last pass.
+
+#### 1g. Process ops
+
+- **ABSOLUTE PATHS ONLY FOR ANYTHING THAT DELETES.** (`:203-211`) Evidence:
+  dev-extent ran `rm -rf src` from a shell a previous `cd` had moved into the
+  repository, deleting the common repo's entire `src/` tree; fully
+  recovered, independently verified, left no trace — reported anyway.
+- **Salvage-first, verify, then delete.** (`:239-240`) Backup before salvage;
+  deletion is the one action in the Lead's mandate with no undo.
+- **The successor-gate rule.** **"A gate I did not personally read the exit
+  status of is a gate I cannot vouch for."** (`:241-243`) Every new Lead
+  re-reads the last landed gesture's gate with their own eyes.
+- **STATE A BOUNDARY AS A NUMBER, BECAUSE A NUMBER IS CHECKABLE BY PEOPLE YOU
+  ARE NOT TALKING TO ABOUT IT.** (`:289-295`) Evidence: the Lead computed
+  "~110 minutes worst case" only to bound a hold; the seat checked its own
+  watcher's deadline against that figure and found a 69-minute gap the Lead
+  did not know existed.
+- **A HOLD MUST BE RE-DECIDED WHEN THE THING THAT JUSTIFIED IT DISSOLVES.**
+  (`:314-322`) Evidence: the Lead held a seat from purge for context it
+  uniquely held; the seat wrote that context down and the hold was never
+  re-examined against its own dissolved justification.
+- **THE COMPOSITION RULE'S REAL JOB, three-for-three: "not catching wrong
+  claims, but finding the EDGE of right ones."** (`:439-445`) Evidence:
+  §5's "it is the authority" scoped to procedure-vs-record; `/health`'s `dev`
+  field exact for the worker, divergent for the daemon; the compile guard
+  closing two cases of three — every claim made in good faith, the value was
+  the boundary, not the correction.
+
+---
+
+### PART 2 — DATED FINDINGS ENTRIES (2026-09-15 evening – 2026-09-16)
+
+#### 2.1 The floor check declines on a statistic while a better one sits unused beside it
+
+Carried whole, at the weight its own author gave it. Full text:
+`VMSAM_HELP_AI/architect/drafts/FINDING_median_ignores_consistency_20260916.md`
+(Architect, 2026-09-16). Summary, hedges preserved:
+
+`median_fidelity_below_floor` (change_point_locator, decline branch) reads
+only the fidelity distribution and never consults the offset-consistency
+evidence the same probe scan already built and printed on the same line. A
+pair whose offsets are tightly self-consistent can be declined on median
+fidelity alone even though the agreement proving the alignment is real sits
+two fields away. Measured pair: `errid:307` — 35 of 37 probes span 131.8 ms
+(one quantum) at ~6.03–6.10 s, fidelity_max 0.9527, median 0.6039, declined;
+two independent instruments (production locator, forensic's log-mel NCC)
+agree on the offset and on which two probes are outliers. Control:
+`errid:250` — scattered throughout, fidelity_max 0.6266 (never clears the
+floor), decline faultless. A second, related defect at the same site
+(`change_point_locator.py:1699-1752`): the block claims `ran_conclusive_negative`
+— the strongest token the measurement vocabulary has — in the same call that
+prints `distinguishes_unrelated_from_unmeasurable="no"`, i.e. the code claims
+it concluded while the field admits it cannot tell "unrelated" from
+"could not measure." True for the genuinely-scattered case (250), false for
+the tight-plateau case (307). Fix has two independent halves (consult
+offset consistency before declining; stop asserting `ran_conclusive_negative`
+where the field says `=no`, using the existing `could_not_run` token — no new
+vocabulary). Explicitly NOT established by this finding: whether stage 1
+(first_delay_test / chromaprint) is separately saturated on this pair (a real
+open question about a different stage, not the cause of 307's refusal); how
+many other refusal-family ids carry the same locator/stage-1 disagreement (not
+surveyed, S2 sampling stopped at three exemplars). Collision noted and
+respected: the decline site is also the Architect's reserved speed-family
+refusal block; the median fix may restructure the fidelity decision and
+correct the measurement token, but must not change the monotone→
+`speed_relation_suspected` routing and must leave room for the PAL saturation
+screen to be inserted before the fidelity check later.
+
+#### 2.2 The governance gate deadlock, and its one-time resolution
+
+`WRITE_ZONES.MD` §1 permits governance edits "with the owner's authorisation";
+§5 check 1b requires the staged governance diff to be empty, unconditionally,
+with no authorisation path of any kind — `check_write_zones.py` implements
+1b faithfully. **The document contradicts itself, and no change to the
+checker could fix it**, because loosening the checker would itself breach
+§5 (`FINDING_GOVERNANCE_GATE_DEADLOCK.MD` §§1-4, Architect, measured against
+`tools/check_write_zones.py:45-51,179-181,309-310`). The datation the Lead
+first reported ("five of five, the whole restart") was one too many:
+`check_write_zones.py` is not tracked by git, so only four commits from the
+last hour of 09-14 onward demonstrably crossed the gate; the fifth (`1a6a290b`,
+09-14 15:04) is unmeasurable, which is itself a finding — the mechanical
+authority on write zones has no auditable history of its own
+(`FINDING_GOVERNANCE_GATE_DEADLOCK.MD` §2).
+
+**Owner's resolution, 2026-09-15, a fourth shape not among the three
+options offered:** *"il faut juste faire attention au autorisation. bypass
+juste cette fois ci le checker..."* / to the Lead, independently, in the
+same minutes: *"Only this time you can modify the governance files. Always
+ask me next time."* (`CAMPAIGNS/02-dev-chimeric-resample/FINDINGS.MD:1444-1463`).
+**The checker does not change. The owner is the authorisation path, manually,
+per occasion.** The bypass is spent on use; no seat may cite it as precedent.
+A second, last, bypass was granted and spent the same day ("Governance
+gesture #2... owner: *j'autorise*", `FINDINGS.MD:1510-1517`). This present
+gesture (#3) proceeds under a fresh, explicit carte-blanche authorization of
+2026-09-16, per the owner's own doctrine that every governance edit needs its
+own authorization and no seat may treat a prior bypass as standing.
+
+**§5's check-1b text is corrected in this same gesture** — not by adding an
+authorisation path to the checker (rejected: any file-based token can be
+minted by any agent in this environment and is not access control; the
+Architect's option (A) recommendation was never taken up), but by adding the
+fail-closed identity guard and framing sentence the Lead's own testing
+already earned (PART 1b, "TEST A FIX AGAINST THE FAILURE CLASS" and "A
+DOCUMENTED COMMAND IS A COMMAND SOMEONE WILL RUN"). See PART 4 for the exact
+edit; it does not touch §1 or check 1b's substance, only the snippet
+apparatus around it.
+
+#### 2.3 Documentation that did not travel with the revert (two instances, one day)
+
+**Instance #1 — the void `last_failures` deploy detector.** `a3ee9dbf`
+reverted `891243ce` (the `last_failures` ring buffer); the docket's own §6
+description of GET /fusion carrying `last_failures`/`last_failures_since`
+was left standing after the revert, uncorrected (`lead/DOCKET.md:20-23,1281-1290`).
+
+**Instance #2 — the `fusion.py` swallow's stale "resolved via scoped
+exception."** A docket entry recording the swallow as "RESOLVED via an
+owner-authorized scoped exception (`891243ce`)... the write-zone checker
+fails on this file ON PURPOSE as the audit trail of that exception" was
+**false at the tip, both halves**, once `a3ee9dbf` reverted `891243ce`:
+`git grep last_failures HEAD -- src/gestionar_show/fusion.py` returns empty
+(exit 1, absent); no `fusion` special case exists in `check_write_zones.py`
+at all. The authorization itself never existed — the owner's *"developpe ce
+point stp. en suivant le process"* equally reads as "elaborate on this
+point," and the owner confirmed that second reading. **The authorization
+never existed, the code is gone, and the defect it made visible is still
+there** (row 13 — no pool rebuild after `BrokenProcessPool`). Left in place
+rather than deleted, per the docket's own rule: read the entry, never the
+title (`lead/DOCKET.md:2283-2303`).
+
+**Ratified by the Architect as a measured family: A REVERT'S LANDING DUTY
+INCLUDES SWEEPING EVERY RECORD THAT CITES THE REVERTED COMMIT AS STANDING.**
+A revert that removes code but leaves its documentation is a revert only
+half-done, and the half left behind is the half people read
+(`lead/DOCKET.md:2301-2303`).
+
+#### 2.4 Its mechanisation: `tools/revert_sweep.sh`, and the steady-state-exit-1 doctrine
+
+Built, force-tested and run for real before the push that landed it
+(`lead/DOCKET.md:796-839`, `tools/TOOLS.MD:25`). Finds every record still
+citing a reverted commit as standing, across repo docs and the fleet's own
+records; does not decide — each hit is corrected or marked
+deliberately-standing-history. Exit status only: 0 clean, 1 cited (triage
+every hit), 2 could-not-run (not a pass). Force-tested 9/9 across 6 arms,
+including a firing control (planted citation → 1 CITED; unrelated sha on the
+same tree → 0 CLEAN, proving both answers reachable). The force-test itself
+caught a real defect on its first run: an empty `find` result fed one blank
+filename to `grep`, which exits 2, so an empty tree reported COULD-NOT-RUN —
+same family as a gate passing because nothing was staged (see PART 2.7).
+Fixed; the arm is kept. First real run against `891243ce`: 55 hits across 6
+files, four never checked by anyone; triage found 3 stale, 1 legitimate
+history.
+
+**THE DOCTRINE, now standing convention:** after a correct triage the tool
+still exits 1 and the hit count *goes up* (55/6 before, 57/7 after), because
+a correction block naming the SHA is itself a citation, and so is its own
+documentation row. The tool enumerates; it does not classify, deliberately —
+a checker that guessed which citations were fine would return a confident
+wrong answer, worse than a list. **Exit 1 means "go triage," not "still
+broken." The steady state after a landed revert is exit 1 with every hit
+deliberate. Anyone who drives it to 0 will do it by deleting history — the
+exact failure this convention exists to prevent** (`lead/DOCKET.md:832-839`).
+
+#### 2.5 Four rules earned 2026-09-16, for the gesture batch (`lead/DOCKET.md:887-900`)
+
+1. **`era` IS A UNIQUELY DANGEROUS SUBSTRING IN A FRENCH-COMMENTED CODEBASE.**
+   `grep -i era` matches `serait`, `compteraient`, `tolerance_ms`,
+   `format_generation`, `enumerates`. Exact tokens with word boundaries.
+   Measured: a substring grep reported "1 era-bearing line" in a plan that
+   contains zero, and would have turned "did not land" into "partially
+   landed."
+2. **PRESENCE SHOULD BE WHOLESALE** — a feature that should be
+   absent-or-everywhere showing up ONCE is a MISREAD, not a partial landing.
+   Generalised: **when a count comes back as 1 for something that has no
+   reason to be 1, suspect the instrument first.**
+3. **A CRITERION LOOSENED AFTER A FAILURE IS WORTH NOTHING IF IT CAN NO
+   LONGER FAIL.** After correcting `era_check.sh`'s denominator (the
+   candidate-duration clamp could not bind at all — the denominator was
+   wrong, not the clamp, `lead/DOCKET.md:1729`), all four original arms were
+   re-fired (4/4) — the correction is only admissible because the tool can
+   still return every other answer.
+4. **THE JUNIOR SEAT REFUSING TO IMPLEMENT OVER A SPEC CONTRADICTION IS THE
+   CONSTITUTION WORKING FROM BELOW.** `dev-subcue` flagged `SPEC_ZONE_A` §4c
+   while the Lead was dispatching the reversal and the Architect had
+   authored it. It caught BOTH principals. Citable.
+
+   **The flag and its withdrawal, both at full strength, author = the
+   Architect.** `dev-subcue` flagged that the dispatched reversal would have
+   overturned `SPEC_ZONE_A` §4c, a mandatory owner ruling, without citing it
+   (`tools/TOOLS.MD:195`, `lead/DOCKET.md:858-859`). The ruling drafted on
+   that reversal — `RULING_20260916_FILL_LANGUAGE_IDENTITY.MD` — **was
+   withdrawn by its own author the same day it was issued** (`tools/TOOLS.MD:195`:
+   "`RULING_20260916_FILL_LANGUAGE_IDENTITY.MD` was withdrawn the day it was
+   issued — it reversed `SPEC_ZONE_A.MD` §4c, a MANDATORY owner ruling,
+   without citing it; cross-language master fill stays legal"). It does not
+   land in this gesture (see MANIFEST, do-not-land list).
+
+#### 2.6 A negative control needs a known-WRONG PAIRING, not a known answer
+
+Ruled by the Lead applying written rules, 2026-09-16 (`lead/DOCKET.md:861-898`).
+Raised by `dev-subcue`, half right, and it raised the question instead of
+silently hardcoding — that is the behaviour worth recording, not the error.
+Its argument: a withdrawn ruling said "the bar comes from its controls,
+never hardcoded," but a live production job cannot fire a control needing a
+*known answer*, so the bar (0.85) must be a constant. **Correct for a
+positive control, wrong for a negative one: a negative control needs a
+known-WRONG pairing, which is always constructible** — forensic built one (a
+span 130 s away, same track, same language → NCC 0.3645) without knowing the
+right answer, only by deliberately pairing two things that should not match.
+Ruled: keep 0.85 as a constant floor; add a per-region negative control
+against a deliberately mismatched window of the same claimed master source,
+with a stated separation required between the reading and that control.
+**The outcome vocabulary gains a third state**: when the negative control is
+not well below the reading, the answer is neither `content_verified` nor
+`content_mismatch` — it is `content_indiscriminate`, an honest *I could not
+measure* (implemented and fired on synthetic corpus, `tools/TOOLS.MD:195` —
+all four arms fired: PASS/content_verified, PASS/no_fill_regions_to_check,
+FAIL/content_mismatch, BROKEN/content_indiscriminate; not yet fired on a
+real production artefact). Generalises beyond this ticket: any live
+similarity/threshold check can carry its own negative control at negligible
+cost, and without one its passes are uninterpretable on unfamiliar material.
+The rule was then proven load-bearing by construction: dev-subcue's
+verifier harness includes a deliberate `content_indiscriminate` case built
+from TONAL MATERIAL — a pure tone correlates high against nearly anything,
+so without the negative control the check would pass it; with the control,
+the third state fires (dev-subcue's own report and the Lead's review,
+2026-09-16 — the Lead's phrasing: *"a 440 Hz tone reads 1.0 against
+anything and would have passed without it"*; Architect's session record).
+
+#### 2.7 The empty-population family (three instances)
+
+**"The verdict describes the mechanism, not the thing the mechanism was
+pointed at."**
+
+1. `revert_sweep.sh`'s own force-test defect: an empty `find` result fed one
+   blank filename to `grep`, which exits 2, so an empty tree reported
+   COULD-NOT-RUN instead of CLEAN — "an empty population reaching a check
+   produces a verdict about the check, not about the tree" (`lead/DOCKET.md:819-821`).
+2. dev-subcue's self-caught `--staged` defect, same day: a gate's first run
+   used the tool's default `--staged` mode and trivially passed because
+   nothing was staged; it re-ran `--worktree` before reporting — cited
+   directly as the sibling case by the revert-sweep entry above
+   (`lead/DOCKET.md:540-543,819`).
+3. **A heartbeat that beats hardest when every cycle fails.** The `POSO`
+   banner in the fusion worker's logs prints after the `except` block, in the
+   same iteration — **POSO counts CYCLES ATTEMPTED, not SUCCEEDED**: a cycle
+   that throws still prints POSO because the Error line precedes it in the
+   same iteration. Zero POSO has two separate causes (loop stalled, or loop
+   never started) that must not be conflated. Never report POSO alone; pair
+   it with the Error line count (`tools/TOOLS.MD:24`, "POSO REFINEMENTS").
+
+#### 2.8 Inspection bias: in-flight observation over-samples long jobs
+
+The Lead's own "jobs exceed 2.5 hours" claim, retracted as the biased one:
+two right-censored observations (>187 min, >167 min) caught at poll time are
+not a random sample — **live polling over-samples long jobs by
+construction, because the longest jobs are the ones still running when you
+look.** Corrected duration methodology: build distributions **only from
+COMPLETED boundaries** (`error_file_path` change plus artefact completion on
+disk); keep censored observations in a **separate column, never averaged
+in**. Actual pre-deploy rate measured from archive completion timestamps:
+**~5.2 jobs/hour ≈ 23 minutes per job** — the two watched jobs were outliers
+that seized both worker slots (`VMSAM_HELP_AI/supervisor/RUNLOG.md:154-230`,
+`VMSAM_HELP_AI/supervisor/JOB_TRACKING.md:39-62`, `VMSAM_HELP_AI/supervisor/STATUS.md:257-265`).
+Context (Architect's session record): the bias surfaced as a push-hold
+question — two watched in-flight jobs at >187/>167 min against post-deploy
+completions of 5-11 min read as a "twenty-to-thirtyfold" behaviour change;
+the archive-throughput measurement (~5.2 completions/hour pre-deploy)
+dissolved it as sampling artifact, the push proceeded, and the Lead
+retracted the biased claim to the Supervisor with the reasoning.
+
+#### 2.9 RAW vs RECONSTRUCTED (standing rule, arose with CI, binds every seat)
+
+`VMSAM_HELP_AI/lead/DOCKET.md:311` — standing rule issued and binding on
+every seat: a measurement built from a RECONSTRUCTED intermediate (an
+inference, a re-derivation, a replay) must never be represented, filed, or
+scored as if it were the RAW measurement the pipeline or instrument actually
+took. The distinction travels with the number, not just in the seat's head.
+
+#### 2.10 The instrument moved the population, then measured the absence it made
+
+**"THE POPULATION WAS NEVER SHOWN TO THE MECHANISM AT ALL"** — named as a
+family the same day, sibling of the empty-population family
+(`lead/DOCKET.md:625-630`). Two grains of the same error, side by side: **a
+seat pointing a probe at the wrong TREE — CI probing the archive it had just
+created itself**, rather than the tree the population actually lived in; and
+a principal (the Lead) pointing a probe at the wrong EXTENSION — a `*.log`
+glob that could never match the `.mkv.log.error` files the token actually
+lived in, producing a reported "zero current-era `fill_source_too_short`"
+that was retracted as the Lead's own filter artefact, not a measurement
+(`lead/DOCKET.md:602-616`: `--include='*.log'` → 0 vs `--include='*.error'`
+→ 19, of which 4 current-era). **Rule: before trusting any zero from a
+FILTERED search, fire the same search against material you KNOW carries the
+thing.**
+
+#### 2.11 `fusion.py`'s bundled blocked need, now smaller
+
+The blocked need on `src/gestionar_show/fusion.py` (frozen) originally
+bundled two problems: no visibility into a silently-dead fusion job, and no
+rebuild of a `ProcessPoolExecutor` after a `BrokenProcessPool`. **The
+visibility half is closed without touching the frozen file**, via the
+owner's logs endpoint: `POST /webhook/showgestionar-test-recreate-logs`
+(container 1 only; HMAC-signed; envelope kept lab-side, never
+tracked/committed, cite opaque ids only) reads the swallowed-exception line,
+worker death and the POSO heartbeat on demand (`tools/TOOLS.MD:24`).
+
+**The pool-rebuild half remains open, and is owner-level.** `fusion.py:159`
+submits into a module-level `ProcessPoolExecutor`; one `BrokenProcessPool`
+invalidates the pool for every later submit and nothing ever rebuilds it, so
+a single child death can turn the worker into a machine that accepts jobs
+and instantly fails all of them, indefinitely, until someone restarts the
+container. `891243ce` (now reverted, see PART 2.3) did not touch this — it
+only made the failures visible instead of silent. **The rebuild is future
+work with its own acceptance conditions; it is never a rider on another
+landing** (Architect's ruling, 2026-09-16). Un-owned; no seat, no ticket.
+Acceptance will have to distinguish a pool that is broken from a pool that
+is merely busy (`lead/DOCKET.md:1805-1817`).
+
+#### 2.12 Two target-first acceptance records that predate their events
+
+Both pre-registered before the event they judge, per this campaign's own
+target-first discipline:
+
+- **"PRE-REGISTERED ACCEPTANCE — THE DEPLOY'S OWN PROOF"**, written before
+  the push and before the recreate, naming the literal expected `VMSAM_ERA`
+  tag value rather than "a tag," with three distinct, non-collapsible
+  refutation arms (tag absent / tag present but `unknown` / tag present but
+  a different SHA), each with its own cause and its own first check
+  (`lead/DOCKET.md:743-784`). This one landed and passed as written: reviewed
+  at the diff, six gate checks read by the Lead, and the tag reproduced —
+  18/18 streams tagged, one distinct value, and 18/18 `git_commit=unknown`
+  on the independently-fired REFUSED-rename arm (`lead/DOCKET.md:528-543`).
+- **"PRE-REGISTERED ACCEPTANCE — THE PLAN-SIDE ERA STAMP,"** written before
+  the code existed and before the mission was dispatched, so the implementer
+  inherits an acceptance instead of authoring one (`lead/DOCKET.md:841-885`).
+
+**One target-first criterion in the same family FAILED AS WRITTEN and was
+corrected code-derived, with a 4-arm regression proving the correction still
+falls back to every other answer.** `era_check.sh`'s candidate-duration
+clamp could not bind at all as originally written — **the denominator was
+wrong, not the clamp** (`lead/DOCKET.md:1729`). Corrected, then **all four
+original arms were re-fired (4/4)** before the correction was admitted —
+"a criterion loosened after a failure is worth nothing if it can no longer
+fail" (`lead/DOCKET.md:895-897`, see also PART 2.5, rule 3).
+
+#### 2.13 `verified=N/M` means a verdict was reached, not that N/M passed
+
+`repair.py:1856`'s `verified_count` counts `outcome not in (None,
+"skipped")` — a real alternative outcome closes the denominator through the
+**existing** mechanism, no new denominator logic needed. Traced by a seat:
+`verified=1/5` on a produced artefact was structural, not a bug —
+`verify_on_master_timeline` (`chimeric.py:3766`) checks TIMING via a
+same-language-only lookup, so every cross-language-filled track hits
+`master_audio==None` and is `skipped` by construction, because there is
+nothing to align on a fill whose position is asserted rather than measured
+(`lead/DOCKET.md:906-911`). **E2 row specification: this table must aggregate
+`verify=` OUTCOMES, never raw verified COUNTS** — a bare `N/M` invites
+reading "M−N failed" when the true reading is "M−N reached a different,
+equally valid outcome token." *(The exact citation `repair.py:1710` named in
+the assigning brief was not located; `repair.py:1856` is the line this
+mechanism was actually found at in the sources searched, and is cited in its
+place.)*
+
+#### 2.14 Class-3 framing: the cue-drop mechanism is sound, its input is wrong
+
+Cue drops up to 96/track, tied to inflated interior-bracket/tail-gap spans.
+**"H-A2 drops are named correctly; the spans are too wide. So the drop
+mechanism is sound and its input is not."** (`lead/DOCKET.md:392-393`)
+Pre-registered outcomes for the forensic leg that must run first before any
+dev dispatch on this class: the filled span correlates with the master's
+other-language track (wrong-language audio shipped, a product defect); the
+span is silence/correlates with nothing (a different, silent-fill defect,
+must not collapse into the first); or the span correlates with the
+compared track's own material (no product defect — an artefact of reading
+the plan, and the plan's vocabulary needs repair). All three outcomes are
+pre-registered as acceptable; outcome three is explicitly not a failure.
+
+#### 2.15 Archive relocation is non-uniform (open, CI, cause not established)
+
+Archive-by-era relocation to `/config/output/archive/f42e1ed5/` measured
+independently by the Lead: 121 files total (CI's RUNLOG logged 114 — the
+later, larger count is the one to quote). **Two shapes from one operation**:
+92 files FLAT (`f42e1ed5/<basename>`, depth 1) and 29 files SUBTREE
+(`f42e1ed5/Plex/<lib>/<show>/Season N/<basename>`, depth 5). The relocation
+was described to the fleet as deterministic subtree mapping — **true for 29
+files, false for 92**. **Cause NOT ESTABLISHED**; assigned to CI to find the
+branch. Until then, anything resolving an archived path must search by
+quoted basename (`find /config/output/archive -type f -name '<name>'`), not
+by the assumed subtree shape. Forensic's target-side evidence (the real
+library under `/srv/...`) is untouched by this defect — it was never in this
+store and never moved (`lead/DOCKET.md:572-587`).
+
+#### 2.16 Brief-freeze scope gap closed at source, confirmed twice in production
+
+**"THE INSTRUMENT DID NOT FAIL — IT WAS NEVER ASKED."** `check_briefs_frozen.sh`'s
+scope was `BRIEF_COMMON.md`, `architect/BRIEF.md`, `lead/BRIEF.md` — 3 of 6
+briefs; `supervisor/BRIEF.md` sat at mode 644 while every other brief was
+444, undetected because the guard was never asked about it. Root cause,
+measured by grep: **`spawn_agent.sh` never chmods a brief** — the only
+`chmod` in it targets a test stub; `--bless` chmods only its own three named
+files. So nothing in the spawn path sets 444; the other five briefs were 444
+only because an earlier Lead had done it by hand, and a freshly written
+brief arrives 644 by default (`lead/DOCKET.md:435-460`). **Design caution
+preserved: do NOT hash-freeze seat briefs** — an ephemeral seat's brief
+legitimately changes as the Lead dispatches new missions, and hash-freezing
+it would make the Lead's own dispatch path a violation. Two properties, two
+treatments: MODE-freeze (444) on ALL briefs, enforcing that an agent never
+modifies its own brief; HASH-freeze (manifest) on the permanent three only.
+**Closed at source**: `chmod 444` the brief inside `spawn_agent.sh` at spawn
+time, proposed to and implemented by the Architect, so the property holds by
+construction. **Confirmed twice in production**: `ci/BRIEF.md` came back 444
+straight out of `spawn_agent.sh` on CI's recycle (`lead/DOCKET.md:554-556`);
+`corpus-pairs/BRIEF.md` came back 444 and was verified still 444 after spawn
+on the corpus-pairs seat's launch (`lead/DOCKET.md:930`).
+
+#### 2.17 Undelivered disposition: the owner's word settled the principle, not the individual dispositions
+
+Owner ruling, verbatim: *"Je ne vois pas a quoi ce dossier sert dans le
+developpement. Soit c'est un corpus et il est dans le mauvais dossier, soit
+c'est bon pour la poubelle."* — corpus or trash, no third state
+(`lead/DELETION_LOG_20260916.md:1-9`). This settled the **principle**; it did
+not settle which of the 40 `undelivered/` cases was which. Of 40 case
+directories (47 files, 9.35 GB), 20 were deleted outright (no hit across the
+search list), 18 named-evidence cases were moved to
+`VMSAM_CORPUS/refused-products/`, and **2 were left UNDETERMINED** — a
+prior-campaign forensic register used the identical `case_key` grammar but
+its own README disclaimed reuse against the current disk, so the classifier
+correctly refused to guess either way.
+
+**The Lead was inclined to delete both, and did not decide alone**: it asked
+forensic — the seat that would actually use the material — instead of
+ruling from absence-of-evidence. Forensic named a use for one of the two:
+`970948223b8144e8` graduated to corpus (a second, independent,
+prior-build 2026-09-05 exemplar of cross-language borrowed fill, r=0.996–0.999
+at lag 0, negative-controlled r=0.01–0.21 elsewhere — evidence the defect
+class predates today's case, directly relevant to the §4c reversal question
+then with the owner). The other, `648dfc1cea9d6d28`, was deleted on
+forensic's own word: "I do not have a use for it"
+(`lead/DELETION_LOG_20260916.md:42-52`). **The check that changed an outcome
+was asking the seat that would use the material — a principal deciding alone
+would have been wrong about one case in two.**
+
+#### 2.18 The pipe-trap, both halves, and its near-miss in CI's own procedure
+
+**Half 1 — exit status through a pipe.** `git push -q 2>&1 | grep -v
+"^remote:" ; echo "push EXIT=$?"` reads grep's exit status, not git's; `grep
+-v` returns 1 when it filters everything away, exactly what happens on a
+successful push whose entire output is `remote:` lines. The Lead read this
+as a failed push; the push had succeeded (`RULES_EARNED_20260915_EVENING.md:405-423`,
+carried in PART 1b above).
+
+**Half 2 — an unquoted multi-line variable through `echo`.** CI's own
+drain-defect procedure captures an HTTP response with `response=$(curl -v ...
+2>&1)`, then reads it back as `http_status=$(echo $response | grep "< HTTP"
+| cut -d' ' -f3)` and `response_body=$(echo $response | tail -1)` — **both
+`echo`s are unquoted against a multi-line, verbose-curl capture**, which
+word-splits and collapses the variable before `grep`/`tail` ever see it
+structured (`VMSAM_HELP_AI/ci/RUNLOG.md:5719-5729`). **Measured near-miss,
+not yet a landed defect**: the procedure is written this way in CI's own
+RUNLOG at the line cited; whether it has actually produced a wrong
+`http_status` or `response_body` in a real run was not established in the
+sources checked here and is not asserted.
+
+**Placement rationale, verbatim: "true, useful, and in the wrong room."**
+Both halves are real, general shell-scripting hazards this campaign has now
+measured twice — but neither is a governance-document control, a spec, or a
+ruling; they belong in FINDINGS as measured operational hazards, not in §5 of
+`WRITE_ZONES.MD` as procedure. (This is why PART 4 of this gesture edits §5
+only for the fail-closed identity guard and the framing sentence, and does
+not fold the pipe-trap in as a third snippet.)
+
+#### 2.19 Two signed Lead-#4 failures, kept at full strength at their author's own request
+
+Both from the Lead's own reports to the Architect, 2026-09-16 (Architect's
+session record; the Lead verifies his own ledger lines at the gate):
+
+1. **The 21-minute bound slip.** The Lead set a push bound of 11:45Z with
+   explicit arithmetic, then pushed at 12:06:14Z — he estimated elapsed time
+   instead of measuring it, the identical error he had corrected in the
+   Supervisor at its cycle 2 that same morning, committed on the decision he
+   had built the entire window around. Self-caught while verifying an
+   unrelated timestamp; it cost nothing (no boundary fired in the overrun),
+   and he reported it rather than letting it be inferred from timestamps.
+2. **The miscalibrated pre-registered era criterion.** His acceptance said
+   `VMSAM_ERA` must sit on "EVERY stream"; the first real artefact returned
+   ERA-PARTIAL (22 of 91) — **instrument-caught**: the check's own exit
+   failed the criterion as written. The 22 were exactly the FABRICATED
+   streams; the denominator was wrong, not the code (an era tag on a copied
+   stream would lie about provenance). The correction was derived from the
+   code without looking at any result, written into the tool beside the rule
+   with the admission, and all four refutation arms re-fired (4/4) before
+   the re-score — see PART 2.5 rule 3 and PART 2.12.
+
+His own framing, kept: *"every one was caught by an instrument or a seat"*
+(the second literally by the instrument; the first by his own re-check
+discipline) — *"I would rather that be the record than a tidier one."*
+
+#### 2.20 Stability is not correctness, and the wrong-question family (added by the Architect at review — measured after this draft's cutoff)
+
+**Two identical readings prove STABILITY, NOT CORRECTNESS — a wrong parser
+is perfectly stable.** The Lead's `/errors` parser did `d.get('errors', d)`
+against an endpoint whose key is `incompatible_files`, fell back to counting
+the dict's keys, and returned **1 — stably, on every reading**. It would
+have passed the fleet's own "two consecutive identical readings" rule all
+afternoon; a repopulation stall was reported that never existed (the base
+held 317 throughout — corroborated by the Architect's independent
+measurement, which survived by luck of parser choice, not virtue). **Rule
+amendment: before trusting a stable value, check the SHAPE of what was
+parsed, not the repetition of the number** — issued to CI before it used
+317 as the stage-5 denominator, the one number a whole sweep rests on.
+
+**The family it closes out, named by its author (Lead #4), four instances in
+one day, one principal, all self-caught: "I asked the instrument the wrong
+question and believed the answer."** An estimated timestamp instead of a
+measured one (the bound slip, 2.19); a `*.log` glob that excluded the
+`.log.error` class the token lived in (2.10); an n=1-derived duration figure
+amplified into a fleet claim (2.8); a dict key that counted keys instead of
+rows (this entry). (Architect's session record; ledger lines verified by the
+Lead at the gate.)
+
+#### 2.21 The quantum carries its window: two correct, non-interchangeable quanta in one pipeline (added at review)
+
+dev-pal's consumer census (its lab, `dev-pal/001-quantum-ms-census.MD`)
+measured **`quantum_ms = 129`, invariant, across 118+ readable plan
+emissions** — zero at 125, zero at None. Not a defect: `change_point_locator.py:186`
+sets `PROBE_WINDOW_SECONDS = 60.0`, a fixed window, and the quantum is a
+property of the window actually passed — a fixed window yields a fixed
+quantum, which is the rule OBEYED. **The unwritten consequence, now
+written: the same pair carries TWO different quanta** — the locator's 60 s
+probes → 129 ms; the pipeline's merge window (`L = 2*int((dur-90)/11)`,
+`>300 s` branch) → ~125 ms at ~24 min, ~124 ms at ~44 min. Both correct for
+their own window, **not interchangeable: mixing them carries a systematic
+~3.2 % per-point error**. Unit clause appended to the three-argmaxes
+ruling: *the paths do not even share a unit — any cross-path comparison
+converts through each path's own window, or it is not a comparison.* The
+quantum band table's applicability boundary (already queued for this
+gesture) is subsumed here. Hedge kept verbatim from the seat: **zero
+PAL-family ids in that sample** — the population the E3 mission targets was
+still being copied; the saturation-orthogonality argument is labelled
+inference until the pairs land.
+
+**And it convicts the `else 125` fallback twice** (`change_point_locator.py:1660`):
+it renders "no quanta were measured" as a VALUE — inside the exact constant
+AGENT.MD singles out — and the value it substitutes is the PIPELINE's
+quantum, inconsistent with every one of the module's own 118 measured
+emissions. Ruled (Architect, 2026-09-16): the fallback becomes
+decline-at-admission — dev-pal's census shows four unguarded division sites
+immediately downstream, so the shape is structural, not stylistic — under a
+NEW granted token **`no_quantised_points`** (probes ran, energy floor
+cleared, every kept probe's quantised `correlate()` returned `points == 0`),
+always paired with `measurement=could_not_run`, both arms fired with
+literals before landing, and the token entering `ARTEFACT_FORMATS.md` §9c's
+canonical grammar table **in the same diff** — a token born outside the
+grammar table is the two-grammars defect at birth.
+
+#### 2.22 The era vocabulary: measured / reconstructed / inferred (ruled at review, 2026-09-16)
+
+A verification pass pinned a pre-tag artefact's producing commit EXACTLY by
+matching **two** independent content-derived build digests jointly against
+the digest trajectory of candidate commits (the chimeric digest changed at
+every commit after the match, making the equivalence class a singleton).
+This is not a breach of the `ARTEFACT_FORMATS` trap ("`build=` is a module
+identity, never an era key") — the trap forbids READING a digest as a
+LABEL; a joint reconstruction against history is a per-artefact MEASUREMENT.
+Nor is it "retro-guessing" under the transitional rule — it is
+retro-MEASURING, which the rule did not distinguish. **Ruling — three era
+states, the label travelling with every number:**
+
+- **era-MEASURED** — the `VMSAM_ERA` tag: raw, artefact-internal, no lookup.
+- **era-RECONSTRUCTED** — ≥2 independent content-derived digests whose JOINT
+  match resolves to a UNIQUE commit class within the artefact's timestamp
+  window; recorded with its command and the class stated; a class holding
+  more than one commit classes the artefact to the CLASS, never to a picked
+  commit. RAW-vs-RECONSTRUCTED applies literally: this is reconstructed
+  evidence and says so wherever it is used.
+- **era-INFERRED** — everything else (mtime, directory label, deploy clock):
+  permanent, as before.
+
+No blanket upgrades: archived pre-tag artefacts stay INFERRED until a row
+needs an era and pays for its own reconstruction. Pre-registered predictions
+that specified THE TAG score on the tag only. And the Lead's line enters the
+record beside it: **"a pre-registered prediction updated when new
+information arrives is not a prediction, it is a commentary."**
+
+---
+
+### PART 3 — DELEGATION
+
+**The junior seat refusing to implement over a spec contradiction is the
+constitution working from below.** `dev-subcue` flagged `SPEC_ZONE_A` §4c
+while the Lead was dispatching the reversal and the Architect had authored
+it — catching both principals in the same motion (`lead/DOCKET.md:857-859`,
+PART 2.5 rule 4). The ruling built on the reversal,
+`RULING_20260916_FILL_LANGUAGE_IDENTITY.MD`, was **withdrawn by its own
+author — the Architect — the same day it was issued**, because it reversed a
+mandatory owner ruling without citing it (`tools/TOOLS.MD:195`). Both the
+flag and the withdrawal are carried here at full strength: the flag,
+because a junior seat's refusal caught what two principals had not; the
+withdrawal, because the Architect's own retraction of his own authored
+ruling — searched, found wrong, reversed, same day — is exactly the
+self-correction discipline this campaign measures and rewards elsewhere
+(compare PART 1e's `/health`-scoping retraction and PART 2.19's
+model-selection candidate). Cross-language master fill **stays legal**;
+`SPEC_ZONE_A` §4c stands uncontradicted going forward.
+`RULING_20260916_FILL_LANGUAGE_IDENTITY.MD` does not land in this gesture
+(see MANIFEST).
+
+---
+
+### PART 4 — BLOCKED NEEDS
+
+- **`fusion.py`'s pool-rebuild half** — see PART 2.11. Owner-level; no seat,
+  no ticket; acceptance conditions not yet written; explicitly never a rider
+  on another landing.
+- **`BrokenProcessPool`'s general acceptance question** — distinguishing a
+  pool that is broken from a pool that is merely busy — is named as future
+  work belonging to whoever eventually owns the rebuild (`lead/DOCKET.md:1814-1817`).
+- **Archive relocation's cause** (PART 2.15) — assigned to CI, not yet
+  established; a frozen-file/no-frozen-file determination was not part of
+  this search and is not claimed here.
+- **The two-stage disagreement** noted inside the median-fidelity finding
+  (PART 2.1): stage 1 (chromaprint) vs the locator producing offsets three
+  orders of magnitude apart on the same pair, with nothing comparing them —
+  held as an open question pending a generalisation check, not promoted to a
+  defect.
+
+---
+
+*Evidence pointers above that name a file without a line number are
+citations to the document as a whole, read in full at drafting time. Where a
+specific claim from the assigning brief could not be located in the sources
+searched (PART 2.6's tone-frequency illustration, PART 2.8's "E1"/"30x"
+labelling, PART 2.13's exact line number, PART 2.19's two Lead failures),
+that is stated in place rather than invented, per instruction.*

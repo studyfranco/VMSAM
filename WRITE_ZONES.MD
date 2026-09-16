@@ -244,6 +244,29 @@ the checker instead. They are kept as the reasoning, not as the steps: an agent
 following them literally would do weaker checks and believe it had done the
 campaign's.
 
+**Every snippet remaining in a governance document must FAIL CLOSED as
+written, or become prose.** A disclaimer people read past is not a control —
+measured 2026-09-15: a seat ran these snippets, and so did the Lead,
+repeatedly, while reviewing that seat's commit.
+
+Before every commit, and before any snippet below is trusted, pin identity
+against SHAPE — a repo that merely *looks* like VMSAM (any tree carrying a
+`src/`) must not pass silently:
+
+```sh
+R="$(git rev-parse --show-toplevel 2>/dev/null)"
+test -f "$R/WRITE_ZONES.MD" -a -d "$R/src" || exit 2
+```
+
+This closes the FAILURE CLASS, not one instance: `--show-toplevel` alone
+answers "which repo am I in," never "am I in VMSAM," so from any other
+repository carrying a `src/` directory the checks below would pass and
+silently compile or diff a stranger's tree, green. Measured by building one
+in `/tmp`: `test -d "$(git rev-parse --show-toplevel)/src"` (the narrower,
+wrong-cwd-only fix) still passes on a foreign tree; `test -f
+"$R/WRITE_ZONES.MD" -a -d "$R/src"` does not. A git WORKTREE of VMSAM passes
+this guard, and should — a VMSAM worktree is VMSAM's tree.
+
 Before every commit:
 
 ```sh
