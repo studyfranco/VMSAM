@@ -420,6 +420,28 @@ DECLINE_REASONS = (
     "coverage_incomplete",
     "every_probe_failed",
     "median_fidelity_below_floor",
+    # Architect's grant, 2026-09-16, E3 (DESIGN_PAL_SPEED_FAMILY_20260916.MD),
+    # replacing the line's old `else 125` substitution. Fires when the probe
+    # count and energy floors have ALREADY PASSED (`too_few_usable_probes` /
+    # `too_few_probes_with_signal` above did not fire) and EVERY KEPT probe's
+    # quantised `audioCorrelation.correlate()` call returned `points == 0` --
+    # `_probe`'s own guard (`quantum = ... if points else None`) means a
+    # zero-offset probe carries no per-probe quantum at all, not a quantum of
+    # zero. Distinct from every count guard above and below: those ask "how
+    # many probes came back" or "how much energy did they carry"; this asks
+    # "of the probes that came back with signal, did even one of them let the
+    # quantised cross-check name a step size". Always paired with
+    # measurement=could_not_run, never ran_conclusive_negative -- an all-zero
+    # quantised read is could-not-measure, not measured-nothing, and the two
+    # are not interchangeable (this campaign's whole argument against
+    # collapsing them). Substituting a number here was worse than an ordinary
+    # absence-as-value: the old fallback (125) is the PIPELINE's own quantum,
+    # derived over its own file-length-dependent merge window, never this
+    # module's -- this module's probes run a fixed 60 s window
+    # (PROBE_WINDOW_SECONDS) and, in every real emission examined, actually
+    # measure 129. Detail carries probes_kept, so a reader can tell this apart
+    # from a run that never reached the energy floor at all.
+    "no_quantised_points",
     "no_stream_for_language",
     "no_usable_segments",
     "offsets_scattered",
@@ -1657,7 +1679,21 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     offsets = [r[1][0] for r in kept]
     fidelities = [r[1][1] for r in kept]
     quanta = [r[1][3] for r in kept if r[1][3]]
-    quantum_ms = int(median(quanta)) if quanta else 125
+    # DECLINE AT ADMISSION, NOT THREE FRAMES LATER. `:step_points` a few hundred
+    # lines below (`step_ms / quantum_ms`) is the very next arithmetic use of
+    # this value and it is unconditional on the success path -- so a `None`
+    # here would not fail here, it would fail there, as a bare `TypeError` with
+    # no reason attached. There is no line between this one and that one where
+    # inserting a check would be less late. See `no_quantised_points` above for
+    # what this condition actually is and why `125` was never a safe stand-in
+    # for it (the Architect's ruling on the E3 mission; census in
+    # VMSAM_HELP_AI/dev-pal/001-quantum-ms-census.MD).
+    if not quanta:
+        _log(f"{language}: {len(kept)} probes kept, none carried a usable "
+             f"quantised offset (points==0 on every one); declining")
+        return _decline("no_quantised_points", "could_not_run", pair=pair_id,
+                        probes_kept=len(kept))
+    quantum_ms = int(median(quanta))
     median_fidelity = median(fidelities)
     distinct_points = len({r[1][2] for r in kept})
     flips = _sign_flips(offsets)
