@@ -135,18 +135,24 @@ before the edit.
 
 ## 4. Open
 
-`src/frame_compare.py`, `src/get_cut_time.py`, `src/merge_video_unused.py`,
-`src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
-code that ships and runs in production.
+`src/frame_compare.py`, `src/get_cut_time.py`, `src/folder_generator.py`,
+`src/gestionar_movie/`, **every `src/merge_video_*.py`**, and **new runtime
+modules** — code that ships and runs in production.
 
-**Owner ruling, 2026-09-08:** `src/merge_video_chimeric.py` is open (the owner granted
-it explicitly). `src/merge_video_repair.py` and `src/merge_video_resample.py` are
-**not** — the "structurally identical" derivation that opened them is void, and the
-permission is an open item with the owner. Until he rules, work on them is built
-inert in the agent's own lab and does not land. The rule that generalises: **a
-permission must rest on a property checkable at the tip — never on a property of
-the history, which any rewrite can flatten.** Full reasoning:
-`CAMPAIGNS/02-dev-chimeric-resample/RULING_20260908_REPAIR_RESAMPLE.MD`.
+**Owner rulings on the `merge_video_*` family** (superseding the 2026-09-08
+closure, which `RULING_20260908_REPAIR_RESAMPLE.MD` records as history):
+`merge_video_chimeric.py` opened 2026-09-08; `merge_video_resample.py` opened
+2026-09-15 (*"modifiable, améliorez comme vous voulez"*);
+`merge_video_repair.py` opened in full 2026-09-15 (*"adaptez-le pour avoir vos
+informations en mode tools.dev et permettant le traitement du maximum de
+fichiers en erreur"*); and 2026-09-16 the owner generalised: *"les
+merge_video_*.py sont ouverts"* — this line exists so the information is never
+again lost to a stale closure note. The rule that generalises stays in force:
+**a permission must rest on a property checkable at the tip — never on a
+property of the history, which any rewrite can flatten.** The checker
+(`OWNER_CLOSED_MODULES`, empty as of this writing) is the current record; when
+this text and the checker disagree, the owner's most recent order is the
+authority and the disagreement is a finding.
 
 ### What does not go in the repository
 
