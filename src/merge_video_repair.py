@@ -44,6 +44,7 @@ etablir, et on decline. L'erreur 237 a ete refusee sur une fidelite mediane de
 decision, pas un renvoi vers quelqu'un qui n'est pas la.
 '''
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from os import environ, path
 import hashlib
@@ -625,8 +626,13 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         raise
 
 
-def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
+def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_start_utc):
     '''Construit le fichier repare et l'objet video qui va avec.
+
+    `job_start_utc`: EXIGE, SANS DEFAUT -- voir VMSAM_ERA a l'appelant
+    (`repair_not_compatible_videos`). Traverse cette fonction sans etre lu:
+    seul `assemble_on_master_timeline` (via `assemble_or_log_the_decline`) en
+    a besoin, pour le tag pose au mux.
 
     Renvoie (objet, compte-rendu de l'assemblage).
     '''
@@ -702,6 +708,7 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root):
         clamp_segments_to_candidate_head(
             clamp_segments_to_master(segments, master_obj)),
         work_dir, out_path, marker,
+        job_start_utc=job_start_utc,
         speed_ratio=speed_ratio,
         # LE FLUX MAITRE SUR LEQUEL LA MESURE A ETE PRISE. C'est la seule piste
         # dont on SAIT qu'elle est calee sur le plan, et on le sait par mesure
@@ -2326,6 +2333,14 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     repaired = []
 
     for candidate_path in list_not_compatible_video:
+        # VMSAM_ERA (Architect's ruling, 2026-09-16): capture ICI, avant tout
+        # declin, parce que c'est le debut du JOB sur CE candidat -- pas le
+        # debut du mux, qui peut arriver bien plus tard ou jamais si le
+        # candidat decline avant. Un candidat decline avant `mux_repaired_file`
+        # calcule cette valeur pour rien (aucun fichier n'existe pour la
+        # porter) -- sans cout, et plus honnete qu'un second point de capture
+        # plus tard qui laisserait deux definitions possibles de "job start".
+        job_start_utc = datetime.now(timezone.utc).isoformat()
         candidate_obj = dict_file_path_obj.get(candidate_path)
         if candidate_obj == None:
             # UNE SEULE DECISION ICI, DONC UN SEUL JETON, et il n'est pas
@@ -2449,7 +2464,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
-                candidate_obj, best_video, plan, work_root)
+                candidate_obj, best_video, plan, work_root, job_start_utc)
         except Exception as error:
             # Un refus de l'assemblage est un DECLIN, pas une panne: le module a
             # tourne, a regarde le plan ou le fichier produit, et a dit non. Les

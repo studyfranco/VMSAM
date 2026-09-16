@@ -2078,13 +2078,26 @@ def log_prediction_outcome(predicted, would_refuse):
 
 
 def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout):
-    '''Assemble les pistes produites et pose le tag VMSAM_FABRICATED.
+                      timeout, job_start_utc):
+    '''Assemble les pistes produites et pose les tags VMSAM_FABRICATED et VMSAM_ERA.
 
     Le tag est pose ici, sur le fichier de la reparation, et non dans
     `generate_new_file`: cette fonction est hors zone taguee
     (`WRITE_ZONES.MD` s2), et la mesure du 2026-09-03 montre que le tag survit
     de toute facon aux deux passes ffmpeg et aux deux mkvmerge.
+
+    VMSAM_ERA (Architect's ruling, 2026-09-16): l'ERE d'un artefact -- quelle
+    revision de code, quel job -- doit se lire DANS l'artefact, jamais se
+    deviner. C'est le SEUL site de mux du chemin de reparation: `REFUSED.mkv`,
+    le marquage `NOVERDICT` et la copie dans le magasin durable renomment ou
+    deplacent CE MEME fichier apres coup, jamais un second mux -- donc poser le
+    tag ici suffit pour les quatre. `job_start_utc` est fourni par l'appelant
+    (capture au sommet de la boucle par-candidat, `merge_video_repair.py`) et
+    non recalcule ici: cette fonction n'a aucune idee de quand le job a
+    commence, seulement de quand elle-meme tourne. TESTER LA PRESENCE, jamais
+    l'egalite du champ entier -- meme discipline que VMSAM_FABRICATED ("test
+    truthiness, never equality"): un champ ajoute plus tard ne doit rien casser
+    chez qui lit celui-ci aujourd'hui.
     '''
     command = [tools.software["ffmpeg"], "-y", "-nostdin"]
     for report in audio_reports:
@@ -2096,14 +2109,17 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         command.extend(["-map", f"{i}:0"])
     command.extend(["-c", "copy"])
 
+    era_value = f"git_commit={tools.get_git_commit()} job_start_utc={job_start_utc}"
     for i, report in enumerate(audio_reports):
         command.extend([f"-metadata:s:a:{i}", f"VMSAM_FABRICATED={marker_value}"])
+        command.extend([f"-metadata:s:a:{i}", f"VMSAM_ERA={era_value}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:a:{i}", f"language={report['language']}"])
         if report["title"] != None:
             command.extend([f"-metadata:s:a:{i}", f"title={report['title']}"])
     for i, report in enumerate(subtitle_reports):
         command.extend([f"-metadata:s:s:{i}", f"VMSAM_FABRICATED={marker_value}"])
+        command.extend([f"-metadata:s:s:{i}", f"VMSAM_ERA={era_value}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:s:{i}", f"language={report['language']}"])
         if report["title"] != None:
@@ -2401,12 +2417,20 @@ def resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original):
 
 
 def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
-                                out_path, marker_value, timeout=3600,
+                                out_path, marker_value, job_start_utc, timeout=3600,
                                 verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
                                 comparison_language=None, stream_pairing=None):
     '''Point d'entree du module.
+
+    `job_start_utc`: EXIGE, SANS DEFAUT (Architect's ruling, VMSAM_ERA,
+    2026-09-16). Capture par l'appelant au sommet de la boucle par-candidat
+    (`merge_video_repair.py:repair_not_compatible_videos`), transmis tel quel
+    jusqu'a `mux_repaired_file`. Aucune valeur par defaut: un fil oublie doit
+    lever un `TypeError` a l'appel, pas produire silencieusement un artefact
+    sans preuve d'ere -- un trou silencieux dans un tag de provenance est
+    indiscernable d'un tag qui marche, vu de l'exterieur.
 
     Renvoie un compte-rendu: ce qui a ete construit, ce qui a ete REFUSE et
     pourquoi. Une piste refusee est comptee separement d'une piste en echec --
@@ -2770,7 +2794,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             f"reason=fill_source_too_short\n")
 
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout)
+                      timeout, job_start_utc)
 
     # L'ACCEPTATION PORTE SUR LE FICHIER ET ELLE PASSE AVANT L'ALIGNEMENT.
     # `SPEC_ZONE_A.MD` s4d. Verifier l'alignement d'une piste tronquee sonde des
