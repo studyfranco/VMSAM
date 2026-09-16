@@ -1125,14 +1125,21 @@ def keep_best_audio(list_audio_metadata,audioRules):
             # l'egalite, pour qu'une methode ajoutee plus tard soit prise en
             # compte sans toucher a cette ligne.
             #
-            # Rien ne pose la cle aujourd'hui: .get() rend False des deux cotes
-            # et cette branche ne s'active jamais. Le comportement actuel est
-            # donc inchange, et il changera de lui-meme le jour ou la reparation
-            # marquera ses pistes.
-            elif audio_1.get('fabricated') and (not audio_2.get('fabricated')):
+            # BEGIN: AGENT modification ok
+            # 2026-09-16, autorisation exceptionnelle du proprietaire ("je
+            # t'autorise exceptionnellement a modifier, pour rajouter la
+            # condition"): le marquage de la reparation n'atteint jamais la cle
+            # 'fabricated' de CE dict -- il vit sur l'objet repare (jamais
+            # classe ici) et dans le tag Matroska VMSAM_FABRICATED du fichier,
+            # que la re-sonde mediainfo range sous extra.VMSAM_FABRICATED sans
+            # jamais creer 'fabricated'. La condition lit donc LES DEUX cles.
+            # Verite testee, jamais egalite; une piste intacte n'a pas de bloc
+            # extra, donc .get('extra', {}) reste falsy sans KeyError.
+            elif (audio_1.get('fabricated') and (not audio_2.get('fabricated'))) or (audio_1.get('extra', {}).get('VMSAM_FABRICATED') and (not audio_2.get('extra', {}).get('VMSAM_FABRICATED'))):
                 audio_1['keep'] = False
-            elif audio_2.get('fabricated') and (not audio_1.get('fabricated')):
+            elif (audio_2.get('fabricated') and (not audio_1.get('fabricated'))) or (audio_2.get('extra', {}).get('VMSAM_FABRICATED') and (not audio_1.get('extra', {}).get('VMSAM_FABRICATED'))):
                 audio_2['keep'] = False
+            # END: AGENT modification
             elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
