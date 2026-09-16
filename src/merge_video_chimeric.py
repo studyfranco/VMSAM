@@ -510,6 +510,78 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 master_path, candidate_path, fps_num, fps_den,
                 float(cursor), float(master_start),
                 float(previous_offset), float(offset))
+            # REGION A -- THE VALIDATION GATE (dev-tiergate mission,
+            # 2026-09-16). `_validate_boundary` (frame_compare.py) computes
+            # `similarity`/`margin` on every non-declined result and never
+            # gates on them itself -- its own docstring says so verbatim:
+            # "the caller decides what to do with a failing margin, this
+            # function only measures." Measured before writing this: no
+            # consumer in this repository's history has EVER read either
+            # field (`git log -p` over every module that could -- one
+            # unrelated prose hit, zero in the frame-tier sense, ever).
+            # This is that consumer.
+            #
+            # `margin < 0` means the worst probed frame on either flank
+            # exceeded the calibrated Hamming threshold -- the 50-frame
+            # check the spec names did NOT pass, whatever method located
+            # the boundary. A FAILED validation reverts to the bracket
+            # (never widens, never ships a boundary nobody confirmed) and
+            # is NAMED so a sweep can count it -- joining frame_compare's
+            # own per-boundary vocabulary (`grid_unmeasured`,
+            # `empty_bracket`, `frames_unextractable`, `bracket_unreadable`,
+            # `structure_present_could_not_narrow`), never
+            # `change_point_locator`'s unrelated `DECLINE_REASONS` -- two
+            # `reason=`-shaped vocabularies at two module layers, never
+            # mixed (ARTEFACT_FORMATS.md S9c).
+            #
+            # `locate_match_onset` (head/tail, below) computes NEITHER
+            # field -- grepped its full body, zero hits, zero
+            # `_validate_boundary` calls -- so this gate is interior-only
+            # until that is ruled elsewhere; reported to the Lead rather
+            # than papered over with a check that can never fire.
+            if not frame_tier_result["declined"]:
+                _sim = frame_tier_result.get("similarity")
+                _mgn = frame_tier_result.get("margin")
+                if _mgn is None:
+                    # FAIL CLOSED, NOT OPEN (Lead's finding, 2026-09-16): a
+                    # non-declined interior result always carries a numeric
+                    # `margin` in the CURRENT contract -- every success
+                    # return in `locate_bracket_boundary` routes through
+                    # `_validate_boundary`/`_f1_payload`, both of which
+                    # always set it. `None` should be IMPOSSIBLE here. That
+                    # is exactly why an `else` branch (the first version of
+                    # this gate) would have been wrong: it would have taken
+                    # the "validated" path and logged
+                    # `frame_tier_validated` on a narrowing NOBODY checked
+                    # -- the one state that would be BELIEVED if it ever
+                    # occurred, because it would arrive wearing the
+                    # trusted log line. Named distinctly from a MEASURED
+                    # failure (`frame_tier_validation_failed`, margin<0)
+                    # because "the check failed" and "the check produced no
+                    # answer" are different facts.
+                    tools.logs.append(
+                        f"chimeric: frame_tier_validation_absent edge=interior "
+                        f"similarity={_sim} margin={_mgn} "
+                        f"method={frame_tier_result.get('method')} "
+                        f"bracket=[{cursor},{master_start}]\n")
+                    frame_tier_result = {**frame_tier_result,
+                                         "declined": True,
+                                         "reason": "frame_tier_validation_absent"}
+                elif _mgn < 0:
+                    tools.logs.append(
+                        f"chimeric: frame_tier_validation_failed edge=interior "
+                        f"similarity={_sim} margin={_mgn} "
+                        f"method={frame_tier_result.get('method')} "
+                        f"bracket=[{cursor},{master_start}]\n")
+                    frame_tier_result = {**frame_tier_result,
+                                         "declined": True,
+                                         "reason": "frame_tier_validation_failed"}
+                else:
+                    tools.logs.append(
+                        f"chimeric: frame_tier_validated edge=interior "
+                        f"similarity={_sim} margin={_mgn} "
+                        f"method={frame_tier_result.get('method')} "
+                        f"bracket=[{cursor},{master_start}]\n")
             if not frame_tier_result["declined"]:
                 # EXACT, NOT `derived_ms` -- the THIRD consumer this sweep
                 # found (Architect's ruling, 2026-09-16): the interior tier
@@ -784,6 +856,19 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                                          else frame_tier_result)
             if relevant_frame_tier_result is not None:
                 head_piece["frame_tier"] = relevant_frame_tier_result
+            # REGION B -- bracket reference for the post-tier width check
+            # near the end of this function. Fetched fresh here rather than
+            # reused from the head block's own local (`leading_bracket`),
+            # which is only ever assigned inside `if cursor == 0`, so a
+            # bare reference to it from the interior branch would be an
+            # UnboundLocalError on the very first interior gap of a file
+            # whose head never ran the head block at all (`master_start_ms
+            # == 0` at admission -- CASE 1 in `change_point_locator.py`).
+            relevant_bracket = (segment.get("leading_bracket") if cursor == 0
+                               else (previous_segment.get("following_bracket")
+                                     if previous_segment is not None else None))
+            if relevant_bracket is not None:
+                head_piece["bracket"] = relevant_bracket
             pieces.append(head_piece)
         candidate_piece = {"source": "candidate", "master_start_ms": master_start,
                           "master_end_ms": master_end,
@@ -868,7 +953,82 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                      "reason": "tail_gap"}
         if tail_frame_tier_result is not None:
             tail_piece["frame_tier"] = tail_frame_tier_result
+        if trailing_bracket is not None:
+            tail_piece["bracket"] = trailing_bracket
         pieces.append(tail_piece)
+
+    # REGION B -- THE POST-TIER WIDTH CHECK (dev-tiergate mission,
+    # 2026-09-16; owner ruling RULING_20260916_MINIMAL_DESTRUCTION_NORTH_
+    # STAR.MD item 4, via the Lead/Architect: "100 s may NOT ship
+    # un-narrowed"). A SINGLE PASS OVER THE FINISHED LIST, never an inline
+    # raise at the first offending bracket: raising mid-loop above would
+    # abort before later brackets in THIS SAME FILE ever got their own
+    # tier call, silently dropping their narrowings from ever running --
+    # the opposite of what this file's own acceptance case exists to
+    # demonstrate (two valid narrowings must still run, validate, and be
+    # LOGGED even though the file as a whole declines on a third bracket).
+    # Region A's log lines above (`frame_tier_validated` /
+    # `frame_tier_validation_failed`) are the ONLY carrier of "this
+    # bracket validated" once a decline aborts the plan here:
+    # `normalize_segments` never returns `pieces` on a raise, so the
+    # `filled_regions` plan builder downstream never runs and the
+    # structured plan does not exist for a declined file -- the job log is
+    # the report.
+    #
+    # THE PREDICATE, worked from the two bracket-construction shapes
+    # rather than a magic width: `bracket_is_bound_only` is EVIDENCE (the
+    # H-TIER ruling above already demoted it from a GATE, for the same
+    # reason) -- a bound_only bracket the frame tier DID narrow (fill
+    # width < bracket width) must still ship, so the flag ALONE would
+    # wrongly decline it. A quantum-refined, non-bound_only bracket the
+    # frame tier never touches must ALSO still ship ("loudly named",
+    # owner ruling) -- "unnarrowed" ALONE would wrongly decline THAT.
+    # Only the CONJUNCTION names "the shipped fill's width IS the
+    # un-refined search bound": `bracket_is_bound_only == True` (the
+    # quantum tier's own widest, unrefined interval) AND the shipped
+    # width still equals what that bracket arrived with -- neither tier
+    # ever reduced it.
+    #
+    # NO ABSOLUTE MS THRESHOLD: interior's un-refined bound is
+    # deterministically `PROBE_STEP_SECONDS + PROBE_WINDOW_SECONDS =
+    # 100000` ms (`change_point_locator.py`'s `_bracket_transition`
+    # bound_only return), but head/tail's `constructed_gap_onset_not_found`
+    # bracket is CONTENT-DEPENDENT WIDTH (`[0, head_run["first"]]` /
+    # `[tail_run["last"]+PROBE_WINDOW_SECONDS, master_end]`) -- a
+    # fixed-magnitude test would be right for interior and silently wrong
+    # for head/tail. Comparing each fill against ITS OWN originating
+    # bracket avoids inventing a constant that is only true for one of
+    # the three sites.
+    #
+    # SCOPE EDGE, reported and left alone (Lead's ruling): an interior gap
+    # whose two flanking change points are not ADJACENT in the locator's
+    # own numbering carries no `following_bracket` at all
+    # (`change_point_locator.py:2229`'s `if next_position == this_position
+    # + 1`); `_piece.get("bracket")` is then `None` and this predicate
+    # cannot fire, same as today.
+    for _piece in pieces:
+        if _piece.get("source") != "master":
+            continue
+        if _piece.get("reason") not in ("head_gap", "interior_bracket", "tail_gap"):
+            continue
+        _bracket = _piece.get("bracket")
+        if _bracket is None or not _bracket.get("bracket_is_bound_only"):
+            continue
+        _bracket_width_ms = (float(_bracket["bracket_high_ms"])
+                             - float(_bracket["bracket_low_ms"]))
+        _fill_width_ms = (float(_piece["master_end_ms"])
+                          - float(_piece["master_start_ms"]))
+        if _fill_width_ms >= _bracket_width_ms:
+            _ft = _piece.get("frame_tier")
+            _tier_reason = _ft.get("reason") if _ft else None
+            raise chimeric_error(
+                f"bracket unnarrowed: {_piece['reason']} fill "
+                f"[{_piece['master_start_ms']},{_piece['master_end_ms']}) = "
+                f"{_fill_width_ms} ms ships at the un-refined search bound "
+                f"[{_bracket['bracket_low_ms']},{_bracket['bracket_high_ms']}] "
+                f"({_bracket_width_ms} ms); frame_tier_reason={_tier_reason}",
+                cause="bracket_unnarrowed")
+
     return pieces
 
 
@@ -1737,7 +1897,27 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 "frame_tier_declined_reason": (
                     piece["frame_tier"]["reason"]
                     if piece.get("frame_tier") and piece["frame_tier"].get("declined")
-                    else None)})
+                    else None),
+                # SIMILARITY/MARGIN -- REGION A's CARRIER INTO THE PLAN
+                # (dev-tiergate mission, 2026-09-16). `frame_compare.py`
+                # computes both on every interior result it does not
+                # decline -- a validated narrowing and a validation
+                # failure alike, since Region A's revert preserves them
+                # via a shallow dict copy rather than dropping them.
+                # Present but unreachable without digging into
+                # `piece["frame_tier"]` is exactly the gap this mission
+                # exists to close (measured: no consumer in this
+                # repository's history has ever read either field).
+                # `None` means no interior tier ran on this piece, or it
+                # ran on a head/tail edge where `locate_match_onset`
+                # computes neither field at all -- reported as a blocked
+                # need, not this landing's to add.
+                "frame_tier_similarity": (
+                    piece["frame_tier"].get("similarity")
+                    if piece.get("frame_tier") else None),
+                "frame_tier_margin": (
+                    piece["frame_tier"].get("margin")
+                    if piece.get("frame_tier") else None)})
             continue
         if piece["source"] == "candidate":
             source_start = piece["source_start_ms"]
