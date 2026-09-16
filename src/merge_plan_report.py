@@ -3470,15 +3470,29 @@ def blank_cells(job, corpus=None):
         "quantity": "plateau_tolerance_ms",
         "state": NO_PRODUCER,
         "address": "change_point_locator.locate_change_points",
-        "detail": "PLATEAU_TOLERANCE_MS=50.0 is defined and never returned; it "
-                  "is the gate that shifts the plateau mean. NOT tolerance_ms=500,"
-                  " which is the duration-enforcement tolerance on the CHECK row"})
+        "detail": "CORRECTED 2026-09-16 (dev-subcue, emission audit), as of "
+                  "a3ee9dbf: PLATEAU_TOLERANCE_MS=5.0, not 50.0 "
+                  "(`grep 'PLATEAU_TOLERANCE_MS =' src/change_point_locator.py`"
+                  " -> :230), and it IS returned in the plan dict, not 'never "
+                  "returned' "
+                  "(`grep '\"plateau_tolerance_ms\"' src/change_point_locator.py`"
+                  " -> :2588). Cannot date when either drifted; only that the "
+                  "current tree disagrees with both numbers this cell stated. "
+                  "It is the gate that shifts the plateau mean, reaches the "
+                  "plan and, like step_floor_ms below, is never printed to a "
+                  "log line. NOT tolerance_ms=500, which is the "
+                  "duration-enforcement tolerance on the CHECK row"})
     entries.append({
         "quantity": "step_floor_ms",
         "state": NO_PRODUCER,
         "address": "merge_video_repair.log_assembly",
-        "detail": "MIN_STEP_MS=60.0 IS returned by the locator and is never "
-                  "printed; the gate reaches the plan dict and dies at the emitter"})
+        "detail": "CORRECTED 2026-09-16 (dev-subcue, emission audit), as of "
+                  "a3ee9dbf: MIN_STEP_MS=5.0, not 60.0 "
+                  "(`grep 'MIN_STEP_MS =' src/change_point_locator.py` -> "
+                  ":231). MIN_STEP_MS=5.0 IS returned by the locator "
+                  "(`grep '\"step_floor_ms\"' src/change_point_locator.py` -> "
+                  ":2578) and is never printed; the gate reaches the plan dict "
+                  "and dies at the emitter"})
     entries.append({
         "quantity": "speed_margin",
         "state": NO_PRODUCER,
@@ -3495,21 +3509,53 @@ def blank_cells(job, corpus=None):
         # PERSONNE NE CORRIGERA.
         #
         # J'ecrivais "la couture: dev-1 l'emet dans un JSON de passage". Trace
-        # par dev-2 et VERIFIE ICI SUR L'ARBRE: aucune assignation de
-        # `speed_margin`, `speed_margin_absent_reason`, `fidelity_margin` ni
-        # `decided_by` n'existe NULLE PART dans src/. Chaque occurrence hors de
-        # ce module est une LECTURE -- `plan.get(...)` -- ou un commentaire. Le
-        # plan vient de `change_point_locator.locate_change_points`, dont le
-        # dictionnaire retourne ne porte aucune de ces cles.
+        # par dev-2 et VERIFIE ICI SUR L'ARBRE contre `change_point_locator.py`
+        # SEUL (0 occurrence des quatre noms, meme forme de controle que
+        # `merge_video_repair.py:1023-1027`, avec son propre controle de tir
+        # sur `quantum_ms`) -- CETTE PARTIE EST VRAIE. Etendue a "NULLE PART
+        # dans src/", elle ne l'est pas: `decided_by` a un ecrivain reel dans
+        # `merge_video_chimeric.py` (`decided_by=declared`/`decided_by=packets`,
+        # une decision D'EXTRACTION DE BORNE sans rapport avec celle-ci --
+        # deux decisions distinctes sous un seul nom. CORRIGE: dev-subcue,
+        # audit d'emission, 2026-09-16, a partir de a3ee9dbf -- un controle
+        # borne a un fichier avait ete generalise a l'arbre entier (recompte:
+        # `grep -c decided_by src/merge_video_chimeric.py` -> 6). Compte par
+        # fichier: `decided_by` report:13 chimeric:6 repair:5; `speed_margin`
+        # report:27 repair:13; `speed_margin_absent_reason` report:5 repair:2;
+        # `fidelity_margin` report:12 repair:5. Les trois autres restent sans
+        # ECRIVAIN hors de ce module -- chaque occurrence y est une LECTURE
+        # (`plan.get(...)`), une EMISSION (`merge_video_repair.py:1089,1092,
+        # 1095`, `parts.append(f"...")`) ou un commentaire -- trois
+        # categories, pas deux. Le plan vient de
+        # `change_point_locator.locate_change_points`, dont le dictionnaire
+        # retourne ne porte aucune de ces cles.
         #
         # Donc la branche de raison n'est pas EN ATTENTE d'un emetteur: elle est
         # INATTEIGNABLE pour tout plan que cette chaine peut produire
         # aujourd'hui. UNE BRANCHE DE LECTEUR N'EST PAS UNE OCCASION SI AUCUN
         # ECRIVAIN NE PEUT L'ATTEINDRE.
-        "address": "NO WRITER EXISTS. Verified across src/: every occurrence of "
-                   "`speed_margin`, `speed_margin_absent_reason`, "
-                   "`fidelity_margin` and `decided_by` outside this module is a "
-                   "READ (`plan.get(...)`) or a comment; nothing assigns them. "
+        "address": "NO WRITER IN change_point_locator.py, verified there "
+                   "specifically as of a3ee9dbf (0 occurrences of all four "
+                   "names -- `grep -c 'speed_margin\\|fidelity_margin\\|"
+                   "decided_by' src/change_point_locator.py`, the same form "
+                   "of check as merge_video_repair.py:1023-1027, with its own "
+                   "firing control on `quantum_ms`). CORRECTED 2026-09-16: "
+                   "this line previously said 'across src/', which was not "
+                   "measured and is false for `decided_by` -- "
+                   "merge_video_chimeric.py assigns and emits `decided_by` for "
+                   "an unrelated extraction-bound decision (`decided_by=declared`"
+                   "/`decided_by=packets`, `:2313,2331,2336` -- `grep -c "
+                   "decided_by src/merge_video_chimeric.py` -> 6), a second, "
+                   "different decision under the same name. Per-file "
+                   "occurrence counts: `decided_by` report:13 chimeric:6 "
+                   "repair:5; `speed_margin` report:27 repair:13; "
+                   "`speed_margin_absent_reason` report:5 repair:2; "
+                   "`fidelity_margin` report:12 repair:5. `speed_margin`, "
+                   "`speed_margin_absent_reason` and `fidelity_margin` outside "
+                   "this module remain a READ (`plan.get(...)`), an EMISSION "
+                   "(`merge_video_repair.py:1089,1092,1095`, "
+                   "`parts.append(f\"...\")`) or a comment -- three "
+                   "categories, not two; nothing else assigns them. "
                    "The plan comes from change_point_locator.locate_change_points "
                    "and its returned dict carries none of these keys. Addressed "
                    "THERE -- NOT to the emitter in merge_video_repair, which is "
