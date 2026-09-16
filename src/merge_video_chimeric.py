@@ -2368,22 +2368,25 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 def iterate_candidate_audios(candidate_obj):
     """Les pistes que la reparation a le droit de reconstruire.
 
-    PAS LES COMMENTAIRES -- decision du proprietaire, SPEC_ZONE_A.MD s4. La
-    reparation repose sur "ce qui a ete fait au fichier a ete fait a tous ses
-    flux": vrai d'une coupe, vrai d'un reechantillonnage, et c'est cette
-    premisse qui autorise a appliquer a chaque flux un plan mesure sur une
-    seule langue. UN COMMENTAIRE EST UN ENREGISTREMENT SEPARE SUR LA MEME
-    IMAGE, pas une traduction de l'audio du programme: il n'herite ni de la
-    premisse ni du plan, le maitre peut n'avoir aucun commentaire pour remplir
-    un trou, et rien ne dit que ses points de montage soient ceux de la piste
-    principale.
+    COMMENTAIRES: exclusion LEVEE (owner, 2026-09-16) -- "on repare
+    toujours... la perte est accepte. vraiment le script doit juste reparer
+    avec le plan. le reste j'en fais mon affaire." Un commentaire est
+    reconstruit avec le meme plan que n'importe quelle autre classe audio et
+    marque `fabricated` comme elle (`mux_repaired_file` tague chaque piste
+    produite sans distinguer son holder d'origine); qu'une piste de
+    commentaire intacte batte ensuite la reconstruite est un resultat ACCEPTE,
+    pas un defaut -- et aucune logique de keep-best n'est inventee ici pour
+    eux: rien dans `mergeVideo.py` ne fait jamais passer `.commentary` par
+    `keep_best_audio` (grep: seul `tools.special_params["remove_commentary"]`
+    decide de leur `keep`), donc cette levee ne change que ce que CE module a
+    le droit de reconstruire, pas comment le reste du pipeline les traite.
 
     L'AUDIO-DESCRIPTION EST DELIBEREMENT LAISSEE OUVERTE. Meme forme, et ce
     n'est PAS ce sur quoi le proprietaire a statue: "Raise it rather than
     extend this by analogy." Cela paraitra incoherent dans le code et c'est
     correct tant que la question n'est pas tranchee.
     """
-    for holder in (candidate_obj.audios, candidate_obj.audiodesc):
+    for holder in (candidate_obj.audios, candidate_obj.audiodesc, candidate_obj.commentary):
         for language, audios in holder.items():
             for audio in audios:
                 yield language, audio
