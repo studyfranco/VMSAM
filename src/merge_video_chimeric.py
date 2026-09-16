@@ -60,7 +60,7 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 `mkvmerge --no-global-tags` du split et au `mkvmerge` final.
 '''
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from fractions import Fraction
 import os
 from os import path, replace as replace_file
@@ -400,6 +400,28 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             f"container delay, not a rebuilt track. Rebuilding would cost a codec "
             f"generation on every audio track and would drop the bitmap subtitles "
             f"that a plain shift keeps")
+    def exact_ms_from_frame(frame_count, grid):
+        '''The EXACT master-timeline ms a frame-tier frame INDEX names --
+        Decimal, never float, and never `derived_ms`. Architect's ruling,
+        2026-09-16: `derived_ms` (`frame_compare.py`'s `_f1_payload`) is
+        `round(frame * frame_ms, 2)` -- ROUNDED FOR DISPLAY, and correct
+        for that purpose. Consuming it as an input to arithmetic is the
+        actual defect this replaces: on real E04 media the rounding lost
+        0.0043777110... ms (verified to full Decimal precision against
+        `onset_frame=65`, `grid={2997,125}`), which a reconciliation
+        chasing a ~0.497-frame residual cannot afford to also lose. The
+        exact value was in the SAME result the whole time -- the frame
+        index times the grid's own exact frame duration -- so this
+        recomputes it instead of trusting the field shaped for a human to
+        read. Takes an explicit frame index because the two callers name
+        it differently: `locate_match_onset`'s `onset_frame` (one index),
+        `locate_bracket_boundary`'s `master_start_frame`/`master_end_frame`
+        (two, for the interior tier -- the THIRD consumer this same sweep
+        found, not covered by the head/tail fix alone).
+        '''
+        frame_ms_exact = Decimal(1000 * grid["den"]) / Decimal(grid["num"])
+        return Decimal(frame_count) * frame_ms_exact
+
     pieces = []
     cursor = Decimal("0")
     previous_candidate_end = None
@@ -489,8 +511,17 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 float(cursor), float(master_start),
                 float(previous_offset), float(offset))
             if not frame_tier_result["declined"]:
-                lo = Decimal(str(frame_tier_result["derived_ms"]["master_start_ms"]))
-                hi = Decimal(str(frame_tier_result["derived_ms"]["master_end_ms"]))
+                # EXACT, NOT `derived_ms` -- the THIRD consumer this sweep
+                # found (Architect's ruling, 2026-09-16): the interior tier
+                # was reading the same rounded-for-display field the
+                # head/tail reconciliation was built to stop reading, just
+                # never audited for it because this site predates tonight's
+                # mission. `master_start_frame`/`master_end_frame` are the
+                # exact frame indices `_f1_payload` already carries.
+                lo = exact_ms_from_frame(frame_tier_result["master_start_frame"],
+                                         frame_tier_result["grid"])
+                hi = exact_ms_from_frame(frame_tier_result["master_end_frame"],
+                                         frame_tier_result["grid"])
                 # DEFENSIVE CLAMP: never let the frame tier WIDEN the gap the
                 # locator already bracketed, whatever it returns -- the
                 # bracket is the search interval (F1 rule 1), and widening it
@@ -583,10 +614,105 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                         # finding `declined: False` with a narrower interval
                         # thrown away one line later.
                         head_frame_tier_result = onset_result
-                        master_start = Decimal(str(onset_result["derived_ms"]["master_end_ms"]))
+                        master_start = exact_ms_from_frame(
+                            onset_result["onset_frame"], onset_result["grid"])
 
-        candidate_start = master_start + offset
-        candidate_end = master_end + offset
+        # SUBFRAME RECONCILIATION (Architect's ruling, 2026-09-16, SCOPE
+        # CORRECTED same night after id 12's regression caught the first
+        # version). EXISTING LAW REACHING A SITE IT NEVER REACHED, not new
+        # law: AGENT.MD already says a delay measured by comparison is
+        # snapped to a whole video frame when the reference is CFR, and
+        # that sub-frame precision is discarded BY DESIGN. That doctrine
+        # is applied at the merge level (`adjust_delay_to_frame`), ONCE,
+        # to THE PAIR'S SINGLE comparison delay. THIS combination site is
+        # a DIFFERENT site with a DIFFERENT blast radius -- a per-segment
+        # repair offset, one per piece, not one per pair -- and extending
+        # the doctrine there is NEW DESIGN, not an application of existing
+        # doctrine, for any piece that never had a frame measurement to
+        # begin with.
+        #
+        # SCOPED to pieces where a frame measurement ACTUALLY EXISTS:
+        # "the frame instrument governs sub-frame" presupposes a governor.
+        # The first version of this fix ran at EVERY combination
+        # regardless, and id 12's own regression caught it: three of its
+        # segments carry plain, audio-only offsets that happen to sit
+        # under one frame from a whole-frame value (residuals 0.186/0.104/
+        # 0.0157 frames at 24fps) -- reconciling THOSE is not governing a
+        # frame answer, it is SNAPPING an audio-only measurement with no
+        # frame instrument involved at all, a broader, unruled design
+        # question now parked on the Architect's board (no dispatch until
+        # a MEASURED case shows sub-frame per-segment drift causing
+        # observable harm in a shipped file -- tonight's own residuals cut
+        # AGAINST that trigger existing).
+        #
+        # Measured consequence THIS scope fixes, E04's head: the frame
+        # tier's onset landed on frame 65 almost exactly (65.0005 frames),
+        # the audio offset read 65.497 frames -- residual ~0.497 frame,
+        # under one frame, that turned into a hard `chimeric_bound_error`
+        # only because the frame tier is precise enough to land on the far
+        # side of it. `frame_measured_here` is True only when THIS
+        # iteration's `master_start` actually came from a frame tier
+        # (head or interior) that ran and did not decline -- never for a
+        # segment whose boundary is the locator's own audio-only reading.
+        #
+        # CFR ONLY -- same condition `adjust_delay_to_frame` uses. VFR
+        # (or an unmeasured grid) keeps TODAY's behaviour: no
+        # reconciliation attempted, the guard below is the only word.
+        #
+        # A residual STRICTLY under one frame resolves the OFFSET used for
+        # THIS combination to the nearest frame boundary and emits a
+        # NAMED, COUNTABLE record -- `subframe_reconciled` -- carrying
+        # BOTH raw values and the residual. This is NEVER a silent clamp:
+        # it is F1 quantization with a receipt, and that receipt is the
+        # entire difference between this and clamping a negative to zero.
+        #
+        # THE GUARD BELOW IS UNTOUCHED. It still refuses residuals >= one
+        # frame -- it guards a real violation and proved tonight that it
+        # fires. Reconciliation runs BEFORE the guard, never instead of it:
+        # `offset_for_combination` is what the guard actually sees.
+        offset_for_combination = offset
+        subframe_record = None
+        frame_measured_here = (head_frame_tier_result is not None
+                               or (frame_tier_result is not None
+                                   and not frame_tier_result["declined"]))
+        recon_grid_ok = (frame_measured_here
+                         and fps_num is not None and fps_den is not None
+                         and fps_num > 0 and fps_den > 0)
+        if recon_grid_ok:
+            # PURE DECIMAL, NOT float-then-Decimal: the SAME precision
+            # lesson as `exact_ms_from_frame` above, applied to the
+            # reconciliation's own frame duration -- `1000.0*fps_den/fps_num`
+            # rounds at float precision before ever reaching Decimal, and
+            # a fix chasing a sub-millisecond residual cannot afford to
+            # reintroduce the same class of loss it exists to close.
+            recon_frame_ms = Decimal(1000 * fps_den) / Decimal(fps_num)
+            offset_frames_raw = Decimal(str(offset)) / recon_frame_ms
+            nearest_frame = offset_frames_raw.to_integral_value(rounding=ROUND_HALF_EVEN)
+            residual_frames = abs(offset_frames_raw - nearest_frame)
+            if residual_frames < 1:
+                reconciled_offset_ms = nearest_frame * recon_frame_ms
+                offset_for_combination = reconciled_offset_ms
+                subframe_record = {
+                    "raw_offset_ms": str(offset),
+                    "raw_offset_frames": str(offset_frames_raw),
+                    "reconciled_frame": int(nearest_frame),
+                    "reconciled_offset_ms": str(reconciled_offset_ms),
+                    "residual_frames": str(residual_frames)}
+                tools.logs.append(
+                    f"chimeric: subframe_reconciled master_start={master_start} "
+                    f"raw_offset_frames={offset_frames_raw} "
+                    f"reconciled_frame={int(nearest_frame)} "
+                    f"residual_frames={residual_frames}\n")
+                if residual_frames > Decimal("0.75"):
+                    # PRE-REGISTERED TRIPWIRE: drift wearing a
+                    # reconciliation, named so it cannot accumulate unread.
+                    tools.logs.append(
+                        f"chimeric: FORENSIC REVIEW subframe_reconciled "
+                        f"residual_frames={residual_frames} exceeds 0.75 "
+                        f"frame -- drift, not quantization noise\n")
+
+        candidate_start = master_start + offset_for_combination
+        candidate_end = master_end + offset_for_combination
         if candidate_start < 0 or candidate_end > candidate_duration_ms:
             # LA GARDE DIT CE QU'ELLE A VERIFIE. Sans `bound_label` ce message
             # citait un nombre sans dire de quelle piste il venait -- et pendant
@@ -638,11 +764,20 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             if head_frame_tier_result is not None:
                 head_piece["frame_tier"] = head_frame_tier_result
             pieces.append(head_piece)
-        pieces.append({"source": "candidate", "master_start_ms": master_start,
-                       "master_end_ms": master_end,
-                       "source_start_ms": candidate_start})
+        candidate_piece = {"source": "candidate", "master_start_ms": master_start,
+                          "master_end_ms": master_end,
+                          "source_start_ms": candidate_start}
+        if subframe_record is not None:
+            candidate_piece["subframe_reconciled"] = subframe_record
+        pieces.append(candidate_piece)
         cursor = master_end
-        previous_offset = offset
+        # THE RECONCILED VALUE, NOT THE RAW ONE: `previous_offset` feeds
+        # the NEXT iteration's interior-tier "extend the previous piece"
+        # arithmetic (`extended_end_candidate = narrowed_low +
+        # previous_offset`) -- that computation reads the candidate at a
+        # position, so it must use the offset THIS piece was actually
+        # placed at, not the pre-reconciliation measurement.
+        previous_offset = offset_for_combination
         previous_segment = segment
 
     # TAIL CONSUMPTION (H-A3/H-TIER, 2026-09-16), mirroring HEAD above:
@@ -685,9 +820,16 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                     # segment's own full extent) -- so `cursor <= tb_low`
                     # holds by how the bracket was built, not by a
                     # coincidence this site has to re-verify.
-                    onset_ms = Decimal(str(onset_result["derived_ms"]["master_start_ms"]))
+                    onset_ms = exact_ms_from_frame(
+                        onset_result["onset_frame"], onset_result["grid"])
                     if onset_ms > cursor:
-                        extended_end_candidate = onset_ms + offset
+                        # `offset_for_combination`, not raw `offset`: the
+                        # LAST segment's own combination (main loop, above)
+                        # already reconciled it if a residual under one
+                        # frame applied -- this extension reads the SAME
+                        # candidate position at the SAME offset, so it must
+                        # agree with what that piece was actually placed at.
+                        extended_end_candidate = onset_ms + offset_for_combination
                         if extended_end_candidate <= candidate_duration_ms:
                             pieces[-1]["master_end_ms"] = onset_ms
                             tail_frame_tier_result = onset_result

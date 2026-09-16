@@ -580,9 +580,17 @@ def _f1_payload(fps_num, fps_den, start_frame, end_frame, offset_after_frames,
         "similarity": similarity,
         "margin": margin,
         # OPTIONAL, DERIVED, NEVER AUTHORITATIVE (rule 1) -- display only.
+        # STRINGS, NOT NUMBERS (Architect's ruling, 2026-09-16): the exact
+        # contract is the frame index + `grid` above; this ms projection
+        # is a ROUNDED, human-facing convenience, and a number here
+        # invites arithmetic on a value that was never meant to carry it --
+        # exactly what happened at this mission's combination site (lost
+        # 0.0044ms consuming this field instead of `master_start_frame` x
+        # the exact grid). A string makes that mistake a `TypeError` a
+        # reviewer sees, not a silent precision loss nobody does.
         "derived_ms": {
-            "master_start_ms": round(start_frame * frame_ms, 2),
-            "master_end_ms": round(end_frame * frame_ms, 2),
+            "master_start_ms": f"{round(start_frame * frame_ms, 2)}",
+            "master_end_ms": f"{round(end_frame * frame_ms, 2)}",
         },
         "method": method,
         "evidence": evidence,
@@ -939,7 +947,10 @@ def locate_match_onset(master_path, candidate_path, fps_num, fps_den,
            "grid": {"num": fps_num, "den": fps_den},
            "edge": edge, "onset_frame": onset_frame,
            "candidate_offset_frames": shift,
-           "derived_ms": {"master_start_ms": start_ms, "master_end_ms": end_ms},
+           # STRINGS, NOT NUMBERS -- same ruling as `_f1_payload` above;
+           # the exact contract is `onset_frame` + `grid`, this is a
+           # rounded display projection and must not be arithmetic-shaped.
+           "derived_ms": {"master_start_ms": f"{start_ms}", "master_end_ms": f"{end_ms}"},
            "match_baseline": round(match_baseline, 2),
            "absent_baseline": round(absent_baseline, 2),
            "method": "single_hypothesis_onset",
