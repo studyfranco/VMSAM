@@ -2516,3 +2516,181 @@ specific claim from the assigning brief could not be located in the sources
 searched (PART 2.6's tone-frequency illustration, PART 2.8's "E1"/"30x"
 labelling, PART 2.13's exact line number, PART 2.19's two Lead failures),
 that is stated in place rather than invented, per instruction.*
+
+## Gesture #3, additive completion — 2026-09-16 evening (authorised under the same carte-blanche as 8d31c553)
+
+`8d31c553` landed the 46-rule synthesis and declared
+`lead/RULES_EARNED_20260915_EVENING.md` fully carried. **The premise was
+false, and the deletion was correctly blocked on it** (the Lead, measuring
+before deleting): one rule of 55 was entirely absent, and a per-body sweep
+ordered by the Architect then found the synthesis had thinned 16 more —
+titles carried, load-bearing substance dropped. This entry restores all of
+it, near-verbatim, because the lab file is deleted once this lands and
+whatever this entry does not carry stops existing. Nothing below revises
+`8d31c553`'s entries; every block is additive to the entry whose title it
+names.
+
+### The absent rule, restored in full (PART 1, theme: dispatch and briefing)
+
+**THE LEAD-SIDE HALF, and it is the real lesson: I gave the asymmetry
+warning to ONE seat and not the other.** dev-extent was told
+presence-proves-new-era-absence-proves-nothing and read the artefact
+correctly; CI was told to classify by digest and was not told how to read
+the line, and misfiled it. Same artefact, two seats, and the difference was
+which briefing I wrote. A caveat given to the seat that already understands
+it, and withheld from the seat about to act on it, is a caveat that does no
+work. **When a property of an instrument is subtle enough to need
+explaining once, it needs explaining to EVERY consumer of that instrument.**
+
+*(Recorded with its own irony, because the irony is the finding: this is
+the rule about a caveat delivered to one consumer and withheld from
+another — and it was the one rule dropped from the document that exists so
+nobody has to be told twice. Its pairing partner — "a guard that speaks
+both ways must be triaged on its verdict token" — was carried; the pair was
+split and the second half lost.)*
+
+### Restored particulars of sixteen thinned rules
+
+Each block names the landed rule it completes and restores only what the
+synthesis dropped.
+
+**"A guard that speaks both ways…" — the triage mechanism itself.**
+Presence = the guard RAN; `REFUSED` + `decided_by=` = it refused. The
+extraction-bound audit line fires on the PASSING path too — that is what
+makes its absence readable as "the guard never ran", and the same property
+made CI count a clean PASS as one of two expected refusals. Two facts in
+one artefact (a passing extraction bound and a decline from the fill-source
+verifier) were merged because they shared a file.
+
+**"When the bridge is down, drop a file in the seat's lab…" — the
+corollary that shows the safeguard working.** The note must name its
+author, its seat and the time IN ITS OWN TEXT (the incident note said
+"your /rc registration failed, so I cannot reach you by message" — which is
+how authorship was eventually reconstructed). And the receiving seat,
+inv-fill, treated the unsigned note as UNVERIFIED DATA, checked every claim
+against the real logs before acting, and corrected two of its three
+inferences — the only reason an unsigned instruction did not land
+unchecked.
+
+**"The transport failure is older than it looked" — the grounding
+instance.** The bridge was down at 18:10 and known to Lead #1; Lead #2
+learned it at 19:40 and in between read the seat's silence as
+work-in-progress. A known-broken bridge must be handed over explicitly; it
+was not in the handover.
+
+**"Before you read a silence as a result, prove the channel can speak" —
+the evidence.** Verified before opening a single artefact: zero `tools.dev`
+hits in the module; the same ungated `tools.logs` channel demonstrably
+reaches existing artefacts (`repair: USED audio track`); and the control
+that could have refuted it — no artefact in the corpus contains ANY
+`chimeric:` line — was examined rather than waved away, and explained
+(pre-existing `chimeric:` emissions are rare exception paths; the new line
+fires per track, so if the channel carries it, it will be abundant).
+
+**"The test instance runs dev: false" — the consequence past one ticket.**
+That is why production never logs per-position/minority pairing scores, and
+why any future "the log does not show X" reasoning about that instance must
+first establish that X is ungated. A property of the instrument — one that
+silently converts "not logged" into "did not happen".
+
+**"A nudged execution is not the mechanism working" — the warning that is
+the point.** Recording the post-question fire as "the first automatic fire"
+would have taught the next Lead the mechanism works and to stop checking.
+The authority is confirmed; the mechanism's silence is the finding; the
+question is narrow: why does a rule a seat holds, with standing authority,
+at the top of every cycle, not run?
+
+**"A seat's silence is not evidence that it is working" — the procedure.**
+Never infer a seat's state from the absence of messages: check the pane
+(`tmux capture-pane`), the session (`spawn_agent.sh --list`) and the lab's
+file mtimes. `ListAgents` "offline" means the BRIDGE is down, not that the
+process is dead. And this is why the files rule pays: had the seat held its
+finished partition in context and sent it only as a message, the transport
+failure would have destroyed a full cluster's work invisibly.
+
+**"A prediction that lives in a message cannot be checked" — the rule and
+the fix.** The rule binds the person STATING the prediction, not only the
+person measuring it. Every expectation now lives in the docket (§6) AND in
+the lab of whoever will read the run. An expectation held in one place is
+held nowhere.
+
+**"An instrument's output is not a media fact" — the correction, not just
+the error.** The saturation rail is a SCREEN, not "the PAL detector":
+29/29 content-mismatch ids saturate too; the duration ratio is the
+discriminator.
+
+**"A sub-agent's return is a report to assess" — the extension and the
+tally.** Apply to your own sub-agents the standard you apply to seats. Two
+retractions that night, both self-caught before reaching FINDINGS.
+
+**"A counter of failures is not a counter of work — AND IT INVERTS" — the
+whole body (only the title had landed).** The only running instrument
+counted `.log.error` population — produced by FAILING jobs only; a
+successful merge writes none. So the count is a FLOOR on completion divided
+by an unmeasurable failure fraction, and a run of SUCCESSES is
+indistinguishable from a STALL in it. Measured: 6 artefacts in 11 min
+(0.55/min), then zero across 7 consecutive minutes — while 5 `.mkv` were
+produced in the same window; read as throughput, that zero says "hung", it
+actually says "working, and working WELL". **Before using a count as
+progress, establish whether it counts the thing or its complement.** The
+seat supplied the floor and explicitly REFUSED to convert it into an ETA —
+a refused number is worth more than a plausible one.
+
+**"A hold must be re-decided when the thing that justified it dissolves" —
+the words and the mirror.** The seat's own charge, against the Lead, in its
+pulse to the owner: "it stopped being re-decided after the thing that made
+it optional got built" — the context had become a validation table and
+per-track predictions sharp enough for a stranger to score. This campaign
+had already earned "a gate nobody revisits is not a gate, it is a stop" —
+applied to everyone except the seat that wrote it down.
+
+**"A pane's ❯ line is an input buffer" — the other three of four
+instances.** A seat reported "closed for tonight" on a sentence describing
+a ruling rather than its own status; the Lead read a prompt's
+absence-from-his-own-outbox as evidence of its origin; and the corollary
+the Lead got wrong: a ❯ line neither principal authored is probably the
+OWNER typing directly into a watched session — his instruction in flight,
+and telling a seat to disregard it puts the Lead's convenience above the
+owner's direction.
+
+**"The gate does not scale with delegation" — the scope bug, named.** The
+fourth verification caught what the self-test alone passed: a bare
+assignment creating a Python local, leaving the module tuple polluted for
+any process that self-tested first — and the commit path runs both.
+"Verified by a sub-agent" never means verified on this seat.
+
+**"Mutation-test a guard" — the second property and the close.** The
+checker also reads both the accepted class and the sentinel literal FROM
+SOURCE rather than hardcoding them. Proving the guard can fail is the half
+nobody does.
+
+**"The scar is on the wrong limb" — the checkable pointers.** The incident
+and fix live at `api.py:394-396`; three processes set `tools.dev` from TWO
+sources — `main.py:30` and `main_gestionar_show.py:440` take `args.dev`
+(CLI), `fusion.py:318` takes `get_dev_env_var()` (ENV) — and `api.py:396`
+reports `get_dev_env_var()`. Exact for the fusion worker, divergent for the
+CLI-launched daemon, which is the process the incident bit. `/health`
+proves the FLAG, never that a line reached a reader.
+
+*(Also lightly thinned, restored in one line each: the sentinel rule's
+count — reusing `(unstated)` would have given the loud signal 22 false
+instances, after which nobody reads it.)*
+
+### Method entry: how the loss was found, and what the finders got wrong
+
+**A byte- or line-count match on a SYNTHESIS proves nothing about its
+completeness.** Both principals verified gesture #3's item 1 by size
+(903 lines) — the third instance in one day of the family "a verification
+that fires on a proxy of the thing" (the Lead's spawn-gate substring, the
+Architect's first-line anchor grep, and this — the strongest, because the
+proxy was agreed by both principals independently). The only check that
+could find the loss was content-level, per rule, and it ran only because a
+deletion forced it.
+
+The per-body sweep then added two of its own lessons: **a whole-file grep
+can clear a phrase through unrelated reuse** (one search phrase matched
+only a coincidentally identical quote from an earlier gesture — the check
+had to be re-run against the gesture-3 slice alone); and the sweep's own
+margin note flagged two bullets its verdict list omitted — one proved
+fine, one proved the worst thinning of the set. **A verifier's summary is
+itself a synthesis; its margins are part of the report.**
