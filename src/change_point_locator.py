@@ -1815,11 +1815,61 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         fidelity_max = max(fidelities)
         consistent = (not monotone and distinct_points <= MAX_DISTINCT_POINTS
                      and flips <= MAX_SIGN_FLIPS and fidelity_max >= MIN_MEDIAN_FIDELITY)
+        # EMPTY UNLESS `monotone`: the PAL/speed chain below only ever runs on
+        # the `speed_relation_suspected` reason. A pair declining
+        # `median_fidelity_below_floor` through this SAME `_decline` call
+        # (the `not consistent` branch, non-monotone) must stay
+        # byte-identical to before this landing -- the regression the Lead
+        # named. Spread via `**pal_fields` at the call site so the two
+        # reasons genuinely diverge rather than sharing a placeholder value.
+        pal_fields = {}
         if monotone:
             # Low fidelity with a monotone drift is a SPEED relation, which is
             # objective 3's problem. Refusing on fidelity alone would refuse the
             # whole family the speed repair exists for.
             _log("fidelity low but drift monotone: speed relation suspected; declining")
+            # PAL/NTSC SPEED CHAIN, DETECT-AND-REPORT ONLY (owner order, 2026-09-17,
+            # relayed by the Lead). This is the exact site the chain was designed
+            # for: production ALREADY recognises a speed relation here and ALREADY
+            # declines on it -- `determine_speed_verdict` runs the discriminator and
+            # both independent confirmers on the SAME pair and states what it finds,
+            # AS FIELDS ON THE SAME DECLINE BELOW. It changes NOTHING about the
+            # decision: the return two lines down is UNCHANGED,
+            # `speed_relation_suspected`/`could_not_run`, exactly as before this
+            # edit. No resample, no repair call -- a confirm that acted would be an
+            # unvalidated behaviour change; a confirm that only reports is a
+            # measurement, and a measurement is what was asked for.
+            #
+            # BROAD EXCEPTION HANDLING HERE IS DELIBERATE, NOT THE BLANKET PATTERN
+            # AGENT.MD WARNS AGAINST: this is one call site, exercising a
+            # brand-new, never-before-run-on-real-media chain against production
+            # jobs for the first time. A failure inside it must become a measurement
+            # (`pal_chain_verdict=error`), never a crashed merge -- the one thing
+            # this decline site must not do is depend on an instrument nobody has
+            # validated against real material yet.
+            pal_fields = {"pal_chain_verdict": "error", "pal_chain_cause": "not_attempted",
+                          "pal_chain_ratio": None, "pal_chain_pitch_ratio": None,
+                          "pal_chain_ncc_before": None, "pal_chain_ncc_after": None}
+            try:
+                import pal_speed_verdict
+                probe_window = min(180.0, shortest * 0.5)
+                probe_start = shortest * 0.3
+                pal_result = pal_speed_verdict.determine_speed_verdict(
+                    best_video, candidate_video, language, probe_start, probe_window)
+                disc = pal_result.get("discriminator") or {}
+                pitch = pal_result.get("pitch") or {}
+                ncc = pal_result.get("ncc") or {}
+                pal_fields = {
+                    "pal_chain_verdict": pal_result["verdict"],
+                    "pal_chain_cause": pal_result.get("cause"),
+                    "pal_chain_ratio": disc.get("speed_ratio"),
+                    "pal_chain_pitch_ratio": pitch.get("measured_ratio"),
+                    "pal_chain_ncc_before": ncc.get("ncc_before"),
+                    "pal_chain_ncc_after": ncc.get("ncc_after"),
+                }
+            except Exception as error:                    # noqa: BLE001 -- see comment above
+                pal_fields["pal_chain_verdict"] = "error"
+                pal_fields["pal_chain_cause"] = type(error).__name__
         elif consistent:
             # MEASURABLE: the survivors agree with each other within the
             # reused scatter thresholds, and the best probe clears the floor
@@ -1918,7 +1968,8 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         # *** WHAT THIS ROW DOES NOT KNOW, STATED IN THE ROW. Below the floor,
                         # "unrelated" and "related but unmeasurable by THIS correlator" are
                         # INDISTINGUISHABLE TO ME, and the retired token picked one of them.
-                        distinguishes_unrelated_from_unmeasurable="no")
+                        distinguishes_unrelated_from_unmeasurable="no",
+                        **pal_fields)
     # NO LONGER INERT -- AND THE MECHANISM THE OLD NOTE GAVE IS REFUTED, NOT JUST ITS COUNT.
     #
     # IT SAID: "MEASURED INERT. A systematic every-7th census of a 315-record index, 45
