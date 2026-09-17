@@ -1107,6 +1107,51 @@ def _margin_fields(plan):
     return (" ".join(parts) + " ") if len(parts) else ""
 
 
+def check_candidate_admissibility(plan):
+    """`RULING_20260916_PLAN_ADMISSIBILITY_NOT_TELEMETRY.MD`, Ruling 2 --
+    the EXACT per-boundary invariant, checked ONCE at admission, before
+    any extraction or assembly (`RULING_PRECONDITIONS_AT_ADMISSION`: a
+    refusal must cost a probe, not a mux).
+
+    NEVER `offset_monotone` (Ruling 1: it is a wrong-signed TELEMETRY
+    proxy, schema-agreed as reporting whether `offset_max_abs_ms` is
+    comparable across the summary line -- and its own definition counts
+    a monotone-DECREASING offset sequence as `true`, which is precisely
+    the shape that CAN read the candidate backwards. Gating on it would
+    both miss real backward reads it calls `true` and refuse plans E2's
+    own consistency gate was built to accept on `false`).
+
+    For consecutive candidate-reading pieces, in the plan's own
+    master-timeline order:
+        candidate_start(next) >= candidate_end(prev)
+    equivalently
+        offset(next) - offset(prev) >= -(master_start(next) - master_end(prev))
+
+    A plan may be non-monotone (offset decreasing between pieces) and
+    still satisfy this at every boundary, when the master-side gap
+    between the pieces absorbs the drop -- E2's own tolerated shape.
+    Only a drop LARGER than the gap reads the candidate backwards.
+
+    Returns `None` if every boundary is admissible. Otherwise a dict
+    naming the FIRST violating boundary (not every one -- the plan is
+    inadmissible after the first, and enumerating the rest would cost a
+    probe measuring a boundary the first violation already discards)."""
+    segments = parse_segments(plan.get("segments") or [])
+    for index in range(1, len(segments)):
+        prev_segment, next_segment = segments[index - 1], segments[index]
+        master_gap = (next_segment["master_start_ms"]
+                      - prev_segment["master_end_ms"])
+        offset_delta = (next_segment["candidate_offset_ms"]
+                        - prev_segment["candidate_offset_ms"])
+        if offset_delta < -master_gap:
+            return {"master_boundary_ms": str(prev_segment["master_end_ms"]),
+                   "offset_delta_ms": str(offset_delta),
+                   "master_gap_ms": str(master_gap),
+                   "prev_segment_index": index - 1,
+                   "next_segment_index": index}
+    return None
+
+
 def compare_plan_master(plan, best_video):
     """Le plan a-t-il ete mesure contre CE maitre? Rend `(raison, jeton)`.
 
@@ -2477,6 +2522,21 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # ils different`; les confondre remettrait un negatif concluant dans
             # le sac des absences de preuve.
             record(candidate_path, "declined", master_check, cause=master_cause)
+            continue
+        admissibility_violation = check_candidate_admissibility(plan)
+        if admissibility_violation != None:
+            # RULING_20260916_PLAN_ADMISSIBILITY_NOT_TELEMETRY.MD, Ruling 2:
+            # checked HERE, at admission, before `build_repaired_video_object`
+            # does any extraction -- a refusal costs a probe, not a mux.
+            # The plan RAN and was MEASURED inadmissible; this is a decline,
+            # not a could-not-measure, same as every other check on this path.
+            record(candidate_path, "declined",
+                   f"plan reads the candidate backwards at master boundary "
+                   f"{admissibility_violation['master_boundary_ms']} ms: "
+                   f"offset steps by {admissibility_violation['offset_delta_ms']} ms "
+                   f"across a {admissibility_violation['master_gap_ms']} ms master gap "
+                   f"({plan_source})",
+                   admissibility_violation, cause="plan_reads_candidate_backwards")
             continue
         try:
             repaired_obj, assembly = build_repaired_video_object(
