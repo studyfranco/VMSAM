@@ -722,6 +722,14 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # appliquee. Distinct de la fidelite par tranche, qui vit dans chaque
         # segment: le refus cite celui-ci, la ligne de pose cite celui-la.
         stream_pairing=plan.get("candidate_stream_pairing"),
+        # STAGE 4's OWN CORROBORATION INPUT (Architect's ruling, 2026-09-17,
+        # point i): the pair's own audio quantum, already a TOP-LEVEL plan
+        # field the locator emits (`change_point_locator.py`'s own
+        # `quantum_ms`) -- consumed here, never re-derived or produced.
+        # `None` when the plan carries none, which the frame tier's stage 4
+        # reads as "cannot corroborate" and declines named, never silently
+        # skips the check.
+        quantum_ms=plan.get("quantum_ms"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
 
     # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la

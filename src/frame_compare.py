@@ -452,6 +452,131 @@ def _detect_uniform_runs(base, brightness, threshold=UNIFORM_RUN_BRIGHTNESS_THRE
     return runs
 
 
+# STAGE 4 -- static-run length-differencing (owner's technique, verbatim:
+# "c'est pour cela que tu peux utiliser le changement de scene. faire un
+# pHash sur toute une sequence meme quelques frames apres des changements
+# de scenes permet de savoir quand une image static est garde 10 ou 15
+# frames des plus" -- RULING_20260916_MINIMAL_DESTRUCTION_NORTH_STAR.MD,
+# "The static-span class, dissolved by the owner"). Inside a static span
+# no frame matches any frame better than another (RULE stated already at
+# stage 3's own comment above) -- but the span's ENTRY and EXIT are what
+# `_detect_cuts` already finds. Anchor on those, COUNT the run length on
+# each side, and the delta IS the divergence -- measured by counting, not
+# by matching.
+#
+# PARAMETERIZED, NOT CHOSEN (dev-tiergate mission, 2026-09-17, Architect's
+# ruling, same discipline as `BOUNDARY_VALIDATION_*` until TASKS/016): the
+# triage's own static-run distribution calibrates these when it lands.
+STATIC_RUN_STABILITY_HAMMING_THRESHOLD_DEFAULT = 4
+STATIC_RUN_MIN_FRAMES_DEFAULT = 3
+
+
+def _static_run_config():
+    try:
+        section = tools.config_loader(tools.config_file, "frame_boundary")
+    except Exception:
+        return (STATIC_RUN_STABILITY_HAMMING_THRESHOLD_DEFAULT,
+                STATIC_RUN_MIN_FRAMES_DEFAULT)
+    stability = int(section.get("static_run_stability_hamming_threshold",
+                                STATIC_RUN_STABILITY_HAMMING_THRESHOLD_DEFAULT))
+    min_frames = int(section.get("static_run_min_frames",
+                                 STATIC_RUN_MIN_FRAMES_DEFAULT))
+    return stability, min_frames
+
+
+def _detect_stable_runs(base, hashes, threshold=None, min_frames=None):
+    '''GENERALIZED run detector -- inter-frame pHash near-identity, not
+    brightness. `_detect_uniform_runs` (stage 3, above) gates on
+    near-zero BRIGHTNESS (`v < threshold` against a raw 0-255 mean): a
+    bright static logo, a freeze-frame, or a non-dark held title card
+    NEVER registers there, confirmed at that function's own source line
+    (forensic advisory, 2026-09-17), regardless of how long it is held --
+    the owner's "une image statique" reads broader than brightness alone.
+
+    This detector keys on STABILITY instead: consecutive-frame Hamming
+    distance at or below `threshold`. Near-black content is a SPECIAL
+    CASE of this, not a separate one -- a solid dark frame is trivially
+    stable frame-to-frame too, so this detector strictly generalizes
+    stage 3's population rather than replacing its criterion with an
+    unrelated one.
+
+    Returns `[(start_frame, end_frame_inclusive), ...]`, the SAME shape as
+    `_detect_uniform_runs`, so either can serve a caller expecting a run
+    list. A single frame is not a run by itself (`min_frames` floor,
+    same rule as stage 3): a lone stable pair proves nothing about a HELD
+    span.
+    '''
+    cfg_threshold, cfg_min_frames = _static_run_config()
+    threshold = cfg_threshold if threshold is None else threshold
+    min_frames = cfg_min_frames if min_frames is None else min_frames
+    runs = []
+    if len(hashes) < 2:
+        return runs
+    start = 0
+    for i in range(1, len(hashes)):
+        d = FrameComparer._popcount64(hashes[i - 1] ^ hashes[i])
+        if d > threshold:
+            if i - start >= min_frames:
+                runs.append((base + start, base + i - 1))
+            start = i
+    if len(hashes) - start >= min_frames:
+        runs.append((base + start, base + len(hashes) - 1))
+    return runs
+
+
+def _count_corroborates_offset_step(delta_frames, frame_ms, step_ms, quantum_ms):
+    '''Point (i), Architect's ruling 2026-09-17: the locator's own
+    audio-measured step across this bracket (`step_ms`, SIGNED, this
+    file's own convention) and this stage's frame count are two
+    INDEPENDENT instruments. They must agree within the pair's own audio
+    quantum, or this stage declines -- a frame count with no
+    corroboration is an unchecked second opinion, not evidence, and a
+    disagreement (including a sign disagreement) is a decline, never a
+    pick between the two.
+    '''
+    if step_ms is None or quantum_ms is None:
+        return False
+    return abs(delta_frames * frame_ms - step_ms) <= quantum_ms
+
+
+def _static_run_length_delta(m_hashes, m_base, m_first, m_last,
+                              c_hashes, c_base):
+    '''THE COUNTING PRIMITIVE, isolated and independently testable: given
+    the master's own stable run bounded inside `[m_first, m_last)` and
+    the candidate's own stable run (anywhere in what was extracted), name
+    the frame-count DIVERGENCE between them -- never a matched position.
+
+    Fires ONLY when each side holds EXACTLY ONE such run (same "more than
+    one is ambiguous" rule as stage 3): with two static spans on either
+    side, WHICH one corresponds to which is a question this counting
+    method cannot answer by itself.
+
+    Returns `None` when the precondition does not hold (zero or multiple
+    runs on either side) -- a decline for the CALLER to act on, not a
+    guess. Otherwise returns
+    `(m_run_start, m_run_end, m_run_len, c_run_len, delta_frames)`,
+    `delta_frames = c_run_len - m_run_len` (RULE 8's own sign sense:
+    positive means the CANDIDATE holds the span longer).
+
+    `delta_frames == 0` on two genuinely equal-length runs is NOT rounded
+    away or treated as noise -- it is the correct, exact answer, and the
+    arm this function is most required to get right (Architect's ruling,
+    2026-09-17: "a comparator that reports a plausible small divergence
+    on identical material is worse than one that reports nothing").
+    '''
+    m_runs = [r for r in _detect_stable_runs(m_base, m_hashes)
+             if m_first <= r[0] < m_last and r[1] < m_last]
+    c_runs = _detect_stable_runs(c_base, c_hashes)
+    if len(m_runs) != 1 or len(c_runs) != 1:
+        return None
+    m_run_start, m_run_end = m_runs[0]
+    c_run_start, c_run_end = c_runs[0]
+    m_run_len = m_run_end - m_run_start + 1
+    c_run_len = c_run_end - c_run_start + 1
+    delta_frames = c_run_len - m_run_len
+    return m_run_start, m_run_end, m_run_len, c_run_len, delta_frames
+
+
 def _confirm_shift(master_cut_frames, candidate_cut_set, nominal_shift, radius):
     '''Which INTEGER shift in `nominal_shift +/- radius` puts the most MASTER
     cuts EXACTLY on a CANDIDATE cut (`master_frame - shift == candidate_frame`,
@@ -600,7 +725,7 @@ def _f1_payload(fps_num, fps_den, start_frame, end_frame, offset_after_frames,
 def locate_bracket_boundary(master_path, candidate_path, fps_num, fps_den,
                             bracket_low_ms, bracket_high_ms,
                             offset_before_ms, offset_after_ms, pad_sec=3.0,
-                            debug=False):
+                            debug=False, step_ms=None, quantum_ms=None):
     '''THE F1 producer, entry point. See the module-level block above for the
     design. Always returns a dict -- `declined` True or False, never neither.
     '''
@@ -639,6 +764,7 @@ def locate_bracket_boundary(master_path, candidate_path, fps_num, fps_den,
 
     before_shift = _nominal_shift_frames(offset_before_ms, fps_num, fps_den)
     after_shift = _nominal_shift_frames(offset_after_ms, fps_num, fps_den)
+    frame_ms = 1000.0 * fps_den / fps_num
 
     m_first = comparer._frame_index(m_start_s)
     m_last = comparer._frame_index(m_end_s)
@@ -772,6 +898,101 @@ def locate_bracket_boundary(master_path, candidate_path, fps_num, fps_den,
             evidence=(f"master near-uniform run [{run_start},{run_end}] "
                      f"({run_end - run_start + 1} frames), candidate's own "
                      f"run {c_run_frames} frame(s)"))
+
+    # --- STAGE 4: static-run length-differencing (owner's technique, verbatim
+    # in the module header above; Architect's ruling, 2026-09-17, 5 points) -
+    # stage 3 trusts the MASTER's own run boundaries and never asks whether
+    # the two runs are the SAME LENGTH. When both sides hold a genuine
+    # static span held a DIFFERENT number of frames, that is exactly what
+    # stage 3 cannot answer -- pHash carries no matching signal inside
+    # either run, so the divergence is COUNTED, not matched.
+    #
+    # SIGN CONVENTION, STATED EXPLICITLY BECAUSE A RELAYED VERSION OF THIS
+    # RULING'S POINT (iii) READ AS THE OPPOSITE OF WHAT IT SAYS HERE, AND
+    # I FLAGGED RATHER THAN GUESSED (open with the Architect, 2026-09-17):
+    # `_static_run_length_delta`'s own `delta_frames = c_run_len - m_run_len`
+    # is the SAME sign RULE 8 already uses in this file (negative =
+    # candidate MISSING content the master has). `delta_frames > 0` means
+    # the CANDIDATE holds the span longer; `delta_frames < 0` means the
+    # MASTER holds it longer. If the Architect's intended `D` is the
+    # opposite sign, only the two branches immediately below need
+    # swapping -- isolated here on purpose so that correction costs one
+    # read, not a rewrite.
+    delta_result = _static_run_length_delta(m_hashes, m_base, m_first, m_last,
+                                            c_hashes, c_base)
+    if delta_result is not None:
+        static_run_start, static_run_end, static_m_len, static_c_len, delta_frames = delta_result
+        if delta_frames == 0:
+            # Equal-length runs: NO divergence to report -- falls through
+            # to the generic decline below, same as "no run at all", never
+            # a fabricated zero-width interval standing in for a real one.
+            pass
+        elif step_ms is None or quantum_ms is None:
+            # POINT (i), the corroboration this stage cannot skip: with no
+            # audio step/quantum to check the count against, a frame count
+            # is an unchecked second opinion, not evidence. Decline named
+            # from the missing input, not the missing agreement -- the two
+            # are different facts (this campaign's own standing rule).
+            return {"declined": True, "reason": "step_or_quantum_unavailable",
+                   "evidence": (f"counted delta={delta_frames} frames has no "
+                              f"audio step/quantum to corroborate against "
+                              f"(step_ms={step_ms} quantum_ms={quantum_ms})"),
+                   "bracket_low_ms": bracket_low_ms, "bracket_high_ms": bracket_high_ms}
+        elif not _count_corroborates_offset_step(
+                delta_frames, frame_ms, step_ms, quantum_ms):
+            # POINT (i): two independent instruments disagreeing is a
+            # DECLINE, never a pick between them.
+            return {"declined": True, "reason": "count_contradicts_offset_step",
+                   "evidence": (f"counted delta={delta_frames} frames "
+                              f"({delta_frames * frame_ms:.2f} ms) vs the "
+                              f"locator's own audio step={step_ms} ms, "
+                              f"quantum={quantum_ms} ms"),
+                   "bracket_low_ms": bracket_low_ms, "bracket_high_ms": bracket_high_ms}
+        elif abs(delta_frames) > static_m_len:
+            # A convention slice wider than the run it is placed inside
+            # would fall OUTSIDE the run, into content never shown to be
+            # interchangeable -- decline rather than let the convention
+            # silently stop being one.
+            return {"declined": True, "reason": "count_exceeds_run_extent",
+                   "evidence": (f"counted delta={delta_frames} frames exceeds "
+                              f"the master run's own length ({static_m_len} "
+                              f"frames) -- the exit-edge convention slice "
+                              f"would not fit inside the run it is placed in"),
+                   "bracket_low_ms": bracket_low_ms, "bracket_high_ms": bracket_high_ms}
+        else:
+            # POINT (ii): PLACEMENT IS A CONVENTION, NOT A MEASUREMENT.
+            # Every frame inside a content-uniform run is interchangeable
+            # by construction -- any splice point within it yields
+            # identical output -- so there is no correct position to
+            # DISCOVER here, only a deterministic one to DECLARE. THE EXIT
+            # EDGE: the divergent, `abs(delta_frames)`-wide span sits
+            # immediately before the master's own run end. The payload
+            # says so explicitly (`placement`) so no reader ever mistakes
+            # this for a located transition.
+            width = abs(delta_frames)
+            conv_start = static_run_end + 1 - width
+            conv_end = static_run_end + 1
+            # POINT (iv): VALIDATE THE RUN'S FULL BOUNDS, NEVER THE
+            # CONVENTION SLICE. The convention interval sits INSIDE the
+            # run -- probing its own flanks would test frames that are
+            # themselves part of the same uniform content, trivially
+            # green, proving nothing. The identity that must hold is
+            # ACROSS the run's TRUE edges (`static_run_start`,
+            # `static_run_end + 1`), outside it on both sides, where the
+            # scene changes this stage anchored on actually are.
+            similarity, margin = _validate_boundary(
+                fps_num, fps_den, master_path, candidate_path,
+                static_run_start, static_run_end + 1, before_shift, after_shift)
+            payload = _f1_payload(
+                fps_num, fps_den, conv_start, conv_end, after_shift,
+                similarity, margin, method="static_run_length_diff",
+                evidence=(f"master run [{static_run_start},{static_run_end}] "
+                         f"({static_m_len} frames), candidate run "
+                         f"({static_c_len} frames), counted delta="
+                         f"{delta_frames} frames, corroborated by "
+                         f"step_ms={step_ms} quantum_ms={quantum_ms}"))
+            payload["placement"] = "convention_exit_edge"
+            return payload
 
     # --- DECLINE: structure present, could not narrow --------------------
     return {"declined": True, "reason": "structure_present_could_not_narrow",

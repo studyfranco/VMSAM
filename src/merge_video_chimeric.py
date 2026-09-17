@@ -348,7 +348,8 @@ def offset_fidelity(segment, stream_order=None):
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None,
                        master_path=None, candidate_path=None,
-                       fps_num=None, fps_den=None, bound_label=None):
+                       fps_num=None, fps_den=None, bound_label=None,
+                       quantum_ms=None):
     '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
 
     Chaque morceau est un dict: `source` ("candidate" | "master" | "silence"),
@@ -506,10 +507,28 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 and fps_num is not None and fps_den is not None
                 and tier_asked):
             import frame_compare
+            # STAGE 4's OWN INPUT (Architect's ruling, 2026-09-17, point i):
+            # `step_ms` is the LOCATOR's own audio-measured step for THIS
+            # bracket -- already on the bracket dict change_point_locator.py
+            # sets (`"step_ms": ...`), read here fresh rather than trusted
+            # from a stale local (same reasoning as `relevant_bracket`
+            # below: `following_bracket` lives on `previous_segment`, the
+            # segment whose GAP this is, not on `segment` itself).
+            # `quantum_ms` is a PLAN-LEVEL field (one per pair, not per
+            # bracket) threaded through this function's own new parameter
+            # -- `None` when a caller does not supply it, which stage 4
+            # reads as "cannot corroborate" and declines named, never
+            # silently skips.
+            _interior_bracket_for_tier = (
+                previous_segment.get("following_bracket")
+                if previous_segment is not None else None)
             frame_tier_result = frame_compare.locate_bracket_boundary(
                 master_path, candidate_path, fps_num, fps_den,
                 float(cursor), float(master_start),
-                float(previous_offset), float(offset))
+                float(previous_offset), float(offset),
+                step_ms=(_interior_bracket_for_tier.get("step_ms")
+                        if _interior_bracket_for_tier is not None else None),
+                quantum_ms=quantum_ms)
             # REGION A -- THE VALIDATION GATE (dev-tiergate mission,
             # 2026-09-16). `_validate_boundary` (frame_compare.py) computes
             # `similarity`/`margin` on every non-declined result and never
@@ -2660,7 +2679,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                                 verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
-                                comparison_language=None, stream_pairing=None):
+                                comparison_language=None, stream_pairing=None,
+                                quantum_ms=None):
     '''Point d'entree du module.
 
     `job_start_utc`: EXIGE, SANS DEFAUT (Architect's ruling, VMSAM_ERA,
@@ -2779,7 +2799,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         segments, master_duration_ms, candidate_duration_ms,
         speed_ratio, master_path=master_obj.filePath,
         candidate_path=candidate_obj.filePath,
-        fps_num=master_fps_num, fps_den=master_fps_den)
+        fps_num=master_fps_num, fps_den=master_fps_den,
+        quantum_ms=quantum_ms)
 
     tools.make_dirs(work_dir)
     audio_reports = []
@@ -2833,7 +2854,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                 segments, master_duration_ms, track_bound_ms, speed_ratio,
                 stream_order=int(audio["StreamOrder"]),
                 master_path=master_obj.filePath, candidate_path=candidate_obj.filePath,
-                fps_num=master_fps_num, fps_den=master_fps_den)
+                fps_num=master_fps_num, fps_den=master_fps_den,
+                quantum_ms=quantum_ms)
             if decided_by != "declared":
                 bound_source = decided_by
             report = build_one_audio_track(
