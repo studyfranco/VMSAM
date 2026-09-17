@@ -2590,6 +2590,19 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     _seg_offsets = [sg["candidate_offset_ms"] for sg in segments]
     _monotone = (all(a <= b for a, b in zip(_seg_offsets, _seg_offsets[1:]))
                  or all(a >= b for a, b in zip(_seg_offsets, _seg_offsets[1:])))
+    # PLAN-TIME PER-SEGMENT TABLE (`RULING_20260916_PLAN_ADMISSIBILITY_NOT_
+    # TELEMETRY.MD`, Ruling 2's "ALSO" item, forensic's addition, adopted):
+    # `offset_monotone` is a SCALAR verdict over the whole plan; the
+    # consumer that actually needs to check admissibility (`merge_video_
+    # repair.check_candidate_admissibility`) needs the EXACT per-boundary
+    # facts, not a summary of them. Comma-joined into THIS `_emit` call
+    # rather than a new per-segment call: segments are bounded and few
+    # (2-5 observed, same population as `_gaps`/`bound_only` above), never
+    # per-probe, so this does not touch `_emit`'s once-per-pair limit
+    # (that limit protects a per-PROBE counter -- 30 probes x 315 files --
+    # not a per-segment one).
+    _seg_master_starts = [sg["master_start_ms"] for sg in segments]
+    _seg_master_ends = [sg["master_end_ms"] for sg in segments]
     # GAP WIDTHS AND BOUND-ONLY COUNT, ADDED FOR vmsam-ci. `gap_start_ms` and
     # `gap_end_ms` are computed a few lines above and were LOGGED IN ZERO RECORDS --
     # ci's fourth instance tonight of computed-and-not-emitted in this module, after
@@ -2706,6 +2719,17 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           # limit of this boundary, not an omission, and closing it needs the CALLER to
           # pass one.
           f"pair={_digest(master_path, candidate_path)} "
+          # THE TABLE ITSELF, comma-joined and index-aligned with each
+          # other and with `segment_candidate_offset_ms` (identical to
+          # `offset_first_ms`/`offset_last_ms`'s own source, `_seg_offsets`,
+          # above -- not a second computation of the same value). ONE
+          # boundary at a time is exactly what `check_candidate_
+          # admissibility` needs and `offset_monotone` cannot give: it is
+          # a wrong-signed proxy (Ruling 1) precisely because it collapses
+          # this table into one bit.
+          f"segment_master_start_ms={','.join(str(s) for s in _seg_master_starts)} "
+          f"segment_master_end_ms={','.join(str(e) for e in _seg_master_ends)} "
+          f"segment_candidate_offset_ms={','.join(str(o) for o in _seg_offsets)} "
           # BUILD IDENTITY AT EMISSION TIME, NEVER CAPTURED AT STARTUP (`AGENT.MD`): a
           # field written once at startup reports the same value whatever is running,
           # which is worse than an empty one -- an empty field is honest and a constant
