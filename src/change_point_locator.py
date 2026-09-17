@@ -172,6 +172,7 @@ import tools
 import json
 import subprocess
 import audioCorrelation
+import pal_saturation_screen
 
 # One chromaprint fingerprint item, seconds. frame 4096, hop frame/3, rate 11025.
 CHROMAPRINT_HOP_SECONDS = 4096.0 / 3.0 / 11025.0
@@ -444,6 +445,26 @@ DECLINE_REASONS = (
     "no_quantised_points",
     "no_stream_for_language",
     "no_usable_segments",
+    # E3 (Architect's grant, exercised -- DESIGN_PAL_SPEED_FAMILY_20260916.MD
+    # Stage 1, "offsets_saturated_at_search_bound is PRE-AUTHORIZED, you do
+    # not need to ask for it"). Fires when `pal_saturation_screen` finds
+    # every kept probe's quantised offset sitting at the correlator's own
+    # search bound (|points| >= 0.99*(N-32), N derived from the window
+    # actually passed) -- the correlator ran out of window, not out of
+    # signal. Distinct from every fidelity-based guard here: this fires
+    # BEFORE fidelity is even computed on the survivors, because a saturated
+    # probe's fidelity number is not evidence about the true offset at all.
+    # Always could_not_run, never ran_conclusive_negative -- a search-bound
+    # readout is could-not-measure, the same reasoning as
+    # `no_quantised_points` one level up. THE TRIGGER BAR ITSELF (zero
+    # survivors, not a softer majority rule) is an open design question,
+    # not settled here -- see `pal_saturation_screen.screen_decline_detail`'s
+    # own docstring and the Architect's ruling on it, 2026-09-16: the bar
+    # becomes a measurement once a census exists over the 20 real PAL ids
+    # plus a content-mismatch control population. Every screen pass, decline
+    # or not, logs its observed saturation fraction so that census accrues
+    # from live runs.
+    "offsets_saturated_at_search_bound",
     "offsets_scattered",
     "primary_below_pairing_bar",
     "speed_relation_suspected",
@@ -1676,9 +1697,43 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         refusal_sites=(",".join(f"{k}:{v}" for k, v in sorted(probe_sites.items()))
                                        or "none"))
 
-    offsets = [r[1][0] for r in kept]
-    fidelities = [r[1][1] for r in kept]
-    quanta = [r[1][3] for r in kept if r[1][3]]
+    # STAGE 1 SCREEN (DESIGN_PAL_SPEED_FAMILY_20260916.MD): "this offset is
+    # not a media fact." A probe whose quantised offset sits at the
+    # correlator's own search bound is not a measurement -- the correlator
+    # ran out of window, not out of signal -- so it is excluded here, before
+    # any of the aggregates below are built from it. Exactly what
+    # `no_quantised_points` two steps below already does for an unusable
+    # quantum; this is the same admission-time discipline for a different
+    # unusable reading.
+    #
+    # SCOPED NARROWLY, AND SAID SO: this filters ONLY the refusal-decision
+    # aggregates built below (offsets/fidelities/quanta/distinct_points/
+    # flips). `kept` ITSELF IS UNTOUCHED -- achieved coverage (`_coverage_gaps`
+    # a few hundred lines down) and plateau/run construction (`_group_plateaus`)
+    # still see every probe that actually ran, saturated or not, because
+    # "never scanned" and "scanned but unusable" are different facts and
+    # widening the filter to those would conflate them. That is a larger,
+    # different change this design does not ask for.
+    screened_kept, saturation_decline, saturation_stats = (
+        pal_saturation_screen.screen_decline_detail(
+            kept, PROBE_WINDOW_SECONDS, CHROMAPRINT_HOP_SECONDS,
+            audioCorrelation.min_overlap))
+    # EMITTED UNCONDITIONALLY, DECLINE OR NOT (Architect's ruling,
+    # 2026-09-16): the population census the trigger bar still needs
+    # (20 real PAL ids + a content-mismatch control) accrues from live runs
+    # only if every pass states its fraction, not only the ones that decline.
+    _log(f"{language}: saturation screen kept={saturation_stats['probes_kept']} "
+         f"saturated={saturation_stats['probes_saturated']} "
+         f"observed_fraction={saturation_stats['observed_fraction']} "
+         f"bound={saturation_stats['search_bound_points']} "
+         f"threshold={saturation_stats['threshold_fraction']}")
+    if saturation_decline is not None:
+        return _decline("offsets_saturated_at_search_bound", "could_not_run",
+                        pair=pair_id, **saturation_decline)
+
+    offsets = [r[1][0] for r in screened_kept]
+    fidelities = [r[1][1] for r in screened_kept]
+    quanta = [r[1][3] for r in screened_kept if r[1][3]]
     # DECLINE AT ADMISSION, NOT THREE FRAMES LATER. `:step_points` a few hundred
     # lines below (`step_ms / quantum_ms`) is the very next arithmetic use of
     # this value and it is unconditional on the success path -- so a `None`
@@ -1689,15 +1744,15 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     # for it (the Architect's ruling on the E3 mission; census in
     # VMSAM_HELP_AI/dev-pal/001-quantum-ms-census.MD).
     if not quanta:
-        _log(f"{language}: {len(kept)} probes kept, none carried a usable "
+        _log(f"{language}: {len(screened_kept)} probes kept, none carried a usable "
              f"quantised offset (points==0 on every one); declining")
         return _decline("no_quantised_points", "could_not_run", pair=pair_id,
-                        probes_kept=len(kept))
+                        probes_kept=len(screened_kept))
     quantum_ms = int(median(quanta))
     median_fidelity = median(fidelities)
-    distinct_points = len({r[1][2] for r in kept})
+    distinct_points = len({r[1][2] for r in screened_kept})
     flips = _sign_flips(offsets)
-    _log(f"{language}: {len(kept)} probes over [0,{shortest:.0f}]s, "
+    _log(f"{language}: {len(screened_kept)} probes over [0,{shortest:.0f}]s, "
          f"fid_median={median_fidelity:.3f}, quantum={quantum_ms}ms, "
          f"distinct_points={distinct_points}, flips={flips}")
 
@@ -2581,6 +2636,18 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
           f"offset_monotone={str(_monotone).lower()} "
           f"offset_ms={offset_ms:.1f} points={int(round(offset_ms / quantum_ms))} "
          f"quantum_ms={quantum_ms} window_s={PROBE_WINDOW_SECONDS} "
+          # STAGE 1 SCREEN CENSUS FIELD (Architect's ruling, 2026-09-16): the
+          # trigger bar for `offsets_saturated_at_search_bound` becomes a
+          # measurement once a population exists; this is the SUCCESS-PATH
+          # half of that population (a pair whose saturation, if any, did
+          # not stop it from proceeding). The decline itself already carries
+          # its own fields unconditionally via `_decline`; this is the other
+          # half nothing was emitting. NOT YET carried by the OTHER decline
+          # branches below (median_fidelity_below_floor and siblings) --
+          # stated as a limit of this landing, not silently absent.
+          f"saturation_kept={saturation_stats['probes_kept']} "
+          f"saturation_saturated={saturation_stats['probes_saturated']} "
+          f"saturation_observed_fraction={saturation_stats['observed_fraction']} "
          f"segments={len(segments)} change_points={len(change_points)} "
           # THE SEVEN BELOW ARE FOR A CONSUMER, NOT FOR THIS MODULE'S OWN DECISIONS.
           # `vmsam-forensic` holds 315 failure records and can census NEITHER the
@@ -2671,6 +2738,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             "quantum_ms": quantum_ms,
             "probe_window_seconds": PROBE_WINDOW_SECONDS,
             "probe_step_seconds": PROBE_STEP_SECONDS,
+            # STAGE 1 SCREEN CENSUS FIELDS, success-path half (see the
+            # matching comment at the `_emit` line): NOT the decline's own
+            # fields (those live on the `offsets_saturated_at_search_bound`
+            # decline line, a different shape, deliberately not merged here
+            # to avoid ARTEFACT_FORMATS.md SS9c's one-name-two-shapes defect).
+            "saturation_probes_kept": saturation_stats["probes_kept"],
+            "saturation_probes_saturated": saturation_stats["probes_saturated"],
+            "saturation_observed_fraction": saturation_stats["observed_fraction"],
+            "saturation_search_bound_points": saturation_stats["search_bound_points"],
+            "saturation_threshold_fraction": saturation_stats["threshold_fraction"],
             # ACTUAL coverage, not the intent. vmsam-ci measured that the
             # pipeline's own geometry never samples a median 15.9 % of a file,
             # and that a file its geometry cannot see is not declined — it is
