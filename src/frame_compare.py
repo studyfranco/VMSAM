@@ -721,8 +721,31 @@ def locate_bracket_boundary(master_path, candidate_path, fps_num, fps_den,
     c_bright_base, c_brightness = _extract_brightness(
         comparer, candidate_path, m_start_s + off_lo_s - pad_sec,
         (m_end_s - m_start_s) + (off_hi_s - off_lo_s) + 2 * pad_sec)
+    # BOUNDED ON BOTH ENDS (dev-tiergate mission, 2026-09-17, live-fired
+    # from this file's own gate: `method=uniform_run similarity=0.5385` in
+    # production). The original filter bounded only the run's START
+    # (`r[0]`); `_extract_brightness` reads a PADDED window
+    # (`m_start_s - pad_sec` to `... + 2*pad_sec`), so a run that begins
+    # inside the bracket can extend past `m_last` into the padding -- and
+    # this stage would report `run_end+1` as `master_end_frame`, a frame
+    # OUTSIDE the interval this stage ever searched. `locate_match_onset`
+    # (this file, below) already self-enforces the equivalent contract
+    # ("refuse to return anything that is not STRICTLY narrower than the
+    # input") before ever returning `declined: False` -- this stage had no
+    # matching check. Consuming code (`merge_video_chimeric.py`'s interior
+    # clamp) happens to absorb the overrun today, which is exactly the
+    # "masking a live unbounded return path" shape the Lead named when
+    # this was first reported, not evidence the gap is harmless: any
+    # future direct consumer of this function inherits an unrepresented
+    # contract violation. A run whose END also lies past `m_last` is
+    # EXCLUDED here, not clamped -- the run bled across the bracket
+    # boundary into content the locator already established as matching,
+    # which contradicts the premise this stage searches an undecided gap,
+    # so declining (falling through to `structure_present_could_not_
+    # narrow`) is the honest answer, matching this file's own "refuse
+    # rather than fabricate" rule everywhere else.
     m_runs = [r for r in _detect_uniform_runs(m_bright_base, m_brightness)
-             if m_first <= r[0] < m_last]
+             if m_first <= r[0] < m_last and r[1] < m_last]
     c_runs = _detect_uniform_runs(c_bright_base, c_brightness)
     # EXACTLY one on the master side (mandatory: more than one is ambiguous,
     # which run?). At most one on the candidate side, and ZERO is the common
