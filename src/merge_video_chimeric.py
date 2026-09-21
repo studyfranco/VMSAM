@@ -2136,6 +2136,23 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                     piece["frame_tier"]["reason"]
                     if piece.get("frame_tier") and piece["frame_tier"].get("declined")
                     else None),
+                # UN SEUL JETON COUVRAIT QUATRE ETATS. `could_not_locate_onset`
+                # est rendu par `frame_compare.locate_match_onset` sur QUATRE
+                # sites (:1117 ligne de base illisible, :1139 lignes de base
+                # qui ne separent pas, :1147 aucune paire lisible dans la
+                # parenthese, :1170 calibre mais aucune paire consecutive) --
+                # et le journal de production n'en portait que le NOM. Mesure,
+                # 2026-09-21: 5 declins de ce jeton sur le corpus produit, dont
+                # un remplissage maitre de ~102 s, ET AUCUNE CHAINE `evidence`
+                # nulle part -- donc aucun moyen de savoir lequel des quatre a
+                # tire. C'est la cinquieme regle de BRIEF_COMMON: *"je n'ai pas
+                # pu mesurer" et "ce fichier est inverifiable" sont deux
+                # reponses differentes*. La distinction EXISTE deja dans le
+                # dict rendu; elle n'atteignait simplement jamais le journal.
+                "frame_tier_declined_evidence": (
+                    piece["frame_tier"].get("evidence")
+                    if piece.get("frame_tier") and piece["frame_tier"].get("declined")
+                    else None),
                 # SIMILARITY/MARGIN -- REGION A's CARRIER INTO THE PLAN
                 # (dev-tiergate mission, 2026-09-16). `frame_compare.py`
                 # computes both on every interior result it does not
