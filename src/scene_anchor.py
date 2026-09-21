@@ -172,6 +172,27 @@ VALIDATION_FRAME_LADDER = (MIN_VALIDATION_FRAMES, 4, 6, 9, 13)
 # merely close enough to confirm a shift.
 ANCHOR_HAMMING_THRESHOLD_DEFAULT = 6
 
+# SUSTAINED DISAGREEMENT, NOT A SINGLE FRAME (dev-step7-sweep, 2026-09-21,
+# owner order, real-media finding). MEASURED on real production media
+# (bracket step_ms=-64.55, sub-quantum, the smallest of a 4-bracket real
+# sample): the forward sweep stopped at master frame 8753 on a single
+# Hamming=30 mismatch, while frames 8755-9070 under the SAME before_shift
+# hypothesis matched cleanly almost everywhere (re-verified against the
+# code's own extraction, not asserted) -- one or two noisy pHash frames
+# were read as a structural cut. Compare brackets whose divergence is
+# REAL: Hamming stays saturated (30-38) for 4+ CONSECUTIVE frames at every
+# genuine cut measured in the same sample. The value mirrors
+# `MIN_VALIDATION_FRAMES` -- the owner's own ">= 3 consecutive frames" is
+# already the project's standard for "this is not noise," applied here to
+# the sweep's STOPPING decision instead of only to anchor establishment.
+# Fixes the false-positive-width case (a blip inside otherwise-matching
+# content); does NOT and cannot fix a genuine cut being reported wider
+# than its truest extent (a different, harder problem -- the sweep still
+# never re-probes past a CONFIRMED sustained divergence to look for
+# matching resuming further in; that is a search-strategy question, not
+# a noise-tolerance one, and stays open, reported separately).
+SWEEP_SUSTAINED_MISMATCH_FRAMES = MIN_VALIDATION_FRAMES
+
 # NAMED, NOT AN ANONYMOUS REPEATED SUBTRACTION (Lead's ruling, 2026-09-21,
 # on a measured finding: the candidate window used to get `window_frames`
 # subtracted/added a SECOND time on top of the master window's own
@@ -1141,25 +1162,45 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
 
     # CROSS-SWEEP: forward from A under before_shift, backward from B
     # under after_shift, each capped at the other anchor so neither sweep
-    # can run past its partner.
+    # can run past its partner. STOPS ON SUSTAINED DISAGREEMENT, NOT A
+    # SINGLE FRAME (dev-step7-sweep, 2026-09-21, owner order): a lone
+    # mismatch inside an otherwise-matching run is tolerated -- the sweep
+    # does not bank it as an advance (a genuinely unmatched frame is not
+    # silently counted as matching) but it is not accepted as THE boundary
+    # either until `SWEEP_SUSTAINED_MISMATCH_FRAMES` consecutive frames
+    # disagree. `split_start_master`/`split_end_master` land on the LAST
+    # frame actually confirmed matching, one step before whichever run of
+    # mismatches triggered the stop -- identical to the old single-frame
+    # rule whenever the true divergence is sustained from its first frame
+    # (measured: brackets whose Hamming stays saturated for 4+ frames stop
+    # in exactly the same place either way), and different only when the
+    # first mismatch was noise the old rule had no way to see past.
     split_start_master = anchor_a
+    consecutive_mismatches = 0
     for m_frame in range(anchor_a, anchor_b):
         c_frame = m_frame + before_shift
         if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
                          threshold) is True:
             split_start_master = m_frame + 1
+            consecutive_mismatches = 0
         else:
-            break
+            consecutive_mismatches += 1
+            if consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES:
+                break
     split_start_candidate = split_start_master + before_shift
 
     split_end_master = anchor_b
+    consecutive_mismatches = 0
     for m_frame in range(anchor_b - 1, anchor_a - 1, -1):
         c_frame = m_frame + after_shift
         if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
                          threshold) is True:
             split_end_master = m_frame
+            consecutive_mismatches = 0
         else:
-            break
+            consecutive_mismatches += 1
+            if consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES:
+                break
     split_end_candidate = split_end_master + after_shift
 
     # CROSSING (dev-step7-sweep, 2026-09-21): a MEASUREMENT this function
