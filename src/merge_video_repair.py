@@ -597,31 +597,17 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         # ce qui est un troisieme fait et pas un defaut de journal.
         marked = getattr(error, "undelivered_path", None)
         if marked != None:
+            # `durable=` RETIRE (vmsam-lead, 2026-09-21): depuis que le
+            # magasin durable n'existe plus, `undelivered_durable` ne peut
+            # plus rendre que `False` -- un champ a une seule valeur possible
+            # est le meme defaut de champ inerte qu'un champ jamais rempli,
+            # sous un autre angle. `state=`/`path=`/`in_place=` restent: ils
+            # portent la DECISION du refus et ou le produit refuse se trouve,
+            # ce que la ruling de l'Architect preserve explicitement.
             tools.logs.append(
                 f"repair: undelivered state={getattr(error, 'undelivered_state', 'unnamed')} "
-                # DURABLE OU EPHEMERE. `path=` seul ne les distingue pas -- les
-                # deux sont des chemins plausibles et un seul survit a la
-                # prochaine recreation du conteneur. `false` veut dire soit
-                # qu'aucun magasin n'est configure, soit que le deplacement a
-                # echoue, et la seconde cause est ecrite en clair par
-                # `move_to_durable_store` plutot que devinee ici.
-                # `durable=` EST EMIS SUR CHAQUE REFUS, Y COMPRIS LES REUSSITES.
-                # Exigence de ci et sa raison est la notre: si le champ
-                # n'apparaissait qu'en cas d'echec, son ABSENCE voudrait dire
-                # soit que l'ecriture a reussi, soit que la ligne precede ce
-                # changement, soit que le journal a ete tronque -- et ce serait
-                # encore compter l'absence d'un champ comme une valeur, apres
-                # l'avoir fait a un champ, une ligne, un jeton de nom de fichier,
-                # un ensemble d'artefacts preserves, un recu et un remote git.
-                #
-                # SUR `true` LE CHEMIN EST CELUI DE LA DESTINATION, ce qui permet
-                # a ci de joindre cette ligne a sa ligne de registre sans
-                # deviner. Sur `false` c'est le chemin EPHEMERE, parce que la
-                # c'est le seul qui existe -- et `in_place=` le repete pour que
-                # les deux branches se lisent sans savoir laquelle on regarde.
-                f"durable={bool(getattr(error, 'undelivered_durable', False))} "
                 f"path={marked} "
-                f"{'' if getattr(error, 'undelivered_durable', False) else 'in_place=' + str(getattr(error, 'undelivered_in_place', 'unreported')) + ' '}"
+                f"in_place={getattr(error, 'undelivered_in_place', 'unreported')}"
                 .rstrip() + "\n")
         raise
 

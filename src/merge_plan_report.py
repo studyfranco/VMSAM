@@ -933,7 +933,6 @@ def parse_job_log(text):
         "refused": [],
         "declined": None,
         "failed": None,
-        "undelivered": None,
         "build": None,
         "sources": None,
         "unparsed": [],
@@ -1233,21 +1232,16 @@ def parse_job_log(text):
             continue
 
         if body.startswith("undelivered "):
-            # PAR NOM: `state=` et `path=`. Et SON ABSENCE EST UN TROISIEME FAIT
-            # et pas une ligne manquante -- elle n'est emise que si un fichier a
-            # ete marque, donc pas de ligne veut dire QU'AUCUN ARTEFACT
-            # N'EXISTAIT a marquer: la levee est arrivee avant le mux.
-            fields = split_fields(body[len("undelivered "):])
-
-            # BALAYAGE, PAS RUSTINE. dev-2: "diagnostiquer cette classe produit
-            # une PHRASE, et une phrase n'enumere pas ses instances". J'avais
-            # nomme le defaut sur la ligne TRACK, corrige UNE instance, et il
-            # en restait CINQ. Enumerees mecaniquement, puis MESUREES: une seule
-            # laissait reellement tomber un champ emis aujourd'hui
-            # (`dropped_segments` sur la ligne de plan). Les cinq sont corrigees
-            # quand meme -- le defaut est structurel, pas la valeur du jour.
-            job["undelivered"] = dict(fields)
-            job["undelivered"]["path"] = _basename(fields.get("path"))
+            # RECOGNISED, AND DISCARDED ON PURPOSE. The durable store this line
+            # used to feed is gone (owner, 2026-09-21: "je ne veux pas que l'app
+            # serve de tests"), and this report renders no row from it any more
+            # -- but `merge_video_repair.py` still emits the line itself
+            # (`state=`/`path=`/`in_place=`, the refusal-decision fields the
+            # ruling keeps), so it still reaches this reader. An unrecognised
+            # `repair: ` prefix below means "the READER fell behind the
+            # emitter", never "the artefact is wrong" -- so this prefix stays
+            # recognised, `continue`d without a row, rather than falling into
+            # that alarm on every single refusal from now on.
             continue
 
         if body.startswith("DECLINED"):
@@ -3058,18 +3052,6 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                          reason=job["failed"],
                          note="a TOOL FAULT escaped before any verdict existed. "
                               "Not a decision about the media: nobody decided"))
-    if job.get("undelivered"):
-        rows.append(_row("UNDELIVERED", _redactor=redactor,
-                         state=job["undelivered"]["state"],
-                         file_local_only=job["undelivered"]["path"],
-                         note="REFUSED = the gate decided against it. NOVERDICT "
-                              "= nobody decided. The artefact exists on disk "
-                              "under this name and is NOT counted as produced"))
-    elif job.get("failed") or job.get("declined"):
-        rows.append(_row("UNDELIVERED", _redactor=redactor, state=NOT_EXERCISED,
-                         note="no `undelivered` line: no artefact existed to "
-                              "mark, so the raise came before the mux. An "
-                              "absence here is a THIRD fact, not a missing line"))
     if job.get("declined"):
         # LE VERDICT EN PREMIER, pas en fin de liste: ce rapport decrit
         # normalement un FICHIER PRODUIT, et ici il n'y en a pas.

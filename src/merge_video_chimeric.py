@@ -3185,7 +3185,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                    else OUTPUT_NO_VERDICT)
         error.undelivered_state = marking[0]
         error.undelivered_path, error.undelivered_durable = mark_output(
-            out_path, marking, stable_case_key(candidate_obj.filePath))
+            out_path, marking)
         error.undelivered_in_place = out_path
         # L'ASSEMBLAGE PARTIEL VOYAGE AVEC LE REFUS, ET C'EST LE DRAPEAU LEVE QUI
         # REND CETTE LIGNE NECESSAIRE.
@@ -3693,7 +3693,7 @@ OUTPUT_NO_VERDICT = ("NOVERDICT", "NOBODY decided -- a tool fault escaped before
                                   "any verdict existed")
 
 
-def mark_output(out_path, marking, case_key=None):
+def mark_output(out_path, marking):
     """Renomme un artefact non livre en `<nom>.<JETON>.<ext>` et rend le chemin.
 
     Rend `None` si le fichier a disparu ou si le renommage echoue -- et le
@@ -3707,6 +3707,13 @@ def mark_output(out_path, marking, case_key=None):
     dans KEEP, ou il compterait comme produit par lui, par `vmsam-forensic` et
     par le registre de `vmsam-dev-4`. Le fichier reste ouvrable et se repere par
     un motif de NOM et non par une convention de CHEMIN.
+
+    L'ARTEFACT RESTE SUR PLACE, dans l'arborescence ephemere du conteneur --
+    plus de deplacement vers un magasin durable (owner, 2026-09-21: "je ne
+    veux pas que l'app serve de tests"). Le SECOND membre du couple rendu
+    reste `False` sans condition, pas par simplification: l'appelant
+    (`merge_video_repair.py`) le deballe encore en `undelivered_durable` et ce
+    n'est plus une question, seulement une constante qui dit "jamais deplace".
     """
     token, why = marking
     if not path.exists(out_path):
@@ -3723,99 +3730,7 @@ def mark_output(out_path, marking, case_key=None):
     sys.stderr.write(f"repair: the artefact was renamed to *.{token}{extension} "
                      f"-- {why} -- so it is inspectable and NOT counted as "
                      f"produced\n")
-    # REND AUSSI *OU* IL A ATTERRI. `path=` seul ne distingue pas un artefact
-    # sauve d'un artefact reste dans l'ephemere: les deux sont des chemins
-    # plausibles, et seul l'un des deux survivra a la prochaine recreation.
-    # `durable=` est un champ que le balayage de ci peut COMPTER.
-    final = move_to_durable_store(marked, token, case_key)
-    return final, final != marked
-
-
-# OU VIT UN ARTEFACT NON LIVRE APRES LA FIN DU CONTENEUR.
-#
-# Le renommage etait correct et le FICHIER MOURAIT QUAND MEME: il reste sous
-# `/tmp/gestionar_show_<demarrage-du-conteneur>/...`, donc CHAQUE RECREATION
-# DETRUIT TOUS LES ARTEFACTS REFUSES DEPUIS LA PRECEDENTE. `vmsam-ci` recree sur
-# les lots de promotion du Lead, donc LE RYTHME DE PERTE DE PREUVES EST FIXE PAR
-# LA CADENCE D'EXPEDITION. Sa recreation de 21:18Z a emporte l'artefact de
-# l'id 31 -- une reparation qui avait REFUSE SON PROPRE PLAN apres avoir mesure
-# la piste produite contre lui.
-#
-# ci a fait sa moitie -- second balayage, second repertoire, `declined_by_gate`
-# et `unadjudicated` comme deux jetons -- mais son balayage s'enracine sur le
-# disque partage et CES FICHIERS N'Y SONT JAMAIS. SEUL LE PRODUCTEUR PEUT LES
-# METTRE QUELQUE PART QUI SURVIT.
-#
-#   UN FICHIER REFUSE ET UN FICHIER JAMAIS PRODUIT SONT INDISCERNABLES UNE FOIS
-#   L'ARTEFACT DISPARU.
-#
-# LE DEFAUT RESTE `None` = SUR PLACE, donc ce changement n'a AUCUN effet tant
-# que personne ne pose la racine. La destination appartient a ci: c'est lui qui
-# sait quelle racine son SECOND balayage regarde et laquelle son balayage
-# PRINCIPAL ne doit pas voir -- il a mesure que remonter d'un cran y ferait
-# entrer 509 fichiers d'autres agents. Un artefact refuse ne doit JAMAIS compter
-# comme produit.
-UNDELIVERED_STORE_ENV = "VMSAM_UNDELIVERED_ROOT"
-
-# LA RACINE, NOMMEE PAR `vmsam-ci` APRES L'AVOIR TESTEE PLUTOT QUE LUE.
-#
-#   /config/output/undelivered/    le PRODUCTEUR ecrit ici
-#   /config/output/DECLINED/       le SECOND balayage de ci lie en dur ICI
-#
-# ET PAS DANS `DECLINED/`: c'est la SORTIE de son balayage et il l'elague, donc
-# ce que j'y ecrirais serait saute et n'aurait jamais de ligne de registre. La
-# separation est le point: mon fichier reste supprimable, son lien survit.
-#
-# ET SURTOUT PAS SOUS `/config/output/srv`: c'est la racine de son balayage
-# PRINCIPAL, dont la liste de motifs contient deja `*.REFUSED.*`. Rien ne serait
-# MAL COMPTE -- il serait classe `declined_by_gate` et exclu des comptes de
-# production -- mais il se trouverait dans le repertoire ou trois agents comptent
-# des fichiers, et ci prefere qu'il n'y arrive jamais plutot que de dependre
-# d'une colonne de classe pour rester honnete.
-UNDELIVERED_STORE_DEFAULT = "/config/output/undelivered"
-
-# QUI A OBSERVE LE REFUS, DANS LE NOM, TOUJOURS.
-#
-# `vmsam-ci` recevra un SECOND conteneur -- `showgestionar-test2` -- des la
-# prochaine mise a jour. Il n'existe pas encore, et ci l'a ecrit dans son propre
-# registre avec la date, parce que "j'ai deux conteneurs" est une capacite fausse
-# tant que la mise a jour n'est pas la.
-#
-# LA COLLISION QUE CA CREE, ET ELLE VIENT DE CE QUE J'AI FAIT DE JUSTE:
-# `stable_case_key` ne depend QUE du cas, ce qui empeche un meme refus de
-# ressembler a un artefact neuf apres chaque recreation. Avec DEUX conteneurs, un
-# meme cas refuse UNE FOIS et observe par les deux atterrit au meme `case_key` --
-# et le suffixe anti-ecrasement `.1` le fait ressembler a DEUX refus.
-#
-#   C'EST `absent n'est jamais zero` A L'ENVERS: un compte GONFLE par un
-#   OBSERVATEUR, la ou nous avons passe la nuit sur des comptes deflates par un
-#   silence. Et c'est invisible dans un listing: `.1` est exactement ce a quoi
-#   ressemble un vrai second refus.
-#
-# LE JETON DE L'OBSERVATEUR EST DONC DANS LE NOM ET NON DANS LE CHEMIN. Le chemin
-# aurait fragmente le cas entre deux repertoires; le nom garde le `case_key`
-# comme seul lieu du cas, laisse `*.REFUSED.*` apparier a n'importe quelle
-# profondeur, et rend l'ordinal a son sens d'origine -- UN VRAI SECOND REFUS PAR
-# LE MEME OBSERVATEUR.
-#
-# ET QUAND ON NE PEUT PAS LE DETERMINER, LE NOM LE DIT. `unknown-observer` plutot
-# que rien: un jeton omis rendrait les deux mondes indiscernables, ce qui est la
-# faute que ce champ existe pour empecher.
-UNDELIVERED_OBSERVER_ENV = "VMSAM_CONTAINER_NAME"
-
-
-def observing_container():
-    """Le nom du conteneur qui a observe ce refus, ou `unknown-observer`.
-
-    `HOSTNAME` en repli: sous Docker c'est l'identifiant du conteneur, donc deux
-    conteneurs se distinguent meme sans configuration explicite. Un
-    `unknown-observer` dans un nom de fichier est une question posee au lecteur;
-    son absence n'en serait pas une.
-    """
-    name = (os.environ.get(UNDELIVERED_OBSERVER_ENV)
-            or os.environ.get("HOSTNAME") or "").strip()
-    safe = "".join(c if (c.isalnum() or c in "-_") else "-" for c in name)
-    return safe or "unknown-observer"
+    return marked, False
 
 
 def stable_case_key(candidate_path):
@@ -3834,59 +3749,6 @@ def stable_case_key(candidate_path):
     """
     import hashlib
     return hashlib.md5(candidate_path.encode()).hexdigest()[:16]
-
-
-def move_to_durable_store(marked, token, case_key):
-    """Deplace un artefact marque vers un stockage qui survit au conteneur.
-
-    Rend le chemin final -- celui du magasin si le deplacement a reussi, sinon
-    celui d'origine. NE LEVE JAMAIS: l'appelant est deja en train de lever un
-    refus, et remplacer une raison de troncature par une OSError de disque
-    detruirait la seule information que le declin porte. On rapporte les deux.
-
-    ON N'ECRASE JAMAIS. Si le nom existe deja au magasin, on suffixe -- deux
-    refus du meme candidat sont deux preuves et pas une correction. Ecraser
-    detruirait exactement ce que ce magasin existe pour garder.
-
-    `shutil.move` ET NON `os.replace`: le magasin est sur un AUTRE systeme de
-    fichiers que le `/tmp` du conteneur, et `os.replace` rend `EXDEV` par-dessus
-    une frontiere de montage. C'est precisement le cas normal ici.
-    """
-    root = os.environ.get(UNDELIVERED_STORE_ENV) or UNDELIVERED_STORE_DEFAULT
-    try:
-        import shutil
-        # NICHE SOUS LA CLE DU CAS. ci: la classification doit vivre dans le NOM
-        # -- il apparie `*.REFUSED.*` et `*.NOVERDICT.*` A N'IMPORTE QUELLE
-        # PROFONDEUR -- et le chemin ne contribue que l'UNICITE. Nicher ne viole
-        # donc pas la regle du nom, et cela resout la collision de deux refus du
-        # meme nom de base sans que j'aie a la resoudre.
-        directory = path.join(root, case_key) if case_key else root
-        tools.make_dirs(directory)
-        # `<nom>.<observateur>.<JETON>.<ext>`: le jeton reste AVANT l'extension,
-        # comme ci l'a demande, et l'observateur se glisse devant lui.
-        stem, extension = path.splitext(path.basename(marked))
-        stem, token_part = path.splitext(stem)
-        target = path.join(directory,
-                           f"{stem}.{observing_container()}{token_part}{extension}")
-        attempt = 0
-        while path.exists(target):
-            attempt += 1
-            base, extension = path.splitext(path.basename(target))
-            target = path.join(directory, f"{base}.{attempt}{extension}")
-        shutil.move(marked, target)
-        sys.stderr.write(f"repair: the {token} artefact was moved to durable "
-                         f"storage at {target}\n")
-        return target
-    except Exception as error:
-        # UN MAGASIN INDISPONIBLE DEGRADE VERS LE COMPORTEMENT D'AUJOURD'HUI ET
-        # LE DIT. Silencieusement, ce serait un disque plein qui redevient une
-        # perte de preuves sans que rien ne l'ecrive.
-        sys.stderr.write(f"repair: the {token} artefact could NOT be moved to "
-                         f"durable storage and stays in the container's "
-                         f"ephemeral tree: {error}\n")
-        tools.logs.append(f"repair: undelivered_store_failed token={token} "
-                          f"reason={type(error).__name__}\n")
-        return marked
 
 
 def verify_output_file(out_path, master_duration_ms, audio_reports,
