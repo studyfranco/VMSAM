@@ -172,22 +172,43 @@ WINDOW_LADDER_MAX_RUNGS = 3
 # Which decline reasons mean "the window was the limiting factor" and are
 # therefore worth a wider rung, versus a reason widening cannot fix
 # (Architect's own vocabulary, this file's `locate_scene_anchors` decline
-# payloads): `grid_unmeasured`/`empty_bracket`/`search_window_unviable` are
-# input/config problems a wider window does not touch;
-# `frames_unextractable` is an I/O failure a wider window only makes
-# larger; `cross_sweep_refuted`/`anchor_step_unavailable`/
+# payloads): `grid_unmeasured`/`empty_bracket` are input problems a wider
+# window does not touch; `frames_unextractable` is an I/O failure a wider
+# window only makes larger; `cross_sweep_refuted`/`anchor_step_unavailable`/
 # `anchor_step_inconsistent` are established-anchor failures downstream of
 # the window entirely (dev-step7-sweep's own domain, confirmed with them
 # directly, 2026-09-21: their logic sits inside this same call, strictly
 # after anchors are already found, and `cross_sweep_refuted` is explicitly
 # EXCLUDED here so their own escalation, if the Lead rules for one, is not
-# pre-empted by mine). Only `anchors_not_established` (no seed validated
-# at all) and `anchor_uninformative` (a seed validated but every one
-# failed the distinctiveness probe) are retried -- both are exactly the
-# shape of "nothing to work with in this window, or only self-similar
-# content in it," which a wider window can plausibly change.
+# pre-empted by mine).
+#
+# `search_window_unviable` VS `search_window_too_narrow` -- SPLIT, NOT ONE
+# TOKEN (Lead's ruling, 2026-09-21, on a real disagreement between this
+# seat and dev-step7-sweep that turned out to be two people right about
+# two different shapes hiding under one name): the pre-split decline site
+# tested THREE conditions under ONE reason -- `window_sec is None`,
+# `window_sec <= 0`, and `window_frames < MIN_VALIDATION_FRAMES` -- but
+# only the third is a "the window was too small" claim. The first two are
+# "the configuration cannot be interpreted as a window at all," and
+# doubling does not help either: `None * WINDOW_LADDER_GROWTH_FACTOR`
+# does not evaluate, `0 * WINDOW_LADDER_GROWTH_FACTOR` is still `0`, and a
+# negative value only moves further from viable. So:
+#   `search_window_unviable`    None or <= 0 -- TERMINAL, config problem
+#   `search_window_too_narrow`  valid, positive, under the frame floor --
+#                               RETRYABLE, a wider rung can plausibly clear it
+# Same defect this campaign has now found five times under five names
+# (could-not-measure sharing a return value with measured-and-found-
+# nothing) -- here it was a decline REASON standing for two different
+# claims rather than a threshold or a count.
+#
+# `anchors_not_established` (no seed validated at all) and
+# `anchor_uninformative` (a seed validated but every one failed the
+# distinctiveness probe) are retried for the same reason as
+# `search_window_too_narrow`: both are exactly the shape of "nothing to
+# work with in this window, or only self-similar content in it," which a
+# wider window can plausibly change.
 WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
-    {"anchors_not_established", "anchor_uninformative"})
+    {"anchors_not_established", "anchor_uninformative", "search_window_too_narrow"})
 
 
 def _scene_anchor_config():
@@ -615,6 +636,153 @@ def _check_anchor_ordering(anchor_a, anchor_b):
     return False, None
 
 
+# DECLINE TAXONOMY (dev-step7-sweep, 2026-09-21, per the Lead's ruling on
+# the owner's ladder order: "if anchor are not the same ... increase the
+# number" -- a failed rung must know whether widening could plausibly
+# change its own answer, or whether it is re-running an already-fixed
+# computation at N times the cost). Covers every `reason`
+# `_locate_scene_anchors_at_window` can return. dev-step4-extract's own
+# `WINDOW_LADDER_RETRYABLE_REASONS` above is value-identical to the
+# RETRYABLE set below (confirmed directly, 2026-09-21) -- this function is
+# offered as the single source of truth for whoever's ladder consumes it
+# next; not force-adopted into their already-shipped loop unasked.
+#
+#   RETRYABLE          widening scene_search_window_sec (more readable
+#                       frames, more candidate seeds) could plausibly
+#                       change this outcome.
+#   TERMINAL            MEASURED, not assumed, to be independent of this
+#                       module's own window parameter -- see the per-reason
+#                       note below. Retrying is not a second measurement.
+#   CANNOT_DETERMINE    no reason of this module's own falls here today;
+#                       kept so an unrecognised future reason fails
+#                       EXPLICITLY rather than being silently folded into
+#                       either bucket (BRIEF_COMMON rule 5's distinction,
+#                       one level up: "unknown" and "known-not-retryable"
+#                       are different facts).
+DECLINE_RETRY_CLASS = {
+    # Pre-anchor input/config defects. A wider window cannot repair a bad
+    # frame-rate grid or a Stage-1 bracket that is already empty; listed
+    # for completeness of this function's whole reason vocabulary.
+    "grid_unmeasured": "TERMINAL",
+    "empty_bracket": "TERMINAL",
+    # CORRECTED (dev-step7-sweep, 2026-09-21, catching an error
+    # dev-step4-extract's own read found): this single token covers THREE
+    # different shapes at the decline site
+    # (`_locate_scene_anchors_at_window`, `window_sec is None or
+    # window_sec <= 0 or window_frames < MIN_VALIDATION_FRAMES`), and only
+    # ONE of them is fixable by widening. `window_sec is None` (an
+    # unparseable config value, `_scene_anchor_config`'s own contract) and
+    # `window_sec <= 0` (a literal zero/negative setting) are config
+    # DEFECTS, not narrow searches -- doubling `None` stays `None`,
+    # doubling a non-positive number never crosses into positive. Only
+    # `window_sec` being a valid, small POSITIVE value whose
+    # `window_frames` still falls under the floor is genuinely retryable.
+    # Marking the WHOLE token RETRYABLE (an earlier revision of this
+    # table did) means a malformed-config decline burns every rung before
+    # failing, AND its ceiling-reached report BURIES the sharper "someone
+    # typo'd config.ini" diagnosis one level down in the evidence string
+    # instead of surfacing it as the top-level reason -- the same
+    # token-conflation defect BLANK LAW / INSTRUMENT SCOPE LAW name
+    # elsewhere in tools/RULINGS_IN_FORCE.md. RULED (Lead, 2026-09-21):
+    # split into two tokens, see `WINDOW_LADDER_RETRYABLE_REASONS`'s own
+    # comment above for the full ruling text -- `search_window_unviable`
+    # now means None/<=0 ONLY (config defect, TERMINAL) and
+    # `search_window_too_narrow` means valid-positive-but-under-the-floor
+    # (RETRYABLE). The decline site below is the code half of that ruling
+    # (dev-step7-sweep, same pass: the ruling had landed in the comments
+    # and the frozenset but not yet in the `if` that actually returns the
+    # reason -- `search_window_too_narrow` was unreachable dead vocabulary
+    # until this edit).
+    "search_window_unviable": "TERMINAL",
+    "search_window_too_narrow": "RETRYABLE",
+    # ffmpeg produced no frames at all on one side. A wider window reads a
+    # LARGER span of the SAME unreadable source (same path, same codec,
+    # same failure) -- there is no reason more of the same input becomes
+    # readable. TERMINAL, not RETRYABLE-but-unlikely.
+    "frames_unextractable": "TERMINAL",
+    # Anchor establishment: no seed validated at all, or every validated
+    # seed failed the distinctiveness probe (at every rung of the OTHER,
+    # inner ladder -- dev-step6-phash's VALIDATION_FRAME_LADDER already
+    # widens the frame count per seed before this reason is ever reached).
+    # A wider window changes BOTH the candidate seed set (more
+    # PySceneDetect cuts in range) and the extracted hash range (more
+    # distinctiveness probes become readable instead of returning `None`)
+    # -- the two reasons the owner's order names directly ("if anchor are
+    # not the same, the 10 seconds is not enough").
+    "anchors_not_established": "RETRYABLE",
+    "anchor_uninformative": "RETRYABLE",
+    # DOWNSTREAM OF ANCHORS -- dev-step7-sweep's own domain. All three
+    # PROVEN TERMINAL below, not merely judged unlikely to help:
+    #
+    # `cross_sweep_refuted`: fires ONLY when `_check_anchor_ordering` is
+    # reached, which requires BOTH anchor_a and anchor_b to already be
+    # non-None -- i.e. `_anchor_search` already returned successfully for
+    # both, on its CLOSEST-seed-first, first-match-wins ordering
+    # (docstring above, "Try each seed ... return the first that
+    # validates"). PROVEN UNREACHABLE, not merely rare, at the sole call
+    # site (grepped: one call, right here): `a_seeds_master`'s every
+    # member is filtered `<= m_bracket_first` and `b_seeds_master`'s every
+    # member is filtered `>= m_bracket_last` (the two seed-construction
+    # blocks immediately above this function's own call site), so
+    # whichever seed each search returns, `anchor_a <= m_bracket_first <=
+    # m_bracket_last <= anchor_b` ALWAYS holds (`_frame_index` is
+    # monotonic non-decreasing, and `bracket_high_ms > bracket_low_ms` is
+    # already guaranteed by the `empty_bracket` decline above) --
+    # `anchor_a > anchor_b` cannot occur given the current seed filters,
+    # independent of window size, content, or anything else. CORRECTS the
+    # Architect's 2026-09-21 ruling on this same branch, above ("reachable
+    # in principle, no natural construction found") -- that reading did
+    # not account for the seed-set filters themselves proving the bound;
+    # reported to the Lead/Architect as a measured refutation, not acted
+    # on here (the guard stays: it is not an invariant of
+    # `_check_anchor_ordering` in isolation, only of the CURRENT seed
+    # construction that feeds it, so it remains real defense against a
+    # future change to that construction). Reproduced directly: the same
+    # non-inversion holds under adversarial seed injection at
+    # scene_search_window_sec=1.0 and =10.0 on a bracket built to try to
+    # force it (dev-step7-sweep lab, T6). Production check, n=59
+    # (`scene_anchor_shadow` lines, /config/output, 2026-09-21): zero
+    # occurrences of `cross_sweep_refuted`, consistent with the proof.
+    "cross_sweep_refuted": "TERMINAL",
+    # `anchor_step_unavailable`/`anchor_step_inconsistent`: both come out
+    # of `_check_step_plumbing`, which compares `delta_frames` against the
+    # LOCATOR's OWN `step_ms`/`quantum_ms` -- fields this function receives
+    # as opaque parameters and never computes. PROVEN (not assumed) that
+    # `delta_frames` itself cannot be moved by this module's window
+    # parameter: by construction, `split_start_candidate = split_start_master
+    # + before_shift` and `split_end_candidate = split_end_master +
+    # after_shift` ALWAYS (both the ordinary sweep and the crossed-collapse
+    # branch preserve this), so
+    #   delta_frames = length_candidate - length_master
+    #                = (split_end_candidate - split_start_candidate)
+    #                  - (split_end_master - split_start_master)
+    #                = after_shift - before_shift
+    # identically, for EVERY possible anchor_a/anchor_b/sweep outcome --
+    # this module's own `_check_step_plumbing` docstring already proves the
+    # same identity by 20-case simulation. `step_ms`/`quantum_ms` are
+    # supplied unchanged by the caller (`change_point_locator.py`, not this
+    # module) and are equally untouched by `scene_search_window_sec`. A
+    # wider window changes NEITHER side of the comparison
+    # `_check_step_plumbing` makes, so it cannot change whether it agrees.
+    "anchor_step_unavailable": "TERMINAL",
+    "anchor_step_inconsistent": "TERMINAL",
+}
+
+
+def classify_decline(reason):
+    '''RETRYABLE / TERMINAL / CANNOT_DETERMINE for a `reason`
+    `locate_scene_anchors` can return -- the predicate a retry ladder built
+    OUTSIDE this module (dev-step4-extract's window rungs, which already
+    wrap the whole call) should consult before spending another rung:
+    widen and retry only on RETRYABLE; stop and decline, named, on
+    anything else. Unrecognised reasons return `CANNOT_DETERMINE` rather
+    than silently joining either bucket -- an unclassified reason must be
+    visible as unclassified, not mistaken for a measured verdict either
+    way.
+    '''
+    return DECLINE_RETRY_CLASS.get(reason, "CANNOT_DETERMINE")
+
+
 def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms,
                          offset_before_ms, offset_after_ms,
@@ -747,25 +915,33 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                "evidence": f"[{bracket_low_ms},{bracket_high_ms}] ms"}
 
     frame_ms = 1000.0 * fps_den / fps_num
-    window_frames = int(round((window_sec * 1000.0) / frame_ms)) if window_sec else 0
 
-    # VIABILITY FLOOR (Lead's ruling, 2026-09-21), a NAMED decline BEFORE
-    # PySceneDetect is ever asked to look -- distinct from
-    # `no_scene_change_in_window` ("I looked and found nothing"). Same
-    # shape as this morning's `pal_saturation_screen` fix: a bound that
-    # could go non-positive at a short enough setting makes a guard that
-    # could never NOT fire. Below this floor the window cannot even
-    # structurally hold the >= MIN_VALIDATION_FRAMES margin either
-    # direction needs to validate an anchor at all. NOT in
-    # `WINDOW_LADDER_RETRYABLE_REASONS` (below): a rung this narrow is a
-    # config problem the ladder's growth factor is not a remedy for by
-    # itself at rung 0, and the ladder does not multiply a value it has
-    # not first confirmed is a real, positive number (`locate_scene_anchors`
-    # checks that once, before any rung, so this branch here only ever
-    # fires from an explicit caller-supplied `window_sec` that skipped
-    # that gate).
-    if window_sec is None or window_sec <= 0 or window_frames < MIN_VALIDATION_FRAMES:
+    # CONFIGURATION VS SIZE -- SPLIT, NOT ONE TOKEN (Lead's ruling,
+    # 2026-09-21, on a real disagreement this seat and dev-step7-sweep
+    # each got half right: see `WINDOW_LADDER_RETRYABLE_REASONS`'s own
+    # comment for the full argument). `None`/`<= 0` means the
+    # configuration cannot be read as a window AT ALL -- doubling does
+    # not help (`None * growth` does not evaluate, `0 * growth` is still
+    # `0`, negative only moves further away) -- TERMINAL, checked and
+    # returned BEFORE `window_frames` is even computed, so this branch
+    # never depends on a value it has just declined.
+    if window_sec is None or window_sec <= 0:
         return {"declined": True, "reason": "search_window_unviable",
+               "evidence": f"scene_search_window_sec={window_sec}"}
+
+    # STRUCTURAL FLOOR, a DIFFERENT claim (Lead's ruling, 2026-09-21), a
+    # NAMED decline BEFORE PySceneDetect is ever asked to look -- distinct
+    # from `no_scene_change_in_window` ("I looked and found nothing").
+    # Same shape as this morning's `pal_saturation_screen` fix: a bound
+    # that could go non-positive at a short enough setting makes a guard
+    # that could never NOT fire. `window_sec` here is already confirmed a
+    # real, positive number (the branch above returned otherwise) -- this
+    # is genuinely "too small," not "not a number," and the ladder's
+    # growth factor is exactly the plausible remedy: RETRYABLE, in
+    # `WINDOW_LADDER_RETRYABLE_REASONS`.
+    window_frames = int(round((window_sec * 1000.0) / frame_ms))
+    if window_frames < MIN_VALIDATION_FRAMES:
+        return {"declined": True, "reason": "search_window_too_narrow",
                "evidence": f"scene_search_window_sec={window_sec} -> "
                           f"{window_frames} frames, needs >= "
                           f"{MIN_VALIDATION_FRAMES}"}
@@ -898,7 +1074,18 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
             break
     split_end_candidate = split_end_master + after_shift
 
-    if split_end_master < split_start_master:
+    # CROSSING (dev-step7-sweep, 2026-09-21): a MEASUREMENT this function
+    # used to take and then discard -- the collapse below fired on it, but
+    # neither a return field nor the evidence string ever said so, so a
+    # crossed bracket and a bracket that was naturally zero-width from the
+    # first frame were INDISTINGUISHABLE to any caller or log reader
+    # (Lead's finding, reading this block). Recorded BEFORE the collapse
+    # overwrites the pre-collapse values, so the overshoot amount survives
+    # into the evidence even though the shipped boundary does not use it.
+    sweep_crossed = split_end_master < split_start_master
+    pre_collapse_start_master = split_start_master
+    pre_collapse_end_master = split_end_master
+    if sweep_crossed:
         # The two sweeps crossed -- forward-from-A matched further into
         # the bracket than backward-from-B did, meaning there is no
         # unmatched interior left for either hypothesis to own. This is
@@ -969,6 +1156,13 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         "net_kind": net_kind,
         "frames_to_cut": max(0, length_candidate - length_master),
         "frames_to_fill": max(0, length_master - length_candidate),
+        # REPORTED, NOT ONLY HANDLED (dev-step7-sweep, 2026-09-21): whether
+        # the collapse above fired, and the two pre-collapse frame numbers
+        # it discarded -- without this a crossed bracket and a bracket that
+        # was zero-width from its first frame return an IDENTICAL payload
+        # (same master_start_frame == master_end_frame), and nobody reading
+        # the result, then or later, can tell which one happened.
+        "sweep_crossed": sweep_crossed,
         "derived_ms": {
             "master_start_ms": f"{round(float(_exact_ms_from_frame(split_start_master, fps_num, fps_den)), 2)}",
             "master_end_ms": f"{round(float(_exact_ms_from_frame(split_end_master, fps_num, fps_den)), 2)}",
@@ -979,7 +1173,11 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                     f"master_detector_failed={master_cuts_failed} "
                     f"candidate_cuts={len(candidate_cuts_seeds)} "
                     f"candidate_detector_failed={candidate_cuts_failed} "
-                    f"length_master={length_master} "
+                    f"sweep_crossed={sweep_crossed}"
+                    + (f" pre_collapse_forward={pre_collapse_start_master} "
+                       f"pre_collapse_backward={pre_collapse_end_master}"
+                       if sweep_crossed else "")
+                    + f" length_master={length_master} "
                     f"length_candidate={length_candidate} "
                     f"{plumbing_evidence}"),
     }
