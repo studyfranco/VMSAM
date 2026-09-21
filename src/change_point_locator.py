@@ -2278,32 +2278,98 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         # narrowed at all rather than of narrowing badly. A rupture found by
         # V[i] hands Stage 2 a bracket one fingerprint step wide instead.
         #
-        # ON A DECLINE THE OLD PATH RUNS UNCHANGED. `rupture_found` is the only
-        # verdict that replaces anything; `unreliable_degenerate_input`,
-        # `window_below_detection_floor`, `no_rupture_found` and
-        # `rupture_found_offsets_unavailable` all fall through to the probe
+        # ON A DECLINE THE OLD PATH RUNS UNCHANGED. `unreliable_degenerate_input`
+        # and `window_below_detection_floor` still fall through to the probe
         # bisection exactly as before, and so does any exception -- this stage
         # is allowed to decline, never to break a merge it only refines.
+        #
+        # ESCALATION LADDER (dev-step3-vector, per BRIEF's own order: "when
+        # the bracket does not yield ... the window and the point count are
+        # the dials that widen"). MEASURED on real media, ground truth known
+        # independently of this code (VMSAM_HELP_AI/dev-step3-vector/lab/
+        # arm_a_real_media.py, corpus-C-structural-cut/synth-cut): the
+        # NOMINAL region [before.last, after.first] read `no_rupture_found`
+        # on a real, unambiguous cut, because the true divergence sat AT the
+        # region's own edge -- the post-cut content the sliding window needs
+        # to see the drop was simply outside the probed span. Widening
+        # forward by one PROBE_WINDOW_SECONDS (content already confirmed to
+        # belong to the `after` run, since that span is the extent its own
+        # last member's probe window covered -- never past a neighbour's own
+        # confirmed extent) turned the SAME call into a rupture found with
+        # i_cut landing 0.03-0.6 s from the independently-known cut position
+        # -- tighter than the old bisection's 12 s bracket on the same pair.
+        # Each rung also sweeps `window_points` between the sensitivity end
+        # (3, the default) and the smoothing end (5) of SPEC_ZONE_A s3c's own
+        # named range, in case a marginal, noisy single-point dip needs the
+        # wider average to read as a genuine crossing rather than a
+        # borderline one.
+        #
+        # `rupture_found_offsets_unavailable` counts as a usable narrowing
+        # here, not only `rupture_found`: the two verdicts differ ONLY in
+        # whether the flanking-plateau lookup found a clean pair for the
+        # offset_before/offset_after PROVENANCE fields -- `i_cut` and the
+        # bracket itself are populated identically in both. That lookup
+        # structurally straddles whenever the gap between plateaus is
+        # narrower than PROBE_WINDOW_SECONDS (60 s), which is most real
+        # transitions by the coarse scan's own design (PROBE_STEP_SECONDS 40
+        # < PROBE_WINDOW_SECONDS 60, "so no transition can fall between two
+        # probes unobserved") -- requiring strict `rupture_found` would make
+        # this ladder inert on exactly the population it exists for.
+        # zone_similarity_vector's own `offset_before`/`offset_after` fields
+        # are not read anywhere below or downstream: `step_ms` is computed
+        # from the coarse runs' own `mean` unconditionally, and
+        # merge_video_chimeric.py has zero references to `offset_before_ms`/
+        # `offset_after_ms` (grepped) -- so accepting the bracket without
+        # that (unread) provenance costs no consumer anything.
         _zsv_verdict = None
         low = high = narrowed = discarded = probes = None
         _region_start = float(before["last"])
         _region_end = float(after["first"])
-        _region_seconds = _region_end - _region_start
-        if _region_seconds > 0:
-            try:
-                _zsv = zone_similarity_vector.locate_zone_by_vector(
-                    master_path, reference_stream, candidate_path, primary_stream,
-                    _region_start, _region_seconds, work_dir, comparison_grid_hz,
-                    before["members"] + after["members"],
-                    fps_num=None, fps_den=None, tag=f"zsv_{position}")
-                _zsv_verdict = _zsv["verdict"]
-                if _zsv_verdict == "rupture_found":
-                    low = _region_start + _zsv["bracket_low_ms"] / 1000.0
-                    high = _region_start + _zsv["bracket_high_ms"] / 1000.0
+        _members = before["members"] + after["members"]
+        # HELD, 2026-09-21 (dev-step3-vector, after the Lead + Architect caught a
+        # containment defect neither the author nor the reviewer had checked
+        # for): a real-media measurement found the bracket this ladder emits
+        # does NOT reliably CONTAIN the true cut -- chromaprint's own smoothing
+        # turns a real edit into a ~1.5-2s ramp, and the single-point 0.50
+        # crossing this loop trusted lands in post-cut NOISE (chance baseline
+        # ~0.5), not reliably at the ramp's onset. Measured 1.086s and 3.100s
+        # misses on two real fixtures -- see VMSAM_HELP_AI/dev-step3-vector/
+        # 001-stage1-vector-escalation-ladder.MD for the numbers and a tested
+        # (not yet authorised) dual-threshold fix. EMPTY ON PURPOSE until that
+        # is resolved: every rung below still RUNS and LOGS (Addendum's "log
+        # all steps"), so the widening/logging machinery stays exercised and
+        # visible, but NOTHING it finds is trusted for the actual bracket --
+        # always falls through to `_bracket_transition` below, the same safe
+        # behaviour as before this session started.
+        _USABLE_ZSV_VERDICTS = ()
+        _rungs_tried = []
+        for _widen_s in (0.0, PROBE_WINDOW_SECONDS):
+            _start = max(before["first"], _region_start - _widen_s)
+            _end = min(after["last"] + PROBE_WINDOW_SECONDS, _region_end + _widen_s)
+            _seconds = _end - _start
+            if _seconds <= 0:
+                continue
+            for _wp in (zone_similarity_vector.DEFAULT_WINDOW_POINTS,
+                       zone_similarity_vector.MAX_WINDOW_POINTS):
+                try:
+                    _zsv = zone_similarity_vector.locate_zone_by_vector(
+                        master_path, reference_stream, candidate_path, primary_stream,
+                        _start, _seconds, work_dir, comparison_grid_hz, _members,
+                        window_points=_wp, fps_num=None, fps_den=None,
+                        tag=f"zsv_{position}_w{int(_widen_s)}_p{_wp}")
+                    _zsv_verdict = _zsv["verdict"]
+                except Exception as error:                # noqa: BLE001 -- see above
+                    _zsv_verdict = f"errored:{type(error).__name__}"
+                    _zsv = None
+                _rungs_tried.append(f"widen={_widen_s:.0f}s,points={_wp}:{_zsv_verdict}")
+                if _zsv is not None and _zsv_verdict in _USABLE_ZSV_VERDICTS:
+                    low = _start + _zsv["bracket_low_ms"] / 1000.0
+                    high = _start + _zsv["bracket_high_ms"] / 1000.0
                     narrowed, discarded, probes = True, 0, 0
-            except Exception as error:                # noqa: BLE001 -- see above
-                _zsv_verdict = f"errored:{type(error).__name__}"
-        _log(f"stage1 vector transition {position}: verdict={_zsv_verdict} "
+                    break
+            if low is not None:
+                break
+        _log(f"stage1 vector transition {position}: rungs=[{'; '.join(_rungs_tried)}] "
              f"region=[{_region_start:.1f},{_region_end:.1f}]s")
 
         if low is None:
