@@ -467,6 +467,21 @@ DECLINE_REASONS = (
     "offsets_saturated_at_search_bound",
     "offsets_scattered",
     "primary_below_pairing_bar",
+    # Architect ruling 2026-09-21, search_bound_unevaluable enumeration.
+    # `pal_saturation_screen.probe_search_bound` can be non-positive at a
+    # short enough window -- unreachable at production's own 60.0 s window
+    # (crossover ~6.6 s) -- and `screen_decline_detail` refuses to answer
+    # rather than guess "clean" or "saturated" when that happens
+    # (`SearchBoundUnevaluable`, `pal_saturation_screen.py`). Enumerated so
+    # the vocabulary stays complete: "enumerate when observed" would mean
+    # never, by construction, since the branch is unreachable at today's
+    # window, and an enumeration permanently missing a token the code can
+    # provably emit is a standing lie in the exact table a census reads. A
+    # vocabulary registry's completeness claim is over what the code CAN
+    # say, not what it HAS said. Always could_not_run, never
+    # ran_conclusive_negative -- nothing was measured at all, the same
+    # reasoning as every other could_not_run entry above.
+    "search_bound_unevaluable",
     "speed_relation_suspected",
     "stream_unmeasurable_at_centre",
     "too_few_probes_with_signal",
@@ -1726,9 +1741,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
          f"saturated={saturation_stats['probes_saturated']} "
          f"observed_fraction={saturation_stats['observed_fraction']} "
          f"bound={saturation_stats['search_bound_points']} "
-         f"threshold={saturation_stats['threshold_fraction']}")
+         f"threshold={saturation_stats['threshold_fraction']} "
+         f"evaluable={saturation_stats['evaluable']}")
     if saturation_decline is not None:
-        return _decline("offsets_saturated_at_search_bound", "could_not_run",
+        saturation_cause = saturation_decline.pop("cause", "offsets_saturated_at_search_bound")
+        return _decline(saturation_cause, "could_not_run",
                         pair=pair_id, **saturation_decline)
 
     offsets = [r[1][0] for r in screened_kept]
