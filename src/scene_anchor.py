@@ -620,21 +620,77 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          offset_before_ms, offset_after_ms,
                          step_ms=None, quantum_ms=None,
                          scene_search_window_sec=None, debug=False):
-    '''PUBLIC ENTRY POINT -- unchanged call shape from before this rung
-    refactor (Lead's ruling, 2026-09-21). SINGLE-RUNG PLACEHOLDER: resolves
-    `scene_search_window_sec` exactly as the pre-refactor function did
-    (explicit argument, else `config.ini`) and calls
-    `_locate_scene_anchors_at_window` ONCE with it -- the ladder loop and
-    its per-rung logging are the NEXT increment, deliberately not in this
-    edit (Lead's instruction: land the name resolving first, hold, add the
-    loop after). Behaviourally identical to the function this replaced.
+    '''PUBLIC ENTRY POINT -- unchanged call shape (Lead's ruling,
+    2026-09-21). THE OUTER RUNG: resolves `scene_search_window_sec` once
+    (explicit argument, else `config.ini`), same as before this refactor,
+    then calls `_locate_scene_anchors_at_window` up to
+    `WINDOW_LADDER_MAX_RUNGS` times, doubling the window each time
+    (`WINDOW_LADDER_GROWTH_FACTOR`) -- owner's order, 2026-09-21, verbatim:
+    "if anchor are not the same, the 10 seconds is not enought ... and
+    increase the number."
+
+    ORDERING WITH THE INNER (PER-SEED) LADDER -- do not invert (Lead's
+    measurement, 2026-09-21, on dev-step6-phash's `VALIDATION_FRAME_LADDER`
+    inside `_anchor_search`): that ladder is cheap (re-validates hashes
+    already extracted) and runs to exhaustion INSIDE every single call this
+    loop makes; THIS loop is expensive (re-extracts frames, re-runs
+    PySceneDetect on both files) and only escalates once the cheap one has
+    already given up. Worst case is bounded at
+    `WINDOW_LADDER_MAX_RUNGS * len(VALIDATION_FRAME_LADDER)` anchor
+    searches per bracket, not their product with anything else, because
+    only these two dials retry at all (dev-step7-sweep confirmed, 2026-09-21,
+    directly: their cross-sweep logic sits downstream of anchor
+    establishment inside this same call and builds no outer retry of its
+    own).
+
+    RETRY BOUNDARY: only a decline whose reason is in
+    `WINDOW_LADDER_RETRYABLE_REASONS` -- currently `anchors_not_established`
+    (no seed validated at all) and `anchor_uninformative` (a seed validated
+    but every one failed the distinctiveness probe) -- is worth a wider
+    rung. Every other reason (`grid_unmeasured`, `empty_bracket`,
+    `search_window_unviable`, `frames_unextractable`,
+    `cross_sweep_refuted`, `anchor_step_unavailable`,
+    `anchor_step_inconsistent`) is either a config/input problem a wider
+    window cannot fix, or -- `cross_sweep_refuted` -- a failure downstream
+    of anchors already being established, which is dev-step7-sweep's own
+    domain to escalate or not (PROVISIONAL pending their own classification
+    landing, per the Lead: "take their classification when it lands rather
+    than freezing your own set").
+
+    Exhausting every rung without a match declines
+    `search_window_ceiling_reached`, named so a census can tell "the
+    ladder ran and lost" from every other decline shape.
+
+    Every rung is logged (`scene_anchor: window_ladder_rung ...`) with the
+    dial, the value tried, and whether it matched, so a census can read the
+    per-bracket cost of this dial back out without re-deriving it from the
+    anchor evidence strings alone.
     '''
     window_sec = (scene_search_window_sec if scene_search_window_sec is not None
                  else _scene_anchor_config())
-    return _locate_scene_anchors_at_window(
-        master_path, candidate_path, fps_num, fps_den,
-        bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
-        window_sec, step_ms=step_ms, quantum_ms=quantum_ms, debug=debug)
+
+    result = None
+    for rung in range(WINDOW_LADDER_MAX_RUNGS):
+        rung_window_sec = (window_sec if window_sec is None
+                           else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
+        result = _locate_scene_anchors_at_window(
+            master_path, candidate_path, fps_num, fps_den,
+            bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
+            rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms, debug=debug)
+        matched = not result["declined"]
+        tools.logs.append(
+            f"scene_anchor: window_ladder_rung rung={rung} dial=window_sec "
+            f"value={rung_window_sec} matched={matched} "
+            f"reason={result.get('reason')} evidence={result.get('evidence')}\n")
+        if matched or result["reason"] not in WINDOW_LADDER_RETRYABLE_REASONS:
+            return result
+
+    return {"declined": True, "reason": "search_window_ceiling_reached",
+           "evidence": f"rungs_tried={WINDOW_LADDER_MAX_RUNGS} "
+                      f"base_window_sec={window_sec} "
+                      f"final_window_sec={rung_window_sec} "
+                      f"last_reason={result.get('reason')} "
+                      f"last_evidence={result.get('evidence')}"}
 
 
 def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_den,
