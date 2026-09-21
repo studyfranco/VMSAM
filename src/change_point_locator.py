@@ -173,6 +173,7 @@ import json
 import subprocess
 import audioCorrelation
 import pal_saturation_screen
+import zone_similarity_vector
 
 # One chromaprint fingerprint item, seconds. frame 4096, hop frame/3, rate 11025.
 CHROMAPRINT_HOP_SECONDS = 4096.0 / 3.0 / 11025.0
@@ -2262,10 +2263,54 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     change_points = []
     for position in range(len(runs) - 1):
         before, after = runs[position], runs[position + 1]
-        low, high, narrowed, discarded, probes = _bracket_transition(
-            master_path, reference_stream, candidate_path, primary_stream,
-            before["last"], after["first"], before["mean"], after["mean"], work_dir,
-            comparison_grid_hz)
+        # --- STAGE 1, SPEC_ZONE_A S3c, OWNER'S ORDER 2026-09-21 --------------
+        # The similarity vector locates the rupture point-by-point from the raw
+        # fingerprints instead of asking the probe grid to bisect it. It runs
+        # FIRST and UNCONDITIONALLY -- the owner's order the same day, "no option
+        # needed to activate the pipeline": there is no flag and no fallback
+        # switch, only the vector's own four named verdicts.
+        #
+        # WHY THIS IS NOT COSMETIC. The probe bisection leaves a bracket at the
+        # SEARCH BOUND whenever it cannot land clean probes on both plateaus,
+        # and that is not rare: 8 of 8 bracket readings measured across three
+        # episodes of one release came back at exactly 100000 ms -- the bound
+        # itself, identical every time, which is the signature of never having
+        # narrowed at all rather than of narrowing badly. A rupture found by
+        # V[i] hands Stage 2 a bracket one fingerprint step wide instead.
+        #
+        # ON A DECLINE THE OLD PATH RUNS UNCHANGED. `rupture_found` is the only
+        # verdict that replaces anything; `unreliable_degenerate_input`,
+        # `window_below_detection_floor`, `no_rupture_found` and
+        # `rupture_found_offsets_unavailable` all fall through to the probe
+        # bisection exactly as before, and so does any exception -- this stage
+        # is allowed to decline, never to break a merge it only refines.
+        _zsv_verdict = None
+        low = high = narrowed = discarded = probes = None
+        _region_start = float(before["last"])
+        _region_end = float(after["first"])
+        _region_seconds = _region_end - _region_start
+        if _region_seconds > 0:
+            try:
+                _zsv = zone_similarity_vector.locate_zone_by_vector(
+                    master_path, reference_stream, candidate_path, primary_stream,
+                    _region_start, _region_seconds, work_dir, comparison_grid_hz,
+                    before["members"] + after["members"],
+                    fps_num=None, fps_den=None, tag=f"zsv_{position}")
+                _zsv_verdict = _zsv["verdict"]
+                if _zsv_verdict == "rupture_found":
+                    low = _region_start + _zsv["bracket_low_ms"] / 1000.0
+                    high = _region_start + _zsv["bracket_high_ms"] / 1000.0
+                    narrowed, discarded, probes = True, 0, 0
+            except Exception as error:                # noqa: BLE001 -- see above
+                _zsv_verdict = f"errored:{type(error).__name__}"
+        _log(f"stage1 vector transition {position}: verdict={_zsv_verdict} "
+             f"region=[{_region_start:.1f},{_region_end:.1f}]s")
+
+        if low is None:
+            low, high, narrowed, discarded, probes = _bracket_transition(
+                master_path, reference_stream, candidate_path, primary_stream,
+                before["last"], after["first"], before["mean"], after["mean"], work_dir,
+                comparison_grid_hz)
         step_ms = after["mean"] - before["mean"]
         change_points.append({"bracket_low_ms": round(low * 1000.0, 2),
                               "bracket_high_ms": round(high * 1000.0, 2),

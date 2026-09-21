@@ -345,33 +345,6 @@ def offset_fidelity(segment, stream_order=None):
     return None
 
 
-def _scene_anchor_protocol_enabled():
-    '''`config.ini` `[features]` `scene_anchor_protocol` -- gates
-    AUTHORITY only (Architect's ruling, 2026-09-21): the scene-anchor
-    protocol RUNS and is compared against F1 on every interior bracket
-    regardless of this flag (Lead's refinement, same date -- report-only
-    data must come from every production job, not a configured sweep).
-    This flag decides only whether a SUCCESSFUL protocol result is
-    allowed to replace F1's for the actual narrowing.
-
-    Absent section or key -> False, the safe default while the protocol
-    is genuinely unvalidated at scale (4 synthetic fixtures, zero real
-    corpus files, as of this landing). REMOVAL CRITERION (pre-registered,
-    Architect's ruling): this flag exits -- the protocol becomes
-    unconditional -- when the accumulated `scene_anchor_shadow` census
-    plus a corpus-sweep comparison have been reviewed and ruled on by the
-    Architect; the Lead sequences that review. A scaffolding flag
-    surviving campaign closure is already forbidden by CAMPAIGN.MD's
-    closure protocol; this one carries its own exit condition on top, and
-    removing it is part of finishing (WRITE_ZONES.MD S4), not a follow-up.
-    '''
-    try:
-        section = tools.config_loader(tools.config_file, "features")
-    except Exception:
-        return False
-    return str(section.get("scene_anchor_protocol", "false")).strip().lower() == "true"
-
-
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None,
                        master_path=None, candidate_path=None,
@@ -750,16 +723,20 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 f"f1_reason={frame_tier_result.get('reason')} "
                 f"bracket=[{cursor},{master_start}]\n")
 
-            # AUTHORITY, GATED BY config.ini [features] scene_anchor_protocol
-            # -- OFF by default. When ON and the protocol succeeded, ITS
-            # answer replaces F1's for narrowing; F1 stays the cross-check
-            # above and is NEVER silently promoted on a protocol decline --
-            # when the protocol declines, this block does not run and the
-            # EXISTING F1-only logic already computed above is what
-            # decides, exactly as it does today with the flag absent.
+            # AUTHORITY, UNCONDITIONAL -- owner's order, 2026-09-21:
+            # "no option needed to activate the pipeline". The flag that
+            # used to gate this exited by its own pre-registered removal
+            # criterion; a scaffolding flag surviving campaign closure is
+            # forbidden by CAMPAIGN.MD's closure protocol, and removing it
+            # is part of finishing (WRITE_ZONES.MD S4), not a follow-up.
+            # When the protocol succeeded, ITS answer replaces F1's for
+            # narrowing; F1 stays the cross-check above and is NEVER
+            # silently promoted on a protocol decline -- when the protocol
+            # declines, this block does not run and the EXISTING F1-only
+            # logic already computed above is what decides.
             if _sa_declined:
                 pass
-            elif _scene_anchor_protocol_enabled():
+            else:
                 lo = exact_ms_from_frame(scene_anchor_result["master_start_frame"],
                                          scene_anchor_result["grid"])
                 hi = exact_ms_from_frame(scene_anchor_result["master_end_frame"],
