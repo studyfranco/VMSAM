@@ -355,18 +355,28 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
                              window_seconds=RESAMPLE_PROBE_WINDOW_SECONDS,
                              floor=RESAMPLE_FIDELITY_FLOOR,
                              probe_ladder=RESAMPLE_PROBE_COUNT_LADDER,
-                             inconclusive_band=RESAMPLE_INCONCLUSIVE_BAND):
+                             inconclusive_band=RESAMPLE_INCONCLUSIVE_BAND,
+                             log_label="resample_ladder"):
     '''Marche l'echelle DE NOMBRE DE SONDES (jamais du seuil) jusqu'a un
     verdict net ou le plafond. `fidelity_at(start_seconds)` -> float ou None.
 
     Renvoie (verdict, median, n_mesure, rang, journal_des_rangs) avec verdict
     dans {"above", "below", "inconclusive_at_ceiling"}. Chaque rang est journalise
-    (Lead dispatch: "log every rung"), succes ou non.
+    VIA `tools.logs.append` (BRIEF_ADDENDUM.md #3, "Log all step... every
+    attempt at every rung"), succes ou non -- `log_label` distingue quel dial
+    (quelle hypothese de direction) a produit la ligne, jamais un nom de
+    fichier ou un titre. Le rungs_log en valeur de retour reste, pour le
+    plan produit; ce log est le TRACE PERSISTANTE que le retour seul n'est
+    pas (mediation `tools.logs`, pas un `print`).
     '''
     measured = {}
     rungs_log = []
     span = duration_seconds_value - window_seconds - 10
     if span <= 0:
+        if tools.dev:
+            tools.logs.append(
+                f"resample gate [{log_label}]: rung 0 -- file too short for the "
+                f"probe window, no rung attempted\n")
         rungs_log.append({"rung": 0, "n_requested": probe_ladder[0], "n_measured": 0,
                            "median": None, "reason": "file_too_short_for_window"})
         return "inconclusive_at_ceiling", None, 0, 0, rungs_log
@@ -380,6 +390,10 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
             if measured[key] is not None:
                 values.append(measured[key])
         if not values:
+            if tools.dev:
+                tools.logs.append(
+                    f"resample gate [{log_label}]: rung {rung_index} "
+                    f"(n_requested={n}) -- every probe failed, no median\n")
             rungs_log.append({"rung": rung_index, "n_requested": n, "n_measured": 0,
                                "median": None})
             continue
@@ -387,9 +401,26 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
         rungs_log.append({"rung": rung_index, "n_requested": n, "n_measured": len(values),
                            "median": round(median, 4)})
         if median >= floor + inconclusive_band or median <= floor - inconclusive_band:
-            return ("above" if median >= floor else "below"), median, len(values), \
-                rung_index, rungs_log
+            verdict = "above" if median >= floor else "below"
+            if tools.dev:
+                tools.logs.append(
+                    f"resample gate [{log_label}]: rung {rung_index} "
+                    f"(n_requested={n}, n_measured={len(values)}) median={median:.4f} "
+                    f"floor={floor} -> {verdict}, unambiguous, ladder stops\n")
+            return verdict, median, len(values), rung_index, rungs_log
+        if tools.dev:
+            tools.logs.append(
+                f"resample gate [{log_label}]: rung {rung_index} "
+                f"(n_requested={n}, n_measured={len(values)}) median={median:.4f} "
+                f"floor={floor} -- inside the +/-{inconclusive_band} inconclusive band, "
+                f"widening to the next rung\n")
     last = rungs_log[-1]
+    if tools.dev:
+        tools.logs.append(
+            f"resample gate [{log_label}]: HARD CEILING reached at rung "
+            f"{len(probe_ladder) - 1} (max {probe_ladder[-1]} probes), still "
+            f"inconclusive (median={last.get('median')}) -> "
+            f"inconclusive_at_ceiling, named decline\n")
     return "inconclusive_at_ceiling", last.get("median"), last.get("n_measured", 0), \
         len(probe_ladder) - 1, rungs_log
 
@@ -459,7 +490,7 @@ def test_speed_ratio_against_master(master_path, candidate_path, speed_ratio,
                                          tag=f"{name}_{round(start)}")
 
         verdict, median, n_used, rung, rungs_log = measure_fidelity_ladder(
-            fidelity_at, master_duration, window_seconds)
+            fidelity_at, master_duration, window_seconds, log_label=name)
         results[name] = {"verdict": verdict, "median": median, "n_used": n_used,
                           "rung": rung, "rungs": rungs_log,
                           "effective_ratio": str(effective), "requested_ratio": str(r)}
