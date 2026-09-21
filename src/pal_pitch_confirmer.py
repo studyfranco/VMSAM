@@ -99,6 +99,65 @@ def measure_pitch_ratio(master_path, candidate_path, start_seconds, window_secon
     return _spectral_ratio(a, b)
 
 
+NTSC_NOMINAL = 1001.0 / 1000.0
+
+# PROVISIONAL, M3 (RULING_20260921_NTSC_KNIFE_EDGE.MD;
+# VMSAM_HELP_AI/dev-pal/012-ntsc-knife-edge.MD): duration cannot carry this
+# signal -- a real cut confounds it by 40-60x its own size (measured on the
+# 8 census ids: duration ratio 0.935-0.955, nowhere near 1.001) -- so this
+# tolerance is for an UNCONDITIONAL pitch measurement, never a duration-
+# derived prediction. Measured from n=24 (3 probe positions x 8 real
+# production episodes, folder:164): min 1.000775, max 1.001189, mean
+# 1.001031, median 1.001048, stdev 9.79e-5, max deviation from the
+# theoretical nominal 0.000225. 0.0005 is ~2.2x that max deviation and ~5x
+# the stdev -- a defensible margin, not the measured value itself, same
+# shape as `pal_saturation_screen.CHROMAPRINT_FIXED_STARTUP_POINTS`'s
+# sample-rate limit. SCOPE LIMIT, same reason: all 8 ids are ONE series
+# (one release pair's encode characteristics), not 8 independent
+# observations -- if the true population spreads wider than this one
+# series, 0.0005 may be too narrow, flagged for the Architect exactly as
+# the earlier constants were.
+NTSC_TOLERANCE = 0.0005
+
+
+def confirm_ntsc(master_path, candidate_path, start_seconds, window_seconds=180.0,
+                  tolerance=NTSC_TOLERANCE):
+    """Unconditional NTSC recognizer (M3): measures pitch directly and checks
+    it against the NTSC nominal and its reciprocal -- NEVER against a
+    duration-derived prediction, because M3 measured that duration cannot
+    carry this signal when a real cut confounds it (`pal_speed_discriminator`
+    routes these pairs to `pal_inverse` or `no_band`, both wrong, by
+    coincidence of where the cut lands the ratio).
+
+    Mirrors `pal_speed_discriminator.classify_band`'s own direct/inverse
+    symmetry for PAL, at the NTSC nominal instead.
+
+    Returns {measured_ratio, peak, matched, predicted_ratio, refusal,
+    reason}. `matched` is "ntsc_direct", "ntsc_inverse", or None.
+    `predicted_ratio`, when not None, is the CONFIRMED ratio a caller should
+    build an undo filter from -- never the discriminator's own duration
+    ratio, which this function's whole reason to exist is to bypass.
+    `refusal`, when not None, is `no_ntsc_relation` -- never forces, same
+    discipline as `confirm_pitch`."""
+    k, peak = measure_pitch_ratio(master_path, candidate_path, start_seconds, window_seconds)
+    if k is None:
+        return {"measured_ratio": None, "peak": None, "matched": None,
+                "predicted_ratio": None, "refusal": "no_ntsc_relation",
+                "reason": "no bounded spectral peak in the correlation"}
+    inverse_nominal = 1.0 / NTSC_NOMINAL
+    if abs(k - NTSC_NOMINAL) <= tolerance * NTSC_NOMINAL:
+        return {"measured_ratio": round(k, 6), "peak": round(peak, 4), "matched": "ntsc_direct",
+                "predicted_ratio": NTSC_NOMINAL, "refusal": None, "reason": None}
+    if abs(k - inverse_nominal) <= tolerance * inverse_nominal:
+        return {"measured_ratio": round(k, 6), "peak": round(peak, 4), "matched": "ntsc_inverse",
+                "predicted_ratio": inverse_nominal, "refusal": None, "reason": None}
+    return {"measured_ratio": round(k, 6), "peak": round(peak, 4), "matched": None,
+            "predicted_ratio": None, "refusal": "no_ntsc_relation",
+            "reason": (f"pitch-measured ratio {k:.6f} matches neither the NTSC nominal "
+                       f"{NTSC_NOMINAL:.6f} nor its reciprocal {inverse_nominal:.6f} "
+                       f"within {tolerance}")}
+
+
 def confirm_pitch(master_path, candidate_path, start_seconds, predicted_ratio,
                    window_seconds=180.0, tolerance=TOL_ARM):
     """Stage 3, confirmer 1. Compares the pitch-measured ratio against

@@ -787,7 +787,16 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
         _extract(candidate_path, candidate_stream, start_seconds, window_seconds,
                  candidate_window, sample_rate)
         signal = _rms(master_window)
-        # unquantised, and therefore the authoritative offset
+        # THE OFFSET SOURCE, unquantised. Architect ruling P6, 2026-09-21
+        # (audit of this module's correlation usage): `second_correlation`'s
+        # OFFSET is forbidden for cut/boundary placement -- tolerated here
+        # only as the coarse stage during migration to the vectorial
+        # instrument that mandate names, never frame-accurate. Forensic
+        # confirmed, two independent ways, that it returns exactly
+        # `(file, offset)` in BOTH branches (Rust and the Python fallback),
+        # and that every artefact's full unfiltered JSON dict carries exactly
+        # `file` and `offset_seconds` -- zero third fields. No fidelity comes
+        # from this call; do not read one out of it.
         which_file, seconds = audioCorrelation.second_correlation(master_window, candidate_window)
         if path.abspath(which_file) == path.abspath(master_window):
             offset_ms = -seconds * 1000.0
@@ -796,7 +805,20 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
         else:
             _note_site(sites, "correlator_named_neither_window")
             return None
-        # quantised, kept only to cross-check against the pipeline's own numbers
+        # THE ONLY SOURCE OF `fidelity` IN THIS MODULE. P6's ruling: the ban
+        # forbids the named functions "for cut finding" -- `correlate()`'s
+        # role here is a COMPARABILITY SCREEN (median_fidelity_below_floor,
+        # the pairing bar), not cut localization, so that role is explicitly
+        # TOLERATED under this corrected label. Its OFFSET (`points`,
+        # `delay_ms`, read below only to derive `quantum`) remains FORBIDDEN
+        # for boundary placement -- exactly the split `pal_saturation_screen`
+        # already treats these `points` as: a search-bound ARTIFACT check,
+        # never a location. Load-bearing by construction: nothing else in
+        # this module supplies fidelity, so `correlate()` cannot simply be
+        # swapped out until the vectorial instrument (which carries fidelity
+        # natively, a per-point Hamming similarity vector) replaces it --
+        # that recalibration is the future Stage-1 migration's scope, not
+        # this module's, and not now.
         fidelity, points, delay_ms = audioCorrelation.correlate(
             master_window, candidate_window, window_seconds)
         quantum = int(round(delay_ms / -points)) if points else None
