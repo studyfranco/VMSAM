@@ -3936,9 +3936,98 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
         # LA PARTIE QUI VARIE RESTE DANS LA PROSE. `problems` change d'un
         # fichier a l'autre; le jeton non. Un jeton qui varie n'est pas un
         # jeton -- il ne s'agrege pas, donc il ne compte rien.
+        #
+        # MASTER-NAMED VERDICT, REVISED (Architect, 2026-09-21, second pass).
+        # First pass named one master-side token for every track short of
+        # `expected_duration_ms` because its own fill source did not reach
+        # the master's video. Forensic then packet-verified all 40 flagged
+        # masters at L3 and split them 100/0 by a property this function can
+        # already see: whether the master's OWN per-track measurements agree
+        # with each other. That split is two classes IN KIND, not one class
+        # in detail, so it earns two tokens -- and the tokens name the SHAPE
+        # of the disagreement only, never a mechanism word (`truncation`,
+        # `lie`): the shape is what is measured here; which mechanism
+        # produces it is the L3 packet decode's finding, not this function's,
+        # and a token naming the mechanism would need retracting the day a
+        # counterexample shape turns up with the other mechanism behind it.
+        #
+        # THE DISCRIMINATOR, from data already in `audio_reports` -- no new
+        # probe, no filename, no language tag, no track count: which reports
+        # actually got a master-duration MEASUREMENT (`fill_source_ms` set,
+        # i.e. `fill == "master"` and the master's own `Duration` was
+        # readable), and which of those came up short beyond `tolerance_ms`
+        # (`fill_short_by_ms`, set at the report-building site, read here,
+        # never recomputed). A report with no such measurement at all says
+        # nothing about the master and is excluded from both classes.
+        #
+        #   every measured report short, ALL BY THE SAME VALUE
+        #       -> the whole complement moves together: master_audio_complement_short
+        #   at least one measured report short and at least one NOT,
+        #   or the short ones disagree on the amount
+        #       -> the master's own tracks contradict each other about
+        #          reaching its own declared video: master_duration_sources_disagree
+        #   no measured report short at all
+        #       -> nothing here traces to the master; untouched path below
+        #
+        # Same guard as before on top of either branch: nothing else about
+        # the file may be wrong (no track-count mismatch, no unmeasured
+        # stream) or the refusal is not wholly accounted for by the master
+        # and the candidate-side token applies, byte-identical.
+        def _short_beyond_tolerance(fill_report):
+            value = fill_report.get("fill_short_by_ms")
+            if value in (None, "", "0"):
+                return False
+            if tolerance_ms == None:
+                return True
+            return abs(Decimal(str(value))) > Decimal(str(tolerance_ms))
+
+        measured_fill_reports = [r for r in audio_reports
+                                 if r.get("fill_source_ms") not in (None, "")]
+        short_fill_reports = [r for r in measured_fill_reports
+                              if _short_beyond_tolerance(r)]
+        agreeing_fill_reports = [r for r in measured_fill_reports
+                                 if not _short_beyond_tolerance(r)]
+        nothing_else_wrong = (
+            not len(unmeasured) and len(audio) == len(audio_reports)
+            and len(subtitle) == len(subtitle_reports))
+
+        cause = "output_check_mismatch"
+        if nothing_else_wrong and short_fill_reports:
+            # EXACT TIE, NO TOLERANCE BAND -- DELIBERATE, NOT AN OVERSIGHT.
+            # The measured shape-B corpus example ties three languages at
+            # 1435.491 s, byte-identical -- exact equality is what the
+            # evidence actually shows, and nothing in the ruling says a
+            # jitter band was intended, so none is invented here. The token
+            # claims the SHAPE, "short by the SAME value": a master whose
+            # tracks are short by only approximately the same amount has not
+            # shown that shape, and correctly falls to
+            # `master_duration_sources_disagree` by definition, not by
+            # accident of a missing tolerance. If forensic's tie-exactness
+            # distribution across the 21 REAL_TRUNCATION masters comes back
+            # with jitter, that is new data to revisit this line with, not a
+            # sign this line was wrong when written.
+            tied_values = {Decimal(str(r["fill_short_by_ms"]))
+                           for r in short_fill_reports}
+            # A COMPLEMENT OF ONE IS STILL A COMPLEMENT. With exactly one
+            # measured report, "every measured report short, all by the same
+            # value" is TRUE, not vacuous -- a single track short is, as a
+            # whole, short by that one value, and the shape claim holds. The
+            # awkwardness is in the ENGLISH ("complement" reads as implying
+            # more than one member), not in the measurement, so no third
+            # class is carved out for n=1: `sources_disagree` would be false
+            # here (nothing disagrees with anything), and falling through to
+            # the candidate-side token would misattribute a genuine
+            # master-traced shortfall to the candidate. Deliberate, and
+            # untested against real material -- neither measured shape
+            # (forensic's 21 REAL_TRUNCATION, 19 CONTAINER_DURATION_LIE
+            # masters) was single-track.
+            if not agreeing_fill_reports and len(tied_values) == 1:
+                cause = "master_audio_complement_short"
+            else:
+                cause = "master_duration_sources_disagree"
         error = chimeric_error("the produced file does not match what was built: "
                                + "; ".join(problems),
-                               cause="output_check_mismatch")
+                               cause=cause)
         error.output_check = report
         raise error
     return report
