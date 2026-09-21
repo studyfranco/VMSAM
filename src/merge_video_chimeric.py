@@ -3184,8 +3184,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         marking = (OUTPUT_REFUSED if isinstance(error, chimeric_error)
                    else OUTPUT_NO_VERDICT)
         error.undelivered_state = marking[0]
-        error.undelivered_path, error.undelivered_durable = mark_output(
-            out_path, marking)
+        error.undelivered_path = mark_output(out_path, marking)
         error.undelivered_in_place = out_path
         # L'ASSEMBLAGE PARTIEL VOYAGE AVEC LE REFUS, ET C'EST LE DRAPEAU LEVE QUI
         # REND CETTE LIGNE NECESSAIRE.
@@ -3710,14 +3709,11 @@ def mark_output(out_path, marking):
 
     L'ARTEFACT RESTE SUR PLACE, dans l'arborescence ephemere du conteneur --
     plus de deplacement vers un magasin durable (owner, 2026-09-21: "je ne
-    veux pas que l'app serve de tests"). Le SECOND membre du couple rendu
-    reste `False` sans condition, pas par simplification: l'appelant
-    (`merge_video_repair.py`) le deballe encore en `undelivered_durable` et ce
-    n'est plus une question, seulement une constante qui dit "jamais deplace".
+    veux pas que l'app serve de tests").
     """
     token, why = marking
     if not path.exists(out_path):
-        return None, False
+        return None
     base, extension = path.splitext(out_path)
     marked = f"{base}.{token}{extension}"
     try:
@@ -3726,11 +3722,11 @@ def mark_output(out_path, marking):
         sys.stderr.write(f"repair: the undelivered artefact could NOT be renamed "
                          f"and is still at its produced name: {error}\n")
         tools.logs.append("repair: an undelivered artefact kept its produced name\n")
-        return None, False
+        return None
     sys.stderr.write(f"repair: the artefact was renamed to *.{token}{extension} "
                      f"-- {why} -- so it is inspectable and NOT counted as "
                      f"produced\n")
-    return marked, False
+    return marked
 
 
 def stable_case_key(candidate_path):

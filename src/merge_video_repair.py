@@ -598,12 +598,15 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         marked = getattr(error, "undelivered_path", None)
         if marked != None:
             # `durable=` RETIRE (vmsam-lead, 2026-09-21): depuis que le
-            # magasin durable n'existe plus, `undelivered_durable` ne peut
-            # plus rendre que `False` -- un champ a une seule valeur possible
-            # est le meme defaut de champ inerte qu'un champ jamais rempli,
-            # sous un autre angle. `state=`/`path=`/`in_place=` restent: ils
-            # portent la DECISION du refus et ou le produit refuse se trouve,
-            # ce que la ruling de l'Architect preserve explicitement.
+            # magasin durable n'existe plus, ce champ n'aurait plus jamais pu
+            # rendre qu'une seule valeur -- un champ a une seule valeur
+            # possible est le meme defaut de champ inerte qu'un champ jamais
+            # rempli, sous un autre angle. `undelivered_durable` n'existe plus
+            # du tout (ni sur `error`, ni ici) -- ce n'etait plus qu'une
+            # constante que rien ne lisait. `state=`/`path=`/`in_place=`
+            # restent: ils portent la DECISION du refus et ou le produit
+            # refuse se trouve, ce que la ruling de l'Architect preserve
+            # explicitement.
             tools.logs.append(
                 f"repair: undelivered state={getattr(error, 'undelivered_state', 'unnamed')} "
                 f"path={marked} "
@@ -2132,11 +2135,9 @@ def log_assembly(candidate_path, assembly, plan):
 def decline_detail(error):
     """Ce qu'un DECLIN emporte, extrait pour etre testable sans rejouer un fichier.
 
-    Une fonction et non un dictionnaire en ligne parce que le contenu d'un declin
-    est devenu une reponse a une question posee par d'autres agents -- le
-    registre de `vmsam-dev-4` et les comptes de `vmsam-ci` le lisent -- et un
-    dictionnaire construit en ligne dans une branche `except` ne se verifie qu'en
-    faisant lever un vrai fichier.
+    Une fonction et non un dictionnaire en ligne: un dictionnaire construit en
+    ligne dans une branche `except` ne se verifie qu'en faisant lever un vrai
+    fichier, la ou une fonction se teste directement.
 
     `output_check` EST ICI PARCE QUE LE DRAPEAU EST LEVE. Tant que le controle
     de duree etait inerte, ce rapport n'apparaissait que sur des artefacts
@@ -2162,8 +2163,7 @@ def decline_detail(error):
             "audios": getattr(error, "audios", None),
             "output_check": getattr(error, "output_check", None),
             "undelivered_state": getattr(error, "undelivered_state", None),
-            "undelivered_path": getattr(error, "undelivered_path", None),
-            "undelivered_durable": getattr(error, "undelivered_durable", None)}
+            "undelivered_path": getattr(error, "undelivered_path", None)}
 
 
 def chimeric_cause(error):
@@ -2255,7 +2255,7 @@ def detail_summary(detail):
         return ""
     fields = []
     for key in ("plan_kind", "verdict", "plan_source", "marker",
-                "undelivered_state", "undelivered_durable"):
+                "undelivered_state"):
         value = detail.get(key)
         if value != None:
             fields.append(f"{key}={value}")
