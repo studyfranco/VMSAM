@@ -1135,9 +1135,24 @@ def keep_best_audio(list_audio_metadata,audioRules):
             # jamais creer 'fabricated'. La condition lit donc LES DEUX cles.
             # Verite testee, jamais egalite; une piste intacte n'a pas de bloc
             # extra, donc .get('extra', {}) reste falsy sans KeyError.
-            elif (audio_1.get('fabricated') and (not audio_2.get('fabricated'))) or (audio_1.get('extra', {}).get('VMSAM_FABRICATED') and (not audio_2.get('extra', {}).get('VMSAM_FABRICATED'))):
+            #
+            # DECISION TRACE (audit seat C, 2026-09-21): per-artifact
+            # retrospective proof of which branch dropped a track is
+            # structurally impossible -- the intermediate is deleted
+            # unconditionally right after this loop. `keep_best_audio_
+            # fabricated_trace` (tools.py, shared-helpers zone) logs the
+            # decision PROSPECTIVELY instead, on every pair this check
+            # reaches, in all three shapes: one side fabricated (which key
+            # carried it), neither (positive evidence the codec chain below
+            # is what decided it), or both (neither branch fires, and the
+            # line still says so). The walrus below calls it EXACTLY ONCE
+            # per pair -- the two `elif`s dispatch on its return value
+            # rather than recomputing the same two booleans a second time,
+            # so a pair that fires neither branch still falls through to
+            # the unmodified codec chain below, unchanged.
+            elif (_fabricated_verdict := tools.keep_best_audio_fabricated_trace(audio_1, audio_2)) == "side1_fabricated_loses":
                 audio_1['keep'] = False
-            elif (audio_2.get('fabricated') and (not audio_1.get('fabricated'))) or (audio_2.get('extra', {}).get('VMSAM_FABRICATED') and (not audio_1.get('extra', {}).get('VMSAM_FABRICATED'))):
+            elif _fabricated_verdict == "side2_fabricated_loses":
                 audio_2['keep'] = False
             # END: AGENT modification
             elif audio_1['Format'].lower() == audio_2['Format'].lower():

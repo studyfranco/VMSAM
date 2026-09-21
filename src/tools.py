@@ -423,6 +423,71 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
+def keep_best_audio_fabricated_status(audio):
+    """Which key, if any, marks this audio dict as fabricated.
+
+    SPEC_ZONE_A.MD: the in-process 'fabricated' key and the container tag
+    re-probed as extra.VMSAM_FABRICATED are two DIFFERENT carriers -- the
+    in-process key never reaches keep_best_audio in production
+    (merge_video_repair.py:803-812 sets it on the repaired object, never
+    on this dict); only the container tag, surfaced under
+    extra.VMSAM_FABRICATED by the re-probe, actually does. Testing both
+    keeps this reader honest against either one existing, now or later.
+    """
+    via_key = bool(audio.get('fabricated'))
+    via_extra = bool(audio.get('extra', {}).get('VMSAM_FABRICATED'))
+    if via_key and via_extra:
+        return "both_keys"
+    if via_key:
+        return "fabricated_key"
+    if via_extra:
+        return "extra_vmsam_fabricated"
+    return "intact"
+
+def keep_best_audio_fabricated_trace(audio_1, audio_2):
+    """One trace line per pair `keep_best_audio`'s fabricated check reaches,
+    firing on all three shapes -- one side fabricated, neither, or both --
+    so "the codec chain was reached" is readable as POSITIVE evidence (a
+    logged `neither_fabricated_codec_chain` row) rather than inferred from
+    an absent line. An absence is exactly the evidence this campaign has
+    learned not to trust.
+
+    Returns the outcome token so the caller's elif chain can dispatch on
+    it without re-deriving the classification a second time -- the two
+    boolean expressions below are the SAME ones the two `elif` conditions
+    tested before this trace existed, computed once and reused, not a new
+    rule.
+
+    NO LOCK: the call site (`keep_best_audio`, reached only from
+    `generate_launch_merge_command`) is traced, not assumed, to run with
+    every prior Thread in this process already joined -- the per-file
+    metadata/MD5 threads are started and joined inside `merge_videos`
+    before the merge-sync branch is ever reached, and the delay-tournament
+    `compare_video` threads are joined before `generate_launch_merge_command`
+    is called with their results as a plain argument. The fusion worker
+    also runs one job at a time (AGENT.MD). No other writer can be
+    concurrent with this one at this call site.
+    """
+    side1_loses = ((audio_1.get('fabricated') and not audio_2.get('fabricated'))
+                  or (audio_1.get('extra', {}).get('VMSAM_FABRICATED')
+                      and not audio_2.get('extra', {}).get('VMSAM_FABRICATED')))
+    side2_loses = ((audio_2.get('fabricated') and not audio_1.get('fabricated'))
+                  or (audio_2.get('extra', {}).get('VMSAM_FABRICATED')
+                      and not audio_1.get('extra', {}).get('VMSAM_FABRICATED')))
+    status_1 = keep_best_audio_fabricated_status(audio_1)
+    status_2 = keep_best_audio_fabricated_status(audio_2)
+    if side1_loses:
+        outcome = "side1_fabricated_loses"
+    elif side2_loses:
+        outcome = "side2_fabricated_loses"
+    elif status_1 != "intact" or status_2 != "intact":
+        outcome = "both_fabricated_codec_chain"
+    else:
+        outcome = "neither_fabricated_codec_chain"
+    logs.append(f"keep_best_audio fabricated_check outcome={outcome} "
+               f"side1_marker={status_1} side2_marker={status_2}\n")
+    return outcome
+
 """
 END: AGENT modification
 """
