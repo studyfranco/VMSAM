@@ -345,6 +345,33 @@ def offset_fidelity(segment, stream_order=None):
     return None
 
 
+def _scene_anchor_protocol_enabled():
+    '''`config.ini` `[features]` `scene_anchor_protocol` -- gates
+    AUTHORITY only (Architect's ruling, 2026-09-21): the scene-anchor
+    protocol RUNS and is compared against F1 on every interior bracket
+    regardless of this flag (Lead's refinement, same date -- report-only
+    data must come from every production job, not a configured sweep).
+    This flag decides only whether a SUCCESSFUL protocol result is
+    allowed to replace F1's for the actual narrowing.
+
+    Absent section or key -> False, the safe default while the protocol
+    is genuinely unvalidated at scale (4 synthetic fixtures, zero real
+    corpus files, as of this landing). REMOVAL CRITERION (pre-registered,
+    Architect's ruling): this flag exits -- the protocol becomes
+    unconditional -- when the accumulated `scene_anchor_shadow` census
+    plus a corpus-sweep comparison have been reviewed and ruled on by the
+    Architect; the Lead sequences that review. A scaffolding flag
+    surviving campaign closure is already forbidden by CAMPAIGN.MD's
+    closure protocol; this one carries its own exit condition on top, and
+    removing it is part of finishing (WRITE_ZONES.MD S4), not a follow-up.
+    '''
+    try:
+        section = tools.config_loader(tools.config_file, "features")
+    except Exception:
+        return False
+    return str(section.get("scene_anchor_protocol", "false")).strip().lower() == "true"
+
+
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None,
                        master_path=None, candidate_path=None,
@@ -621,6 +648,156 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 lo = min(max(lo, cursor), master_start)
                 hi = min(max(hi, lo), master_start)
                 narrowed_low, narrowed_high = lo, hi
+
+            # SCENE ANCHOR SHADOW/AUTHORITY (owner's 2026-09-21 amendments,
+            # dev-anchor mission, ARCH_FRAME_ACCURATE.MD's Bidirectional
+            # Scene Anchor Protocol). RUNS UNCONDITIONALLY whenever this
+            # tier is asked, same trigger as F1 above -- Architect's
+            # ruling, 2026-09-21: the config flag gates AUTHORITY, not
+            # EXECUTION. Lead's refinement, same date: report-only data
+            # must come from EVERY production job, not a configured sweep
+            # -- a comparison over chosen material is a weaker measurement
+            # than one over material nobody selected.
+            import scene_anchor
+            # EXCEPTION ISOLATION -- MANDATORY (Lead's ruling, 2026-09-21):
+            # "a shadow observer must never be able to fail the thing it
+            # observes." Report-only means this call now runs on EVERY
+            # interior bracket in production, proven safe only for inputs
+            # it handles -- an unforeseen shape raising inside
+            # `scene_anchor` must become a NAMED shadow state, never
+            # propagate and break a job that would otherwise have
+            # succeeded. This is the one place in this landing where a
+            # blanket `except Exception` is deliberate rather than the
+            # defect AGENT.MD warns against (no blanket try/except unless
+            # explicitly requested) -- it IS explicitly requested, for
+            # exactly this reason, and its scope is drawn as tight as the
+            # single call it exists to isolate: nothing else in this tier
+            # is inside it.
+            try:
+                scene_anchor_result = scene_anchor.locate_scene_anchors(
+                    master_path, candidate_path, fps_num, fps_den,
+                    float(cursor), float(master_start),
+                    float(previous_offset), float(offset),
+                    step_ms=(_interior_bracket_for_tier.get("step_ms")
+                            if _interior_bracket_for_tier is not None else None),
+                    quantum_ms=quantum_ms)
+                _sa_errored = False
+            except Exception as _sa_exc:
+                scene_anchor_result = None
+                _sa_errored = True
+                tools.logs.append(
+                    f"chimeric: scene_anchor_error edge=interior "
+                    f"exception={type(_sa_exc).__name__} "
+                    f"bracket=[{cursor},{master_start}]\n")
+
+            # SIX STATES. Lead named four, approved a fifth
+            # (`both_declined`) rather than folding it into one that
+            # doesn't fit, and required a sixth (`protocol_errored`) for
+            # exception isolation -- "it declined" and "it threw" are
+            # different facts and must stay apart, same rule as the fifth.
+            #   agree                            both succeed, same frames
+            #   disagree                         both succeed, different frames
+            #   protocol_declined_f1_succeeded    THE YIELD-COST NUMBER --
+            #                                     what the promotion
+            #                                     decision turns on
+            #   f1_declined_protocol_succeeded    the protocol's own upside
+            #   both_declined                     neither could narrow
+            #   protocol_errored                  the protocol raised;
+            #                                     NEVER reaches the
+            #                                     narrowing or authority
+            #                                     logic below
+            _f1_declined = frame_tier_result["declined"]
+            if _sa_errored:
+                _sa_declined = True  # never authoritative, same as a decline
+                _shadow_state = "protocol_errored"
+            else:
+                _sa_declined = scene_anchor_result["declined"]
+                if _sa_declined and _f1_declined:
+                    _shadow_state = "both_declined"
+                elif _sa_declined and not _f1_declined:
+                    _shadow_state = "protocol_declined_f1_succeeded"
+                elif not _sa_declined and _f1_declined:
+                    _shadow_state = "f1_declined_protocol_succeeded"
+                else:
+                    _shadow_state = "agree" if (
+                        frame_tier_result["master_start_frame"] == scene_anchor_result["master_start_frame"]
+                        and frame_tier_result["master_end_frame"] == scene_anchor_result["master_end_frame"]
+                    ) else "disagree"
+            # PROVENANCE, MANDATORY (Architect's ruling, 2026-09-21): a
+            # future four/five-state census must be able to exclude
+            # fixture-produced shadow entries MECHANICALLY, not by memory
+            # -- the census design he and the Lead fixed on another
+            # instrument an hour before this one landed. NOT the raw path
+            # (no path has ever appeared in this module's log lines, and
+            # `VMSAM_TEST_OUTPUT_DIR` is a documented disclosure surface,
+            # BRIEF_COMMON.md): a categorical marker only, derived from
+            # whether the path lies under a known lab/fixture tree. A
+            # census that needs the real path for something else already
+            # has it -- the job's own log carries `master_path` elsewhere
+            # in this pipeline; this line's job is classification, not
+            # location.
+            _shadow_source = ("synthetic_fixture"
+                              if ("VMSAM_HELP_AI" in str(master_path)
+                                  or "fixtures" in str(master_path))
+                              else "production")
+            tools.logs.append(
+                f"chimeric: scene_anchor_shadow edge=interior state={_shadow_state} "
+                f"source={_shadow_source} "
+                f"scene_anchor_reason="
+                f"{scene_anchor_result.get('reason') if scene_anchor_result else 'errored'} "
+                f"scene_anchor_net_kind="
+                f"{scene_anchor_result.get('net_kind') if scene_anchor_result else None} "
+                f"f1_reason={frame_tier_result.get('reason')} "
+                f"bracket=[{cursor},{master_start}]\n")
+
+            # AUTHORITY, GATED BY config.ini [features] scene_anchor_protocol
+            # -- OFF by default. When ON and the protocol succeeded, ITS
+            # answer replaces F1's for narrowing; F1 stays the cross-check
+            # above and is NEVER silently promoted on a protocol decline --
+            # when the protocol declines, this block does not run and the
+            # EXISTING F1-only logic already computed above is what
+            # decides, exactly as it does today with the flag absent.
+            if _sa_declined:
+                pass
+            elif _scene_anchor_protocol_enabled():
+                lo = exact_ms_from_frame(scene_anchor_result["master_start_frame"],
+                                         scene_anchor_result["grid"])
+                hi = exact_ms_from_frame(scene_anchor_result["master_end_frame"],
+                                         scene_anchor_result["grid"])
+                lo = min(max(lo, cursor), master_start)
+                hi = min(max(hi, lo), master_start)
+                narrowed_low, narrowed_high = lo, hi
+                frame_tier_result = scene_anchor_result
+                # INSERTION RULE (SPEC_ZONE_A S4h AMENDMENTS) -- NO EXTRA
+                # OFFSET ARITHMETIC NEEDED, AND AN EARLIER VERSION OF THIS
+                # LANDING GOT THAT WRONG (dev-anchor, 2026-09-21, caught
+                # before it ever reached src/): `offset` (this segment's
+                # OWN given offset, `previous_segment`'s/`segment`'s own
+                # hypothesis fed to `locate_scene_anchors` as
+                # `offset_after_ms`) is what the caller ALREADY measured
+                # for content on THIS side of the bracket -- it already
+                # accounts for any insertion between the anchors, because
+                # that is exactly what "the offset changed at this
+                # boundary" already means. Adding `frames_to_cut` to it a
+                # SECOND time double-counts the cut: measured directly,
+                # doing so moved the candidate read to
+                # [9009,19009) ms against fixture 1's 17007 ms bound --
+                # `chimeric_bound_error`, immediately, on the very first
+                # artefact-level run. `narrowed_high == narrowed_low`
+                # (scene_anchor's own contract on an addition: zero
+                # master-side length) already makes the EXISTING `if
+                # narrowed_high > narrowed_low` guard below skip the
+                # master-fill piece for free, and `master_start =
+                # narrowed_high` below already advances this segment's OWN
+                # read to start exactly where its OWN (correct) offset
+                # resumes matching -- which is the entire insertion rule,
+                # already implemented by the narrowing this tier already
+                # does for every other net_kind. The "genuinely new
+                # mechanism" this mission's plan promised turned out to be
+                # no mechanism at all: `net_kind`/`frames_to_cut` are
+                # diagnostic (SPEC_ZONE_A S4e's per-track report -- "what
+                # was cut and what was added, with the timings"), not
+                # inputs to further arithmetic.
 
         if narrowed_low is not None:
             # EXTEND THE PREVIOUS PIECE, DON'T INSERT A NEW ONE: it is
