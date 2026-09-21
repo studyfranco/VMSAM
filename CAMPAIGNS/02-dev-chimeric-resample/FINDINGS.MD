@@ -2694,3 +2694,28 @@ had to be re-run against the gesture-3 slice alone); and the sweep's own
 margin note flagged two bullets its verdict list omitted — one proved
 fine, one proved the worst thinning of the set. **A verifier's summary is
 itself a synthesis; its margins are part of the report.**
+
+## Relocated from BRIEF_COMMON.md by the owner, 2026-09-21 — "these are findings"
+
+The owner removed the "domain invariants (Architect's reminder)" section
+from `BRIEF_COMMON.md` because its content is MEASURED FINDINGS, not
+standing brief material. Carried here so the measurements survive:
+
+`audioCorrelation` returns `(correlation, offset_in_points, delay_ms)`.
+One point = 125 ms, the chromaprint frame — generally the norm, to
++/- 1 ms (exact domain below). Every delay seen is a multiple of the
+quantum (8125 ms = 65 points; 47750 ms = 382). A delay that is not a
+multiple of the quantum questions the reading before the media.
+
+The quantum is `lengthFile / n_items`, so it MOVES with the window
+(owner-authorised correction 2026-09-15; measured: TASKS/005 §5's fpcalc
+table + the real window formula, `video.py:474-485` with
+`mergeVideo.py:774` — `L = 2*(duration-90)/11` on the `>300 s` branch):
+125 ms exactly for L in [160, 286] s — episodes of ~16.2 to ~27.7 min;
+124 ms from L = 288 (~27.9 min) up, 44-min episodes included. Short
+formats are the exception: a ~10.7-min episode (L = 100) reads 127 ms,
+and between L = 100 and 160 nothing was measured — do not interpolate a
+claim there. So 125 +/- 1 holds from ~16 minutes up; below that it does
+not. NEVER hardcode 125: derive the quantum from the window actually
+passed (`TASKS/008` measured a real pair at gcd 124 ms — a hardcoded 125
+would have mis-scaled it).

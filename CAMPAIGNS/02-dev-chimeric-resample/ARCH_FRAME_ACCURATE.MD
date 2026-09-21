@@ -163,32 +163,124 @@ said which way round they belonged, which is why it could invert unnoticed.
 
 ## THE TRANSPOSITION
 
-    STAGE 0  ADMISSIBILITY  (new -- it REFUSES where the code currently defaults)
+**(Stages 0-3 amended by the OWNER'S ORDER of 2026-09-21 — exceptional
+authorization to the Architect, verbatim: « Tu as exceptionnellement le
+droit de le faire. » The full Bidirectional Scene Anchor Protocol is
+specified in its own section below; these stage blocks are its summary.)**
+
+    STAGE 0  ADMISSIBILITY  (it REFUSES where the code currently defaults)
       exact rational rate for BOTH sides, or DECLINE. No 25.0.
       CFR, or FrameRate_Original present, or DECLINE.
       every number downstream carries its grid (num/den).
+      *** STRICT RATIONAL-RATE CONSERVATION (owner, 2026-09-21): every
+      frame-index computation keeps the exact rational (24000/1001 for
+      23.976), never int(fps) — an integer rounding drifts NTSC by one
+      frame. Per-frame arithmetic is itself what removes this whole
+      class of trouble. ***
 
-    STAGE 1  ZONE -- from the RAW FINGERPRINT LIST            (owner constraint 1)
-      compare fpcalc items item-by-item. NOT correlation(), NOT cross_correlation().
-      sizePoint = window_ms / n_items, computed PER WINDOW. Never a literal.
-      resolution 3.0-3.4 frames => the output is a BRACKET, never a boundary.
-      window floor 30 s; the existing 60 s / 40 s geometry already satisfies it.
-      emits (start_point, end_point, sizePoint_ms, window_ms, n_items)
-            -- the points AND the constant that converts them, together.
+    STAGE 1  ZONE -- TWO-PASS VECTORIAL, RAW FINGERPRINT LIST  (owner, 2026-09-21)
+      FORBIDDEN: correlation(), cross_correlation(), compare() for cut
+        finding -- they crush the signal into one global scalar mean and
+        MASK the ruptures. calculate_fingerprints() is the sanctioned
+        source of the raw vectors.
+      MANDATORY: compare the raw fpcalc integer lists point by point.
+        Similarity vector V[i] = (32 - popcount(A[i] XOR B[i])) / 32.0.
+      Rupture detection: sliding window (3 to 5 points) over V[i]; a
+        sharp drop below 0.50 names the divergence index i_cut, in O(N).
+      Emission: the uncertainty BRACKET (~125 ms / 3-4 frames) centred
+        on i_cut. sizePoint = window_ms / n_items, computed PER WINDOW,
+        never a literal; the bracket travels with the constant that
+        converts it: (start_point, end_point, sizePoint_ms, window_ms,
+        n_items).
 
-    STAGE 2  FRAME -- pHash over the bracket                  (owner constraint 2)
-      FrameComparer at the NATIVE rational rate, no fps resampling.
-      DCT 8x8 -> 64 bits, banded Hamming: already implemented and correct.
-      if the bracket exceeds the 4.05 s hard wall -> DECLINE, do not refine.
-      emits (start_frame, end_frame, grid_num, grid_den, method="phash_frames")
+    STAGE 2  FRAME -- BIDIRECTIONAL SCENE ANCHOR PROTOCOL      (owner, 2026-09-21)
+      Replaces the uniform pHash sweep. Full protocol below; summary:
+      - Widened search window: extract [t_cut_begin - 10 s,
+        t_cut_end + 10 s]; scene_search_window_sec = 10, adjustable via
+        config.ini.
+      - Shot detection: PySceneDetect over the segment yields the EXACT
+        frame numbers of scene changes, in master and candidate.
+      - Anchor A (pre-cut): the LAST common scene before the divergence,
+        validated by pHash over >= 3 consecutive identical frames.
+      - Anchor B (post-cut): the FIRST scene after the divergence that
+        is identical again in both files, validated the same way
+        (>= 3 frames; "3-?" -- the floor is 3, more when needed).
+      - Cross-sweep: Forward from A and Backward from B to the exact
+        divergence frames (see protocol) -> integer frames_to_cut or
+        frames_to_fill.
+      - SCENE ADDITIONS (extensions/eyecatches) are first-class: the
+        protocol measures the exact length of an INSERTED segment in
+        MASTER frame coordinates (master_frame_index) -- an addition is
+        handled, never a refusal cause by itself.
+      FrameComparer runs at the NATIVE rational rate, no fps resampling;
+      DCT 8x8 -> 64 bits, banded Hamming.
+      emits (start_frame, end_frame, grid_num, grid_den,
+             method="scene_anchor_bidirectional")
 
-    STAGE 3  CARRY THE FRAME, NOT THE MILLISECOND             (owner constraint 2)
+    STAGE 3  CARRY THE FRAME, NOT THE MILLISECOND
       the plan/segment structures in merge_video_repair.py and
       merge_video_chimeric.py carry MILLISECONDS throughout.
       At 23.976, 1 ms = 0.024 frames. *** A frame converted to ms and back is NOT
       the same frame whenever the boundary sits within ~20.8 ms of a half-frame. ***
       The frame index must travel as the PRIMARY value; ms becomes derived and
       display-only.
+      *** CONFIRMED (owner, 2026-09-21): the gap computed between Anchor
+      A and Anchor B is stored as an INTEGER number of frames
+      (frames_to_cut / frames_to_fill), invariant under the rational
+      framerate (24000/1001). ***
+
+---
+
+## THE BIDIRECTIONAL SCENE ANCHOR PROTOCOL (owner's specification, 2026-09-21)
+
+The owner's own statement of the idea, kept with its intent: find the last
+common scene on both files (checking the >= 3 frames before it), note the
+differing frames between the two (there may be common ones first — the
+differences must then show); do the same at the first common scene AFTER
+the cut, and run the same comparison in the other direction. The cut then
+shows itself NET, and the frame gap is recorded.
+
+    [ Chromaprint Vectoriel ] --> finds t_cut (bracket ~125 ms)
+              v
+    [ Widened window ]        --> extract [t_cut - 10 s, t_cut + 10 s]
+              v
+    [ PySceneDetect ]         --> exact shot-change frame numbers
+              v
+    [ pHash anchoring ]       --> Anchor A (before) & Anchor B (after), >= 3 frames each
+              v
+    [ Cross-sweep ]           --> Forward from A + Backward from B
+
+1. **Anchor A (pre-cut)**: validate correspondence on the preceding scene
+   (pHash over >= 3 frames of animation/decor).
+2. **Anchor B (post-cut)**: find in the candidate the first following
+   scene that is 100% identical to the master again (>= 3 frames).
+3. **Cross-sweep** (Forward from A + Backward from B):
+   - Forward: advance frame by frame from A until master and candidate
+     diverge -> record `split_start_master` and `split_start_candidate`.
+   - Backward: recede frame by frame from B until the divergence is met
+     again -> record `split_end_master` and `split_end_candidate`.
+4. **Net difference**:
+   - length_candidate > length_master -> an ADDITION in the candidate
+     (eyecatch / extra scene): CUT exactly N frames from the candidate so
+     the remainder locks onto the master.
+   - length_candidate < length_master -> a CUT in the candidate: FILL the
+     N missing frames from the master.
+   - **Still-image case**: the sweep may land with split_start_master =
+     Anchor-B-master position and split_start_candidate = Anchor-B-
+     candidate position (and symmetrically in the other direction). Then
+     the adjustment is simply the count of absent/extra frames — this is
+     how a hold whose interior carries no signal is measured by COUNTING
+     between the anchors instead of by matching inside it.
+
+**The decisive property**: with A and B validated by their ADJACENT
+scenes, the algorithm cannot be fooled by similar repeated frames (mouths
+moving over a fixed background) — the anchors are where identity is
+proven; the interior is where the count is taken.
+
+**Framerate note (owner, 2026-09-21)**: the objective is detection at the
+RIGHT frame of the offset. When both files share the same framerate,
+scene detection over a SMALL section allied with pHash suffices; when the
+framerates differ, scene detection runs over a LARGER zone.
 
     STAGE 4  THE FORBIDDEN ROUTE, STRUCTURALLY REFUSED        (owner constraint 3)
       change_point_locator.py:659 must not be the AUTHORITY for a frame boundary.

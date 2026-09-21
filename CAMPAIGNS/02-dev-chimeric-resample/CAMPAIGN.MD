@@ -19,8 +19,12 @@ cycle, indistinguishable from files that never left it.
 - Repair **only the divergent zone, never the whole comparison zone**, to the
   frame.
 - Chromaprint's per-point vector **targets** the zone (~125 ms — the economy
-  stage, not a limit); pHash **validates that the 50 frames before and after
-  each cut are identical** between master and candidate.
+  stage, not a limit); pHash **validates the SCENES before and after each
+  transition** (Anchor A / Anchor B of the Bidirectional Scene Anchor
+  Protocol, `ARCH_FRAME_ACCURATE.MD`) — amended by the owner 2026-09-21
+  from the earlier flat 50-frame check, precisely so that SCENE ADDITIONS
+  (eyecatches, recaps) are measured and handled instead of defeating a
+  fixed-width control.
 - Boundaries are indexed in **master video frame numbers** — invariant under
   resample; audio-only divergences are bounded in master frames too.
 - Resample before locate before splice. Never route through
@@ -47,8 +51,9 @@ test container carrying the latest pushed code**, over **every file in the
 error tree**, produces a row per file such that:
 
 1. Every **ATTEMPT-class** file merges automatically and its product passes
-   validation: the target-first comparison, and the 50-frame pHash check at
-   every repair boundary.
+   validation: the target-first comparison, and the scene-anchor pHash
+   validation (Anchor A / Anchor B, ≥3 identical frames each side) at
+   every repair boundary — amended 2026-09-21 with §2's second point.
 2. Every **CANNOT-HELP / DO-NOT-class** file is refused **with its named
    reason** carried as a field on its row — never filtered out upstream.
 3. **The code is generic**: no corpus id, no per-file constant, no filename
@@ -60,6 +65,13 @@ error tree**, produces a row per file such that:
 Rows, not summaries: the three numbers (repaired / damaged / declined) are
 computed over the blessed denominator, and a file with no row is a sweep
 defect, not a success.
+
+**NON-REJECTION RULE (owner's order, 2026-09-21)**: a candidate file
+carrying an EXTRA eyecatch/recap, or a SHORTER ending, is ATTEMPT-class
+(repair expected to succeed) — never `CANNOT-HELP`. And **no fixed size
+limit is acceptable for that classification**, because whole scenes can be
+added: the Bidirectional Scene Anchor Protocol measures the insertion
+whatever its length, so length alone never justifies a rejection.
 
 **Both parameters are ruled (owner, 2026-09-15):**
 - *Denominator*: the content of `/errors` **at the instant of the final
@@ -108,3 +120,22 @@ Findings synthesis: Architect + Lead only, `FINDINGS.MD`. Privacy: opaque ids
 everywhere tracked; output paths are carriers. Flags: `config.ini
 [features]`, off by default. Instruments and their refuted alternatives:
 `VMSAM_CORPUS/docs/`.
+
+## POST-SUCCESS & CLOSURE PROTOCOL (Phase de Clôture) — owner's order, 2026-09-21, binding on the Lead Dev and the Architect
+
+Once all target cases are certified (`CERTIFIED_FRAME_ACCURATE` or `DECLARED_INCOMPATIBLE`) and the campaign end conditions are met, the Lead Dev and Architect MUST execute the closure sequence BEFORE declaring the campaign closed:
+
+### 1. Code Audit & Refactoring (Zero Debt Rule)
+- **Remove Debug Noise:** Strip all temporary `print()`, debug logging hooks, and dead commented-out code blocks across `src/`.
+- **Comment Condensation:** Audit inline comments. Keep ONLY concise, high-value technical documentation (in English) explaining complex frame logic or domain invariants.
+- **Code Cleanliness:** Ensure PEP 8 / project formatting rules are strictly applied on all modified files.
+
+### 2. Environment & Lab Purge
+- **Purge Ephemeral Labs:** Delete all temporary developer agent directories (`VMSAM_HELP_AI/vmsam-dev-*`).
+- **Clean Scratch & Storage:** Wipe temporary files in `/tmp` and non-essential intermediate outputs in `/config/output/`.
+- **Tooling Consolidation:** Ensure any new reusable utility created in `VMSAM_HELP_AI/tools/` is properly documented in `TOOLS.MD`.
+
+### 3. Final Certification & Freeze
+- **Final Compliance Gate:** Execute `check_write_zones.py --repo .` to guarantee total write-zone compliance.
+- **Tagged Final Commit:** Lead Dev executes the final clean commit and git push.
+- **Campaign Closure Report:** Architect writes `CAMPAIGNS/02-dev-chimeric-resample/POST_MORTEM.MD` summarizing final repair counts, lessons learned, and active invariants.

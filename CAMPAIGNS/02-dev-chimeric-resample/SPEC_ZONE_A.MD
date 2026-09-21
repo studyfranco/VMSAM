@@ -116,6 +116,23 @@ says so, and nothing is logged.
 every file; a threshold in milliseconds is a different one on each. And **which files
 are affected must be answerable from the logs**, not reconstructed afterwards.
 
+## 3c. Zone detection by similarity vector (Stage 1) — OWNER'S ORDER, 2026-09-21
+
+**Global correlation over the whole file is BANNED for cut-finding.** It
+crushes the signal into one scalar mean and masks the very ruptures this
+campaign exists to locate. The locator extracts the point-by-point
+similarity vector from the RAW fingerprints instead
+(`calculate_fingerprints()` is the sanctioned source). The owner's
+proposed shape:
+
+1. **Vector generation**: V[i] = (32 − popcount(master[i] XOR
+   candidate[i])) / 32.0 over the raw fpcalc integer lists.
+2. **Rupture spotting**: the index `i_cut` where local concordance drops
+   (sliding window of 3-5 points; a sharp fall below 0.50), in O(N).
+3. **Hand-off**: the short BRACKET (~125 ms) around `i_cut` passes to
+   Stage 2 (pHash / scene anchors) for frame-exact alignment — see
+   `ARCH_FRAME_ACCURATE.MD`, the Bidirectional Scene Anchor Protocol.
+
 ## 4. Same tag is not same recording — check concordance before building
 
 **A language tag groups recordings that are not interchangeable.** VFQ, VFF and VFI
@@ -234,6 +251,24 @@ two parallel subtitle classifications already diverged here for exactly that rea
 cut at the frame, or fill at the frame. A boundary that is not frame-accurate makes both
 of the following operations wrong by the same amount, in opposite directions — the cut
 removes material that was good, and the fill covers material that was good.*
+
+### AMENDMENTS — OWNER'S ORDER, 2026-09-21
+
+- **Tail-gap boundary rule**: when the candidate track stops BEFORE the
+  master at end of episode, the fill from the master's audio is
+  AUTOMATIC, up to the master's exact duration (`expected_duration_ms`).
+  It must NOT raise `fill_source_too_short` and must NOT fail
+  `output_check` — a shorter candidate ending is an ordinary repair, not
+  a refusal cause.
+- **Insertion rule**: any candidate segment that has NO correspondence
+  between Anchor A and Anchor B is CUT at the frame before the junction
+  is made. More precisely: any scene present in the candidate between
+  Anchor A and Anchor B but ABSENT from the master is cut out
+  frame-exactly.
+- **Master-fill rule**: if the zone `master_cut_start` to
+  `master_cut_end` contains material absent from the candidate, the
+  corresponding audio is taken from the MASTER (same language, or the
+  comparison language per §4c) and injected EXACTLY over that interval.
 
 ### WHERE the refinement belongs — owner's ruling
 
