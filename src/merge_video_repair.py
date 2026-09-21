@@ -320,6 +320,104 @@ def get_delay_language(best_video, candidate_obj):
     return keys[0], f"ARBITRARY: insertion order among {sorted(keys)}"
 
 
+def _candidate_sample_rate_for_speed_test(candidate_obj):
+    '''Meme lecture que `get_marker_value_for` (ce fichier): ffprobe d'abord,
+    MediaInfo en repli. Duplique volontairement plutot qu'appelle
+    `pal_speed_verdict._candidate_sample_rate` -- fonction privee d'un autre
+    module, et la meme logique existe deja, publique en pratique, ICI.'''
+    for language, audios in candidate_obj.audios.items():
+        for audio in audios:
+            rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
+            if rate != None:
+                return int(float(rate))
+    return None
+
+
+def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
+    '''STEP 2 DU PIPELINE DU PROPRIETAIRE -- "Test Reechantillonnage
+    (Fidelite > 0,90)" (BRIEF.md; RULINGS_IN_FORCE.md, ligne
+    `PIPELINE_CANONICAL`, 2026-09-21). LE PRODUCTEUR MANQUANT: avant cette
+    fonction, rien dans le depot n'ecrivait jamais `plan["speed_ratio"]` --
+    mesure independamment par `dev-step1-classify` (call graph) et par moi
+    (`_decline` de `change_point_locator.py` rend `(None, reason)`, DEUX
+    elements, jamais les champs `pal_chain_*` qu'elle journalise).
+
+    Appelee UNIQUEMENT quand `change_point_locator` a decline avec
+    `speed_relation_suspected` -- c'est-a-dire quand la Stage 1 a deja vu une
+    derive monotone et une fidelite mediane sous son propre plancher
+    (`MIN_MEDIAN_FIDELITY`, 0.70, UNE AUTRE QUANTITE que celle testee ici).
+
+    STEP 2 EST SON PROPRE CONFIRMATEUR (Lead ruling on Q1, 2026-09-21): le
+    diagramme du proprietaire dessine DEUX boites -- Classification, puis Test
+    Reechantillonnage -- et aucune troisieme. La premiere version de cette
+    fonction exigeait D'ABORD `pal_speed_verdict.determine_speed_verdict`
+    (pitch + NCC, un plancher NCC_FLOOR=0.80 DIFFERENT et un instrument
+    DIFFERENT) avant de tenter mon propre plancher -- mesure sur un vrai
+    exemplaire PAL confirme (curated-46, `VMSAM_CORPUS`) que cette chaine
+    DECLINE (NCC 0.60 contre son propre plancher 0.80) alors que sa PROPRE
+    sonde de hauteur tonale est D'ACCORD et que mon plancher de
+    reechantillonnage confirme a 0.93. Le proprietaire n'a jamais dessine
+    cette troisieme boite; l'exiger transformait le Test Reechantillonnage en
+    second avis sur le verdict d'une autre chaine plutot que le test qu'il a
+    specifie. RETIRE. `pal_speed_verdict` reste utile ailleurs (son propre
+    journal sur le decline de la Stage 1); il n'est plus un prealable ici.
+
+    LE RATIO CANDIDAT VIENT DE LA DUREE SEULE (`pal_speed_discriminator`,
+    deja publique, deuxieme site d'appel de sa fonction privee -- convention
+    deja etablie par ce meme module). Aucun filtrage par `band`: la
+    classification (`pal_direct`/`pal_inverse`/`no_band`) est une etiquette
+    pour LA CHAINE pal_speed_verdict, pas une condition pour ce test -- mon
+    propre plancher, avec son bras reciproque et sa mesure sur fichier entier,
+    est l'arbitre. Un ratio `None` (duree inutilisable) est le seul cas qui ne
+    peut pas etre teste du tout.
+
+    LE BRAS RECIPROQUE RESTE PERMANENT (Lead ruling): appliquer le mauvais
+    sens et voir la fidelite RESTER BASSE est ce qui rend ce test une VRAIE
+    mesure et non une seconde lecture de la meme correlation -- SPEC_ZONE_A.MD
+    s4f l'exige explicitement ("un depatageage tire des memes correlations
+    n'est pas un second avis").
+
+    Renvoie (plan, cause). `plan` est None si la relation n'a pas ete
+    confirmee. Le plan produit ne porte PAS de `segments`: une relation de
+    vitesse pure couvre toute la timeline (`build_repaired_video_object` le
+    sait deja construire).
+    '''
+    import pal_speed_discriminator
+    discriminator_result, disc_error = pal_speed_discriminator.discriminate_from_videos(
+        best_video, candidate_obj, language)
+    if disc_error is not None:
+        return None, "resample_test_locator_module_absent"
+    ratio = discriminator_result.get("speed_ratio")
+    if ratio is None:
+        return None, "resample_test_duration_unmeasurable"
+
+    sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
+    if sample_rate == None:
+        return None, "resample_test_no_sample_rate"
+
+    import merge_video_resample
+    work_dir = path.join(tools.tmpFolder, "repair", "resample_fidelity_test")
+    tools.make_dirs(work_dir)
+    gate = merge_video_resample.test_speed_ratio_against_master(
+        best_video.filePath, candidate_obj.filePath, ratio, sample_rate, work_dir)
+    if tools.dev:
+        tools.logs.append(
+            f"repair: resample fidelity gate for {language}: band="
+            f"{discriminator_result.get('band')} verdict={gate['verdict']} "
+            f"ratio={gate.get('ratio')} median={gate.get('median_fidelity')} "
+            f"margin={gate.get('margin')} cause={gate.get('cause')}\n")
+    if gate["verdict"] != "confirmed":
+        return None, gate["cause"]
+
+    return {"kind": "speed", "verdict": "asetrate",
+            "speed_ratio": str(gate["ratio"]),
+            "speed_ratio_convention": RATIO_CONVENTION,
+            "speed_margin": gate["margin"],
+            "duration_master_s": float(best_video.video["Duration"]),
+            "duration_candidate_s": float(candidate_obj.video["Duration"]),
+            "resample_gate": {k: v for k, v in gate.items() if k != "hypotheses"}}, None
+
+
 def get_plan_from_locator(best_video, candidate_obj, language):
     """La mesure de `vmsam-dev-1`, appelee ici et nulle part ailleurs.
 
@@ -353,6 +451,39 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         best_video, candidate_obj, language)
     if plan is not None:
         return plan, None
+    if locator_cause == "speed_relation_suspected":
+        # STEP 2 OF THE OWNER'S PIPELINE, HERE AND ONLY HERE (BRIEF.md;
+        # RULINGS_IN_FORCE.md `PIPELINE_CANONICAL`, 2026-09-21: "Q1 RESOLVED =
+        # ACT-and-decide"). Stage 1 (`change_point_locator.py`, not mine) only
+        # SUSPECTS a speed relation and declines unconditionally today -- see
+        # its own comment at the call site, "No resample, no repair call".
+        # `confirm_speed_relation_via_resample` is the missing producer: it
+        # confirms the ratio (PAL/NTSC chain) AND gates it against a
+        # WHOLE-TRACK RESAMPLE's fidelity (`merge_video_resample`,
+        # RESAMPLE_FIDELITY_FLOOR=0.90 -- a DIFFERENT quantity from Stage 1's
+        # own MIN_MEDIAN_FIDELITY=0.70, see that module's docstring). A plan
+        # returned here still cannot reach a real repair today:
+        # `build_repaired_video_object`'s unconditional guard
+        # (`speed_transform_not_validated`) refuses any non-None
+        # `speed_ratio` until the Lead's own commit lifts it with evidence --
+        # this branch stops at "the plan exists and is admissible", which is
+        # everything this file can validate on its own.
+        speed_plan, speed_cause = confirm_speed_relation_via_resample(
+            best_video, candidate_obj, language)
+        if speed_plan is not None:
+            return speed_plan, None
+        # NOT CONFIRMED. Falls through to the ORIGINAL locator_cause
+        # (`speed_relation_suspected`), unchanged -- `speed_cause` is a
+        # SEPARATE, MORE SPECIFIC finding (which stage of confirmation
+        # refused, or which side of the resample gate) and belongs in the
+        # log this function's own caller already writes from the plan's
+        # absence, not substituted for the Stage 1 token that is still true:
+        # Stage 1 still only SUSPECTED, and that suspicion is what is being
+        # passed through when confirmation fails.
+        if tools.dev:
+            tools.logs.append(
+                f"repair: speed relation suspected but not confirmed for "
+                f"{language}: {speed_cause}\n")
     # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
     #
     # This block used to say the producer half was unlanded and held by dev-1's user,
