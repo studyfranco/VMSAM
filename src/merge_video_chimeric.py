@@ -1771,6 +1771,52 @@ def pick_best_master_audio(tracks):
     return tracks[0]
 
 
+def split_master_fill_shortfall(pieces, fill_source_ms):
+    '''How much `fill_source_ms` (the fill track's own measured extent) falls
+    short, split by the REASON of the master piece asking for it.
+
+    SPEC_ZONE_A.MD s4h, "Tail-gap boundary rule" (owner's order, 2026-09-21),
+    Lead's ruling shape (a), 2026-09-21: a shortfall caused by the AUTOMATIC
+    tail-gap fill reaching for `master_duration_ms` is not a refusal cause;
+    a shortfall caused by any other reason (`head_gap`, `interior_bracket`,
+    `interior_bracket_frame_narrowed`) still is, unchanged. The two cannot
+    be told apart from a single pooled number, which is what this site
+    computed before this landing (`max` over every `reason` together).
+
+    SEPARABLE BY CONSTRUCTION, not by convention: `normalize_segments`
+    appends at most ONE `tail_gap` piece, after its main loop, and that
+    piece's `master_end_ms` is ALWAYS `master_duration_ms` exactly -- the
+    ceiling `normalize_segments` itself refuses any piece from exceeding
+    (`segment ends at ... past the master's ...`, its own admission guard).
+    So the tail-gap piece can never be shadowed by, or hide, another
+    piece's own shortfall: it is provably the largest `master_end_ms` among
+    all master pieces whenever it exists, and every other reason's own
+    shortfall is computed from the OTHER pieces alone.
+
+    Takes THIS TRACK'S OWN `pieces` (each track gets its own, from its own
+    `normalize_with_measured_bound` call) -- so the split is per-track by
+    construction, not a file-wide default a later edit could drift into
+    applying uniformly.
+
+    Returns `(non_tail_shortfall_ms, tail_shortfall_ms)`, each `Decimal` or
+    `None` when that class of master piece does not exist or does not
+    exceed `fill_source_ms`.
+    '''
+    non_tail_ends = [p["master_end_ms"] for p in pieces
+                     if p["source"] == "master" and p.get("reason") != "tail_gap"]
+    tail_ends = [p["master_end_ms"] for p in pieces
+                if p["source"] == "master" and p.get("reason") == "tail_gap"]
+    furthest_non_tail = max(non_tail_ends, default=None)
+    furthest_tail = max(tail_ends, default=None)
+    non_tail_shortfall = (furthest_non_tail - fill_source_ms
+                          if furthest_non_tail != None and furthest_non_tail > fill_source_ms
+                          else None)
+    tail_shortfall = (furthest_tail - fill_source_ms
+                      if furthest_tail != None and furthest_tail > fill_source_ms
+                      else None)
+    return non_tail_shortfall, tail_shortfall
+
+
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                           out_path, timeout, speed_ratio=None,
                           reference_stream=None, comparison_language=None,
@@ -1891,6 +1937,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
 
     fill_source_ms = None
     fill_short_by_ms = None
+    fill_short_by_ms_tail_exempt = None
     if fill == "master" and master_audio != None and "Duration" in master_audio:
         try:
             # UN POINT DE FIN MOINS UNE DUREE N'EST PAS UN MANQUE.
@@ -1914,10 +1961,28 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             delay_ms = delay_in_ms(master_audio)
             fill_source_ms = (Decimal(str(master_audio["Duration"])) * Decimal("1000")
                               + delay_ms)
-            furthest = max((p["master_end_ms"] for p in pieces
-                            if p["source"] == "master"), default=None)
-            if furthest != None and furthest > fill_source_ms:
-                fill_short_by_ms = furthest - fill_source_ms
+            # TAIL-GAP EXEMPTION SPLIT (SPEC_ZONE_A.MD s4h, Lead's ruling
+            # shape (a), 2026-09-21): see `split_master_fill_shortfall`'s
+            # own docstring for the separability proof. `fill_short_by_ms`
+            # now names ONLY the non-tail-gap shortfall -- the quantity
+            # `output_check` (below, via `verify_output_file`) still refuses
+            # on, unchanged. `fill_short_by_ms_tail_exempt` is new: the
+            # amount attributable to THIS track's own `tail_gap` piece
+            # alone, per-track because `pieces` here already is.
+            fill_short_by_ms, fill_short_by_ms_tail_exempt = (
+                split_master_fill_shortfall(pieces, fill_source_ms))
+            if fill_short_by_ms_tail_exempt != None:
+                # VISIBLE, NEVER SILENT (Lead's condition, 2026-09-21): an
+                # exemption that stops a refusal from happening leaves no
+                # trace by construction unless it is named here -- this is
+                # the PLAN-STAGE prediction; `verify_output_file` logs its
+                # own, independent confirmation from the PRODUCED file.
+                tools.logs.append(
+                    f"chimeric: fill_short_tail_exempt "
+                    f"stream_order={audio['StreamOrder']} language={language} "
+                    f"exempted_ms={fill_short_by_ms_tail_exempt} reason=tail_gap "
+                    f"residual_non_exempt_ms="
+                    f"{fill_short_by_ms if fill_short_by_ms != None else '0'}\n")
         except Exception:
             # PAS de zero par defaut: une duree illisible est une ABSENCE.
             fill_source_ms = None
@@ -2170,6 +2235,13 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "fill_stream_order": master_stream_order,
             "fill_source_ms": str(fill_source_ms) if fill_source_ms != None else None,
             "fill_short_by_ms": str(fill_short_by_ms) if fill_short_by_ms != None else None,
+            # THE TAIL-GAP-ATTRIBUTABLE PORTION, NAMED SEPARATELY -- never
+            # folded back into `fill_short_by_ms` above, which is exactly
+            # the pooling this field exists to undo. `None` on every track
+            # with no `tail_gap` piece, or whose fill source reaches it.
+            "fill_short_by_ms_tail_exempt": (
+                str(fill_short_by_ms_tail_exempt)
+                if fill_short_by_ms_tail_exempt != None else None),
             "fill_by_reference": fill_by_reference,
             "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
@@ -3901,6 +3973,37 @@ def stable_case_key(candidate_path):
     return hashlib.md5(candidate_path.encode()).hexdigest()[:16]
 
 
+def apply_tail_exemption(delta_ms, exempted_ms):
+    '''Deduct the tail-gap-attributable portion from a PRODUCED stream's
+    measured `delta_ms` (duration minus `master_duration_ms`; negative means
+    the stream is short), capped so a PLAN-STAGE prediction can never
+    manufacture headroom the PRODUCED FILE does not actually have.
+
+    SPEC_ZONE_A.MD s4h, Lead's ruling shape (a) and its draft condition,
+    2026-09-21: the refusal must name the NON-EXEMPT amount, never the
+    total, "otherwise the number in the error stops meaning what it says."
+    `min(exempted_ms, abs(delta_ms))` is that cap in one call: a prediction
+    bounded by a measurement is defensible, a prediction replacing a
+    measurement is not, and the difference between the two is this `min`.
+
+    Only a SHORTFALL (`delta_ms < 0`) can be tail-gap-caused: the assembler
+    never fills past `master_duration_ms`, so a stream running LONG is never
+    this exemption's business and is returned unchanged.
+
+    `exempted_ms` is `None` for any stream whose own report carries no
+    `tail_gap` piece (see `split_master_fill_shortfall`) -- the exemption is
+    per-stream by construction, not a default this function could widen.
+
+    Returns `(residual_delta_ms, deduction_ms)`; `deduction_ms` is `None`
+    when nothing was deducted (positive delta, or no exemption for this
+    stream) -- distinct from `Decimal(0)`, which would mean "deducted zero".
+    '''
+    if exempted_ms is None or delta_ms >= 0:
+        return delta_ms, None
+    deduction = min(exempted_ms, abs(delta_ms))
+    return delta_ms + deduction, deduction
+
+
 def verify_output_file(out_path, master_duration_ms, audio_reports,
                        subtitle_reports, tolerance_ms):
     """L'ACCEPTATION PORTE SUR LE FICHIER, pas sur le compte de pistes.
@@ -3932,7 +4035,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     if len(subtitle) != len(subtitle_reports):
         problems.append(f"{len(subtitle_reports)} subtitle track(s) were built and "
                         f"{len(subtitle)} are in the file")
-    short, unmeasured = [], []
+    short, unmeasured, tail_exempted = [], [], []
     for position, stream in enumerate(audio):
         duration = stream["duration_ms"]
         if duration == None:
@@ -3986,9 +4089,31 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                                          "and is not substituted"})
             continue
         delta = duration - Decimal(str(master_duration_ms))
-        if tolerance_ms != None and abs(delta) > Decimal(str(tolerance_ms)):
+        # TAIL-GAP EXEMPTION, AT THE SITE THAT ACTUALLY GATES THE RAISE
+        # (SPEC_ZONE_A.MD s4h, Lead's ruling shape (a), 2026-09-21 --
+        # corrected after the first draft named `fill_short_by_ms` alone,
+        # which this function never reads to DECIDE, only to ANNOTATE: the
+        # decision below, on `residual_delta`, is the one that matters).
+        # PER-STREAM, STRUCTURALLY: `exempted_ms` comes only from THIS
+        # position's own report, which is `None` unless that track's own
+        # `pieces` carried a `tail_gap` piece (`split_master_fill_shortfall`)
+        # -- a stream with no tail-gap fill gets no exemption at any
+        # magnitude, by construction, not by a check added here.
+        exempted_ms = None
+        if position < len(audio_reports):
+            _tail_exempt = audio_reports[position].get("fill_short_by_ms_tail_exempt")
+            if _tail_exempt not in (None, "", "0"):
+                exempted_ms = Decimal(str(_tail_exempt))
+        residual_delta, deduction_ms = apply_tail_exemption(delta, exempted_ms)
+        if tolerance_ms != None and abs(residual_delta) > Decimal(str(tolerance_ms)):
             entry = {"index": stream["index"], "language": stream["language"],
                      "duration_ms": str(duration), "delta_ms": str(delta)}
+            if deduction_ms != None:
+                # delta_ms ABOVE STAYS THE REAL MEASUREMENT, NEVER OVERWRITTEN
+                # (Lead's condition, 2026-09-21): two fields, two meanings.
+                # `residual_delta_ms` is what actually gated this refusal.
+                entry["residual_delta_ms"] = str(residual_delta)
+                entry["tail_exempt_ms"] = str(deduction_ms)
             # LE REFUS DIT SI LE MANQUE EST DEJA EXPLIQUE PAR LA SOURCE.
             #
             # `vmsam-ci`, en inspectant le PREMIER artefact refuse que cette
@@ -4019,10 +4144,27 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                 if fill_short not in (None, "", "0"):
                     entry["fill_short_by_ms"] = fill_short
             short.append(entry)
+        elif deduction_ms != None:
+            # VISIBLE, NEVER SILENT (Lead's condition, 2026-09-21): a
+            # refusal that stops happening leaves no trace by construction
+            # unless it is named here too. This confirms the exemption from
+            # the PRODUCED file's own measurement, distinct from the
+            # plan-stage prediction logged in `build_one_audio_track`.
+            tail_exempted.append({
+                "index": stream["index"], "language": stream["language"],
+                "delta_ms": str(delta), "exempted_ms": str(deduction_ms),
+                "residual_delta_ms": str(residual_delta)})
+            tools.logs.append(
+                f"chimeric: output_check_tail_exempt stream={stream['index']} "
+                f"language={stream['language']} delta_ms={delta} "
+                f"exempted_ms={deduction_ms} residual_delta_ms={residual_delta}\n")
     if len(short):
         problems.append("track(s) not running to the master's duration: "
                         + "; ".join(f"stream {s['index']} ({s['language']}) "
-                                    f"{s.get('delta_ms', s.get('reason'))}"
+                                    f"{s.get('residual_delta_ms', s.get('delta_ms', s.get('reason')))}"
+                                    + (f" [of measured {s['delta_ms']}, "
+                                       f"{s['tail_exempt_ms']} ms tail-gap-exempted]"
+                                       if s.get("tail_exempt_ms") else "")
                                     + (f" [fill source itself short by "
                                        f"{s['fill_short_by_ms']} ms]"
                                        if s.get("fill_short_by_ms") else "")
@@ -4032,6 +4174,10 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                         + "; ".join(f"stream {u['index']} ({u['language']})"
                                     for u in unmeasured))
     report = {"unmeasured": unmeasured,
+              # STREAMS THE TAIL-GAP EXEMPTION KEPT OUT OF `short` -- present
+              # here so a refusal that stopped happening is still on the
+              # record (SPEC_ZONE_A.MD s4h; Lead's ruling, 2026-09-21).
+              "tail_exempted": tail_exempted,
               "expected_duration_ms": str(master_duration_ms),
               "expected_duration_source": "master video Duration (mediainfo)",
               # CE CHAMP PEUT NE PAS ETRE UNE DUREE DE CONTENU. `format=duration`
