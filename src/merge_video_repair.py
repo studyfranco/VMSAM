@@ -2246,6 +2246,15 @@ def log_assembly(candidate_path, assembly, plan):
                 # precisement ce que cette mission demande de rendre visible,
                 # pas son apparition universelle.
                 f"{' frame_tier_declined_reason=' + str(region['frame_tier_declined_reason']) if region.get('frame_tier_declined_reason') else ''}"
+                # LE JETON SEUL NE DIT PAS LEQUEL DES QUATRE. Meme condition
+                # que la ligne au-dessus -- il n'existe que quand le raffineur
+                # a DECLINE -- mais `could_not_locate_onset` couvre quatre
+                # etats distincts dans `frame_compare.locate_match_onset`, et
+                # la phrase qui les separe etait deja calculee et jetee. Elle
+                # porte les deux lignes de base et le seuil, donc "n'a pas pu
+                # calibrer sur ce contenu" cesse de se lire comme "a calibre
+                # et n'a rien trouve".
+                f"{' frame_tier_declined_evidence=' + repr(str(region['frame_tier_declined_evidence'])) if region.get('frame_tier_declined_evidence') else ''}"
                 "\n")
         # ET CE QUI A ETE COUPE: du materiau du candidat qui existe et
         # n'apparait pas dans la sortie. Sans ces bornes la coupe n'est visible
