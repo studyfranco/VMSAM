@@ -85,6 +85,50 @@ CONTENT_DETECTOR_THRESHOLD_DEFAULT = 27.0
 # validation and as the viability floor below.
 MIN_VALIDATION_FRAMES = 3
 
+# THE 3 IS A FLOOR, NOT A FIXED VALUE (owner, dev-step6-phash mission
+# BRIEF.md, 2026-09-21, verbatim: "if anchor are not the same, ... the 3
+# frames is not enought and increase the number"). Read literally: a
+# candidate anchor whose MIN_VALIDATION_FRAMES-frame match is AMBIGUOUS --
+# it also matches under a competing shift hypothesis, i.e. it is NOT
+# uniquely "the same" -- is not thrown away outright. The window is
+# WIDENED at that SAME seed and re-checked: a longer consecutive run is
+# less likely to still be self-similar under a wrong hypothesis (the
+# owner's "mouths moving over a fixed background" is exactly a SHORT
+# self-similar run; a longer one is a stronger claim about the content).
+# `_anchor_search` below walks this ladder PER SEED -- re-running both
+# `_validate_anchor` and `_check_anchor_distinctive` at each rung -- before
+# giving up on that seed and moving to the next one.
+#
+# THE RUNG VALUES AND THE CAP (13) ARE NOT THE OWNER'S. He named the
+# principle (floor, not fixed) and the trigger (an ambiguous match), never
+# a schedule. ATTRIBUTION (Lead's ruling, 2026-09-21, ratifying this after
+# measuring it): owner gave the principle, this seat (dev-step6-phash)
+# derived the numbers, the Lead ratified them -- kept explicit here so the
+# record never lets the schedule quietly acquire the owner's authority.
+# Each rung costs only comparisons against hashes ALREADY extracted (no
+# new ffmpeg call, no new probe class -- the same reuse
+# `_check_anchor_distinctive` already relies on), so growth is cheap; the
+# cap is chosen because 13 frames is already ~0.5 s at 24 fps -- past that,
+# content still indifferent to which shift reads it is not something a few
+# more frames will resolve, and trying the next SEED costs less than
+# growing this one further (see `_anchor_search`'s own union-of-seeds
+# design). UNMEASURED: how often production content actually needs a rung
+# past 3 -- covered by the per-rung log line `_anchor_search` now writes.
+#
+# ORDERING WITH THE OUTER (WINDOW) LADDER -- DELIBERATE, DO NOT REORDER
+# (Lead's measurement, 2026-09-21, on dev-step4-extract's
+# WINDOW_LADDER_* below): this ladder is CHEAP (re-validates hashes already
+# extracted) and sits INSIDE `_anchor_search`, so it exhausts fully before
+# dev-step4-extract's EXPENSIVE window-widening retry (re-extracts frames,
+# re-runs PySceneDetect, doubles 10s->20s->40s) ever fires one level up.
+# Worst case is bounded (5 inner rungs x 3 outer rungs = 15 anchor
+# searches per bracket) precisely because the many, cheap rungs sit on
+# THIS dial and the few, expensive rungs sit on the OTHER one. Swapping
+# which ladder is inner and which is outer turns a bounded retry into
+# something that re-extracts video on every inner rung -- the difference
+# between a ladder and a hang.
+VALIDATION_FRAME_LADDER = (MIN_VALIDATION_FRAMES, 4, 6, 9, 13)
+
 # Same Hamming vocabulary as frame_compare.py's own boundary validation
 # (BOUNDARY_VALIDATION_HAMMING_THRESHOLD_DEFAULT) -- a DIFFERENT constant,
 # not imported, because this module's validation question ("are these two
@@ -92,6 +136,58 @@ MIN_VALIDATION_FRAMES = 3
 # roughly where we think"): anchor frames must be near-identical, not
 # merely close enough to confirm a shift.
 ANCHOR_HAMMING_THRESHOLD_DEFAULT = 6
+
+# NAMED, NOT AN ANONYMOUS REPEATED SUBTRACTION (Lead's ruling, 2026-09-21,
+# on a measured finding: the candidate window used to get `window_frames`
+# subtracted/added a SECOND time on top of the master window's own
+# margin, with no constant marking it as deliberate). The candidate
+# window carries this MANY TIMES the master's own search margin, beyond
+# whatever the two offset hypotheses already require -- because a seed
+# MISSED here is a decline (`anchors_not_established`), while a seed
+# window that is too generous only costs decode time. The asymmetry is
+# real and is NOT what the owner's diagram states (`t_cut +/- 10 s`,
+# one number) -- it is deliberate, so it gets a name instead of staying
+# an unmarked doubling a reader would have to reverse-engineer.
+CANDIDATE_SEED_MARGIN_MULTIPLIER = 2
+
+# THE LADDER (owner's order, 2026-09-21, verbatim: "if anchor are not the
+# same, the 10 seconds is not enought ... and increase the number"). A
+# single rung that fails to seed BOTH anchors is not evidence the
+# boundary is unreachable -- it is evidence the search was too narrow.
+# Doubling is the smallest growth law that halves the rung count needed
+# to reach a given ceiling versus a smaller step, and it is not tuned on
+# this module's own fixtures -- it is the same shape as
+# `CANDIDATE_SEED_MARGIN_MULTIPLIER` above, re-used rather than a second,
+# arbitrary constant.
+WINDOW_LADDER_GROWTH_FACTOR = 2.0
+# Hard ceiling (Lead's ruling, 2026-09-21: "a hard ceiling and a named
+# decline at the ceiling"). Rung 0 is the configured `scene_search_window_sec`
+# (10 s as committed); rung 1 doubles it (20 s); rung 2 doubles again
+# (40 s). Three rungs, not an unbounded loop: every rung re-extracts and
+# re-runs PySceneDetect on BOTH files, so the ceiling is a cost bound as
+# much as a safety one. Raise it only against a corpus case that measured
+# rung 2 as insufficient -- not pre-emptively.
+WINDOW_LADDER_MAX_RUNGS = 3
+
+# Which decline reasons mean "the window was the limiting factor" and are
+# therefore worth a wider rung, versus a reason widening cannot fix
+# (Architect's own vocabulary, this file's `locate_scene_anchors` decline
+# payloads): `grid_unmeasured`/`empty_bracket`/`search_window_unviable` are
+# input/config problems a wider window does not touch;
+# `frames_unextractable` is an I/O failure a wider window only makes
+# larger; `cross_sweep_refuted`/`anchor_step_unavailable`/
+# `anchor_step_inconsistent` are established-anchor failures downstream of
+# the window entirely (dev-step7-sweep's own domain, confirmed with them
+# directly, 2026-09-21: their logic sits inside this same call, strictly
+# after anchors are already found, and `cross_sweep_refuted` is explicitly
+# EXCLUDED here so their own escalation, if the Lead rules for one, is not
+# pre-empted by mine). Only `anchors_not_established` (no seed validated
+# at all) and `anchor_uninformative` (a seed validated but every one
+# failed the distinctiveness probe) are retried -- both are exactly the
+# shape of "nothing to work with in this window, or only self-similar
+# content in it," which a wider window can plausibly change.
+WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
+    {"anchors_not_established", "anchor_uninformative"})
 
 
 def _scene_anchor_config():
@@ -213,7 +309,7 @@ def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
 
 
 def _validate_anchor(m_hashes, m_base, c_hashes, c_base, m_seed, shift_frames,
-                     direction, threshold):
+                     direction, threshold, n_frames=MIN_VALIDATION_FRAMES):
     '''Owner's ">= 3 consecutive identical frames" check, one direction at
     a time. `direction="forward"`: validate [m_seed, m_seed+N) against the
     candidate under `shift_frames`. `direction="backward"`: validate
@@ -221,12 +317,17 @@ def _validate_anchor(m_hashes, m_base, c_hashes, c_base, m_seed, shift_frames,
     `_anchor_search`'s own call (Anchor B validates forward from its seed,
     Anchor A validates backward from its seed) -- this function only
     performs the check it is told to, in the direction it is given.
-    Returns True only if EVERY one of the `MIN_VALIDATION_FRAMES` pairs is
-    both readable and matching -- an unreadable frame is not a pass by
-    omission.
+    Returns True only if EVERY one of the `n_frames` pairs is both readable
+    and matching -- an unreadable frame is not a pass by omission.
+
+    `n_frames` (default `MIN_VALIDATION_FRAMES`, the owner's floor): the
+    RUNG this call validates at. `_anchor_search` walks
+    `VALIDATION_FRAME_LADDER` through this same parameter; this function
+    itself knows nothing about escalation, only about the one width it was
+    asked to check -- same separation of concerns as `direction`.
     '''
-    frames = (range(m_seed, m_seed + MIN_VALIDATION_FRAMES) if direction == "forward"
-             else range(m_seed - MIN_VALIDATION_FRAMES, m_seed))
+    frames = (range(m_seed, m_seed + n_frames) if direction == "forward"
+             else range(m_seed - n_frames, m_seed))
     for m_frame in frames:
         c_frame = m_frame + shift_frames
         result = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
@@ -260,11 +361,17 @@ def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
     found where a specific cut must be detected for the protocol to
     succeed at all, that case is fragile and it is a finding, not evidence
     this design was wrong.
-    Returns `(seed, None)` on success, `(None, reason)` on failure, where
-    `reason` is `None` if no seed ever validated at all, or the FIRST
-    rejected-as-uninformative seed's evidence if at least one did but
-    failed the distinctiveness probe. A PLAIN LOCAL VARIABLE, not module
-    state -- CORRECTED IN THIS REVISION (Lead's finding, 2026-09-21,
+    Returns `(seed, None, n_frames_used)` on success, `(None, reason,
+    n_frames_used)` on failure, where `reason` is `None` if no seed ever
+    validated at all, or the FIRST rejected-as-uninformative seed's
+    evidence if at least one did but failed the distinctiveness probe at
+    every rung it reached. `n_frames_used` is the rung the returned
+    seed/reason was produced at -- on success, the smallest rung that was
+    both valid and distinctive; on an uninformative decline, the highest
+    rung THAT SEED reached before either escalation exhausted the ladder
+    or a wider window stopped validating at all; `None` when nothing ever
+    validated even at the floor. A PLAIN LOCAL VARIABLE, not module
+    state -- CORRECTED IN AN EARLIER REVISION (Lead's finding, 2026-09-21,
     reproduced against this module directly, not reasoned about): an
     earlier version used a module-level scratch attribute cleared only on
     the failure path, so a search that rejected an early seed as
@@ -281,25 +388,70 @@ def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
     to get right. The original comment's stated reason for avoiding a
     return-tuple field ("avoiding widening every caller's unpacking") did
     not survive its own revision: both call sites already unpack a
-    two-tuple.
+    two-tuple, and now a three-tuple (dev-step6-phash mission, 2026-09-21,
+    widening the return again for the same reason -- the ladder's own rung
+    is exactly the kind of fact a caller building evidence needs, and a
+    module-level counter would repeat the module-state defect this
+    docstring already records once).
+
+    ESCALATION (owner: "if anchor are not the same, ... the 3 frames is
+    not enought and increase the number" -- BRIEF.md, dev-step6-phash
+    mission, 2026-09-21; rung schedule `VALIDATION_FRAME_LADDER`, this
+    seat's own derivation, Lead-ratified, see that constant's comment).
+    PER SEED, not across seeds: walk the ladder from the floor. If a rung
+    fails to VALIDATE (some frame in the wider window does not match),
+    STOP escalating this seed and move to the next one -- a stricter,
+    longer requirement failing is not evidence a few more frames would
+    help; it is evidence this seed's run is genuinely short. If a rung
+    validates but is UNINFORMATIVE (matches a competing shift too, i.e.
+    the anchor is not yet uniquely "the same"), widen to the next rung and
+    re-run BOTH checks at the SAME seed -- a longer consecutive run is
+    less likely to still be self-similar under the wrong hypothesis. The
+    first rung that is both valid and distinctive wins; exhausting the
+    ladder without resolving falls through to the SAME `anchor_uninformative`
+    evidence as today, just possibly reached after climbing further.
+    LOGGED PER RUNG (owner's order, "log all step"): every `(seed,
+    n_frames)` attempt this function makes, whether it validated, and
+    whether it was distinctive -- a ladder that silently succeeds at the
+    floor must read identically in the log to one that never escalated,
+    and a ladder that climbs all the way to the cap and still fails must
+    be visible as having tried, not as having declined outright.
     '''
     last_uninformative_reason = None
+    last_uninformative_n_frames = None
     for seed in seeds:
-        if not _validate_anchor(m_hashes, m_base, c_hashes, c_base, seed,
-                                shift_frames, direction, threshold):
-            continue
-        distinctive, why_not = _check_anchor_distinctive(
-            m_hashes, m_base, c_hashes, c_base, seed, shift_frames, direction, threshold)
-        if distinctive:
-            return seed, None
-        # MATCHED BUT UNINFORMATIVE -- try the next seed rather than
-        # accepting a match a wrong shift could have produced just as
-        # easily. Remember the reason from the FIRST such seed only (the
-        # evidence a caller actually wants is "why did the closest/best
-        # candidate fail", not the last one tried).
-        if last_uninformative_reason is None:
-            last_uninformative_reason = why_not
-    return None, last_uninformative_reason
+        seed_reason = None
+        seed_n_frames = None
+        for n_frames in VALIDATION_FRAME_LADDER:
+            validated = _validate_anchor(m_hashes, m_base, c_hashes, c_base,
+                                         seed, shift_frames, direction,
+                                         threshold, n_frames)
+            if not validated:
+                tools.logs.append(
+                    f"scene_anchor: anchor_rung direction={direction} "
+                    f"seed={seed} n_frames={n_frames} validated=False "
+                    f"distinctive=n/a\n")
+                break
+            distinctive, why_not = _check_anchor_distinctive(
+                m_hashes, m_base, c_hashes, c_base, seed, shift_frames,
+                direction, threshold, n_frames)
+            tools.logs.append(
+                f"scene_anchor: anchor_rung direction={direction} "
+                f"seed={seed} n_frames={n_frames} validated=True "
+                f"distinctive={distinctive}\n")
+            if distinctive:
+                return seed, None, n_frames
+            # MATCHED BUT UNINFORMATIVE AT THIS RUNG -- escalate to the
+            # next rung at the SAME seed before giving up on it.
+            seed_reason, seed_n_frames = why_not, n_frames
+        if seed_reason is not None and last_uninformative_reason is None:
+            # Remember the reason (and rung) from the FIRST such SEED only
+            # (unchanged from before the ladder existed) -- the evidence a
+            # caller wants is "why did the closest/best candidate fail",
+            # not the last one tried.
+            last_uninformative_reason = seed_reason
+            last_uninformative_n_frames = seed_n_frames
+    return None, last_uninformative_reason, last_uninformative_n_frames
 
 
 ANCHOR_DISTINCTIVENESS_PROBE_FRAMES = (4, 8)
@@ -312,7 +464,8 @@ ANCHOR_DISTINCTIVENESS_PROBE_FRAMES = (4, 8)
 
 
 def _check_anchor_distinctive(m_hashes, m_base, c_hashes, c_base, m_seed,
-                              shift_frames, direction, threshold):
+                              shift_frames, direction, threshold,
+                              n_frames=MIN_VALIDATION_FRAMES):
     '''ANCHOR DISTINCTIVENESS (Architect's ruling, 2026-09-21, replacing
     point (i) of the 2026-09-17 ruling): "an anchor match is evidence only
     if the local content could have refuted it." Anchors answer WHERE;
@@ -323,28 +476,35 @@ def _check_anchor_distinctive(m_hashes, m_base, c_hashes, c_base, m_seed,
     background") is unfalsifiable and therefore not evidence, whatever
     hypothesis produced it.
 
-    THE TEST: the same >= 3-frame window that validated at `shift_frames`
-    is re-checked at ALTERNATIVE, well-separated shifts
-    (`ANCHOR_DISTINCTIVENESS_PROBE_FRAMES` frames away, both directions).
-    If it ALSO matches at ANY of those -- meaning the surrounding content
-    is indifferent to which position it is read from -- the match carries
-    no information about WHERE the true boundary is, and the anchor is
-    UNINFORMATIVE. Uses frames already extracted into `m_hashes`/`c_hashes`
-    (no new probe class, no new ffmpeg call): only the comparison shifts,
-    not the extraction.
+    THE TEST: the same `n_frames`-wide window that validated at
+    `shift_frames` is re-checked at ALTERNATIVE, well-separated shifts
+    (`ANCHOR_DISTINCTIVENESS_PROBE_FRAMES` frames away, both directions),
+    AT THE SAME `n_frames` (`_anchor_search`'s ladder widens both checks
+    together -- escalating only the probe while leaving the original match
+    at the floor would compare windows of different widths, which proves
+    nothing). If it ALSO matches at ANY of those -- meaning the
+    surrounding content is indifferent to which position it is read from
+    -- the match carries no information about WHERE the true boundary is,
+    and the anchor is UNINFORMATIVE at this rung. Uses frames already
+    extracted into `m_hashes`/`c_hashes` (no new probe class, no new
+    ffmpeg call): only the comparison shifts, not the extraction -- true
+    at any `n_frames`, since escalating never reads outside the window
+    `locate_scene_anchors` already extracted for the whole bracket search.
 
     Returns `(True, None)` when the match survives every probe (a real
     anchor), `(False, evidence_str)` on the first probe that ALSO matches
-    (uninformative).
+    (uninformative at this rung -- the caller may still escalate `n_frames`
+    and retry).
     '''
     for delta in ANCHOR_DISTINCTIVENESS_PROBE_FRAMES:
         for probe_shift in (shift_frames + delta, shift_frames - delta):
             if _validate_anchor(m_hashes, m_base, c_hashes, c_base, m_seed,
-                               probe_shift, direction, threshold):
+                               probe_shift, direction, threshold, n_frames):
                 return False, (f"seed={m_seed} also matches at shift="
                               f"{probe_shift} (true shift={shift_frames}, "
-                              f"delta={probe_shift - shift_frames}) -- "
-                              f"self-similar content, uninformative")
+                              f"delta={probe_shift - shift_frames}, "
+                              f"n_frames={n_frames}) -- self-similar "
+                              f"content, uninformative")
     return True, None
 
 
@@ -460,11 +620,44 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          offset_before_ms, offset_after_ms,
                          step_ms=None, quantum_ms=None,
                          scene_search_window_sec=None, debug=False):
-    '''Entry point for an INTERIOR bracket. Mirrors
-    `frame_compare.locate_bracket_boundary`'s call shape and decline
-    payload (`{"declined": True, "reason": ..., "evidence": ...}`) for
-    call-site symmetry -- head/tail edges are a separate, later increment
-    (reported, not silently skipped: see this mission's task file).
+    '''PUBLIC ENTRY POINT -- unchanged call shape from before this rung
+    refactor (Lead's ruling, 2026-09-21). SINGLE-RUNG PLACEHOLDER: resolves
+    `scene_search_window_sec` exactly as the pre-refactor function did
+    (explicit argument, else `config.ini`) and calls
+    `_locate_scene_anchors_at_window` ONCE with it -- the ladder loop and
+    its per-rung logging are the NEXT increment, deliberately not in this
+    edit (Lead's instruction: land the name resolving first, hold, add the
+    loop after). Behaviourally identical to the function this replaced.
+    '''
+    window_sec = (scene_search_window_sec if scene_search_window_sec is not None
+                 else _scene_anchor_config())
+    return _locate_scene_anchors_at_window(
+        master_path, candidate_path, fps_num, fps_den,
+        bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
+        window_sec, step_ms=step_ms, quantum_ms=quantum_ms, debug=debug)
+
+
+def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_den,
+                                    bracket_low_ms, bracket_high_ms,
+                                    offset_before_ms, offset_after_ms,
+                                    window_sec, step_ms=None, quantum_ms=None,
+                                    debug=False):
+    '''ONE RUNG of `locate_scene_anchors`'s ladder (below): everything that
+    mission originally did at a single, fixed `window_sec`, unchanged
+    except that the candidate margin is now the NAMED
+    `CANDIDATE_SEED_MARGIN_MULTIPLIER` (Lead's ruling, 2026-09-21) rather
+    than an anonymous second subtraction of `window_frames`. `window_sec`
+    is REQUIRED here and already concrete -- resolving it from the
+    caller's argument or `config.ini`, and deciding whether it is viable
+    at all, is `locate_scene_anchors`'s job, once, before any rung; a
+    malformed or absent config value is not a per-rung question and must
+    not be multiplied by the ladder's growth factor.
+
+    Mirrors `frame_compare.locate_bracket_boundary`'s call shape and
+    decline payload (`{"declined": True, "reason": ..., "evidence": ...}`)
+    for call-site symmetry -- head/tail edges are a separate, later
+    increment (reported, not silently skipped: see this mission's task
+    file).
 
     `offset_before_ms`/`offset_after_ms` are the TWO HYPOTHESES the
     caller's adjacent plan segments already carry (same convention as
@@ -497,8 +690,6 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         return {"declined": True, "reason": "empty_bracket",
                "evidence": f"[{bracket_low_ms},{bracket_high_ms}] ms"}
 
-    window_sec = (scene_search_window_sec if scene_search_window_sec is not None
-                 else _scene_anchor_config())
     frame_ms = 1000.0 * fps_den / fps_num
     window_frames = int(round((window_sec * 1000.0) / frame_ms)) if window_sec else 0
 
@@ -509,7 +700,14 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     # could go non-positive at a short enough setting makes a guard that
     # could never NOT fire. Below this floor the window cannot even
     # structurally hold the >= MIN_VALIDATION_FRAMES margin either
-    # direction needs to validate an anchor at all.
+    # direction needs to validate an anchor at all. NOT in
+    # `WINDOW_LADDER_RETRYABLE_REASONS` (below): a rung this narrow is a
+    # config problem the ladder's growth factor is not a remedy for by
+    # itself at rung 0, and the ladder does not multiply a value it has
+    # not first confirmed is a real, positive number (`locate_scene_anchors`
+    # checks that once, before any rung, so this branch here only ever
+    # fires from an explicit caller-supplied `window_sec` that skipped
+    # that gate).
     if window_sec is None or window_sec <= 0 or window_frames < MIN_VALIDATION_FRAMES:
         return {"declined": True, "reason": "search_window_unviable",
                "evidence": f"scene_search_window_sec={window_sec} -> "
@@ -527,12 +725,13 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
 
     m_win_start = max(0, m_bracket_first - window_frames)
     m_win_end = m_bracket_last + window_frames
-    # Candidate window generously covers BOTH offset hypotheses plus the
-    # same search margin -- this is seed generation only (see
-    # `_anchor_search`'s union-not-agreement note), so generosity here
-    # costs decode time, never correctness.
-    c_win_start = max(0, m_win_start + min(before_shift, after_shift) - window_frames)
-    c_win_end = m_win_end + max(before_shift, after_shift) + window_frames
+    # Candidate window generously covers BOTH offset hypotheses plus
+    # CANDIDATE_SEED_MARGIN_MULTIPLIER times the search margin -- this is
+    # seed generation only (see `_anchor_search`'s union-not-agreement
+    # note), so generosity here costs decode time, never correctness.
+    candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
+    c_win_start = max(0, m_bracket_first - candidate_margin_frames + min(before_shift, after_shift))
+    c_win_end = m_bracket_last + candidate_margin_frames + max(before_shift, after_shift)
 
     m_start_s = float(m_win_start * fps_den / fps_num)
     m_dur_s = float((m_win_end - m_win_start) * fps_den / fps_num)
@@ -574,7 +773,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         | {f for f in master_cuts_seeds if f <= m_bracket_first}
         | {f - before_shift for f in candidate_cuts_seeds if f - before_shift <= m_bracket_first},
         reverse=True)
-    anchor_a, anchor_a_reason = _anchor_search(
+    anchor_a, anchor_a_reason, anchor_a_n_frames = _anchor_search(
         m_hashes, m_base, c_hashes, c_base, a_seeds_master,
         before_shift, "backward", threshold)
 
@@ -584,7 +783,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         {m_bracket_last}
         | {f for f in master_cuts_seeds if f >= m_bracket_last}
         | {f - after_shift for f in candidate_cuts_seeds if f - after_shift >= m_bracket_last})
-    anchor_b, anchor_b_reason = _anchor_search(
+    anchor_b, anchor_b_reason, anchor_b_n_frames = _anchor_search(
         m_hashes, m_base, c_hashes, c_base, b_seeds_master,
         after_shift, "forward", threshold)
 
@@ -597,12 +796,17 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         # names the middle case explicitly rather than folding a MEASURED,
         # content-based refutation into the same bucket as "nothing to
         # try" -- claim exactly what was measured (Architect's own
-        # instruction on which token to use).
+        # instruction on which token to use). `a_n_frames`/`b_n_frames`
+        # (dev-step6-phash mission, 2026-09-21): the widest rung the
+        # ladder reached before giving up on that side -- proves whether
+        # escalation ran at all versus declined at the floor.
         if anchor_a_reason or anchor_b_reason:
             return {"declined": True, "reason": "anchor_uninformative",
                    "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
                               f"a_reason={anchor_a_reason} "
-                              f"b_reason={anchor_b_reason}"}
+                              f"a_n_frames={anchor_a_n_frames} "
+                              f"b_reason={anchor_b_reason} "
+                              f"b_n_frames={anchor_b_n_frames}"}
         return {"declined": True, "reason": "anchors_not_established",
                "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
                           f"master_cuts={len(master_cuts_seeds)} "
@@ -713,7 +917,8 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
             "master_start_ms": f"{round(float(_exact_ms_from_frame(split_start_master, fps_num, fps_den)), 2)}",
             "master_end_ms": f"{round(float(_exact_ms_from_frame(split_end_master, fps_num, fps_den)), 2)}",
         },
-        "evidence": (f"anchor_a={anchor_a} anchor_b={anchor_b} "
+        "evidence": (f"anchor_a={anchor_a} anchor_a_n_frames={anchor_a_n_frames} "
+                    f"anchor_b={anchor_b} anchor_b_n_frames={anchor_b_n_frames} "
                     f"master_cuts={len(master_cuts_seeds)} "
                     f"master_detector_failed={master_cuts_failed} "
                     f"candidate_cuts={len(candidate_cuts_seeds)} "
