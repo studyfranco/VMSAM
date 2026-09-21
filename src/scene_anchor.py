@@ -165,14 +165,25 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
     A cut is a SCENE START (`get_scene_list()` returns contiguous
     (start,end) pairs covering the requested span, scene i's end == scene
     i+1's start) so every interior boundary is every scene-start after the
-    first. Declines to an empty list on any failure (unreadable region,
-    file too short, PySceneDetect exception) -- a caller with no seeds from
-    this side falls back to the other side's seeds or to validating
-    directly at the bracket edge; a crash here must never abort the whole
-    protocol over what is, by design, only a candidate generator.
+    first.
+
+    Returns `(cuts, None)` on success -- `cuts` may legitimately be an
+    EMPTY list, meaning the detector RAN over the window and found no
+    interior scene change, a real result. Returns `(None, reason)` when
+    ContentDetector itself never produced one (unreadable region, file too
+    short, a PySceneDetect exception) -- `reason` is a NAMED token, never
+    the bare `[]` an honest empty result also returns (dev-step5-scenedetect
+    finding, 2026-09-21: "an empty result and a failed detector are
+    different claims and must not share a return value" -- BRIEF_COMMON's
+    fifth rule, one level down in this module). A caller still falls back
+    to the bracket edge either way -- that seed is tried regardless of
+    what this function returns -- so this distinction changes no anchor
+    decision by itself; it exists so a decline's evidence, and any future
+    census over it, can say WHICH of the two happened instead of reading a
+    silent zero as "no shots" when the instrument may never have run.
     '''
     if n_frames <= 0:
-        return []
+        return [], None
     try:
         video = open_video(path)
         if start_frame > 0:
@@ -182,14 +193,15 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
         sm.detect_scenes(video, duration=n_frames)
         scene_list = sm.get_scene_list()
         if len(scene_list) < 2:
-            return []
-        return [scene.frame_num for scene, _ in scene_list[1:]]
+            return [], None
+        return [scene.frame_num for scene, _ in scene_list[1:]], None
     except Exception as exc:
+        reason = f"scene_detector_failed:{type(exc).__name__}"
         if debug:
             tools.logs.append(f"scene_anchor: PySceneDetect failed on {path} "
                               f"[{start_frame},{start_frame + n_frames}): "
-                              f"{type(exc).__name__}\n")
-        return []
+                              f"{reason}\n")
+        return None, reason
 
 
 def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
@@ -537,10 +549,20 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
     cd_threshold = CONTENT_DETECTOR_THRESHOLD_DEFAULT
 
-    master_cuts = _scene_cut_frames(master_path, m_win_start,
-                                    m_win_end - m_win_start, cd_threshold, debug)
-    candidate_cuts = _scene_cut_frames(candidate_path, c_win_start,
-                                       c_win_end - c_win_start, cd_threshold, debug)
+    master_cuts, master_cuts_failed = _scene_cut_frames(
+        master_path, m_win_start, m_win_end - m_win_start, cd_threshold, debug)
+    candidate_cuts, candidate_cuts_failed = _scene_cut_frames(
+        candidate_path, c_win_start, c_win_end - c_win_start, cd_threshold, debug)
+    # `or []` here is SEED GENERATION ONLY, not a re-conflation of the
+    # distinction `_scene_cut_frames` just drew: a failed side simply
+    # contributes no scene-based seeds (the bracket edge is always tried
+    # regardless, per that function's own contract), while
+    # `master_cuts_failed`/`candidate_cuts_failed` -- the NAMED tokens --
+    # travel unchanged into the evidence below, so a decline still says
+    # WHICH of "no cut found" or "detector never ran" occurred on each
+    # side, rather than a shared empty list erasing the difference.
+    master_cuts_seeds = master_cuts or []
+    candidate_cuts_seeds = candidate_cuts or []
 
     # Anchor A: search BACKWARD from the bracket's own low edge, closest
     # seed first. Seeds: the bracket edge itself (the common, cheap case:
@@ -549,8 +571,8 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     # master coordinates under the BEFORE hypothesis) before it.
     a_seeds_master = sorted(
         {m_bracket_first}
-        | {f for f in master_cuts if f <= m_bracket_first}
-        | {f - before_shift for f in candidate_cuts if f - before_shift <= m_bracket_first},
+        | {f for f in master_cuts_seeds if f <= m_bracket_first}
+        | {f - before_shift for f in candidate_cuts_seeds if f - before_shift <= m_bracket_first},
         reverse=True)
     anchor_a, anchor_a_reason = _anchor_search(
         m_hashes, m_base, c_hashes, c_base, a_seeds_master,
@@ -560,8 +582,8 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     # under the AFTER hypothesis.
     b_seeds_master = sorted(
         {m_bracket_last}
-        | {f for f in master_cuts if f >= m_bracket_last}
-        | {f - after_shift for f in candidate_cuts if f - after_shift >= m_bracket_last})
+        | {f for f in master_cuts_seeds if f >= m_bracket_last}
+        | {f - after_shift for f in candidate_cuts_seeds if f - after_shift >= m_bracket_last})
     anchor_b, anchor_b_reason = _anchor_search(
         m_hashes, m_base, c_hashes, c_base, b_seeds_master,
         after_shift, "forward", threshold)
@@ -583,8 +605,10 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                               f"b_reason={anchor_b_reason}"}
         return {"declined": True, "reason": "anchors_not_established",
                "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
-                          f"master_cuts={len(master_cuts)} "
-                          f"candidate_cuts={len(candidate_cuts)}"}
+                          f"master_cuts={len(master_cuts_seeds)} "
+                          f"master_detector_failed={master_cuts_failed} "
+                          f"candidate_cuts={len(candidate_cuts_seeds)} "
+                          f"candidate_detector_failed={candidate_cuts_failed}"}
 
     ordering_refuted, ordering_evidence = _check_anchor_ordering(anchor_a, anchor_b)
     if ordering_refuted:
@@ -690,8 +714,10 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
             "master_end_ms": f"{round(float(_exact_ms_from_frame(split_end_master, fps_num, fps_den)), 2)}",
         },
         "evidence": (f"anchor_a={anchor_a} anchor_b={anchor_b} "
-                    f"master_cuts={len(master_cuts)} "
-                    f"candidate_cuts={len(candidate_cuts)} "
+                    f"master_cuts={len(master_cuts_seeds)} "
+                    f"master_detector_failed={master_cuts_failed} "
+                    f"candidate_cuts={len(candidate_cuts_seeds)} "
+                    f"candidate_detector_failed={candidate_cuts_failed} "
                     f"length_master={length_master} "
                     f"length_candidate={length_candidate} "
                     f"{plumbing_evidence}"),
