@@ -269,6 +269,22 @@ MAX_SIGN_FLIPS = 2
 # by someone who disagrees with it. A row saying "rejected" cannot be re-judged;
 # a row saying "0.8477, rejected at 0.85" can.
 MIN_PAIRING_FIDELITY = 0.85
+# REVERTED to (0.35, 0.65) -- the >=4-position widening
+# (RULING_20260921_STEP1_CLASSIFIER_DESIGN.MD SM3) is NOT the tolerance
+# change it looked like. `score = min(scores)` over MORE samples can only
+# fall or stay equal, never rise (Lead's catch, 2026-09-21): every
+# candidate stream's pairing score can only get WORSE under more positions,
+# so the bar becomes strictly HARDER to pass, and the new outer positions
+# (0.2, 0.8) sit closer to file edges -- head trims, tail reels, credits --
+# where a probe can legitimately land on content that does not match for
+# reasons unrelated to a pairing failure. "Adds tolerance" and "adds
+# strictness" are not the same change wearing different numbers. Reverted
+# pending a real regression count on the 73-file population (which files
+# flip from PASS to FAIL between the two/four-position geometries, by id
+# and margin) -- that measurement is a real-media re-run at the same scale
+# as the original acceptance run, not done in this session; the fix is
+# independent of the rest of this design (the gated instrument block) and
+# lands separately once the count exists.
 PAIRING_POSITION_FRACTIONS = (0.35, 0.65)
 
 # --- no-signal guard ---------------------------------------------------------
@@ -1160,6 +1176,93 @@ def _sign_flips(values):
                if (non_zero[i] > 0) != (non_zero[i + 1] > 0))
 
 
+# --- rate-family slope instrument (RULING_20260921_STEP1_CLASSIFIER_DESIGN.MD) --
+# Replaces nothing: this is instrument 2 of the classifier redesign, gated to run
+# ONLY where the plateau machinery below finds a single run or cannot trust one
+# (median_fidelity below floor) -- never on a file the plateau machinery has
+# already split into multiple real runs. That gate is why this can use a plain
+# least-squares fit rather than a statistic that must itself tell a staircase
+# from a drift: measured directly (this module's own dev notes,
+# VMSAM_HELP_AI/dev-step1-classify/lab/slope_regression_prototype.py), a genuine
+# 3-cut splice file (errid 266) scores r_squared=0.8009 on a whole-file line fit
+# -- INSIDE the range real PAL/NTSC drift scored (0.63-0.9997) -- so r_squared
+# alone cannot separate a staircase from a drift. It does not have to: the
+# plateau gate excludes the staircase population structurally before this ever
+# runs, on the same machinery the splice family's own 7/7 result already proves.
+#
+# PROVISIONAL THRESHOLDS, first cut, not a census (same status as this module's
+# other first-cut constants when they landed): R_SQUARED_MIN=0.50 sits below the
+# weakest real drift measured so far (errid 57, PAL, r_squared=0.626) with margin,
+# and MIN_POINTS_FOR_SLOPE=10 is far below every measured n_used (34, 34, 102).
+# Flagged for the Architect exactly as NTSC_TOLERANCE and SATURATION_FRACTION
+# were: right for the population measured, unverified beyond it.
+RATE_SLOPE_R_SQUARED_MIN = 0.50
+RATE_SLOPE_MIN_POINTS = 10
+RATE_SLOPE_OUTLIER_MAD_K = 5.0
+
+
+def _robust_slope_regression(starts, offsets, outlier_mad_k=RATE_SLOPE_OUTLIER_MAD_K):
+    """Least-squares slope of offset_ms over probe_start_s, after excluding
+    points whose residual from a FIRST-PASS fit exceeds `outlier_mad_k` times
+    the median absolute residual (a standard robust-regression pre-filter).
+    Two passes: fit once on everything, exclude by residual, refit on
+    survivors -- this is what keeps a single wild probe (the correlator's own
+    search bound exceeded on that one reading, measured on real PAL files in
+    the same dev notes above) from defeating an otherwise-clean drift fit.
+
+    Returns None if fewer than 3 points survive either pass -- a regression on
+    2 points fits perfectly and proves nothing about consistency, and this
+    function must not pretend otherwise.
+    """
+    n = len(starts)
+    if n < 3:
+        return None
+
+    def _fit(xs, ys):
+        n = len(xs)
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        sxx = sum((x - mx) ** 2 for x in xs)
+        if sxx == 0:
+            return None
+        sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+        slope = sxy / sxx
+        return slope, my - slope * mx
+
+    first = _fit(starts, offsets)
+    if first is None:
+        return None
+    slope0, intercept0 = first
+    residuals = [o - (slope0 * s + intercept0) for s, o in zip(starts, offsets)]
+    abs_res = sorted(abs(r) for r in residuals)
+    mid = len(abs_res) // 2
+    mad = abs_res[mid] if len(abs_res) % 2 else (abs_res[mid - 1] + abs_res[mid]) / 2.0
+    if mad == 0:
+        keep_idx = list(range(n))
+    else:
+        keep_idx = [i for i in range(n)
+                    if abs(residuals[i]) <= outlier_mad_k * mad]
+    if len(keep_idx) < 3:
+        return None
+
+    ks = [starts[i] for i in keep_idx]
+    ko = [offsets[i] for i in keep_idx]
+    refit = _fit(ks, ko)
+    if refit is None:
+        return None
+    slope1, intercept1 = refit
+    fitted = [slope1 * s + intercept1 for s in ks]
+    ss_res = sum((o - f) ** 2 for o, f in zip(ko, fitted))
+    my = sum(ko) / len(ko)
+    ss_tot = sum((o - my) ** 2 for o in ko)
+    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0
+
+    return {"slope_ms_per_s": slope1, "intercept_ms": intercept1,
+            "n_used": len(keep_idx), "n_excluded": n - len(keep_idx),
+            "excluded_indices": sorted(set(range(n)) - set(keep_idx)),
+            "r_squared": r_squared}
+
+
 def _group_plateaus(samples):
     """samples: [(start_seconds, offset_ms)] in time order -> plateau runs.
 
@@ -1710,6 +1813,22 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     dropped = len(raw) - len(kept)
     if dropped:
         _log(f"dropped {dropped} probe(s) below {LOW_SIGNAL_FRACTION:.0%} of median energy")
+
+    # MOVED HERE, pure arithmetic over `kept` (already built above), no new
+    # probe, no decode (RULING_20260921_STEP1_CLASSIFIER_DESIGN.MD; measured
+    # cheap by the Lead before landing). Was built ~90 lines further down,
+    # right before the per-stream pairing section; that later site now reuses
+    # this same `runs`, not a second computation. The gated rate-family
+    # instrument a little further below needs to know, before the existing
+    # fidelity/scatter declines run, whether the file has already resolved
+    # into multiple real plateaus -- that is the only reason the timing moved.
+    runs = _group_plateaus([(r[0], r[1][0]) for r in kept])
+    # MEASUREMENT-RETENTION INVARIANT: every measured run reaches the
+    # transition/segment stage, or is absorbed as noise against a named,
+    # calibrated test -- never dropped one at a time by a filter that runs
+    # before anything compares it to its neighbours. See `_merge_narrow_runs`.
+    runs = _merge_narrow_runs(runs)
+
     if len(kept) < 3:
         _log("too few probes carry signal; declining")
         return _decline("too_few_probes_with_signal", "could_not_run", pair=pair_id,
@@ -1795,6 +1914,78 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     _log(f"{language}: {len(screened_kept)} probes over [0,{shortest:.0f}]s, "
          f"fid_median={median_fidelity:.3f}, quantum={quantum_ms}ms, "
          f"distinct_points={distinct_points}, flips={flips}")
+
+    # --- rate-family instruments (RULING_20260921_STEP1_CLASSIFIER_DESIGN.MD) ---
+    # GATED, ADDITIVE, NEVER REPLACES THE EXISTING PATH: fires only where the
+    # plateau machinery above (`runs`) has NOT already split this file into
+    # multiple real plateaus -- a genuine splice file cannot reach this block,
+    # by construction, the same machinery the splice family's own 7/7 result
+    # already proves. On any decline or exception here, execution falls
+    # through UNCHANGED to the monotone/scatter/pairing logic below -- same
+    # discipline as the vector-locator swap-in (`zone_similarity_vector`,
+    # further down this file): a refining/adding stage may decline, never
+    # break the path it sits in front of.
+    _rate_gate_open = len(runs) <= 1 or median_fidelity < MIN_MEDIAN_FIDELITY
+    if _rate_gate_open:
+        _log(f"{language}: rate-family gate open (runs={len(runs)}, "
+             f"fid_median={median_fidelity:.3f}); trying pitch then slope")
+        # Instrument 1: pitch-layer NTSC recognizer, unconditional, first --
+        # NTSC_KNIFE_EDGE (in force): duration cannot carry this signal, so
+        # this measures pitch directly rather than inferring from duration.
+        # Local import + broad except, same pattern as the PAL chain lower in
+        # this file: a new instrument's failure must become a measurement,
+        # never a crashed merge.
+        _ntsc_result = None
+        try:
+            import pal_pitch_confirmer
+            _ntsc_probe_window = min(180.0, shortest * 0.5)
+            _ntsc_probe_start = shortest * 0.3
+            _ntsc_result = pal_pitch_confirmer.confirm_ntsc(
+                master_path, candidate_path, _ntsc_probe_start, _ntsc_probe_window)
+        except Exception as error:                          # noqa: BLE001 -- see above
+            _log(f"pitch-layer NTSC check errored: {type(error).__name__}")
+            _ntsc_result = None
+        if _ntsc_result is not None and _ntsc_result.get("matched"):
+            _log(f"{language}: pitch-layer NTSC match ({_ntsc_result['matched']}, "
+                 f"ratio={_ntsc_result['measured_ratio']}); declining as rate family")
+            return _decline("speed_relation_suspected", "could_not_run", pair=pair_id,
+                            rate_instrument="pitch_ntsc",
+                            rate_instrument_matched=_ntsc_result["matched"],
+                            rate_instrument_measured_ratio=_ntsc_result["measured_ratio"],
+                            rate_instrument_predicted_ratio=_ntsc_result["predicted_ratio"],
+                            rate_instrument_peak=_ntsc_result["peak"],
+                            plateau_runs=len(runs))
+        # Instrument 2: offset-slope regression over the whole per-window
+        # series -- pools all windows (robust to per-window noise), is
+        # sign-invariant (immune to the zero-crossing artifact in the old
+        # adjacency test), and accumulates a small per-window drift into a
+        # measurable whole-file slope. `screened_kept` is the same population
+        # the median-fidelity/monotone checks below use -- already past the
+        # saturation screen, not yet past this module's OWN outlier
+        # exclusion, which `_robust_slope_regression` applies on top.
+        _slope_starts = [r[0] for r in screened_kept]
+        _slope_offsets = [r[1][0] for r in screened_kept]
+        _slope_result = _robust_slope_regression(_slope_starts, _slope_offsets)
+        if (_slope_result is not None
+                and _slope_result["n_used"] >= RATE_SLOPE_MIN_POINTS
+                and _slope_result["r_squared"] >= RATE_SLOPE_R_SQUARED_MIN):
+            _log(f"{language}: slope regression significant "
+                 f"(slope={_slope_result['slope_ms_per_s']:.4f}ms/s, "
+                 f"r2={_slope_result['r_squared']:.4f}, "
+                 f"n_used={_slope_result['n_used']}/{len(_slope_starts)}); "
+                 f"declining as rate family")
+            return _decline("speed_relation_suspected", "could_not_run", pair=pair_id,
+                            rate_instrument="slope_regression",
+                            rate_instrument_slope_ms_per_s=round(
+                                _slope_result["slope_ms_per_s"], 4),
+                            rate_instrument_r_squared=round(_slope_result["r_squared"], 4),
+                            rate_instrument_n_used=_slope_result["n_used"],
+                            rate_instrument_n_excluded=_slope_result["n_excluded"],
+                            plateau_runs=len(runs))
+        _log(f"{language}: rate-family gate open but neither instrument fired "
+             f"(ntsc_matched={_ntsc_result.get('matched') if _ntsc_result else None}, "
+             f"slope_r2={_slope_result['r_squared'] if _slope_result else None}); "
+             f"falling through to the existing path")
 
     # --- refusals, each with a measured basis --------------------------------
     if median_fidelity < MIN_MEDIAN_FIDELITY:
@@ -2094,12 +2285,11 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         probes_attempted=len(starts), probes_raw=len(raw),
                         probes_kept=len(kept))
     coverage_gap_total = 0.0
-    runs = _group_plateaus([(r[0], r[1][0]) for r in kept])
-    # MEASUREMENT-RETENTION INVARIANT: every measured run reaches the
-    # transition/segment stage, or is absorbed as noise against a named,
-    # calibrated test -- never dropped one at a time by a filter that runs
-    # before anything compares it to its neighbours. See `_merge_narrow_runs`.
-    runs = _merge_narrow_runs(runs)
+    # `runs` ALREADY BUILT ABOVE, right after the no-signal guard -- moved
+    # there so the gated rate-family instrument can read it before the
+    # fidelity/scatter declines run (RULING_20260921_STEP1_CLASSIFIER_
+    # DESIGN.MD). Not recomputed here: same `kept`, same value, one
+    # computation instead of two.
 
     # --- per-stream plateau offsets -----------------------------------------
     # The transitions are shared: every stream of the language shows the same
