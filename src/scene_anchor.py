@@ -81,6 +81,41 @@ SCENE_SEARCH_WINDOW_SECONDS_DEFAULT = 10.0
 # all, that case is fragile and it is a finding, not a reason to retune this.
 CONTENT_DETECTOR_THRESHOLD_DEFAULT = 27.0
 
+# THE THRESHOLD IS A FLOOR, NOT A FIXED VALUE -- owner's order, verbatim (per
+# the addendum naming this dial explicitly, 2026-09-21): "if anchor are not
+# the same, ... increase the number [and lower the detector's own bar]."
+# Same principle as `VALIDATION_FRAME_LADDER` below (dev-step6-phash): a
+# rung that fails to produce usable anchors is not proof the boundary is
+# unreachable, it is proof THIS rung's instrument was not sensitive enough.
+#
+# VALUES ARE MEASURED, NOT GUESSED (dev-step5-scenedetect, 2026-09-21,
+# real error-tree media -- Addendum 3/4: no acceptance closes on a
+# synthetic fixture, and this constant's own comment above already warned
+# against tuning it on n=1 synthetic evidence):
+#   27.0  the unchanged default, carried per the comment above -- never
+#         retuned on a single case.
+#   18.0  clears every real near-miss measured just under the default
+#         (26.94 / 26.56 / 26.54, real content_val on two real episodes,
+#         n=708 gap-zone frames) with margin, while staying well above the
+#         typical real noise floor (median 0.65, p90 4.2 across n=2399
+#         real frames sampled).
+#   10.0  matches the SYNTHETIC red->yellow miss this file's own top
+#         comment already documents (content_val=10.0) -- the floor beyond
+#         which this module has no further documented failure case to aim
+#         at.
+# MEASURED, NOT ASSUMED, TO BE UNEVEN COST (dev-step5-scenedetect, widened
+# sample, 2026-09-21): the seed-candidate density a lower rung admits is
+# CONTENT-DEPENDENT and can spike hard on a real busy window -- one real
+# 50 s window measured 32% of its frames in the [8,18) band against every
+# other sampled window an order of magnitude lower (15 real windows, 5
+# files, n=9592). Every admitted seed is still pHash-validated before
+# acceptance (`_anchor_search`), never trusted outright, so the spike's
+# cost is compute, not correctness -- but do not expect a smooth curve
+# across files, and see the per-rung log line below, which now carries the
+# seed count precisely so this variance is visible in production rather
+# than rediscovered (Lead's ruling, 2026-09-21, on this same finding).
+CONTENT_DETECTOR_THRESHOLD_LADDER = (CONTENT_DETECTOR_THRESHOLD_DEFAULT, 18.0, 10.0)
+
 # ">= 3 consecutive identical frames", owner's spec, both for Anchor A/B
 # validation and as the viability floor below.
 MIN_VALIDATION_FRAMES = 3
@@ -825,30 +860,65 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     landing, per the Lead: "take their classification when it lands rather
     than freezing your own set").
 
+    CO-ESCALATED SECOND DIAL, SAME LOOP (dev-step5-scenedetect, agreed
+    directly with dev-step4-extract, 2026-09-21, per the owner's addendum
+    naming "the detector threshold and the shot count" as its own dial):
+    `CONTENT_DETECTOR_THRESHOLD_LADDER`, index-matched to this SAME rung
+    number, lowers ContentDetector's own sensitivity alongside the widened
+    window rather than owning a second loop -- the Lead's "ONE loop, not
+    four" instruction applied to a dial whose cost (re-runs PySceneDetect
+    on the already-decided window, no re-extraction) sits between this
+    loop's (expensive: re-extracts frames) and the inner per-seed ladder's
+    (free: reuses hashes already extracted). `search_window_ceiling_reached`
+    keeps its name on exhaustion (Lead's ruling: one EVENT, several dials,
+    is evidence -- not the same shape as a token conflating two different
+    CAUSES) and its evidence now carries both final dial values.
+
     Exhausting every rung without a match declines
     `search_window_ceiling_reached`, named so a census can tell "the
     ladder ran and lost" from every other decline shape.
 
-    Every rung is logged (`scene_anchor: window_ladder_rung ...`) with the
-    dial, the value tried, and whether it matched, so a census can read the
-    per-bracket cost of this dial back out without re-deriving it from the
-    anchor evidence strings alone.
+    Every rung is logged (`scene_anchor: window_ladder_rung ...`) with both
+    dials, the values tried, the resulting seed count on each side (Lead's
+    ruling, 2026-09-21: real content's seed density under a lowered
+    threshold is measured HETEROGENEOUS -- one real window spiked to 32%
+    of its frames against every other sampled window an order of
+    magnitude lower -- so this is logged explicitly rather than left to be
+    rediscovered from aggregate stats), and whether it matched, so a
+    census can read the per-bracket cost of both dials back out without
+    re-deriving it from the anchor evidence strings alone.
     '''
     window_sec = (scene_search_window_sec if scene_search_window_sec is not None
                  else _scene_anchor_config())
 
     result = None
+    rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
     for rung in range(WINDOW_LADDER_MAX_RUNGS):
         rung_window_sec = (window_sec if window_sec is None
                            else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
+        # CO-ESCALATED, NOT A SECOND LOOP (dev-step5-scenedetect, agreed
+        # directly with dev-step4-extract, 2026-09-21): index-matched to
+        # THIS SAME rung -- widening the window and lowering the detector's
+        # own sensitivity are two answers to the same trigger ("anchors do
+        # not match"), driven by the one loop that already exists. Clamped
+        # rather than IndexError if the two ladders' lengths ever drift
+        # apart (they are both 3 today, by agreement, not by a shared
+        # constant enforcing it).
+        rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
+            min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
         result = _locate_scene_anchors_at_window(
             master_path, candidate_path, fps_num, fps_den,
             bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
-            rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms, debug=debug)
+            rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
+            content_detector_threshold=rung_cd_threshold, debug=debug)
         matched = not result["declined"]
         tools.logs.append(
-            f"scene_anchor: window_ladder_rung rung={rung} dial=window_sec "
-            f"value={rung_window_sec} matched={matched} "
+            f"scene_anchor: window_ladder_rung rung={rung} "
+            f"dial=window_sec+cd_threshold "
+            f"window_sec={rung_window_sec} cd_threshold={rung_cd_threshold} "
+            f"master_seed_count={result.get('master_seed_count')} "
+            f"candidate_seed_count={result.get('candidate_seed_count')} "
+            f"matched={matched} "
             f"reason={result.get('reason')} evidence={result.get('evidence')}\n")
         if matched or result["reason"] not in WINDOW_LADDER_RETRYABLE_REASONS:
             return result
@@ -857,6 +927,9 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
            "evidence": f"rungs_tried={WINDOW_LADDER_MAX_RUNGS} "
                       f"base_window_sec={window_sec} "
                       f"final_window_sec={rung_window_sec} "
+                      f"final_cd_threshold={rung_cd_threshold} "
+                      f"final_master_seed_count={result.get('master_seed_count')} "
+                      f"final_candidate_seed_count={result.get('candidate_seed_count')} "
                       f"last_reason={result.get('reason')} "
                       f"last_evidence={result.get('evidence')}"}
 
@@ -865,6 +938,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                                     bracket_low_ms, bracket_high_ms,
                                     offset_before_ms, offset_after_ms,
                                     window_sec, step_ms=None, quantum_ms=None,
+                                    content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
                                     debug=False):
     '''ONE RUNG of `locate_scene_anchors`'s ladder (below): everything that
     mission originally did at a single, fixed `window_sec`, unchanged
@@ -901,6 +975,14 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     2026-09-21, correcting the 2026-09-17 point (i) this module first
     implemented literally: see `_check_anchor_distinctive` for what
     actually corroborates an anchor).
+
+    `content_detector_threshold` (dev-step5-scenedetect, 2026-09-21): the
+    ContentDetector sensitivity for THIS rung -- co-escalated by the
+    caller's outer loop alongside `window_sec`, index-matched, agreed
+    directly with dev-step4-extract (both owning dials in the SAME loop,
+    no second loop of this function's own). Defaults to
+    `CONTENT_DETECTOR_THRESHOLD_DEFAULT` so a direct call (a unit test, a
+    caller that has not adopted the ladder) is unaffected.
 
     Always returns a dict, `declined` True or False, never neither.
     '''
@@ -978,7 +1060,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                           f"candidate_frames={len(c_hashes)}"}
 
     threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
-    cd_threshold = CONTENT_DETECTOR_THRESHOLD_DEFAULT
+    cd_threshold = content_detector_threshold
 
     master_cuts, master_cuts_failed = _scene_cut_frames(
         master_path, m_win_start, m_win_end - m_win_start, cd_threshold, debug)
@@ -1034,12 +1116,16 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         # escalation ran at all versus declined at the floor.
         if anchor_a_reason or anchor_b_reason:
             return {"declined": True, "reason": "anchor_uninformative",
+                   "master_seed_count": len(master_cuts_seeds),
+                   "candidate_seed_count": len(candidate_cuts_seeds),
                    "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
                               f"a_reason={anchor_a_reason} "
                               f"a_n_frames={anchor_a_n_frames} "
                               f"b_reason={anchor_b_reason} "
                               f"b_n_frames={anchor_b_n_frames}"}
         return {"declined": True, "reason": "anchors_not_established",
+               "master_seed_count": len(master_cuts_seeds),
+               "candidate_seed_count": len(candidate_cuts_seeds),
                "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
                           f"master_cuts={len(master_cuts_seeds)} "
                           f"master_detector_failed={master_cuts_failed} "
@@ -1049,6 +1135,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     ordering_refuted, ordering_evidence = _check_anchor_ordering(anchor_a, anchor_b)
     if ordering_refuted:
         return {"declined": True, "reason": "cross_sweep_refuted",
+               "master_seed_count": len(master_cuts_seeds),
+               "candidate_seed_count": len(candidate_cuts_seeds),
                "evidence": ordering_evidence}
 
     # CROSS-SWEEP: forward from A under before_shift, backward from B
@@ -1132,6 +1220,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         # module's own field for which paths leave it unset); traced no
         # further here -- that module is not this mission's to edit.
         return {"declined": True, "reason": "anchor_step_unavailable",
+               "master_seed_count": len(master_cuts_seeds),
+               "candidate_seed_count": len(candidate_cuts_seeds),
                "evidence": plumbing_evidence}
     if not plumbing_ok:
         # RETIRED NAME `anchor_step_uncorroborated` (measured dead: fires
@@ -1141,6 +1231,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         # nothing downstream mistakes a plumbing disagreement for a
         # content-based refutation.
         return {"declined": True, "reason": "anchor_step_inconsistent",
+               "master_seed_count": len(master_cuts_seeds),
+               "candidate_seed_count": len(candidate_cuts_seeds),
                "evidence": plumbing_evidence}
 
     return {
@@ -1156,6 +1248,16 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         "net_kind": net_kind,
         "frames_to_cut": max(0, length_candidate - length_master),
         "frames_to_fill": max(0, length_master - length_candidate),
+        # SEED-COUNT VARIANCE, MEASURED CONTENT-DEPENDENT (dev-step5-
+        # scenedetect, 2026-09-21, real error-tree media): a low
+        # `content_detector_threshold` rung's seed density can spike hard
+        # on a genuinely busy real window (one measured 32% of frames in
+        # a low band against every other sampled window an order of
+        # magnitude lower) -- carried on EVERY outcome past seed
+        # generation (declined or not) so this variance is visible in
+        # production instead of rediscovered (Lead's ruling, same date).
+        "master_seed_count": len(master_cuts_seeds),
+        "candidate_seed_count": len(candidate_cuts_seeds),
         # REPORTED, NOT ONLY HANDLED (dev-step7-sweep, 2026-09-21): whether
         # the collapse above fired, and the two pre-collapse frame numbers
         # it discarded -- without this a crossed bracket and a bracket that
