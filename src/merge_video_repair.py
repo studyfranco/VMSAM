@@ -635,7 +635,61 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     tools.make_dirs(work_dir)
     out_path = path.join(work_root, f"{key}_repaired.mkv")
 
+    # STOP AND READ BEFORE POPULATING `plan["verdict"]` OR
+    # `plan["speed_ratio"]`. Populating either routes THROUGH A DESTRUCTIVE
+    # TRANSFORM on a real candidate file, applied below. If you are here for
+    # a REPORTING reason -- a chain that wants to log its own speed_ratio or
+    # margin -- STOP: emit on YOUR OWN decline line instead (see
+    # `pal_speed_verdict.py`'s `speed_margin`, VMSAM_HELP_AI/dev-pal/
+    # 013-speed-margin-producer.MD for the investigation that found this the
+    # hard way). A hard guard immediately below refuses unconditionally
+    # regardless, but the guard is the second line of defence -- this
+    # comment is the first, so the next person gets the warning without
+    # having to trace it themselves.
     speed_ratio, _refusal, _cause = get_speed_ratio(plan)
+    if speed_ratio is not None:
+        # HARD GUARD, unconditional -- Lead dispatch 2026-09-21
+        # (VMSAM_HELP_AI/dev-pal/013-speed-margin-producer.MD). `speed_ratio`
+        # reaching here applies a REAL asetrate transform to a real
+        # candidate file, and nothing populates `plan["verdict"]`/
+        # `plan["speed_ratio"]` anywhere in this codebase today -- this arm
+        # has never fired in production. The investigation that found this
+        # was chasing a REPORTING task (emitting `speed_margin` on the PAL
+        # chain's own decline line); populating this plan for that reason
+        # would have activated a destructive transform nobody reviewed.
+        # Refusing here, unconditionally, turns that trap into a named
+        # no-op: a well-lit signpost now leads somewhere safe instead of
+        # somewhere destructive.
+        #
+        # WHY THIS IS NOT A PARAMETER ON A FINISHED CAPABILITY
+        # (WRITE_ZONES.MD SS4's own rule against exactly that): this is
+        # SS4's OTHER case -- a capability under construction, kept out of
+        # the library until it is finished, not a setting on one that
+        # already works. Removing this guard is the deliberate, reviewed
+        # commit that ships Stage-3 confirmation as an APPLIED repair, not a
+        # flag anyone flips at runtime. The finished capability ends up
+        # unconditional either way, exactly as the no-parameter rule
+        # demands -- this refusal is the state BEFORE that commit, not a
+        # configuration of the state after it.
+        #
+        # REMOVAL CONDITION, STATED SO THIS GUARD DOES NOT OUTLIVE ITS
+        # PURPOSE: remove this block in the commit that ships Stage 4
+        # (resample application) as a reviewed, validated, applied repair
+        # path -- not before. A guard without a stated exit outlives its
+        # purpose and becomes the thing it was protecting against.
+        #
+        # `cause="speed_transform_not_validated"` is a THIRD explicitly
+        # tokened `chimeric_error` site. `chimeric_cause`'s own docstring
+        # (this file) records that tokened sites were bounded to exactly two
+        # by the Lead's own ruling (R2) -- this third one is authorized the
+        # same way, by the Lead's explicit dispatch naming this exact token,
+        # not assumed or added quietly.
+        raise merge_video_chimeric.chimeric_error(
+            f"speed transform not validated for production application: "
+            f"speed_ratio={speed_ratio} reached build_repaired_video_object, "
+            f"but Stage 4 (resample application) has never been reviewed as "
+            f"a live repair path -- refusing rather than applying it",
+            cause="speed_transform_not_validated")
     segments = plan.get("segments")
     if not segments:
         # Un plan de VITESSE SEULE n'a pas de tranche: la relation couvre tout le

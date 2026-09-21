@@ -30,11 +30,55 @@ unconditional assertions:
 EVERYTHING ELSE IS UNCHANGED: `band is None`, `band == "near_unity"`, and a
 genuine PAL match (duration guesses right, pitch agrees) never call
 `confirm_ntsc` at all -- verified by a monkeypatch that raises if called.
+
+P1b (dispatch, Lead, 2026-09-21; VMSAM_HELP_AI/dev-pal/013-speed-margin-
+producer.MD): emits `speed_margin`/`speed_margin_absent_reason` on every
+returned verdict, via `_finalize`. SCOPE, STATED SO THE NEXT READER DOES NOT
+"FINISH THE JOB": this ONLY reaches this chain's own decline/confirm line
+(`change_point_locator.py`'s `pal_chain_*` fields). It deliberately does NOT
+write `plan["speed_margin"]`, `plan["verdict"]` or `plan["speed_ratio"]` --
+that is a DIFFERENT vocabulary (`merge_video_repair.py`'s `get_speed_ratio`/
+`get_speed_margin`, tracing to `SPEC_ZONE_A.MD` s4f's own multi-hypothesis
+margin, a different quantity this chain does not compute), and populating it
+would make `build_repaired_video_object()` apply a REAL asetrate transform
+to a real file (measured, not assumed -- 013's own investigation) -- Stage 4
+acquiring a caller, explicitly out of scope here and before it.
 """
 
 import pal_speed_discriminator
 import pal_pitch_confirmer
 import pal_rate_corrected_ncc
+
+
+def _finalize(result):
+    """Attaches `speed_margin`/`speed_margin_absent_reason` to a verdict
+    dict about to be returned, from ONE place, so the two fields cannot
+    drift out of sync with the verdict that produced them.
+
+    Margin is `ncc_after - pal_rate_corrected_ncc.NCC_FLOOR`: how far above
+    this chain's own acceptance floor the confirming measurement landed.
+    ONE quantity for BOTH winning routes (a genuine PAL match and an NTSC
+    recovery), because `_confirm_via_ncc` is their shared tail and both
+    check the SAME floor -- explicitly NOT `SPEC_ZONE_A.MD` s4f's own margin
+    (a gap to a second-place HYPOTHESIS in a multi-way audio-similarity
+    tournament this chain does not run), named as a different quantity
+    rather than forced to look like that one.
+
+    Absence reuses `cause` -- already a value from this chain's own
+    vocabulary, so no new token. `speed_margin` is `None`, never `0`, when
+    nothing was measured: a margin of exactly zero is ITS OWN real answer
+    (the confirming measurement landed exactly on the floor), and
+    `get_speed_margin`'s own consumer-side rule (a different module, same
+    principle) is explicit that a zero margin must never be read as
+    "nothing to report"."""
+    if result["verdict"] == "confirmed":
+        ncc_after = result["ncc"]["ncc_after"]
+        result["speed_margin"] = round(ncc_after - pal_rate_corrected_ncc.NCC_FLOOR, 4)
+        result["speed_margin_absent_reason"] = None
+    else:
+        result["speed_margin"] = None
+        result["speed_margin_absent_reason"] = result.get("cause")
+    return result
 
 
 def _candidate_sample_rate(candidate_video_obj):
@@ -63,31 +107,31 @@ def _confirm_via_ncc(master_path, candidate_path, probe_start_seconds, probe_win
     value to be unusable there (a real cut confounds it by 40-60x)."""
     sample_rate = _candidate_sample_rate(candidate_video_obj)
     if sample_rate is None:
-        return {"verdict": "declined", "cause": "no_rate_relation",
+        return _finalize({"verdict": "declined", "cause": "no_rate_relation",
                 "reason": "no sampling rate on the candidate: cannot build the undo filter",
-                "discriminator": discriminator_result, "pitch": pitch_result}
+                "discriminator": discriminator_result, "pitch": pitch_result})
 
     import merge_video_resample
     try:
         undo_filter, effective_ratio, _, _ = merge_video_resample.build_speed_filter_chain(
             sample_rate, confirmed_ratio)
     except merge_video_resample.resample_error as error:
-        return {"verdict": "declined", "cause": "no_rate_relation",
+        return _finalize({"verdict": "declined", "cause": "no_rate_relation",
                 "reason": f"could not build the undo filter: {error}",
-                "discriminator": discriminator_result, "pitch": pitch_result}
+                "discriminator": discriminator_result, "pitch": pitch_result})
 
     ncc_result = pal_rate_corrected_ncc.confirm_rate_correction(
         master_path, candidate_path, probe_start_seconds, probe_window_seconds,
         undo_filter=undo_filter)
     if ncc_result["refusal"] is not None:
-        return {"verdict": "declined", "cause": ncc_result["refusal"],
+        return _finalize({"verdict": "declined", "cause": ncc_result["refusal"],
                 "reason": ncc_result["reason"], "discriminator": discriminator_result,
-                "pitch": pitch_result, "ncc": ncc_result}
+                "pitch": pitch_result, "ncc": ncc_result})
 
-    return {"verdict": "confirmed", "cause": None, "reason": None,
+    return _finalize({"verdict": "confirmed", "cause": None, "reason": None,
             "speed_ratio": float(confirmed_ratio), "effective_ratio": float(effective_ratio),
             "undo_filter": undo_filter, "discriminator": discriminator_result,
-            "pitch": pitch_result, "ncc": ncc_result}
+            "pitch": pitch_result, "ncc": ncc_result})
 
 
 def determine_speed_verdict(master_video_obj, candidate_video_obj, language,
@@ -107,18 +151,18 @@ def determine_speed_verdict(master_video_obj, candidate_video_obj, language,
     discriminator_result, disc_err = pal_speed_discriminator.discriminate_from_videos(
         master_video_obj, candidate_video_obj, language)
     if disc_err is not None:
-        return {"verdict": "declined", "cause": "locator_module_absent",
-                "reason": disc_err, "discriminator": discriminator_result}
+        return _finalize({"verdict": "declined", "cause": "locator_module_absent",
+                "reason": disc_err, "discriminator": discriminator_result})
 
     band = discriminator_result["band"]
     if band is None:
-        return {"verdict": "declined", "cause": "duration_unmeasurable",
+        return _finalize({"verdict": "declined", "cause": "duration_unmeasurable",
                 "reason": discriminator_result["hypothesis"],
-                "discriminator": discriminator_result}
+                "discriminator": discriminator_result})
     if band == "near_unity":
-        return {"verdict": "out_of_scope", "cause": "near_unity",
+        return _finalize({"verdict": "out_of_scope", "cause": "near_unity",
                 "reason": discriminator_result["hypothesis"],
-                "discriminator": discriminator_result}
+                "discriminator": discriminator_result})
 
     master_path = master_video_obj.filePath
     candidate_path = candidate_video_obj.filePath
@@ -151,9 +195,9 @@ def determine_speed_verdict(master_video_obj, candidate_video_obj, language,
         # field, unchanged emitted line); the NTSC attempt is recorded
         # separately for full transparency without touching what the
         # existing wiring reads.
-        return {"verdict": "declined", "cause": pitch_result["refusal"],
+        return _finalize({"verdict": "declined", "cause": pitch_result["refusal"],
                 "reason": pitch_result["reason"], "discriminator": discriminator_result,
-                "pitch": pitch_result, "ntsc_attempt": ntsc_result}
+                "pitch": pitch_result, "ntsc_attempt": ntsc_result})
 
     # band == "no_band": M3's other duration-layer change. "Outside named
     # duration bands" is the fact; `wrong_content_suspected` becomes a
@@ -173,6 +217,6 @@ def determine_speed_verdict(master_video_obj, candidate_video_obj, language,
     # the arm that proves the assertion was removed, not the verdict: a
     # genuine content mismatch still declines the SAME cause, with pitch
     # having actually run first.
-    return {"verdict": "declined", "cause": "wrong_content_suspected",
+    return _finalize({"verdict": "declined", "cause": "wrong_content_suspected",
             "reason": discriminator_result["hypothesis"],
-            "discriminator": discriminator_result, "pitch": ntsc_result}
+            "discriminator": discriminator_result, "pitch": ntsc_result})

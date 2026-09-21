@@ -1888,7 +1888,9 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
             # validated against real material yet.
             pal_fields = {"pal_chain_verdict": "error", "pal_chain_cause": "not_attempted",
                           "pal_chain_ratio": None, "pal_chain_pitch_ratio": None,
-                          "pal_chain_ncc_before": None, "pal_chain_ncc_after": None}
+                          "pal_chain_ncc_before": None, "pal_chain_ncc_after": None,
+                          "pal_chain_speed_margin": None,
+                          "pal_chain_speed_margin_absent_reason": "not_attempted"}
             try:
                 import pal_speed_verdict
                 probe_window = min(180.0, shortest * 0.5)
@@ -1905,6 +1907,16 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                     "pal_chain_pitch_ratio": pitch.get("measured_ratio"),
                     "pal_chain_ncc_before": ncc.get("ncc_before"),
                     "pal_chain_ncc_after": ncc.get("ncc_after"),
+                    # P1b (VMSAM_HELP_AI/dev-pal/013-speed-margin-producer.MD):
+                    # this chain's OWN margin -- ncc_after minus its own
+                    # NCC_FLOOR, from pal_speed_verdict._finalize -- NEVER
+                    # `plan["speed_margin"]` (a different vocabulary, a
+                    # different quantity, and populating THAT one activates a
+                    # real repair transform; see the file above for why this
+                    # stays on this decline line instead).
+                    "pal_chain_speed_margin": pal_result.get("speed_margin"),
+                    "pal_chain_speed_margin_absent_reason":
+                        pal_result.get("speed_margin_absent_reason"),
                 }
             except Exception as error:                    # noqa: BLE001 -- see comment above
                 pal_fields["pal_chain_verdict"] = "error"
