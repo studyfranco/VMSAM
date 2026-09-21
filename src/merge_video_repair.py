@@ -290,22 +290,58 @@ def get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj):
     transformation obtenue est `intermediaire / round(intermediaire / ratio)`. On
     le calcule ici avec la meme frequence que l'assemblage utilisera, sinon le
     tag decrirait une transformation que le fichier n'a pas subie.
+
+    CORRIGE 2026-09-22 -- DEFAUT TROUVE EN REVUE, PAS EN PRODUCTION: cette
+    fonction ne regardait qu'UNE piste -- la premiere trouvee en iterant
+    `candidate_obj.audios` seul (ordre d'insertion du dict), IGNORANT
+    `.audiodesc`/`.commentary` alors que `iterate_candidate_audios`
+    (`merge_video_chimeric.py`, la fonction qui decide reellement ce qui est
+    reconstruit) couvre les trois, commentaire compris ("on repare toujours",
+    proprietaire 2026-09-16). Et `build_speed_filter_chain`'s facteur EFFECTIF
+    depend de la frequence SOURCE (l'arrondi de `asetrate` sur un entier),
+    donc deux pistes a des frequences differentes recoivent des facteurs
+    EFFECTIFS mesurablement differents (docstring de ce module: 0.35 a
+    2.75 ms d'ecart sur 1435 s) -- alors que cette fonction en ecrivait UN
+    SEUL, applique IDENTIQUEMENT a chaque piste par `mux_repaired_file`.
+    `build_resampled_candidate` (`merge_video_resample.py`) mesure deja ce cas
+    et le nomme `"mixed"` (:177-180 de ce fichier); cette fonction ne le
+    faisait pas -- la connaissance existait, un seul appelant l'ignorait. Un
+    tag faux est "pire que pas de tag du tout" (docstring de ce module, en
+    tete): donc mesurer TOUTES les pistes, et REFUSER plutot que deviner
+    quand elles ne s'accordent pas -- un DECLIN mesure (`chimeric_error`),
+    pas une PANNE d'outil, meme raisonnement que le reste de ce fichier
+    (repair.py:2798-2829: `chimeric_error` -> `declined`, tout le reste ->
+    `failed`).
     """
     applied_factor = None
     if speed_ratio != None:
+        import merge_video_chimeric
         import merge_video_resample
-        rate = None
-        for language, audios in candidate_obj.audios.items():
-            for audio in audios:
-                rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
-                if rate != None:
-                    break
-            if rate != None:
-                break
-        if rate == None:
-            raise Exception("no sampling rate on the candidate: cannot state the applied factor")
-        _, applied, _, _ = merge_video_resample.build_speed_filter_chain(rate, speed_ratio)
-        applied_factor = merge_video_resample.format_factor(applied)
+        factors_by_rate = {}
+        for audio in merge_video_resample.iter_audio_dicts(candidate_obj):
+            rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
+            if rate == None:
+                continue
+            rate = int(float(rate))
+            if rate not in factors_by_rate:
+                _, applied, _, _ = merge_video_resample.build_speed_filter_chain(
+                    rate, speed_ratio)
+                factors_by_rate[rate] = merge_video_resample.format_factor(applied)
+        if not len(factors_by_rate):
+            raise merge_video_chimeric.chimeric_error(
+                "no sampling rate is readable on any candidate audio track: "
+                "cannot state the applied speed factor for the fabricated marker",
+                cause="speed_marker_no_sample_rate")
+        distinct_factors = set(factors_by_rate.values())
+        if len(distinct_factors) > 1:
+            raise merge_video_chimeric.chimeric_error(
+                f"the candidate's audio tracks' sample rates "
+                f"({sorted(factors_by_rate.keys())}) resolve to DIFFERENT "
+                f"effective speed factors ({sorted(distinct_factors)}): one "
+                f"marker cannot describe what every stream actually "
+                f"received -- refusing rather than tagging some tracks wrong",
+                cause="speed_marker_ambiguous_mixed_sample_rates")
+        applied_factor = next(iter(distinct_factors))
     return get_marker_value(dict(plan, applied_speed_factor=applied_factor))
 
 
@@ -366,6 +402,58 @@ def _candidate_sample_rate_for_speed_test(candidate_obj):
     return None
 
 
+def describe_resample_decline(candidate_ratio, gate):
+    '''VERDICT_WITHOUT_MEASUREMENT (RULINGS_IN_FORCE.md, 2026-09-21): the
+    resample gate's decline must carry the numbers it concluded from, in the
+    SAME line a reader actually sees -- not only in a `tools.logs` line gated
+    `if tools.dev`, which is dead on the production instance (`dev: false`).
+
+    `gate` is `merge_video_resample.test_speed_ratio_against_master`'s return
+    dict. ITS OWN TOP-LEVEL `median_fidelity`/`margin`/`ratio` ARE `None` ON
+    EVERY DECLINE, BY THAT FUNCTION'S OWN DESIGN (they carry the WINNING
+    hypothesis only, and a decline has no winner) -- reading them here would
+    reproduce exactly the blank-reads-as-no-measurement defect this function
+    exists to avoid. The real numbers, when they exist, live PER HYPOTHESIS in
+    `gate["hypotheses"]["direct"/"reciprocal"]["median"]`.
+
+    Measured 2026-09-22 against real wave declines (Lead's ids
+    e8f7bc8a55924482, 79b17a3f34c007df): `merge_video_resample.
+    test_speed_ratio_against_master` now distinguishes a per-hypothesis
+    `"unmeasurable"` verdict (filter could not be built, or the whole-track
+    resample itself failed -- the instrument never ran) from a genuine
+    measured `"below"` verdict (a real median was computed and it did not
+    clear the floor). This function reads THAT distinction rather than the
+    outer `cause` token alone, because `cause="resample_fidelity_below_floor"`
+    only guarantees at least one hypothesis has a real median -- it does not
+    say the OTHER one does, and picking the best available is what SPEC_ZONE_A
+    s4f's own "report by how much it won" asks for on the CONFIRM side; on
+    DECLINE the closest miss is the equivalent quantity.
+    '''
+    import merge_video_resample
+    hypotheses = gate.get("hypotheses") or {}
+    best_name, best_median = None, None
+    for name, result in hypotheses.items():
+        median = result.get("median")
+        if median is None:
+            continue
+        if best_median is None or median > best_median:
+            best_name, best_median = name, median
+    if best_median is None:
+        # NEITHER HYPOTHESIS PRODUCED A MEDIAN -- the instrument did not run
+        # (filter build / whole-track resample failed on both sides), or ran
+        # and stayed inconclusive at the hard ceiling with nothing usable.
+        # BRIEF_COMMON rule 5: this is a DIFFERENT answer from a measured
+        # negative, and it is said as one.
+        return (f"resample fidelity gate ran but produced no usable median "
+                f"for either hypothesis (candidate duration ratio={candidate_ratio}): "
+                f"{gate.get('cause')}")
+    gap = merge_video_resample.RESAMPLE_FIDELITY_FLOOR - best_median
+    return (f"resample fidelity gate declined: ratio={candidate_ratio} "
+            f"(tested as {best_name}) median_fidelity={best_median} "
+            f"floor={merge_video_resample.RESAMPLE_FIDELITY_FLOOR} "
+            f"gap={gap:.4f} cause={gate.get('cause')}")
+
+
 def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     '''STEP 2 DU PIPELINE DU PROPRIETAIRE -- "Test Reechantillonnage
     (Fidelite > 0,90)" (BRIEF.md; RULINGS_IN_FORCE.md, ligne
@@ -415,23 +503,36 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     s4f l'exige explicitement ("un depatageage tire des memes correlations
     n'est pas un second avis").
 
-    Renvoie (plan, cause). `plan` est None si la relation n'a pas ete
+    Renvoie (plan, cause, detail). `plan` est None si la relation n'a pas ete
     confirmee. Le plan produit ne porte PAS de `segments`: une relation de
     vitesse pure couvre toute la timeline (`build_repaired_video_object` le
     sait deja construire).
+
+    `detail` est None quand `plan` n'est pas None (rien a expliquer), et une
+    PROSE portant les nombres mesures (ratio, fidelite, ecart au plancher)
+    quand `cause` n'est pas None -- VERDICT_WITHOUT_MEASUREMENT, voir
+    `describe_resample_decline` ci-dessus. Ajoute 2026-09-22: avant ce
+    changement seul `cause` voyageait, et le seul site qui portait les
+    nombres etait un `tools.logs.append` gate par `if tools.dev` -- mort sur
+    l'instance de production (`dev: false`).
     '''
     import pal_speed_discriminator
     discriminator_result, disc_error = pal_speed_discriminator.discriminate_from_videos(
         best_video, candidate_obj, language)
     if disc_error is not None:
-        return None, "resample_test_locator_module_absent"
+        return None, "resample_test_locator_module_absent", (
+            f"resample fidelity test could not even start: {disc_error}")
     ratio = discriminator_result.get("speed_ratio")
     if ratio is None:
-        return None, "resample_test_duration_unmeasurable"
+        return None, "resample_test_duration_unmeasurable", (
+            "resample fidelity test could not start: no duration-based "
+            "ratio candidate from pal_speed_discriminator")
 
     sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
     if sample_rate == None:
-        return None, "resample_test_no_sample_rate"
+        return None, "resample_test_no_sample_rate", (
+            "resample fidelity test could not start: no sampling rate "
+            "readable on the candidate")
 
     import merge_video_resample
     work_dir = path.join(tools.tmpFolder, "repair", "resample_fidelity_test")
@@ -439,13 +540,23 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     gate = merge_video_resample.test_speed_ratio_against_master(
         best_video.filePath, candidate_obj.filePath, ratio, sample_rate, work_dir)
     if tools.dev:
+        # THE NUMBERS THAT ACTUALLY EXIST ON A DECLINE, not the outer
+        # fields that `test_speed_ratio_against_master` sets to None on
+        # every decline by design (they carry the WINNING hypothesis only).
+        # Reading `gate.get('median_fidelity')` here reproduced exactly the
+        # blank-reads-as-no-measurement confusion this file exists to
+        # refuse elsewhere -- measured 2026-09-22 against real declines
+        # (ids e8f7bc8a55924482, 79b17a3f34c007df) that this line printed
+        # as `median=None` while `gate['hypotheses']` held real numbers.
+        per_hypothesis = " ".join(
+            f"{name}(verdict={r.get('verdict')},median={r.get('median')})"
+            for name, r in (gate.get("hypotheses") or {}).items())
         tools.logs.append(
             f"repair: resample fidelity gate for {language}: band="
             f"{discriminator_result.get('band')} verdict={gate['verdict']} "
-            f"ratio={gate.get('ratio')} median={gate.get('median_fidelity')} "
-            f"margin={gate.get('margin')} cause={gate.get('cause')}\n")
+            f"cause={gate.get('cause')} {per_hypothesis}\n")
     if gate["verdict"] != "confirmed":
-        return None, gate["cause"]
+        return None, gate["cause"], describe_resample_decline(ratio, gate)
 
     return {"kind": "speed", "verdict": "asetrate",
             "speed_ratio": str(gate["ratio"]),
@@ -453,7 +564,7 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
             "speed_margin": gate["margin"],
             "duration_master_s": float(best_video.video["Duration"]),
             "duration_candidate_s": float(candidate_obj.video["Duration"]),
-            "resample_gate": {k: v for k, v in gate.items() if k != "hypotheses"}}, None
+            "resample_gate": {k: v for k, v in gate.items() if k != "hypotheses"}}, None, None
 
 
 def get_plan_from_locator(best_video, candidate_obj, language):
@@ -465,6 +576,12 @@ def get_plan_from_locator(best_video, candidate_obj, language):
 
     `None` veut dire *je n'ai pas pu mesurer*, jamais *les fichiers sont
     compatibles*. On laisse alors le refus tel quel.
+
+    Renvoie (plan, cause, detail) depuis 2026-09-22 -- `detail` est None
+    partout SAUF quand le confirmateur de vitesse (Stage 2) a decline avec des
+    nombres a porter (voir `describe_resample_decline`); tous les autres
+    chemins de cette fonction gardent leur prose historique, inchangee, au
+    site d'appel.
     """
     try:
         import change_point_locator
@@ -476,7 +593,7 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # nothing to attempt it with. Distinct from "the locator ran and refused".
         # LE JETON EST STABLE; la classe d'exception va dans la PROSE. dev-4
         # classe sur le jeton, donc un jeton qui varie n'est pas un jeton.
-        return None, "locator_module_absent"
+        return None, "locator_module_absent", None
     # *** THE PRODUCER HALF LANDED. `locate_change_points` now returns `(plan, cause)`
     # per CAMPAIGN.MD 1153-1164 -- cause is None when a plan is returned, and a stable
     # snake_case token on every one of the ten boundary refusals.
@@ -488,7 +605,7 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     plan, locator_cause = change_point_locator.locate_change_points(
         best_video, candidate_obj, language)
     if plan is not None:
-        return plan, None
+        return plan, None, None
     if locator_cause in SPEED_CONFIRMER_ENTRY_CAUSES:
         # STEP 2 OF THE OWNER'S PIPELINE, HERE AND ONLY HERE (BRIEF.md;
         # RULINGS_IN_FORCE.md `PIPELINE_CANONICAL`, 2026-09-21: "Q1 RESOLVED =
@@ -535,21 +652,32 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # `VMSAM_HELP_AI/dev-step2-resample/`'s task file) that this producer
         # declines correctly on files with no speed relation, at the SAME
         # rate as its already-validated negative controls.
-        speed_plan, speed_cause = confirm_speed_relation_via_resample(
+        speed_plan, speed_cause, speed_detail = confirm_speed_relation_via_resample(
             best_video, candidate_obj, language)
         if speed_plan is not None:
-            return speed_plan, None
-        # NOT CONFIRMED. Falls through to the ORIGINAL locator_cause,
-        # unchanged -- `speed_cause` is a SEPARATE, MORE SPECIFIC finding
-        # (which stage of confirmation refused, or which side of the resample
-        # gate) and belongs in the log this function's own caller already
-        # writes from the plan's absence, not substituted for the Stage 1
-        # token that is still true: Stage 1's own classification is what is
-        # being passed through when this producer's confirmation fails.
+            return speed_plan, None, None
+        # NOT CONFIRMED. CORRECTED 2026-09-22 (Lead's fold-in, on his own
+        # measurement against real wave declines): this used to fall through
+        # to the ORIGINAL `locator_cause` unchanged, on the argument that
+        # Stage 1's token was "the finding" and `speed_cause` was merely a
+        # log-line detail. That was wrong in a way that cost a census: the
+        # terminal `no_plan cause=` line this function's caller writes
+        # (`repair_not_compatible_videos`) is the ONLY place anyone reads the
+        # outcome, and Stage 1's token only ever said WHY THIS PRODUCER WAS
+        # TRIED -- never WHAT IT FOUND when it ran. A pair that never reached
+        # the resample gate at all and a pair that reached it and measured
+        # 0.5631 median fidelity are two different findings, and collapsing
+        # them onto the same `median_fidelity_below_floor`/`offsets_scattered`
+        # token is precisely the four-states-one-token shape da10f16c and
+        # ca8e3307 already had to undo one layer down in this same file.
+        # `locator_cause` survives in the dev log line below for the curious
+        # (why entry happened at all); the RETURNED cause and detail are now
+        # the confirmer's own -- what actually happened when Stage 2 ran.
         if tools.dev:
             tools.logs.append(
                 f"repair: {locator_cause} but speed relation not confirmed "
                 f"by resample for {language}: {speed_cause}\n")
+        return None, speed_cause, speed_detail
     # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
     #
     # This block used to say the producer half was unlanded and held by dev-1's user,
@@ -618,8 +746,8 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # A TEST EXISTS FOR EXACTLY THIS: `lab/ladder_token.sh::sentinel_ladder` in the records
         # repository reads THIS literal and the parser's class FROM SOURCE and fails if the
         # sentinel ever becomes acceptable. If you change this line, run it.
-        return None, "(unstated)"
-    return None, locator_cause
+        return None, "(unstated)", None
+    return None, locator_cause, None
 
 
 def drop_unverified_segments(segments):
@@ -881,11 +1009,37 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # by the Lead's own ruling (R2) -- this third one is authorized the
         # same way, by the Lead's explicit dispatch naming this exact token,
         # not assumed or added quietly.
+        #
+        # REVIEWED 2026-09-22, STILL HELD (dev-stage4's mission,
+        # VMSAM_HELP_AI/dev-stage4/001-stage4-apply-review.MD): the apply
+        # path below WAS reviewed and two real defects WERE found and fixed
+        # in this same commit (the decline-path cause fall-through in
+        # `get_plan_from_locator`/`confirm_speed_relation_via_resample`, and
+        # the fabricated-marker mixed-sample-rate gap in
+        # `get_marker_value_for`). The guard was lifted, tested end to end on
+        # real media (errid 46 and three more episodes of the same pairing,
+        # Rick and Morty S01E01-E04), and put back: all four real attempts
+        # DECLINED at `assemble_on_master_timeline`'s own PRE-EXISTING
+        # `alignment_contradicts_plan` verification, same cause, same piece,
+        # same ~1.9-3.6s window every time -- a real, consistent, explicable
+        # population defect in the only confirmed real population available
+        # (this pairing needs the composite/resample-first-then-locate path
+        # to ever merge, not a single-segment plan). ZERO merges were
+        # produced. `alignment_contradicts_plan` verifies that offsets hold;
+        # it does not verify the applied speed factor or the written marker
+        # are correct -- those are exactly what remains unexercised, per the
+        # Lead's ruling (2026-09-22). REMOVAL CONDITION UNCHANGED, now
+        # sharpened: lift again in the commit where one real file MERGES and
+        # its produced duration/marker match a hand-computed target stated
+        # before the run.
         raise merge_video_chimeric.chimeric_error(
             f"speed transform not validated for production application: "
             f"speed_ratio={speed_ratio} reached build_repaired_video_object, "
-            f"but Stage 4 (resample application) has never been reviewed as "
-            f"a live repair path -- refusing rather than applying it",
+            f"but Stage 4 (resample application) has been reviewed WITHOUT a "
+            f"single real merge yet produced (2026-09-22 -- every real "
+            f"attempt declined at a different, pre-existing verification "
+            f"stage first) -- refusing rather than applying an untested "
+            f"transform",
             cause="speed_transform_not_validated")
     segments = plan.get("segments")
     if not segments:
@@ -2680,7 +2834,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    f"could not tell which language the merge measured on "
                    f"({language_route})", cause="language_undetermined")
             continue
-        plan, plan_refusal_cause = get_plan_from_locator(
+        plan, plan_refusal_cause, plan_refusal_detail = get_plan_from_locator(
             best_video, candidate_obj, language)
         plan_source = "change_point_locator"
         if plan != None:
@@ -2710,8 +2864,17 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # precedente affirmait qu'AUCUNE mesure n'existait, ce qui est FAUX
             # sur le chemin du plancher de fidelite -- les sondes ont TOURNE et
             # ont rendu un NEGATIF CONCLUANT.
+            #
+            # LA RAISON, QUAND LE CONFIRMATEUR DE VITESSE EN PORTE UNE. Ajoute
+            # 2026-09-22: `plan_refusal_detail` est non-None uniquement quand
+            # `get_plan_from_locator` est passe par le confirmateur de Stage 2
+            # (`describe_resample_decline`) -- ratio, fidelite mediane et
+            # ecart au plancher, la ou avant seule `f"no plan from
+            # {plan_source}"` atteignait cette ligne, quel que soit ce que la
+            # mesure avait trouve.
             record(candidate_path, "no_plan",
-                   f"no plan from {plan_source}", cause=plan_refusal_cause)
+                   plan_refusal_detail if plan_refusal_detail != None
+                   else f"no plan from {plan_source}", cause=plan_refusal_cause)
             continue
         if plan.get("kind") == "constant":
             # Troisieme issue de la mesure, et elle n'est pas la notre. Un

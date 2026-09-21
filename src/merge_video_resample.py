@@ -472,14 +472,18 @@ def test_speed_ratio_against_master(master_path, candidate_path, speed_ratio,
         try:
             chain, effective, _, _ = build_speed_filter_chain(sample_rate, r)
         except resample_error as error:
-            results[name] = {"verdict": "below", "median": None,
+            # `verdict` HERE IS NOT "below" -- see the note above `winners`
+            # below. Nothing was measured against the floor; the filter
+            # could not even be built, which is "the instrument did not
+            # run", not "the instrument ran and refused".
+            results[name] = {"verdict": "unmeasurable", "median": None,
                               "reason": f"could not build the filter: {error}"}
             continue
         resampled_path = path.join(work_dir, f"resample_fidelity_{name}.wav")
         try:
             _resample_whole_track(candidate_path, chain, sample_rate, resampled_path, timeout)
         except Exception as error:                       # noqa: BLE001 -- one hypothesis, not the caller
-            results[name] = {"verdict": "below", "median": None,
+            results[name] = {"verdict": "unmeasurable", "median": None,
                               "reason": f"whole-track resample failed: "
                                         f"{type(error).__name__}: {error}"}
             continue
@@ -501,10 +505,30 @@ def test_speed_ratio_against_master(master_path, candidate_path, speed_ratio,
 
     winners = {name: r for name, r in results.items() if r["verdict"] == "above"}
     if not winners:
-        # NEITHER HYPOTHESIS CLEARS THE FLOOR. Distinguish "measured and refused"
-        # from "the ladder never reached a verdict" -- BRIEF_COMMON regle 5.
+        # NEITHER HYPOTHESIS CLEARS THE FLOOR. THREE SHAPES, NOT TWO, and
+        # `cause` must name which one -- measured 2026-09-22 on real wave
+        # output (errids e8f7bc8a55924482, 79b17a3f34c007df): the OLD code
+        # folded "could not build the filter"/"whole-track resample failed"
+        # into the SAME `"below"` verdict a genuine measured-low median
+        # uses, so `resample_fidelity_below_floor` fired on files where NO
+        # FIDELITY WAS EVER MEASURED -- the exact defect class BRIEF_COMMON
+        # rule 5 names ("I could not measure" and a conclusive negative are
+        # different answers), one layer inside this module.
+        #
+        #   any hypothesis "inconclusive_at_ceiling" (ladder ran, stayed in
+        #     the +/-band at the hard ceiling)      -> resample_fidelity_inconclusive
+        #     (existing, unchanged: a real, if ambiguous, measurement)
+        #   EVERY hypothesis "unmeasurable" (filter build or whole-track
+        #     resample failed before any probe ran) -> resample_fidelity_unmeasurable
+        #     (NEW: the instrument did not run, on either hypothesis)
+        #   otherwise (at least one hypothesis reached a clean, measured
+        #     "below" verdict -- a real median exists in `results[name]
+        #     ["median"]`)                           -> resample_fidelity_below_floor
+        #     (unchanged token, now a TRUE conclusive negative every time)
         if any(r["verdict"] == "inconclusive_at_ceiling" for r in results.values()):
             cause = "resample_fidelity_inconclusive"
+        elif all(r["verdict"] == "unmeasurable" for r in results.values()):
+            cause = "resample_fidelity_unmeasurable"
         else:
             cause = "resample_fidelity_below_floor"
         return {"verdict": "declined", "ratio": None, "median_fidelity": None,
