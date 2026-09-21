@@ -1200,6 +1200,17 @@ RATE_SLOPE_R_SQUARED_MIN = 0.50
 RATE_SLOPE_MIN_POINTS = 10
 RATE_SLOPE_OUTLIER_MAD_K = 5.0
 
+# fps-equality pre-filter for the pitch-layer NTSC check (dev-step2-resample's
+# catch, 2026-09-21): a real conversion changes the declared frame rate, so
+# two sides reporting the SAME fps cannot carry a speed relation. Smaller
+# than the smallest real conversion this module targets (NTSC's own ~0.1%,
+# 23.976 vs 24.000 = a 0.024 fps gap) -- 0.01 sits at ~40% of that gap,
+# clear of ordinary float/MediaInfo rounding noise. Measured false positives
+# this closes: two same-rate (23.976/23.976) real files where pitch
+# measurement noise landed near the NTSC nominal by chance, one within five
+# parts in a million of it.
+FPS_EQUAL_TOLERANCE = 0.01
+
 
 def _robust_slope_regression(starts, offsets, outlier_mad_k=RATE_SLOPE_OUTLIER_MAD_K):
     """Least-squares slope of offset_ms over probe_start_s, after excluding
@@ -1929,22 +1940,50 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     if _rate_gate_open:
         _log(f"{language}: rate-family gate open (runs={len(runs)}, "
              f"fid_median={median_fidelity:.3f}); trying pitch then slope")
-        # Instrument 1: pitch-layer NTSC recognizer, unconditional, first --
-        # NTSC_KNIFE_EDGE (in force): duration cannot carry this signal, so
-        # this measures pitch directly rather than inferring from duration.
-        # Local import + broad except, same pattern as the PAL chain lower in
-        # this file: a new instrument's failure must become a measurement,
-        # never a crashed merge.
+        # FPS-EQUALITY PRE-FILTER (dev-step2-resample's catch, same evening):
+        # a PAL/NTSC conversion CHANGES the declared frame rate -- that is
+        # what the conversion IS. If both sides report the same fps, no
+        # conversion happened and a speed relation is impossible BY
+        # CONSTRUCTION, so the pitch check must not even be tried. Measured
+        # false positives this closes: two real same-rate (23.976/23.976)
+        # files where pitch measurement noise landed near-unity and one,
+        # `kuroshitsuji_10`, matched the NTSC nominal by five parts in a
+        # million (0.000528 from unity vs 0.000472 from the NTSC nominal --
+        # essentially equidistant, not a rate recognition). Arithmetic, not
+        # a tuned margin: `FPS_EQUAL_TOLERANCE` only has to be smaller than
+        # the smallest real conversion this module cares about (NTSC's own
+        # ~0.1%, i.e. 23.976 vs 24.000, a 0.024 fps gap) -- 0.01 sits at
+        # roughly 40% of that gap, well clear of ordinary float/MediaInfo
+        # rounding noise in a single declared rate. Missing fps on either
+        # side does NOT skip the check -- absence of the guarding fact must
+        # not be read as permission, same rule as everywhere else in this
+        # module ("absent, never zero").
+        _master_fps = getattr(best_video, "get_fps", lambda: None)()
+        _candidate_fps = getattr(candidate_video, "get_fps", lambda: None)()
+        _fps_equal = (_master_fps is not None and _candidate_fps is not None
+                      and abs(_master_fps - _candidate_fps) < FPS_EQUAL_TOLERANCE)
+        if _fps_equal:
+            _log(f"{language}: master/candidate fps equal "
+                 f"({_master_fps} vs {_candidate_fps}); no conversion possible, "
+                 f"skipping the pitch-layer NTSC check")
+        # Instrument 1: pitch-layer NTSC recognizer, unconditional (except for
+        # the fps-equality case above), first -- NTSC_KNIFE_EDGE (in force):
+        # duration cannot carry this signal, so this measures pitch directly
+        # rather than inferring from duration. Local import + broad except,
+        # same pattern as the PAL chain lower in this file: a new
+        # instrument's failure must become a measurement, never a crashed
+        # merge.
         _ntsc_result = None
-        try:
-            import pal_pitch_confirmer
-            _ntsc_probe_window = min(180.0, shortest * 0.5)
-            _ntsc_probe_start = shortest * 0.3
-            _ntsc_result = pal_pitch_confirmer.confirm_ntsc(
-                master_path, candidate_path, _ntsc_probe_start, _ntsc_probe_window)
-        except Exception as error:                          # noqa: BLE001 -- see above
-            _log(f"pitch-layer NTSC check errored: {type(error).__name__}")
-            _ntsc_result = None
+        if not _fps_equal:
+            try:
+                import pal_pitch_confirmer
+                _ntsc_probe_window = min(180.0, shortest * 0.5)
+                _ntsc_probe_start = shortest * 0.3
+                _ntsc_result = pal_pitch_confirmer.confirm_ntsc(
+                    master_path, candidate_path, _ntsc_probe_start, _ntsc_probe_window)
+            except Exception as error:                          # noqa: BLE001 -- see above
+                _log(f"pitch-layer NTSC check errored: {type(error).__name__}")
+                _ntsc_result = None
         if _ntsc_result is not None and _ntsc_result.get("matched"):
             _log(f"{language}: pitch-layer NTSC match ({_ntsc_result['matched']}, "
                  f"ratio={_ntsc_result['measured_ratio']}); declining as rate family")
