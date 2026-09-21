@@ -44,6 +44,21 @@ measured/motivated in the prover's own bake-off, not guessed here:
    module; `zone_similarity_vector.degeneracy_report` is another seat's open module, read for its
    logic, not imported across module ownership boundaries.
 
+   MEASURED, 2026-09-21, not assumed either direction: the gate fires on `<= 1` distinct
+   fingerprint value. Checked directly against real, genuine near-silence (a real -91dB, codec-
+   noise-floor tail region, 37s of real content) AND against a pure digital-silence fixture
+   (200s): BOTH read `n_distinct=1` -- the same single fingerprint value repeated throughout,
+   with zero measured exceptions. So this IS a working, measured degeneracy gate for content at
+   the codec noise floor, n=2 sources so far, not merely a mathematical limit case that happens
+   never to fire. What remains genuinely UNTESTED, stated as such rather than assumed either
+   way: LOW-LEVEL AMBIENT OR HUM CONTENT WITH REAL, NONZERO VARIATION -- quiet but not pinned at
+   the hard floor, which could in principle produce a handful of distinct values (two, three,
+   five) across thousands of points and pass this gate while still being the kind of degenerate-
+   ish content the gate exists to catch. Nobody has yet found such a fixture in this corpus
+   despite looking; if a real 100+-file sweep ever turns one up (this module's own `n_distinct`/
+   `n_items` fields make that free to watch for), re-open this note rather than trusting the
+   `<=1` boundary to generalise from n=2.
+
 k, B: MEASURED from a k x B match-rate table over two real error-tree files (not guessed).
 `k=2, B=12`. B=32 (no reduction) gives near-zero k>=2 seed rates even on a clean pair (0.008 on
 one measured file) -- seeding on raw 32-bit values finds almost nothing to seed from. B=8 gives
@@ -573,6 +588,16 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
 
     master_wav = os.path.join(work_dir, f"{tag}_master_full.wav")
     candidate_wav = os.path.join(work_dir, f"{tag}_candidate_full.wav")
+    # SPLIT TIMER (the Lead's ruling, 2026-09-21): a single pass/fail duration conflates two
+    # quantities that scale with completely different things -- EXTRACTION (whole-file decode of
+    # both sides: track count, codec, duration) and ALIGNMENT (B2 itself: seeding density, how
+    # far extensions walk). A sweep that only records one number cannot tell "this file has heavy
+    # audio tracks" apart from "this file is where B2 works hardest" -- and the second class is
+    # very likely the degraded, densely-seeding content the local-baseline guard exists for, so
+    # its silent absence from a timeout-filtered sample would make every other number optimistic.
+    # Both phases timed separately and returned on every result, success or not.
+    import time
+    extraction_t0 = time.time()
     try:
         cpl._extract(master_path, master_stream, 0.0, length_seconds, master_wav, sample_rate)
         cpl._extract(candidate_path, candidate_stream, 0.0, length_seconds, candidate_wav, sample_rate)
@@ -584,13 +609,19 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
                 os.remove(path)
             except OSError:
                 pass
+    extraction_seconds = time.time() - extraction_t0
 
     n_items = min(len(fp_master), len(fp_candidate))
     quantum_ms = (length_seconds * 1000.0 / n_items) if n_items else None
     if quantum_ms is None:
         return {"verdict": "no_seeds_found", "modality": MODALITY,
                 "stage_contract": "WHOLE-FILE fingerprinting produced zero comparable points.",
-                "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None}
-    return b2_align(fp_master, fp_candidate, quantum_ms, band=band, k=k, bits=bits,
-                     min_run_points=min_run_points, local_baseline_min=local_baseline_min,
-                     include_drift_trace=include_drift_trace)
+                "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None,
+                "extraction_seconds": extraction_seconds, "alignment_seconds": 0.0}
+    alignment_t0 = time.time()
+    result = b2_align(fp_master, fp_candidate, quantum_ms, band=band, k=k, bits=bits,
+                       min_run_points=min_run_points, local_baseline_min=local_baseline_min,
+                       include_drift_trace=include_drift_trace)
+    result["extraction_seconds"] = extraction_seconds
+    result["alignment_seconds"] = time.time() - alignment_t0
+    return result
