@@ -64,6 +64,39 @@ verify_tolerance_ms = 100
 
 last_repair_report = []
 
+# LES TROIS CAUSES QUI DECLENCHENT LE PRODUCTEUR DE STEP 2 (Lead
+# authorization, 2026-09-21, sur une mesure de population:
+# `dev-step1-classify` a mesure 0/20 des identifiants PAL reels confirmes de
+# la campagne atteignant `speed_relation_suspected` -- 12/20 declinent en
+# `median_fidelity_below_floor`, 7/20 en `offsets_scattered`, la derive de
+# 4.27% de PAL etant assez grande pour transformer la correlation en bruit
+# A L'INTERIEUR D'UNE SEULE FENETRE non corrigee, et le bruit n'est pas
+# monotone). `confirm_speed_relation_via_resample` ne depend PAS du test de
+# monotonicite de la Stage 1: il redérive son propre ratio depuis la DUREE
+# seule et reechantillonne LA PISTE ENTIERE avant de sonder -- la derive
+# intra-fenetre qui defait la Stage 1 est deja corrigee au moment ou ce
+# module mesure. D'ou: essayer ce producteur sur ces trois causes n'est pas
+# deux sieges qui rafistolent le meme symptome; si la Stage 1 repare un jour
+# son test de monotonicite, `speed_relation_suspected` devient simplement une
+# troisieme entree a cote des deux autres, additive et non conflictuelle.
+# ON N'OUVRE QUE LA PORTE QU'ON A MESUREE. Le bras de faux positifs du siege
+# a tourne sur TROIS residents reels de `median_fidelity_below_floor` (meme
+# frequence d'image des deux cotes, donc aucune relation de vitesse possible;
+# le confirmateur a essaye LES DEUX hypotheses et decline proprement au seuil
+# lui-meme, fidelites 0.5631-0.6107, jamais un delai ni un plantage a une
+# etape ulterieure): ZERO faux positif, n=3, 2026-09-21.
+# `offsets_scattered` N'EST PAS DANS CET ENSEMBLE, et son absence est une
+# mesure et non un oubli: sur ~20 paires reelles depouillees, AUCUN resident
+# reel de ce seau-la n'est apparu -- les paires same-fps de l'arbre d'erreurs
+# sont surtout de vraies coupes, pas des declins de basse fidelite. Un bras
+# mesure sur un seau n'autorise pas l'autre (INSTRUMENT SCOPE LAW appliquee a
+# une PORTE): la population franchissant `offsets_scattered` n'a jamais ete
+# observee, donc le taux de faux positifs qu'elle produirait est inconnu.
+# 7 des 20 PAL confirmes de la campagne declinent par ce jeton, donc la porte
+# VAUT d'etre ouverte -- quand elle aura son propre nombre.
+SPEED_CONFIRMER_ENTRY_CAUSES = frozenset(
+    {"speed_relation_suspected", "median_fidelity_below_floor"})
+
 
 def parse_segments(raw_segments):
     '''JSON -> Decimal. Les nombres arrivent en chaines pour ne rien perdre.
@@ -342,10 +375,15 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     (`_decline` de `change_point_locator.py` rend `(None, reason)`, DEUX
     elements, jamais les champs `pal_chain_*` qu'elle journalise).
 
-    Appelee UNIQUEMENT quand `change_point_locator` a decline avec
-    `speed_relation_suspected` -- c'est-a-dire quand la Stage 1 a deja vu une
-    derive monotone et une fidelite mediane sous son propre plancher
-    (`MIN_MEDIAN_FIDELITY`, 0.70, UNE AUTRE QUANTITE que celle testee ici).
+    Appelee quand `change_point_locator` a decline avec l'une des trois
+    causes de `SPEED_CONFIRMER_ENTRY_CAUSES` -- `speed_relation_suspected`
+    (derive monotone vue), ou `median_fidelity_below_floor` /
+    `offsets_scattered` (la Stage 1 n'a PAS vu de monotonie, mais 19 des 20
+    PAL confirmes de la campagne declinent par l'un de ces deux jetons a
+    cause du bruit intra-fenetre, voir `SPEED_CONFIRMER_ENTRY_CAUSES`).
+    Dans tous les cas la fidelite mediane originale etait sous son propre
+    plancher (`MIN_MEDIAN_FIDELITY`, 0.70, UNE AUTRE QUANTITE que celle
+    testee ici).
 
     STEP 2 EST SON PROPRE CONFIRMATEUR (Lead ruling on Q1, 2026-09-21): le
     diagramme du proprietaire dessine DEUX boites -- Classification, puis Test
@@ -451,7 +489,7 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         best_video, candidate_obj, language)
     if plan is not None:
         return plan, None
-    if locator_cause == "speed_relation_suspected":
+    if locator_cause in SPEED_CONFIRMER_ENTRY_CAUSES:
         # STEP 2 OF THE OWNER'S PIPELINE, HERE AND ONLY HERE (BRIEF.md;
         # RULINGS_IN_FORCE.md `PIPELINE_CANONICAL`, 2026-09-21: "Q1 RESOLVED =
         # ACT-and-decide"). Stage 1 (`change_point_locator.py`, not mine) only
@@ -468,22 +506,50 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # `speed_ratio` until the Lead's own commit lifts it with evidence --
         # this branch stops at "the plan exists and is admissible", which is
         # everything this file can validate on its own.
+        #
+        # WHY THREE CAUSES, NOT ONE (Lead's authorization, 2026-09-21, on a
+        # measured population): `dev-step1-classify` ran all 20 of the
+        # campaign's confirmed real PAL ids through the real classifier and
+        # found ZERO reach `speed_relation_suspected` -- a 4.27% drift inside
+        # one UNCORRECTED probe window is large enough to turn the
+        # correlation into noise, and noise is not monotone
+        # (`change_point_locator.py:1952-1955`'s own comment, predicted
+        # before either seat measured a real file). 12/20 land in
+        # `median_fidelity_below_floor`, 7/20 in `offsets_scattered`. This
+        # producer does NOT depend on Stage 1's monotone check having
+        # succeeded: it re-derives its own ratio from DURATION alone
+        # (`pal_speed_discriminator`, unaffected by per-window noise) and
+        # gates it by resampling the WHOLE track BEFORE probing -- by the
+        # time it measures, the within-window drift that defeats Stage 1 is
+        # already corrected away. So trying it on these two additional
+        # causes is not two seats patching one symptom: if Stage 1's monotone
+        # check is later repaired, `speed_relation_suspected` simply becomes
+        # a third entry alongside these two, additive, not conflicting --
+        # this producer's own gate stays the decider either way.
+        #
+        # THE ACCEPTANCE COST OF WIDENING (Lead's mandatory arm, same
+        # authorization): `median_fidelity_below_floor` and
+        # `offsets_scattered` are BROAD buckets -- every pair with low
+        # fidelity for ANY reason lands here, not only PAL. Verified on real,
+        # non-PAL error-tree pairs before shipping (see
+        # `VMSAM_HELP_AI/dev-step2-resample/`'s task file) that this producer
+        # declines correctly on files with no speed relation, at the SAME
+        # rate as its already-validated negative controls.
         speed_plan, speed_cause = confirm_speed_relation_via_resample(
             best_video, candidate_obj, language)
         if speed_plan is not None:
             return speed_plan, None
-        # NOT CONFIRMED. Falls through to the ORIGINAL locator_cause
-        # (`speed_relation_suspected`), unchanged -- `speed_cause` is a
-        # SEPARATE, MORE SPECIFIC finding (which stage of confirmation
-        # refused, or which side of the resample gate) and belongs in the
-        # log this function's own caller already writes from the plan's
-        # absence, not substituted for the Stage 1 token that is still true:
-        # Stage 1 still only SUSPECTED, and that suspicion is what is being
-        # passed through when confirmation fails.
+        # NOT CONFIRMED. Falls through to the ORIGINAL locator_cause,
+        # unchanged -- `speed_cause` is a SEPARATE, MORE SPECIFIC finding
+        # (which stage of confirmation refused, or which side of the resample
+        # gate) and belongs in the log this function's own caller already
+        # writes from the plan's absence, not substituted for the Stage 1
+        # token that is still true: Stage 1's own classification is what is
+        # being passed through when this producer's confirmation fails.
         if tools.dev:
             tools.logs.append(
-                f"repair: speed relation suspected but not confirmed for "
-                f"{language}: {speed_cause}\n")
+                f"repair: {locator_cause} but speed relation not confirmed "
+                f"by resample for {language}: {speed_cause}\n")
     # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
     #
     # This block used to say the producer half was unlanded and held by dev-1's user,
