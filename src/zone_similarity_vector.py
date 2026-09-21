@@ -25,6 +25,24 @@ Reuses, never re-derives:
   provenance trail). This module does not compute a plateau offset itself;
   it calls the real, unmodified functions on real probe samples the caller
   supplies, and reports the flanking runs' mean/n_members/tolerance triple.
+
+DECLARED LIMIT, not a defect to fix (Lead's ruling, 2026-09-21, on a real-
+media measurement -- `VMSAM_HELP_AI/dev-step3-vector/001-stage1-vector-
+escalation-ladder.MD`, errid267 section): THIS METHOD CANNOT SEE A TAIL GAP
+BY CONSTRUCTION. `compute_similarity_vector` truncates `V[]` to the SHORTER
+of the two fingerprint arrays -- the same convention `audioCorrelation`'s
+own `correlation()` already uses for a list-length mismatch, reused for
+consistency, not invented here. When a candidate's real content simply RUNS
+OUT (a tail-trim), the comparison never reaches the region where it is
+missing; the array quietly ends there instead of showing a concordance
+drop. Measured directly on real audio with independent frame-exact ground
+truth (a real tail-trim at a known boundary): the instrument found NOTHING
+at the true boundary and, on a widened window, a real but UNRELATED dip
+elsewhere -- confirming, not merely explaining, why head/tail brackets are
+computed from `candidate_end_ms` directly and never reach this module's
+per-transition call site (RULINGS_IN_FORCE row 31). Callers must not expand
+this module's scope to cover a tail case; that is a different measurement,
+already made, elsewhere.
 """
 
 import os
@@ -40,6 +58,59 @@ CHROMAPRINT_HOP_MS = 4096.0 / 3.0 / 11025.0 * 1000.0  # 123.840 ms
 RUPTURE_THRESHOLD = 0.50  # s3c's own number. Also the chance baseline for two
                           # unrelated 32-bit fingerprints -- see the degeneracy
                           # screen below, which exists because of this fact.
+                          # CONFIRMS a ramp already found by RUPTURE_ONSET_THRESHOLD
+                          # below; never used alone as the bracket edge since
+                          # 2026-09-21 (see find_rupture_onset_confirm).
+
+# --- dual-threshold onset/confirm, added 2026-09-21 (dev-step3-vector) ------
+# MEASURED, not assumed: the single-threshold RUPTURE_THRESHOLD crossing
+# (`find_rupture`, kept below for what it actually measures) landed 1.086s
+# and 3.100s PAST the true, independently-known cut on two real fixtures
+# (lab/diagnose_vi.py, diagnose_vi2.py; VMSAM_HELP_AI/dev-step3-vector/
+# 001-stage1-vector-escalation-ladder.MD carries the full numbers). Root
+# cause, read off the raw V[i]: chromaprint's own smoothing turns a real,
+# instantaneous edit into a ~1.5-3.8s roughly-monotonic RAMP, not a step;
+# past the ramp, post-cut content reads as CHANCE-BASELINE NOISE (real
+# consecutive values measured: 0.406, 0.531, 0.594, 0.500, 0.625 -- both
+# sides of 0.50, dozens of spurious crossings across a file). "First
+# crossing below 0.50" therefore fires on the first noise excursion under
+# chance, not on the ramp's onset -- dev-pal's original scoping note (S3c
+# build, same day) predicted exactly this before any of it was measured:
+# 0.50 sits at chance baseline, so a rupture verdict there needs a
+# degeneracy screen because the threshold sits exactly where noise lives.
+# The prediction and the measurement are the same finding, eight hours
+# apart.
+#
+# Architect's ruling 2026-09-21: SPEC_ZONE_A s3c's "~125 ms" bracket is the
+# per-window quantum -- the INSTRUMENT'S RESOLUTION -- never a promised
+# output width (CAMPAIGN.MD s2: "the economy stage, not a limit").
+# CONTAINMENT of the true cut is the contract; width is reported economy,
+# not silently discarded when the ramp is genuinely wider than one point.
+RUPTURE_ONSET_THRESHOLD = 0.90  # measured n=2 real fixtures: catches the
+                          # ramp's actual departure from the stable plateau
+                          # 0.3-0.55s BEFORE the true cut on both -- tighter
+                          # than the confirm-only crossing's 1.1-3.1s AFTER
+                          # it, and on the correct side (early, not late).
+RUPTURE_MAX_RAMP_SECONDS = 6.0  # widest onset->confirm gap measured, n=2:
+                          # 3.78s (cut_reencode_across.mka, the smoother,
+                          # re-encoded-across-the-join arm). This bound is
+                          # ~1.6x that, not a guess -- an onset with no
+                          # confirm inside it is an isolated dip, not a
+                          # rupture ramp, and DECLINES named
+                          # (`onset_without_confirm`) rather than emitting
+                          # an unbounded bracket. Revisit as n grows past 2.
+                          # Also keeps the emitted bracket well under
+                          # SCENE_SEARCH_WINDOW_SECONDS (10s, ARCH_FRAME_
+                          # ACCURATE.MD's own Stage-2 reach) -- checked
+                          # explicitly below, not only by this margin.
+SCENE_SEARCH_WINDOW_SECONDS = 10.0  # ARCH_FRAME_ACCURATE.MD Stage 2's own
+                          # named constant ("scene_search_window_sec = 10"),
+                          # cited not reinvented. A bracket this wide or
+                          # wider does not narrow anything Stage 2 could not
+                          # already reach on its own -- Architect's ruling
+                          # 2026-09-21: assert bracket width < this reach,
+                          # decline named rather than ship it.
+
 MIN_WINDOW_POINTS = 3
 MAX_WINDOW_POINTS = 5
 DEFAULT_WINDOW_POINTS = 3  # the tightest end of s3c's named 3-5 range --
@@ -116,6 +187,115 @@ def find_rupture(v, window_points=DEFAULT_WINDOW_POINTS, threshold=RUPTURE_THRES
     return None
 
 
+MAX_ONSET_CANDIDATES_PER_WINDOW = 10  # named ceiling, 2026-09-21 (the Lead's
+    # ruling): "onset_without_confirm" on the FIRST crossing is a negative
+    # result about ONE dip, not a negative result about the window -- the
+    # could-not-measure-read-as-measured-negative defect, an eighth instance
+    # this campaign has found, in this criterion. Measured on real audio
+    # (Shuumatsu no Walkure S01E01, Erai-Raws vs DBD-Raws BDRip, ja):
+    # a single early noise dip (one point at 0.84 inside an otherwise
+    # 0.91-1.0 field) consumed the ONLY candidate the old code tried, and a
+    # real, clean, 5964ms transition 60-100s further into the window was
+    # never reached. REJECT AND CONTINUE, bounded: an unbounded scan over a
+    # noisy V[] is a hang (real V[] past a ramp is noisy by measurement,
+    # see the module-level comment above RUPTURE_ONSET_THRESHOLD) -- 10 is
+    # chosen as comfortably above what one genuine transition plus ordinary
+    # noise should ever need (the real fixture above needed 2: one false,
+    # one true) and far below where a scan becomes its own cost concern.
+
+
+def find_rupture_onset_confirm(v, window_points=DEFAULT_WINDOW_POINTS,
+                                onset_threshold=RUPTURE_ONSET_THRESHOLD,
+                                confirm_threshold=RUPTURE_THRESHOLD,
+                                max_ramp_points=None,
+                                max_candidates=MAX_ONSET_CANDIDATES_PER_WINDOW):
+    """Two-threshold rupture location -- see the module-level comment above
+    RUPTURE_ONSET_THRESHOLD for the measurement that motivated this.
+    `find_rupture` (above) is kept UNCHANGED and still measures exactly what
+    its own docstring says (the single 0.50 crossing); this function does not
+    replace it, it is what `locate_zone_by_vector` now calls instead for the
+    EMITTED bracket, because the single crossing was measured missing the
+    true cut by 1.1-3.1s on real audio.
+
+    ONSET: a rolling-mean crossing below `onset_threshold` -- concordance
+    starting to depart the stable plateau. CONFIRM: the first rolling-mean
+    value at or after an onset that is below `confirm_threshold` -- the ramp
+    completing into genuine divergence (chance baseline for unrelated
+    fingerprints, SPEC_ZONE_A s3c's own number, unchanged). `max_ramp_points`
+    bounds how far past an onset a confirm may still count: past that bound,
+    that ONE onset is an isolated dip, not a rupture ramp -- REJECT IT AND
+    CONTINUE to the next onset crossing, up to `max_candidates` (the Lead's
+    ruling, 2026-09-21: a rejected candidate is a fact about that candidate,
+    never a fact about the window -- see `MAX_ONSET_CANDIDATES_PER_WINDOW`).
+
+    Returns `(onset_index, confirm_index, candidates_examined)`:
+      (None, None, 0)      -- ZERO onset crossings anywhere in the window.
+                             Caller reports `no_rupture_found` -- there was
+                             nothing to examine, distinct from examining
+                             something and rejecting it.
+      (None, None, N>0)    -- N onset candidates were examined, in order,
+                             and NONE confirmed within the bound -- either
+                             `max_candidates` was reached or the window ran
+                             out of rolling-mean positions to try. Caller
+                             reports `onset_without_confirm` carrying N, so a
+                             reader can tell "looked once" from "looked N
+                             times", never a bare decline with the count
+                             thrown away.
+      (onset_index, confirm_index, N) -- the Nth candidate examined is the
+                             one that confirmed (1-indexed count of how many
+                             were tried, including this one). The caller's
+                             bracket spans [onset_index, confirm_index + 1) --
+                             data-driven width: a truly sharp, unsmoothed cut
+                             has onset and confirm one or two points apart
+                             and the bracket stays near the spec's ~125ms
+                             resolution; a smoothed real edit widens it
+                             honestly instead of reporting a point that
+                             missed."""
+    if not (MIN_WINDOW_POINTS <= window_points <= MAX_WINDOW_POINTS):
+        raise ValueError(f"window_points must be in [{MIN_WINDOW_POINTS},"
+                         f"{MAX_WINDOW_POINTS}], got {window_points}")
+    n = len(v)
+    if n < window_points + 1:
+        return None, None, 0
+    rolling = [sum(v[i:i + window_points]) / window_points
+               for i in range(n - window_points + 1)]
+    candidates_examined = 0
+    search_from = 1
+    while candidates_examined < max_candidates:
+        onset_index = None
+        for i in range(search_from, len(rolling)):
+            if rolling[i - 1] >= onset_threshold and rolling[i] < onset_threshold:
+                onset_index = i
+                break
+        if onset_index is None:
+            # No FURTHER onset crossing exists past where the last
+            # candidate left off -- genuinely nothing left to examine,
+            # not a bound reached. Zero candidates so far means no onset
+            # ever fired; N>0 means N were tried and none confirmed.
+            return None, None, candidates_examined
+        candidates_examined += 1
+        ceiling = (len(rolling) if max_ramp_points is None
+                   else min(len(rolling), onset_index + max_ramp_points))
+        confirm_index = None
+        for i in range(onset_index, ceiling):
+            if rolling[i] < confirm_threshold:
+                confirm_index = i
+                break
+        if confirm_index is not None:
+            return onset_index, confirm_index, candidates_examined
+        # REJECTED, NOT ABSENT: this candidate did not confirm -- that is a
+        # fact about this dip, not about the window. Resume the search
+        # strictly past this onset's own index so the same crossing is
+        # never re-examined (each `while` iteration finds a DIFFERENT,
+        # LATER crossing).
+        search_from = onset_index + 1
+    # Bound reached with candidates still possibly remaining past
+    # `search_from` -- reported as examined-and-rejected, same shape as
+    # running out of window, because the caller-facing claim is identical:
+    # "this many were tried, none confirmed," never "there is no cut."
+    return None, None, candidates_examined
+
+
 def _flanking_runs(runs, cut_absolute_seconds, probe_window_seconds):
     """The plateau run before the cut, the run after it, and the run
     STRADDLING it, if any -- named explicitly rather than let a straddling
@@ -158,7 +338,7 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
                           start_seconds, window_seconds, work_dir, sample_rate,
                           samples_for_plateaus, window_points=DEFAULT_WINDOW_POINTS,
                           threshold=RUPTURE_THRESHOLD, fps_num=None, fps_den=None,
-                          tag="zsv"):
+                          tag="zsv", candidate_offset_ms=0.0):
     """Full Stage 1 for one probed window. `samples_for_plateaus`: the SAME
     `[(probe_start_seconds, offset_ms), ...]` shape `change_point_locator.
     _group_plateaus()` already consumes -- supplied by the caller, never
@@ -168,9 +348,46 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
     here) so the emission states its grid rather than assuming one --
     ADDENDUM's own "rational grid" requirement.
 
-    Returns a dict, always, `verdict` one of (FIVE, not four -- a rupture
-    verdict must never carry a silent `None` offset, the could-not-measure-
-    read-as-measured defect inverted; this build's own finding, fixed here):
+    `candidate_offset_ms` (BASELINE_OFFSET_BLINDNESS fix, 2026-09-21, the
+    Lead's own wiring, corrected by the Lead): the flanking plateau's own
+    established offset (e.g. `before["mean"]`), applied to the CANDIDATE
+    extraction only -- master stays on its own raw timeline, the reference
+    every returned position is measured against, unchanged. `master` is
+    always extracted at `start_seconds`; `candidate` is extracted at
+    `start_seconds + candidate_offset_ms / 1000.0` (sign convention,
+    unchanged elsewhere in this module: `candidate_time = master_time +
+    offset`). Defaults to 0.0 -- existing callers that never pass it get the
+    OLD (measured-broken-on-real-baselines) behaviour unchanged, so nothing
+    silently starts assuming alignment that was not asked for.
+
+    WHY THIS EXISTS, measured not argued (`VMSAM_HELP_AI/dev-step3-vector/
+    001-stage1-vector-escalation-ladder.MD`, "URGENT" section): comparing
+    fingerprints point-by-point (`V[i] = popcount(A[i] XOR B[i])`, no lag
+    search -- that IS this method, by SPEC_ZONE_A s3c's own text) is correct
+    ONLY when the baseline offset between the two sides is already ~0
+    entering the call. On a real same-language pair with a real, ordinary
+    1002ms sync offset and ZERO content divergence, the unshifted call
+    read `mean_V=0.574` (chance baseline); shifting the candidate side by
+    the known +1.002s read `mean_V=0.993`. The one synthetic fixture this
+    method was validated against before this fix (`corpus-C-structural-cut/
+    synth-cut/cut_concat_at_join.mka`) has baseline offset 0 BY
+    CONSTRUCTION -- spliced within one continuous recording, never encoded
+    as a separate release -- so the defect could not appear on it. This is
+    why REAL_MEDIA_ACCEPTANCE exists as a rule and not merely a preference.
+
+    The offsets needed were ALREADY present at every call site before this
+    fix -- `samples_for_plateaus` carries exactly the `[(probe_start_seconds,
+    offset_ms), ...]` history this function's own flanking-run lookup reads
+    for provenance AFTER a rupture is found. The information required to
+    align the comparison sat unused in the same call that performed the
+    misaligned one.
+
+    Returns a dict, always, `verdict` one of (SEVEN, not five -- two added
+    2026-09-21 for the dual-threshold onset/confirm bracket, see
+    `find_rupture_onset_confirm`'s own docstring and the module-level
+    comment above `RUPTURE_ONSET_THRESHOLD` for the real-media measurement
+    that forced this; a rupture verdict must never carry a silent `None`
+    offset, the could-not-measure-read-as-measured defect inverted):
       "unreliable_degenerate_input"       -- the degeneracy screen fired
                                              first; nothing past
                                              `degeneracy` is trusted.
@@ -179,8 +396,32 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
                                              comparison. NOT "no rupture
                                              found" -- that claim requires
                                              having actually evaluated.
-      "no_rupture_found"                  -- evaluated; no threshold
-                                             crossing. `i_cut` is None.
+      "no_rupture_found"                  -- evaluated; no onset crossing.
+                                             `i_cut`/`onset_index` are None.
+      "onset_without_confirm"             -- an onset crossing fired but no
+                                             confirm crossing followed within
+                                             `RUPTURE_MAX_RAMP_SECONDS` -- an
+                                             isolated dip, not a rupture
+                                             ramp. `onset_index` is set,
+                                             `confirm_index` and the bracket
+                                             are None: NEVER a fabricated
+                                             bracket from an unconfirmed dip.
+      "bracket_exceeds_stage2_reach"      -- onset and confirm both fired,
+                                             but the resulting bracket is
+                                             `>= SCENE_SEARCH_WINDOW_SECONDS`
+                                             wide -- Architect's ruling
+                                             2026-09-21: a bracket that wide
+                                             narrows nothing Stage 2's own
+                                             +/-10s reach could not already
+                                             find; decline named rather than
+                                             ship a bracket that outgrew its
+                                             own purpose. `bracket_low_ms`/
+                                             `bracket_high_ms`/`bracket_
+                                             width_ms` ARE populated here
+                                             (so the width that triggered
+                                             the decline is inspectable);
+                                             `offset_before`/`offset_after`
+                                             are not computed.
       "rupture_found_offsets_unavailable" -- `i_cut`/bracket ARE populated,
                                              but the plateau instrument
                                              cannot supply a clean flanking
@@ -212,8 +453,12 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
     try:
         cpl._extract(master_path, master_stream, start_seconds, window_seconds,
                     master_wav, sample_rate)
-        cpl._extract(candidate_path, candidate_stream, start_seconds, window_seconds,
-                    candidate_wav, sample_rate)
+        # BASELINE_OFFSET_BLINDNESS fix -- see this function's own docstring.
+        # Master stays on its own raw timeline; candidate reads from where
+        # the flanking plateau's own offset says its content actually is.
+        candidate_start_seconds = start_seconds + candidate_offset_ms / 1000.0
+        cpl._extract(candidate_path, candidate_stream, candidate_start_seconds,
+                    window_seconds, candidate_wav, sample_rate)
         fp_master = audioCorrelation.calculate_fingerprints(master_wav, length=window_seconds)
         fp_candidate = audioCorrelation.calculate_fingerprints(candidate_wav, length=window_seconds)
     finally:
@@ -238,10 +483,26 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
         "min_detectable_zone_ms": (window_points * size_point_ms
                                     if size_point_ms else None),  # declared, never silent (Q5)
         "grid_num": fps_num, "grid_den": fps_den,           # carried through verbatim, never invented
+        "candidate_offset_ms": candidate_offset_ms,         # what alignment this call
+                                             # actually used -- never a bare V[] with
+                                             # no record of which timeline it was read on
         "degeneracy": degeneracy,
-        "i_cut": None,
+        "i_cut": None,                      # alias for onset_index -- kept for
+                                             # callers already reading it; "the
+                                             # index where local concordance
+                                             # DROPS" (owner's own words) is the
+                                             # onset, not the noise-floor confirm.
+        "onset_index": None, "confirm_index": None,   # BOTH emitted, always,
+                                             # per the Lead's ruling 2026-09-21:
+                                             # never hide the pair behind a
+                                             # single derived field.
         "start_point": None, "end_point": None,
         "bracket_low_ms": None, "bracket_high_ms": None,
+        "bracket_width_ms": None,           # emitted always once a bracket
+                                             # exists, checked against
+                                             # SCENE_SEARCH_WINDOW_SECONDS
+                                             # below -- economy REPORTED,
+                                             # never silently promised.
         "offset_before": None, "offset_after": None,
         "straddling_run_mean_ms": None,   # present in EVERY result (hard constraint 5:
                                            # one return value, no field that only
@@ -268,17 +529,53 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
         result["verdict"] = "window_below_detection_floor"
         return result
 
-    i_cut = find_rupture(v, window_points=window_points, threshold=threshold)
-    result["i_cut"] = i_cut
-    if i_cut is None:
+    max_ramp_points = (int(round(RUPTURE_MAX_RAMP_SECONDS * 1000.0 / size_point_ms))
+                       if size_point_ms else None)
+    onset_index, confirm_index, candidates_examined = find_rupture_onset_confirm(
+        v, window_points=window_points, onset_threshold=RUPTURE_ONSET_THRESHOLD,
+        confirm_threshold=threshold, max_ramp_points=max_ramp_points)
+    result["i_cut"] = onset_index
+    result["onset_index"] = onset_index
+    result["onset_candidates_examined"] = candidates_examined   # ALWAYS
+                                             # present -- the Lead's ruling,
+                                             # 2026-09-21: "scanned N, none
+                                             # confirmed" must be
+                                             # distinguishable from "found no
+                                             # onset at all" (N==0), and the
+                                             # count travels with the result
+                                             # rather than being implied.
+    if onset_index is None and candidates_examined == 0:
         result["verdict"] = "no_rupture_found"
         return result
+    result["confirm_index"] = confirm_index
+    if confirm_index is None:
+        # candidates_examined >= 1 here (reject-and-continue exhausted every
+        # candidate up to MAX_ONSET_CANDIDATES_PER_WINDOW or the window's own
+        # end): each one was an isolated dip, not a rupture ramp -- a fact
+        # about those candidates, never a fact claiming the window has no
+        # cut. NEVER fabricate a bracket from this: the single-threshold
+        # predecessor's own defect (a lone noise excursion read as the cut)
+        # is exactly what pairing onset with a bounded confirm exists to
+        # refuse, and stopping on the FIRST rejected candidate was the SAME
+        # defect one level up (the Lead's finding, 2026-09-21, real media:
+        # one early noise dip consumed the only try and a real 5964ms
+        # transition further into the window was never reached).
+        result["verdict"] = "onset_without_confirm"
+        return result
 
-    start_point, end_point = i_cut, i_cut + 1
+    start_point, end_point = onset_index, confirm_index + 1
     result["start_point"] = start_point
     result["end_point"] = end_point
     result["bracket_low_ms"] = start_point * size_point_ms
     result["bracket_high_ms"] = end_point * size_point_ms
+    bracket_width_ms = result["bracket_high_ms"] - result["bracket_low_ms"]
+    result["bracket_width_ms"] = bracket_width_ms
+    if bracket_width_ms >= SCENE_SEARCH_WINDOW_SECONDS * 1000.0:
+        # Architect's ruling 2026-09-21: a bracket this wide narrows nothing
+        # Stage 2's own +/-10s reach could not already find on its own --
+        # decline named, width still inspectable on the returned dict.
+        result["verdict"] = "bracket_exceeds_stage2_reach"
+        return result
 
     # --- the two offsets: REUSED from the real plateau machinery, never re-derived ---
     runs = cpl._merge_narrow_runs(cpl._group_plateaus(samples_for_plateaus))

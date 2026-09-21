@@ -2342,6 +2342,25 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
         # always falls through to `_bracket_transition` below, the same safe
         # behaviour as before this session started.
         _USABLE_ZSV_VERDICTS = ()
+        # CONTAINMENT GUARD (Lead's ruling, 2026-09-21, on a real-media
+        # measurement): widening buys the EXTRACTION more signal so the
+        # sliding window can see a drop that straddles an edge -- it must
+        # never buy the ANSWER a wider space to be found in. The plateau
+        # machinery already established the transition sits in
+        # [_region_start, _region_end] (the UNWIDENED, ORIGINAL gap between
+        # the two confirmed runs); that is not a hypothesis this loop's own
+        # widened extraction gets to revise. Measured directly, real audio,
+        # a tail-case fixture with no real interior transition at all
+        # (VMSAM_HELP_AI/dev-step3-vector/001-...MD, errid267 section): a
+        # widened [1340,1450]s extraction found a real, well-formed-looking
+        # rupture at [1346.78,1348.37]s -- 97s from where the (nonexistent,
+        # in that fixture) transition would have been asked about -- and
+        # NOTHING in the returned verdict distinguished it from a genuine
+        # find. This guard is that distinction, made explicit: a rupture
+        # whose ONSET falls outside the ORIGINAL acceptance window is not
+        # the transition this call was asked to locate, whatever else it
+        # is, and it is refused by name rather than shipped.
+        _ACCEPTANCE_LOW, _ACCEPTANCE_HIGH = _region_start, _region_end
         _rungs_tried = []
         for _widen_s in (0.0, PROBE_WINDOW_SECONDS):
             _start = max(before["first"], _region_start - _widen_s)
@@ -2356,17 +2375,63 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                         master_path, reference_stream, candidate_path, primary_stream,
                         _start, _seconds, work_dir, comparison_grid_hz, _members,
                         window_points=_wp, fps_num=None, fps_den=None,
-                        tag=f"zsv_{position}_w{int(_widen_s)}_p{_wp}")
+                        tag=f"zsv_{position}_w{int(_widen_s)}_p{_wp}",
+                        # BASELINE_OFFSET_BLINDNESS fix (Lead's ruling,
+                        # 2026-09-21): the comparison this function does is
+                        # point-by-point, no lag search -- correct only when
+                        # the two sides are already aligned entering the
+                        # call. `before["mean"]` is the PRE-CUT plateau's
+                        # own established offset, already measured by the
+                        # coarse scan; anchoring the candidate extraction to
+                        # it makes the pre-cut portion of the window align
+                        # cleanly and lets a real divergence (or the
+                        # after-plateau's own different offset) show up as
+                        # a genuine drop instead of chance-level noise
+                        # throughout. Measured, real media: unshifted
+                        # mean_V=0.574 (chance) on a pair with zero content
+                        # divergence and a 1002ms baseline; shifted by that
+                        # same baseline, mean_V=0.993.
+                        candidate_offset_ms=before["mean"])
                     _zsv_verdict = _zsv["verdict"]
                 except Exception as error:                # noqa: BLE001 -- see above
                     _zsv_verdict = f"errored:{type(error).__name__}"
                     _zsv = None
-                _rungs_tried.append(f"widen={_widen_s:.0f}s,points={_wp}:{_zsv_verdict}")
+                # POSITION, NOT ONLY THE TOKEN (the Lead's finding, 2026-09-21):
+                # i_cut and the bracket already sit on `_zsv`'s own returned
+                # dict and were being thrown away at the point of logging --
+                # no production log line let anyone audit WHERE the vector
+                # thought a rupture was, only whether it declined. Every rung
+                # line below carries onset_index/candidates_examined and, once
+                # a bracket exists, its absolute position -- cheap, already
+                # computed, previously discarded.
+                _onset_abs_str = ""
+                if _zsv is not None and _zsv.get("onset_index") is not None \
+                        and _zsv.get("size_point_ms"):
+                    _onset_abs_str = (f",onset_abs={_start + _zsv['onset_index'] * _zsv['size_point_ms'] / 1000.0:.2f}s"
+                                      f",candidates={_zsv.get('onset_candidates_examined')}")
+                elif _zsv is not None:
+                    _onset_abs_str = f",candidates={_zsv.get('onset_candidates_examined')}"
                 if _zsv is not None and _zsv_verdict in _USABLE_ZSV_VERDICTS:
-                    low = _start + _zsv["bracket_low_ms"] / 1000.0
-                    high = _start + _zsv["bracket_high_ms"] / 1000.0
+                    _onset_abs = (_start + _zsv["onset_index"]
+                                  * (_zsv["size_point_ms"] or 0.0) / 1000.0)
+                    if not (_ACCEPTANCE_LOW <= _onset_abs <= _ACCEPTANCE_HIGH):
+                        _rungs_tried.append(
+                            f"widen={_widen_s:.0f}s,points={_wp}:{_zsv_verdict}"
+                            f"{_onset_abs_str}"
+                            f"(REFUSED, onset {_onset_abs:.1f}s outside "
+                            f"acceptance [{_ACCEPTANCE_LOW:.1f},{_ACCEPTANCE_HIGH:.1f}]"
+                            f"->rupture_outside_acceptance_window)")
+                        continue
+                    _bracket_abs_low = _start + _zsv["bracket_low_ms"] / 1000.0
+                    _bracket_abs_high = _start + _zsv["bracket_high_ms"] / 1000.0
+                    _rungs_tried.append(
+                        f"widen={_widen_s:.0f}s,points={_wp}:{_zsv_verdict}{_onset_abs_str}"
+                        f",bracket_abs=[{_bracket_abs_low:.2f},{_bracket_abs_high:.2f}]s")
+                    low = _bracket_abs_low
+                    high = _bracket_abs_high
                     narrowed, discarded, probes = True, 0, 0
                     break
+                _rungs_tried.append(f"widen={_widen_s:.0f}s,points={_wp}:{_zsv_verdict}{_onset_abs_str}")
             if low is not None:
                 break
         _log(f"stage1 vector transition {position}: rungs=[{'; '.join(_rungs_tried)}] "
