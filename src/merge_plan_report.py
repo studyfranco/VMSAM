@@ -2578,33 +2578,22 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                  "not share a measured geometry: THEY SHARE ONE MEASUREMENT. "
                  "Borrowing is structural because nothing else was ever "
                  "measured, not because two geometries were compared and found "
-                 "equal. Found by forensic in the source, verified here at "
-                 "merge_video_chimeric.py:1611-1613 and 2211",
+                 "equal",
             why_no_artefact_can_settle_it="there is no job in which two tracks "
-                 "are INDEPENDENTLY measured, so the corpus case this reader "
-                 "spent the campaign asking for cannot exist under this code. "
-                 "That is the finding, not a gap in the corpus -- and it is why "
+                 "are INDEPENDENTLY measured, so the corpus case this cell "
+                 "would need cannot exist under this code. That is the "
+                 "finding, not a gap in the corpus -- and it is why "
                  "`0 logs carry more than one repair: plan line` is not a "
                  "logging defect either: ONE PLAN BECAUSE ONE MEASUREMENT",
-            head="what was confirmed at the head is narrower than this row "
-                 "claimed an hour ago: two tracks declared filled FROM THE SAME "
-                 "master stream cross-correlate at r = 0.996..0.999 over seven "
-                 "windows and the identical region stops at the declared "
-                 "boundary (forensic, F-58). THAT CONFIRMS THE DECLARED FILL IS "
-                 "PRESENT IN THE PRODUCED SAMPLES -- the first check of this "
-                 "plan against anything but log text, and worth having. It is "
-                 "NOT evidence that two geometries agree: identical bytes "
-                 "copied to two tracks correlate at 1 whatever the geometry",
+            head="a correlation check between two tracks declared filled FROM "
+                 "THE SAME master stream can confirm the declared fill is "
+                 "PRESENT in the produced samples. It is NOT evidence that two "
+                 "geometries agree: identical bytes copied to two tracks "
+                 "correlate at 1 whatever the geometry",
             interior=Cell(None, NOT_MEASURED,
-                          "MEASURED AND NON-DISCRIMINATING, and now also "
-                          "ANSWERED FROM THE SOURCE ABOVE -- the divergence is "
+                          "MEASURED AND NON-DISCRIMINATING -- the divergence is "
                           "not unknown, it is 14 to 32 ms and it is hidden "
                           "under the verifier's tolerance BY DESIGN. "
-                          "The same instrument on the "
-                          "same file returns r = 0.23..0.83 across the interior "
-                          "bracket -- inside the band that file produces between "
-                          "tracks that are NOT one source, because dubs share a "
-                          "music-and-effects bed. OF WHICH COULD HAVE FAILED: 0. "
                           "Measured and non-discriminating is a third outcome, "
                           "not a negative, and this row is printed at m = 0 "
                           "rather than dropped: a dropped m = 0 is how a reader "
@@ -2785,16 +2774,12 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                     "shortfall ATTRIBUTED. This log names the "
                                     "master and carries none of its durations, "
                                     "so nothing here can say whether the repair "
-                                    "lost this or inherited it. Every produced "
-                                    "defect measured in this campaign so far -- "
-                                    "5 of 5 -- was INHERITED, and there is no "
-                                    "confirmed instance of the pipeline "
-                                    "introducing one. Fidelity to a source is "
-                                    "not correctness of an output. THE NARROW "
-                                    "FIX, named by forensic: the `repair: "
-                                    "master` line names the master and emits "
-                                    "none of its per-track durations. Three "
-                                    "numbers on that line and this cell becomes "
+                                    "lost this or inherited it. Fidelity to a "
+                                    "source is not correctness of an output. "
+                                    "THE NARROW FIX: the `repair: master` line "
+                                    "names the master and emits none of its "
+                                    "per-track durations. Three numbers on "
+                                    "that line and this cell becomes "
                                     "measurable at render time",
                              # LE SEUL NOMBRE DE CE RAPPORT QUE JE N'AI PAS
                              # MESURE, donc le seul qui doit porter sa source et
@@ -2982,7 +2967,15 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
         rows.append(_row("SUBTITLE", track=fields.get("stream_order"),
                          lang=fields.get("lang"), format=fields.get("format"),
                          kept_cues=fields.get("kept_cues"),
-                         dropped_cues=fields.get("dropped_cues")))
+                         dropped_cues=fields.get("dropped_cues"),
+                         shifts_ms=fields.get("shifts_ms"),
+                         # ET LE RESTE PASSE, PAR NOM -- meme discipline que
+                         # la ligne REGION: un champ non nomme ici sort quand
+                         # meme, pour qu'un champ ajoute en amont a la ligne
+                         # `repair: subtitle track` atteigne le rendu sans
+                         # exiger un second correctif a cet endroit.
+                         **{name: value for name, value in fields.items()
+                            if name not in _SUBTITLE_FIELDS_RENDERED}))
 
     # UNE MARQUE ABSENTE DOIT S'ANNONCER, exactement comme une cellule vide.
     # C'est le meme defaut d'un cran au-dessus: la ou une cellule vide risquait
@@ -3033,11 +3026,13 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                 "succeed while OTHERS fail on one file",
                          applies=("YES on this artefact"
                                   if (job.get("audios") or {}) else "unknown"),
-                         bound="0 per-track SKIPPED on 3 of 3 speed-mismatch "
-                               "cases (dev-2, measured: 26 no_plan, 27 declined, "
-                               "29 no_plan). The population most likely to "
-                               "produce mixed success produced none -- a "
-                               "measured negative, on 3 cases of one release"))
+                         bound="not measurable from this artefact alone -- the "
+                               "population most likely to produce mixed "
+                               "success is a file where speed-mismatch causes "
+                               "some tracks to succeed while others on the "
+                               "same file do not; whether any real case has "
+                               "ever produced a per-track SKIPPED is a census "
+                               "question, not a per-job one"))
         rows.append(_row("SILENCE", _redactor=redactor, mark="amber refused box",
                          reason="no tracks were attempted: the repair died "
                                 "before any track was built",
@@ -3361,6 +3356,17 @@ _TRACK_FIELDS_RENDERED = frozenset((
     # portes par d'autres lignes, pas perdus:
     "residual", "quantum", "head_pad"))
 
+# LA MEME REGLE QUE `_REGION_FIELDS_RENDERED`, APPLIQUEE A LA LIGNE SUBTITLE.
+# La ligne SUBTITLE nommait quatre champs fixes et laissait tomber
+# `shifts_ms` en silence -- present dans `fields` (emis par `log_assembly`,
+# `merge_video_repair.py`), jamais rendu. Meme defaut que celui documente
+# au-dessus de `_REGION_FIELDS_RENDERED`: un champ ajoute au journal pour ce
+# rapport et qui n'atteint jamais le rendu. `stream_order` est nomme via
+# `track=` plutot que perdu.
+_SUBTITLE_FIELDS_RENDERED = frozenset((
+    "stream_order", "lang", "format", "kept_cues", "dropped_cues", "shifts_ms",
+))
+
 
 def blank_cells(job, corpus=None):
     """LE REGISTRE DES CELLULES VIDES. C'est la sortie la plus utile du module.
@@ -3410,6 +3416,35 @@ def blank_cells(job, corpus=None):
                    if used else
                    "no line type covers the regions the output takes from the "
                    "candidate, which are the majority of every file")})
+    # SUBTITLES DO NOT GET THE REGION TREATMENT AUDIO GETS, AND THE REASON IS
+    # A PROPERTY OF THE EMITTER, NOT A GAP IN THIS RENDER.
+    #
+    # `log_assembly` writes ADDED/USED/CUT lines keyed to MASTER-TIMELINE
+    # POSITIONS for audio (`merge_video_repair.py`, the loops over
+    # `used_regions`/`filled_regions`/`regions_cut`) because audio repair
+    # fills or cuts a SPAN of the timeline. Subtitle repair is a different
+    # operation -- it shifts or drops CUES, not timeline spans -- and its
+    # only emitted line is the one per-track summary this report already
+    # reads: `repair: subtitle track N lang=... format=... kept_cues=...
+    # shifts_ms=... dropped_cues=...`. There is no `ADDED subtitle track`
+    # or `USED subtitle track` line anywhere in `merge_video_repair.py` to
+    # parse -- grepped, zero occurrences -- so a per-cue-range provenance
+    # table for subtitles cannot be built from what this log emits, not
+    # without inventing rows this report has no data to back.
+    entries.append({
+        "quantity": "subtitle region provenance",
+        "state": NO_PRODUCER,
+        "address": "merge_video_repair.log_assembly (subtitle track line)",
+        "detail": "audio gets a REGION row per master-timeline span because "
+                  "`log_assembly` emits ADDED/USED/CUT lines keyed to master "
+                  "positions; subtitle repair shifts or drops CUES, not "
+                  "timeline spans, and emits only the one per-track summary "
+                  "line (lang, format, kept_cues, dropped_cues, shifts_ms) "
+                  "the SUBTITLE row already carries in full. Which SOURCE "
+                  "delivered which cue, or which cue-range came from where, "
+                  "is not stated by anything this module emits -- that is a "
+                  "gap in the emitter, not something this render can infer "
+                  "or fabricate a row for"})
     # LA CELLULE QUE MA NARRATION RENVOYAIT ET QUI N'EXISTAIT PAS.
     #
     # Le paragraphe "cette figure ne peut pas dire POURQUOI" dit depuis le
@@ -3567,26 +3602,21 @@ def blank_cells(job, corpus=None):
                    "THERE -- NOT to the emitter in merge_video_repair, which is "
                    "correct and simply never fed. THE TOKEN IS A MARKER OF AN "
                    "OPEN DECISION AND IT HAS AN OBSERVABLE END -- not a "
-                   "permanent record, which is what this cell said an hour ago "
-                   "and what the ruling it quoted has since amended. WHILE the "
-                   "question of whether the locator should originate these keys "
-                   "is open, the token is the only artefact-visible evidence "
-                   "that it IS open: as a measurement of the plan it carries "
-                   "nothing, as a record it is the sole trace that four keys "
-                   "were designed, consumed and never originated, and cutting "
-                   "it leaves that fact only in observers like this row, never "
-                   "in the produced record. WHEN the question closes: if the "
-                   "keys are to be originated, the fields FILL and there is "
-                   "nothing to cut; if the design is dropped, the fields COME "
-                   "OUT and this cell changes BEFORE the bytes do, so no "
-                   "artefact ever renders a state this reader cannot account "
-                   "for. A PERMANENT FIELD EMITTING ONE CONSTANT FOREVER WOULD "
-                   "BE THE SAME DEFECT IN ANOTHER COSTUME, which is why the "
-                   "end condition is written here rather than assumed. THIS "
-                   "CELL HAS BEEN WRONG TWICE TODAY IN OPPOSITE DIRECTIONS -- "
-                   "first recommending a cut, then forbidding one -- and both "
-                   "corrections came from the field's producer rather than from "
-                   "this reader re-reading itself",
+                   "permanent record. WHILE the question of whether the "
+                   "locator should originate these keys is open, the token is "
+                   "the only artefact-visible evidence that it IS open: as a "
+                   "measurement of the plan it carries nothing, as a record it "
+                   "is the sole trace that four keys were designed, consumed "
+                   "and never originated, and cutting it leaves that fact only "
+                   "in observers like this row, never in the produced record. "
+                   "WHEN the question closes: if the keys are to be "
+                   "originated, the fields FILL and there is nothing to cut; "
+                   "if the design is dropped, the fields COME OUT and this "
+                   "cell changes BEFORE the bytes do, so no artefact ever "
+                   "renders a state this reader cannot account for. A "
+                   "PERMANENT FIELD EMITTING ONE CONSTANT FOREVER WOULD BE THE "
+                   "SAME DEFECT IN ANOTHER COSTUME, which is why the end "
+                   "condition is written here rather than assumed",
         "detail": (f"0 occurrences across {corpus['logs']} logs / "
                    f"{corpus['distinct_cases']} distinct cases (see the CORPUS "
                    f"row: NOT an independent sample). "
@@ -3637,119 +3667,53 @@ def blank_cells(job, corpus=None):
         "address": "video.generate_normalised_file -- neither the gain nor the "
                    "output sample rate is emitted on a job that SUCCEEDS",
         "detail": (
-            "A SECOND INSTANCE OF THE CELL BELOW, FOUND WHILE IT WAS BEING "
-            "WRITTEN. The pipeline applies `highpass=f=60,lowpass=f=16000,"
-            "volume=<gain>dB` whenever |gain| >= 0.5 dB (video.py:528-538), and "
-            "forensic measured that chain pinning samples to full scale as a "
-            "function of the OUTPUT RATE: at 32000 Hz a 0.50 dB gain pins "
-            "79.86% of samples, while at 44100 and 48000 the same chain pins "
-            "0.00% even at 20 dB. THE 0.5 dB EDGE IS A BRANCH CONDITION, NOT A "
-            "PHYSICAL THRESHOLD -- 0.499 takes the `anull` path and 0.500 takes "
-            "the filter. "
-            "MEASURED ON THE LOGS THIS READER CAN SEE: 7 carry the chain, and "
-            "ALL SEVEN gains are >= 0.5 in absolute value (-5.81 -3.96 -0.53 "
-            "1.43 1.61 4.74 4.87), so the filter branch is the only one "
-            "exercised here. The rates observed are 48000 (x4) and 44100 (x1); "
-            "32000 DOES NOT OCCUR in anything this reader holds, and at the "
-            "rates that do occur the measured pinning is 0.00%. "
-            "WHY THE CELL EXISTS ANYWAY -- KIND: TRACE, read and derived, "
-            "not run, and this claim has already been narrowed once. The rate "
-            "is NOT fixed in the code: `exportParam['SamplingRate']` "
-            "(video.py:268) is `audioParam['SamplingRate']`, derived at "
-            "mergeVideo.py:583 as the MINIMUM OVER THE SELECTED LANGUAGE'S "
-            "STREAMS ON BOTH SIDES, clamped only from above at 44100. "
-            "*** THAT DESCRIBES STAGE 2 AND IS NOT A PROPERTY OF THE DEFECT. "
-            "THIS CELL SAID `A 32 kHz SOURCE IS NECESSARY AND NOT SUFFICIENT: "
-            "THE ROUTE MUST ALSO SELECT THAT LANGUAGE`, ATTRIBUTING THE "
-            "INSUFFICIENCY TO THE PAIR MINIMUM AND THE CLAMP. WITHDRAWN -- "
-            "forensic retraction 22, and it is withdrawn as UNSCOPED rather "
-            "than as false. *** THERE ARE TWO ROUTES TO THE SAME DEGENERATE "
-            "FILTER. STAGE 2 uses the pair minimum and the one-sided clamp, "
-            "where the old wording holds. STAGE 1 SETS NO `-ar` AT ALL: "
-            "`prepare_get_delay_sub` builds its parameter dict WITHOUT a "
-            "`SamplingRate` key, `compare_video.__init__` takes a `.copy()` so "
-            "stage 2's assignment cannot propagate back, and video.py appends "
-            "`-ar` ONLY `if 'SamplingRate' in exportParam`. SO A STREAM "
-            "EXTRACTED AT STAGE 1 KEEPS ITS OWN RATE, and a natively-32000 one "
-            "meets `lowpass=f=16000` at exactly its own Nyquist with NO pair, "
-            "NO minimum and NO clamp involved. KIND: TRACE, traced by forensic "
-            "and RE-VERIFIED HERE SITE BY SITE against the authority's "
-            "mergeVideo.py blob 942269ba39dc37f820e1d79a96b8d2a63b6213fd and "
-            "video.py blob 7808e1858ef0e9e2005de871604cb0a9025fe2e5. "
-            "AND THE HALF THE BROAD FORM DOES NOT SAY, CHECKED HERE RATHER "
-            "THAN ASSUMED: `extract_audio_in_part` iterates "
-            "`self.audios[language]` and `-map`s each stream, so LANGUAGE "
-            "STILL GATES WHICH STREAMS REACH STAGE 1 AT ALL. The exposure "
-            "condition is therefore NEITHER the old narrow form NOR an "
-            "unqualified broad one: A STREAM IS EXPOSED IF IT IS IN THE "
-            "SELECTED LANGUAGE AND IS NATIVELY 32000 -- the other side's rate, "
-            "the pair minimum and the clamp are all irrelevant to it. "
-            "TWO NOTATION AND REACHABILITY TRAPS ON THAT CONDITION, BOTH "
-            "VERIFIED HERE AND BOTH OF A KIND THAT FAILS SILENTLY. (i) THE "
-            "LANGUAGE KEY IS TWO-LETTER. `self.audios` is keyed at ingest by "
-            "`Lang(data['Language']).pt1` with a macro fallback (video.py "
-            "blob 7808e1858ef0..., the `is_language` branch), so the key is "
-            "ISO-639-1 -- `fr`, `ja` -- and NEVER the three-letter tag. An "
-            "instrument that ffprobes a PRODUCED ARTEFACT reads `fre`/`jpn` and "
-            "will not match this key: the join returns zero rows and never "
-            "errors. Resolve exposure from the LOG's language or by stream "
-            "index; never join a raw container tag against this key without "
-            "normalising both sides. (ii) THE `compatible` GUARD IS INERT AND "
-            "IS NOT PART OF THE CONDITION. Both stage-1 extraction loops are "
-            "wrapped in `if audio[\"compatible\"]:`, which reads as a filter and "
-            "is not one: across every tracked `.py` at the authority there is "
-            "EXACTLY ONE write to that key, `data[\"compatible\"] = True`, and "
-            "NOTHING ANYWHERE SETS IT FALSE (positive control on the same "
-            "pattern shape fires). `remove_not_compatible_audio` does not touch "
-            "it -- it works on video paths and a different structure, and its "
-            "NAME INVITES THE OPPOSITE CONCLUSION. Found by forensic, which "
-            "nearly filed it as a further narrowing before checking what writes "
-            "it; recorded here so the next reader tracing this path does not "
-            "re-derive it as a filter. "
-            "WHAT THAT CHANGES FOR THE TWO KNOWN SUB-44100 FILES -- and the "
-            "tags below are quoted as the LOG carries them, three-letter, "
-            "while the code matches on two: the one "
-            "whose 32000 stream is tagged `fre` (key `fr`) while the route "
-            "took `ja` is "
-            "STILL NOT EXPOSED, because `fre` is never extracted -- the old "
-            "cell's CONCLUSION about it survives while the MECHANISM it gave "
-            "does not. The one whose streams are all `jpn` including the 32000 "
-            "IS EXPOSED UNDER A STRICTLY WEAKER CONDITION THAN THIS CELL USED "
-            "TO STATE: it no longer needs the pair minimum to land on 32000, "
-            "only its own rate. "
-            "AND `grid_hz` IS NOT A SUBSTITUTE, FOR A REASON WORSE THAN ITS "
-            "BEING A DIFFERENT QUANTITY: the locator PINNED 44100 until "
-            "2026-09-05, so on any log written before that day the comparison "
-            "grid and the output rate DIVERGE -- and they diverge precisely "
-            "below 44100, which is the only region where any of this matters. "
-            "On the current build they read the same variable and agree. FOUR "
-            "OF THE SEVEN LOGS HERE AGREE FOR THAT REASON AND NOT BY LUCK: "
-            "they are all post-change and all 44100, the one region where the "
-            "two agreed even beforehand. A reader applying the agreement to an "
-            "older log gets it wrong exactly where the rule exists. "
-            "AND THE CHAIN IS NOW CLOSED END TO END THROUGH SHIPPED CODE, "
-            "WITH THE DECISIVE STEP IN A PLACE THIS READER HAD NOT LOOKED. "
-            "`codec_param` is built ONCE and fed to BOTH commands: "
-            "`baseCommand.extend(codec_param)` (video.py, the EXTRACT) and "
-            "`codec_param.copy()` into the normaliser. SO THE TEMPORARY FILE IS "
-            "ALREADY AT THE GRID RATE BEFORE THE FILTER EVER RUNS -- the filter "
-            "never resamples, it inherits. And at 32000 Hz `lowpass=f=16000` "
-            "sits EXACTLY on Nyquist. Found by ci-pair; verified here against "
-            "the authority's `src/video.py` "
-            "blob 7808e1858ef0e9e2005de871604cb0a9025fe2e5. "
-            "KIND: RUN, AND NOT MINE -- ci-pair reproduced it on REAL CORPUS "
-            "AUDIO (id 108 MASTER, +11.58 dB: 86.80% of samples pinned at "
-            "32000, 0.00% at 44100). Every earlier figure in this cell, "
-            "including the 79.86%, came from synthetic noise. THIS READER "
-            "MEASURED NONE OF IT: attributed, kind stated, unverified by me. "
-            "AND THIS READER WOULD NOT SEE IT: the chain is visible "
-            "only because it appears inside an ECHOED FFMPEG COMMAND ON A "
-            "FAILED JOB. A job that succeeds emits neither the gain nor the "
-            "rate, so on exactly the files that ship, this report can say "
-            "nothing at all. `grid_hz=44100` on the locator line is NOT this "
-            "rate -- it is the comparison grid, a different quantity, and "
-            "reading one as the other is the wrong-slot error this register "
-            "exists to make visible"),
+            "The pipeline applies `highpass=f=60,lowpass=f=16000,"
+            "volume=<gain>dB` whenever |gain| >= 0.5 dB (video.py:528-538); "
+            "0.499 takes the `anull` path and 0.500 takes the filter -- A "
+            "BRANCH CONDITION, NOT A PHYSICAL THRESHOLD. At 32000 Hz, "
+            "`lowpass=f=16000` sits EXACTLY ON NYQUIST, which is the "
+            "degenerate case this cell exists to flag: the filter has no "
+            "headroom left to work with at that rate. "
+            "THE OUTPUT RATE IS NOT ONE NUMBER; IT DEPENDS ON WHICH STAGE "
+            "EXTRACTED THE STREAM. STAGE 2 (final normalisation) sets the "
+            "rate to the MINIMUM OVER THE SELECTED LANGUAGE'S STREAMS ON "
+            "BOTH SIDES, clamped only from above at 44100 "
+            "(mergeVideo.py:583, video.py:268). STAGE 1 (comparison/delay "
+            "extraction) SETS NO `-ar` AT ALL: `prepare_get_delay_sub` builds "
+            "its parameter dict WITHOUT a `SamplingRate` key, "
+            "`compare_video.__init__` takes a `.copy()` so stage 2's "
+            "assignment cannot propagate back, and video.py appends `-ar` "
+            "ONLY `if 'SamplingRate' in exportParam`. SO A STREAM EXTRACTED "
+            "AT STAGE 1 KEEPS ITS OWN NATIVE RATE, and a natively-32000 one "
+            "meets the filter at its own Nyquist with no pair, no minimum "
+            "and no clamp involved. `extract_audio_in_part` iterates "
+            "`self.audios[language]`, so LANGUAGE STILL GATES WHICH STREAMS "
+            "REACH STAGE 1 AT ALL: the exposure condition is A STREAM IN THE "
+            "SELECTED LANGUAGE THAT IS NATIVELY 32000 -- the other side's "
+            "rate, the pair minimum and the clamp are irrelevant to it. "
+            "TWO SILENT-FAILURE TRAPS ON THAT CONDITION, BOTH VERIFIABLE AT "
+            "THE CURRENT TREE. (i) THE LANGUAGE KEY IS TWO-LETTER: "
+            "`self.audios` is keyed by `Lang(data['Language']).pt1` (ISO-639-1 "
+            "-- `fr`, `ja`), never the three-letter tag an artefact's own "
+            "ffprobe output carries (`fre`/`jpn`); joining a raw container "
+            "tag against this key returns zero rows and never errors. "
+            "Resolve exposure from the LOG's language or by stream index, "
+            "never by joining an unnormalised container tag against it. "
+            "(ii) THE `compatible` GUARD ON BOTH STAGE-1 EXTRACTION LOOPS "
+            "(`if audio[\"compatible\"]:`) IS INERT: there is exactly one "
+            "write to that key anywhere, `data[\"compatible\"] = True`, and "
+            "nothing ever sets it False -- it reads as a filter and is not "
+            "one. `codec_param` is built ONCE and fed to both the EXTRACT "
+            "command and the normaliser (`.copy()`), so the temporary file "
+            "is ALREADY AT THE TARGET RATE before the filter ever runs -- the "
+            "filter never resamples, it inherits. "
+            "VISIBILITY LIMIT: this pair is only emitted inside an ECHOED "
+            "FFMPEG COMMAND on a FAILED job; a job that SUCCEEDS emits "
+            "neither the gain nor the rate, so on exactly the files that "
+            "ship, this report can say nothing at all. `grid_hz=44100` on "
+            "the locator line is NOT this rate -- it is the comparison grid, "
+            "a different quantity, and reading one as the other is the "
+            "wrong-slot error this register exists to make visible"),
     })
     entries.append({
         "quantity": "file_properties_nobody_named",
@@ -3784,20 +3748,17 @@ def blank_cells(job, corpus=None):
         "quantity": "produced_track_duration_or_frame_count",
         "state": NO_PRODUCER,
         "address": "merge_video_repair.log_assembly (output file line)",
-        "detail": "RETRACTED AND REPLACED, and the retraction is the better "
-                  "evidence for this cell. It was reported that a rebuilt AAC "
-                  "track carries ONE FRAME MORE than its passthrough siblings "
-                  "-- 66658 packets against 66657 -- and read as the pipeline "
-                  "making a track longer. IT DOES NOT. The extra packet is the "
-                  "AAC encoder's PRIMING frame at the head, the container "
-                  "declares it as initial_padding=1024, and start_time is "
-                  "0.000000 on every track, so a correct decoder discards it. "
-                  "THE TRACK IS NOT LONGER: its packet count and its DURATION "
-                  "tag include a frame the decoded audio does not. CONTAINER "
-                  "PACKETS AND DECODED AUDIO ARE DIFFERENT QUANTITIES. The "
-                  "E-AC-3 comparison that appeared to confirm the first reading "
-                  "was not a control: E-AC-3 has no priming because it was "
-                  "never encoded, which agrees with BOTH explanations and "
+        "detail": "AN AAC TRACK'S PACKET COUNT AND ITS DURATION TAG INCLUDE A "
+                  "PRIMING FRAME THE DECODED AUDIO DOES NOT: the encoder's "
+                  "priming frame at the head is declared as "
+                  "initial_padding=1024 and start_time is 0.000000 on every "
+                  "track, so a correct decoder discards it. CONTAINER PACKETS "
+                  "AND DECODED AUDIO ARE DIFFERENT QUANTITIES -- a rebuilt AAC "
+                  "track carrying one packet more than a passthrough sibling "
+                  "is not, by itself, evidence the pipeline made the track "
+                  "longer. A comparison against an E-AC-3 sibling cannot "
+                  "settle it either way: E-AC-3 has no priming because it was "
+                  "never encoded, so it agrees with both explanations and "
                   "discriminates neither. WHY THIS CELL EXISTS: no emitted key "
                   "carries a per-track duration or frame count, so this report "
                   "could not have told you either way -- and the only length "
@@ -4600,8 +4561,7 @@ def render_narrative(records):
             "<code>bound_only</code> field now settles directly. The "
             "end-of-plan column is unaffected: not one of those fills is at "
             "the bound, so every one of them could have landed on the grid and "
-            "none did. Raised by forensic against the earlier wording, which "
-            "counted all of them together.</p>")
+            "none did.</p>")
         # LA BORNE, TROUVEE PAR forensic ET VERIFIEE PAR MOI SUR LES OCTETS.
         #
         # J'ai ecrit "QUATRE valeurs, il n'y a pas de reste" -- vrai de MA
