@@ -3185,27 +3185,32 @@ def chimeric_cause(error):
 
     23 sites levent `chimeric_error` et un 24e leve `chimeric_bound_error`, qui
     en est une SOUS-CLASSE et tombe donc sur le meme `isinstance` que les
-    autres. TROIS portent un jeton aujourd'hui. Deux sur bornage explicite du
+    autres. QUATRE portent un jeton aujourd'hui. Deux sur bornage explicite du
     Lead (R2): ce sont les deux que la production a fait tourner -- 18 et 5
     declins sur les 26 mesures dans 59 artefacts. Le troisieme est scope IN
     par l'Architect (ruling 2026-09-22, RULING_20260922_NO_BAND_ROUTING.MD,
     "RAISE SITE 1001 SCOPED INTO THE TOKENED SET"): `candidate_segment_regression`
     a `merge_video_chimeric.py:1001-1003`, premiere occurrence de production
-    2026-09-22 (errid 25, wave table). Les 21 restants sont ATTEIGNABLES
-    depuis le chemin de reparation (mesure statique, zero inatteignable) et
-    ont ZERO occurrence en production.
+    2026-09-22 (errid 25, wave table). Le quatrieme est scope IN par ce cas
+    (`architect/cases/CASE_errid12_untokened_5367.md`, errid 12, wave table
+    pass 8): `delivery_timeline_misalignment` a
+    `merge_video_chimeric.py:5360-5397`, la verification post-construction
+    contre la timeline du maitre, premiere occurrence de production
+    2026-09-22/23. Les 20 restants sont ATTEIGNABLES depuis le chemin de
+    reparation (mesure statique, zero inatteignable) et ont ZERO occurrence
+    en production.
 
-    POURQUOI PAS UN JETON GROSSIER POUR LES 21. Un `assembly_refused` aurait
-    rempli la colonne avec une valeur couvrant 21 decisions distinctes et n'en
+    POURQUOI PAS UN JETON GROSSIER POUR LES 20. Un `assembly_refused` aurait
+    rempli la colonne avec une valeur couvrant 20 decisions distinctes et n'en
     classant aucune. Une colonne remplie d'une valeur qui ne classe rien est
     PIRE qu'une colonne vide: elle a l'air notee. Ils sont donc NON COMPTES,
     et non FAUSSEMENT COMPTES.
 
     POURQUOI PAS `(unstated)`, QUI EXISTE DEJA. Cette sentinelle-la signifie
     *le producteur a tourne et n'a rendu AUCUN jeton alors que son contrat
-    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 21
+    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 20
     sites ici sont un MANQUE CONNU, DELIBERE ET AUTORISE. Depenser le signal
-    d'alarme sur 21 faux positifs detruit le sens du signal, et c'est ce
+    d'alarme sur 20 faux positifs detruit le sens du signal, et c'est ce
     signal-la qui protege la colonne. Deux etats qu'un correctif futur traite
     differemment ne partagent pas une etiquette: c'est la meme regle de
     granularite que pour les jetons, appliquee aux sentinelles.
@@ -3218,7 +3223,7 @@ def chimeric_cause(error):
     qui echoue si l'une ou l'autre sentinelle devient acceptable.
 
     LE NUMERO DE LIGNE VOYAGE AVEC LA SENTINELLE quand la trace le porte, si
-    bien que la liste classee des 21 sites se lit dans les artefacts au lieu de
+    bien que la liste classee des 20 sites se lit dans les artefacts au lieu de
     demander une seconde mesure. Il est lu sur la trace de l'exception, donc il
     designe le site de LEVEE et pas ce site-ci. Absent, la sentinelle reste
     valide et simplement moins precise -- elle ne devient jamais un jeton.
@@ -3485,6 +3490,97 @@ def _drain_audio_pools(objs, site):
                           f"{site} raised {type(error).__name__}: {error}\n")
 
 
+def retire_ffmpeg_pools(grace_seconds=300):
+    '''STOPGAP for CASE id 6, called only when the merge is over (see the call
+    site in mergeVideo.py zone A). close() queues ONE sentinel per worker;
+    join() lets each worker read its own and exit. No signal is involved, so
+    nothing can swallow it. SIGKILL is the backstop for a worker still stuck in
+    ffmpeg past the grace period -- SIGTERM is the signal that does not work
+    here, which is the whole case. Never calls terminate(): terminate() IS the
+    deadlock.
+
+    POURQUOI PAS UN DRAIN (`_drain_audio_pools` ci-dessus, qui reste en place
+    pour ses autres sites d'appel). Mesure, appendice A du dossier: le drain
+    attend les `ApplyResult`, ce qui rend le pool SILENCIEUX mais pas MORT, et
+    le verrou que `Pool._help_stuff_finish` prend sur `inqueue._rlock` -- sans
+    jamais le rendre -- se referme quand meme sur un worker qui se trouve
+    ENTRE deux taches. 10 blocages sur 80 executions drainees, contre 0 sur 20
+    avec cette retraite-ci, teardown 0.3 ms. La retraite SUBSUME le drain:
+    `join()` attend le travail en vol par construction.
+
+    CE QUE CETTE FONCTION EXIGE DE SON APPELANT, et qui n'est pas verifiable
+    d'ici: que PLUS RIEN ne reutilise les pools ensuite. Elle les laisse
+    FERMES, donc un `apply_async` posterieur leve `ValueError: Pool not
+    running` -- bruyamment, jamais en silence. Le seul site d'appel est la
+    condition de mergeVideo.py zone A qui dit deja "il ne reste pas de quoi
+    fusionner": fusion.py:391 et main.py:81 n'appellent `merge_videos` qu'une
+    fois et detruisent les pools juste apres. `main_gestionar_show.process_episode`
+    (fige) REESSAIE au contraire des fusions apres cette levee, via
+    `process_rejected_files:56`, sur les memes pools -- constat porte au
+    dossier, decision du proprietaire.
+    '''
+    import multiprocessing.pool, video, signal, time, os
+    for name in ("ffmpeg_pool_audio_convert", "ffmpeg_pool_big_job"):
+        pool = getattr(video, name, None)
+        if pool == None:
+            continue
+        try:
+            pool.close()
+            deadline = time.monotonic() + grace_seconds
+            while (time.monotonic() < deadline
+                   and any(p.is_alive() for p in pool._pool)):
+                time.sleep(0.1)
+            survivors = [p for p in pool._pool if p.is_alive()]
+            if len(survivors):
+                # LE BACKSTOP SIGKILL NE PEUT PAS SE CONTENTER DE TUER -- MESURE,
+                # ET C'EST LE MEME PIEGE QUE CELUI QU'ON SOIGNE. Un worker tue
+                # laisse SON `ApplyResult` dans `pool._cache` POUR TOUJOURS
+                # (CPython n'a aucune detection de mort de worker). Or:
+                #   * `_handle_workers` boucle tant que `cache` n'est pas vide
+                #     et REMPLACE les workers disparus (`_repopulate_pool_static`),
+                #     donc tuer en fabrique aussitot d'autres, gares sur
+                #     `inqueue.get()`;
+                #   * `_handle_results` boucle `while cache and state != TERMINATE`
+                #     sur un `get()` qui ne rendra plus jamais rien.
+                # `pool.join()` joint ces DEUX threads: il ne revenait jamais.
+                # Mesure de ce site, grace 2 s contre des taches de 30 s:
+                # 5 blocages sur 5 avant ces trois lignes, 0 sur 5 apres, tous
+                # les workers morts. On pose les deux etats AVANT de tuer, pour
+                # qu'aucun remplacant ne naisse entre le kill et le join.
+                #
+                # CE N'EST PAS `terminate()`: on ne touche ni a
+                # `_help_stuff_finish` ni au verrou `inqueue._rlock` qu'il prend
+                # sans le rendre -- c'est lui, le blocage du dossier.
+                #
+                # ECART ASSUME PAR RAPPORT AU BROUILLON A.6 DU DOSSIER, qui
+                # n'avait mesure que le chemin ou le travail se termine tout
+                # seul (11 s, 0/20). Le chemin SIGKILL, lui, est atteignable en
+                # production: 20 taches de trois passes ffmpeg sur des sources
+                # de 580 Mo / 1.2 Go peuvent depasser 300 s.
+                pool._worker_handler._state = multiprocessing.pool.TERMINATE
+                pool._result_handler._state = multiprocessing.pool.TERMINATE
+                pool._change_notifier.put(None)
+                for p in survivors:
+                    tools.log_always(f"repair: retiring {name}: worker {p.pid} "
+                                     f"outlived {grace_seconds}s, SIGKILL\n")
+                    os.kill(p.pid, signal.SIGKILL)
+            pool.join()
+            if len(survivors):
+                # ET LE `terminate()` DE fusion.py DOIT REDEVENIR UN NON-EVENEMENT,
+                # ce qui est tout l'objet de cette fonction. `_terminate_pool`
+                # commence par `if cache and result_handler not alive: raise
+                # AssertionError` -- mesure: la levee sortait bien du `terminate()`
+                # de fusion.py:399, ou elle est rattrapee ("Error close pool"),
+                # mais elle SAUTE le `terminate()` du second pool au passage.
+                # Les entrees restantes sont celles des taches tuees; leur
+                # `ApplyResult` ne sera jamais rendu ni attendu (la fusion est
+                # finie, c'est la condition meme du site d'appel).
+                pool._cache.clear()
+        except Exception as error:
+            tools.dev_log(f"repair: retiring {name} raised "
+                          f"{type(error).__name__}: {error}\n")
+
+
 def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                                  best_video):
     '''Point d'entree appele depuis la zone A.
@@ -3597,6 +3693,20 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # when that lands.
             _drain_audio_pools((best_video, candidate_obj),
                                 "master_intertrack_desync")
+            # FALSIFIEUR (appendice A.7 du dossier id 6), et RIEN D'AUTRE. Le
+            # blocage observe apres le stopgap precedent laissait DEUX lectures
+            # indiscernables dans les traces: "le drain a tourne et a perdu la
+            # course contre `Pool.terminate()`" ou "le drain lui-meme a bloque,
+            # dans `wait_end_ffmpeg_progress_audio` -> `ApplyResult.get()`, sur
+            # un worker mort qu'aucun `Pool` de CPython ne detecte". La derniere
+            # ligne sortie avant le silence les separe. `log_always` et non
+            # `dev_log`: une ligne qui ne sert qu'a lire un blocage ne peut pas
+            # dependre d'un drapeau dont la valeur en production est justement
+            # ce qu'on ne peut pas verifier pendant le blocage. Elle est posee
+            # APRES le drain et AVANT le `continue`, parce que c'est exactement
+            # cet intervalle qui est en question.
+            tools.log_always(f"repair: drain complete at master_intertrack_desync "
+                             f"for {candidate_path}\n")
             continue
         plan, plan_refusal_cause, plan_refusal_detail = get_plan_from_locator(
             best_video, candidate_obj, language)

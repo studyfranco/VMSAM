@@ -167,8 +167,12 @@ class chimeric_error(Exception):
     diff dans un module porteur. Un TROISIEME est scope IN par l'Architect
     (ruling 2026-09-22, RULING_20260922_NO_BAND_ROUTING.MD, "RAISE SITE 1001
     SCOPED INTO THE TOKENED SET"): la regression cote candidat a :1001-1003,
-    premiere occurrence de production 2026-09-22 (errid 25, wave table).
-    Trois sites portent donc un jeton aujourd'hui; les 21 restants n'en ont
+    premiere occurrence de production 2026-09-22 (errid 25, wave table). Un
+    QUATRIEME est scope IN par ce cas (CASE_errid12_untokened_5367.md, errid
+    12, wave table pass 8): `delivery_timeline_misalignment` a :5360-5397 --
+    la verification post-construction contre le maitre, premiere occurrence
+    de production 2026-09-22/23.
+    Quatre sites portent donc un jeton aujourd'hui; les 20 restants n'en ont
     toujours pas.
 
     LES AUTRES N'ONT DONC PAS DE JETON, ET C'EST DIT PLUTOT QUE COMBLE.
@@ -5357,11 +5361,36 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     if len(misaligned):
         detail = "; ".join(f"track {r['track']} ({r['language']}) off by "
                            f"{r['worst_lag_ms']:.1f} ms" for r in misaligned)
+        # FOURTH SITE AUTORISE (this case, errid 12, CASE_errid12_untokened_5367.md):
+        # first production occurrence 2026-09-22/23 (errid 12, Xian Wang / GST E02,
+        # wave table pass 8). Le jeton dit CE QUE LA MESURE A VU: la piste livree ne
+        # tombe pas sur la timeline du maitre au-dela de `verify_tolerance_ms`
+        # (100 ms) -- et cette tolerance-la est deja une MESURE, pas un reglage
+        # libre (voir `merge_video_repair.py:58-64`: plan correct atterrit a
+        # 0.5-2.8 ms, plan faux a 503+ ms, 100 ms est deux ordres au-dessus du
+        # premier et un ordre en dessous du second). Distinct des jetons voisins:
+        # `alignment_contradicts_plan` dit qu'un alignement declare ne tient pas
+        # ENTRE LES SONDES D'UNE MEME PIECE, au moment de l'ASSEMBLAGE (avant le
+        # mux); `output_check_mismatch` dit que le FICHIER PRODUIT deborde son
+        # maitre en DUREE DE CONTENEUR. Ici c'est cette VERIFICATION
+        # POST-CONSTRUCTION (apres le mux, comparaison directe contre le maitre)
+        # qui trouve la piste hors fenetre -- une quatrieme facon de rater, donc
+        # un quatrieme jeton (regle de granularite R1). La question plus
+        # profonde reste OUVERTE et ce jeton ne la tranche pas: sur errid 12,
+        # une seule sonde sur quatre depasse la tolerance (100.5 ms, a peine
+        # 0.5 ms au-dessus), et c'est la sonde a la toute tete du fichier
+        # (541.67 ms dans le maitre, au bord de la piece de tete) -- les trois
+        # autres sondes de la meme piste sont a 43.875/13.875/15.875 ms, bien en
+        # dessous. Locator-precision-artefact-a-la-frontiere-de-piece contre
+        # vrai decalage de plan (signe inverse ou point de changement manque):
+        # NON TRANCHE ici, faute de plan de segments retenu pour cet artefact --
+        # meme lacune de preuve que celle qui a laisse errid 25 ouvert.
         error = chimeric_error(
             f"the rebuilt track is not on the master's timeline: {detail}. "
             f"Tolerance {tolerance_ms} ms. The plan is wrong, not the splice: a "
             f"uniform offset means the base offset carries the wrong sign, and a "
-            f"residual that changes at a change point means a step was missed")
+            f"residual that changes at a change point means a step was missed",
+            cause="delivery_timeline_misalignment")
         error.verification = results
         error.audios = audio_reports
         raise error

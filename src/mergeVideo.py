@@ -891,6 +891,21 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
         # sameAudioMD5UseForCalculation (mergeVideo.py:1780) ajoute la piste
         # reparee.
         if len(dict_file_path_obj) < 2 and not len(repaired_videos):
+            # STOPGAP for CASE id 6 -- NOT the fix. The fix is the owner's
+            # initializer at fusion.py:386-387. Retire the pools with sentinels
+            # while we still can: after this raise, fusion.py:399 calls
+            # Pool.terminate(), whose _help_stuff_finish takes inqueue._rlock
+            # and never releases it -- and SIGTERM is swallowed all the way down
+            # from uvicorn, so pool.py:732's p.join() would never return.
+            #
+            # ICI ET NULLE PART AILLEURS. Cette condition EST "plus rien ne se
+            # servira du pool": il ne reste pas deux fichiers a fusionner et la
+            # reparation n'a rien rendu. Les trois `continue` de
+            # `repair_not_compatible_videos` ne le savent pas -- ils bouclent
+            # sur le candidat suivant -- et la fonction elle-meme est appelee
+            # depuis deux sites, dont un que `main.py` prolonge.
+            if merge_video_repair != None:
+                merge_video_repair.retire_ffmpeg_pools()
             raise Exception(f"Only {dict_file_path_obj.keys()} file left. This is useless to merge files")
         """
         END: AGENT modification
