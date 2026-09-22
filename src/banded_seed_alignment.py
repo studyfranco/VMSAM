@@ -95,6 +95,42 @@ width as either the resolution floor or a plausible-only-once-refined margin.
 """
 import statistics
 
+# THE COMPLETE VERDICT VOCABULARY, AS CONSTANTS, BECAUSE A CONSUMER HAS TO BRANCH ON IT.
+# Added 2026-09-22 on an independent tester's finding: `repair_orchestrator`'s step-2 gate
+# carried the four could-not-measure tokens as HARDCODED STRING LITERALS under a comment
+# claiming they were "read from the module", and this module exported nothing for them to read.
+# A renamed verdict here would have silently stopped that gate from firing, with no error
+# anywhere -- which is precisely the failure the comment claimed to have avoided. So the tokens
+# live here, once, the assignments below use these names, and the consumer imports the TUPLE.
+#
+# THE SPLIT IS THE PART THAT MATTERS. The first five mean "I could not measure"; the last two
+# are measurements. A caller that branches on the wrong half of this line reads a blank as a
+# negative, which is the defect class this campaign keeps finding.
+VERDICT_DEGENERATE_INPUT = "unreliable_degenerate_input"
+VERDICT_NO_SEEDS_FOUND = "no_seeds_found"
+VERDICT_NO_ANCHORED_RUNS = "no_anchored_runs"
+VERDICT_ALL_SEEDS_REFUSED = "all_seeds_refused_by_local_baseline_guard"
+VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR = "all_segments_below_duration_floor"
+VERDICT_SINGLE_SEGMENT_NO_CUT = "single_segment_no_cut"
+VERDICT_SEGMENTS_FOUND = "segments_found"
+
+COULD_NOT_MEASURE_VERDICTS = (
+    VERDICT_DEGENERATE_INPUT,
+    VERDICT_NO_SEEDS_FOUND,
+    VERDICT_NO_ANCHORED_RUNS,
+    VERDICT_ALL_SEEDS_REFUSED,
+    VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR,
+)
+MEASURED_VERDICTS = (VERDICT_SINGLE_SEGMENT_NO_CUT, VERDICT_SEGMENTS_FOUND)
+VERDICTS = COULD_NOT_MEASURE_VERDICTS + MEASURED_VERDICTS
+
+# *** AND A MEASURED VERDICT IS NOT THE SAME AS A USABLE ONE. `VERDICT_SINGLE_SEGMENT_NO_CUT`
+# says "no offset STEP was found"; it says nothing about how much of the master axis any zone
+# covered. The same tester measured a confirmed PAL pair returning it at
+# `master_axis_coverage_fraction` 0.0, and two wrong-episode pairs returning it at 0.064/0.067.
+# A consumer must read the COVERAGE beside the verdict, never the verdict alone -- that is what
+# `master_axis_coverage_fraction` is reported on every result for. ***
+
 MODALITY = "audio_kmer_seed_b2"  # literal, stable, cited by name -- see the module docstring's
                                    # own MODALITY section. Never re-derive this string at a call
                                    # site; import and use the constant so a rename cannot drift
@@ -358,26 +394,62 @@ def fit_trace_slope(trace):
     """Least-squares fit of offset (points) vs master index across a `best_shift_trace` result --
     slope in points/point, plus R^2 as the fit confidence carried WITH the slope (so this reading
     and a resample classifier's own slope regression can cross-check each other rather than one
-    silently standing in for the other)."""
+    silently standing in for the other).
+
+    AND THE RESIDUAL, WHICH IS THE READING THAT ACTUALLY SEPARATES A RATE RELATION FROM A CUT.
+    `r_squared` cannot do it and must not be asked to: it is scale-free, so a clean two-plateau
+    staircase fits a line with a high R^2 exactly as a genuine rate ramp does. The bake-off
+    measured that trap directly (`/config/output/filter_bakeoff_ear/INDEX.md`, "l'avertissement
+    methodologique"): a naive regression over the offset series of errid 213 returns "ratio
+    1.0010739", 0.07 % from the NTSC nominal, on a file with NO rate relation at all; errid 135
+    and errid 352 do the same. What denounces them is the RESIDUAL, not the slope -- 0.11 s to
+    22 s for the staircases against under 10 microseconds for the two real rate pairs, five
+    orders of magnitude apart. "Le residu est l'instrument ; la pente seule ment."
+
+    So the residual is returned, in POINTS (this trace's own unit), and every consumer that wants
+    milliseconds multiplies by ITS OWN quantum -- `b2_align` does exactly that below, because the
+    quantum is per track and this function has never been told which track it is looking at.
+    `residual_rms_points` is the root-mean-square of the fit residuals; `residual_max_points` is
+    the largest single one, kept beside it because one big excursion and a general scatter are
+    different facts about the same series and a mean hides the first.
+    """
     xs = [entry["master_index"] for entry in trace]
     ys = [entry["offset_points_after"] for entry in trace]
     n = len(xs)
     if n < 2:
-        return {"slope_points_per_point": None, "r_squared": None, "n": n}
+        return {"slope_points_per_point": None, "r_squared": None, "n": n,
+                "residual_rms_points": None, "residual_max_points": None}
     mean_x = sum(xs) / n
     mean_y = sum(ys) / n
     ss_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
     ss_xx = sum((x - mean_x) ** 2 for x in xs)
     if ss_xx == 0:
-        return {"slope_points_per_point": 0.0, "r_squared": 0.0, "n": n,
+        return {"slope_points_per_point": 0.0, "r_squared": None, "n": n,
+                "fit_degenerate": "single_master_index",
+                "residual_rms_points": None, "residual_max_points": None,
                 "implied_step_count": sum(1 for entry in trace if entry["recentered"])}
     slope = ss_xy / ss_xx
     intercept = mean_y - slope * mean_x
     ss_tot = sum((y - mean_y) ** 2 for y in ys)
-    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
-    return {"slope_points_per_point": slope, "r_squared": r_squared, "n": n,
-            "implied_step_count": sum(1 for entry in trace if entry["recentered"])}
+    residuals = [y - (slope * x + intercept) for x, y in zip(xs, ys)]
+    ss_res = sum(residual ** 2 for residual in residuals)
+    # R^2 IS UNDEFINED ON A CONSTANT SERIES, AND THIS USED TO RETURN 1.0 FOR IT. `ss_tot == 0`
+    # means every checkpoint read the SAME offset, which happens in two very different worlds: a
+    # genuinely constant-offset pair, and a trace that never found anything at all and sat at its
+    # starting offset from end to end. MEASURED, the second: errid-70 blind (the real PAL pair,
+    # whose true offset is -2.85 s = -23 points, far outside the trace's +/-3-point re-centering
+    # radius) produced 1026 checkpoints all reading offset 0 -- and this function reported
+    # `r_squared: 1.0`, a PERFECT FIT, about a trace that had measured nothing. 1 - 0/0 is not 1;
+    # it is undefined, and the standing invariant spells undefined `None`. `fit_degenerate` names
+    # which of the two worlds it was, so a reader never has to guess from a blank.
+    r_squared = (1 - (ss_res / ss_tot)) if ss_tot > 0 else None
+    fit = {"slope_points_per_point": slope, "r_squared": r_squared, "n": n,
+           "residual_rms_points": (ss_res / n) ** 0.5,
+           "residual_max_points": max(abs(residual) for residual in residuals),
+           "implied_step_count": sum(1 for entry in trace if entry["recentered"])}
+    if ss_tot == 0:
+        fit["fit_degenerate"] = "constant_offset_series"
+    return fit
 
 
 def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
@@ -510,8 +582,15 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     trusted) / `"no_seeds_found"` (seeding ran, found nothing at all) /
     `"all_seeds_refused_by_local_baseline_guard"` (seeds existed and extended, but every one sat
     in a degraded region) / `"no_anchored_runs"` (no extension ever cleared `min_run_points`) /
-    `"single_segment_no_cut"` (evaluated cleanly, no offset step found) / `"segments_found"` (at
-    least one `cut_zones` entry -- the only verdict carrying a non-empty `cut_zones`)."""
+    `"all_segments_below_duration_floor"` (runs anchored and were trusted, but every segment they
+    built was shorter than `MIN_SEGMENT_DURATION_S` -- the rate-relation signature, see the guard
+    at the floor's second pass) / `"single_segment_no_cut"` (evaluated cleanly, at least one
+    segment survived, no offset step found) / `"segments_found"` (at least one `cut_zones`
+    entry -- the only verdict carrying a non-empty `cut_zones`).
+
+    THE FIRST FIVE ARE ALL "I COULD NOT MEASURE", the last two are measurements. That split is
+    the one a caller must branch on, and it is why the fifth exists separately: it used to be
+    reported as the sixth."""
     result = {
         "verdict": None,
         "modality": MODALITY,
@@ -538,12 +617,12 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     degeneracy = degeneracy_report(fp_master, fp_candidate)
     result["degeneracy"] = degeneracy
     if degeneracy["degenerate_a"] or degeneracy["degenerate_b"]:
-        result["verdict"] = "unreliable_degenerate_input"
+        result["verdict"] = VERDICT_DEGENERATE_INPUT
         return result
 
     seeds = find_seeds(fp_master, fp_candidate, band=band, k=k, bits=bits)
     if not seeds:
-        result["verdict"] = "no_seeds_found"
+        result["verdict"] = VERDICT_NO_SEEDS_FOUND
         return result
 
     extended = []
@@ -581,8 +660,8 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     result["refused_by_local_baseline_guard"] = len(extended) - len(trusted)
 
     if not trusted:
-        result["verdict"] = ("all_seeds_refused_by_local_baseline_guard" if extended
-                              else "no_anchored_runs")
+        result["verdict"] = (VERDICT_ALL_SEEDS_REFUSED if extended
+                              else VERDICT_NO_ANCHORED_RUNS)
         return result
 
     # Merge overlapping/adjacent runs on the master axis into segments (same offset family), with
@@ -709,6 +788,38 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     result["segments_filtered_short_fragments"] = segments_filtered_short_fragments
     segments = kept_segments
 
+    # ZERO SURVIVING SEGMENTS IS NOT "ONE SEGMENT WITH NO CUT", AND UNTIL 2026-09-22 THIS
+    # FUNCTION SAID IT WAS. The verdict below is derived from whether `cut_zones` is empty, and
+    # `cut_zones` is built from `segments` -- so a file whose every anchored run was shorter than
+    # `MIN_SEGMENT_DURATION_S` came out of here reading `single_segment_no_cut` with `zones: []`
+    # and `master_axis_coverage_fraction: 0.0`. That reads to a caller as "these two audios
+    # align perfectly and need no splice", which is the exact inverse of what was measured.
+    #
+    # MEASURED, AND IT IS THE PAIR THIS MATTERS MOST ON: errid-70, the corpus's ONLY real
+    # speed-relation pair (candidate 25 fps against a 23.976 master, factor 1.0427), fre couple,
+    # 10256 x 9837 points. At 4.27 % the offset moves a full quantum every ~2.9 s, so no
+    # extension survives long enough to clear a 2 s floor: 2 runs extended, 2 refused by the
+    # baseline guard, ONE segment built and ONE filtered as a short fragment, leaving nothing --
+    # and the old verdict announced a perfectly compatible pair. Downstream, the orchestrator's
+    # step-2 similarity gate reads this verdict to decide whether to run the speed sweep, so the
+    # one pair in the corpus that NEEDS the sweep was the one pair certified as not needing it.
+    # A could-not-measure read as a measured negative: the defect class this campaign has now
+    # found nine times.
+    #
+    # THE TOKEN IS ITS OWN, not a reuse of `no_anchored_runs`. Runs WERE anchored here -- they
+    # cleared `min_run_points` and the baseline guard -- and they were then refused by a
+    # DIFFERENT, later, nameable filter. Folding the two together would hide which gate fired
+    # from the only reader who can act on it, and the counts that explain it
+    # (`segments_filtered_short_fragments`, `refused_by_local_baseline_guard`) are already on
+    # the result beside it.
+    if not segments:
+        result["verdict"] = VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR
+        result["zones"] = []
+        result["zones_detail"] = []
+        result["segments"] = []
+        result["master_axis_coverage_fraction"] = 0.0
+        return result
+
     # ASSERTED, not merely intended: emitted segments must be strictly increasing and non-
     # overlapping on BOTH axes, or "holes = the gaps between zones" is undefined downstream. This
     # is the module's own contract on its own output, checked at the point every field above is
@@ -833,7 +944,7 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     cut_zones = [zone for zone in all_zones if zone["classification"] == "cut"]
     result["all_zones"] = all_zones
     result["cut_zones"] = cut_zones
-    result["verdict"] = "segments_found" if cut_zones else "single_segment_no_cut"
+    result["verdict"] = VERDICT_SEGMENTS_FOUND if cut_zones else VERDICT_SINGLE_SEGMENT_NO_CUT
 
     # PER-RESULT SELF-CONSISTENCY (2026-09-21) -- deliberately separate from the per-zone
     # `exceeds_duration_budget` check above, and deliberately computed from the FULL segment
@@ -860,6 +971,15 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
             entry["master_time_s"] = entry["master_index"] * quantum_ms / 1000.0
         result["drift_trace"] = trace
         result["drift_fit"] = fit_trace_slope(trace)
+        # THE RESIDUAL IN MILLISECONDS, ATTACHED HERE AND NOWHERE ELSE, because this is the first
+        # place that knows THIS COUPLE'S quantum. `fit_trace_slope` answers in points because a
+        # trace has no track attached to it; the per-track-quantum invariant means the conversion
+        # can only be done by a caller that owns one. Both readings are carried: a scatter and a
+        # worst excursion say different things about the same series.
+        for _points_key, _ms_key in (("residual_rms_points", "residual_rms_ms"),
+                                      ("residual_max_points", "residual_max_ms")):
+            _value = result["drift_fit"].get(_points_key)
+            result["drift_fit"][_ms_key] = None if _value is None else _value * quantum_ms
 
     return result
 
@@ -953,7 +1073,7 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
     candidate_quantum_ms = ((length_seconds * 1000.0 / len(fp_candidate))
                              if fp_candidate else None)
     if quantum_ms is None or candidate_quantum_ms is None:
-        return {"verdict": "no_seeds_found", "modality": MODALITY,
+        return {"verdict": VERDICT_NO_SEEDS_FOUND, "modality": MODALITY,
                 "stage_contract": "WHOLE-FILE fingerprinting produced zero comparable points.",
                 "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None,
                 "zones": None, "zones_detail": None, "master_axis_coverage_fraction": None,

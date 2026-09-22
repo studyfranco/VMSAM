@@ -18,8 +18,11 @@ MEASUREMENT CLASS. Nothing here returns True on work it did not do.
     landed   step 3b the sequence alignment per couple -- `banded_seed_alignment.b2_align`
     landed   step 3c zones -> holes -> <10 s merge     -- this module
     landed   step 3d the multi-couple cross-check      -- this module
-    STUB     step 3e the comparison resample           -- declines `comparison_resample_
-                                                          not_implemented`
+    landed   step 3e the comparison resample           -- `merge_video_resample
+                                                          .build_speed_filter_chain` behind the
+                                                          pitch layer's own reading; applied on
+                                                          the candidate's extraction only, and
+                                                          never delivered (ADDENDUM 7)
     STUB     step 4  frame-exact hole resolution       -- declines `hole_resolution_
                                                           not_implemented`
     STUB     step 5  plan application                  -- declines `plan_application_
@@ -58,6 +61,7 @@ the ruling says "SORTENT MEME A tools.dev=false" and which therefore goes throug
 `tools.log_always`, and the terminal per-candidate verdict, which goes through
 `merge_video_repair.record` (already `log_always`) so the ledger keeps reading one line shape.
 """
+from decimal import Decimal
 from fractions import Fraction
 from os import path, remove
 import subprocess
@@ -108,9 +112,24 @@ INTERCOUPLE_POSITION_WINDOW_SECONDS = HOLE_MERGE_WINDOW_SECONDS
 # for zone POSITION -- 0 to 216 quanta on the same event -- which is why position is clustered
 # with the window above and never compared point for point.)
 #
-# CALIBRATED ON n = 1 PAIR WITH 1 REAL EVENT, AND THAT IS NOT ENOUGH. errid-24, errid-70,
-# errid-84 and errid-99 are available in the corpus and were not run. This constant is honest
-# about its own sample size rather than presented as settled.
+# CALIBRATED ON n = 1 PAIR WITH 1 REAL EVENT, AND THE RE-MEASUREMENT THAT WAS SUPPOSED TO FIX
+# THAT IS NOW DONE AND DID NOT. This comment used to say "errid-24, errid-70, errid-84 and
+# errid-99 are available in the corpus and were not run". They have now all been run -- by an
+# independent tester across all 20 reachable pairs on 28 language combinations, and again here
+# on errid-24/es specifically -- and NONE of them produces a second ABOVE-FLOOR couple at any
+# event, so none of them adds a single calibration point. MEASURED on errid-24/es, the corpus's
+# widest multi-couple case (4 couples): 40 event clusters, every one of them
+# `below_floor_only_excluded`, zero above-floor events, `agree=True`. Corpus-wide the agreement
+# test was reached exactly TWICE in 28 runs, both on errid-232 and both from the SAME physical
+# edit -- spread 124.03 ms against a 186.06 ms tolerance on ja, 0.34 ms on en.
+#
+# SO THE CONSTANT STANDS AT ITS MEASURED VALUE AND ITS SAMPLE SIZE STANDS AT ONE EVENT, and that
+# is now a statement about the CORPUS rather than about anyone's budget: settling this needs a
+# pair with two or more couples that BOTH see the same above-floor cut, and the corpus contains
+# exactly one such pair. The mechanism was separately exercised by construction -- it accepts to
+# exactly 1.50 quanta inclusive, refuses from 1.51, and still refuses a constructed 2-quanta
+# disagreement above the floor -- so what is untested is the threshold's placement on real
+# media, not whether it works.
 INTERCOUPLE_STEP_TOLERANCE_QUANTA = 1
 INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 
@@ -128,50 +147,213 @@ INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS = 15.0
 
 # A CAP ON HOLES PER COUPLE, with a named decline when exceeded. MEASURED motivation (design
-# section 6.4.1): zone fragmentation varies enormously by track -- 82/77/61/27/32 aligned zones
-# for the SAME physical pair on errid-232 -- so a design that resolves every hole would launch
-# dozens of frame-exact searches per couple, each of them an unbounded ffmpeg decode. The <10 s
-# merge is the first line of defence; this is the second.
+# section 6.4.1): zone fragmentation varies enormously by track, so a design that resolves every
+# hole would launch dozens of frame-exact searches per couple, each of them an unbounded ffmpeg
+# decode. The <10 s merge is the first line of defence; this is the second.
 #
-# THE NUMBER IS SET FROM MEASUREMENT, AND IT TOOK TWO CORRECTIONS TO GET A HONEST POPULATION TO
-# MEASURE. The design suggests this campaign's precedent for the same shape
-# (`zone_similarity_vector.MAX_ONSET_CANDIDATES_PER_WINDOW = 10`), and 10 was tried first; it
-# refused errid-202 at 11 holes and sat exactly on the boundary for another couple. The reason
-# was not the cap: it was that same-offset coverage gaps were being counted as holes (see
-# `coalesce_same_offset_zones`, where errid-232 jpn couple 13x1 read 40 holes of which 38 had a
-# step of exactly 0). MEASURED post-merge hole counts once a hole means a change of offset:
-#     errid-202 jpn  m#3xc#1    6     errid-232 jpn  m#13xc#1   4
-#     errid-232 eng  m#3xc#2    4     errid-232 jpn  m#14xc#1   9
-#     errid-232 eng  m#4xc#2    6     errid-232 jpn  m#15xc#1   3
-# Largest observed: 9. Set to well over twice that, so a pair must fragment past anything yet
-# observed before it is refused -- this stays a guard against the pathological and never
-# becomes a filter on the ordinary. SAMPLE: 6 couples on 2 pairs. Under-sampled, stated as
-# such, and re-measurable the moment more pairs are driven.
-MAX_HOLES_PER_COUPLE = 22
+# RE-DERIVED 2026-09-22 AGAINST THE FULL CORPUS, and the previous value was wrong by its own
+# rule. It read 22, set as "well over twice" a maximum of 9 measured on SIX couples of TWO
+# pairs. An independent tester then measured every reachable pair -- 31 couples over 20 pairs --
+# and the real distribution is
+#     21, 18, 18, 18, 15, 10, 9, 9, 7, 7, 6, 6, 5, 5, 5, 4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 0, 0, 0
+# so the true maximum is 21 (errid-99 on fr) and the old cap left ONE HOLE of headroom above
+# real media. Applying the comment's own stated rule to the real maximum gives 45, which is what
+# this now is. The cap never fired in 31 couples and is not meant to: the pathological pairs it
+# was imagined for do NOT reach it -- wrong-episode and wrong-series pairs produce ONE giant hole
+# or fail to align, and are caught by the similarity gate or by `spans_whole_file`.
+#
+# AND THE SAME MEASUREMENT SHOWS WHY THE PER-LANGUAGE SPREAD MATTERS: the SAME physical pair
+# reads 2 holes on `en` and 21 on `fr` (errid-99). The comparison language is chosen upstream by
+# `get_delay_language`, whose own comment calls the choice arbitrary among equals -- so a cap set
+# near real media would let an arbitrary upstream choice decide whether a pair is refused.
+#
+# ITS CLASS CHANGED WITH ITS VALUE, and that is the more important half. The token used to be
+# `ran_conclusive_negative` -- "the instrument ran and returned a negative about this pair". It
+# is not: "too fragmented for the budget I gave myself" is a statement about THIS ORCHESTRATOR'S
+# resolver budget, not about the media. errid-99 is, by the corpus's own classification, one of
+# its CLEANEST edit pairs (two constant-offset plateaus, NCC 0.98-0.99), and one more hole would
+# have had it recorded as a conclusive refusal. It is now `could_not_run`.
+MAX_HOLES_PER_COUPLE = 45
 
-# THE RATE-RELATION ARM OF THE STEP-2 GATE IS NOT CALIBRATED, AND IT IS OFF BECAUSE OF THAT.
-# The design's section 3.6 recommends reading `drift_fit` (slope + R^2) as "there is a rate
-# relation here" and quotes errid-202 at slope -0.00078 / r^2 0.752. MEASURED THIS SESSION on
-# the two pairs available, both of which are CONTENT-EDIT pairs with no rate relation:
-#     errid-202 jpn    slope -0.00237   r^2 0.790   implied_step_count 78
-#     errid-232 jpn#0  slope -0.00025   r^2 0.709   implied_step_count 3
-#     errid-232 eng#0  slope -0.00025   r^2 0.718   implied_step_count 3
-# i.e. a threshold on slope-with-high-R^2 would fire on pairs that have no rate relation at all,
-# and there is no known-rate pair in this corpus checkout to calibrate the other side of the
-# boundary against. A threshold picked from one side of a boundary is a guess wearing a number.
-# So the numbers are MEASURED AND LOGGED on every run and NOTHING BRANCHES ON THEM; the gate
-# fires only on the arm that is unambiguous (the aligner could not align at all). Flip this to
-# True in the same commit that lands the calibration, never before.
-RATE_RELATION_SLOPE_GATE_CALIBRATED = False
+# THE COVERAGE FLOOR -- the step-2 gate's second arm, and the fix for a BREAKING finding.
+#
+# WHAT WENT WRONG WITHOUT IT. The aligner's `single_segment_no_cut` means "no offset STEP was
+# found". It does NOT mean "the two audios line up", and until this arm existed the gate read it
+# as though it did. Measured by an independent tester on the committed tip: errid-70 (a confirmed
+# PAL 25/23.976 pair whose two fr tracks are 51.87 s apart) returned that token with n_zones=0
+# and coverage 0.000, the gate returned should_sweep=False, the sweep never ran, and the
+# orchestrator logged `audios_fully_compatible_offset_only` -- a positive claim of compatibility
+# about a pair one frame rate apart -- which also made the owner's `restoration_deferred`
+# deferral (ADDENDUM 7) unreachable, since that gate tests `speed_factor != 1`. The same pair on
+# `en` took the correct path, which is what proved it was the gate and not the media.
+#
+# THE NUMBER IS READ OFF A BIMODAL DISTRIBUTION, NOT CHOSEN. Coverage over all 31 success-token
+# couples of the 20-pair corpus:
+#     0.000 errid-70/fr | 0.064 errid-121/ja | 0.067 errid-123/ja | 0.304, 0.306 errid-24/es
+#     <---------------------------- EMPTY BAND ---------------------------->
+#     0.501 errid-99/en | 0.587 errid-84/en | ... 26 more couples up to 1.000
+# Nothing lands between 0.306 and 0.501. 0.40 sits in the middle of that gap with ~0.09 of margin
+# below and ~0.10 above, and it separates all five pathological couples from all twenty-six
+# healthy ones. The five are not a mixed bag: two are wrong-episode pairs (errid-121, errid-123 --
+# CANNOT-HELP, where "a repair that appeared to succeed would splice the wrong episode into the
+# library"), one is the PAL pair above, and two are the degraded half of errid-24's four couples.
+#
+# THIS ARM IS TERMINAL, unlike the rate-ladder arm below, and the ruling says why in its own
+# words: step 2 is "similarite faible master<->candidat ? OUI -> run_speed_sweep : le resample
+# peut-il la remonter ? ... None -> return, message dans tools.logs (« similarite moyenne faible,
+# impossible de l'augmenter par resample »)". Low coverage IS low similarity, measured; a sweep
+# that cannot raise it IS the ruling's return. That also closes the wrong-episode hazard
+# independently of stage 4: errid-121 and errid-123 currently decompose into a single `head` hole
+# of 1348.5 s on a ~1450 s file, which the moment a frame-exact resolver exists would drive it
+# across 93 % of the wrong programme.
+MASTER_AXIS_COVERAGE_FLOOR = 0.40
+
+# THE PITCH PROBE'S WINDOW. Not a new number: `pal_pitch_confirmer.confirm_pitch` and
+# `confirm_ntsc` both default to 180 s and `pal_speed_verdict` passes that default through, so
+# the pitch layer is asked on the window it was calibrated on (its NTSC_TOLERANCE was measured at
+# n=24 over exactly these windows). Restating a different one here would silently re-scope a
+# tolerance measured somewhere else. Imported rather than retyped, with a literal fallback.
+try:
+    import pal_pitch_confirmer as _pal_pitch_confirmer
+    PITCH_PROBE_WINDOW_SECONDS = float(
+        _pal_pitch_confirmer.confirm_pitch.__defaults__[0])
+    _PITCH_WINDOW_SOURCE = "pal_pitch_confirmer.confirm_pitch's own default"
+except Exception:                                                        # noqa: BLE001
+    PITCH_PROBE_WINDOW_SECONDS = 180.0
+    _PITCH_WINDOW_SOURCE = "literal fallback -- pal_pitch_confirmer unimportable"
+
+# THE FLOOR UNDER A SHORTENED PITCH WINDOW. A pair shorter than 180 s gets half its usable span
+# rather than a refusal, but not below this: `audio_extract.extract_audio_window` refuses an
+# extraction under one second of audio by construction, and a spectral ratio measured over a
+# window that short carries no frequency resolution worth routing a filter on. Chosen, not
+# derived, and it is a FLOOR on the instrument rather than a threshold on a verdict.
+PITCH_PROBE_WINDOW_MINIMUM_SECONDS = 30.0
+
+# THE RATE-RELATION ARM OF THE STEP-2 GATE IS NOW CALIBRATED, AND THE INSTRUMENT IS NOT THE ONE
+# THE DESIGN PROPOSED. That matters enough to record both.
+#
+# WHAT WAS REFUTED. Design section 3.6 proposed reading `drift_fit` -- `best_shift_trace`'s slope
+# with its R^2 -- as "there is a rate relation here". MEASURED, that instrument cannot carry the
+# arm, for two separate reasons:
+#   (a) SLOPE-WITH-HIGH-R^2 FIRES ON PAIRS THAT HAVE NO RATE RELATION. errid-202 (content edits
+#       only) reads slope -0.00237 at r^2 0.790, a LARGER magnitude than the real NTSC pair's
+#       +0.00037 at r^2 0.601. The bake-off dossier had already measured the same trap from the
+#       other end (errid 213 fitting "ratio 1.0010739", 0.07 % from NTSC, with no relation at
+#       all), and `change_point_locator:1132-1136` records it a third time independently.
+#   (b) THE TRACE IS BLIND WHEN THE OFFSET IS LARGE. `best_shift_trace` starts at offset 0 and
+#       re-centres +/-3 points per checkpoint; errid-70's true offset is -23 points, so all 1026
+#       of its checkpoints read 0 and the fit returned slope 0.0 with residual 0.0 -- a perfect
+#       straight line through a measurement that never happened. (That also produced an
+#       `r_squared` of 1.0, fixed in `banded_seed_alignment.fit_trace_slope`.)
+#
+# WHAT REPLACED IT: `zone_ladder_signature`, which COUNTS the shape a rate relation forces on
+# this aligner instead of fitting a line through it. Full measured population, 11 alignments
+# through this module's own code path, 2026-09-22, blind unless marked:
+#
+#   pair                         verdict                            zones  rungs  purity  mono   |f-1|
+#   errid-27  eng   REAL NTSC    segments_found                       110     32   0.970  0.9375 1.0e-3   <- the only positive
+#   errid-70  fre   REAL PAL     all_segments_below_duration_floor      0      0    --     --    0        <- other arm
+#   errid-27  de-rated 1001/1000 single_segment_no_cut                  60      3   1.000  0.667  3.3e-5
+#   errid-70  de-rated 1001/960  single_segment_no_cut                   8      0   0.000  --     7.8e-4
+#   errid-213 jpn   edits        single_segment_no_cut                  24      8   0.889  0.500  6.9e-4   <- nearest negative
+#   errid-100 jpn   ~no edit     single_segment_no_cut                  36     12   1.000  0.500  0
+#   errid-232 jpn   edits        segments_found                         66      1   0.500  1.000  4.3e-3
+#   errid-202 jpn   edits        segments_found                         10      1   0.250  1.000  2.2e-3
+#   errid-135 jpn   edits        segments_found                         12      1   0.333  1.000  2.6e-4
+#   errid-352 jpn   edits        segments_found                         26      0   0.000  --     7.0e-4
+#   errid-24  jpn   no edit      single_segment_no_cut                   1      0   --     --    0
+#
+# RUNG COUNT separates 32 from {0,0,0,0,1,1,1,3,8,12}; MONOTONICITY separates 0.9375 from a
+# nearest negative of 0.500. The two pairs that get past the rung count -- errid-213 and
+# errid-100, the two the bake-off and the locator both flagged as line-fit traps -- are refused
+# on direction, which is the condition that rests on a MECHANISM rather than on a sample: a rate
+# relation drifts one way for the whole file, and an editor's cuts do not.
+#
+# DRIVEN END TO END THROUGH `repair()` ON THE POSITIVE, so the arm is not merely calibrated on
+# paper: errid-27 blind reads `gate_arm=rate_relation_signature` (rungs 32, purity 0.9697,
+# direction 0.9375, implied ratio 1.0009911 against the NTSC nominal 1.000999 -- 8e-6 apart, and
+# the ladder arithmetic never saw that nominal); the sweep then confirms 1001/1000 at median
+# fidelity 0.9559, the comparison resample applies asetrate=383616, and the SAME couple re-aligns
+# from 110 zones at coverage 0.9160 and 32 holes to 60 zones at coverage 0.9568 and THREE holes
+# (head 4.34 s -- the pair's documented constant offset of +4.34269 s -- one zero-step interior,
+# and a tail carrying the documented ~175 s of excess candidate content). Before this arm, that
+# pair decomposed into 32 holes and was refused on the hole budget.
+#
+# AND THE ARM IS SAFE TO ENABLE BECAUSE ITS REFUSAL IS NON-TERMINAL (see `similarity_gate` and
+# `repair()`): a false positive costs one sweep and then continues on the alignment already
+# measured, producing a byte-identical plan. It cannot turn a repairable pair into a decline.
+# That is what makes n=1 on the positive side an acceptable basis for switching it on -- the
+# cost of being wrong is time, not a lost repair -- and it is stated here so the sample size is
+# never mistaken for more than it is.
+RATE_RELATION_SLOPE_GATE_CALIBRATED = True
+
+# THE LADDER CONSTANTS, each set between two measured populations, never on one side of one.
+#
+# RUNGS: a STATISTICAL-SUFFICIENCY floor, NOT a detection floor, and the difference decides the
+# number. The detection floor is set by the magnitude condition below, which scales with the
+# file: requiring |f-1| >= 5e-4 already requires the total rise to be at least 5e-4 of the span,
+# so a longer file needs proportionally more rungs on its own. This constant exists only so that
+# `rung_fraction` and `rung_monotone_fraction` are computed over enough samples to mean
+# something. 8 sits above the largest negative that is not one of the two line-fit traps (3) and
+# a quarter of the way to the positive (32). CONSEQUENCE, STATED BECAUSE IT IS A REAL LIMIT: at
+# the smallest named deviation (1001/1000) and a ~124 ms quantum, 8 rungs need 8*0.124/0.000999
+# = 993 s of aligned span, so this arm cannot see an NTSC relation on anything under ~16.5
+# minutes and does not claim to. A 24-minute episode yields ~11.7 rungs; the 62-minute pair
+# measured above yielded 32.
+LADDER_MIN_RUNGS = 8
+# PURITY: measured 0.970 on the positive against 0.250-0.500 on the four ordinary edit pairs.
+# 0.80 sits between them. It does NOT reject errid-213 (0.889) -- direction does.
+LADDER_MIN_RUNG_FRACTION = 0.80
+# DIRECTION: the condition that actually decides at the boundary. Measured 0.9375 on the
+# positive against 0.500 on both line-fit traps. 0.85 sits between, nearer the negative side
+# than the positive's value, so the positive keeps 0.09 of margin and the negatives 0.35.
+LADDER_MIN_RUNG_MONOTONE_FRACTION = 0.85
+
+# THE MAGNITUDE FLOOR, IMPORTED NOT RESTATED. `change_point_locator.RATE_SLOPE_MIN_FACTOR_
+# DEVIATION` is 5e-4, derived there as HALF the smallest deviation in the named rate vocabulary
+# (1001/1000, |f-1| = 1/1001 = 9.99e-4) and landed on a measured false fire. The locator dies in
+# the switch and its measurement does not, so this reads the constant while the module still
+# exists and falls back to the same literal -- with the fallback logged, never silent -- for the
+# day it does not.
+try:
+    import change_point_locator as _change_point_locator
+    RATE_LADDER_MIN_FACTOR_DEVIATION = float(
+        _change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION)
+    _RATE_LADDER_DEVIATION_SOURCE = "change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION"
+except Exception:                                                        # noqa: BLE001
+    RATE_LADDER_MIN_FACTOR_DEVIATION = 5e-4
+    _RATE_LADDER_DEVIATION_SOURCE = "literal fallback -- change_point_locator unimportable"
 
 # The aligner's own "I could not measure" vocabulary -- the step-2 gate's one calibrated arm.
 # These are `banded_seed_alignment`'s tokens, read from the module rather than restated here.
-ALIGNMENT_COULD_NOT_MEASURE_VERDICTS = (
-    "unreliable_degenerate_input",
-    "no_seeds_found",
-    "no_anchored_runs",
-    "all_seeds_refused_by_local_baseline_guard",
-)
+ALIGNMENT_COULD_NOT_MEASURE_VERDICTS = banded_seed_alignment.COULD_NOT_MEASURE_VERDICTS
+# BOUND TO THE ALIGNER'S OWN TUPLE, NOT RESTATED -- and until 2026-09-22 this WAS restated, as
+# four hardcoded string literals under a comment claiming the opposite. An independent tester
+# found it: a renamed verdict in `banded_seed_alignment` would have silently stopped this gate
+# firing, with no error anywhere, which is exactly the failure the old comment claimed to have
+# avoided. The aligner now exports the vocabulary and the assignments inside it use the same
+# names, so the two cannot drift.
+#
+# The fifth member, `all_segments_below_duration_floor`, was added with the verdict itself and is
+# the arm that catches the rate family: runs anchored and were trusted and then EVERY segment
+# they built came in under `MIN_SEGMENT_DURATION_S`. That is what a rate relation looks like from
+# inside the aligner -- at the PAL factor the offset moves a whole quantum every ~2.9 s, so no
+# fixed-offset extension survives a 2 s floor. MEASURED on errid-70 (fr), the corpus's only real
+# speed pair: 2 runs extended, 1 segment built, 1 filtered, nothing left -- and before the token
+# existed the aligner called that `single_segment_no_cut` and this gate read it as "similarity is
+# fine, no sweep needed" on the one pair in the corpus that cannot be measured without the sweep.
+#
+# BELT AND BRACES, AT IMPORT: the binding above cannot go stale, but a future edit could shrink
+# the aligner's tuple without anyone noticing here. The check below states, as an executable
+# sentence, the two facts this gate depends on -- the tuple is non-empty, and it is disjoint from
+# the aligner's MEASURED verdicts. A blank tuple would silently disable the gate; an overlap
+# would silently disable a successful alignment.
+assert ALIGNMENT_COULD_NOT_MEASURE_VERDICTS, (
+    "repair_orchestrator: banded_seed_alignment.COULD_NOT_MEASURE_VERDICTS is empty -- the "
+    "step-2 similarity gate would never fire")
+assert not (set(ALIGNMENT_COULD_NOT_MEASURE_VERDICTS)
+            & set(banded_seed_alignment.MEASURED_VERDICTS)), (
+    "repair_orchestrator: a verdict cannot be both a measurement and a could-not-measure")
 
 # MEASUREMENT CLASS, emitted beside every cause token -- see the module docstring's return
 # contract. The boolean cannot carry this and the ledger needs it.
@@ -197,10 +379,23 @@ DECLINE_CAUSES = {
     "alignment_degenerate_input": CLASS_COULD_NOT_RUN,
     "alignment_no_anchored_runs": CLASS_COULD_NOT_RUN,
     "alignment_all_seeds_refused": CLASS_COULD_NOT_RUN,
+    "alignment_segments_below_duration_floor": CLASS_COULD_NOT_RUN,
     "intercouple_disagreement": CLASS_CONCLUSIVE,
-    "hole_count_exceeds_resolver_budget": CLASS_CONCLUSIVE,
+    # RECLASSIFIED 2026-09-22 (see MAX_HOLES_PER_COUPLE): "more holes than my resolver budget"
+    # is a fact about this orchestrator's budget, not a measurement about the pair.
+    "hole_count_exceeds_resolver_budget": CLASS_COULD_NOT_RUN,
+    # THE COVERAGE ARM'S OWN TOKEN, for the case where every couple falls under the floor. It is
+    # could-not-run and not conclusive: the aligner returned a token, but under the floor that
+    # token is not a reading about the pair -- see MASTER_AXIS_COVERAGE_FLOOR.
+    "alignment_coverage_below_floor": CLASS_COULD_NOT_RUN,
+    # step 3e, the comparison resample. `comparison_resample_not_implemented` was here until the
+    # stage landed and is GONE rather than left behind: this table's own rule is that a token in
+    # it can be emitted, so a token nothing can emit any more is a lie about what the chain can
+    # say. The two below are the real refusals that replaced it, both could-not-run -- neither is
+    # a measurement about the pair.
+    "comparison_resample_refused_at_unity": CLASS_COULD_NOT_RUN,
+    "comparison_resample_filter_unbuildable": CLASS_COULD_NOT_RUN,
     # the stubs -- honest declines for stages not yet landed
-    "comparison_resample_not_implemented": CLASS_COULD_NOT_RUN,
     "hole_resolution_not_implemented": CLASS_COULD_NOT_RUN,
     "plan_application_not_implemented": CLASS_COULD_NOT_RUN,
     # the owner's deferral
@@ -387,9 +582,21 @@ def enumerate_couples(master_obj, candidate_obj, language):
 
 
 def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_rate,
-                      duration_seconds):
+                      duration_seconds, audio_filter=None, output_duration_seconds=None):
     """One whole-file fingerprint list for ONE track. Returns `(points, quantum_ms)`, or
     `(None, None)` when the track could not be read.
+
+    ON `audio_filter` / `output_duration_seconds` -- THE COMPARISON RESAMPLE, AND WHY THE SECOND
+    ARGUMENT IS NOT OPTIONAL ONCE THE FIRST IS GIVEN. `duration_seconds` bounds what is READ from
+    the source (it lands on ffmpeg's `-t`, before `-i`); a speed filter changes what is WRITTEN.
+    So a corrected extraction is `duration_seconds * effective_ratio` long, and BOTH the fpcalc
+    `-length` and the quantum must be computed from THAT, not from the input length. Passing the
+    input length would (a) tell fpcalc to stop early and truncate exactly the tail the correction
+    just restored, and (b) divide the real span by the wrong number and hand every consumer a
+    quantum that is wrong by the rate relation -- a per-track quantum silently off by 4.27 % is
+    worse than no quantum, because everything downstream would keep working and be wrong.
+    `output_duration_seconds` defaults to `duration_seconds`, which is exactly right when there
+    is no filter and never right when there is one.
 
     EXTRACTED TO ITS OWN FULL DURATION, AND THIS IS THE WHOLE POINT OF THE STEP.
     `banded_seed_alignment.locate_zones_by_alignment` truncates BOTH sides to
@@ -411,11 +618,14 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
     to `length=1`, i.e. ONE SECOND of fingerprints, silently -- a caller that forgets this gets a
     plausible short list rather than an error.
     """
+    if output_duration_seconds is None:
+        output_duration_seconds = duration_seconds
     wav = path.join(work_dir, f"orch_{side}_{stream_order}.wav")
     try:
         audio_extract.extract_audio_window(video_obj.filePath, stream_order, 0.0,
-                                           duration_seconds, wav, sample_rate)
-        points = audioCorrelation.calculate_fingerprints(wav, length=duration_seconds)
+                                           duration_seconds, wav, sample_rate,
+                                           audio_filter=audio_filter)
+        points = audioCorrelation.calculate_fingerprints(wav, length=output_duration_seconds)
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"orchestrator: fingerprint_track raised on "
                       f"{video_obj.filePath} stream_order={stream_order}: "
@@ -433,7 +643,7 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
             pass
     if not points:
         return None, None
-    return points, duration_seconds * 1000.0 / len(points)
+    return points, output_duration_seconds * 1000.0 / len(points)
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +705,7 @@ def _copy_hole(hole):
     return copy
 
 
-def merge_holes(holes, zones, quantum_ms):
+def merge_holes(holes, zones, quantum_ms, candidate_quantum_ms=None):
     """THE <10 s MERGE, applied to fixpoint, BEFORE classification.
 
     Two holes merge when the ALIGNED ZONE BETWEEN THEM is shorter than
@@ -515,9 +725,44 @@ def merge_holes(holes, zones, quantum_ms):
     Every merged hole records HOW MANY it swallowed and the length of each zone it crossed, so a
     reader can tell one 20 s hole from four 3 s holes 4 s apart; without that the merge would
     hide exactly the structure it was invented to handle.
+
+    BOTH SPANS ARE RECOMPUTED AS A HOLE GROWS, ON EACH AXIS'S OWN QUANTUM. Found by the
+    Architect's review of this stage and fixed here: until now only `master_span_seconds` was
+    recomputed while `candidate_span_seconds` kept the FIRST swallowed fragment's value, even
+    though both axes' point and millisecond bounds were extended correctly. The consequence is
+    not cosmetic -- `edge_addition_seconds` sums `candidate_span_seconds` over the head and tail
+    holes, and it feeds ADDENDUM 5's 15-second marker rule, so a merged edge hole would
+    UNDERCOUNT the candidate content actually being added and could leave a track untagged that
+    the addendum requires tagged. A track wrongly left untagged keeps its INTACT status in
+    `keep_best_audio` and can beat a genuinely intact track; that is the "intact wins" invariant
+    broken by an arithmetic omission, which is exactly the class of silent defect this campaign
+    exists to find.
+
+    BLAST RADIUS, MEASURED BY AN INDEPENDENT TESTER ON THE WHOLE CORPUS BEFORE THE FIX, so the
+    size of what was being lost is on the record: 15 merged holes across 9 of the 20 pairs, FIVE
+    of them EDGE holes -- the ones that reach ADDENDUM 5 -- under-reporting by 12 s to 1236 s,
+    always in the under-reporting direction (the direction that can only fail to tag a real
+    chimera, never over-tag). Three pairs decide their tag on edge additions ALONE, with no
+    interior hole to rescue them through bound (a), and on two of those the deciding number was
+    the corrupted one. RE-MEASURED THROUGH THIS CODE AFTER THE FIX, same pairs, same runs:
+        errid-99  en  head, merged_from=2   72.945 s -> 669.031 s   (the true merged extent)
+        errid-696 ja  tail, merged_from=5   71.863 s -> 345.786 s
+        errid-696 ja  head, merged_from=2  119.027 s -> 131.314 s
+        errid-123 ja  head, merged_from=3  117.468 s -> the pair no longer reaches holes at all
+    and errid-99/en's ADDENDUM 5 line now reads "edge additions total 669.031s" where it read
+    72.945 s. The tag was `True` either way on this corpus -- every margin was 5x or more -- so
+    what was broken here was the RECORD that clause (d) requires always, not any decision yet
+    taken. A pair whose true edge span crosses 15 s while its stale span did not would have
+    turned that into a silent mis-tag.
+
+    `candidate_quantum_ms` defaults to the master's only so that a caller that genuinely has one
+    quantum need not say it twice -- the per-track-quantum invariant means the real caller
+    (`holes_for_couple`) always passes the candidate's own.
     """
     if not holes:
         return []
+    if candidate_quantum_ms is None:
+        candidate_quantum_ms = quantum_ms
     # COPIED, NOT ALIASED: the bound lists below are mutated in place as a hole grows, and a
     # shallow `dict()` would have the merged hole and its raw source sharing the same list
     # objects -- so the "before merging" record a reader compares against would silently become
@@ -539,6 +784,9 @@ def merge_holes(holes, zones, quantum_ms):
             open_hole["master_span_seconds"] = (
                 max(0, open_hole["master_points"][1] - open_hole["master_points"][0] + 1)
                 * quantum_ms / 1000.0)
+            open_hole["candidate_span_seconds"] = (
+                max(0, open_hole["candidate_points"][1] - open_hole["candidate_points"][0] + 1)
+                * candidate_quantum_ms / 1000.0)
         else:
             merged.append(_copy_hole(current))
     return merged
@@ -657,7 +905,7 @@ def holes_for_couple(alignment):
     candidate_quantum_ms = alignment.get("candidate_quantum_ms") or quantum_ms
     raw = derive_holes(zones, alignment["n_master"], alignment["n_candidate"],
                         quantum_ms, candidate_quantum_ms)
-    merged = merge_holes(raw, zones, quantum_ms)
+    merged = merge_holes(raw, zones, quantum_ms, candidate_quantum_ms=candidate_quantum_ms)
     classified = classify_holes(merged, zones_detail, quantum_ms)
     return [hole for hole in classified
             if hole["master_span_seconds"] > 0 or hole["candidate_span_seconds"] > 0
@@ -714,6 +962,18 @@ def cross_verify_couples(couple_results):
     POSITION of the same event disagreed by 0 to 216 quanta (0.75 s to 26.8 s), and the zone
     COUNTS did not agree at all (82/77/61/27/32 for one physical pair). So agreement is tested on
     `(cluster, signed step)` with a wide positional window, and never bound for bound.
+
+    TWO POSITION NUMBERS APPEAR IN THIS MODULE AND THEY MEASURE DIFFERENT THINGS -- reconciled
+    here because an independent tester read them as one and could not reproduce the larger. The
+    26.8 s above is a RAW ZONE-BOUND disagreement, measured on `b2_align`'s zone bounds before
+    anything downstream touched them; it is the number that justifies not comparing bound for
+    bound. What this function actually clusters is the HOLE START position, after
+    `coalesce_same_offset_zones` has joined same-offset runs and after the <10 s merge -- a
+    quantity two transforms removed from the first, and much better behaved. MEASURED on it,
+    corpus-wide: the largest within-cluster positional spread is 7.69 s (errid-24/es), then 7.57,
+    6.95, 6.58, 5.96, 5.81, and 4.22 for errid-232's real edit; everything else is ~0. All inside
+    the 10 s window, with 2.3 s of headroom. So the window is not 2.7x too small -- the two
+    numbers are simply not the same measurement, and neither reading was wrong.
 
     The rules, each one a refusal this design would otherwise make wrongly:
 
@@ -898,23 +1158,289 @@ def log_cross_verification(candidate_path, report):
 # THE STUBS -- stages not yet landed. EACH ONE DECLINES BY NAME.
 # ---------------------------------------------------------------------------
 
-def comparison_resample(speed_factor, master_obj, candidate_obj, language, work_dir):
-    """STUB -- design stage 3. Returns `(None, cause)`.
+def _pitch_probe_window(master_obj, candidate_obj, language, master_stream, candidate_stream,
+                        speed_factor, work_dir, sample_rate):
+    """Two single-stream WAVs of the COMPARISON language, content-aligned, for the pitch layer.
 
-    WHAT IT WILL DO. Speed correction is a MEASUREMENT tool (owner's ADDENDUM 7 point 1): the
-    sweep and this resample serve ALIGNING and LOCATING, nothing else. The filter is chosen BY
-    THE MEASUREMENT ALREADY AVAILABLE and never hard-coded -- the pitch layer says whether the
-    pitch moved, and ADDENDUM 2 settled the routing by bench: the EXISTING routing stays
-    (`asetrate` behind the pitch-shifted verdict, which is what `merge_video_resample
-    .build_speed_filter_chain` already builds), and the pitch layer's currently-unimplemented
-    "inverting case" token binds to `atempo` when it is implemented -- never to `rubberband`,
-    which lost in both measured classes.
+    WHY THE TRACKS ARE PRE-EXTRACTED INSTEAD OF HANDING THE CONTAINERS STRAIGHT TO
+    `pal_pitch_confirmer`. That module's `_pcm` runs ffmpeg with no `-map`, so it takes ffmpeg's
+    DEFAULT audio-stream pick -- the "best" stream, which is the one with the most channels.
+    MEASURED on the real PAL pair this stage was validated against: the master carries fre AC-3
+    2ch and eng DTS 6ch, the candidate carries fre and eng both E-AC-3 2ch, so the default pick
+    reads the master's ENGLISH and the candidate's FRENCH and the pitch layer would be handed two
+    different languages. The limitation is documented in that module's siblings
+    (`merge_video_resample.test_speed_ratio_against_master`: "a caller with a specific comparison
+    stream must pre-extract it to a single-stream file first"), so this is that pre-extraction,
+    not a workaround invented here.
 
-    AND NO FILTER RUNS AT ALL AT speed_factor = 1 (owner's ADDENDUM 6): a track whose speed did
-    not change passes through INTACT, zero processing. A filter exists only to UNDO a measured
-    change. The caller enforces that before ever reaching here.
+    AND THE TWO WINDOWS ARE TAKEN AT CORRESPONDING CONTENT, NOT AT THE SAME CLOCK TIME. With
+    `speed_ratio = master_duration / candidate_duration`, master instant `t` is candidate instant
+    `t / ratio` -- the same arithmetic `merge_video_resample._probe_fidelity_at_ratio` states for
+    its own probes. At the PAL factor a 180 s window taken at the same clock time on both sides
+    would compare content 25 s apart at its start; corrected, the residual drift inside the window
+    is the window's own length times the relation, which is content the long-term spectrum
+    tolerates. The candidate side is NOT filtered: the whole question the pitch layer answers is
+    what this audio's pitch is BEFORE anything undoes it.
+
+    Returns `(master_wav, candidate_wav, window_seconds)` or `(None, None, None)`.
     """
-    return None, "comparison_resample_not_implemented"
+    master_duration = _track_duration_seconds(master_obj, language, master_stream)
+    candidate_duration = _track_duration_seconds(candidate_obj, language, candidate_stream)
+    if master_duration is None or candidate_duration is None:
+        return None, None, None
+    ratio = float(speed_factor)
+    window = PITCH_PROBE_WINDOW_SECONDS
+    # STAY INSIDE BOTH FILES, on both axes: the candidate must be able to supply the window at
+    # `t / ratio`, so the usable master span is bounded by the candidate's own length times the
+    # ratio -- never by the master alone.
+    usable = min(master_duration, candidate_duration * ratio)
+    if usable <= window:
+        window = max(PITCH_PROBE_WINDOW_MINIMUM_SECONDS, usable / 2.0)
+        if usable <= window:
+            return None, None, None
+    master_start = max(0.0, (usable - window) / 2.0)
+    candidate_start = master_start / ratio
+    master_wav = path.join(work_dir, f"orch_pitch_master_{master_stream}.wav")
+    candidate_wav = path.join(work_dir, f"orch_pitch_candidate_{candidate_stream}.wav")
+    try:
+        audio_extract.extract_audio_window(master_obj.filePath, master_stream, master_start,
+                                           window, master_wav, sample_rate)
+        audio_extract.extract_audio_window(candidate_obj.filePath, candidate_stream,
+                                           candidate_start, window / ratio, candidate_wav,
+                                           sample_rate)
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"orchestrator: pitch probe windows unextractable "
+                      f"({type(error).__name__}: {error}) -- the pitch layer will not be asked, "
+                      f"and not asking is recorded as not asking\n")
+        for temporary in (master_wav, candidate_wav):
+            try:
+                remove(temporary)
+            except OSError:
+                pass
+        return None, None, None
+    return master_wav, candidate_wav, window
+
+
+def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, sample_rate):
+    """WHICH FILTER, DECIDED BY THE MEASUREMENT ALREADY AVAILABLE -- never hard-coded.
+
+    The ruling's body, verbatim: "le filtre se CHOISIT par la mesure deja disponible -- la couche
+    pitch dit si la hauteur a bouge : pitch decale (speedup PAL/NTSC) -> asetrate+aresample
+    (defait vitesse ET hauteur ensemble) ; pitch intact -> atempo (tempo seul, hauteur
+    preservee). Jamais un choix code en dur."
+
+    WHAT THE MEASUREMENT CAN AND CANNOT SAY TODAY, AND THE DIFFERENCE IS THE WHOLE DECISION.
+    `pal_pitch_confirmer.confirm_pitch` answers ONE question: does the pitch-measured ratio agree
+    with the ratio we are about to apply? Two of its three outcomes are unambiguous:
+
+      agrees                 the pitch moved WITH the speed -- the naive-speedup family, PAL and
+                             NTSC both. `asetrate` is the exact inverse and undoes both together.
+      refuses, no peak       the instrument did not run on this material. NOT a verdict about the
+                             pitch, and the standing invariant forbids reading it as one.
+
+    The third -- "a bounded peak was found and it is not the applied ratio" -- is the one that
+    COULD contain the inverting case (a source already pitch-corrected at origin, whose duration
+    moved while its pitch did not), and it is NOT implemented anywhere in this tree:
+    `merge_video_repair:229-233` carries the only mention as an explicit refusal
+    (`speed_verdict_rubberband_unimplemented`). ADDENDUM 2 rules on exactly this: the EXISTING
+    routing stays, and that token "se liera a ATEMPO quand il s'implementera -- jamais a
+    rubberband". So this function DOES NOT INVENT THE DETECTOR. It routes `asetrate` on both
+    reachable outcomes, records which one it saw, and records the number a future detector would
+    need -- `measured_ratio`, and how far it sits from 1.0 against how far the applied ratio sits
+    from 1.0. A measurement logged on every run is how a calibration gets its data; a detector
+    guessed today is how a wrong verdict gets shipped.
+
+    WHY `asetrate` IS THE DEFAULT AND NOT A PREFERENCE. `docs/AUDIO_SPEED_POLICY.MD` (owner
+    ruling, 2026-09-01) measured it winning 23 of 23 on PAL and 6 of 6 on NTSC against real
+    masters, with 16 of 16 tracks reading `same_recording` after correction; the filter bake-off
+    re-measured the same at the PAL scale (`architect/cases/BAKEOFF_speed_filters.md` and the ear
+    dossier's classes D and E: `02_asetrate` is the only variant that returns the pitch to 0.0
+    cents, 0 ms realignment, NCC 0.995/0.971). `rubberband` lost in both measured classes and is
+    never routed here.
+
+    Returns a routing dict; never None -- a pitch layer that could not run produces a routing with
+    its refusal recorded, because the filter question still has an answer.
+    """
+    routing = {
+        "filter_name": "asetrate",
+        "pitch_measured_ratio": None,
+        "pitch_peak": None,
+        "pitch_refusal": None,
+        "pitch_window_seconds": None,
+        "inverting_case_detector": "not_implemented",
+        "inverting_case_observation": None,
+    }
+    master_streams = audio_extract.streams_for(master_obj, language)
+    candidate_streams = audio_extract.streams_for(candidate_obj, language)
+    if not master_streams or not candidate_streams:
+        routing["pitch_refusal"] = "no_stream_to_probe"
+        routing["route_reason"] = (
+            "the pitch layer was not asked: there is no comparison-language stream pair to probe "
+            "it on. asetrate stands as the policy default (AUDIO_SPEED_POLICY 23/23 PAL, 6/6 "
+            "NTSC), and 'not asked' is recorded as not asked, never as 'pitch intact'")
+        return routing
+    master_wav, candidate_wav, window = _pitch_probe_window(
+        master_obj, candidate_obj, language, master_streams[0], candidate_streams[0],
+        speed_factor, work_dir, sample_rate)
+    if master_wav is None:
+        routing["pitch_refusal"] = "probe_window_unavailable"
+        routing["route_reason"] = (
+            "the pitch layer was not asked: no window could be taken inside both tracks. "
+            "asetrate stands as the policy default, and 'not asked' is not 'pitch intact'")
+        return routing
+    routing["pitch_window_seconds"] = round(window, 3)
+    try:
+        import pal_pitch_confirmer
+        tools.dev_log(f"orchestrator: calling pal_pitch_confirmer.confirm_pitch "
+                      f"master_wav={master_wav} candidate_wav={candidate_wav} "
+                      f"predicted_ratio={float(speed_factor)} window_seconds={window}\n")
+        reading = pal_pitch_confirmer.confirm_pitch(
+            master_wav, candidate_wav, 0.0, float(speed_factor), window_seconds=window)
+    except Exception as error:                                           # noqa: BLE001
+        routing["pitch_refusal"] = "pitch_layer_raised"
+        routing["route_reason"] = (
+            f"the pitch layer raised {type(error).__name__} -- the instrument did not run, which "
+            f"is not a reading about the pitch. asetrate stands as the policy default")
+        tools.dev_log(f"orchestrator: pal_pitch_confirmer raised "
+                      f"({type(error).__name__}: {error})\n")
+        return routing
+    finally:
+        for temporary in (master_wav, candidate_wav):
+            try:
+                remove(temporary)
+            except OSError:
+                pass
+    routing["pitch_measured_ratio"] = reading.get("measured_ratio")
+    routing["pitch_peak"] = reading.get("peak")
+    routing["pitch_refusal"] = reading.get("refusal")
+    measured = reading.get("measured_ratio")
+    if measured is not None:
+        # THE NUMBER THE INVERTING-CASE DETECTOR WOULD NEED, MEASURED AND NOT BRANCHED ON -- the
+        # same discipline this module already applies to the uncalibrated rate-relation slope
+        # arm. An inverting case is "duration moved, pitch did NOT": it would read `measured`
+        # near 1.0 while `speed_factor` sits far from it. Recorded as a distance, so a future
+        # calibration has a population instead of a blank.
+        routing["inverting_case_observation"] = {
+            "measured_from_unity": round(abs(measured - 1.0), 6),
+            "applied_from_unity": round(abs(float(speed_factor) - 1.0), 6),
+        }
+    if reading.get("refusal") is None:
+        routing["route_reason"] = (
+            f"the pitch layer confirms the pitch moved with the speed (measured "
+            f"{measured}, applied {float(speed_factor):.7f}, peak {reading.get('peak')}): this "
+            f"is the naive-speedup family, and asetrate is its exact inverse -- it undoes speed "
+            f"AND pitch together (ruling body, step 2)")
+    else:
+        routing["route_reason"] = (
+            f"the pitch layer returned {reading.get('refusal')} ({reading.get('reason')}). That "
+            f"is NOT the inverting case and must not be read as one -- the inverting-case "
+            f"detector is unimplemented in this tree (merge_video_repair:229-233) and ADDENDUM 2 "
+            f"binds it to atempo only WHEN it is implemented. The existing routing stands: "
+            f"asetrate, on AUDIO_SPEED_POLICY's 23/23 PAL and 6/6 NTSC")
+    return routing
+
+
+def comparison_resample(speed_factor, master_obj, candidate_obj, language, work_dir,
+                        sample_rate=None):
+    """The comparison resample: the filter that lets the ALIGNER see across a rate relation.
+
+    Returns `(routing_or_None, cause_or_None)`. The routing is a DESCRIPTION, not a file: nothing
+    is written here. The candidate's comparison tracks are speed-corrected inside the SAME ffmpeg
+    invocation that already extracts them for fingerprinting (`fingerprint_track`), so the
+    correction costs no extra decode, no extra temporary file and no extra generation of codec.
+
+    A MEASUREMENT TOOL, AND ONLY THAT (owner's ADDENDUM 7 point 1): "la correction de vitesse
+    reste un OUTIL DE MESURE : le sweep et le resample de comparaison servent a ALIGNER et
+    LOCALISER". NOTHING PRODUCED HERE IS EVER SHIPPED. The corrected audio exists for the length
+    of one fingerprint pass and is deleted by `fingerprint_track`'s own `finally`; the delivery
+    question -- which corrected audio a product should carry -- is SUSPENDED until the owner
+    validates examples himself, and `apply_plan` declines `restoration_deferred` when a
+    rate-family pair reaches it.
+
+    NO FILTER AT ALL AT speed_factor = 1 (owner's ADDENDUM 6): "aucun filtre de correction ne
+    tourne JAMAIS sur une piste dont la vitesse n'a pas change". That is enforced TWICE and
+    deliberately: the caller does not enter this function at factor 1 or None, and this function
+    refuses one anyway. A rule enforced only at the call site is a rule one new call site removes.
+
+    EXACT RATIONALS, NEVER FLOATS, AND THE ONE THAT MATTERS IS THE EFFECTIVE ONE.
+    `merge_video_resample.build_speed_filter_chain` is the pipeline's single authority on this
+    arithmetic and it is called, not reimplemented: `asetrate` takes an INTEGER, so the factor
+    actually obtained is `intermediate / round(intermediate / ratio)` and is NOT the one
+    requested. Both are carried on the routing -- the requested one as the exact `Fraction` the
+    sweep won with, the effective one as the exact integer ratio the filter will really apply --
+    and it is the EFFECTIVE one every downstream length is computed from, because it is the one
+    the audio will actually have.
+    """
+    if speed_factor is None or speed_factor == 1:
+        # ADDENDUM 6, enforced here as well as at the call site. See the docstring.
+        return None, "comparison_resample_refused_at_unity"
+    if sample_rate is None:
+        sample_rate = comparison_sample_rate(master_obj, candidate_obj, language)
+    source_rate = _candidate_audio_sample_rate(candidate_obj)
+    if source_rate is None:
+        return None, "rate_sweep_no_sample_rate"
+    # THE CHAIN IS BUILT AT THE CANDIDATE'S OWN SOURCE RATE, NOT AT THE COMPARISON GRID, and the
+    # difference is small, measured, and free. `build_speed_filter_chain` divides the integer-
+    # asetrate rounding error by running through an intermediate at 8x the rate it is given, so
+    # the higher that rate, the smaller the residual. MEASURED at the PAL rational 1001/960:
+    #     48000 Hz (the candidate's own)  asetrate=368272  effective 1.0427075640
+    #                                     7.38e-7 relative, 0.90 ms of drift over a 1220 s track
+    #     44100 Hz (the comparison grid)  asetrate=338350  effective 1.0427072558
+    #                                     1.03e-6 relative, 1.26 ms over the same track
+    # Both sit four orders under a 124 ms fingerprint quantum, so NEITHER would change an
+    # alignment -- the source rate is chosen because it is the better of two numbers that cost
+    # the same, not because the other one would have failed. The extraction's own `-ar` resamples
+    # to the comparison grid afterwards, so nothing is lost by correcting on the finer grid first.
+    try:
+        import merge_video_resample
+        ratio_decimal = (Decimal(speed_factor.numerator) / Decimal(speed_factor.denominator)
+                         if isinstance(speed_factor, Fraction) else Decimal(str(speed_factor)))
+        chain, effective, intermediate, target = merge_video_resample.build_speed_filter_chain(
+            source_rate, ratio_decimal)
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"orchestrator: build_speed_filter_chain refused "
+                      f"({type(error).__name__}: {error})\n")
+        return None, "comparison_resample_filter_unbuildable"
+    routing = pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir,
+                            sample_rate)
+    routing.update({
+        "modality": MODALITY,
+        "side": "candidate",
+        "rule": "ADDENDUM_7_measurement_tool_never_delivered",
+        "requested_ratio": (f"{speed_factor.numerator}/{speed_factor.denominator}"
+                            if isinstance(speed_factor, Fraction) else str(speed_factor)),
+        "requested_ratio_value": float(speed_factor),
+        "source_sample_rate": source_rate,
+        "comparison_sample_rate": sample_rate,
+        "filter_chain": chain,
+        "intermediate_rate": intermediate,
+        "asetrate_target": target,
+        "effective_ratio": effective,
+        "effective_ratio_str": str(effective),
+        "tag_factor": merge_video_resample.format_factor(effective),
+    })
+    return routing, None
+
+
+def _candidate_audio_sample_rate(candidate_obj):
+    """The candidate's own audio sampling rate, for the filter's arithmetic.
+
+    Reads the same two places `merge_video_repair._candidate_sample_rate_for_speed_test` reads
+    (ffprobe first, MediaInfo in fallback) rather than importing it: that name is in the module
+    the switch will eventually delete, and a stage that is not the switch should not add a new
+    dependency on it. Returns None when nothing is readable -- never a default rate, because a
+    guessed source rate produces a filter whose EFFECTIVE factor is wrong in a way nothing
+    downstream can detect.
+    """
+    for _language, audios in (getattr(candidate_obj, "audios", None) or {}).items():
+        for audio in audios:
+            rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
+            if rate is not None:
+                try:
+                    return int(float(rate))
+                except (TypeError, ValueError):
+                    continue
+    return None
 
 
 def resolve_hole(hole, master_obj, candidate_obj, work_dir):
@@ -1018,6 +1544,184 @@ def speed_factor(master_obj, candidate_obj, language):
     return winner, gate, None
 
 
+def zone_offset_rate_signature(alignment):
+    """The rate-relation reading taken off the ZONES, not off the drift trace. Measurement only.
+
+    WHY A SECOND INSTRUMENT RATHER THAN THE ONE THE DESIGN NAMED. Design section 3.6 proposes
+    reading `drift_fit` (`best_shift_trace` + `fit_trace_slope`) as "there is a rate relation
+    here". MEASURED this session, that instrument is BLIND on the very pair it would be for:
+    `best_shift_trace` starts at offset 0 and re-centres within +/-`TRACE_M_POINTS` (3) points per
+    checkpoint, so a pair whose true offset is far outside that radius never acquires the signal
+    at all. errid-70's real offset is -2.85 s = -23 points: all 1026 checkpoints read offset 0,
+    and the fit obediently reported slope 0.0 with a residual of 0.0 -- a perfect straight line
+    through a measurement that never happened. So the drift trace is kept and logged, and this
+    reading is taken beside it from a quantity that does not depend on where the trace started:
+    the ALIGNED ZONES' OWN OFFSETS, which the aligner measured absolutely.
+
+    WHAT IT COMPUTES. Least squares of `offset_points` against the zone's master midpoint, over
+    the aligned zones, weighted by nothing -- one point per zone. Then, per the bake-off's own
+    ruling on this exact question (`/config/output/filter_bakeoff_ear/INDEX.md`: "Ce qui les
+    denonce est le RESIDU, pas la pente ; la pente seule ment"), the RESIDUAL of that fit is
+    reported in milliseconds alongside the slope. A rate relation makes the offsets march
+    monotonically and the line fits them; a staircase of content edits makes them sit on plateaus
+    and the line cannot.
+
+    NOTHING BRANCHES ON THIS TODAY -- see `RATE_RELATION_SLOPE_GATE_CALIBRATED`. It is emitted on
+    every run so the calibration accumulates a population instead of waiting for one.
+
+    Returns a dict, always, every key present; `None` where there was nothing to measure.
+    """
+    empty = {"n_zones": 0, "slope_points_per_point": None, "r_squared": None,
+             "residual_rms_ms": None, "residual_max_ms": None, "span_points": None,
+             "implied_total_drift_ms": None}
+    detail = alignment.get("zones_detail") or []
+    quantum_ms = alignment.get("quantum_ms")
+    if len(detail) < 3 or not quantum_ms:
+        # TWO ZONES DEFINE A LINE EXACTLY, so a fit through them has a residual of zero by
+        # construction and says nothing about whether the world is a ramp or a step. The floor
+        # is three, and a pair under it reports `n_zones` with everything else None rather than
+        # a residual that is an artefact of the arithmetic.
+        empty["n_zones"] = len(detail)
+        return empty
+    xs = [(zone["master_points"][0] + zone["master_points"][1]) / 2.0 for zone in detail]
+    ys = [float(zone["offset_points"]) for zone in detail]
+    n = len(xs)
+    mean_x, mean_y = sum(xs) / n, sum(ys) / n
+    ss_xx = sum((x - mean_x) ** 2 for x in xs)
+    if ss_xx == 0:
+        empty["n_zones"] = n
+        return empty
+    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / ss_xx
+    intercept = mean_y - slope * mean_x
+    residuals = [y - (slope * x + intercept) for x, y in zip(xs, ys)]
+    ss_res = sum(residual ** 2 for residual in residuals)
+    ss_tot = sum((y - mean_y) ** 2 for y in ys)
+    span = xs[-1] - xs[0]
+    return {
+        "n_zones": n,
+        "slope_points_per_point": slope,
+        "r_squared": (1 - ss_res / ss_tot) if ss_tot > 0 else None,
+        "residual_rms_ms": ((ss_res / n) ** 0.5) * quantum_ms,
+        "residual_max_ms": max(abs(residual) for residual in residuals) * quantum_ms,
+        "span_points": span,
+        "implied_total_drift_ms": slope * span * quantum_ms,
+    }
+
+
+def zone_ladder_signature(alignment):
+    """IS THIS ALIGNMENT A RATE LADDER? Counting, not curve fitting.
+
+    WHAT A RATE RELATION DOES TO THIS ALIGNER, stated as a mechanism before any number. The
+    aligner extends runs at a FIXED offset. Under a rate relation the true offset never stops
+    moving, so a run can only survive until the drift reaches about half a quantum, at which
+    point the aligner must start a new segment one point further along. The output is therefore
+    a LADDER: many zones, each separated from the next by a step of exactly one quantum, all
+    in the SAME direction, for the whole length of the file. A content edit does the opposite:
+    a few long zones separated by a few LARGE steps, in whichever directions the editor cut or
+    added.
+
+    WHY COUNTING AND NOT A REGRESSION. The bake-off settled that a straight-line fit cannot
+    separate these two: "un escalier monotone s'ajuste aussi bien a une droite", with errid 213
+    returning a credible "ratio 1.0010739" on a file that has no rate relation at all. It also
+    named the reading that CAN separate them -- the residual -- but the residual is only
+    available in a unit this aligner cannot deliver finely: everything here is quantised to
+    ~124 ms, so the bake-off's five orders of magnitude (10 microseconds against 22 seconds)
+    collapse to at best one. The LADDER STRUCTURE survives the quantisation intact, because it
+    IS the quantisation: a rate relation is the one thing that produces a long monotone run of
+    exactly-one-quantum steps. So that is what gets counted.
+
+    FOUR CONDITIONS, ALL REQUIRED, each answering a different way of being wrong:
+      rungs      enough one-quantum steps that a handful of coincidences cannot supply them
+      purity     those rungs DOMINATE the steps -- a file with three big edits and two
+                 one-quantum wobbles is not a ladder
+      direction  the rungs almost all point the same way -- drift has a sign, edits do not
+      magnitude  the implied rate deviation is large enough for some NAMED rate to explain it
+
+    THE MAGNITUDE CONDITION IS NOT MINE AND IS NOT TUNED. It is
+    `change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION` (5e-4), derived there as HALF the
+    smallest deviation in the named rate vocabulary (1001/1000 and its reciprocal, |f-1| =
+    1/1001 = 9.99e-4): a slope implying less than half of the smallest named deviation cannot be
+    recognised as any named rate, so it is flatness with a good fit, not a relation. That module
+    landed it on a measured case -- id 33's normalised residual fit a slope at r^2 0.57 over 64
+    points implying |f-1| = 9e-7, five orders below the floor, and the gate there fired on it
+    anyway until the floor was added. The locator dies in the switch; its measurement does not,
+    so the constant is IMPORTED from it rather than restated, with a literal fallback.
+
+    Returns a dict, always, `is_rate_ladder` plus every count it rests on and a `reason` in
+    words. NOTHING BRANCHES ON IT unless `RATE_RELATION_SLOPE_GATE_CALIBRATED` is True.
+    """
+    detail = alignment.get("zones_detail") or []
+    quantum_ms = alignment.get("quantum_ms") or 0.0
+    offsets = [zone["offset_points"] for zone in detail]
+    steps = [later - earlier for earlier, later in zip(offsets, offsets[1:])]
+    nonzero = [step for step in steps if step != 0]
+    floor = banded_seed_alignment.RESOLUTION_FLOOR_QUANTA
+    rungs = [step for step in nonzero if abs(step) < floor]
+    above_floor = [step for step in nonzero if abs(step) >= floor]
+    span_points = (detail[-1]["master_points"][1] - detail[0]["master_points"][0]) if detail else 0
+    span_minutes = span_points * quantum_ms / 60000.0 if quantum_ms else 0.0
+    rung_fraction = (len(rungs) / len(nonzero)) if nonzero else None
+    monotone_fraction = (max(sum(1 for step in rungs if step > 0),
+                             sum(1 for step in rungs if step < 0)) / len(rungs)) if rungs else None
+    # THE IMPLIED RATE, FROM THE LADDER ITSELF RATHER THAN FROM A REGRESSION. The offset is
+    # `j - i`, so its drift per master point is `dj/di - 1`; with the candidate running at
+    # `speed_ratio = master_duration / candidate_duration`, `dj/di` is `1/speed_ratio`, hence
+    # `speed_ratio = 1 / (1 + drift)` and the deviation this is tested against is
+    # `|speed_ratio - 1|`. The drift is taken as total rise over total run across the zones --
+    # the ladder's own two ends -- not as a least-squares slope, because the whole point of
+    # counting rather than fitting is that this population is a staircase and a fit through a
+    # staircase is the reading the bake-off warned about.
+    total_rise = (offsets[-1] - offsets[0]) if len(offsets) >= 2 else 0
+    drift_per_point = (total_rise / span_points) if span_points else 0.0
+    implied_ratio = 1.0 / (1.0 + drift_per_point) if (1.0 + drift_per_point) != 0 else None
+    implied_deviation = None if implied_ratio is None else abs(implied_ratio - 1.0)
+    signature = {
+        "n_zones": len(detail),
+        "n_steps": len(steps),
+        "n_steps_nonzero": len(nonzero),
+        "n_rungs_subfloor": len(rungs),
+        "n_steps_above_floor": len(above_floor),
+        "rung_fraction": None if rung_fraction is None else round(rung_fraction, 4),
+        "rung_monotone_fraction": (None if monotone_fraction is None
+                                   else round(monotone_fraction, 4)),
+        "zones_per_minute": round(len(detail) / span_minutes, 3) if span_minutes > 0 else None,
+        "implied_speed_ratio": None if implied_ratio is None else round(implied_ratio, 7),
+        "implied_factor_deviation": (None if implied_deviation is None
+                                     else round(implied_deviation, 7)),
+        "min_factor_deviation": RATE_LADDER_MIN_FACTOR_DEVIATION,
+        "is_rate_ladder": False,
+        "reason": None,
+    }
+    if len(rungs) < LADDER_MIN_RUNGS:
+        signature["reason"] = (f"{len(rungs)} one-quantum rungs, under the {LADDER_MIN_RUNGS} "
+                               f"this instrument needs before it will call a ladder a ladder")
+        return signature
+    if rung_fraction < LADDER_MIN_RUNG_FRACTION:
+        signature["reason"] = (f"one-quantum rungs are {rung_fraction:.3f} of the "
+                               f"{len(nonzero)} offset changes, under {LADDER_MIN_RUNG_FRACTION} "
+                               f"-- {len(above_floor)} steps clear the resolution floor, so this "
+                               f"is a file with edits in it, not a file that is drifting")
+        return signature
+    if monotone_fraction < LADDER_MIN_RUNG_MONOTONE_FRACTION:
+        signature["reason"] = (f"the {len(rungs)} rungs are only {monotone_fraction:.3f} "
+                               f"one-directional, under {LADDER_MIN_RUNG_MONOTONE_FRACTION} -- "
+                               f"drift has a sign and this does not")
+        return signature
+    if implied_deviation is None or implied_deviation < RATE_LADDER_MIN_FACTOR_DEVIATION:
+        signature["reason"] = (f"the ladder implies a speed ratio of {implied_ratio}, a deviation "
+                               f"of {implied_deviation} from unity -- under "
+                               f"{RATE_LADDER_MIN_FACTOR_DEVIATION}, half the smallest deviation "
+                               f"any NAMED rate has, so no named rate could explain it and the "
+                               f"sweep would have nothing to confirm")
+        return signature
+    signature["is_rate_ladder"] = True
+    signature["reason"] = (f"{len(rungs)} one-quantum rungs ({rung_fraction:.3f} of all offset "
+                           f"changes, {monotone_fraction:.3f} of them one-directional) over "
+                           f"{span_minutes:.1f} minutes, against {len(above_floor)} steps above "
+                           f"the resolution floor, implying a speed ratio of {implied_ratio}")
+    return signature
+
+
 def similarity_gate(alignment):
     """"Similarite faible master<->candidat ?" -- answered from the alignment's OWN numbers.
 
@@ -1026,18 +1730,31 @@ def similarity_gate(alignment):
     already pay and because it yields a NAMED reason ("the aligner found no anchored run")
     instead of a bare scalar.
 
-    ONE ARM FIRES AND IT IS THE UNAMBIGUOUS ONE: the aligner returned one of its own
-    could-not-measure verdicts. That IS "similarity is low" in the ruling's sense -- there was
-    not enough agreement anywhere in the file to anchor a single run.
+    TWO ARMS, AND THEY ARE NOT THE SAME KIND OF CLAIM -- which is why the return says WHICH one
+    fired and the caller treats the two differently.
 
-    THE RATE-RELATION ARM IS MEASURED AND NOT BRANCHED ON -- see
-    `RATE_RELATION_SLOPE_GATE_CALIBRATED` for the measurements that refuse to support a
-    threshold yet. Its numbers are returned so the caller logs them on every run, which is how
-    the calibration gets its data instead of waiting for someone to go and collect it.
+      `alignment_could_not_measure`  the aligner returned one of its own could-not-measure
+                                     verdicts. That IS "similarite faible" in the ruling's
+                                     sense: not enough agreement anywhere in the file to anchor
+                                     a single run. The aligner CANNOT PROCEED, so if the sweep
+                                     then finds nothing, there is nothing left to try and the
+                                     pair declines.
+      `rate_relation_signature`      the aligner aligned, and what it produced carries the
+                                     shape of a rate relation. The aligner CAN proceed, so this
+                                     arm is a SUGGESTION to ask the sweep -- and if the sweep
+                                     says no, the honest continuation is the alignment we
+                                     already have, NOT a refusal. See `repair()`.
 
-    Returns `(should_sweep, reason, observations)`.
+    THE ASYMMETRY IS THE WHOLE SAFETY ARGUMENT FOR EVER ENABLING THE SECOND ARM. A rate arm
+    whose false positive ends in a decline would trade a known good outcome for a new
+    false-decline family every time it misfired on a healthy pair; a rate arm whose false
+    positive costs one sweep and then carries on cannot do worse than spend time. That is what
+    makes the threshold below a cost question rather than a correctness one.
+
+    Returns `(should_sweep, reason, observations)`; `observations["gate_arm"]` names the arm.
     """
     drift_fit = alignment.get("drift_fit") or {}
+    zone_fit = zone_offset_rate_signature(alignment)
     observations = {
         "verdict": alignment.get("verdict"),
         "coverage": alignment.get("master_axis_coverage_fraction"),
@@ -1045,13 +1762,49 @@ def similarity_gate(alignment):
         "slope_points_per_point": drift_fit.get("slope_points_per_point"),
         "r_squared": drift_fit.get("r_squared"),
         "implied_step_count": drift_fit.get("implied_step_count"),
+        "trace_fit_degenerate": drift_fit.get("fit_degenerate"),
+        "trace_residual_rms_ms": (None if drift_fit.get("residual_rms_ms") is None
+                                  else round(drift_fit["residual_rms_ms"], 4)),
+        # THE ZONE-OFFSET READING, beside the trace's and never instead of it -- two instruments
+        # on the same question, both logged, neither branched on until one is calibrated.
+        "zone_n": zone_fit["n_zones"],
+        "zone_slope_points_per_point": zone_fit["slope_points_per_point"],
+        "zone_r_squared": zone_fit["r_squared"],
+        "zone_residual_rms_ms": (None if zone_fit["residual_rms_ms"] is None
+                                 else round(zone_fit["residual_rms_ms"], 3)),
+        "zone_residual_max_ms": (None if zone_fit["residual_max_ms"] is None
+                                 else round(zone_fit["residual_max_ms"], 3)),
+        "zone_implied_total_drift_ms": (None if zone_fit["implied_total_drift_ms"] is None
+                                        else round(zone_fit["implied_total_drift_ms"], 1)),
         "rate_arm_calibrated": RATE_RELATION_SLOPE_GATE_CALIBRATED,
     }
     if alignment.get("verdict") in ALIGNMENT_COULD_NOT_MEASURE_VERDICTS:
+        observations["gate_arm"] = "alignment_could_not_measure"
         return True, f"the aligner returned {alignment['verdict']}", observations
-    return False, (f"the aligner anchored runs ({alignment.get('verdict')}), so similarity is "
-                   f"not low in the ruling's sense; the rate-relation arm is measured and "
-                   f"NOT branched on (uncalibrated)"), observations
+
+    # ARM 2 -- COVERAGE. A success TOKEN is not a success: see MASTER_AXIS_COVERAGE_FLOOR for the
+    # measured case where `single_segment_no_cut` arrived with zero zones and zero coverage on a
+    # confirmed PAL pair. `None` here is could-not-measure, not zero, and is treated as low --
+    # the gate's business is deciding whether to spend a sweep, and a coverage nobody could read
+    # is not evidence that similarity is fine.
+    coverage = alignment.get("master_axis_coverage_fraction")
+    if coverage is None or coverage < MASTER_AXIS_COVERAGE_FLOOR:
+        observations["gate_arm"] = "master_axis_coverage_below_floor"
+        return True, (f"the aligner returned {alignment.get('verdict')} but its trusted zones "
+                      f"cover {coverage} of the master axis, under the "
+                      f"{MASTER_AXIS_COVERAGE_FLOOR} floor -- a verdict token is not a "
+                      f"measurement of how much lined up"), observations
+
+    ladder = zone_ladder_signature(alignment)
+    observations.update({f"ladder_{key}": value for key, value in ladder.items()})
+    if RATE_RELATION_SLOPE_GATE_CALIBRATED and ladder["is_rate_ladder"]:
+        observations["gate_arm"] = "rate_relation_signature"
+        return True, (f"the aligner aligned ({alignment.get('verdict')}) but its zones form a "
+                      f"rate ladder: {ladder['reason']}"), observations
+    observations["gate_arm"] = None
+    return False, (f"the aligner anchored runs ({alignment.get('verdict')}) and its zones are "
+                   f"not a rate ladder ({ladder['reason']}), so similarity is not low in the "
+                   f"ruling's sense"), observations
 
 
 # ---------------------------------------------------------------------------
@@ -1073,23 +1826,58 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
     it did not damage anything.
 
     `primed_alignments` carries the alignment the step-2 gate already computed for the primary
-    couple, so the gate does not cost a second whole alignment of the same tracks.
+    couple, so the gate does not cost a second whole alignment of the same tracks -- EXCEPT when
+    a comparison resample is applied, where every candidate-side reading in it describes audio
+    that will not be used again and is dropped by name (see the `reprime` step below).
+
+    AT ANY OTHER FACTOR THE CANDIDATE'S COMPARISON TRACKS ARE SPEED-CORRECTED ON EXTRACTION,
+    inside the ffmpeg call that was going to run anyway -- no second decode, no file on disk that
+    outlives one fingerprint pass, nothing that can reach a product. MEASURED end to end on the
+    corpus's only real PAL pair (errid-70, fre, candidate 25 fps against a 23.976 master): blind,
+    the aligner returns `all_segments_below_duration_floor` with coverage 0.000 and no zones;
+    through the sweep (winner 1001/960, median fidelity 0.9774 at 5/5 probes) and this resample,
+    the same couple returns 8 zones at coverage 0.8827 and decomposes into head + one interior
+    hole of -992.5 ms + tail. That interior step is the content edit the bake-off dossier
+    documents independently for this pair at "environ 0.96 s" between master t=460 s and 475 s
+    -- two instruments, two sessions, 32 ms apart.
     """
     candidate_path = candidate_obj.filePath
+    sample_rate = comparison_sample_rate(master_obj, candidate_obj, language)
+    resample_routing = None
     if factor is None or factor == 1:
         step_result("no_filter", candidate=candidate_path, speed_factor=factor,
                     rule="ADDENDUM_6_no_filter_without_speed_change")
     else:
         step_launch("comparison_resample", candidate=candidate_path, speed_factor=factor)
-        resampled, cause = comparison_resample(factor, master_obj, candidate_obj, language,
-                                               work_dir)
-        step_result("comparison_resample", candidate=candidate_path, ok=False, cause=cause)
-        if resampled is None:
+        resample_routing, cause = comparison_resample(factor, master_obj, candidate_obj,
+                                                      language, work_dir,
+                                                      sample_rate=sample_rate)
+        if resample_routing is None:
+            step_result("comparison_resample", candidate=candidate_path, ok=False, cause=cause)
             return False, cause, (
-                f"the pair carries a confirmed rate relation ({factor}) and the comparison "
-                f"resample that would let the aligner measure across it is design stage 3 and "
-                f"is not built yet -- speed correction here is a MEASUREMENT tool only "
-                f"(ADDENDUM 7), and no measurement was made"), None
+                f"the pair carries a confirmed rate relation ({factor}) but the comparison "
+                f"resample that would let the aligner measure across it could not be built "
+                f"({cause}) -- speed correction here is a MEASUREMENT tool only (ADDENDUM 7), "
+                f"and no measurement was made"), None
+        step_result("comparison_resample", candidate=candidate_path, ok=True,
+                    side=resample_routing["side"],
+                    filter=resample_routing["filter_name"],
+                    requested_ratio=resample_routing["requested_ratio"],
+                    effective_ratio=resample_routing["effective_ratio_str"],
+                    tag_factor=resample_routing["tag_factor"],
+                    source_sample_rate=resample_routing["source_sample_rate"],
+                    asetrate_target=resample_routing["asetrate_target"],
+                    intermediate_rate=resample_routing["intermediate_rate"],
+                    filter_chain=resample_routing["filter_chain"],
+                    pitch_measured_ratio=resample_routing["pitch_measured_ratio"],
+                    pitch_peak=resample_routing["pitch_peak"],
+                    pitch_refusal=resample_routing["pitch_refusal"],
+                    pitch_window_s=resample_routing["pitch_window_seconds"],
+                    inverting_case_detector=resample_routing["inverting_case_detector"],
+                    inverting_case_observation=resample_routing["inverting_case_observation"],
+                    rule=resample_routing["rule"])
+        tools.dev_log(f"orchestrator: comparison_resample routing for {candidate_path}: "
+                      f"{resample_routing['route_reason']}\n")
 
     couples = enumerate_couples(master_obj, candidate_obj, language)
     step_result("enumerate_couples", candidate=candidate_path, language=language,
@@ -1098,10 +1886,31 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
         return False, "no_stream_for_comparison_language", (
             f"neither side offers a pair of {language} audio streams to compare"), None
 
-    sample_rate = comparison_sample_rate(master_obj, candidate_obj, language)
     fingerprints = dict(primed_alignments.get("fingerprints", {})
                         if primed_alignments else {})
     alignments = dict(primed_alignments.get("alignments", {}) if primed_alignments else {})
+    if resample_routing is not None:
+        # THE PRIMED WORK DESCRIBES A CANDIDATE THAT NO LONGER EXISTS, AND KEEPING ANY OF IT WOULD
+        # BE THE WORST KIND OF REUSE. Step 2's gate fingerprints and aligns the primary couple
+        # BLIND, on the uncorrected candidate -- that is what produced the "the aligner could not
+        # measure" reading that sent us to the sweep in the first place. Every candidate-side
+        # fingerprint and EVERY alignment is now stale: the candidate's points, its point count
+        # and therefore its quantum all change under the correction. The MASTER side is kept, and
+        # only the master side, because nothing was applied to it -- that is one whole-track
+        # ffmpeg decode per master track saved (the design measured 7-15 s each, the dominant
+        # cost of the entire step) without carrying forward a single number measured on audio the
+        # aligner is no longer going to see.
+        dropped_fingerprints = [key for key in fingerprints if key[0] != "master"]
+        for key in dropped_fingerprints:
+            del fingerprints[key]
+        dropped_alignments = sorted(alignments)
+        alignments = {}
+        step_result("reprime", candidate=candidate_path,
+                    kept_master_fingerprints=sorted(key[1] for key in fingerprints),
+                    dropped_candidate_fingerprints=sorted(key[1]
+                                                          for key in dropped_fingerprints),
+                    dropped_alignments=dropped_alignments,
+                    reason="blind_candidate_fingerprints_stale_under_comparison_resample")
 
     couple_results = []
     for master_stream, candidate_stream in couples:
@@ -1116,20 +1925,32 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
                 return False, "track_duration_unmeasurable", (
                     f"the {side} {language} stream {stream} carries no readable duration, so "
                     f"there is no length to fingerprint it over"), None
+            # THE FILTER RIDES ON THE CANDIDATE SIDE ONLY, and `effective_ratio` -- not the
+            # requested one -- sets the corrected length. The master defines the grid; correcting
+            # it too would move the reference the whole campaign measures against.
+            track_filter = (resample_routing["filter_chain"]
+                            if resample_routing is not None and side == "candidate" else None)
+            corrected_duration = (duration * float(resample_routing["effective_ratio"])
+                                  if track_filter else duration)
             step_launch("fingerprint", candidate=candidate_path, side=side, stream=stream,
-                        duration_s=round(duration, 3), sample_rate=sample_rate)
+                        duration_s=round(duration, 3), sample_rate=sample_rate,
+                        audio_filter=track_filter,
+                        corrected_duration_s=(round(corrected_duration, 3)
+                                              if track_filter else None))
             started = time.time()
-            points, quantum_ms = fingerprint_track(video_obj, language, stream, side,
-                                                   work_dir, sample_rate, duration)
+            points, quantum_ms = fingerprint_track(
+                video_obj, language, stream, side, work_dir, sample_rate, duration,
+                audio_filter=track_filter, output_duration_seconds=corrected_duration)
             step_result("fingerprint", candidate=candidate_path, side=side, stream=stream,
                         n_points=len(points) if points else 0,
                         quantum_ms=round(quantum_ms, 4) if quantum_ms else None,
+                        resampled=bool(track_filter),
                         seconds=round(time.time() - started, 2))
             if points is None:
                 return False, "fingerprinting_raised", (
                     f"the {side} {language} stream {stream} could not be extracted or "
                     f"fingerprinted"), None
-            fingerprints[key] = (points, quantum_ms, duration)
+            fingerprints[key] = (points, quantum_ms, corrected_duration)
 
         if couple not in alignments:
             fp_master, quantum_master, duration_master = fingerprints[("master", master_stream)]
@@ -1164,6 +1985,24 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
                           f"still run: one blind track is not a verdict about the pair\n")
             continue
 
+        # THE SAME COVERAGE FLOOR THE STEP-2 GATE USES, APPLIED PER COUPLE, because the gate only
+        # ever sees the PRIMARY couple and a pair can carry both kinds at once. MEASURED,
+        # errid-24 on es: four couples reading coverage 0.977 / 0.306 / 0.304 / 0.976 -- two
+        # healthy and two under the floor, on one pair, in one language. Whichever of the four
+        # happens to be first decides what the gate sees, so without this screen a healthy
+        # primary lets two couples that aligned almost nothing into the hole decomposition (18
+        # holes each) and into the cross-verification, where they can only add noise to an
+        # agreement test about events they were never in a position to see. A couple under the
+        # floor is `could-not-see`, which is what the cross-check already has a name for.
+        couple_coverage = alignment.get("master_axis_coverage_fraction")
+        if couple_coverage is None or couple_coverage < MASTER_AXIS_COVERAGE_FLOOR:
+            step_result("couple_screened", candidate=candidate_path, couple=couple,
+                        verdict=alignment["verdict"], coverage=couple_coverage,
+                        floor=MASTER_AXIS_COVERAGE_FLOOR,
+                        reason="master_axis_coverage_below_floor",
+                        rule="a_verdict_token_is_not_a_measurement_of_how_much_lined_up")
+            continue
+
         holes = holes_for_couple(alignment)
         # THE STEPS TRAVEL WITH THE COUNT. A hole whose step is 0 is a stretch the aligner
         # lost the thread on with NO offset change either side -- the `no_cut_confirmed`
@@ -1181,17 +2020,30 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
         couple_results.append({"couple": couple, "alignment": alignment, "holes": holes})
 
     if not couple_results:
-        # EVERY couple was blind. That is a property of the pair, and it gets the aligner's own
-        # token rather than a generic one, so the ledger can tell the three apart.
+        # EVERY couple was blind, or every couple that was not blind covered too little to be
+        # read. That is a property of the pair, and it gets a token that says WHICH of the two,
+        # so the ledger can tell them apart -- the aligner's own vocabulary when it never
+        # anchored anything, the coverage token when it anchored something too small to trust.
         verdicts = {alignments[f"{m}x{c}"]["verdict"] for m, c in couples
                     if f"{m}x{c}" in alignments}
-        cause = ("alignment_degenerate_input" if "unreliable_degenerate_input" in verdicts
-                 else "alignment_all_seeds_refused"
-                 if "all_seeds_refused_by_local_baseline_guard" in verdicts
-                 else "alignment_no_anchored_runs")
+        measured = verdicts & set(banded_seed_alignment.MEASURED_VERDICTS)
+        if measured:
+            cause = "alignment_coverage_below_floor"
+        else:
+            cause = ("alignment_degenerate_input"
+                     if banded_seed_alignment.VERDICT_DEGENERATE_INPUT in verdicts
+                     else "alignment_all_seeds_refused"
+                     if banded_seed_alignment.VERDICT_ALL_SEEDS_REFUSED in verdicts
+                     else "alignment_segments_below_duration_floor"
+                     if banded_seed_alignment.VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR in verdicts
+                     else "alignment_no_anchored_runs")
+        coverages = sorted(
+            round(alignments[f"{m}x{c}"].get("master_axis_coverage_fraction") or 0.0, 4)
+            for m, c in couples if f"{m}x{c}" in alignments)
         return False, cause, (
-            f"no couple of {language} could be aligned; the aligner reported "
-            f"{sorted(verdicts)} across {len(couples)} couples"), None
+            f"no couple of {language} produced a usable alignment; the aligner reported "
+            f"{sorted(verdicts)} across {len(couples)} couples, covering {coverages} of the "
+            f"master axis against a floor of {MASTER_AXIS_COVERAGE_FLOOR}"), None
 
     step_launch("cross_verify", candidate=candidate_path, n_couples=len(couple_results))
     report = cross_verify_couples(couple_results)
@@ -1361,13 +2213,32 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                     median_fidelity=(sweep_gate or {}).get("median_fidelity"),
                     margin=(sweep_gate or {}).get("margin"),
                     passing=(sweep_gate or {}).get("passing"))
-        if winner is None:
+        if winner is None and observations.get("gate_arm") == "rate_relation_signature":
+            # THE RATE ARM'S REFUSAL IS NOT TERMINAL, AND THAT ASYMMETRY IS DELIBERATE -- see
+            # `similarity_gate`. This arm fired on an alignment that SUCCEEDED; the sweep was
+            # asked because the zones looked like a rate ladder, and it has now answered no.
+            # Declining here would convert a suggestion into a refusal and manufacture a new
+            # false-decline family every time the ladder reading misfired on a healthy pair.
+            # The honest continuation is the alignment we already have, at factor 1, with the
+            # sweep's own cause recorded so nobody has to wonder why a sweep ran.
+            step_result("speed_sweep", candidate=candidate_path,
+                        arm="rate_relation_signature", terminal=False,
+                        cause=sweep_cause,
+                        continuing="at_factor_1_with_the_blind_alignment",
+                        rule="a_suggestion_that_was_refused_is_not_a_refusal_of_the_pair")
+            tools.dev_log(
+                f"orchestrator: the rate-ladder arm asked for a sweep on {candidate_path} and "
+                f"the sweep declined ({sweep_cause} / {(sweep_gate or {}).get('cause')}); the "
+                f"pair CONTINUES at speed_factor 1 on the alignment already measured -- this "
+                f"arm suggests, it does not refuse\n")
+        elif winner is None:
             _plan_line("none", candidate_path, step="speed_sweep", cause=sweep_cause)
             return _terminal(
                 candidate_path, "no_plan", sweep_cause,
                 f"mean similarity is low ({gate_prose}) and the rate sweep could not raise it "
                 f"({(sweep_gate or {}).get('cause')})", detail={"resample_gate": sweep_gate})
-        factor = winner
+        else:
+            factor = winner
 
     # ---- STEP 3: chimeric ---------------------------------------------------
     step_launch("chimeric", candidate=candidate_path, language=comparison_language,

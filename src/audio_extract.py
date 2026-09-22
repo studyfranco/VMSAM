@@ -49,7 +49,7 @@ class ExtractProducedNothing(Exception):
 
 
 def extract_audio_window(source_path, stream_order, start_seconds, length_seconds, out_path,
-                          sample_rate):
+                          sample_rate, audio_filter=None):
     """`sample_rate` IS REQUIRED AND HAS NO DEFAULT, DELIBERATELY.
 
     This pinned "44100" until 2026-09-05. `mergeVideo.py:583-585` derives the pair's
@@ -89,12 +89,31 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     floor still, so the guard keeps the same meaning for the new caller -- but a future caller
     that genuinely wants a sub-second window must change the floor deliberately rather than
     discover it as a refusal.
+
+    ON `audio_filter`, ADDED 2026-09-22 FOR THE ORCHESTRATOR'S COMPARISON RESAMPLE, OPTIONAL AND
+    DEFAULTING TO NOTHING. When it is None the command built below is BYTE-IDENTICAL to the one
+    this function has always built -- which is the whole point of the default: the acceptance
+    condition for the move that created this module is that a locator run stays byte-identical,
+    and a parameter that changed the command even when unused would break exactly the comparison
+    that proves the move was safe. It carries an ffmpeg `-af` filtergraph, and the only producer
+    today is `repair_orchestrator.comparison_resample`, which builds it through
+    `merge_video_resample.build_speed_filter_chain` -- the pipeline's single asetrate authority,
+    never a chain spelled out at a call site.
+
+    THE OUTPUT IS NO LONGER `length_seconds` LONG WHEN A SPEED FILTER IS PASSED, AND THE CALLER
+    OWNS THAT. `-ss`/`-t` sit BEFORE `-i`, so they bound what is READ from the source; a filter
+    that changes the rate changes what is WRITTEN. A caller that hands a chain here and then tells
+    fpcalc the input length would truncate exactly the tail the correction just restored, so the
+    caller computes the corrected length from the EFFECTIVE ratio and passes that on. Said here
+    because this function cannot check it: it never sees fpcalc.
     """
     cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin",
            "-ss", f"{start_seconds:.6f}", "-t", f"{length_seconds:.6f}",
            "-i", source_path, "-map", f"0:{stream_order}",
-           "-vn", "-ac", "1", "-ar", str(sample_rate),
-           "-acodec", "pcm_s16le", out_path]
+           "-vn", "-ac", "1", "-ar", str(sample_rate)]
+    if audio_filter:
+        cmd.extend(["-af", audio_filter])
+    cmd.extend(["-acodec", "pcm_s16le", out_path])
     # *** THE EXIT CODE IS CHECKED AND THE OUTPUT IS NOT, AND THE FAILURE MODE IS ONE THAT
     # EXITS ZERO. `launch_cmdExt` raises on a non-zero return, so that half is covered --
     # but REPRODUCED HERE: seeking past the end of a source makes ffmpeg EXIT 0, WRITE A
@@ -110,8 +129,14 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     # happens here specifically, since `_extract` runs many times per pair
     # and nothing upstream of this point can hang -- the log has to sit
     # where the block actually starts, not where the function does.
+    # THE FILTER IS NAMED ONLY WHEN THERE IS ONE, so the no-filter line stays byte-identical to
+    # the one every captured log already carries (the stage-2 acceptance condition above) while a
+    # filtered extraction can never be mistaken for an untouched one by a reader of the same log.
+    # A speed-corrected extraction that looked exactly like a raw one would make the single most
+    # consequential fact about this call invisible.
     tools.dev_log(f"locator: _extract ffmpeg call file={source_path} "
-                  f"stream_order={stream_order} out_path={out_path}\n")
+                  f"stream_order={stream_order} out_path={out_path}"
+                  + (f" audio_filter={audio_filter}" if audio_filter else "") + "\n")
     tools.launch_cmdExt(cmd)
     # *** MY FIRST THRESHOLD WAS `size <= 44` ON THE ASSUMPTION OF A CANONICAL WAV HEADER, AND
     # IT DID NOT FIRE: ffmpeg WRITES A LARGER HEADER (LIST/INFO CHUNKS), SO THE HEADER-ONLY FILE
