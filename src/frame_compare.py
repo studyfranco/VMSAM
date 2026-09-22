@@ -32,7 +32,7 @@ class FrameComparer:
     def __init__(self, ref_path, tgt_path, start_sec, end_sec,
                  fps_num, fps_den,
                  band_width_sec=2.0, max_search_sec=5.0, debug=False,
-                 scene_threshold=0.30):
+                 scene_threshold=0.30, crop_filters=None):
         self.ref_path = ref_path
         self.tgt_path = tgt_path
         self.start_sec = float(start_sec)
@@ -69,6 +69,24 @@ class FrameComparer:
         self.side = 32
         self.debug = debug
         self.scene_threshold = float(scene_threshold)
+        # GEOMETRY NORMALISATION, PER PATH, OPTIONAL AND ADDITIVE (edge
+        # single-anchor ruling, 2026-09-22; ANALYSIS_edge_single_anchor.md
+        # finding 2). `{path: "crop=w:h:x:y"}` -- a filter inserted BEFORE
+        # `scale` for that path only. `None` (the default, and what every
+        # existing caller passes by omission) rebuilds the EXACT ffmpeg
+        # command this class shipped before, filter string included, so no
+        # existing measurement moves by a bit.
+        #
+        # WHY IT BELONGS HERE AND NOT IN A SUBCLASS: the pHash instrument is
+        # geometry-blind and fails SILENTLY. MEASURED on id 33 (Fallout
+        # S01E05, master 1920x1080 vs candidate 1920x800): at master
+        # t=1200 s, on provably identical content, Hamming<=6 gives 0/193
+        # matches raw and 193/193 once the master is cropped to
+        # `1920:800:0:140`. A caller that must normalise has exactly one
+        # thing to change -- the filter chain in `_ffmpeg_raw_frames` -- and
+        # duplicating that command in another module to add four characters
+        # is how the two copies drift apart.
+        self.crop_filters = dict(crop_filters) if crop_filters else {}
 
     @staticmethod
     def _popcount64(x: int) -> int:
@@ -99,12 +117,18 @@ class FrameComparer:
         # Lire ne doit pas changer la grille sur laquelle les cadres sont posés.
         ffmpeg = tools.software["ffmpeg"]
         w = h = self.side
+        # Le recadrage précède `scale`: normaliser la GÉOMÉTRIE ACTIVE avant
+        # la réduction 32x32, jamais après (après, les bandes noires ont déjà
+        # contaminé chaque bloc DCT). Absent par défaut -> chaîne identique à
+        # celle d'avant, au caractère près.
+        crop = self.crop_filters.get(path)
+        vf = f"scale={w}:{h},format=gray" if not crop else f"{crop},scale={w}:{h},format=gray"
         cmd = [
             ffmpeg, "-v", "error", "-nostdin",
             "-ss", f"{start_sec}",
             "-t", f"{dur_sec}",
             "-i", path,
-            "-vf", f"scale={w}:{h},format=gray",
+            "-vf", vf,
             "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"
         ]
         # Une lecture complète suffit (fenêtres courtes)

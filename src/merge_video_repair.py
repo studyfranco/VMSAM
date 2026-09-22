@@ -3459,6 +3459,32 @@ def master_intertrack_verdict(best_video, language, cache):
     return verdict
 
 
+def _drain_audio_pools(objs, site):
+    '''STOPGAP, not the fix: removes the fast-decline trigger of the frozen
+    fusion.py Pool.terminate() deadlock (CASE id 6) -- the fix is the owner's
+    initializer in fusion.py; remove this note when that lands.
+
+    Called immediately before a fast `continue` in
+    `repair_not_compatible_videos`. `test_if_constant_good_delay`'s `except`
+    (`mergeVideo.py:264-267`) fires ~40 unawaited `apply_async` ffmpeg audio
+    extractions on both video objects before re-raising; nobody drains them
+    on the fast paths, so they are still in-flight when `fusion.py:399`
+    `Pool.terminate()`s a busy worker that swallows SIGTERM and never exits.
+    Draining here empties the pool before that teardown runs. `objs` may
+    contain `None` (e.g. `candidate_obj` before it exists) -- skipped. A
+    drain failure is logged and swallowed: it must not convert a clean
+    decline into a crash.
+    '''
+    for obj in objs:
+        if obj is None:
+            continue
+        try:
+            obj.wait_end_ffmpeg_progress_audio()
+        except Exception as error:
+            tools.dev_log(f"repair: draining pending audio extraction at "
+                          f"{site} raised {type(error).__name__}: {error}\n")
+
+
 def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                                  best_video):
     '''Point d'entree appele depuis la zone A.
@@ -3511,6 +3537,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             record(candidate_path, "declined",
                    "the rejected path has no video object in dict_file_path_obj",
                    cause="candidate_object_absent")
+            # STOPGAP, not the fix: removes the fast-decline trigger of the
+            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
+            # fix is the owner's initializer in fusion.py; remove this note
+            # when that lands.
+            _drain_audio_pools((best_video, candidate_obj),
+                                "candidate_object_absent")
             continue
         language, language_route = get_delay_language(best_video, candidate_obj)
         if language == None:
@@ -3526,6 +3558,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             record(candidate_path, "no_plan",
                    f"could not tell which language the merge measured on "
                    f"({language_route})", cause="language_undetermined")
+            # STOPGAP, not the fix: removes the fast-decline trigger of the
+            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
+            # fix is the owner's initializer in fusion.py; remove this note
+            # when that lands.
+            _drain_audio_pools((best_video, candidate_obj),
+                                "language_undetermined")
             continue
         # ---- STEP 1: CLASSIFICATION -- LE MAITRE, CONTRE LUI-MEME ----------
         # Avant le test de vitesse, avant le chimerique, avant toute mesure du
@@ -3553,6 +3591,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                    detail={"verdict": master_intertrack["verdict"],
                            "master_intertrack": master_intertrack},
                    cause=master_intertrack["verdict"])
+            # STOPGAP, not the fix: removes the fast-decline trigger of the
+            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
+            # fix is the owner's initializer in fusion.py; remove this note
+            # when that lands.
+            _drain_audio_pools((best_video, candidate_obj),
+                                "master_intertrack_desync")
             continue
         plan, plan_refusal_cause, plan_refusal_detail = get_plan_from_locator(
             best_video, candidate_obj, language)
@@ -3754,7 +3798,9 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                   "declined": assembly["declined"], "failed": assembly["failed"],
                   "verification": assembly["verification"]}
         reason = (f"{len(assembly['audios'])} audio and "
-                  f"{len(assembly['subtitles'])} subtitle track(s) rebuilt, "
+                  f"{len(assembly['subtitles'])} subtitle track(s) rebuilt "
+                  f"(rebuilt in the repair object; final delivery decided later "
+                  f"by keep_best_audio), "
                   f"{len(assembly['declined'])} declined, "
                   f"{len(assembly['failed'])} failed")
         if len(coarse):

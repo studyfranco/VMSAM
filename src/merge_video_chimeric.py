@@ -378,6 +378,112 @@ def offset_fidelity(segment, stream_order=None):
     return None
 
 
+def run_edge_walk(edge, master_path, candidate_path, fps_num, fps_den,
+                  bracket_low_ms, bracket_high_ms, offset_ms,
+                  master_duration_ms, candidate_duration_ms,
+                  bracket=None, onset_result=None):
+    '''THE EDGE SINGLE-ANCHOR PROTOCOL, called from the head and the tail
+    blocks of `normalize_segments` below (owner's ruling
+    RULING_20260922_EDGE_SINGLE_ANCHOR.MD + ADDENDUM). Factored out because
+    the two sites need the IDENTICAL isolation, the IDENTICAL six-state shadow
+    line and the IDENTICAL authority rule, and two copies of that would drift
+    -- the interior site's own pattern, which this mirrors, is inline only
+    because it has no twin.
+
+    Returns `(result, errored)`. `result` is `scene_anchor.locate_edge_boundary`'s
+    payload (`declined` True or False) or `None` when the protocol RAISED.
+
+    EXCEPTION ISOLATION -- MANDATORY, same ruling and same reason as the
+    interior site's (Lead, 2026-09-21): a protocol that throws must become a
+    NAMED state, never break a job that would otherwise have succeeded. The
+    blanket `except Exception` is deliberate here, explicitly requested for
+    exactly this purpose, and its scope is the single call it isolates.
+
+    AUTHORITY, AND THE ONE PLACE THIS DIFFERS FROM THE INTERIOR SITE: the
+    caller must NOT consume `locate_match_onset`'s answer when this protocol
+    declines. That is the ruling's point 5 ("failure to establish even the
+    single anchor stays an honest named decline") and this module's own
+    scene_anchor AUTHORITY docstring ("F1's methods ... are NEVER silently
+    promoted to the answer when this protocol declines"). The interior site
+    can let F1 stand on a protocol decline because F1 there is gated by
+    `_validate_boundary`'s `margin`; `locate_match_onset` computes NEITHER
+    `similarity` NOR `margin` (grepped: zero hits in its body, zero
+    `_validate_boundary` calls), so at an edge there is no validation gate
+    behind it at all. MEASURED SCOPE of that difference before adopting it
+    (2026-09-22, every `.log`/`.error` under /config/output): `match_onset`
+    appears 5 times and `could_not_locate_onset` 2 of those -- the instrument
+    is barely exercised in production, so withholding it on a protocol
+    decline changes very little, and what it does change it makes honest.
+    A withheld answer is LOGGED (`edge_onset_withheld`), never dropped
+    silently.
+    '''
+    import scene_anchor
+    try:
+        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
+        # scene_anchor.py runs in-process PySceneDetect decodes and unbounded
+        # ffmpeg reads; this line is the only thing that would say which file
+        # was under the instrument during a hang.
+        tools.dev_log(f"chimeric: calling scene_anchor.locate_edge_boundary "
+                      f"edge={edge} master={master_path} "
+                      f"candidate={candidate_path} "
+                      f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
+        result = scene_anchor.locate_edge_boundary(
+            master_path, candidate_path, fps_num, fps_den,
+            float(bracket_low_ms), float(bracket_high_ms), float(offset_ms),
+            edge, float(master_duration_ms),
+            None if candidate_duration_ms is None else float(candidate_duration_ms),
+            known_match_ms=(bracket.get("known_match_ms")
+                            if bracket is not None else None),
+            step_ms=(bracket.get("step_ms") if bracket is not None else None))
+        errored = False
+    except Exception as _exc:
+        result = None
+        errored = True
+        tools.logs.append(
+            f"chimeric: scene_anchor_error edge={edge} "
+            f"exception={type(_exc).__name__} "
+            f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
+
+    # SIX STATES, the same six the interior site names, with
+    # `locate_match_onset` standing where `locate_bracket_boundary` stands
+    # there: "it declined" and "it threw" are different facts and stay apart.
+    _onset_declined = (onset_result is None or onset_result.get("declined", True))
+    if errored:
+        _state = "protocol_errored"
+    elif result["declined"]:
+        _state = "both_declined" if _onset_declined else "protocol_declined_f1_succeeded"
+    elif _onset_declined:
+        _state = "f1_declined_protocol_succeeded"
+    else:
+        _onset_frame = onset_result.get("onset_frame")
+        _state = ("agree" if _onset_frame == result.get("boundary_frame")
+                  else "disagree")
+    # PROVENANCE, MANDATORY (Architect's ruling, 2026-09-21): a census must be
+    # able to exclude fixture-produced entries MECHANICALLY. A categorical
+    # marker only -- never the raw path.
+    _source = ("synthetic_fixture"
+               if ("VMSAM_HELP_AI" in str(master_path)
+                   or "fixtures" in str(master_path))
+               else "production")
+    tools.logs.append(
+        f"chimeric: edge_walk_shadow edge={edge} state={_state} "
+        f"source={_source} "
+        f"protocol_reason={result.get('reason') if result else 'errored'} "
+        f"protocol_termination={result.get('termination') if result else None} "
+        f"protocol_net_kind={result.get('net_kind') if result else None} "
+        f"onset_reason={onset_result.get('reason') if onset_result else None} "
+        f"onset_frame={onset_result.get('onset_frame') if onset_result else None} "
+        f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
+    if (errored or result["declined"]) and not _onset_declined:
+        tools.logs.append(
+            f"chimeric: edge_onset_withheld edge={edge} "
+            f"onset_frame={onset_result.get('onset_frame')} "
+            f"protocol_reason={result.get('reason') if result else 'errored'} "
+            f"-- the protocol declined, so its cross-check is recorded as "
+            f"evidence and NOT consumed for the boundary\n")
+    return result, errored
+
+
 def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                        speed_ratio=None, stream_order=None,
                        master_path=None, candidate_path=None,
@@ -862,17 +968,54 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         # -- a head span has only ONE real offset (this segment's own),
         # and the two-hypothesis function degenerates on that (see its own
         # docstring and `locate_match_onset`'s).
+        head_walk_offset_ms = None
         if cursor == 0 and master_start > cursor:
             leading_bracket = segment.get("leading_bracket")
+            head_onset_result = None
+            head_grid_ok = (fps_num is not None and fps_den is not None
+                           and fps_num > 0 and fps_den > 0)
+            head_frame_ms = (1000.0 * fps_den / fps_num) if head_grid_ok else None
+            head_inputs_ok = (master_path is not None and candidate_path is not None
+                              and fps_num is not None and fps_den is not None)
+            # DOES A HEAD GAP EXIST AT ALL -- the ONE place this landing needs
+            # a real tolerance, and it is ONE MASTER VIDEO FRAME, not an
+            # epsilon on the bracket's distance from the file edge (that
+            # distance is ZERO by construction at every edge: the locator pins
+            # `bracket_low_ms = 0.0` at a head and `bracket_high_ms =
+            # master_end_ms` at a tail). The unit is the code's own:
+            # `normalize_segments` already gates its tier at `gap_width_ms >
+            # 2.0 * frame_ms` because "one frame is this repair's atomic
+            # resolution". A gap under one frame is below anything this
+            # instrument can resolve, so asking the walk about it would be
+            # repair-at-indication-granularity wearing a frame answer's
+            # authority.
+            head_gap_ms = float(master_start - cursor)
+            head_gap_exists = (head_frame_ms is None or head_gap_ms > head_frame_ms)
+            edge_walk_bracket = None
             if leading_bracket is not None:
-                lb_low = Decimal(str(leading_bracket["bracket_low_ms"]))
-                lb_high = Decimal(str(leading_bracket["bracket_high_ms"]))
+                edge_walk_bracket = (
+                    Decimal(str(leading_bracket["bracket_low_ms"])),
+                    Decimal(str(leading_bracket["bracket_high_ms"])))
+            elif head_gap_exists:
+                # A HEAD GAP ON THE MASTER'S OWN TIMELINE WITH NO BRACKET TO
+                # BOUND IT. The tail mirror of this is MEASURED (errid 5, see
+                # the tail block below); the head shape is not, and is named
+                # here rather than left to be discovered as a silent fill.
+                # LOUD: it is a LOCATOR defect, not a content fact.
+                tools.logs.append(
+                    f"chimeric: edge_bracket_absent edge=head "
+                    f"gap=[{cursor},{master_start}) = {head_gap_ms} ms "
+                    f"frame_ms={head_frame_ms} -- an edge gap exists on the "
+                    f"master's own timeline and the locator attached no "
+                    f"leading_bracket; walking the gap itself\n")
+                tools.logs.append(
+                    f"chimeric: FORENSIC REVIEW edge_bracket_absent edge=head "
+                    f"gap_ms={head_gap_ms}\n")
+                edge_walk_bracket = (cursor, master_start)
+            if leading_bracket is not None:
+                lb_low, lb_high = edge_walk_bracket
                 lb_width_ms = float(lb_high - lb_low) if lb_high > lb_low else 0.0
-                head_grid_ok = (fps_num is not None and fps_den is not None
-                               and fps_num > 0 and fps_den > 0)
-                head_frame_ms = (1000.0 * fps_den / fps_num) if head_grid_ok else None
-                head_tier_asked = (master_path is not None and candidate_path is not None
-                                   and fps_num is not None and fps_den is not None
+                head_tier_asked = (head_inputs_ok
                                    and (head_frame_ms is None
                                         or lb_width_ms > 2.0 * head_frame_ms))
                 if head_tier_asked:
@@ -896,28 +1039,123 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                     # gated on `not declined`, unchanged: this line only
                     # decides what gets RECORDED, never what gets DECIDED.
                     head_frame_tier_result = onset_result
-                    if not onset_result["declined"]:
-                        # THE TIER'S INTERVAL IS THE BOUNDARY (Architect's
-                        # ruling, 2026-09-16: "a contract's consumer must
-                        # consume"). `locate_match_onset`'s own contract
-                        # already guarantees `declined: False` implies a
-                        # valid interval inside `[lb_low, lb_high]` -- this
-                        # site consumes that value directly, it does not
-                        # re-derive a safety net that duplicates the
-                        # contract. THE DEFECT THIS REPLACES: the first
-                        # version clamped against `master_start` --
-                        # this segment's own DIFFERENT, cruder, audio-only
-                        # `max(0,-offset)` estimate, not the bracket the
-                        # question was actually asked against. On real E04
-                        # media the tier correctly answered 3753.75ms while
-                        # `master_start` was 2731.75ms, and the clamp
-                        # silently discarded every frame-tier answer back to
-                        # the unnarrowed value -- a guard firing correctly
-                        # into a void, caught only by spying the call and
-                        # finding `declined: False` with a narrower interval
-                        # thrown away one line later.
-                        master_start = exact_ms_from_frame(
-                            onset_result["onset_frame"], onset_result["grid"])
+                    head_onset_result = onset_result
+
+            # THE EDGE SINGLE-ANCHOR PROTOCOL, AND IT IS THE AUTHORITY HERE
+            # (owner's ruling, 2026-09-22). GATED ON THE GAP, NOT ON THE
+            # BRACKET'S WIDTH: a bracket narrower than two frames still needs
+            # walking when it sits at the wrong PLACE, and the question this
+            # protocol answers is "where does the common content start", not
+            # "is this interval wide enough to be worth refining".
+            if edge_walk_bracket is not None and head_gap_exists and head_inputs_ok:
+                _ew_low, _ew_high = edge_walk_bracket
+                edge_walk_result, edge_walk_errored = run_edge_walk(
+                    "head", master_path, candidate_path, fps_num, fps_den,
+                    _ew_low, _ew_high, offset,
+                    master_duration_ms, candidate_duration_ms,
+                    bracket=leading_bracket, onset_result=head_onset_result)
+                head_frame_tier_result = (edge_walk_result
+                                          if edge_walk_result is not None
+                                          else head_frame_tier_result)
+                if not edge_walk_errored and not edge_walk_result["declined"]:
+                    # THE PROTOCOL'S INTERVAL IS THE BOUNDARY. Outcome 3's
+                    # head shape (ADDENDUM): `boundary_frame` is the first
+                    # master frame with a readable candidate counterpart, so
+                    # `[0, boundary)` is a master ADDITION whose length is the
+                    # frame COUNT itself, times the grid's exact rational
+                    # frame time -- `exact_ms_from_frame`, never `derived_ms`,
+                    # which is rounded for display. Outcome 1's head shape
+                    # lands on the same line: `boundary_frame` is the last
+                    # master frame still matching as the walk went outward,
+                    # and everything before it is content to replace. The
+                    # generic `head_gap` piece built below then fires on this
+                    # same, now-frame-exact `master_start` with no further
+                    # change -- and its `reason` string stays `"head_gap"`,
+                    # which three call sites match as a literal.
+                    master_start = exact_ms_from_frame(
+                        edge_walk_result["boundary_frame"],
+                        edge_walk_result["grid"])
+                    # CLAMPED TO THE MASTER TIMELINE, AND DELIBERATELY NOT TO
+                    # THE BRACKET. The interior site clamps to its bracket
+                    # because a bracket there IS the search interval with
+                    # content proven on both sides. An edge walk's whole
+                    # purpose is to travel OUTWARD past the bracket to where
+                    # content actually stops matching, so clamping to the
+                    # bracket would discard the answer it was called for --
+                    # the same shape of defect as the 2026-09-16 head clamp
+                    # that silently threw away a correct 3753.75 ms onset.
+                    # What remains non-negotiable is the segment's own frame:
+                    # a start before `cursor` or past this segment's end is
+                    # not a narrower answer, it is nonsense, and
+                    # `normalize_segments`' own empty/inverted guard below is
+                    # the word on the latter.
+                    if master_start < cursor:
+                        master_start = cursor
+                    # THE BOUNDARY AND THE OFFSET ARE ONE STATEMENT AT A HEAD,
+                    # AND CONSUMING ONE WITHOUT THE OTHER IS INCOHERENT.
+                    # `boundary_frame` is the master frame the walk proved the
+                    # candidate's content sits at under `shift_frames`; the
+                    # segment's offset IS that shift, in ms. Keeping the
+                    # audio-derived offset while moving `master_start` to the
+                    # frame-exact boundary makes the piece read the candidate
+                    # at `master_start + offset`, which is a DIFFERENT point
+                    # than the walk measured -- on Undead Unluck S01E13 that
+                    # is candidate -41.71 ms, i.e. one frame BEFORE the
+                    # candidate's own first frame, and
+                    # `chimeric_bound_error` refuses the whole plan
+                    # (reproduced 2026-09-22, before this block existed).
+                    #
+                    # THIS IS THE EXISTING SUB-FRAME DOCTRINE REACHING A SITE
+                    # THAT NOW HAS A GOVERNOR, not new law: the reconciliation
+                    # below already snaps an offset to a whole frame when a
+                    # frame tier ran, and its own comment says that doctrine
+                    # "presupposes a governor". Here the governor MEASURED the
+                    # shift directly instead of rounding the audio's, so its
+                    # value is used rather than `ROUND_HALF_EVEN` on a number
+                    # the video has just superseded.
+                    #
+                    # NEVER SILENT, AND TRIPWIRED AGAINST THE AUDIO'S OWN
+                    # UNCERTAINTY: the audio offset is measured to a quantum
+                    # (129 ms on this very pair), so a video-vs-audio
+                    # disagreement INSIDE that quantum is the two instruments
+                    # agreeing at their respective precisions -- Undead Unluck
+                    # S01E13 measures -959.29 ms against the audio's -1017.33,
+                    # 58.04 ms apart, well inside 129. A disagreement LARGER
+                    # than the quantum is not a precision gain and is named
+                    # for review rather than quietly applied.
+                    head_walk_offset_ms = exact_ms_from_frame(
+                        edge_walk_result["shift_frames"],
+                        edge_walk_result["grid"])
+                    _hw_delta = head_walk_offset_ms - Decimal(str(offset))
+                    tools.logs.append(
+                        f"chimeric: edge_walk_offset edge=head "
+                        f"audio_offset_ms={offset} "
+                        f"walk_offset_ms={head_walk_offset_ms} "
+                        f"shift_frames={edge_walk_result['shift_frames']} "
+                        f"delta_ms={_hw_delta} quantum_ms={quantum_ms}\n")
+                    if quantum_ms is not None and abs(_hw_delta) > Decimal(str(quantum_ms)):
+                        tools.logs.append(
+                            f"chimeric: FORENSIC REVIEW edge_walk_offset "
+                            f"edge=head delta_ms={_hw_delta} exceeds the "
+                            f"audio quantum {quantum_ms} ms -- the frame walk "
+                            f"and the audio measurement disagree by more than "
+                            f"the audio's own uncertainty\n")
+            elif head_onset_result is not None and not head_onset_result["declined"]:
+                # THE PROTOCOL WAS NOT ASKED (no gap worth a frame, or inputs
+                # absent) -- so nothing has superseded the cross-check and
+                # TODAY'S behaviour stands, unchanged. THE TIER'S INTERVAL IS
+                # THE BOUNDARY (Architect's ruling, 2026-09-16: "a contract's
+                # consumer must consume"): `locate_match_onset`'s own contract
+                # already guarantees `declined: False` implies a valid
+                # interval inside `[lb_low, lb_high]`, consumed directly, not
+                # re-derived behind a safety net that duplicates it. THE
+                # DEFECT THAT REPLACED: the first version clamped against
+                # `master_start` -- this segment's own cruder, audio-only
+                # `max(0,-offset)` estimate, not the bracket the question was
+                # asked against -- and on real E04 media silently discarded a
+                # correct 3753.75 ms answer back to 2731.75 ms.
+                master_start = exact_ms_from_frame(
+                    head_onset_result["onset_frame"], head_onset_result["grid"])
 
         # SUBFRAME RECONCILIATION (Architect's ruling, 2026-09-16, SCOPE
         # CORRECTED same night after id 12's regression caught the first
@@ -974,13 +1212,26 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         # `offset_for_combination` is what the guard actually sees.
         offset_for_combination = offset
         subframe_record = None
+        if head_walk_offset_ms is not None:
+            # THE FRAME INSTRUMENT MEASURED THIS OFFSET, it was not rounded
+            # from the audio's -- so it stands, and the nearest-frame
+            # reconciliation below has nothing left to decide (it would round
+            # an already-exact whole-frame value to itself). Recorded in the
+            # same `subframe_reconciled` shape so one census reads both.
+            offset_for_combination = head_walk_offset_ms
+            subframe_record = {
+                "raw_offset_ms": str(offset),
+                "reconciled_offset_ms": str(head_walk_offset_ms),
+                "reconciled_by": "edge_walk_head",
+                "shift_frames": head_frame_tier_result.get("shift_frames")}
+        subframe_record_from_walk = subframe_record is not None
         frame_measured_here = (head_frame_tier_result is not None
                                or (frame_tier_result is not None
                                    and not frame_tier_result["declined"]))
         recon_grid_ok = (frame_measured_here
                          and fps_num is not None and fps_den is not None
                          and fps_num > 0 and fps_den > 0)
-        if recon_grid_ok:
+        if recon_grid_ok and not subframe_record_from_walk:
             # PURE DECIMAL, NOT float-then-Decimal: the SAME precision
             # lesson as `exact_ms_from_frame` above, applied to the
             # reconciliation's own frame duration -- `1000.0*fps_den/fps_num`
@@ -1136,17 +1387,72 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
     # head, tail DOES have a preceding candidate piece to extend, same
     # shape as the interior tier's own "extend the preceding piece" step.
     tail_frame_tier_result = None
+    tail_onset_result = None
+    trailing_bracket = None
     if cursor < master_duration_ms:
         trailing_bracket = segment.get("trailing_bracket")
+        tail_grid_ok = (fps_num is not None and fps_den is not None
+                       and fps_num > 0 and fps_den > 0)
+        tail_frame_ms = (1000.0 * fps_den / fps_num) if tail_grid_ok else None
+        tail_inputs_ok = (master_path is not None and candidate_path is not None
+                          and fps_num is not None and fps_den is not None)
+        # DOES A TAIL GAP EXIST AT ALL -- measured against the MASTER'S OWN
+        # TIMELINE (`master_duration_ms`, which `assemble_on_master_timeline`
+        # reads from `get_master_timeline_length_ms`, the video Duration
+        # `generate_new_file` imposes with `-t duration_best_video`), with ONE
+        # MASTER VIDEO FRAME of tolerance. NEVER the locator's own
+        # `master_end_ms`, which is `min(master, candidate)` and is therefore
+        # the CANDIDATE's duration whenever the master is longer.
+        tail_gap_ms = float(master_duration_ms - cursor)
+        tail_gap_exists = (tail_frame_ms is None or tail_gap_ms > tail_frame_ms)
+        tail_edge_walk_bracket = None
         if trailing_bracket is not None:
-            tb_low = Decimal(str(trailing_bracket["bracket_low_ms"]))
-            tb_high = Decimal(str(trailing_bracket["bracket_high_ms"]))
+            tail_edge_walk_bracket = (
+                Decimal(str(trailing_bracket["bracket_low_ms"])),
+                Decimal(str(trailing_bracket["bracket_high_ms"])))
+        elif tail_gap_exists:
+            # THE STRUCTURAL HOLE, CLOSED (ANALYSIS_edge_single_anchor.md
+            # finding 3). A tail gap exists on the MASTER's own timeline and
+            # the locator attached NO `trailing_bracket` -- because its own
+            # `master_end_ms` is `round(shortest*1000, 2)` with `shortest =
+            # min(master_duration, candidate_duration)`
+            # (`change_point_locator.py:1842,2913`), so on a master LONGER
+            # than its candidate the locator's "master end" is the CANDIDATE's
+            # duration, the last segment reaches it exactly, and
+            # `tail_ends_at_master_end` takes CASE 1. Meanwhile THIS function,
+            # which gets the REAL master timeline, appends a `tail_gap` piece
+            # anyway -- with `bracket=None`, invisible to the frame tier and
+            # skipped by the `bracket_unnarrowed` gate below, which returns
+            # early on a `None` bracket. MEASURED on errid 5 (Fate/Strange
+            # Fake S01E01: master 1487.947 s, candidate 1450.016 s, locator
+            # `master_end_ms=1450016.0`): 37.93 s of master fill with no
+            # bracket, no frame tier and no width gate. Mai-HiME S01E11's
+            # 78.19 s tail is the same shape.
+            #
+            # THE MINIMAL FIX IS HERE, NOT IN THE LOCATOR, and deliberately:
+            # `master_end_ms` there also CLAMPS every segment
+            # (`end_ms = min(master_end_ms, candidate_end_ms - offset_ms)`),
+            # so splitting it into two quantities inside a module that already
+            # carries three "master end"s would move far more than this hole.
+            # The master's own timeline is already in scope HERE, and this is
+            # the site where the silent fill is actually appended.
+            #
+            # LOUD, because it is a LOCATOR defect and not a content fact.
+            tools.logs.append(
+                f"chimeric: edge_bracket_absent edge=tail "
+                f"gap=[{cursor},{master_duration_ms}) = {tail_gap_ms} ms "
+                f"frame_ms={tail_frame_ms} -- a tail gap exists on the "
+                f"master's own timeline and the locator attached no "
+                f"trailing_bracket (its master_end is min(master,candidate)); "
+                f"walking the gap itself instead of filling it unverified\n")
+            tools.logs.append(
+                f"chimeric: FORENSIC REVIEW edge_bracket_absent edge=tail "
+                f"gap_ms={tail_gap_ms}\n")
+            tail_edge_walk_bracket = (cursor, master_duration_ms)
+        if trailing_bracket is not None:
+            tb_low, tb_high = tail_edge_walk_bracket
             tb_width_ms = float(tb_high - tb_low) if tb_high > tb_low else 0.0
-            tail_grid_ok = (fps_num is not None and fps_den is not None
-                           and fps_num > 0 and fps_den > 0)
-            tail_frame_ms = (1000.0 * fps_den / fps_num) if tail_grid_ok else None
-            tail_tier_asked = (master_path is not None and candidate_path is not None
-                               and fps_num is not None and fps_den is not None
+            tail_tier_asked = (tail_inputs_ok
                                and (tail_frame_ms is None
                                     or tb_width_ms > 2.0 * tail_frame_ms))
             if tail_tier_asked:
@@ -1168,31 +1474,96 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                 # `not declined`, unchanged: this line only decides what
                 # gets RECORDED.
                 tail_frame_tier_result = onset_result
-                if not onset_result["declined"]:
-                    # THE TIER'S INTERVAL IS THE BOUNDARY, same rule as
-                    # HEAD above -- consumed directly, not re-clamped.
-                    # Structurally safe to trust without a floor/ceiling
-                    # re-derivation here (unlike head's now-fixed defect):
-                    # `cursor` at this point is the LAST segment's own end,
-                    # and the search interval `[tb_low, tb_high]` starts
-                    # FORWARD of it by construction (`tail_run["last"] +
-                    # PROBE_WINDOW_SECONDS`, always well before the
-                    # segment's own full extent) -- so `cursor <= tb_low`
-                    # holds by how the bracket was built, not by a
-                    # coincidence this site has to re-verify.
-                    onset_ms = exact_ms_from_frame(
-                        onset_result["onset_frame"], onset_result["grid"])
-                    if onset_ms > cursor:
-                        # `offset_for_combination`, not raw `offset`: the
-                        # LAST segment's own combination (main loop, above)
-                        # already reconciled it if a residual under one
-                        # frame applied -- this extension reads the SAME
-                        # candidate position at the SAME offset, so it must
-                        # agree with what that piece was actually placed at.
-                        extended_end_candidate = onset_ms + offset_for_combination
-                        if extended_end_candidate <= candidate_duration_ms:
-                            pieces[-1]["master_end_ms"] = onset_ms
-                            cursor = onset_ms
+                tail_onset_result = onset_result
+
+        # THE EDGE SINGLE-ANCHOR PROTOCOL AT THE TAIL -- the authority, same
+        # rule and same reasons as the head block above. Gated on the GAP
+        # (one master frame, against the master's own timeline), not on the
+        # bracket's width, and reached whether or not a bracket exists: the
+        # no-bracket branch is the structural hole this landing closes.
+        if (tail_edge_walk_bracket is not None and tail_gap_exists
+                and tail_inputs_ok):
+            _tw_low, _tw_high = tail_edge_walk_bracket
+            tail_walk_result, tail_walk_errored = run_edge_walk(
+                "tail", master_path, candidate_path, fps_num, fps_den,
+                _tw_low, _tw_high, offset,
+                master_duration_ms, candidate_duration_ms,
+                bracket=trailing_bracket, onset_result=tail_onset_result)
+            tail_frame_tier_result = (tail_walk_result
+                                      if tail_walk_result is not None
+                                      else tail_frame_tier_result)
+            if not tail_walk_errored and not tail_walk_result["declined"]:
+                # THE THREE TERMINATIONS, EACH ONTO A PIECE CONSTRUCTION THAT
+                # ALREADY EXISTS (ADDENDUM; spec S3d). No new piece `source`,
+                # no new `reason` string, no second tail-pad mechanism:
+                #
+                #   candidate_exhausted -> `pieces[-1]` runs to
+                #     `exact_ms_from_frame(boundary+1)` and the `tail_gap`
+                #     piece below covers `[that, master_duration_ms)`. Its
+                #     length IS `addition_frames` times the grid's exact
+                #     rational frame time, BY CONSTRUCTION -- the count is the
+                #     measurement, which is what the ADDENDUM demands.
+                #   sustained_mismatch -> identical arithmetic; the `tail_gap`
+                #     piece is the REPLACE rather than the addition.
+                #   master_exhausted   -> `pieces[-1]` runs to
+                #     `master_duration_ms`, `cursor` reaches it, the
+                #     `if cursor < master_duration_ms` guard below is False
+                #     and NO `tail_gap` piece is appended. The candidate's
+                #     remainder is never read = trimmed. That is exactly
+                #     Undead Unluck S01E12's current behaviour, reproduced
+                #     rather than replaced.
+                #
+                # THE `reason` STRING STAYS `"tail_gap"`. It is matched as a
+                # LITERAL by `split_master_fill_shortfall` and by the
+                # `bracket_unnarrowed` gate; renaming it by analogy with
+                # `interior_bracket_frame_narrowed` would silently disable the
+                # tail exemption and start refusing files on
+                # `fill_source_too_short`. The narrowing is recorded in
+                # `piece["frame_tier"]`, which already travels.
+                if tail_walk_result["termination"] == "master_exhausted":
+                    tail_boundary_ms = master_duration_ms
+                else:
+                    tail_boundary_ms = exact_ms_from_frame(
+                        tail_walk_result["boundary_frame"] + 1,
+                        tail_walk_result["grid"])
+                    if tail_boundary_ms > master_duration_ms:
+                        tail_boundary_ms = master_duration_ms
+                if tail_boundary_ms > cursor:
+                    # `offset_for_combination`, not raw `offset`: the LAST
+                    # segment's own combination (main loop above) already
+                    # reconciled it if a residual under one frame applied --
+                    # this extension reads the SAME candidate position at the
+                    # SAME offset, so it must agree with what that piece was
+                    # actually placed at.
+                    extended_end_candidate = tail_boundary_ms + offset_for_combination
+                    if extended_end_candidate <= candidate_duration_ms:
+                        pieces[-1]["master_end_ms"] = tail_boundary_ms
+                        pieces[-1]["frame_tier"] = tail_walk_result
+                        cursor = tail_boundary_ms
+                    else:
+                        # The protocol's answer would read the candidate past
+                        # its own declared end -- decline the extension, not
+                        # the file (the interior tier's own rule).
+                        tools.logs.append(
+                            f"chimeric: edge_walk_extension_refused edge=tail "
+                            f"boundary_ms={tail_boundary_ms} "
+                            f"would_read_candidate_to={extended_end_candidate} "
+                            f"candidate_bound={candidate_duration_ms}\n")
+        elif tail_onset_result is not None and not tail_onset_result["declined"]:
+            # THE PROTOCOL WAS NOT ASKED -- today's behaviour, unchanged.
+            # THE TIER'S INTERVAL IS THE BOUNDARY, same rule as HEAD above,
+            # consumed directly and not re-clamped: `cursor` here is the LAST
+            # segment's own end and `[tb_low, tb_high]` starts forward of it
+            # by how the bracket was built (`tail_run["last"] +
+            # PROBE_WINDOW_SECONDS`), not by a coincidence this site has to
+            # re-verify.
+            onset_ms = exact_ms_from_frame(
+                tail_onset_result["onset_frame"], tail_onset_result["grid"])
+            if onset_ms > cursor:
+                extended_end_candidate = onset_ms + offset_for_combination
+                if extended_end_candidate <= candidate_duration_ms:
+                    pieces[-1]["master_end_ms"] = onset_ms
+                    cursor = onset_ms
 
     if cursor < master_duration_ms:
         tail_piece = {"source": "master", "master_start_ms": cursor,

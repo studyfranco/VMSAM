@@ -266,6 +266,148 @@ WINDOW_LADDER_MAX_RUNGS = 3
 WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
     {"anchors_not_established", "anchor_uninformative", "search_window_too_narrow"})
 
+# ---------------------------------------------------------------------------
+# EDGE BRACKETS / SINGLE ANCHOR / pHASH-WALK
+# (owner's ruling RULING_20260922_EDGE_SINGLE_ANCHOR.MD + its ADDENDUM;
+#  measured spec: architect/cases/ANALYSIS_edge_single_anchor.md)
+#
+# Everything from here to `locate_edge_boundary` serves ONE new public entry
+# point. The two-anchor path above is NOT touched: interior brackets keep two
+# anchors and a bidirectional cross-sweep, as designed. An EDGE bracket is a
+# different SHAPE of evidence -- content on one side only -- and the owner's
+# rule is that it therefore takes ONE anchor, on the common side, and a
+# frame-by-frame pHash walk outward from it.
+# ---------------------------------------------------------------------------
+
+# N -- THE SUSTAINED-MISMATCH WIDTH FOR THE WALK'S STOPPING DECISION.
+# The ruling says N comes from the EXISTING ladder, "symmetric with anchor
+# validation, not a new constant". The two candidates in
+# `VALIDATION_FRAME_LADDER` are 3 (= `MIN_VALIDATION_FRAMES` =
+# `SWEEP_SUSTAINED_MISMATCH_FRAMES`) and 4. MEASURED, three windows of real
+# common content on two real pairs (2026-09-22):
+#   * Undead Unluck S01E13, master frames 23-959, 937 frames of
+#     confirmed-common content: median Hamming 2, longest consecutive
+#     mismatch run 2 (with one isolated Hamming=32 frame at master 35 --
+#     reproduced here directly, a single-frame excursion inside matching
+#     content).
+#   * Mai-HiME S01E11, master [1340,1388] s, 1151 frames: 99.0 % match,
+#     median Hamming 2, longest consecutive mismatch run 2.
+#   * Mai-HiME S01E11, immediately before the candidate's video exhausts:
+#     a THREE-frame excursion (Hamming 31/31/31 at master 34405-34407 under
+#     the nominal shift, reproduced here), followed by five clean frames at
+#     Hamming 3, and only THEN does the candidate run out.
+# So the measured noise floor on real pairs is <= 2 consecutive, and there is
+# a measured 3-frame excursion sitting a handful of frames before a true
+# exhaustion boundary. N=3 would have stopped ON that excursion and
+# master-filled the five real candidate frames behind it; N=4 clears every
+# observed excursion and carries the walk to the true boundary. N=3 is not
+# WRONG -- stopping early only master-fills a little more, a precision cost,
+# not a correctness one -- but "a la frame pres" is the ruling's whole point.
+# `mismatch_run` AND `max_mismatch_run` are reported on every outcome so this
+# choice stays MEASURABLE from production logs instead of re-litigated from
+# memory (spec S5 item 7).
+EDGE_WALK_SUSTAINED_MISMATCH_FRAMES = VALIDATION_FRAME_LADDER[1]
+
+# THE WALK IS CHUNKED, AND THE CHUNK SIZE IS A MEASURED COST, NOT A GUESS.
+# MEASURED `_extract_hashes` throughput (spec S3c, UU S01E13 master, 1080p
+# H.264, warm): 2 s window -> 14.45 ms/frame; 8 s -> 6.61; 20 s -> 5.64;
+# 40 s -> 5.13; 80 s -> 2.61 ms/frame. Derived: ~0.45 s fixed cost per ffmpeg
+# call, ~2.4-2.6 ms marginal decode per frame. 80 s (~1919 frames at
+# 24000/1001) is where the fixed cost has amortised; larger chunks buy little
+# and cost memory and latency before the first comparison.
+EDGE_WALK_CHUNK_SECONDS = 80.0
+
+# THE SEAM BETWEEN TWO CHUNKS IS A MEASUREMENT, NOT AN ASSUMPTION.
+# `_extract_hashes` labels element 0 of a decoded window with
+# `comparer._frame_index(start_s)` -- the REQUESTED frame -- while ffmpeg's
+# first emitted frame at `-ss T` is the first frame at or after T. The two can
+# disagree by up to half a grid frame, and `_on_comparer_grid`'s own docstring
+# says so in as many words ("that was true before this function existed and
+# stays exactly as true after it"). MEASURED, 2026-09-22, Mai-HiME S01E11's
+# candidate: extractions started at master frames 32623 and 34332 put the
+# file's last video frame at index 34392, while extractions started at 33778
+# and 33880 put it at 34393 -- the SAME physical frame, labelled one apart,
+# purely from where the seek began. A walk that crossed a chunk boundary and
+# simply trusted the new chunk's label would therefore silently gain or lose
+# one frame AT the seam, and the error would land straight in
+# `addition_frames`, which the ADDENDUM requires to be an EXACT count.
+# So every chunk after the first OVERLAPS its predecessor by this many frames
+# and its base is CORRECTED by the integer delta that makes the overlap agree.
+# 48 frames is ~2 s at 24000/1001: long enough that agreement is a real claim
+# about content rather than a coincidence of two similar frames, short enough
+# that the overlap is a rounding error against an 80 s chunk.
+EDGE_WALK_CHUNK_OVERLAP_FRAMES = 48
+# The seam delta is searched over +/- this many frames. Two, because the
+# defect being corrected is a HALF-FRAME labelling disagreement (so +/-1 is
+# the whole of it) and one frame of margin is kept so the guard measures the
+# seam rather than assuming its own bound is tight.
+EDGE_WALK_SEAM_SEARCH_FRAMES = 2
+# A seam is RE-ESTABLISHED only if the best delta makes this fraction of the
+# overlap agree at `ANCHOR_HAMMING_THRESHOLD_DEFAULT`. Below it, the two
+# chunks cannot be shown to be the same content read twice, and the walk
+# DECLINES (`edge_walk_unreadable`) rather than guessing which label is right
+# -- an unverifiable seam is exactly the could-not-measure /
+# measured-nothing conflation this campaign has named repeatedly.
+EDGE_WALK_SEAM_AGREEMENT_MIN = 0.75
+
+# WHEN GEOMETRY MUST BE NORMALISED BEFORE THE INSTRUMENT IS BELIEVED.
+# The pHash squashes every frame to 32x32, so a few pixels of difference in
+# CODED size are irrelevant; what is NOT irrelevant is a difference in the
+# DISPLAYED ASPECT, because that means one file carries picture where the
+# other carries black bars, and the two 32x32 reductions then describe
+# different pictures. TWO MEASURED POINTS bracket this constant:
+#   * Mai-HiME S01E11: 1460x1078 vs 1456x1072, aspects 1.3543 vs 1.3582 --
+#     0.29 % apart. Raw, un-normalised, real common content matches at mean
+#     Hamming 1.35 over 500 frames (reproduced 2026-09-22). Normalising here
+#     would be a change with no defect to fix.
+#   * id 33 (Fallout S01E05): 1920x1080 vs 1920x800, aspects 1.778 vs 2.400
+#     -- 25.9 % apart. Raw match 0/193; cropped to `1920:800:0:140`, 193/193.
+# 2 % sits roughly an order of magnitude above the benign case and an order of
+# magnitude below the broken one. It is a THRESHOLD ON A RATIO, not on pixels:
+# a pixel count says nothing about whether the two pictures frame the same
+# thing.
+EDGE_GEOMETRY_ASPECT_TOLERANCE = 0.02
+
+# THE SHIFT IS RESOLVED AT THE ANCHOR, AGAINST THE EXTRACTION THE ANCHOR WAS
+# VALIDATED ON -- over the nominal shift PLUS OR MINUS this many frames.
+#
+# NOT A SEARCH FOR A BETTER ANSWER, A CORRECTION FOR A KNOWN INSTRUMENT
+# PROPERTY, and the bound is DERIVED from the two things that can move it by
+# exactly one frame each, with nothing left over:
+#   1. The offset is an AUDIO measurement in milliseconds; rounding it onto
+#      the video grid (`_nominal_shift_frames`) can land either side of a
+#      half-frame residual. MEASURED: Undead Unluck S01E13's head offset is
+#      -1017.33 ms = -24.39 frames, Mai-HiME S01E11's tail offset is
+#      -807.82 ms = -19.37 frames -- both well off a frame boundary.
+#   2. `_extract_hashes` labels element 0 with the frame it ASKED for, while
+#      ffmpeg returns the first frame at or after that instant, so the SAME
+#      picture can be labelled one index apart in two different reads.
+#      MEASURED on Mai-HiME S01E11's tail (2026-09-22): over master
+#      [34000,34390) the best-fitting shift is -19 for a candidate read
+#      starting at master frame 33880, and -20 for one starting at 32935 --
+#      the same content, the same pair, two reads, one frame apart. The
+#      BOUNDARY is invariant under this (-19 with the first labelling and -20
+#      with the second both put the candidate's last frame at master 34412);
+#      the shift alone is not, so the shift must be re-derived per extraction
+#      or the walk applies a hypothesis proven against a different labelling.
+#
+# WHY THE DISCRIMINATOR IS SUMMED HAMMING AND NOT THE MATCH COUNT: at a
+# one-frame offset the binary `<= threshold` test DEMONSTRABLY cannot separate
+# the hypotheses -- measured on Undead Unluck S01E13, master [120,250), where
+# shifts -25 AND -24 both match 130/130, while their mean Hamming (2.369 vs
+# 2.154) does separate them. This is the same argument
+# `_check_anchor_distinctive` makes at +/-4 and +/-8, continued down to the
+# range where a threshold saturates.
+EDGE_SHIFT_SEARCH_FRAMES = 2
+
+# Which edge declines a WIDER anchor window could plausibly change, same
+# question `WINDOW_LADDER_RETRYABLE_REASONS` answers for the two-anchor path
+# and answered the same way: "nothing validated" and "only self-similar
+# content was in range" are both window-limited; everything else is not.
+EDGE_WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
+    {"edge_anchor_not_established", "edge_anchor_uninformative",
+     "search_window_too_narrow"})
+
 
 def _scene_anchor_config():
     '''`scene_search_window_sec`: config.ini [features], additions-only
@@ -930,6 +1072,41 @@ DECLINE_RETRY_CLASS = {
     # `_check_step_plumbing` makes, so it cannot change whether it agrees.
     "anchor_step_unavailable": "TERMINAL",
     "anchor_step_inconsistent": "TERMINAL",
+    # EDGE / SINGLE-ANCHOR VOCABULARY (owner's ruling, 2026-09-22). Classified
+    # here, in the SAME table, because the edge path runs the SAME outer
+    # window ladder and must be able to ask the same question of its own
+    # reasons. Named apart from the two-anchor tokens on purpose: a census
+    # must be able to tell "the edge protocol could not seed one anchor" from
+    # "the interior protocol could not seed two", and a shared token would
+    # erase exactly the distinction this ruling turns on.
+    #
+    # The two establishment reasons are RETRYABLE for the reason the owner's
+    # order names: a wider window brings more candidate seeds into range and
+    # makes more distinctiveness probes readable -- "if anchor are not the
+    # same, the 10 seconds is not enought".
+    "edge_anchor_not_established": "RETRYABLE",
+    "edge_anchor_uninformative": "RETRYABLE",
+    # `_extract_hashes` returned nothing for a walk chunk on one side while
+    # the file was not yet exhausted, or a chunk seam could not be
+    # re-established. A wider ANCHOR window reads a different span of the same
+    # unreadable source and changes neither fact.
+    "edge_walk_unreadable": "TERMINAL",
+    # Coded/active geometry differs beyond `EDGE_GEOMETRY_ASPECT_TOLERANCE`
+    # and could not be reconciled by a crop. No window size makes two
+    # differently-framed pictures the same picture.
+    "edge_geometry_unreconciled": "TERMINAL",
+    # An edge gap exists ON THE MASTER'S OWN TIMELINE but the locator attached
+    # no bracket to bound it. TERMINAL -- and LOUD at the call site: it is a
+    # LOCATOR DEFECT, not a content fact. Its measured shape is errid 5's
+    # tail: `change_point_locator.py:2913` reports `master_end_ms =
+    # min(master, candidate)`, so on a master LONGER than its candidate the
+    # locator's "master end" is the CANDIDATE's duration, `tail_ends_at_
+    # master_end` takes CASE 1, no `trailing_bracket` is attached -- and
+    # `normalize_segments`, which gets the REAL master timeline, appends a
+    # 37.93 s `tail_gap` piece with `bracket=None`, invisible to the frame
+    # tier and to the `bracket_unnarrowed` gate (which returns early on a
+    # `None` bracket).
+    "edge_bracket_absent": "TERMINAL",
 }
 
 
@@ -1501,4 +1678,1015 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                     + f" length_master={length_master} "
                     f"length_candidate={length_candidate} "
                     f"{plumbing_evidence}"),
+    }
+
+
+# ===========================================================================
+# EDGE BRACKETS -- ONE ANCHOR, THEN A pHASH-WALK TO THE BOUNDARY
+# ===========================================================================
+#
+# WHY A SEPARATE PATH AND NOT A FLAG ON THE ONE ABOVE. At an edge, the
+# two-anchor protocol does not merely perform badly -- it CANNOT succeed, and
+# it burns every rung of the expensive outer ladder proving it. Traced in the
+# code, 2026-09-22: at a HEAD bracket `a_seeds_master` is filtered
+# `<= m_bracket_first`, and with `bracket_low_ms ~ 0` that collapses to
+# roughly `{0}`; `_validate_anchor(direction="backward")` then checks
+# `range(m_seed - n, m_seed)`, i.e. NEGATIVE frame indices, `_frames_match`
+# returns `None`, and validation fails -- correctly, because an unreadable
+# frame is never a pass by omission. Anchor A can never validate at a head.
+# The tail is the mirror image. So `anchor_a is None or anchor_b is None`
+# always fires, the reason is RETRYABLE, and all three rungs run -- each one
+# re-extracting frames and re-running PySceneDetect on BOTH files -- before
+# declining `search_window_ceiling_reached`. That is precisely the "the ladder
+# must not burn rungs looking for one [anchor]" the ruling forbids.
+
+
+def _probe_video_geometry(path):
+    '''The file's own coded `width`/`height` and pixel aspect, as an EXACT
+    rational where the container declares one -- `(dict, None)` on success,
+    `(None, reason)` when it could not be measured.
+
+    Same instrument, same failure vocabulary and same immediately-pre-call
+    log line as `_probe_frame_rate` above; this module receives PATHS, not
+    the media objects the caller resolved the master's grid from, so ffprobe
+    is the only source available here.
+
+    `sample_aspect_ratio` is ffprobe's own "N:M" and is frequently `0:1`
+    ("unknown") rather than `1:1`; both are read as square pixels, which is
+    what every file measured for this ruling actually has. The value is used
+    ONLY to form a display aspect for the tolerance comparison below -- never
+    to scale anything.
+    '''
+    try:
+        cmd = [tools.software["ffprobe"], "-v", "error",
+               "-select_streams", "v:0",
+               "-show_entries", "stream=width,height,sample_aspect_ratio",
+               "-of", "default=noprint_wrappers=1:nokey=1", path]
+    except KeyError:
+        return None, "ffprobe_not_configured"
+    # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22): every
+    # external tool call says which file it is on before it can hang.
+    tools.dev_log(f"scene_anchor: _probe_video_geometry calling ffprobe "
+                  f"file={path}\n")
+    try:
+        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+            cmd, max_restart=3, timeout=60)
+    except Exception as exc:
+        return None, f"ffprobe_raised:{type(exc).__name__}"
+    if exit_code != 0:
+        return None, f"ffprobe_exit:{exit_code}"
+    lines = [ln.strip() for ln in
+             stdout.decode("utf-8", "replace").strip().splitlines()]
+    if len(lines) < 2:
+        return None, f"unparseable_geometry:{lines!r}"
+    try:
+        width, height = int(lines[0]), int(lines[1])
+    except (TypeError, ValueError):
+        return None, f"unparseable_geometry:{lines[:2]!r}"
+    if width <= 0 or height <= 0:
+        return None, f"non_positive_geometry:{width}x{height}"
+    sar = Fraction(1, 1)
+    if len(lines) > 2 and lines[2] not in ("", "N/A", "0:1"):
+        try:
+            num, den = lines[2].split(":")
+            parsed = Fraction(int(num), int(den))
+            if parsed > 0:
+                sar = parsed
+        except (TypeError, ValueError, ZeroDivisionError):
+            # A malformed SAR is not an absent one, but it is also not worth a
+            # decline: square pixels is what every file measured for this
+            # ruling has, and the value only feeds a RATIO comparison whose
+            # own tolerance is 2 %. Named in the returned dict so a reader can
+            # see the assumption rather than infer it.
+            sar = Fraction(1, 1)
+    return {"width": width, "height": height, "sar": sar,
+            "aspect": Fraction(width, height) * sar}, None
+
+
+def _even(value):
+    '''An even, non-negative crop offset. Chroma-subsampled pixel formats
+    (yuv420, what every file in this campaign's corpus uses) cannot be cropped
+    at an odd offset; ffmpeg either refuses or silently shifts. One pixel of
+    framing is far below the 32x32 reduction's own resolution, so rounding
+    down is free -- but it is rounded HERE, once, rather than left for ffmpeg
+    to decide silently.'''
+    return max(0, int(value) - (int(value) % 2))
+
+
+def _resolve_geometry(master_path, candidate_path):
+    '''THE GEOMETRY PRECONDITION (spec S3a, finding 2) -- run ONCE per pair,
+    before any anchor or walk, because a walk that reports "sustained mismatch
+    at the anchor" on a geometry mismatch is INDISTINGUISHABLE from a real
+    boundary. That is the could-not-measure / measured-nothing conflation this
+    campaign has now named six times, in the direction that manufactures a
+    divergence nobody observed and then trims or master-fills on it.
+
+    Returns `(geometry_dict, crop_filters, reason)`:
+      * `reason is None` and `crop_filters` empty  -- the two geometries are
+        already comparable (same coded size, or aspects within
+        `EDGE_GEOMETRY_ASPECT_TOLERANCE`); read the files as they are.
+      * `reason is None` and `crop_filters` non-empty -- normalisation was
+        NEEDED and was established: the file with the SMALLER display aspect
+        (the one carrying bars) is cropped, centred, to the larger aspect.
+      * `reason` set -- `edge_geometry_unreconciled`'s evidence; the caller
+        declines rather than walking.
+
+    PREFERENCE ORDER IS THE SPEC'S, AND ITS FIRST BRANCH IS MEASURED: on id 33
+    cropping the master to `1920:800:0:140` takes the match from 0/193 to
+    193/193 at lag 15. The crop this function computes for that pair is
+    exactly `1920:800:0:140` -- 1920/2.400 = 800, (1080-800)//2 = 140 -- which
+    is how the branch is anchored to a measurement rather than to an
+    intention.
+    '''
+    m_geom, m_reason = _probe_video_geometry(master_path)
+    c_geom, c_reason = _probe_video_geometry(candidate_path)
+    if m_geom is None or c_geom is None:
+        return ({"master": None, "candidate": None, "normalised": False,
+                 "crop": None},
+                {},
+                f"geometry_unmeasured master={m_reason} candidate={c_reason}")
+
+    def _label(g):
+        return f"{g['width']}x{g['height']}"
+
+    base = {"master": _label(m_geom), "candidate": _label(c_geom),
+            "master_aspect": f"{float(m_geom['aspect']):.4f}",
+            "candidate_aspect": f"{float(c_geom['aspect']):.4f}",
+            "normalised": False, "crop": None}
+
+    if (m_geom["width"], m_geom["height"], m_geom["sar"]) == \
+       (c_geom["width"], c_geom["height"], c_geom["sar"]):
+        base["verdict"] = "identical"
+        return base, {}, None
+
+    a_m, a_c = m_geom["aspect"], c_geom["aspect"]
+    spread = abs(a_m - a_c) / max(a_m, a_c)
+    if spread <= Fraction(EDGE_GEOMETRY_ASPECT_TOLERANCE).limit_denominator(10 ** 6):
+        # DIFFERENT PIXELS, SAME PICTURE. Measured on Mai-HiME S01E11
+        # (1460x1078 vs 1456x1072, 0.29 % apart): real common content matches
+        # at mean Hamming 1.35 over 500 frames with no normalisation at all.
+        # Cropping here would change a measurement that is already correct.
+        base["verdict"] = f"comparable aspect_spread={float(spread):.4f}"
+        return base, {}, None
+
+    # The file with the SMALLER display aspect is the one carrying bars; crop
+    # it to the larger aspect, centred. Only ONE side is ever cropped: cropping
+    # both would be two guesses where the evidence supports one.
+    if a_m < a_c:
+        bar_path, bar_geom, target = master_path, m_geom, a_c
+        bar_side = "master"
+    else:
+        bar_path, bar_geom, target = candidate_path, c_geom, a_m
+        bar_side = "candidate"
+
+    width, height, sar = bar_geom["width"], bar_geom["height"], bar_geom["sar"]
+    # Letterbox (bars top/bottom) -> the height is the excess. Pillarbox
+    # (bars left/right) -> the width is. Try height first; if the required
+    # height is not smaller than the real one, the excess is horizontal.
+    new_h = int(round(Fraction(width) * sar / target))
+    if 0 < new_h < height:
+        crop_w, crop_h = width, new_h
+        crop_x, crop_y = 0, _even((height - new_h) // 2)
+    else:
+        new_w = int(round(Fraction(height) * target / sar))
+        if not (0 < new_w < width):
+            return (base, {},
+                    f"aspect_spread={float(spread):.4f} exceeds "
+                    f"{EDGE_GEOMETRY_ASPECT_TOLERANCE} and no centred crop of "
+                    f"{bar_side} {_label(bar_geom)} reaches "
+                    f"{float(target):.4f}")
+        crop_w, crop_h = new_w, height
+        crop_x, crop_y = _even((width - new_w) // 2), 0
+
+    # THE CROP IS VERIFIED AGAINST ITS OWN TARGET, not assumed to have hit it:
+    # the even-offset rounding and the integer crop size both move the result,
+    # and a crop that misses the aspect it was computed for must decline, not
+    # ship. `crop_x`/`crop_y` are even by `_even`; `crop_w`/`crop_h` keep the
+    # uncropped dimension exactly, so only the computed one can drift.
+    achieved = Fraction(crop_w, crop_h) * sar
+    if abs(achieved - target) / max(achieved, target) > \
+            Fraction(EDGE_GEOMETRY_ASPECT_TOLERANCE).limit_denominator(10 ** 6):
+        return (base, {},
+                f"centred crop {crop_w}:{crop_h}:{crop_x}:{crop_y} of "
+                f"{bar_side} reaches aspect {float(achieved):.4f}, not "
+                f"{float(target):.4f}")
+
+    crop = f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}"
+    base["normalised"] = True
+    base["crop"] = f"{bar_side}:{crop}"
+    base["verdict"] = (f"normalised aspect_spread={float(spread):.4f} "
+                       f"{bar_side} {_label(bar_geom)} -> {crop_w}x{crop_h}")
+    return base, {bar_path: crop}, None
+
+
+class _ChunkedFrames:
+    '''ONE SIDE of the walk's frame supply, read in `EDGE_WALK_CHUNK_SECONDS`
+    chunks and addressed by MASTER-GRID frame number (F1's ruling: every index
+    this module ships is a master frame, and `_extract_hashes` already returns
+    the candidate's hashes re-indexed onto the comparer's grid, so both sides
+    speak the same numbers).
+
+    THE WHOLE POINT OF THIS CLASS IS THE DISTINCTION THE ADDENDUM TURNS ON:
+    a `None` at a CHUNK boundary must fetch the next chunk, while a `None` at
+    the FILE boundary terminates the walk. Getting that backwards turns a
+    chunk edge into a false `candidate_exhausted` and master-fills the rest of
+    the episode with content the candidate actually had. `get()` therefore
+    never returns a bare `None`: it returns a NAMED state, and "I have no
+    frame there" is split into `file_end` (a fact about the file) and
+    `unreadable` (a fact about this read), which are different claims.
+
+    `declared_last_frame` is an UPPER bound only -- a ceiling past which the
+    walk refuses to keep asking. It is deliberately NOT the authority on where
+    the video ends: MEASURED on Mai-HiME S01E11's candidate, the container
+    declares 1452.030 s while the VIDEO stream's last frame is at 1434.45 s,
+    the 17.5 s difference being carried by its subtitle streams. A walk that
+    trusted the container would ask for 420 frames that do not exist. What
+    ends the walk is the DECODE: ffmpeg was asked for frames in that span and
+    produced none, twice, from two different seek points.
+    '''
+
+    def __init__(self, comparer, path, side, fps_num, fps_den,
+                 declared_last_frame, debug=False,
+                 initial_base=None, initial_hashes=None,
+                 chunk_seconds=EDGE_WALK_CHUNK_SECONDS):
+        self.comparer = comparer
+        self.path = path
+        self.side = side
+        self.fps_num = int(fps_num)
+        self.fps_den = int(fps_den)
+        self.frame_ms = 1000.0 * self.fps_den / self.fps_num
+        self.chunk_frames = max(
+            MIN_VALIDATION_FRAMES,
+            int(round(chunk_seconds * 1000.0 / self.frame_ms)))
+        self.declared_last_frame = declared_last_frame
+        self.debug = debug
+        # SEEDED WITH THE ANCHOR WINDOW'S OWN HASHES, AND THAT IS LOAD-BEARING,
+        # NOT AN OPTIMISATION. The anchor was validated at a particular frame
+        # SHIFT against a particular pair of extractions; `_extract_hashes`
+        # labels element 0 with the frame it ASKED for, while ffmpeg returns
+        # the first frame at or after that instant, so a DIFFERENT extraction
+        # of the same span can label the same picture one index apart (see
+        # `EDGE_WALK_CHUNK_OVERLAP_FRAMES` for the measurement). Starting the
+        # walk on a fresh read would therefore apply a shift proven against
+        # one labelling to a different one. MEASURED consequence of not doing
+        # this, on Mai-HiME S01E11's tail (2026-09-22): a distinctive anchor
+        # at master 34117 validated at n=13, and the walk then reported
+        # `sustained_mismatch` four frames later, inside 295 frames of content
+        # that matches 500/500 at the same shift. The frames are already in
+        # hand; re-reading them was both slower and wrong.
+        self.base = initial_base if initial_hashes else None
+        self.hashes = list(initial_hashes) if initial_hashes else []
+        self.chunks_read = 0
+        self.seam_deltas = []
+        self.file_end_source = None
+
+    def _seconds(self, frame):
+        return max(0.0, frame * self.frame_ms / 1000.0)
+
+    def _read(self, start_frame, n_frames):
+        base, hashes = _extract_hashes(
+            self.comparer, self.path, self._seconds(start_frame),
+            n_frames * self.frame_ms / 1000.0)
+        return base, hashes
+
+    def _seam_delta(self, new_base, new_hashes):
+        '''The integer correction that makes a NEW chunk agree with the one
+        already held, over their deliberate overlap. Returns
+        `(delta, agreement)`, or `(None, agreement)` when no delta in
+        `+/- EDGE_WALK_SEAM_SEARCH_FRAMES` reaches
+        `EDGE_WALK_SEAM_AGREEMENT_MIN`.
+
+        Not an optimisation and not defensive padding: see
+        `EDGE_WALK_CHUNK_OVERLAP_FRAMES` for the measurement that made this
+        necessary -- the same physical frame is labelled one index apart
+        depending on where the seek began, and that one frame lands directly
+        in `addition_frames`, which the ADDENDUM requires to be exact.
+        '''
+        # The overlap is wherever the two reads actually cover the same frame
+        # numbers -- computed, not assumed to sit at one end, because a
+        # forward read starts inside the held chunk while a backward read ends
+        # inside it.
+        lo = max(self.base, new_base)
+        hi = min(self.base + len(self.hashes), new_base + len(new_hashes))
+        if hi - lo > EDGE_WALK_CHUNK_OVERLAP_FRAMES:
+            if new_base > self.base:
+                hi = lo + EDGE_WALK_CHUNK_OVERLAP_FRAMES
+            else:
+                lo = hi - EDGE_WALK_CHUNK_OVERLAP_FRAMES
+        best_delta, best_agree = None, 0.0
+        for delta in range(-EDGE_WALK_SEAM_SEARCH_FRAMES,
+                           EDGE_WALK_SEAM_SEARCH_FRAMES + 1):
+            agree = total = 0
+            for frame in range(lo, hi):
+                old_i = frame - self.base
+                new_i = frame + delta - new_base
+                if not (0 <= old_i < len(self.hashes)):
+                    continue
+                if not (0 <= new_i < len(new_hashes)):
+                    continue
+                total += 1
+                if FrameComparer._popcount64(
+                        self.hashes[old_i] ^ new_hashes[new_i]) \
+                        <= ANCHOR_HAMMING_THRESHOLD_DEFAULT:
+                    agree += 1
+            if total < MIN_VALIDATION_FRAMES:
+                continue
+            fraction = agree / total
+            if fraction > best_agree:
+                best_delta, best_agree = delta, fraction
+        if best_delta is None or best_agree < EDGE_WALK_SEAM_AGREEMENT_MIN:
+            return None, best_agree
+        return best_delta, best_agree
+
+    def get(self, frame):
+        '''`(hash, "ok")`, `(None, "file_end")` or `(None, "unreadable")` for
+        one MASTER-GRID frame number.'''
+        if frame < 0:
+            self.file_end_source = self.file_end_source or "before_frame_zero"
+            return None, "file_end"
+        if self.declared_last_frame is not None and frame > self.declared_last_frame:
+            self.file_end_source = self.file_end_source or "declared_duration"
+            return None, "file_end"
+        if self.base is not None and 0 <= frame - self.base < len(self.hashes):
+            return self.hashes[frame - self.base], "ok"
+
+        # A NEW CHUNK, POSITIONED SO IT ALWAYS OVERLAPS THE ONE ALREADY HELD.
+        # The walk is contiguous, so the frame asked for sits exactly one step
+        # outside the held range; the new read is placed to cover it AND to
+        # re-read `EDGE_WALK_CHUNK_OVERLAP_FRAMES` frames the held chunk
+        # already has, which is what `_seam_delta` needs to measure the seam.
+        # An earlier version aligned chunks to multiples of the chunk size --
+        # tidier to read, and MEASURABLY WRONG: on Mai-HiME S01E11's tail the
+        # first aligned chunk was labelled one frame apart from the anchor
+        # window's own extraction, the validated shift no longer applied, and
+        # the walk declared a sustained mismatch four frames past a perfectly
+        # good anchor (reproduced 2026-09-22, before this form replaced it).
+        want_overlap = self.base is not None
+        if not want_overlap:
+            read_start = max(0, frame)
+            read_frames = self.chunk_frames
+        elif frame > self.base:
+            held_hi = self.base + len(self.hashes) - 1
+            read_start = max(0, held_hi - EDGE_WALK_CHUNK_OVERLAP_FRAMES + 1)
+            read_frames = self.chunk_frames + EDGE_WALK_CHUNK_OVERLAP_FRAMES
+        else:
+            read_start = max(0, self.base - self.chunk_frames)
+            read_frames = (self.base - read_start) + EDGE_WALK_CHUNK_OVERLAP_FRAMES
+        new_base, new_hashes = self._read(read_start, read_frames)
+        self.chunks_read += 1
+        if not new_hashes:
+            # ASKED AND GOT NOTHING. Confirm from a DIFFERENT seek point
+            # before calling it the end of the file -- one empty read could be
+            # a seek artefact, two from different starts is a property of the
+            # file. Cheap (one ffmpeg call) against the cost of being wrong,
+            # which is master-filling the remainder of an episode.
+            confirm_base, confirm_hashes = self._read(frame, self.chunk_frames)
+            if not confirm_hashes:
+                self.file_end_source = self.file_end_source or "decode_empty_twice"
+                return None, "file_end"
+            new_base, new_hashes = confirm_base, confirm_hashes
+            want_overlap = False
+
+        if want_overlap:
+            delta, agreement = self._seam_delta(new_base, new_hashes)
+            if delta is None:
+                tools.logs.append(
+                    f"scene_anchor: edge_walk_seam side={self.side} "
+                    f"read_start={read_start} re_established=False "
+                    f"best_agreement={agreement:.3f} "
+                    f"min={EDGE_WALK_SEAM_AGREEMENT_MIN}\n")
+                return None, "unreadable"
+            self.seam_deltas.append(delta)
+            new_base += delta
+            tools.logs.append(
+                f"scene_anchor: edge_walk_seam side={self.side} "
+                f"read_start={read_start} re_established=True delta={delta} "
+                f"agreement={agreement:.3f}\n")
+
+        self.base, self.hashes = new_base, new_hashes
+        if 0 <= frame - self.base < len(self.hashes):
+            return self.hashes[frame - self.base], "ok"
+        if frame >= self.base:
+            # The chunk was read and is SHORT of the frame asked for: the
+            # decoder stopped inside this span. Same confirmation rule as an
+            # empty chunk -- a second read from the frame itself, and only two
+            # failures make it the file's end.
+            confirm_base, confirm_hashes = self._read(frame, self.chunk_frames)
+            if confirm_hashes and 0 <= frame - confirm_base < len(confirm_hashes):
+                self.base, self.hashes = confirm_base, confirm_hashes
+                return self.hashes[frame - self.base], "ok"
+            self.file_end_source = self.file_end_source or "decode_short_chunk"
+            return None, "file_end"
+        return None, "unreadable"
+
+
+def _anchor_window_distance(m_hashes, m_base, c_hashes, c_base, m_seed,
+                            shift_frames, direction, n_frames):
+    '''Total Hamming distance over the SAME window `_validate_anchor` checks,
+    or `None` when any pair in it is unreadable. The continuous form of that
+    function's binary answer -- see `EDGE_SHIFT_SEARCH_FRAMES` for why a
+    threshold cannot separate two hypotheses one frame apart and this can.'''
+    frames = (range(m_seed, m_seed + n_frames) if direction == "forward"
+              else range(m_seed - n_frames, m_seed))
+    total = 0
+    for m_frame in frames:
+        mi = m_frame - m_base
+        ci = m_frame + shift_frames - c_base
+        if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
+            return None
+        total += FrameComparer._popcount64(m_hashes[mi] ^ c_hashes[ci])
+    return total
+
+
+def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
+                        nominal_shift, direction, threshold):
+    '''`_anchor_search`, but resolving the frame SHIFT at the same time as the
+    seed -- the one thing the two-anchor path does not have to do, because it
+    is handed two independently-measured offset hypotheses and this path is
+    handed one whose rounding and whose extraction labelling can each move it
+    by a frame (see `EDGE_SHIFT_SEARCH_FRAMES`).
+
+    Per seed, per rung of `VALIDATION_FRAME_LADDER`, in that order -- the same
+    nesting and the same stop rules as `_anchor_search`, whose docstring is
+    the authority on why:
+      * every shift in the search window is offered to `_validate_anchor`,
+        UNMODIFIED, at this rung;
+      * if none validates, this seed is done -- a stricter window failing is
+        evidence the seed's run is short, not that more frames would help;
+      * among those that do, the one with the SMALLEST summed Hamming over
+        the same window wins, ties broken toward the NOMINAL shift, which is
+        the hypothesis the plan actually measured;
+      * that winner is then put to `_check_anchor_distinctive`, UNMODIFIED, at
+        the same rung. Distinctive -> done. Not distinctive -> widen the rung
+        at the same seed, exactly as the two-anchor ladder does.
+
+    Returns `(seed, shift, n_frames_used, reason)`; `seed` is `None` on
+    failure, with `reason` `None` if nothing ever validated and the first
+    uninformative seed's evidence otherwise -- the same two facts, kept apart
+    for the same reason.
+    '''
+    shift_candidates = sorted(
+        range(nominal_shift - EDGE_SHIFT_SEARCH_FRAMES,
+              nominal_shift + EDGE_SHIFT_SEARCH_FRAMES + 1),
+        key=lambda s: (abs(s - nominal_shift), s))
+    last_uninformative_reason = None
+    last_uninformative_n_frames = None
+    for seed in seeds:
+        seed_reason = None
+        seed_n_frames = None
+        for n_frames in VALIDATION_FRAME_LADDER:
+            scored = []
+            for shift in shift_candidates:
+                if not _validate_anchor(m_hashes, m_base, c_hashes, c_base,
+                                        seed, shift, direction, threshold,
+                                        n_frames):
+                    continue
+                distance = _anchor_window_distance(
+                    m_hashes, m_base, c_hashes, c_base, seed, shift,
+                    direction, n_frames)
+                if distance is None:
+                    continue
+                scored.append((distance, abs(shift - nominal_shift), shift))
+            if not scored:
+                tools.logs.append(
+                    f"scene_anchor: edge_anchor_rung direction={direction} "
+                    f"seed={seed} n_frames={n_frames} validated=False "
+                    f"shift=none distinctive=n/a\n")
+                break
+            scored.sort()
+            best_shift = scored[0][2]
+            distinctive, why_not = _check_anchor_distinctive(
+                m_hashes, m_base, c_hashes, c_base, seed, best_shift,
+                direction, threshold, n_frames)
+            tools.logs.append(
+                f"scene_anchor: edge_anchor_rung direction={direction} "
+                f"seed={seed} n_frames={n_frames} validated=True "
+                f"shift={best_shift} nominal_shift={nominal_shift} "
+                f"shift_scores={[(d, s) for d, _, s in scored]} "
+                f"distinctive={distinctive}\n")
+            if distinctive:
+                return seed, best_shift, n_frames, None
+            seed_reason, seed_n_frames = why_not, n_frames
+        if seed_reason is not None and last_uninformative_reason is None:
+            last_uninformative_reason = seed_reason
+            last_uninformative_n_frames = seed_n_frames
+    return None, None, last_uninformative_n_frames, last_uninformative_reason
+
+
+def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
+               edge, threshold, n_sustained):
+    '''THE pHASH-WALK, owner's rule 3 + the ADDENDUM's three terminations.
+
+    From the validated anchor, step OUTWARD one master frame at a time --
+    DOWN toward frame 0 at a head, UP toward the last frame at a tail --
+    comparing master against candidate under the single shift the anchor was
+    validated at. While the frames match, the common region extends.
+
+    THREE TERMINATIONS, EXACTLY (ADDENDUM):
+      1. `sustained_mismatch`   -- `n_sustained` CONSECUTIVE frames disagree.
+      2. `master_exhausted`     -- no master frame left to compare.
+      3. `candidate_exhausted`  -- no candidate frame left to compare.
+    Each side's exhaustion is a FILE fact, bounded by that file's own last
+    frame; `_ChunkedFrames.get` is what keeps a chunk boundary from
+    impersonating one.
+
+    `boundary_frame` is the LAST MASTER FRAME CONFIRMED MATCHING, for every
+    termination and both edges -- the same quantity, so the two call sites do
+    not each re-derive it with their own off-by-one.
+
+    `first_confirmed` is the OUTERMOST frame the anchor's own validation
+    already proved, and the walk's first step is the one beyond it. It is NOT
+    simply the anchor: `_validate_anchor` covers `[seed, seed+n)` forward and
+    `[seed-n, seed)` BACKWARD, so a tail anchor's own frame was never
+    compared and a walk that started past it would bank an unverified frame
+    as matching -- the caller passes `anchor` at a head and `anchor - 1` at a
+    tail for exactly that reason. This also means a walk that terminates on
+    its very first step still has a CONFIRMED boundary to report and never
+    invents one.
+
+    Returns a dict; `reason` is set only when the walk could not run to any
+    termination at all (an unreadable chunk), in which case no boundary is
+    claimed.
+    '''
+    step = -1 if edge == "head" else 1
+    boundary_frame = first_confirmed
+    walked = 0
+    mismatch_run = 0
+    max_mismatch_run = 0
+    termination = None
+    unreadable_side = None
+    frame = first_confirmed
+
+    while True:
+        frame += step
+        m_hash, m_state = master_frames.get(frame)
+        if m_state == "file_end":
+            termination = "master_exhausted"
+            break
+        if m_state != "ok":
+            unreadable_side = "master"
+            break
+        c_hash, c_state = candidate_frames.get(frame + shift_frames)
+        if c_state == "file_end":
+            termination = "candidate_exhausted"
+            break
+        if c_state != "ok":
+            unreadable_side = "candidate"
+            break
+        walked += 1
+        if FrameComparer._popcount64(m_hash ^ c_hash) <= threshold:
+            boundary_frame = frame
+            mismatch_run = 0
+        else:
+            mismatch_run += 1
+            if mismatch_run > max_mismatch_run:
+                max_mismatch_run = mismatch_run
+            if mismatch_run >= n_sustained:
+                termination = "sustained_mismatch"
+                break
+
+    if termination is None:
+        return {"reason": "edge_walk_unreadable",
+                "evidence": (f"side={unreadable_side} frame={frame} "
+                             f"walked_frames={walked} "
+                             f"master_chunks={master_frames.chunks_read} "
+                             f"candidate_chunks={candidate_frames.chunks_read}")}
+    return {"reason": None,
+            "boundary_frame": boundary_frame,
+            "walked_frames": walked,
+            "mismatch_run": mismatch_run,
+            "max_mismatch_run": max_mismatch_run,
+            "termination": termination,
+            "master_end_source": master_frames.file_end_source,
+            "candidate_end_source": candidate_frames.file_end_source,
+            "master_chunks": master_frames.chunks_read,
+            "candidate_chunks": candidate_frames.chunks_read,
+            "master_seam_deltas": list(master_frames.seam_deltas),
+            "candidate_seam_deltas": list(candidate_frames.seam_deltas)}
+
+
+def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
+                         bracket_low_ms, bracket_high_ms, offset_ms, edge,
+                         master_timeline_ms, candidate_duration_ms,
+                         known_match_ms=None, step_ms=None, quantum_ms=None,
+                         scene_search_window_sec=None, debug=False):
+    '''PUBLIC ENTRY POINT for an EDGE bracket -- owner's ruling
+    RULING_20260922_EDGE_SINGLE_ANCHOR.MD and its ADDENDUM.
+
+    `edge` is `"head"` or `"tail"`, and the CALLER classifies: a bracket is an
+    edge bracket iff `bracket["edge"] in ("head","tail")`, exactly, with NO
+    distance epsilon. That field exists on `leading_bracket`/
+    `trailing_bracket` only; `following_bracket` -- attached at
+    `change_point_locator.py:3044-3048` ONLY between two SURVIVING segments,
+    so provably with content on both sides -- never has it and can never be an
+    edge. A distance epsilon from the probe grid would be WRONG and the
+    constructors show why: the probe grid sets a bracket's WIDTH (a bound-only
+    interior bracket is exactly `PROBE_STEP + PROBE_WINDOW = 100 000 ms`),
+    never its DISTANCE from the file edge -- which is ZERO in every edge
+    branch by construction (`bracket_low_ms = 0.0` at a head,
+    `bracket_high_ms = master_end_ms` at a tail). A 100 000 ms epsilon would
+    sweep in errid 5's interior bracket, whose high edge is 150 016 ms from
+    the end and which this ruling puts explicitly out of scope.
+
+    `master_timeline_ms` is THE MASTER'S OWN TIMELINE -- what
+    `merge_video_chimeric.get_master_timeline_length_ms` reads and what
+    `generate_new_file` imposes with `-t duration_best_video` -- never the
+    locator's `shortest` (`change_point_locator.py:1842,2913`, which is
+    `min(master, candidate)` and is therefore the CANDIDATE's duration
+    whenever the master is longer). The distinction is not academic: it is the
+    whole of finding 3, errid 5's 37.93 s of unbracketed master fill.
+
+    `offset_ms` is the adjacent plan segment's own offset (candidate_time =
+    master_time + offset), the SAME convention every other tier here uses. It
+    NOMINATES the frame shift; the anchor RESOLVES it, within
+    `EDGE_SHIFT_SEARCH_FRAMES`, against the very extraction the anchor was
+    validated on -- see that constant for the two measured reasons a nominal
+    shift can be one frame off and for the measurement showing the BOUNDARY is
+    invariant under the correction even though the shift is not. The owner's
+    "the protocol's >=3-consecutive-frame pHash validation applies to that
+    single anchor unchanged" is honoured literally: `_validate_anchor` and
+    `_check_anchor_distinctive` are called UNMODIFIED, just offered each
+    hypothesis in turn (`_edge_anchor_search`).
+
+    Returns the same dict SHAPE as `locate_scene_anchors` (`declined` True or
+    False, never neither) so the head/tail call sites can consume it with the
+    interior site's own code.
+    '''
+    fps_num = int(fps_num)
+    fps_den = int(fps_den)
+    if fps_num <= 0 or fps_den <= 0:
+        return {"declined": True, "reason": "grid_unmeasured",
+                "evidence": f"fps_num={fps_num} fps_den={fps_den}"}
+    if edge not in ("head", "tail"):
+        return {"declined": True, "reason": "empty_bracket",
+                "evidence": f"edge={edge!r} is neither 'head' nor 'tail'"}
+    if bracket_high_ms <= bracket_low_ms:
+        return {"declined": True, "reason": "empty_bracket",
+                "evidence": f"[{bracket_low_ms},{bracket_high_ms}] ms edge={edge}"}
+
+    # THE PRECONDITION, BEFORE ANY ANCHOR OR WALK AND ONCE PER PAIR.
+    geometry, crop_filters, geometry_reason = _resolve_geometry(
+        master_path, candidate_path)
+    tools.logs.append(
+        f"scene_anchor: edge_geometry edge={edge} "
+        f"master={geometry.get('master')} candidate={geometry.get('candidate')} "
+        f"normalised={geometry.get('normalised')} crop={geometry.get('crop')} "
+        f"verdict={geometry.get('verdict')} reason={geometry_reason}\n")
+    if geometry_reason is not None:
+        return {"declined": True, "reason": "edge_geometry_unreconciled",
+                "edge": edge, "geometry": geometry,
+                "evidence": geometry_reason}
+
+    window_sec = (scene_search_window_sec if scene_search_window_sec is not None
+                  else _scene_anchor_config())
+
+    result = None
+    rung_window_sec = window_sec
+    rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
+    for rung in range(WINDOW_LADDER_MAX_RUNGS):
+        rung_window_sec = (window_sec if window_sec is None
+                           else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
+        rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
+            min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
+        result = _locate_edge_boundary_at_window(
+            master_path, candidate_path, fps_num, fps_den,
+            bracket_low_ms, bracket_high_ms, offset_ms, edge,
+            master_timeline_ms, candidate_duration_ms, rung_window_sec,
+            crop_filters, geometry,
+            content_detector_threshold=rung_cd_threshold, debug=debug)
+        matched = not result["declined"]
+        tools.logs.append(
+            f"scene_anchor: edge_window_ladder_rung edge={edge} rung={rung} "
+            f"window_sec={rung_window_sec} cd_threshold={rung_cd_threshold} "
+            f"master_seed_count={result.get('master_seed_count')} "
+            f"candidate_seed_count={result.get('candidate_seed_count')} "
+            f"matched={matched} reason={result.get('reason')} "
+            f"evidence={result.get('evidence')}\n")
+        if matched or result["reason"] not in EDGE_WINDOW_LADDER_RETRYABLE_REASONS:
+            break
+    else:
+        result = {"declined": True, "reason": "search_window_ceiling_reached",
+                  "edge": edge, "geometry": geometry,
+                  "master_seed_count": result.get("master_seed_count"),
+                  "candidate_seed_count": result.get("candidate_seed_count"),
+                  "evidence": f"rungs_tried={WINDOW_LADDER_MAX_RUNGS} "
+                              f"base_window_sec={window_sec} "
+                              f"final_window_sec={rung_window_sec} "
+                              f"final_cd_threshold={rung_cd_threshold} "
+                              f"last_reason={result.get('reason')} "
+                              f"last_evidence={result.get('evidence')}"}
+
+    # A NORMALISED PAIR THAT STILL COULD NOT SEED AN ANCHOR IS A GEOMETRY
+    # ANSWER, NOT A CONTENT ONE (spec S3a preference order (ii), and the id 33
+    # acceptance arm's own words: the walk must NEVER report a divergence
+    # here). Once a crop is in play, "no seed validated" and "the crop is
+    # wrong" are indistinguishable from inside this module -- so the honest
+    # token is the one that names the thing we could not establish, and it is
+    # TERMINAL where the establishment tokens are RETRYABLE.
+    if (result["declined"] and geometry.get("normalised")
+            and result.get("reason") in (
+                "edge_anchor_not_established", "edge_anchor_uninformative",
+                "search_window_ceiling_reached")):
+        result = {**result, "reason": "edge_geometry_unreconciled",
+                  "geometry": geometry,
+                  "evidence": (f"normalisation {geometry.get('crop')} applied but "
+                               f"no anchor could be established on it: "
+                               f"{result.get('reason')} "
+                               f"{result.get('evidence')}")}
+    return result
+
+
+def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_den,
+                                    bracket_low_ms, bracket_high_ms, offset_ms,
+                                    edge, master_timeline_ms, candidate_duration_ms,
+                                    window_sec, crop_filters, geometry,
+                                    content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
+                                    debug=False):
+    '''ONE RUNG of `locate_edge_boundary`'s ladder: establish the single
+    common-side anchor at this window, then walk. Same split, same reasons and
+    same per-rung logging as `_locate_scene_anchors_at_window` -- resolving
+    the window and deciding whether it is viable AT ALL is the caller's job,
+    once, before any rung.
+
+    Always returns a dict, `declined` True or False, never neither.
+    '''
+    frame_ms = 1000.0 * fps_den / fps_num
+
+    if window_sec is None or window_sec <= 0:
+        return {"declined": True, "reason": "search_window_unviable",
+                "edge": edge, "geometry": geometry,
+                "evidence": f"scene_search_window_sec={window_sec}"}
+    window_frames = int(round((window_sec * 1000.0) / frame_ms))
+    if window_frames < MIN_VALIDATION_FRAMES:
+        return {"declined": True, "reason": "search_window_too_narrow",
+                "edge": edge, "geometry": geometry,
+                "evidence": f"scene_search_window_sec={window_sec} -> "
+                            f"{window_frames} frames, needs >= "
+                            f"{MIN_VALIDATION_FRAMES}"}
+
+    comparer = FrameComparer(master_path, candidate_path,
+                             bracket_low_ms / 1000.0, bracket_high_ms / 1000.0,
+                             fps_num, fps_den, debug=debug,
+                             crop_filters=crop_filters)
+    m_bracket_first = comparer._frame_index(bracket_low_ms / 1000.0)
+    m_bracket_last = comparer._frame_index(bracket_high_ms / 1000.0)
+    shift_frames = _nominal_shift_frames(offset_ms, fps_num, fps_den)
+
+    # THE ANCHOR WINDOW straddles the bracket exactly as the interior path's
+    # does; what differs is the SEED FILTER below, which keeps only the common
+    # side. Extracting a little of the outer side too is deliberate and costs
+    # nothing: `_check_anchor_distinctive` probes at +/-4 and +/-8 frames and
+    # an unreadable probe frame would silently weaken the guard.
+    m_win_start = max(0, m_bracket_first - window_frames)
+    m_win_end = m_bracket_last + window_frames
+    candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
+    c_win_start = max(0, m_win_start - candidate_margin_frames + shift_frames)
+    c_win_end = m_win_end + candidate_margin_frames + shift_frames
+
+    master_rate = Fraction(fps_num, fps_den)
+    m_win_start_sec = Fraction(m_win_start * fps_den, fps_num)
+    m_win_span_sec = Fraction((m_win_end - m_win_start) * fps_den, fps_num)
+    c_win_start_sec = Fraction(c_win_start * fps_den, fps_num)
+    c_win_span_sec = Fraction((c_win_end - c_win_start) * fps_den, fps_num)
+
+    candidate_rate, candidate_rate_reason = _probe_frame_rate(candidate_path)
+
+    m_scan_start = _frames_at_rate(m_win_start_sec, master_rate)
+    m_scan_frames = _frames_at_rate(m_win_span_sec, master_rate)
+    if candidate_rate is None:
+        c_scan_start = c_scan_frames = None
+    else:
+        c_scan_start = _frames_at_rate(c_win_start_sec, candidate_rate)
+        c_scan_frames = _frames_at_rate(c_win_span_sec, candidate_rate)
+    tools.dev_log(
+        f"scene_anchor: edge_scan_window_conversion edge={edge} "
+        f"master_rate={master_rate.numerator}/{master_rate.denominator} "
+        f"candidate_rate="
+        f"{'unmeasured:' + str(candidate_rate_reason) if candidate_rate is None else str(candidate_rate.numerator) + '/' + str(candidate_rate.denominator)} "
+        f"master_scan=[{m_scan_start},+{m_scan_frames}) "
+        f"candidate_scan=[{c_scan_start},+{c_scan_frames})\n")
+
+    m_base, m_hashes = _extract_hashes(comparer, master_path,
+                                       float(m_win_start_sec), float(m_win_span_sec))
+    c_base, c_hashes = _extract_hashes(comparer, candidate_path,
+                                       float(c_win_start_sec), float(c_win_span_sec))
+    if not m_hashes or not c_hashes:
+        return {"declined": True, "reason": "frames_unextractable",
+                "edge": edge, "geometry": geometry,
+                "evidence": f"master_frames={len(m_hashes)} "
+                            f"candidate_frames={len(c_hashes)}"}
+
+    threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
+    master_cuts, master_cuts_failed = _scene_cut_frames(
+        master_path, m_scan_start, m_scan_frames, content_detector_threshold, debug)
+    if candidate_rate is None:
+        candidate_cuts = None
+        candidate_cuts_failed = f"candidate_grid_unmeasured:{candidate_rate_reason}"
+    else:
+        candidate_cuts, candidate_cuts_failed = _scene_cut_frames(
+            candidate_path, c_scan_start, c_scan_frames,
+            content_detector_threshold, debug)
+    master_cuts_seeds = master_cuts or []
+    candidate_cuts_seeds = [_frame_on_grid(f, candidate_rate, master_rate)
+                            for f in (candidate_cuts or [])]
+
+    # SEEDS COME FROM THE COMMON SIDE, NEAREST FIRST -- AND NEVER ONLY FROM
+    # THE BRACKET EDGE. That last clause is the one the measurement bit on.
+    # MEASURED at Undead Unluck S01E13's head (2026-09-22): the file opens on
+    # a near-static card, and master frames 20 through 28 ALL read Hamming 0
+    # against the candidate's very first frame -- so the bracket-edge seed
+    # VALIDATES and is nonetheless UNINFORMATIVE, matching under several
+    # competing shift hypotheses at once. `_check_anchor_distinctive` is what
+    # rejects it, and `_anchor_search`'s nearest-first ordering is what then
+    # moves on to a real scene cut further inside the common region. File
+    # edges are SYSTEMATICALLY static -- black, a logo, a fade-in -- so this
+    # is the normal case at an edge, not the exception, and seeding from
+    # scene cuts inside the common region is the difference between working
+    # and declining.
+    if edge == "head":
+        seeds = sorted(
+            {m_bracket_last}
+            | {f for f in master_cuts_seeds if f >= m_bracket_last}
+            | {f - shift_frames for f in candidate_cuts_seeds
+               if f - shift_frames >= m_bracket_last})
+        direction = "forward"
+        anchor_side = "B"
+    else:
+        seeds = sorted(
+            {m_bracket_first}
+            | {f for f in master_cuts_seeds if f <= m_bracket_first}
+            | {f - shift_frames for f in candidate_cuts_seeds
+               if f - shift_frames <= m_bracket_first},
+            reverse=True)
+        direction = "backward"
+        anchor_side = "A"
+
+    nominal_shift_frames = shift_frames
+    anchor, shift_frames, anchor_n_frames, anchor_reason = _edge_anchor_search(
+        m_hashes, m_base, c_hashes, c_base, seeds, nominal_shift_frames,
+        direction, threshold)
+
+    if anchor is None:
+        # TWO DISTINCT FACTS, same split and same reasoning as the two-anchor
+        # path's own `anchor_uninformative` vs `anchors_not_established`:
+        # a seed validated but every one failed the distinctiveness probe is a
+        # MEASURED, content-based refutation; no seed validating at all is
+        # nothing to measure. Folding them would manufacture a measurement
+        # that never happened.
+        payload = {"declined": True, "edge": edge, "geometry": geometry,
+                   "master_seed_count": len(master_cuts_seeds),
+                   "candidate_seed_count": len(candidate_cuts_seeds)}
+        if anchor_reason:
+            return {**payload, "reason": "edge_anchor_uninformative",
+                    "evidence": f"edge={edge} side={anchor_side} "
+                                f"seeds={len(seeds)} "
+                                f"nominal_shift={nominal_shift_frames} "
+                                f"reason={anchor_reason} "
+                                f"n_frames={anchor_n_frames}"}
+        return {**payload, "reason": "edge_anchor_not_established",
+                "evidence": f"edge={edge} side={anchor_side} "
+                            f"seeds={len(seeds)} "
+                            f"nominal_shift={nominal_shift_frames} "
+                            f"master_cuts={len(master_cuts_seeds)} "
+                            f"master_detector_failed={master_cuts_failed} "
+                            f"candidate_cuts={len(candidate_cuts_seeds)} "
+                            f"candidate_detector_failed={candidate_cuts_failed}"}
+
+    # THE WALK'S OWN FRAME SUPPLY -- chunked, and bounded by each FILE's own
+    # last frame, which is the ADDENDUM's own condition ("BOUNDED at read time
+    # by each file's own max frame count"). The master's bound is its
+    # TIMELINE, by ruling: the output has exactly that many frames. The
+    # candidate's declared bound is a CEILING only, never the authority -- see
+    # `_ChunkedFrames` for the measurement that separates a container duration
+    # from a video stream's real last frame.
+    master_last_frame = _frames_at_rate(
+        Fraction(str(master_timeline_ms)) / 1000, master_rate) - 1
+    candidate_last_frame_ceiling = None
+    if candidate_duration_ms is not None:
+        candidate_last_frame_ceiling = _frames_at_rate(
+            Fraction(str(candidate_duration_ms)) / 1000, master_rate) - 1
+
+    master_frames = _ChunkedFrames(comparer, master_path, "master",
+                                   fps_num, fps_den, master_last_frame, debug,
+                                   initial_base=m_base, initial_hashes=m_hashes)
+    candidate_frames = _ChunkedFrames(comparer, candidate_path, "candidate",
+                                      fps_num, fps_den,
+                                      candidate_last_frame_ceiling, debug,
+                                      initial_base=c_base, initial_hashes=c_hashes)
+
+    # `_validate_anchor` covers `[seed, seed+n)` FORWARD (head) and
+    # `[seed-n, seed)` BACKWARD (tail) -- so the outermost frame the anchor
+    # actually proved is the seed itself at a head and the frame BEFORE it at
+    # a tail. The walk starts from what was proven, never from what was only
+    # seeded.
+    first_confirmed = anchor if edge == "head" else anchor - 1
+    walk = _edge_walk(master_frames, candidate_frames, first_confirmed,
+                      shift_frames, edge, threshold,
+                      EDGE_WALK_SUSTAINED_MISMATCH_FRAMES)
+    if walk["reason"] is not None:
+        return {"declined": True, "reason": walk["reason"], "edge": edge,
+                "geometry": geometry,
+                "master_seed_count": len(master_cuts_seeds),
+                "candidate_seed_count": len(candidate_cuts_seeds),
+                "evidence": f"edge={edge} anchor_frame={anchor} "
+                            f"shift={shift_frames} {walk['evidence']}"}
+
+    boundary_frame = walk["boundary_frame"]
+    termination = walk["termination"]
+
+    # THE FILL'S LENGTH IS COUNTED, NOT INFERRED (ADDENDUM outcome 3, verbatim:
+    # "the number of master frames remaining past the last compared frame IS
+    # the length to take from the master ... duration = frames x the exact
+    # rational frame time. No probe, no estimate"). `addition_frames` is set
+    # ONLY on `candidate_exhausted`, because that is the only termination that
+    # names a master ADDITION: the other two name a trim (outcome 2) or a
+    # replacement of divergent content (outcome 1), whose lengths the existing
+    # plan machinery already derives from the boundary alone.
+    addition_frames = None
+    if termination == "candidate_exhausted":
+        addition_frames = (boundary_frame if edge == "head"
+                           else master_last_frame - boundary_frame)
+        addition_frames = max(0, addition_frames)
+    addition_ms = (None if addition_frames is None
+                   else str(_exact_ms_from_frame(addition_frames, fps_num, fps_den)))
+
+    if termination == "candidate_exhausted":
+        net_kind = "master_addition"
+    elif termination == "master_exhausted":
+        net_kind = "candidate_excess_trimmed"
+    else:
+        # THE THIRD TOKEN, AND IT IS NOT IN THE SPEC'S TABLE -- reported as a
+        # deviation rather than folded into one of the two that were. A
+        # sustained mismatch is neither a pure addition (the candidate HAS
+        # content there, it simply disagrees) nor a pure trim (master fill
+        # does take its place on the output timeline). Naming it as either
+        # would make a census of "how much master was added because the
+        # candidate ran out" count content that diverged instead.
+        net_kind = "master_replacement"
+
+    evidence = (f"edge={edge} anchor={anchor} anchor_side={anchor_side} "
+                f"anchor_n_frames={anchor_n_frames} shift={shift_frames} "
+                f"nominal_shift={nominal_shift_frames} "
+                f"boundary={boundary_frame} walked={walk['walked_frames']} "
+                f"mismatch_run={walk['mismatch_run']} "
+                f"max_mismatch_run={walk['max_mismatch_run']} "
+                f"termination={termination} "
+                f"master_end_source={walk['master_end_source']} "
+                f"candidate_end_source={walk['candidate_end_source']} "
+                f"master_chunks={walk['master_chunks']} "
+                f"candidate_chunks={walk['candidate_chunks']} "
+                f"master_seam_deltas={walk['master_seam_deltas']} "
+                f"candidate_seam_deltas={walk['candidate_seam_deltas']} "
+                f"master_last_frame={master_last_frame} "
+                f"master_cuts={len(master_cuts_seeds)} "
+                f"master_detector_failed={master_cuts_failed} "
+                f"candidate_cuts={len(candidate_cuts_seeds)} "
+                f"candidate_detector_failed={candidate_cuts_failed} "
+                f"seeds={len(seeds)}")
+
+    # LOGGED ONCE PER EDGE, WITH THE NUMBERS -- ruling point 5 ("locating the
+    # boundary emits its verdict with numbers") and spec S5 item 7 (report
+    # `termination`, `addition_frames` and `mismatch_run` on EVERY outcome, so
+    # the N=3-vs-N=4 question stays measurable rather than re-litigated).
+    tools.logs.append(
+        f"scene_anchor: edge_walk edge={edge} anchor_frame={anchor} "
+        f"anchor_n_frames={anchor_n_frames} anchor_side={anchor_side} "
+        f"shift_frames={shift_frames} "
+        f"nominal_shift_frames={nominal_shift_frames} "
+        f"boundary_frame={boundary_frame} "
+        f"walked_frames={walk['walked_frames']} "
+        f"mismatch_run={walk['mismatch_run']} "
+        f"max_mismatch_run={walk['max_mismatch_run']} "
+        f"termination={termination} net_kind={net_kind} "
+        f"addition_frames={addition_frames} addition_ms={addition_ms} "
+        f"threshold={threshold} "
+        f"n_sustained={EDGE_WALK_SUSTAINED_MISMATCH_FRAMES} "
+        f"geometry_normalised={geometry.get('normalised')}\n")
+
+    return {
+        "declined": False,
+        "method": "scene_anchor_single_edge",
+        "edge": edge,
+        "grid": {"num": fps_num, "den": fps_den},
+        "anchor_frame": anchor,
+        "anchor_n_frames": anchor_n_frames,
+        "anchor_side": anchor_side,
+        "shift_frames": shift_frames,
+        "nominal_shift_frames": nominal_shift_frames,
+        "boundary_frame": boundary_frame,
+        "walked_frames": walk["walked_frames"],
+        "mismatch_run": walk["mismatch_run"],
+        "max_mismatch_run": walk["max_mismatch_run"],
+        "termination": termination,
+        "net_kind": net_kind,
+        "addition_frames": addition_frames,
+        "addition_ms": addition_ms,
+        "master_last_frame": master_last_frame,
+        "geometry": geometry,
+        "master_seed_count": len(master_cuts_seeds),
+        "candidate_seed_count": len(candidate_cuts_seeds),
+        "derived_ms": {
+            "boundary_ms": f"{round(float(_exact_ms_from_frame(boundary_frame, fps_num, fps_den)), 2)}",
+        },
+        "evidence": evidence,
     }

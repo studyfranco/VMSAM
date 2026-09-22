@@ -532,8 +532,17 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
         outcome = "both_fabricated_codec_chain"
     else:
         outcome = "neither_fabricated_codec_chain"
-    logs.append(f"keep_best_audio fabricated_check outcome={outcome} "
-               f"side1_marker={status_1} side2_marker={status_2}\n")
+    trace_line = (f"keep_best_audio fabricated_check outcome={outcome} "
+                  f"side1_marker={status_1} side2_marker={status_2}")
+    if outcome in ("side1_fabricated_loses", "side2_fabricated_loses"):
+        dropped, kept = (audio_1, audio_2) if outcome == "side1_fabricated_loses" else (audio_2, audio_1)
+        dropped_side = "side1" if outcome == "side1_fabricated_loses" else "side2"
+        trace_line += (f" dropped={dropped_side} dropped_lang={dropped.get('Language')} "
+                       f"dropped_format={dropped.get('Format')} dropped_stream={dropped.get('StreamOrder')} "
+                       f"kept_lang={kept.get('Language')} kept_format={kept.get('Format')} "
+                       f"kept_stream={kept.get('StreamOrder')} "
+                       f"effect=dropped_track_will_not_be_in_the_delivered_file")
+    logs.append(trace_line + "\n")
     return outcome
 
 """
