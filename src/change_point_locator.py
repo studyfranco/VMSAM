@@ -1247,6 +1247,52 @@ RATE_SLOPE_R_SQUARED_MIN = 0.50
 RATE_SLOPE_MIN_POINTS = 10
 RATE_SLOPE_OUTLIER_MAD_K = 5.0
 
+# CASE #6 (id 33 end-to-end run, a6fe40f5): the significance test above has
+# no notion of MAGNITUDE, only fit. Measured on that run: after correct rate
+# normalisation the residual series fit a slope of 0.0009 ms/s at
+# r_squared=0.5712 over 64 points -- a total drift of 2.3 ms across a 2545 s
+# file, a twentieth of a video frame -- and still cleared R_SQUARED_MIN, so
+# the gate declared `speed_relation_suspected` and blocked the splice leg.
+# A flat series with a good linear fit is NOT a speed relation; the fit test
+# must be paired with a MATERIAL magnitude test, not stand alone.
+#
+# The magnitude read is the slope-implied rate-factor deviation
+# |factor - 1|, factor = 1 / (1 + slope in seconds/second) -- the direction
+# convention fixed at a6fe40f5 in
+# `pal_speed_discriminator.derive_rate_factor_from_slope` (mirrored by
+# `_slope_implied_factor_deviation` below, not re-imported: that module
+# imports THIS one, so the reverse import would be circular -- the
+# derivation is copied from the ruling in force there, not re-invented).
+#
+# Floor: 5e-4, half the smallest deviation in the named vocabulary
+# (`pal_speed_discriminator.NAMED_RATE_RATIONALS`'s smallest is
+# 1001/1000 / 1000/1001, |f-1| = 1/1001 = 9.99e-4) -- a slope implying less
+# than half of the smallest named deviation cannot be recognised as any
+# named rate; it is flatness with good fit, not a relation. MEASURED
+# ANCHORS, five orders of magnitude apart: a genuine relation (id 33's
+# original, pre-correction slope, -0.9486 ms/s) -> |f-1| = 9.5e-4, clears
+# the floor; the normalised residual that surfaced this case
+# (0.0009 ms/s) -> |f-1| = 9e-7, five orders below it -- the gate must not
+# fire on it.
+RATE_SLOPE_MIN_FACTOR_DEVIATION = 5e-4
+
+
+def _slope_implied_factor_deviation(slope_ms_per_s):
+    """|factor - 1| implied by a regression slope, mirroring
+    `pal_speed_discriminator.derive_rate_factor_from_slope`'s direction
+    convention -- factor = 1 / (1 + slope_seconds_per_second) -- without
+    importing that module (it imports this one; the reverse import would be
+    circular). Copied from the ruling in force there, not re-derived:
+    CASE #6's floor test on the result is the only new arithmetic here.
+    """
+    slope_seconds_per_second = slope_ms_per_s / 1000.0
+    denominator = 1.0 + slope_seconds_per_second
+    if denominator == 0:
+        return float("inf")
+    factor = 1.0 / denominator
+    return abs(factor - 1.0)
+
+
 # fps-equality pre-filter for the pitch-layer NTSC check (dev-step2-resample's
 # catch, 2026-09-21): a real conversion changes the declared frame rate, so
 # two sides reporting the SAME fps cannot carry a speed relation. Smaller
@@ -2106,9 +2152,31 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None,
         _slope_starts = [r[0] for r in screened_kept]
         _slope_offsets = [r[1][0] for r in screened_kept]
         _slope_result = _robust_slope_regression(_slope_starts, _slope_offsets)
-        if (_slope_result is not None
-                and _slope_result["n_used"] >= RATE_SLOPE_MIN_POINTS
-                and _slope_result["r_squared"] >= RATE_SLOPE_R_SQUARED_MIN):
+        # CASE #6: fit significance alone is not enough -- see
+        # RATE_SLOPE_MIN_FACTOR_DEVIATION above. `_slope_significant` is the
+        # ORIGINAL fit test, unchanged; `_slope_material` adds the magnitude
+        # test and is what actually gates the decline below.
+        _slope_factor_deviation = None
+        if _slope_result is not None:
+            _slope_factor_deviation = _slope_implied_factor_deviation(
+                _slope_result["slope_ms_per_s"])
+        _slope_significant = (
+            _slope_result is not None
+            and _slope_result["n_used"] >= RATE_SLOPE_MIN_POINTS
+            and _slope_result["r_squared"] >= RATE_SLOPE_R_SQUARED_MIN)
+        _slope_material = (
+            _slope_significant
+            and _slope_factor_deviation >= RATE_SLOPE_MIN_FACTOR_DEVIATION)
+        if _slope_significant:
+            _log(f"{language}: slope regression fit test passed "
+                 f"(slope={_slope_result['slope_ms_per_s']:.4f}ms/s, "
+                 f"r2={_slope_result['r_squared']:.4f}, "
+                 f"n_used={_slope_result['n_used']}/{len(_slope_starts)}); "
+                 f"CASE #6 magnitude test: implied |factor-1|="
+                 f"{_slope_factor_deviation:.2e}, floor="
+                 f"{RATE_SLOPE_MIN_FACTOR_DEVIATION:.1e} -> "
+                 f"{'material, firing' if _slope_material else 'below floor, NOT firing'}")
+        if _slope_material:
             _log(f"{language}: slope regression significant "
                  f"(slope={_slope_result['slope_ms_per_s']:.4f}ms/s, "
                  f"r2={_slope_result['r_squared']:.4f}, "
@@ -2121,10 +2189,13 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None,
                             rate_instrument_r_squared=round(_slope_result["r_squared"], 4),
                             rate_instrument_n_used=_slope_result["n_used"],
                             rate_instrument_n_excluded=_slope_result["n_excluded"],
+                            rate_instrument_factor_deviation=round(
+                                _slope_factor_deviation, 8),
                             plateau_runs=len(runs))
         _log(f"{language}: rate-family gate open but neither instrument fired "
              f"(ntsc_matched={_ntsc_result.get('matched') if _ntsc_result else None}, "
-             f"slope_r2={_slope_result['r_squared'] if _slope_result else None}); "
+             f"slope_r2={_slope_result['r_squared'] if _slope_result else None}, "
+             f"slope_factor_deviation={_slope_factor_deviation}); "
              f"falling through to the existing path")
 
     # --- refusals, each with a measured basis --------------------------------

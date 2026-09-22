@@ -3394,6 +3394,67 @@ def record(candidate_path, outcome, reason, detail=None, cause=None):
     return entry
 
 
+def master_intertrack_verdict(best_video, language, cache):
+    """STEP 1 (CLASSIFICATION), AND IT LOOKS AT THE MASTER BEFORE IT LOOKS AT
+    ANY CANDIDATE. `RULING_20260922_MASTER_INTERTRACK_ADMISSION.MD` + ADDENDUM 2.
+
+    Le defaut mesure (dossier 86): le maitre ne s'accorde pas avec LUI-MEME.
+    Ses deux pistes `ja` portent le meme contenu decale de ~131 ms, et
+    `change_point_locator.py:1800` prend `master_streams[0]` SANS JAMAIS
+    comparer avec `master_streams[1:]`. Onze fichiers ont donc ete refuses pour
+    un defaut DU MAITRE, avec une cause qui designait le candidat.
+
+    UNE SEULE FOIS PAR (maitre, langue de comparaison) -- `cache` est ce
+    "une seule fois", et il est passe en parametre plutot que garde en global
+    parce qu'un etat de module survivrait entre deux appels de
+    `repair_not_compatible_videos` sur DEUX MAITRES DIFFERENTS et rendrait le
+    verdict du premier au second.
+
+    POURQUOI ICI ET PAS LITTERALEMENT AVANT LA BOUCLE. La langue de comparaison
+    n'existe pas avant la boucle: c'est `get_delay_language(best_video,
+    candidate_obj)` qui la rend, et elle depend du candidat. Appeler avant la
+    boucle voudrait dire ENUMERER les langues du maitre -- exactement ce que
+    l'ADDENDUM 1 interdit ("Never enumerate or probe other languages' track
+    pairs"). Le cache donne la propriete que la regle demande vraiment: la
+    mesure tourne AU PLUS UNE FOIS par langue, et son verdict precede TOUT
+    travail de reparation sur cette langue (appelee avant
+    `get_plan_from_locator`, donc avant tout test de vitesse et tout chimerique).
+
+    IMPORT TARDIF ET TOLERANT, meme discipline que `get_plan_from_locator`:
+    une capacite dont le module n'est pas deploye n'a pas le droit de casser un
+    merge. Un module absent = aucun verdict = comportement d'aujourd'hui.
+
+    Renvoie le dict de verdict de `master_self_check`, ou None quand rien n'a
+    pu etre mesure. `None` veut dire *je n'ai pas mesure*, jamais *le maitre
+    est sain* -- la meme distinction que la docstring de ce module pose pour
+    `change_point_locator`.
+    """
+    if language in cache:
+        return cache[language]
+    verdict = None
+    try:
+        import master_self_check
+    except Exception as error:
+        tools.dev_log(f"repair: no master_self_check module: {error}\n")
+    else:
+        tools.dev_log(f"repair: master_intertrack_verdict starting on "
+                      f"master={best_video.filePath} language={language}\n")
+        try:
+            verdict = master_self_check.check_master_intertrack(
+                best_video, language)
+        except Exception as error:
+            # UNE LEVEE DANS UN CONTROLE N'EST PAS UN VERDICT. Elle ne doit ni
+            # refuser le fichier (on n'a rien mesure) ni disparaitre en
+            # silence. On la nomme et on laisse la chaine continuer comme
+            # aujourd'hui.
+            tools.dev_log(f"repair: master_intertrack_verdict raised "
+                          f"{type(error).__name__}: {error} -- no verdict, the "
+                          f"chain continues unchanged\n")
+            verdict = None
+    cache[language] = verdict
+    return verdict
+
+
 def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                                  best_video):
     '''Point d'entree appele depuis la zone A.
@@ -3409,6 +3470,10 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     work_root = path.join(tools.tmpFolder, "repair")
     tools.make_dirs(work_root)
     repaired = []
+    # UNE SEULE MESURE DU MAITRE PAR LANGUE DE COMPARAISON, et ce dictionnaire
+    # EST ce "une seule". Voir `master_intertrack_verdict` juste au-dessus pour
+    # la raison pour laquelle il vit ici et pas plus haut dans la fonction.
+    master_intertrack_by_language = {}
 
     for candidate_path in list_not_compatible_video:
         # VMSAM_ERA (Architect's ruling, 2026-09-16): capture ICI, avant tout
@@ -3457,6 +3522,33 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             record(candidate_path, "no_plan",
                    f"could not tell which language the merge measured on "
                    f"({language_route})", cause="language_undetermined")
+            continue
+        # ---- STEP 1: CLASSIFICATION -- LE MAITRE, CONTRE LUI-MEME ----------
+        # Avant le test de vitesse, avant le chimerique, avant toute mesure du
+        # candidat: le maitre est-il d'accord avec lui-meme sur LA LANGUE QU'ON
+        # MESURE? Si non, le candidat n'a rien fait de mal et le mesurer contre
+        # ce maitre produirait un delai qui depend de laquelle de ses propres
+        # pistes le localisateur a tiree (`change_point_locator.py:1800`).
+        # La classification SORT EN ERREUR ici, avec son jeton et ses nombres.
+        master_intertrack = master_intertrack_verdict(
+            best_video, language, master_intertrack_by_language)
+        if master_intertrack != None and master_intertrack["verdict"] != None:
+            # LE JETON EST CELUI DU MODULE QUI L'A MESURE, pas une constante
+            # recopiee ici: un jeton duplique est un jeton qui divergera.
+            # LES NOMBRES VOYAGENT AVEC LE REFUS -- instrument, decalage,
+            # correlation, et LES DEUX PISTES -- parce que c'est exactement ce
+            # qui manquait aux onze refus du dossier 86: la cause nommait le
+            # candidat pendant que la preuve etait dans le maitre.
+            # `verdict` EST DEJA UNE CLE DU VOCABULAIRE DE `detail_summary`
+            # (ligne "plan_kind, verdict, plan_source, ..."), donc la ligne
+            # `repair_detail: declined verdict=master_intertrack_desync` sort
+            # INCONDITIONNELLEMENT sans qu'il faille toucher a ce resume. Le
+            # dict complet (les deux pistes, le decalage, la correlation) part
+            # dans le vidage verbeux garde par `tools.dev`, ou il a sa place.
+            record(candidate_path, "declined", master_intertrack["reason"],
+                   detail={"verdict": master_intertrack["verdict"],
+                           "master_intertrack": master_intertrack},
+                   cause=master_intertrack["verdict"])
             continue
         plan, plan_refusal_cause, plan_refusal_detail = get_plan_from_locator(
             best_video, candidate_obj, language)

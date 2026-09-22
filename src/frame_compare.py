@@ -274,6 +274,29 @@ class FrameComparer:
         # après être déjà passé par cadre -> temps).
         base_frame = self._frame_index(start)
 
+        # BOTH SIDES ONTO THIS OBJECT'S ONE GRID, before anything compares
+        # them (`_on_comparer_grid`, defined below, and its block comment for
+        # the defect). `_align_and_find_gap` walks `ref[i]` against `tgt[j]`
+        # inside a band of INDICES, and `start_time = start + s_idx / fps`
+        # converts a tgt index back to seconds on THIS grid -- both are only
+        # true if the two arrays step on it. `ref_path` and `tgt_path` are
+        # two different files and neither is obliged to decode at the rate
+        # this object was constructed with.
+        ref_hashes, ref_reason = _on_comparer_grid(
+            self, self.ref_path, ref_hashes)
+        tgt_hashes, tgt_reason = _on_comparer_grid(
+            self, self.tgt_path, tgt_hashes)
+        if ref_hashes is None or tgt_hashes is None:
+            # Falls through to the ffmpeg scene fallback below, which reads
+            # TIMES and converts them on the grid itself -- unaffected by an
+            # unmeasured native rate, so this decline costs the pHash stage,
+            # not the answer.
+            tools.dev_log(f"frame_compare: find_scene_gap_requirements pHash "
+                          f"stage declining ref={self.ref_path} "
+                          f"tgt={self.tgt_path} ref_reason={ref_reason} "
+                          f"tgt_reason={tgt_reason}\n")
+            ref_hashes = tgt_hashes = []
+
         gap = self._align_and_find_gap(ref_hashes, tgt_hashes)
         if not gap:
             # Repli: scène ffmpeg
@@ -408,17 +431,212 @@ def _nominal_shift_frames(offset_ms, fps_num, fps_den):
     return int(round(offset_ms / frame_ms))
 
 
+# ===========================================================================
+# NATIVE DECODE RATE VS LABEL GRID -- the layer BENEATH scene_anchor's own
+# grid fix (`_probe_frame_rate` / `_frame_on_grid` there, landed a6fe40f5).
+#
+# THE DEFECT, measured on errid 5 (23.976-fps master against a 29.97-fps
+# candidate): `_extract_hashes` labelled its array with
+# `comparer._frame_index(start_s)` -- an index on the COMPARER's grid, which
+# is the MASTER's by ruling (F1) -- while `_ffmpeg_raw_frames` deliberately
+# decodes AT THE FILE'S OWN NATIVE RATE (no `fps=` filter; that filter IS
+# defect 1). Element `i` was therefore CLAIMED to be grid frame `base + i`
+# while it actually held the frame playing at `start_s + i / native_rate`.
+# Every consumer reads the pair the same way and so inherits the same drift:
+#
+#   scene_anchor._frames_match   `ci = c_frame - c_base`
+#   _validate_boundary           `ci = f - c_base`
+#   _hamming_series              `ci = (m + shift_frames) - c_base`
+#   locate_bracket_boundary      `hash_at(c_base, c_hashes, m + shift)`
+#   _detect_cuts / _detect_stable_runs / _detect_uniform_runs
+#                                `base + i` emitted as a grid frame number
+#
+# At 30000/1001 against 23.976 that is 25% of a frame of error PER FRAME --
+# a whole frame every four -- so the owner's ">= 3 consecutive identical
+# frames" anchor check cannot pass anywhere in the window, however right the
+# window is. THE MASTER SIDE IS THE SAME DEFECT whenever the caller-supplied
+# grid differs from the container's own rate, which errid 5 also does:
+# MediaInfo hands `2997/125` while the container declares `24000/1001`.
+#
+# THE FIX, applied ONCE HERE rather than at each of the six comparison sites
+# (four of which live in `scene_anchor.py` and would each need the rate
+# threaded to them): a frame index that leaves this module is a MASTER-grid
+# index by ruling, so an array carrying such a label must STEP on that same
+# grid. Each natively-decoded array is projected onto the comparer's grid at
+# the single point where it acquires its label -- output element `k` is the
+# decoded frame playing `k` GRID frames into the window, not `k` NATIVE
+# frames into it. Same exact-`Fraction` conversion as
+# `scene_anchor._frame_on_grid` (an index carried between two grids through
+# the instant it names), run on window-relative indices, at the one place
+# the two coordinate systems meet.
+#
+# THIS IS NOT A RESAMPLE OF THE DECODE. `_ffmpeg_raw_frames` still reads
+# every native frame, unfiltered, exactly as before -- defect 1 stays fixed.
+# What is re-indexed is the LABELLING, and only when the two rates actually
+# differ (see `_on_comparer_grid`'s equal-rate branch).
+# ===========================================================================
+
+# Per-path, successes only. `_extract_hashes` runs up to ten times per
+# bracket over the same two files (`_validate_boundary` alone calls it four
+# times) and a container's declared rate does not change under us mid-repair.
+# A FAILURE IS NEVER CACHED: a transient ffprobe failure must not be frozen
+# into a permanent decline for the rest of the process.
+_NATIVE_RATE_CACHE = {}
+
+
+def _parse_positive_rate(value):
+    '''Exact positive rational, or `None`. SAME CONTRACT, deliberately NOT
+    IMPORTED, as `scene_anchor._parse_positive_rate` -- which says the same
+    of `merge_video_chimeric.parse_positive_rate`, and for the same reason
+    one level down: `scene_anchor` imports THIS module at its own module
+    level (`from frame_compare import FrameComparer, _extract_hashes`), so
+    importing it back here would be a cycle.
+
+    Every way of failing to read a rate -- absent, blank, non-positive,
+    `"0/0"`, `"inf"`/`"nan"`, a malformed `"num/den"`, a wrong type --
+    collapses to the SAME `None`: "I could not measure it" is a property of
+    the value, not of its absence.
+    '''
+    if value is None:
+        return None
+    try:
+        rate = Fraction(value)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _native_frame_rate(path):
+    '''THE RATE `_ffmpeg_raw_frames` ACTUALLY DECODED THIS FILE AT, as an
+    EXACT RATIONAL -- `(Fraction, None)` on success, `(None, reason)` when it
+    could not be measured.
+
+    `r_frame_rate` is the exact rational the container declares, read as the
+    string ffprobe prints ("30000/1001"), never a float rounding of it --
+    the same source and the same discipline this module's own class docstring
+    already requires of every rate it carries ("Jamais un flottant arrondi").
+    '''
+    cached = _NATIVE_RATE_CACHE.get(path)
+    if cached is not None:
+        return cached, None
+    try:
+        cmd = [tools.software["ffprobe"], "-v", "error",
+               "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+               "-of", "default=noprint_wrappers=1:nokey=1", path]
+    except KeyError:
+        return None, "ffprobe_not_configured"
+    # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22): every
+    # external tool call says which file it is on before it can hang.
+    tools.dev_log(f"frame_compare: _native_frame_rate calling ffprobe "
+                  f"file={path}\n")
+    try:
+        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+            cmd, max_restart=3, timeout=60)
+    except Exception as exc:
+        return None, f"ffprobe_raised:{type(exc).__name__}"
+    if exit_code != 0:
+        return None, f"ffprobe_exit:{exit_code}"
+    lines = stdout.decode("utf-8", "replace").strip().splitlines()
+    raw = lines[0].strip() if lines else ""
+    rate = _parse_positive_rate(raw)
+    if rate is None:
+        return None, f"unparseable_r_frame_rate:{raw!r}"
+    _NATIVE_RATE_CACHE[path] = rate
+    return rate, None
+
+
+def _on_comparer_grid(comparer, path, values):
+    '''Re-index one natively-decoded per-frame series onto the comparer's
+    grid, so that element `k` really is what plays `k` GRID frames into the
+    decoded window rather than `k` NATIVE frames into it. Returns
+    `(values_on_grid, None)`, or `(None, reason)` when the file's own rate
+    could not be measured.
+
+    `values` is per-decoded-frame and rate-agnostic: pHashes
+    (`_extract_hashes`) and brightness means (`_extract_brightness`) both go
+    through here, so those two can never drift apart from each other either.
+
+    THE CONVERSION IS THE RATIO OF THE TWO RATES, NOTHING ELSE -- element `k`
+    comes from native element `round(k * native_rate / grid_rate)`, the same
+    arithmetic as `scene_anchor._frame_on_grid` (a frame index carried
+    between grids through the instant it names) applied to WINDOW-RELATIVE
+    indices. Written this way on purpose, rather than as
+    `round(((base + k) / grid_rate - start_s) * native_rate)`: that form is
+    algebraically the same conversion PLUS the residue of `base`'s own
+    rounding of `start_s`, and that residue lands element 0 on the wrong
+    native frame about half the time -- MEASURED before this form was
+    chosen, on a synthetic 24000/1001-vs-30000/1001 pair whose two sides
+    hold identical content: the instant form matched 50% of frames, this one
+    matches 100%.
+
+    EQUAL RATES ARE THE IDENTITY, BY THE ARITHMETIC AND NOT ONLY BY THE
+    EARLY RETURN: `round(k * 1)` is `k` for every `k`, with no residue that
+    could sit on a rounding tie. The early return below is therefore an
+    optimisation (it skips the probe's cost and the loop's), not the thing
+    that makes same-rate behaviour bit-identical to the pre-fix code.
+
+    THE HALF-FRAME `base` ALREADY CARRIED IS NEITHER FIXED NOR WORSENED
+    HERE. Element 0 of a decoded window is the first frame ffmpeg emitted at
+    or after `start_s`, and `base` is `start_s` ROUNDED onto the grid, so the
+    two can disagree by up to half a grid frame. That was true before this
+    function existed and stays exactly as true after it: element 0 still maps
+    to element 0. Fixing it needs the window's real first PTS, which is a
+    different measurement from the one this function makes.
+    '''
+    if not values:
+        return values, None
+    native_rate, reason = _native_frame_rate(path)
+    if native_rate is None:
+        return None, reason
+    grid_rate = comparer.fps_frac
+    if native_rate == grid_rate:
+        return values, None
+    # Exact rationals throughout, rounded ONCE per output element, through
+    # this module's own single rounding helper (`_round_frac`: round, never
+    # `int()`'s truncation -- see its docstring).
+    ratio = native_rate / grid_rate
+    n_native = len(values)
+    out = []
+    k = 0
+    while True:
+        j = FrameComparer._round_frac(Fraction(k) * ratio)
+        if j >= n_native:
+            break
+        out.append(values[j])
+        k += 1
+    return out, None
+
+
 def _extract_hashes(comparer, path, start_s, dur_s):
     start_s = max(0.0, start_s)
     blob = comparer._ffmpeg_raw_frames(path, start_s, max(0.0, dur_s))
     hashes = comparer._phash64_frames(blob)
     base = comparer._frame_index(start_s)
-    return base, hashes
+    on_grid, reason = _on_comparer_grid(comparer, path, hashes)
+    if on_grid is None:
+        # DECLINE, NEVER GUESS THE GRID. Assuming the file decodes at the
+        # comparer's rate is exactly the defect this block exists to remove,
+        # and it is the silent kind: a wrong boundary reaches a destructive
+        # splice, while an empty series reaches every caller's own
+        # `frames_unextractable` decline and stops the repair. The evidence
+        # those callers build cannot name THIS cause (they never see it), so
+        # the true reason is written here, immediately, where a production
+        # log will carry it next to the ffprobe call that produced it.
+        tools.dev_log(f"frame_compare: _extract_hashes declining "
+                      f"file={path} reason=native_rate_unmeasured:{reason} "
+                      f"start_sec={start_s} decoded_frames={len(hashes)}\n")
+        return base, []
+    return base, on_grid
 
 
 def _detect_cuts(base, hashes, threshold=SCENE_CUT_HAMMING_THRESHOLD):
     '''Frame-to-frame Hamming spikes -- real edits, master/candidate each on
-    their OWN native timeline, no offset assumed here.'''
+    its OWN timeline, no offset assumed here. "Own timeline" meant "own
+    NATIVE decode rate" when this was written; since `_on_comparer_grid`
+    both series arrive already labelled on the COMPARER's grid, so `base + i`
+    really is the grid frame number the emitted cut claims to be -- which is
+    what lets `_confirm_shift` below subtract a grid-frame shift from one
+    side's cuts and look them up in the other's.'''
     cuts = {}
     for i in range(1, len(hashes)):
         d = FrameComparer._popcount64(hashes[i - 1] ^ hashes[i])
@@ -438,7 +656,18 @@ def _extract_brightness(comparer, path, start_s, dur_s):
     for i in range(n):
         block = blob[i * frame_size:(i + 1) * frame_size]
         out.append(float(np.frombuffer(block, dtype=np.uint8).mean()))
-    return base, out
+    # SAME GRID DEFECT, SAME FIX (see `_on_comparer_grid` above):
+    # `_detect_uniform_runs` emits `base + i` as a frame number and stage 3
+    # of `locate_bracket_boundary` compares those numbers against `m_first`/
+    # `m_last`, which are grid indices. A brightness series stepping at the
+    # native rate under a grid label drifts exactly as the hash series did.
+    on_grid, reason = _on_comparer_grid(comparer, path, out)
+    if on_grid is None:
+        tools.dev_log(f"frame_compare: _extract_brightness declining "
+                      f"file={path} reason=native_rate_unmeasured:{reason} "
+                      f"start_sec={start_s} decoded_frames={n}\n")
+        return base, []
+    return base, on_grid
 
 
 def _detect_uniform_runs(base, brightness, threshold=UNIFORM_RUN_BRIGHTNESS_THRESHOLD,
