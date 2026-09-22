@@ -164,11 +164,22 @@ because each carries its own quantum. Established three separate times on three
 files before it was believed.
 """
 
-from os import path, stat as os_stat, remove
+# `stat as os_stat` left with `_extract` when that function moved to `audio_extract.py`
+# (2026-09-22) -- this module has no other use for it, and an import kept "in case" is
+# the dead-import shape already recorded against `frame_compare.py:5`.
+from os import path, remove
 from statistics import median
 
 import hashlib
 import tools
+# MOVED OUT, NOT COPIED (2026-09-22, orchestrator design stage 2). `_extract`,
+# `ExtractProducedNothing`, `_streams_for`, `_all_audio_streams` and
+# `_audio_duration_seconds` now live in `audio_extract.py` and are re-exported below under
+# their old private names. Three modules outside this one already called them through this
+# module's namespace, and the orchestrator removes this module -- so they had to outlive it.
+# The re-exports bind THE SAME OBJECTS, so `except ExtractProducedNothing` here still catches
+# what `audio_extract` raises and no second implementation exists to drift.
+import audio_extract
 import json
 import subprocess
 import audioCorrelation
@@ -664,91 +675,26 @@ def _start_times_ms(source_path):
     return out
 
 
-class ExtractProducedNothing(Exception):
-    """ffmpeg exited 0 and produced no audio. A type I own, so the site tally can name it.
-
-    *** NOT a generic Exception: `_probe` already catches everything and reports
-    `extract_or_correlate_raised`, which would fold this into the correlator's failures.
-    This is the one failure mode `vmsam-ci` traced to a root cause, and it deserves to be
-    distinguishable from a correlation that ran and failed. ***
-    """
-
-
-def _extract(source_path, stream_order, start_seconds, length_seconds, out_path,
-             sample_rate):
-    """`sample_rate` IS REQUIRED AND HAS NO DEFAULT, DELIBERATELY.
-
-    This pinned "44100" until 2026-09-05. `mergeVideo.py:583-585` derives the pair's
-    LOWER rate and clamps only when it is ABOVE 44100, so above 44100 the two agreed BY
-    ACCIDENT -- the clamp landed both on the same number -- and below it this module
-    UPSAMPLED one side and measured on a grid the consumer never uses.
-
-    I had `comparison_grid = min(pair's lowest rate, 44100)` written down as a property
-    of the PAIR for hours and quoted it to other agents; this extractor did not
-    implement the rule I was citing. Found by vmsam-ci-build as a reading of the code.
-
-    LIVE ON TWO FILES: ids 307 and 316 carry 32 kHz candidate streams. And
-    `video.py:914-919` asserts, inside the function that computes the shared rate, that
-    "a sub-44100 source ... this corpus does not contain". That is false of today's
-    corpus -- reported as R21, not my module, not fixed here.
-
-    MEASURED BEFORE CHANGING, both files both ways, paired, same probe positions:
-        id 316   max |difference|  0.001 ms over 8 probes
-        id 307   13 of 14 probes within 0.02 ms; ONE probe at 1.288 ms
-        1.288 ms against a ~129 ms quantum is 1.0% OF ONE QUANTUM
-    and the outlier is not a grid effect -- the 44100 side is out of step with ITS OWN
-    NEIGHBOURS (t=20/40/80 read 0.018/0.018/-0.005), so it is one unstable correlation
-    at one position.
-
-    SO THIS IS NOT A CORRECTNESS FIX AND MUST NOT BE READ AS ONE. It is landed for
-    INTERPRETABILITY: two instruments on different grids cannot validate each other --
-    agreement would be luck and disagreement unattributable -- which suspended ci's
-    cross-check of `offset_ms` against the pipeline's delays on exactly these two files.
-    The Lead's ruling: the smallness of the delta is the argument FOR landing, because
-    it resolves the risk side and leaves interpretability standing alone.
-
-    NO DEFAULT: a missed call site must be a TypeError, not a silent return to 44100.
-    """
-    cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin",
-           "-ss", f"{start_seconds:.6f}", "-t", f"{length_seconds:.6f}",
-           "-i", source_path, "-map", f"0:{stream_order}",
-           "-vn", "-ac", "1", "-ar", str(sample_rate),
-           "-acodec", "pcm_s16le", out_path]
-    # *** THE EXIT CODE IS CHECKED AND THE OUTPUT IS NOT, AND THE FAILURE MODE IS ONE THAT
-    # EXITS ZERO. `launch_cmdExt` raises on a non-zero return, so that half is covered --
-    # but REPRODUCED HERE: seeking past the end of a source makes ffmpeg EXIT 0, WRITE A
-    # 78-BYTE HEADER-ONLY WAV, AND SAY NOTHING ON STDERR. ffprobe then reports its duration
-    # as N/A, which is `vmsam-ci`'s root cause: the per-stream files THIS FUNCTION WRITES
-    # are what audio_sync chokes on, and the locator then cannot probe at all.
-    # *** A COMMAND THAT SUCCEEDS IS NOT A COMMAND THAT PRODUCED SOMETHING. THE LAUNCHER CAN
-    # ONLY CHECK THE CALL; ONLY THE CALLER KNOWS WHAT THE CALL WAS FOR. ***
-    # IMMEDIATELY-PRE-CALL, NOT FUNCTION-ENTRY (owner's order, 2026-09-22,
-    # via the Architect: `tools.launch_cmdExt` here is genuinely unbounded --
-    # `Popen` + bare `communicate()`, no timeout at any layer). A line at
-    # `_extract`'s own top would not name THIS call in flight if a hang
-    # happens here specifically, since `_extract` runs many times per pair
-    # and nothing upstream of this point can hang -- the log has to sit
-    # where the block actually starts, not where the function does.
-    tools.dev_log(f"locator: _extract ffmpeg call file={source_path} "
-                  f"stream_order={stream_order} out_path={out_path}\n")
-    tools.launch_cmdExt(cmd)
-    # *** MY FIRST THRESHOLD WAS `size <= 44` ON THE ASSUMPTION OF A CANONICAL WAV HEADER, AND
-    # IT DID NOT FIRE: ffmpeg WRITES A LARGER HEADER (LIST/INFO CHUNKS), SO THE HEADER-ONLY FILE
-    # WAS 78 BYTES AND SAILED THROUGH. A guard whose threshold is wrong is a guard that runs and
-    # reports nothing, which is the shape I have spent the night finding elsewhere. ***
-    # ONE SECOND OF AUDIO AT THE REQUESTED RATE IS THE FLOOR. The caller only ever asks for whole
-    # probe windows -- 60 s, or a tail start computed so the window fits -- so a file under one
-    # second cannot be a legitimate short tail. THE NUMBER IS CHOSEN, NOT DERIVED: it is two
-    # orders of magnitude below any window this module requests, which is why it cannot
-    # false-refuse rather than because it is the true boundary.
-    _floor = sample_rate * 2          # 1 s, 16-bit mono
-    try:
-        _written = os_stat(out_path).st_size
-    except OSError:
-        raise ExtractProducedNothing("extract wrote no file at the requested position")
-    if _written < _floor:
-        raise ExtractProducedNothing(
-            f"extract wrote {_written} bytes, under {_floor} for one second at {sample_rate} Hz")
+# --- RE-EXPORTS FROM `audio_extract` (moved 2026-09-22, orchestrator design stage 2) ------
+# These five names were DEFINED here and are now DEFINED in `audio_extract.py`. They are bound
+# here, to the same objects, because three modules outside this one call them through this
+# module's namespace today (`zone_similarity_vector`, `banded_seed_alignment`,
+# `pal_speed_discriminator` -- measured by grep, not recalled) and because `_probe` below
+# catches `ExtractProducedNothing` BY NAME. Binding the same object rather than re-defining it
+# is the whole safety of the move: a copied exception class would compile, import cleanly, and
+# catch nothing, and a copied `_extract` would be a second implementation free to drift from
+# the one the other three modules use.
+#
+# THESE SHIMS ARE SCAFFOLDING WITH A KNOWN END DATE. The orchestrator removes this module; when
+# it does, the three callers move to `audio_extract` directly and these five lines go with the
+# file. Until then nothing has to change at any call site, which is what makes this step
+# mechanical and separately verifiable -- a locator run on a real pair must be byte-identical
+# to the run before it.
+ExtractProducedNothing = audio_extract.ExtractProducedNothing
+_extract = audio_extract.extract_audio_window
+_streams_for = audio_extract.streams_for
+_all_audio_streams = audio_extract.all_audio_streams
+_audio_duration_seconds = audio_extract.audio_duration_seconds
 
 
 def _rms(wav_path):
@@ -966,41 +912,6 @@ def _shared_languages(master_obj, candidate_obj):
         return None
 
 
-def _streams_for(video_obj, language):
-    """EVERY stream of the language, not just the first.
-
-    The first version read `audios[language][0]` and returned one offset for the
-    language, while the repair rebuilds every stream of it. Measured on error
-    id 266: the candidate carries two jpn streams **27.5 ms apart**, so one of the
-    two rebuilt tracks took an offset that far wrong. dev-2's post-mux verifier
-    measured the same split from the produced file — 27.8 ms — independently.
-    27.5 ms is 0.66 of a frame: under the quantum the merge snaps to, under
-    mkvmerge's integer milliseconds, and under the verifier's 100 ms tolerance.
-    It would have shipped silently.
-    """
-    audios = getattr(video_obj, "audios", None)
-    if not audios or language not in audios:
-        return []
-    return [entry["StreamOrder"] for entry in audios[language]
-            if entry.get("StreamOrder") is not None]
-
-
-def _all_audio_streams(video_obj):
-    """EVERY audio stream with its language, not only one language's.
-
-    `_streams_for` answers "the streams of language L". This answers "the streams",
-    which is what a per-language pairing needs.
-    """
-    audios = getattr(video_obj, "audios", None) or {}
-    out = []
-    for lang, entries in audios.items():
-        for entry in entries:
-            order = entry.get("StreamOrder")
-            if order is not None:
-                out.append((order, lang))
-    return sorted(out)
-
-
 def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_path,
                             shortest, work_dir, runs, sample_rate, sites=None):
     """Give every candidate audio stream a master partner OF ITS OWN LANGUAGE.
@@ -1202,19 +1113,6 @@ def _pair_candidate_streams(best_video, candidate_video, master_path, candidate_
                 accepted[stream]["minority_score"] = record["minority_score"]
         measurements.append(record)
     return accepted, measurements
-
-
-def _audio_duration_seconds(video_obj, language):
-    audios = getattr(video_obj, "audios", None)
-    if not audios or language not in audios or not audios[language]:
-        return None
-    for key in ("Duration", "duration"):
-        if key in audios[language][0]:
-            try:
-                return float(audios[language][0][key])
-            except (TypeError, ValueError):
-                pass
-    return None
 
 
 def _sign_flips(values):

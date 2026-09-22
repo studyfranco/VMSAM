@@ -269,6 +269,27 @@ def local_baseline(fp_master, fp_candidate, i_lo, i_hi, offset, window=LOCAL_BAS
     return (sum(pool) / len(pool)) if pool else None
 
 
+def _segment_evidence(segment):
+    """How much a segment is WORTH in an overlap arbitration: matched master points, discounted
+    by how well they matched.
+
+    NOT `mean_match_quality` on its own, and the difference is measured, not stylistic. A short
+    run is systematically CLEANER than a long one -- it stops extending exactly where the
+    content stops agreeing, so its mean is taken over its best points only. On errid-202 a 1.24s
+    noise fragment sitting at offset +10674 (86x the file's real offset scale -- it is not a
+    relation, it is a coincidence) read `mean_match_quality` 0.987 against the 235s real segment
+    beside it at 0.958. Arbitrating on quality alone therefore hands every contested span to the
+    least evidence, which is how the first version of this guard threw away 12 minutes of a
+    correctly aligned file (coverage 0.9987 -> 0.4571 on that pair).
+
+    Points times quality is the honest quantity: it asks how many points actually matched, not
+    how flattering the average of the survivors is. The master axis is used for the count because
+    it is the reference grid, and because a segment's two axes span the same number of points by
+    construction (`j = i + offset_points`).
+    """
+    return (segment["i_hi"] - segment["i_lo"] + 1) * segment["mean_match_quality"]
+
+
 def best_shift_trace(fp_master, fp_candidate, i_start=0, i_end=None, current_offset=0,
                       x_points=TRACE_X_POINTS, m_points=TRACE_M_POINTS,
                       min_sustained=TRACE_MIN_SUSTAINED_WORDS):
@@ -362,7 +383,8 @@ def fit_trace_slope(trace):
 def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
              min_run_points=MIN_RUN_POINTS, local_baseline_min=LOCAL_BASELINE_MIN,
              include_drift_trace=True, duration_diff_ms=None,
-             signed_duration_diff_ms=None, shorter_duration_ms=None):
+             signed_duration_diff_ms=None, shorter_duration_ms=None,
+             candidate_quantum_ms=None):
     """Full B2 pipeline over WHOLE-FILE fingerprint lists: degeneracy screen -> seed -> extend ->
     mandatory-anchor filter -> local-baseline guard -> merge overlapping runs into segments ->
     report cut zones between segments -> (optionally) the owner's re-centering drift trace.
@@ -389,7 +411,37 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
       "refused_by_local_baseline_guard"   count of extended runs the guard refused -- reported
                                   even at zero, never a field that only exists when non-zero.
       "segments_filtered_short_fragments" count of segments dropped for being under
-                                  `MIN_SEGMENT_DURATION_S`, reported for the same reason.
+                                  `MIN_SEGMENT_DURATION_S`, reported for the same reason. ONE
+                                  NUMBER, over BOTH passes of that filter -- the one before
+                                  overlap resolution and the one that catches a segment a clip
+                                  shrank below the floor; the field answers "how many were
+                                  dropped for being too short", and two numbers would only make
+                                  a reader add them up.
+      "segments_overlap_resolved" count of adjacent segment pairs whose master- and/or
+                                  candidate-axis bounds interleaved before being clipped to
+                                  non-overlapping -- see the OVERLAP RESOLUTION comment below.
+                                  Reported even at zero, same discipline as the two counts above.
+      "zones"                    THE ORCHESTRATOR'S OWN OUTPUT SHAPE (owner's ruling
+                                  2026-09-22, "sortie = LA LISTE DES ZONES ALIGNEES"):
+                                  `[[[m_lo, m_hi], [c_lo, c_hi]], ...]` in FINGERPRINT POINTS,
+                                  inclusive bounds, strictly increasing and non-overlapping on
+                                  both axes (asserted). Same objects as `segments`, re-projected
+                                  -- the ALIGNED runs are first class here, and the holes are
+                                  derived as the gaps BETWEEN them; `cut_zones` remains the
+                                  older gap-first view of the same measurement and is unchanged.
+      "zones_detail"             1:1 with `zones`, SAME INDEX, carrying each zone's offset,
+                                  match quality, baseline, member count and both axes' ms
+                                  bounds -- so a consumer never has to multiply a point by a
+                                  quantum itself and so cannot pick the WRONG axis's quantum.
+      "candidate_quantum_ms"     the candidate track's OWN quantum, when the caller supplied
+                                  one; the per-track quantum is a standing invariant (measured:
+                                  124.0229 ms master vs 124.0350 ms candidate on one real pair)
+                                  and is never averaged into a single per-pair number here.
+      "master_axis_coverage_fraction"  fraction of the master axis covered by trusted zones --
+                                  the honest positive claim that replaces the probe grid's
+                                  `coverage_incomplete` decline (whole-file fingerprinting
+                                  cannot leave the file unobserved, but it CAN leave it
+                                  unaligned, and that is a different fact worth reporting).
       "drift_trace" / "drift_fit"   present when `include_drift_trace=True` (the default) --
                                   `best_shift_trace`'s FULL trace and `fit_trace_slope`'s summary,
                                   first-class output per the owner's own instruction that this
@@ -441,6 +493,19 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     above). Only a per-result view catches an alignment that never settled; only a per-zone view
     names which reading is impossible. Neither is computed when omitted.
 
+    `candidate_quantum_ms`: OPTIONAL, the CANDIDATE track's own quantum in milliseconds
+    (`length_seconds * 1000 / len(fp_candidate)`), which is NOT the master's. The alignment maths
+    is entirely index-based and never uses it -- it exists so that `zones_detail`'s
+    `candidate_ms` bounds are read on the candidate's own grid instead of borrowing the master's.
+    MEASURED, 2026-09-22, on real media: errid-202 read 124.0229 ms on the master and
+    124.0350 ms on the candidate; errid-232's five couples read 124.0265 / 123.9822 ms. That gap
+    is 0.01 %, which is nothing at one point and ~1.4 points (~174 ms) by the end of a 24-minute
+    track -- i.e. exactly the size of error the frame stage is then asked to resolve. The
+    standing per-TRACK-quantum invariant says these are two numbers and stay two numbers; when
+    omitted, `candidate_ms` falls back to `quantum_ms` and the result SAYS SO by carrying
+    `candidate_quantum_ms: None`, rather than silently echoing the master's as if it had been
+    measured on the candidate.
+
     Verdicts: `"unreliable_degenerate_input"` (entry gate fired, nothing past `degeneracy` is
     trusted) / `"no_seeds_found"` (seeding ran, found nothing at all) /
     `"all_seeds_refused_by_local_baseline_guard"` (seeds existed and extended, but every one sat
@@ -457,9 +522,15 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
                             "replacement. A reported zone's own WIDTH is a DIFFERENT quantity "
                             "from this resolution floor -- see edge_slack_note on each zone."),
         "k": k, "B": bits, "quantum_ms": quantum_ms,
+        "candidate_quantum_ms": candidate_quantum_ms,
         "n_master": len(fp_master), "n_candidate": len(fp_candidate),
         "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None,
+        # PRESENT ON EVERY RETURN PATH, None ON THE ONES THAT NEVER GOT TO MEASURE -- the
+        # orchestrator branches on `zones`, and a KeyError on an early return would turn "the
+        # aligner could not measure" into a crash instead of a named verdict.
+        "zones": None, "zones_detail": None, "master_axis_coverage_fraction": None,
         "refused_by_local_baseline_guard": None, "segments_filtered_short_fragments": None,
+        "segments_overlap_resolved": None,
         "drift_trace": None, "drift_fit": None,
         "residual_ms": None, "residual_fraction": None,
     }
@@ -498,8 +569,16 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     # condition 2 and `local_baseline`'s own docstring for the measured failure this refuses.
     trusted = [run for run in extended if run["local_baseline"] is None
                or run["local_baseline"] >= local_baseline_min]
-    refused_by_baseline = [run for run in extended if run not in trusted]
-    result["refused_by_local_baseline_guard"] = len(refused_by_baseline)
+    # COUNT ONLY -- this used to also build `refused_by_baseline = [run for run in extended if
+    # run not in trusted]`, an O(len(extended) * len(trusted)) dict-equality scan of a list
+    # (measured: 8.8s of a 9.7s seed+extend+baseline phase at 23,028 points -- 65,582 extended
+    # runs each linearly scanned against 8,771 trusted runs; the sole downstream use of that list
+    # was `len(...)`). `trusted` is built above by filtering `extended` with the guard predicate,
+    # so every run in `trusted` is a run from `extended` and every run refused is exactly the
+    # complement -- no run is ever duplicated or dropped by that filter, so the refused count is
+    # `len(extended) - len(trusted)` by construction, with the exact same meaning the old
+    # (correct but quadratic) count carried, and no list of refused runs is ever materialised.
+    result["refused_by_local_baseline_guard"] = len(extended) - len(trusted)
 
     if not trusted:
         result["verdict"] = ("all_seeds_refused_by_local_baseline_guard" if extended
@@ -542,12 +621,162 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         del seg["offset_points_running_mean"]
 
     # MINIMUM SEGMENT DURATION, stated not silent -- see the module-level constant's own comment.
+    # RUNS BEFORE OVERLAP RESOLUTION, AND THAT ORDER IS THE CORRECTION'S OWN PRECONDITION.
+    # MEASURED, errid-202 jpn, with the filter running after resolution instead: of the 22
+    # segments this pair produces, TEN are sub-2s noise fragments, and a short fragment reads a
+    # SYSTEMATICALLY HIGHER `mean_match_quality` than a long real segment (a 1.24s fragment at
+    # offset +10674 -- pure noise, 86x the file's real offset scale -- measured q=0.987 against
+    # the neighbouring 235s real segment's 0.958). Letting those fragments into the arbitration
+    # below let them WIN it and consume their long neighbours: master-axis coverage collapsed
+    # from 0.9987 to 0.4571 on that pair and the first surviving segment moved from point 8 to
+    # point 6106, i.e. the first 12 minutes of a correctly-aligned file were thrown away by the
+    # fix meant to make its zones well-defined. Arbitration is only meaningful between segments
+    # that have already cleared the floor.
     kept_segments = [seg for seg in segments
                       if (seg["master_time_range_s"][1] - seg["master_time_range_s"][0])
                       >= MIN_SEGMENT_DURATION_S]
-    result["segments_filtered_short_fragments"] = len(segments) - len(kept_segments)
+    segments_filtered_short_fragments = len(segments) - len(kept_segments)
     segments = kept_segments
+
+    # OVERLAP RESOLUTION -- BLOCKING correction (design section 3.4a). Two segments come from
+    # independent offset families (the merge above only joins runs that already agree on
+    # offset); two runs at GENUINELY DIFFERENT offsets that happen to interleave in master index
+    # start two segments whose [i_lo,i_hi] (or [j_lo,j_hi]) ranges overlap. Measured on real
+    # media before this fix: errid-202 jpn 1/19 zones read `hi < lo` from 1/37 overlapping
+    # adjacent segment pairs; errid-232's five couples read 0-13 overlapping pairs each. A zone
+    # built from interleaved segments has an undefined "hole" downstream, so this must be
+    # resolved before `all_zones` is built, never left to the caller.
+    #
+    # Choice of repair, and why: this module's own offset-family semantics say a segment IS an
+    # offset -- one `offset_points` relates every one of its master indices to its candidate
+    # indices (`j = i + offset_points`, the same convention `local_baseline`'s docstring states
+    # explicitly). So a contested master (or candidate) span belongs, in full, to whichever
+    # neighbouring segment's evidence is stronger -- never split point-by-point re-deciding each
+    # point's own offset, which nothing here measures. The loser is clipped on ITS OWN axis pair
+    # together (i and j move as one, through ITS OWN offset), so the clip can never desynchronise
+    # a segment's own i<->j correspondence. The clip is sized to the MORE RESTRICTIVE of what the
+    # i-axis and the j-axis independently demand, so one clip clears both axes in one step rather
+    # than needing a second pass. A segment entirely consumed by a stronger neighbour is dropped
+    # and counted here, not silently vanished into `segments_filtered_short_fragments`.
+    #
+    # "STRONGER" IS HOW MUCH EVIDENCE, NOT HOW CLEAN IT IS -- see `_segment_evidence` below for
+    # the measurement that forced that definition. Quality alone systematically favours the
+    # shortest segment, which is the opposite of what arbitration is for.
+    segments.sort(key=lambda seg: seg["i_lo"])
+    segments_overlap_resolved = 0
+    idx = 0
+    while idx < len(segments) - 1:
+        seg_a, seg_b = segments[idx], segments[idx + 1]
+        if seg_b["i_lo"] > seg_a["i_hi"] and seg_b["j_lo"] > seg_a["j_hi"]:
+            idx += 1
+            continue
+        segments_overlap_resolved += 1
+        if _segment_evidence(seg_a) >= _segment_evidence(seg_b):
+            # seg_a keeps the contested span; clip seg_b forward, through seg_b's OWN offset.
+            new_i_lo = max(seg_a["i_hi"] + 1, (seg_a["j_hi"] + 1) - seg_b["offset_points"])
+            seg_b["i_lo"] = new_i_lo
+            seg_b["j_lo"] = new_i_lo + seg_b["offset_points"]
+            seg_b["master_time_range_s"][0] = new_i_lo * quantum_ms / 1000.0
+            if seg_b["i_lo"] > seg_b["i_hi"] or seg_b["j_lo"] > seg_b["j_hi"]:
+                segments.pop(idx + 1)  # seg_b fully consumed -- re-check (idx, idx+1) afresh.
+            else:
+                idx += 1
+        else:
+            # seg_b keeps the contested span; clip seg_a backward, through seg_a's OWN offset.
+            new_i_hi = min(seg_b["i_lo"] - 1, (seg_b["j_lo"] - 1) - seg_a["offset_points"])
+            seg_a["i_hi"] = new_i_hi
+            seg_a["j_hi"] = new_i_hi + seg_a["offset_points"]
+            seg_a["master_time_range_s"][1] = new_i_hi * quantum_ms / 1000.0
+            if seg_a["i_lo"] > seg_a["i_hi"] or seg_a["j_lo"] > seg_a["j_hi"]:
+                segments.pop(idx)  # seg_a fully consumed -- re-check against idx-1 if it exists.
+                if idx > 0:
+                    idx -= 1
+            else:
+                idx += 1
+    result["segments_overlap_resolved"] = segments_overlap_resolved
+
+    # THE FLOOR AGAIN, ON WHAT THE CLIPS LEFT BEHIND. A clip can shrink a segment that entered
+    # the arbitration well clear of the floor to something under it (measured: errid-202's
+    # 3.60s segment at offset -25 is clipped to 1.49s by its stronger neighbour). That shrunk
+    # remnant is a short fragment like any other and is caught by the SAME named filter, its
+    # count ADDED to the first pass's rather than reported separately -- the field means "how
+    # many segments were dropped for being too short", and splitting it into two numbers would
+    # make a reader reconstruct the total to answer the only question it is asked.
+    kept_segments = [seg for seg in segments
+                      if (seg["master_time_range_s"][1] - seg["master_time_range_s"][0])
+                      >= MIN_SEGMENT_DURATION_S]
+    segments_filtered_short_fragments += len(segments) - len(kept_segments)
+    result["segments_filtered_short_fragments"] = segments_filtered_short_fragments
+    segments = kept_segments
+
+    # ASSERTED, not merely intended: emitted segments must be strictly increasing and non-
+    # overlapping on BOTH axes, or "holes = the gaps between zones" is undefined downstream. This
+    # is the module's own contract on its own output, checked at the point every field above is
+    # already known to be final for this call.
+    for seg_a, seg_b in zip(segments, segments[1:]):
+        assert seg_a["i_hi"] < seg_b["i_lo"], (
+            "banded_seed_alignment: segments must be non-overlapping on the master axis "
+            f"after overlap resolution: {seg_a['i_hi']} !< {seg_b['i_lo']}")
+        assert seg_a["j_hi"] < seg_b["j_lo"], (
+            "banded_seed_alignment: segments must be non-overlapping on the candidate axis "
+            f"after overlap resolution: {seg_a['j_hi']} !< {seg_b['j_lo']}")
     result["segments"] = segments
+
+    # THE ORCHESTRATOR'S OUTPUT CONTRACT (owner's ruling 2026-09-22, step 2 of `chimeric`:
+    # "sortie = LA LISTE DES ZONES ALIGNEES : [[[m_debut, m_fin], [c_debut, c_fin]], ...]").
+    #
+    # This is a RE-PROJECTION, not a second measurement: `zones[i]` is built from
+    # `segments[i]` and nothing else, so no reading can disagree between the two views. The
+    # transform is the whole point of the contract change -- this module was built emitting the
+    # GAPS between segments (`all_zones`/`cut_zones`) as first class, and the orchestrator needs
+    # the MATCHED RUNS as first class because its holes are defined as the gaps between zones
+    # and its no_cut_confirmed return CLOSES a hole (which is meaningless against a gap-first
+    # list). Both views ship: `cut_zones` is unchanged for every existing reader, and no caller
+    # is obliged to derive one from the other.
+    #
+    # POINTS ARE THE PRIMARY UNIT, ms is derived and carried beside it. The ruling's own input
+    # to this function is the fingerprint lists, so its output belongs in the same index space;
+    # a consumer that wants time gets it already multiplied -- and, per the per-track-quantum
+    # invariant, multiplied by THE RIGHT AXIS'S QUANTUM (see `candidate_quantum_ms` above).
+    #
+    # BOUNDS ARE INCLUSIVE in points (`i_lo`..`i_hi` is the matched run) and HALF-OPEN in ms
+    # (`[i_lo*q, (i_hi+1)*q)`), because point `i_hi` is itself `q` milliseconds WIDE -- reading
+    # its end as `i_hi*q` would drop the last point of every zone, a one-quantum systematic
+    # shortening at every zone's right edge that would land squarely inside the frame stage's
+    # search window and be invisible there.
+    candidate_quantum = (candidate_quantum_ms if candidate_quantum_ms is not None
+                          else quantum_ms)
+    zones = []
+    zones_detail = []
+    for seg in segments:
+        zones.append([[seg["i_lo"], seg["i_hi"]], [seg["j_lo"], seg["j_hi"]]])
+        zones_detail.append({
+            "modality": MODALITY,
+            "master_points": [seg["i_lo"], seg["i_hi"]],
+            "candidate_points": [seg["j_lo"], seg["j_hi"]],
+            "master_ms": [seg["i_lo"] * quantum_ms, (seg["i_hi"] + 1) * quantum_ms],
+            "candidate_ms": [seg["j_lo"] * candidate_quantum,
+                              (seg["j_hi"] + 1) * candidate_quantum],
+            "offset_points": seg["offset_points"],
+            "offset_ms": seg["offset_ms"],
+            "mean_match_quality": seg["mean_match_quality"],
+            "mean_local_baseline": seg["mean_local_baseline"],
+            "n_members": seg["n_members"],
+        })
+    result["zones"] = zones
+    result["zones_detail"] = zones_detail
+
+    # COVERAGE, STATED AS A POSITIVE CLAIM. The probe grid it replaces could leave stretches of
+    # the file simply unobserved, and declined `coverage_incomplete` when it did. Whole-file
+    # fingerprinting makes UNOBSERVED structurally impossible -- but UNALIGNED is a different
+    # fact and still perfectly possible, so the honest replacement is the fraction of the master
+    # axis that trusted zones actually cover, reported always, never a decline on its own. A
+    # reader comparing two couples of the same pair uses this to tell "this track saw less"
+    # apart from "this track disagreed", which is the could-not-see-vs-disagree distinction the
+    # cross-verification is built on.
+    if len(fp_master) > 0:
+        covered_points = sum(seg["i_hi"] - seg["i_lo"] + 1 for seg in segments)
+        result["master_axis_coverage_fraction"] = covered_points / len(fp_master)
 
     # RESOLUTION-FLOOR CLASSIFICATION: a step below this module's own declared resolution floor
     # (RESOLUTION_FLOOR_QUANTA * quantum) is NEVER deleted -- deletion teaches nobody and hides
@@ -659,7 +888,12 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
     """
     import os
     import subprocess
-    import change_point_locator as cpl
+    # `audio_extract`, NOT `change_point_locator`, since 2026-09-22: the extraction helper this
+    # wrapper needs was moved out of the locator precisely so the modules that use it stop
+    # depending on a module the orchestrator removes. Importing the locator here would have
+    # pulled in the whole probe grid (and `zone_similarity_vector`, and the saturation screen)
+    # to call one ffmpeg command.
+    import audio_extract
     import audioCorrelation
 
     def _duration_seconds(path):
@@ -695,8 +929,10 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
     import time
     extraction_t0 = time.time()
     try:
-        cpl._extract(master_path, master_stream, 0.0, length_seconds, master_wav, sample_rate)
-        cpl._extract(candidate_path, candidate_stream, 0.0, length_seconds, candidate_wav, sample_rate)
+        audio_extract.extract_audio_window(master_path, master_stream, 0.0, length_seconds,
+                                            master_wav, sample_rate)
+        audio_extract.extract_audio_window(candidate_path, candidate_stream, 0.0, length_seconds,
+                                            candidate_wav, sample_rate)
         fp_master = audioCorrelation.calculate_fingerprints(master_wav, length=length_seconds)
         fp_candidate = audioCorrelation.calculate_fingerprints(candidate_wav, length=length_seconds)
     finally:
@@ -707,19 +943,30 @@ def locate_zones_by_alignment(master_path, master_stream, candidate_path, candid
                 pass
     extraction_seconds = time.time() - extraction_t0
 
-    n_items = min(len(fp_master), len(fp_candidate))
-    quantum_ms = (length_seconds * 1000.0 / n_items) if n_items else None
-    if quantum_ms is None:
+    # PER-TRACK QUANTUM, DERIVED PER TRACK -- standing invariant, and it used to hold here only
+    # by accident. This read `min(len(fp_master), len(fp_candidate))` for BOTH sides, which
+    # happens to equal the master's own point count whenever the master is the shorter-sampled
+    # side (it was, on the pair this was measured against) and silently reads the master's axis
+    # on the CANDIDATE's grid whenever it is not. Both tracks cover the same `length_seconds`
+    # here -- both were extracted to it -- so each one's quantum is its own count's business.
+    quantum_ms = (length_seconds * 1000.0 / len(fp_master)) if fp_master else None
+    candidate_quantum_ms = ((length_seconds * 1000.0 / len(fp_candidate))
+                             if fp_candidate else None)
+    if quantum_ms is None or candidate_quantum_ms is None:
         return {"verdict": "no_seeds_found", "modality": MODALITY,
                 "stage_contract": "WHOLE-FILE fingerprinting produced zero comparable points.",
                 "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None,
+                "zones": None, "zones_detail": None, "master_axis_coverage_fraction": None,
+                "quantum_ms": None, "candidate_quantum_ms": None,
+                "n_master": len(fp_master), "n_candidate": len(fp_candidate),
                 "extraction_seconds": extraction_seconds, "alignment_seconds": 0.0}
     alignment_t0 = time.time()
     result = b2_align(fp_master, fp_candidate, quantum_ms, band=band, k=k, bits=bits,
                        min_run_points=min_run_points, local_baseline_min=local_baseline_min,
                        include_drift_trace=include_drift_trace, duration_diff_ms=duration_diff_ms,
                        signed_duration_diff_ms=signed_duration_diff_ms,
-                       shorter_duration_ms=shorter_duration_ms)
+                       shorter_duration_ms=shorter_duration_ms,
+                       candidate_quantum_ms=candidate_quantum_ms)
     result["extraction_seconds"] = extraction_seconds
     result["alignment_seconds"] = time.time() - alignment_t0
     return result
