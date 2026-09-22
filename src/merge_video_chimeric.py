@@ -3602,6 +3602,21 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
                "-t", f"{duration_ms / Decimal('1000'):.3f}",
                "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
                "-ar", str(rate), "-"]
+    # PRE-CALL LOG, NOT POST-CALL (owner's decision, 2026-09-22, on a real
+    # 7-hour hang: this `subprocess.run` carries no `timeout=`, and every
+    # log line this module emits otherwise fires on the way OUT of a call --
+    # which a hang never reaches. A line naming `file_path` immediately
+    # BEFORE the blocking call is the only kind observable while it is
+    # stuck, so it is placed here rather than after. Not fixing the missing
+    # timeout tonight -- this ffmpeg extraction and an ffprobe show_entries
+    # call have no shared legitimate duration, and a bound picked without
+    # measurement is a guess dressed as a fix (Lead's ruling, 2026-09-22).
+    if tools.dev:
+        _hang_msg = (f"chimeric: read_mono_samples starting file={file_path} "
+                     f"stream={stream_specifier} start_ms={start_ms} "
+                     f"duration_ms={duration_ms}\n")
+        sys.stderr.write(_hang_msg)
+        tools.logs.append(_hang_msg)
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
     #
@@ -3794,6 +3809,13 @@ def probe_output_streams(file_path):
                "-show_entries", "stream=index,codec_type:"
                                 "stream_tags=language,DURATION:format=duration",
                "-of", "json", file_path]
+    # PRE-CALL LOG -- same reasoning as `read_mono_samples` above: this
+    # `subprocess.run` carries no `timeout=` either, and only a line emitted
+    # BEFORE the call can be observed if it hangs.
+    if tools.dev:
+        _hang_msg = f"chimeric: probe_output_streams starting file={file_path}\n"
+        sys.stderr.write(_hang_msg)
+        tools.logs.append(_hang_msg)
     data = _json.loads(subprocess.run(command, check=True,
                                       stdout=subprocess.PIPE).stdout)
     ends = None
@@ -3863,6 +3885,11 @@ def last_audio_packet_ms(file_path):
     command = [tools.software["ffprobe"], "-v", "error", "-select_streams", "a",
                "-show_entries", "packet=stream_index,pts_time",
                "-of", "csv=p=0", "-read_intervals", "99%", file_path]
+    # PRE-CALL LOG -- same reasoning as the other two sites in this module.
+    if tools.dev:
+        _hang_msg = f"chimeric: last_audio_packet_ms starting file={file_path}\n"
+        sys.stderr.write(_hang_msg)
+        tools.logs.append(_hang_msg)
     try:
         output = subprocess.run(command, check=True,
                                 stdout=subprocess.PIPE).stdout.decode()

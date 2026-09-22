@@ -960,6 +960,21 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     tools.make_dirs(work_dir)
     out_path = path.join(work_root, f"{key}_repaired.mkv")
 
+    # WHERE IT PLANTS (owner's decision, 2026-09-22, same hang investigation
+    # as the entry log above). If this candidate's repair wedges anywhere
+    # downstream, this is the last line that says where on disk its
+    # intermediate and final artefacts were headed -- `work_dir` for the
+    # per-track extraction/build files `assemble_on_master_timeline` writes,
+    # `out_path` for the muxed product. Logged once, here, rather than
+    # re-derived from `key` at investigation time: the derivation
+    # (`stable_case_key`) is a hash, not something a reader reconstructs by
+    # eye from a candidate path under time pressure.
+    if tools.dev:
+        _plant_msg = (f"repair: candidate={candidate_obj.filePath} "
+                     f"work_dir={work_dir} out_path={out_path}\n")
+        sys.stderr.write(_plant_msg)
+        tools.logs.append(_plant_msg)
+
     # STOP AND READ BEFORE POPULATING `plan["verdict"]` OR
     # `plan["speed_ratio"]`. Populating either routes THROUGH A DESTRUCTIVE
     # TRANSFORM on a real candidate file, applied below. If you are here for
@@ -2810,6 +2825,23 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
         # porter) -- sans cout, et plus honnete qu'un second point de capture
         # plus tard qui laisserait deux definitions possibles de "job start".
         job_start_utc = datetime.now(timezone.utc).isoformat()
+        # WHICH FILE, BEFORE ANY WORK ON IT (owner's decision, 2026-09-22,
+        # on a real 7-hour hang tonight: two containers logged the
+        # "not compatible" line at mergeVideo.py:803, then NOTHING --
+        # `repair_not_compatible_videos` is called from inside a bare
+        # `except Exception`, and an except clause cannot catch a hang.
+        # `merge_video_chimeric.py` carries three unbounded `subprocess.run`
+        # calls downstream of here -- traced, not yet confirmed which one
+        # runs the process into the ground). This line exists so that WHEN
+        # this happens again, the last thing logged before silence names the
+        # file, not just the fact that repair was entered at all. Emitted
+        # BEFORE the object lookup below, which is itself cheap and cannot
+        # hang -- the hang lives further down this loop, in the work that
+        # follows once a plan exists.
+        if tools.dev:
+            _entry_msg = f"repair: starting on {candidate_path}\n"
+            sys.stderr.write(_entry_msg)
+            tools.logs.append(_entry_msg)
         candidate_obj = dict_file_path_obj.get(candidate_path)
         if candidate_obj == None:
             # UNE SEULE DECISION ICI, DONC UN SEUL JETON, et il n'est pas
