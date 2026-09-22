@@ -155,6 +155,9 @@ def build_resampled_candidate(candidate_obj, speed_ratio, out_path, timeout=3600
 
     Renvoie (chemin, facteur applique, liste des pistes vues).
     '''
+    tools.dev_log(f"resample: build_resampled_candidate starting "
+                  f"candidate={candidate_obj.filePath} speed_ratio={speed_ratio} "
+                  f"out_path={out_path}\n")
     audios = iter_audio_dicts(candidate_obj)
     if not len(audios):
         raise resample_error("the candidate carries no audio track to resample")
@@ -183,6 +186,8 @@ def build_resampled_candidate(candidate_obj, speed_ratio, out_path, timeout=3600
                      "sampling_rate": str(rate),
                      "applied_factor": format_factor(effective)})
     command.append(out_path)
+    tools.dev_log(f"resample: build_resampled_candidate ffmpeg mux call "
+                  f"candidate={candidate_obj.filePath} out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 2, timeout)
     return out_path, applied, seen
 
@@ -276,6 +281,8 @@ def _ffprobe_duration_seconds(source_path):
     cmd = [tools.software["ffprobe"], "-v", "error", "-show_entries",
            "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
            source_path]
+    tools.dev_log(f"resample: _ffprobe_duration_seconds starting "
+                  f"file={source_path}\n")
     stdout, stderror, exitCode = tools.launch_cmdExt_no_test(cmd)
     if exitCode != 0:
         raise resample_fidelity_error(
@@ -297,6 +304,8 @@ def _extract_wav(source_path, start_seconds, window_seconds, out_path,
     if audio_filter:
         command.extend(["-af", audio_filter])
     command.append(out_path)
+    tools.dev_log(f"resample: _extract_wav starting file={source_path} "
+                  f"start_seconds={start_seconds} window_seconds={window_seconds}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, 120)
 
 
@@ -314,6 +323,14 @@ def _resample_whole_track(source_path, chain, sample_rate, out_path, timeout=180
     command = [tools.software["ffmpeg"], "-y", "-v", "error", "-nostdin",
                "-i", source_path, "-vn", "-ac", "1", "-ar", str(int(sample_rate)),
                "-af", chain, out_path]
+    # THE BIG ONE (measured 2026-09-22 on one real decline: two of these,
+    # 12.04 s + 11.00 s, ~84% of the whole gate's 27.31 s wall-clock -- the
+    # single most expensive step in the resample fidelity gate, per
+    # hypothesis, unconditionally. The case is named in the private notes
+    # beside the repository). File named on the way IN, not just the way
+    # out.
+    tools.dev_log(f"resample: _resample_whole_track starting "
+                  f"file={source_path} out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
 
 
@@ -329,6 +346,12 @@ def _probe_pair_fidelity(master_path, candidate_path, start_seconds, window_seco
     try:
         _extract_wav(master_path, start_seconds, window_seconds, master_wav, sample_rate)
         _extract_wav(candidate_path, start_seconds, window_seconds, candidate_wav, sample_rate)
+        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
+        # `audioCorrelation.correlate` lives in the FROZEN module; this open
+        # caller is the only lever available on it.
+        tools.dev_log(f"resample: _probe_pair_fidelity calling "
+                      f"audioCorrelation.correlate tag={tag} "
+                      f"master_wav={master_wav} candidate_wav={candidate_wav}\n")
         fidelity, points, delay_ms = audioCorrelation.correlate(
             master_wav, candidate_wav, window_seconds)
         return fidelity
@@ -458,6 +481,9 @@ def test_speed_ratio_against_master(master_path, candidate_path, speed_ratio,
         cause       set when verdict != "confirmed"
         hypotheses  {"direct": {...}, "reciprocal": {...}}, full ladder log per side
     '''
+    tools.dev_log(f"resample: test_speed_ratio_against_master starting "
+                  f"master={master_path} candidate={candidate_path} "
+                  f"speed_ratio={speed_ratio}\n")
     ratio = Decimal(str(speed_ratio))
     hypotheses_ratios = {"direct": ratio, "reciprocal": Decimal(1) / ratio}
     try:

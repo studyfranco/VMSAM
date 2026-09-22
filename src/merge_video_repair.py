@@ -516,6 +516,9 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     nombres etait un `tools.logs.append` gate par `if tools.dev` -- mort sur
     l'instance de production (`dev: false`).
     '''
+    tools.dev_log(f"repair: confirm_speed_relation_via_resample starting "
+                  f"master={best_video.filePath} "
+                  f"candidate={candidate_obj.filePath} language={language}\n")
     import pal_speed_discriminator
     discriminator_result, disc_error = pal_speed_discriminator.discriminate_from_videos(
         best_video, candidate_obj, language)
@@ -583,6 +586,9 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     chemins de cette fonction gardent leur prose historique, inchangee, au
     site d'appel.
     """
+    tools.dev_log(f"repair: get_plan_from_locator starting "
+                  f"master={best_video.filePath} "
+                  f"candidate={candidate_obj.filePath} language={language}\n")
     try:
         import change_point_locator
     except Exception as error:
@@ -884,6 +890,8 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
     # premiere execution -- troisieme fois ce soir qu'il attrape un nom que je
     # venais d'ecrire.
     import merge_video_chimeric
+    tools.dev_log(f"repair: assemble_or_log_the_decline starting "
+                  f"candidate={logged_candidate.filePath}\n")
     try:
         return merge_video_chimeric.assemble_on_master_timeline(*args, **kwargs)
     except Exception as error:
@@ -969,11 +977,9 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # re-derived from `key` at investigation time: the derivation
     # (`stable_case_key`) is a hash, not something a reader reconstructs by
     # eye from a candidate path under time pressure.
-    if tools.dev:
-        _plant_msg = (f"repair: candidate={candidate_obj.filePath} "
-                     f"work_dir={work_dir} out_path={out_path}\n")
-        sys.stderr.write(_plant_msg)
-        tools.logs.append(_plant_msg)
+    tools.dev_log(f"repair: build_repaired_video_object starting "
+                  f"candidate={candidate_obj.filePath} work_dir={work_dir} "
+                  f"out_path={out_path}\n")
 
     # STOP AND READ BEFORE POPULATING `plan["verdict"]` OR
     # `plan["speed_ratio"]`. Populating either routes THROUGH A DESTRUCTIVE
@@ -2838,10 +2844,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
         # BEFORE the object lookup below, which is itself cheap and cannot
         # hang -- the hang lives further down this loop, in the work that
         # follows once a plan exists.
-        if tools.dev:
-            _entry_msg = f"repair: starting on {candidate_path}\n"
-            sys.stderr.write(_entry_msg)
-            tools.logs.append(_entry_msg)
+        tools.dev_log(f"repair: repair_not_compatible_videos starting on "
+                      f"{candidate_path}\n")
         candidate_obj = dict_file_path_obj.get(candidate_path)
         if candidate_obj == None:
             # UNE SEULE DECISION ICI, DONC UN SEUL JETON, et il n'est pas

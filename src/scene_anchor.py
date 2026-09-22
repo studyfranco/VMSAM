@@ -363,6 +363,14 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
             video.seek(start_frame)
         sm = SceneManager()
         sm.add_detector(ContentDetector(threshold=threshold))
+        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22): an
+        # in-process PySceneDetect full decode, no timeout, no thread --
+        # reached from the repair path (merge_video_chimeric.py's anchor
+        # calls). Nothing bounds this call; this line is the only thing
+        # that would say it was the one running during a hang.
+        tools.dev_log(f"scene_anchor: _scene_cut_frames calling "
+                      f"detect_scenes file={path} start_frame={start_frame} "
+                      f"n_frames={n_frames}\n")
         sm.detect_scenes(video, duration=n_frames)
         scene_list = sm.get_scene_list()
         if len(scene_list) < 2:

@@ -423,6 +423,28 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
+def dev_log(message):
+    """Un seul endroit qui pose CETTE classe de ligne, partagee entre
+    merge_video_repair.py, merge_video_chimeric.py et merge_video_resample.py
+    (owner's order, 2026-09-22, sur un blocage reel de 7 heures: suivre la
+    reparation en stderr ET tools.logs, quel fichier, ou, nomme par fonction
+    -- et etendu le meme soir, meme ordre: avant CHAQUE appel a un outil
+    externe, pas seulement les trois sans `timeout=` qui ont motive
+    l'enquete). Vivait d'abord comme trois copies locales, une par module;
+    centralisee ici sur demande explicite pour que la forme ne puisse plus
+    diverger d'un fichier a l'autre -- la meme raison que ce module porte
+    deja `keep_best_audio_fabricated_status`/`_trace` pour zone A et
+    `keep_best_audio`.
+
+    `message` porte deja son propre `\\n` et son propre prefixe
+    (`repair: <fonction> ...` / `chimeric: <fonction> ...` /
+    `resample: <fonction> ...`); cette fonction ne DECIDE rien du contenu,
+    elle POSE la ligne aux deux endroits, une fois.
+    """
+    if dev:
+        sys.stderr.write(message)
+        logs.append(message)
+
 def keep_best_audio_fabricated_status(audio):
     """Which key, if any, marks this audio dict as fabricated.
 

@@ -368,8 +368,15 @@ def _build_digest():
 
 
 def _log(message):
-    if tools.dev:
-        tools.logs.append(f"\t\t[change_point_locator] {message}\n")
+    # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead, 2026-09-22):
+    # this used to write ONLY to `tools.logs`, never stderr -- and
+    # `tools.logs` is drained only at the END of a merge (`mergeVideo.py:872`,
+    # `fusion.py:424`). A hung process never reaches either drain point, so
+    # this module's ~30 per-probe lines were invisible in EXACTLY the
+    # incident they exist to describe. The format string is unchanged (same
+    # tab/bracket prefix every existing caller and reader already expects);
+    # only the sink gained a stderr half that survives a hang.
+    tools.dev_log(f"\t\t[change_point_locator] {message}\n")
 
 
 def _emit(message):
@@ -705,6 +712,15 @@ def _extract(source_path, stream_order, start_seconds, length_seconds, out_path,
     # are what audio_sync chokes on, and the locator then cannot probe at all.
     # *** A COMMAND THAT SUCCEEDS IS NOT A COMMAND THAT PRODUCED SOMETHING. THE LAUNCHER CAN
     # ONLY CHECK THE CALL; ONLY THE CALLER KNOWS WHAT THE CALL WAS FOR. ***
+    # IMMEDIATELY-PRE-CALL, NOT FUNCTION-ENTRY (owner's order, 2026-09-22,
+    # via the Architect: `tools.launch_cmdExt` here is genuinely unbounded --
+    # `Popen` + bare `communicate()`, no timeout at any layer). A line at
+    # `_extract`'s own top would not name THIS call in flight if a hang
+    # happens here specifically, since `_extract` runs many times per pair
+    # and nothing upstream of this point can hang -- the log has to sit
+    # where the block actually starts, not where the function does.
+    tools.dev_log(f"locator: _extract ffmpeg call file={source_path} "
+                  f"stream_order={stream_order} out_path={out_path}\n")
     tools.launch_cmdExt(cmd)
     # *** MY FIRST THRESHOLD WAS `size <= 44` ON THE ASSUMPTION OF A CANONICAL WAV HEADER, AND
     # IT DID NOT FIRE: ffmpeg WRITES A LARGER HEADER (LIST/INFO CHUNKS), SO THE HEADER-ONLY FILE
@@ -799,8 +815,17 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
     master_window = path.join(work_dir, f"cpl_m_{tag}.wav")
     candidate_window = path.join(work_dir, f"cpl_c_{tag}.wav")
     try:
+        # IMMEDIATELY-PRE-CALL, AT THIS CALLER (owner's order via the Lead,
+        # 2026-09-22): `_extract` logs its own ffmpeg call from inside, but
+        # that line does not carry `tag`/`start_seconds` -- the probe
+        # identity a caller three hundred lines up needs to know WHICH of
+        # this pair's ~30 probes is in flight, not just which file.
+        tools.dev_log(f"locator: _probe extracting master tag={tag} "
+                      f"start_seconds={start_seconds} file={master_path}\n")
         _extract(master_path, master_stream, start_seconds, window_seconds,
                  master_window, sample_rate)
+        tools.dev_log(f"locator: _probe extracting candidate tag={tag} "
+                      f"start_seconds={start_seconds} file={candidate_path}\n")
         _extract(candidate_path, candidate_stream, start_seconds, window_seconds,
                  candidate_window, sample_rate)
         signal = _rms(master_window)
@@ -814,6 +839,18 @@ def _probe(master_path, master_stream, candidate_path, candidate_stream,
         # and that every artefact's full unfiltered JSON dict carries exactly
         # `file` and `offset_seconds` -- zero third fields. No fidelity comes
         # from this call; do not read one out of it.
+        #
+        # PRIORITY SITE (owner's order via the Lead, 2026-09-22, measured
+        # ceiling): `audioCorrelation.py:264` calls `audio_sync` through
+        # `launch_cmdExt_with_timeout_reload(max_restart=3, timeout=28800)`
+        # -- 8 hours per attempt, up to 4 attempts, a 32-hour ceiling that
+        # BRACKETS tonight's observed 7-hour hang. `audioCorrelation.py` is
+        # frozen; this line instruments the OPEN caller instead of touching
+        # the frozen callee -- the only lever available on this call.
+        tools.dev_log(f"locator: _probe calling audioCorrelation."
+                      f"second_correlation tag={tag} "
+                      f"master_window={master_window} "
+                      f"candidate_window={candidate_window}\n")
         which_file, seconds = audioCorrelation.second_correlation(master_window, candidate_window)
         if path.abspath(which_file) == path.abspath(master_window):
             offset_ms = -seconds * 1000.0
@@ -1979,6 +2016,10 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                 import pal_pitch_confirmer
                 _ntsc_probe_window = min(180.0, shortest * 0.5)
                 _ntsc_probe_start = shortest * 0.3
+                tools.dev_log(f"locator: calling pal_pitch_confirmer.confirm_ntsc "
+                              f"master={master_path} candidate={candidate_path} "
+                              f"probe_start={_ntsc_probe_start} "
+                              f"probe_window={_ntsc_probe_window}\n")
                 _ntsc_result = pal_pitch_confirmer.confirm_ntsc(
                     master_path, candidate_path, _ntsc_probe_start, _ntsc_probe_window)
             except Exception as error:                          # noqa: BLE001 -- see above
@@ -2126,6 +2167,12 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
                 import pal_speed_verdict
                 probe_window = min(180.0, shortest * 0.5)
                 probe_start = shortest * 0.3
+                tools.dev_log(f"locator: calling pal_speed_verdict."
+                              f"determine_speed_verdict "
+                              f"master={best_video.filePath} "
+                              f"candidate={candidate_video.filePath} "
+                              f"language={language} probe_start={probe_start} "
+                              f"probe_window={probe_window}\n")
                 pal_result = pal_speed_verdict.determine_speed_verdict(
                     best_video, candidate_video, language, probe_start, probe_window)
                 disc = pal_result.get("discriminator") or {}

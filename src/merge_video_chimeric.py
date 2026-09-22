@@ -522,6 +522,12 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             _interior_bracket_for_tier = (
                 previous_segment.get("following_bracket")
                 if previous_segment is not None else None)
+            # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
+            # frame_compare.py's ffmpeg calls are unbounded; the call INTO
+            # the module is the observable checkpoint from here.
+            tools.dev_log(f"chimeric: calling frame_compare."
+                          f"locate_bracket_boundary master={master_path} "
+                          f"candidate={candidate_path}\n")
             frame_tier_result = frame_compare.locate_bracket_boundary(
                 master_path, candidate_path, fps_num, fps_den,
                 float(cursor), float(master_start),
@@ -647,6 +653,12 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             # single call it exists to isolate: nothing else in this tier
             # is inside it.
             try:
+                # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
+                # 2026-09-22): scene_anchor.py runs an in-process
+                # PySceneDetect decode with no timeout and no thread.
+                tools.dev_log(f"chimeric: calling scene_anchor."
+                              f"locate_scene_anchors master={master_path} "
+                              f"candidate={candidate_path}\n")
                 scene_anchor_result = scene_anchor.locate_scene_anchors(
                     master_path, candidate_path, fps_num, fps_den,
                     float(cursor), float(master_start),
@@ -832,6 +844,12 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                                         or lb_width_ms > 2.0 * head_frame_ms))
                 if head_tier_asked:
                     import frame_compare
+                    # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
+                    # 2026-09-22): same unbounded frame_compare.py calls.
+                    tools.dev_log(f"chimeric: calling frame_compare."
+                                  f"locate_match_onset (head) "
+                                  f"master={master_path} "
+                                  f"candidate={candidate_path}\n")
                     onset_result = frame_compare.locate_match_onset(
                         master_path, candidate_path, fps_num, fps_den,
                         float(lb_low), float(lb_high), float(offset),
@@ -1081,6 +1099,11 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
                                     or tb_width_ms > 2.0 * tail_frame_ms))
             if tail_tier_asked:
                 import frame_compare
+                # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
+                # 2026-09-22): same unbounded frame_compare.py calls.
+                tools.dev_log(f"chimeric: calling frame_compare."
+                              f"locate_match_onset (tail) master={master_path} "
+                              f"candidate={candidate_path}\n")
                 onset_result = frame_compare.locate_match_onset(
                     master_path, candidate_path, fps_num, fps_den,
                     float(tb_low), float(tb_high), float(offset),
@@ -1567,6 +1590,8 @@ def resolve_source_bitrate(audio, source_path, timeout=120):
     # 592 s d'AAC.
     command = [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", source_path,
                "-map", f"0:{int(audio['StreamOrder'])}", "-c", "copy", "-f", "null", "-"]
+    tools.dev_log(f"chimeric: resolve_source_bitrate starting "
+                  f"file={source_path} stream_order={audio.get('StreamOrder')}\n")
     try:
         stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
             command, 1, timeout)
@@ -1835,6 +1860,10 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     Renomme et pas seulement corrige: le nom precedent est ce qui rendait la
     confusion invisible a la relecture.
     '''
+    tools.dev_log(f"chimeric: build_one_audio_track starting "
+                  f"candidate={candidate_obj.filePath} "
+                  f"stream_order={audio.get('StreamOrder')} language={language} "
+                  f"out_path={out_path}\n")
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     encoder_arguments, family, bitrate_origin = get_encoder_arguments(
         audio, codec_name, candidate_obj.filePath)
@@ -2029,6 +2058,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     command.extend(encoder_arguments)
     command.extend(["-ar", sample_rate, "-vn", "-sn", "-dn",
                     "-max_muxing_queue_size", "16384", out_path])
+    tools.dev_log(f"chimeric: build_one_audio_track ffmpeg build call "
+                  f"candidate={candidate_obj.filePath} out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
 
     bitrate = None
@@ -2460,6 +2491,10 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
 def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir,
                              index, timeout, speed_ratio=None):
     '''Extrait, re-cale, renvoie un dict de compte-rendu -- ou leve.'''
+    tools.dev_log(f"chimeric: build_one_subtitle_track starting "
+                  f"candidate={candidate_obj.filePath} "
+                  f"stream_order={subtitle.get('StreamOrder')} language={language} "
+                  f"work_dir={work_dir}\n")
     codec_name = subtitle.get("ffprobe", {}).get("codec_name", "").lower()
     target = classify_subtitle(codec_name)
     if target == "bitmap":
@@ -2478,6 +2513,8 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
                "-i", candidate_obj.filePath,
                "-map", f"0:{int(subtitle['StreamOrder'])}",
                "-c:s", target, out_path]
+    tools.dev_log(f"chimeric: build_one_subtitle_track ffmpeg extract call "
+                  f"candidate={candidate_obj.filePath} out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
     if not path.getsize(out_path):
         # LA PISTE ETAIT DEJA VIDE A LA SOURCE -- zero paquet dans le fichier
@@ -2597,6 +2634,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     truthiness, never equality"): un champ ajoute plus tard ne doit rien casser
     chez qui lit celui-ci aujourd'hui.
     '''
+    tools.dev_log(f"chimeric: mux_repaired_file starting out_path={out_path} "
+                  f"n_audio={len(audio_reports)} n_subtitle={len(subtitle_reports)}\n")
     command = [tools.software["ffmpeg"], "-y", "-nostdin"]
     for report in audio_reports:
         command.extend(["-i", report["path"]])
@@ -2624,6 +2663,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
             command.extend([f"-metadata:s:s:{i}", f"title={report['title']}"])
 
     command.extend(["-max_muxing_queue_size", "16384", out_path])
+    tools.dev_log(f"chimeric: mux_repaired_file ffmpeg mux call "
+                  f"out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
 
 
@@ -2755,6 +2796,8 @@ def measure_track_extent_ms(file_path, stream_order, timeout=300):
     command = [probe, "-v", "error", "-select_streams", str(stream_order),
                "-show_entries", "packet=pts_time,duration_time",
                "-of", "csv=p=0", file_path]
+    tools.dev_log(f"chimeric: measure_track_extent_ms starting "
+                  f"file={file_path} stream_order={stream_order}\n")
     try:
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=timeout)
@@ -2939,6 +2982,10 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     docs/SUBTITLE_CODECS.MD: "count a declined codec separately from a failed
     extract".
     '''
+    tools.dev_log(f"chimeric: assemble_on_master_timeline starting "
+                  f"candidate={candidate_obj.filePath} "
+                  f"master={master_obj.filePath} work_dir={work_dir} "
+                  f"out_path={out_path}\n")
     # LA CADENCE DU MAITRE, SONDEE A L'ADMISSION. Architect's ruling,
     # 2026-09-15: "a precondition is probed at admission, before any work
     # begins; a refusal must cost a probe, not a mux." `FrameRate_Mode` est
@@ -3611,12 +3658,9 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     # timeout tonight -- this ffmpeg extraction and an ffprobe show_entries
     # call have no shared legitimate duration, and a bound picked without
     # measurement is a guess dressed as a fix (Lead's ruling, 2026-09-22).
-    if tools.dev:
-        _hang_msg = (f"chimeric: read_mono_samples starting file={file_path} "
-                     f"stream={stream_specifier} start_ms={start_ms} "
-                     f"duration_ms={duration_ms}\n")
-        sys.stderr.write(_hang_msg)
-        tools.logs.append(_hang_msg)
+    tools.dev_log(f"chimeric: read_mono_samples starting file={file_path} "
+                  f"stream={stream_specifier} start_ms={start_ms} "
+                  f"duration_ms={duration_ms}\n")
     process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
     #
@@ -3812,10 +3856,7 @@ def probe_output_streams(file_path):
     # PRE-CALL LOG -- same reasoning as `read_mono_samples` above: this
     # `subprocess.run` carries no `timeout=` either, and only a line emitted
     # BEFORE the call can be observed if it hangs.
-    if tools.dev:
-        _hang_msg = f"chimeric: probe_output_streams starting file={file_path}\n"
-        sys.stderr.write(_hang_msg)
-        tools.logs.append(_hang_msg)
+    tools.dev_log(f"chimeric: probe_output_streams starting file={file_path}\n")
     data = _json.loads(subprocess.run(command, check=True,
                                       stdout=subprocess.PIPE).stdout)
     ends = None
@@ -3886,10 +3927,7 @@ def last_audio_packet_ms(file_path):
                "-show_entries", "packet=stream_index,pts_time",
                "-of", "csv=p=0", "-read_intervals", "99%", file_path]
     # PRE-CALL LOG -- same reasoning as the other two sites in this module.
-    if tools.dev:
-        _hang_msg = f"chimeric: last_audio_packet_ms starting file={file_path}\n"
-        sys.stderr.write(_hang_msg)
-        tools.logs.append(_hang_msg)
+    tools.dev_log(f"chimeric: last_audio_packet_ms starting file={file_path}\n")
     try:
         output = subprocess.run(command, check=True,
                                 stdout=subprocess.PIPE).stdout.decode()
@@ -4069,6 +4107,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     piste de sous-titres est celle de sa DERNIERE REPLIQUE, qui finit
     legitimement avant le fichier.
     """
+    tools.dev_log(f"chimeric: verify_output_file starting out_path={out_path}\n")
     streams, container_ms = probe_output_streams(out_path)
     audio = [s for s in streams if s["codec_type"] == "audio"]
     subtitle = [s for s in streams if s["codec_type"] == "subtitle"]
@@ -4394,6 +4433,8 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     Une piste dont le maitre n'a pas la langue n'est pas verifiable: c'est une
     troisieme issue, `skipped`, et surtout pas un succes.
     """
+    tools.dev_log(f"chimeric: verify_on_master_timeline starting "
+                  f"out_path={out_path} master={master_obj.filePath}\n")
     probe_plan = choose_probe_positions(pieces, verify_window_seconds)
     positions = [start for _, start in probe_plan]
     if not len(positions):
@@ -4754,6 +4795,8 @@ def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms)
     live job does not have), but a negative control needs only a
     deliberately-wrong pairing, which is always constructible.
     '''
+    tools.dev_log(f"chimeric: verify_fill_content starting out_path={out_path} "
+                  f"master={master_obj.filePath}\n")
     results = []
     for produced_index, report in enumerate(audio_reports):
         if report.get("gap_fill") != "master":

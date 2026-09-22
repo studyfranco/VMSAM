@@ -108,6 +108,11 @@ class FrameComparer:
             "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"
         ]
         # Une lecture complète suffit (fenêtres courtes)
+        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
+        # `launch_cmdExt_no_test` is genuinely unbounded, reached from the
+        # repair path (merge_video_chimeric.py's frame-tier calls).
+        tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
+                      f"start_sec={start_sec} dur_sec={dur_sec}\n")
         stdout, stderr_out, rc = tools.launch_cmdExt_no_test(cmd)
         if rc not in (0,):
             # on tente quand même de parser ce qu’on a reçu
@@ -222,6 +227,11 @@ class FrameComparer:
             "-f", "null", "-"
         ]
         # showinfo écrit sur stderr
+        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
+        # same unbounded launcher as `_ffmpeg_raw_frames` above.
+        tools.dev_log(f"frame_compare: _scene_gap_fallback starting "
+                      f"file={self.tgt_path} start_sec={start_sec} "
+                      f"end_sec={end_sec}\n")
         out, err, rc = tools.launch_cmdExt_no_test(cmd)
         text = err.decode("utf-8", errors="ignore")
         import re

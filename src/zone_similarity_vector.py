@@ -48,6 +48,7 @@ already made, elsewhere.
 import os
 
 import audioCorrelation
+import tools
 
 # THEORETICAL constant, reimplemented fresh (audioCorrelation.py is frozen).
 # Q4's own answer (017): this is NOT the same number as the measured
@@ -451,15 +452,28 @@ def locate_zone_by_vector(master_path, master_stream, candidate_path, candidate_
     master_wav = os.path.join(work_dir, f"{tag}_master.wav")
     candidate_wav = os.path.join(work_dir, f"{tag}_candidate.wav")
     try:
+        # IMMEDIATELY-PRE-CALL, x4 (owner's order via the Lead, 2026-09-22):
+        # `cpl._extract` logs its own ffmpeg call internally, but not this
+        # module's `tag`; `calculate_fingerprints` lives in FROZEN
+        # audioCorrelation.py, so this open caller is the only lever.
+        tools.dev_log(f"zsv: locate_zone_by_vector extracting master tag={tag} "
+                      f"file={master_path} start_seconds={start_seconds}\n")
         cpl._extract(master_path, master_stream, start_seconds, window_seconds,
                     master_wav, sample_rate)
         # BASELINE_OFFSET_BLINDNESS fix -- see this function's own docstring.
         # Master stays on its own raw timeline; candidate reads from where
         # the flanking plateau's own offset says its content actually is.
         candidate_start_seconds = start_seconds + candidate_offset_ms / 1000.0
+        tools.dev_log(f"zsv: locate_zone_by_vector extracting candidate "
+                      f"tag={tag} file={candidate_path} "
+                      f"start_seconds={candidate_start_seconds}\n")
         cpl._extract(candidate_path, candidate_stream, candidate_start_seconds,
                     window_seconds, candidate_wav, sample_rate)
+        tools.dev_log(f"zsv: locate_zone_by_vector calculating fingerprints "
+                      f"tag={tag} file={master_wav}\n")
         fp_master = audioCorrelation.calculate_fingerprints(master_wav, length=window_seconds)
+        tools.dev_log(f"zsv: locate_zone_by_vector calculating fingerprints "
+                      f"tag={tag} file={candidate_wav}\n")
         fp_candidate = audioCorrelation.calculate_fingerprints(candidate_wav, length=window_seconds)
     finally:
         for path in (master_wav, candidate_wav):
