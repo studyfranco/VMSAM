@@ -26,6 +26,7 @@ exactement, et c'est lui qui part dans `VMSAM_FABRICATED`. Un tag
 '''
 
 from decimal import Decimal, getcontext
+from fractions import Fraction
 from os import path, remove
 import statistics
 import sys
@@ -443,6 +444,305 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
         f"inconclusive_at_ceiling, named decline\n")
     return "inconclusive_at_ceiling", last.get("median"), last.get("n_measured", 0), \
         len(probe_ladder) - 1, rungs_log
+
+
+# ---------------------------------------------------------------------------
+# THE RATE SWEEP (RULING_20260922_NO_BAND_ROUTING.MD, ADDENDUM 2 -- OWNER
+# OVERRIDE). "Tester TOUTES les combinaisons de cadences."
+#
+# WHY A SWEEP BEATS A DERIVED FACTOR, in the owner's own terms: a derived
+# factor is one hypothesis and it can be derived wrong, while the ladder is a
+# MEASUREMENT that can be run against every hypothesis the world actually
+# contains. The rate set below is small and closed, so "every combination" is
+# sixteen ratios, not an open search -- and sixteen measured answers are
+# cheaper to trust than one inferred one.
+#
+# AND IT SETTLES SOMETHING NO TOLERANCE CAN. Three members of the vocabulary
+# sit within 0.1 % of each other (800/1001 = 0.799201, 4/5 = 0.800000,
+# 1001/1250 = 0.800800), as do 25/24 and 1001/960. No snap window can
+# separate those by arithmetic -- but the fidelity ladder separates them by
+# measurement, which is the whole point of running it on each.
+# ---------------------------------------------------------------------------
+
+BROADCAST_RATE_SET = (Fraction(24000, 1001),   # 23.976
+                      Fraction(24),
+                      Fraction(25),
+                      Fraction(30000, 1001),   # 29.97
+                      Fraction(30))
+
+
+def build_rate_ratio_vocabulary(rate_set=BROADCAST_RATE_SET):
+    '''Every ordered pair's ratio over `rate_set`, deduplicated, closed under
+    reciprocal, with 1 excluded. Exact `Fraction`s throughout.
+
+    GENERATED, NOT TABULATED. The addendum lists the sixteen it expects
+    (1001/1000, 1001/960, 1001/800, 5/4, 1250/1001, 1200/1001, 6/5, 25/24 and
+    the inverses) and this function reproduces exactly that set from R -- a
+    hand-written table of the same sixteen would be a second definition of
+    one fact, and the rate SET is the thing a future owner edits.
+
+    Ordered pairs already generate both directions, so the explicit
+    reciprocal closure below is redundant TODAY. It stays because it is only
+    redundant while the set is used symmetrically, and a ruling that adds a
+    rate only on one side should not silently lose its inverse.
+    '''
+    vocabulary = set()
+    for numerator in rate_set:
+        for denominator in rate_set:
+            if numerator == denominator:
+                continue
+            ratio = Fraction(numerator, denominator)
+            if ratio == 1:
+                continue
+            vocabulary.add(ratio)
+            vocabulary.add(1 / ratio)
+    return tuple(sorted(vocabulary))
+
+
+def _probe_fidelity_at_ratio(master_path, candidate_path, start_seconds,
+                             window_seconds, work_dir, sample_rate, ratio,
+                             chain, tag, master_cache):
+    '''One probe of the master against the candidate CORRECTED BY `ratio`,
+    without resampling the candidate's whole track.
+
+    THE ANCHOR IS CORRECTED ARITHMETICALLY, WHICH IS THE ONLY REASON THIS IS
+    ALLOWED TO BE A WINDOW. `_resample_whole_track`'s docstring records the
+    defect that forced whole-track passes in the first place: applying the
+    filter to a window extracted at the SAME absolute time stretches the
+    window's CONTENT while leaving its START where it was, so the two sides
+    drift apart as soon as the relation bites. That is a property of taking
+    the window at `start_seconds` on both sides -- not of windows.
+
+    With `ratio = master_span / candidate_span`, master instant `t` is
+    candidate instant `t / ratio`, and a candidate segment of length
+    `window_seconds / ratio` becomes exactly `window_seconds` once stretched.
+    So this extracts the candidate at `start_seconds / ratio` for
+    `window_seconds / ratio`, applies the SAME `build_speed_filter_chain` the
+    whole-track path uses, and compares against the master window at
+    `start_seconds`. Both the anchor and the length are corrected, so the
+    grids stay aligned -- which the naive version could not do.
+
+    THE MASTER WINDOW IS EXTRACTED ONCE AND REUSED ACROSS EVERY FACTOR
+    (`master_cache`), which is the reuse the owner's cost note asks for: the
+    master side does not depend on the hypothesis, so extracting it sixteen
+    times would be sixteen times the same file.
+
+    `None` on any failure -- BLANK LAW, same as `_probe_pair_fidelity`.
+    '''
+    cache_key = round(start_seconds, 3)
+    master_wav = master_cache.get(cache_key)
+    candidate_wav = path.join(work_dir, f"rs_c_{tag}.wav")
+    try:
+        if master_wav is None:
+            master_wav = path.join(work_dir, f"rs_m_{cache_key}.wav")
+            _extract_wav(master_path, start_seconds, window_seconds,
+                         master_wav, sample_rate)
+            master_cache[cache_key] = master_wav
+        candidate_start = start_seconds / float(ratio)
+        candidate_length = window_seconds / float(ratio)
+        _extract_wav(candidate_path, candidate_start, candidate_length,
+                     candidate_wav, sample_rate, audio_filter=chain)
+        tools.dev_log(f"resample: _probe_fidelity_at_ratio calling "
+                      f"audioCorrelation.correlate tag={tag} ratio={ratio} "
+                      f"master_wav={master_wav} candidate_wav={candidate_wav}\n")
+        fidelity, points, delay_ms = audioCorrelation.correlate(
+            master_wav, candidate_wav, window_seconds)
+        return fidelity
+    except Exception as error:                          # noqa: BLE001
+        # ONE PROBE OF ONE HYPOTHESIS, never the sweep. Same rule and same
+        # scope as `_probe_pair_fidelity` above: a failure here is a
+        # measurement about this factor at this position, not a reason to
+        # take down the fifteen other factors or the merge.
+        tools.dev_log(f"resample: sweep probe at {start_seconds:.1f}s "
+                      f"ratio={ratio} failed: {type(error).__name__}\n")
+        return None
+    finally:
+        try:
+            remove(candidate_wav)
+        except OSError:
+            pass
+
+
+def sweep_rate_ratios(master_path, candidate_path, sample_rate, work_dir,
+                      vocabulary=None,
+                      window_seconds=RESAMPLE_PROBE_WINDOW_SECONDS,
+                      floor=RESAMPLE_FIDELITY_FLOOR):
+    '''TEST EVERY RATE COMBINATION, let the best median fidelity win.
+
+    Owner's design (ADDENDUM 2), and the decision rule is his, verbatim in
+    substance:
+
+      * each factor in the vocabulary is validated by the SAME
+        `measure_fidelity_ladder`, against the SAME unchanged floor (0.90);
+      * the factor with the BEST median among those at or above the floor
+        WINS;
+      * SEVERAL at or above the floor is an ANOMALY -- "ne devrait pas
+        arriver" -- logged LOUDLY through `tools.log_always` with every
+        passing factor and its median, and the best is still taken;
+      * NONE at or above the floor means there is no rate leg at all.
+
+    WHY "SEVERAL PASS" IS LOGGED RATHER THAN REFUSED. It is the owner's
+    instruction, and it is also the right shape: two factors clearing 0.90
+    means either the pair is nearly self-similar under two transforms (a real
+    fact about the media, worth seeing) or the ladder is being fooled (a real
+    fact about the instrument, worth seeing MORE). Refusing silently would
+    destroy the evidence either way; this is the one outcome that must never
+    be quiet.
+
+    Returns the SAME dict shape `test_speed_ratio_against_master` returns --
+    `verdict`/`ratio`/`median_fidelity`/`margin`/`cause`/`hypotheses` -- so
+    every existing reader (`merge_video_repair.describe_resample_decline`,
+    the plan's `resample_gate`) keeps working unchanged, plus `passing` and
+    `vocabulary_size` which only this function can report.
+    '''
+    if vocabulary is None:
+        vocabulary = build_rate_ratio_vocabulary()
+    tools.dev_log(f"resample: sweep_rate_ratios starting master={master_path} "
+                  f"candidate={candidate_path} factors={len(vocabulary)} "
+                  f"floor={floor}\n")
+    try:
+        master_duration = _ffprobe_duration_seconds(master_path)
+        candidate_duration = _ffprobe_duration_seconds(candidate_path)
+    except resample_fidelity_error as error:
+        return {"verdict": "declined", "ratio": None, "median_fidelity": None,
+                "margin": None, "cause": "resample_master_unmeasurable",
+                "reason": str(error), "hypotheses": {}, "passing": [],
+                "vocabulary_size": len(vocabulary)}
+
+    master_cache = {}
+    results = {}
+    try:
+        for ratio in vocabulary:
+            name = f"{ratio.numerator}/{ratio.denominator}"
+            # A `Fraction` IS NOT ACCEPTED BY `build_speed_filter_chain`, and
+            # the failure is not a polite one. That function opens with
+            # `Decimal(str(speed_ratio))`, and `str(Fraction(1001, 1000))` is
+            # `"1001/1000"`, which `Decimal` rejects with
+            # `decimal.InvalidOperation` -- NOT a `resample_error`, so it
+            # would sail past the handler below and take the whole sweep down
+            # on its first factor. Measured by running this sweep locally
+            # before any real pair went near it. Converted here, once, where
+            # the exact rational becomes a coefficient.
+            ratio_decimal = Decimal(ratio.numerator) / Decimal(ratio.denominator)
+            try:
+                chain, effective, _, _ = build_speed_filter_chain(
+                    sample_rate, ratio_decimal)
+            except resample_error as error:
+                results[name] = {"verdict": "unmeasurable", "median": None,
+                                 "reason": f"could not build the filter: {error}"}
+                continue
+            # STAY INSIDE BOTH FILES. A probe at master `t` reads the
+            # candidate at `t / ratio`, so the usable master span is bounded
+            # by what the candidate can supply -- never by the master alone.
+            # Computed per factor because it depends on the factor.
+            usable_span = min(master_duration,
+                              candidate_duration * float(ratio))
+
+            def fidelity_at(start, ratio=ratio, chain=chain, name=name):
+                return _probe_fidelity_at_ratio(
+                    master_path, candidate_path, start, window_seconds,
+                    work_dir, sample_rate, ratio, chain,
+                    tag=f"{name.replace('/', '_')}_{round(start)}",
+                    master_cache=master_cache)
+
+            verdict, median, n_used, rung, rungs_log = measure_fidelity_ladder(
+                fidelity_at, usable_span, window_seconds, floor=floor,
+                log_label=f"sweep {name}")
+            results[name] = {"verdict": verdict, "median": median,
+                             "n_used": n_used, "rung": rung, "rungs": rungs_log,
+                             "effective_ratio": str(effective),
+                             "requested_ratio": name,
+                             "usable_span_seconds": round(usable_span, 3)}
+    finally:
+        for cached in master_cache.values():
+            try:
+                remove(cached)
+            except OSError:
+                pass
+
+    passing = {name: r for name, r in results.items() if r["verdict"] == "above"}
+    if not passing:
+        # SAME THREE-WAY SPLIT as `test_speed_ratio_against_master`, and for
+        # the same measured reason: "the instrument never ran" and "the
+        # instrument ran and said no" are different answers (BRIEF_COMMON
+        # rule 5) and one token cannot carry both.
+        if any(r["verdict"] == "inconclusive_at_ceiling" for r in results.values()):
+            cause = "resample_fidelity_inconclusive"
+        elif all(r["verdict"] == "unmeasurable" for r in results.values()):
+            cause = "resample_fidelity_unmeasurable"
+        else:
+            cause = "resample_fidelity_below_floor"
+        tools.dev_log(f"resample: sweep_rate_ratios -- no factor of "
+                      f"{len(vocabulary)} reached the floor {floor}; "
+                      f"cause={cause}\n")
+        return {"verdict": "declined", "ratio": None, "median_fidelity": None,
+                "margin": None, "cause": cause, "hypotheses": results,
+                "passing": [], "vocabulary_size": len(vocabulary)}
+
+    ordered = sorted(passing.items(), key=lambda item: item[1]["median"],
+                     reverse=True)
+    best_name, best = ordered[0]
+    winner = Fraction(best_name)
+    if len(ordered) > 1:
+        margin = best["median"] - ordered[1][1]["median"]
+    else:
+        margin = best["median"] - floor
+
+    # WHICH CO-PASSES ARE EXPECTED AND WHICH ARE NOT (ADDENDUM 3, the
+    # Architect's ruling on a finding this sweep produced on its first run).
+    #
+    # MEASURED, AND IT IS ARITHMETIC RATHER THAN A SURPRISE: a factor and ITS
+    # OWN RECIPROCAL both clear the floor whenever the drift across one probe
+    # window is under half the chromaprint quantum. At the 0.1% family that is
+    # 60 ms of drift across a 60 s window against a 124-129 ms point -- so the
+    # wrong direction still lines up, and BOTH directions read high. Calling
+    # that an anomaly would fire the loud line on the single most ordinary
+    # case this sweep has, and a warning that cries on the normal case is a
+    # warning nobody reads.
+    #
+    # THE MARGIN IS WHAT DECIDES THERE, and it does so correctly -- measured
+    # 0.0559 between 1000/1001 and 1001/1000 on a real pair, with the right
+    # one on top. So that case gets ONE QUIET LINE carrying both medians and
+    # the margin, which is the evidence a reader needs and no alarm.
+    #
+    # THE OWNER'S "ne devrait pas arriver" IS PRESERVED FOR WHAT IT MEANT:
+    # two UNRELATED rationals fitting the same audio. That is what stays loud.
+    reciprocal_name = f"{winner.denominator}/{winner.numerator}"
+    unexpected = [(name, r) for name, r in ordered
+                  if name != best_name and name != reciprocal_name]
+    if unexpected:
+        # LOUD. `log_always`, not `dev_log`: a line that only exists when a
+        # flag is on is a line that does not exist on the run that mattered.
+        tools.log_always(
+            "resample: SWEEP ANOMALY -- a rate factor that is neither the "
+            f"winner nor its reciprocal cleared the fidelity floor {floor}, "
+            f"which should not happen: "
+            + " ".join(f"{name}(median={r['median']})" for name, r in ordered)
+            + f" -- unexpected: "
+            + " ".join(f"{name}(median={r['median']})" for name, r in unexpected)
+            + f" -- taking the best ({best_name}, median={best['median']}) "
+              f"as the owner's rule directs, and recording the anomaly\n")
+    elif len(ordered) > 1:
+        # QUIET, AND STILL WRITTEN DOWN. Expected is not the same as
+        # uninteresting: the margin is the number that did the separating and
+        # a census of how big it runs is how anyone would ever learn that the
+        # probe window is too short for a family.
+        tools.dev_log(
+            f"resample: sweep winner and its reciprocal both cleared the "
+            f"floor {floor}, which is EXPECTED at this factor size (drift "
+            f"across one probe window under half the chromaprint quantum): "
+            + " ".join(f"{name}(median={r['median']})" for name, r in ordered)
+            + f" -- the margin {round(margin, 4)} separates them and "
+              f"{best_name} wins\n")
+    tools.dev_log(f"resample: sweep_rate_ratios winner={best_name} "
+                  f"median={best['median']} margin={round(margin, 4)} "
+                  f"passing={len(ordered)}/{len(vocabulary)}\n")
+    return {"verdict": "confirmed", "ratio": winner,
+            "median_fidelity": best["median"], "margin": round(margin, 4),
+            "cause": None, "hypotheses": results,
+            "passing": [{"ratio": name, "median": r["median"]}
+                        for name, r in ordered],
+            "vocabulary_size": len(vocabulary)}
 
 
 def test_speed_ratio_against_master(master_path, candidate_path, speed_ratio,

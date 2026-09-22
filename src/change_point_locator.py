@@ -1726,7 +1726,8 @@ def _coverage_gaps(starts, window_seconds, span_start, span_end):
     return gaps
 
 
-def locate_change_points(best_video, candidate_video, language, work_dir=None):
+def locate_change_points(best_video, candidate_video, language, work_dir=None,
+                         measurements=None):
     """Locate where `candidate_video`'s timeline diverges from `best_video`'s.
 
     Returns the block described in INTERFACE_dev1_dev2.md, or **None**.
@@ -1734,6 +1735,28 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
     None means *I could not measure* — never *the files are compatible*. dev-2
     maps it to `no_plan` and the refusal stands. Those are different answers and
     collapsing them is the mistake this campaign exists to avoid.
+
+    `measurements`, when a caller passes a dict, is an OUT-PARAMETER filled
+    with the per-window offset series this function measures on its way to a
+    verdict — `delay_series` as `(position_seconds, delay_ms)` pairs, plus the
+    `window` metadata that produced them. Additive and optional: every
+    existing caller keeps its two-value return and its signature, and nothing
+    on the decision path reads this dict.
+
+    WHY IT EXISTS (RULING_20260922_NO_BAND_ROUTING.MD point 2). The repair
+    chain needs a rate factor derived from the offset SLOPE, and this function
+    has already measured exactly that series by the time it declines — then
+    threw it away, returning `(None, cause)`. The consumer's only alternatives
+    were to re-run this whole probe grid (the same ffmpeg extractions and the
+    same `audioCorrelation` calls, one of which carries an eight-hour timeout)
+    or to read `delayFirstMethodAbort`, whose caveat is written out at the top
+    of this file. Handing forward what was already measured costs nothing and
+    creates no second convention.
+
+    A GLOBAL WOULD HAVE BEEN WRONG HERE: this module's own `_probe` docstring
+    records that callers do parallelise, and a module-level "last series"
+    would be read by whichever pair finished last. The dict belongs to the
+    caller that passed it.
     """
     # COMPUTED AT ENTRY, BEFORE ANY REFUSAL CAN BE TAKEN. `master_path` and
     # `candidate_path` are not bound until after the language and duration checks, so the
@@ -1943,6 +1966,33 @@ def locate_change_points(best_video, candidate_video, language, work_dir=None):
          f"bound={saturation_stats['search_bound_points']} "
          f"threshold={saturation_stats['threshold_fraction']} "
          f"evaluable={saturation_stats['evaluable']}")
+    # THE SERIES, HANDED FORWARD, BEFORE ANY REFUSAL BELOW CAN TAKE IT AWAY.
+    # Placed here and not lower on purpose: every decline from this point on
+    # -- the saturation one immediately below included -- is a decline the
+    # repair chain may want to derive a rate slope from, and a series filled
+    # only on the paths that happen to reach the bottom is the
+    # instrument-on-the-failure-path defect this file already records once
+    # (`refusal_sites`, a few hundred lines up). `screened_kept` is the same
+    # population the rate-family gate's own regression uses below.
+    if measurements is not None:
+        _quanta_seen = [r[1][3] for r in screened_kept if r[1][3]]
+        measurements["delay_series"] = [(float(r[0]), float(r[1][0]))
+                                        for r in screened_kept]
+        measurements["window"] = {
+            "source": "change_point_locator.locate_change_points/screened_kept",
+            "window_seconds": PROBE_WINDOW_SECONDS,
+            "step_seconds": PROBE_STEP_SECONDS,
+            # THE MEASURED QUANTUM OF THIS RUN, never a constant: this
+            # module's own UNITS section records 129 here against 124-125 in
+            # the pipeline's windows, and the Architect's E3 ruling banned
+            # `125` as a stand-in for exactly this number.
+            "quantum_ms_median": (int(median(_quanta_seen)) if _quanta_seen else None),
+            "offsets_are_quantised": False,
+            "language": language,
+            "pair": pair_id,
+        }
+        measurements["probes_kept"] = len(screened_kept)
+
     if saturation_decline is not None:
         saturation_cause = saturation_decline.pop("cause", "offsets_saturated_at_search_bound")
         return _decline(saturation_cause, "could_not_run",

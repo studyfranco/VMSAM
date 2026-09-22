@@ -46,6 +46,7 @@ decision, pas un renvoi vers quelqu'un qui n'est pas la.
 
 from datetime import datetime, timezone
 from decimal import Decimal
+from fractions import Fraction
 from os import environ, path
 import hashlib
 import json
@@ -454,7 +455,362 @@ def describe_resample_decline(candidate_ratio, gate):
             f"gap={gap:.4f} cause={gate.get('cause')}")
 
 
-def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
+NO_RATE_RELATION_CAUSE = "no_rate_relation"
+# THE LEFT HALF of the combined verdict token the no_band route produces when
+# the RATE leg found nothing to test: `cause=no_rate_relation+<splice_cause>`
+# (RULING_20260922_NO_BAND_ROUTING.MD point 5). It is never emitted alone --
+# a token with no splice cause beside it would be a one-leg terminal, which is
+# exactly what that ruling made illegal.
+
+
+def _no_band_terminal(rate_cause, rate_prose, splice_cause, splice_prose):
+    '''BOTH LEGS HAVE DECLINED -- the only shape in which the no_band route is
+    allowed to end (RULING_20260922_NO_BAND_ROUTING.MD point 5, applying
+    VERDICT_WITHOUT_MEASUREMENT).
+
+    The token carries BOTH named causes, joined by `+`, so a census can split
+    it and see which leg decided what; the prose carries both legs' deciding
+    INSTRUMENTS and their numbers, because a cause without the measurement it
+    came from is the defect `describe_resample_decline` above exists to
+    refuse.
+    '''
+    return None, f"{rate_cause}+{splice_cause}", (
+        f"no_band route declined on both legs. "
+        f"RATE leg [{rate_cause}]: {rate_prose} "
+        f"SPLICE leg [{splice_cause}]: {splice_prose}")
+
+
+
+def corroborate_with_slope(best_video, candidate_obj, language, measurements,
+                           sweep_winner):
+    '''THE SLOPE, DEMOTED TO CORROBORATION (RULING_20260922_NO_BAND_ROUTING.MD,
+    ADDENDUM 2 -- OWNER OVERRIDE). Returns the derivation dict; GATES NOTHING.
+
+    IT USED TO DECIDE. Until the owner's override, an unsnappable slope meant
+    "no rate leg" and the pair went straight to splice without the ladder ever
+    running. That made ONE inferred number the gatekeeper of a MEASUREMENT,
+    which is backwards: the sweep can ask the ladder about every rate
+    combination that exists, and sixteen measured answers do not need an
+    inferred one's permission to be heard.
+
+    IT IS STILL COMPUTED, AND THAT IS NOT SENTIMENT. Three things this line
+    can say that the sweep cannot:
+      * the slope AGREES with the winner -- two independent instruments, one
+        answer, which is the strongest evidence this chain ever produces;
+      * the slope DISAGREES with the winner -- the sweep won on fidelity and
+        the drift says otherwise, which is exactly the row a census should
+        pull first;
+      * the slope REFUSED (scatter-dominated) while the sweep still found a
+        winner -- the owner asked for this case by name, and it is the
+        signature of a pair whose per-window offsets are noise while a whole-
+        track relation is nonetheless real.
+
+    So this writes a line and returns. Nothing downstream branches on it.
+    '''
+    import pal_speed_discriminator
+    series = (measurements or {}).get("delay_series") or []
+    window = (measurements or {}).get("window")
+    derivation = pal_speed_discriminator.derive_rate_factor_from_slope(
+        series, window=window)
+    snapped = pal_speed_discriminator.snap_to_named_rational(derivation["factor"])
+    derivation["snapped"] = (None if snapped is None
+                             else f"{snapped.numerator}/{snapped.denominator}")
+    # HEADERS CORROBORATE, NEVER DECIDE (ruling point 2c). They corroborated
+    # nothing that decided anything before the override either; now the whole
+    # function is in that category, which is the tidiest place for them.
+    master_fps = getattr(best_video, "get_fps", lambda: None)()
+    candidate_fps = getattr(candidate_obj, "get_fps", lambda: None)()
+    derivation["declared_rate_corroboration"] = \
+        pal_speed_discriminator.describe_rate_corroboration(
+            snapped, master_fps, candidate_fps)
+
+    if sweep_winner is None:
+        agreement = "no sweep winner to compare against"
+    elif derivation["factor"] is None:
+        agreement = (f"slope REFUSED ({derivation['refusal']}) while the sweep "
+                     f"chose {sweep_winner}: no corroboration available, and a "
+                     f"scatter-dominated slope beside a real winner is itself "
+                     f"worth seeing")
+    else:
+        winner_value = Decimal(sweep_winner.numerator) / Decimal(sweep_winner.denominator)
+        gap = abs(Decimal(str(derivation["factor"])) - winner_value) / winner_value
+        agrees = gap <= pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE
+        agreement = (f"measured slope factor {derivation['factor']} "
+                     f"(snapped {derivation['snapped']}) vs sweep winner "
+                     f"{sweep_winner}: relative gap {gap} -> "
+                     f"{'AGREE' if agrees else 'DISAGREE'}")
+    derivation["sweep_agreement"] = agreement
+    tools.dev_log(
+        f"repair: corroborate_with_slope on {candidate_obj.filePath} "
+        f"language={language} n_points={derivation['n_points']} "
+        f"n_used={derivation['n_used']} "
+        f"slope_ms_per_s={derivation['slope_ms_per_s']} "
+        f"factor={derivation['factor']} "
+        f"residual_scatter_ms={derivation['residual_scatter_ms']} "
+        f"r_squared={derivation['r_squared']} "
+        f"snapped={derivation['snapped']} refusal={derivation['refusal']} "
+        f"window={derivation['window']} | {agreement} | "
+        f"{derivation['declared_rate_corroboration']}\n")
+    return derivation
+
+
+def run_speed_sweep(best_video, candidate_obj, language):
+    '''STEP 2 OF THE OWNER'S DIAGRAM -- the speed test, as a SWEEP over every
+    rate combination. Returns `(gate, cause, prose)`; `gate` is None only when
+    the sweep could not be started at all.
+
+    `merge_video_resample.sweep_rate_ratios` does the measuring; this function
+    is the repair chain's door to it and owns the two reasons the door may not
+    open (no readable sampling rate, no work directory).
+    '''
+    sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
+    if sample_rate == None:
+        return None, "rate_sweep_no_sample_rate", (
+            "the rate sweep could not be run: no sampling rate readable on "
+            "the candidate")
+    import merge_video_resample
+    work_dir = path.join(tools.tmpFolder, "repair", "rate_sweep")
+    tools.make_dirs(work_dir)
+    vocabulary = merge_video_resample.build_rate_ratio_vocabulary()
+    tools.dev_log(
+        f"repair: run_speed_sweep on {candidate_obj.filePath} language="
+        f"{language} sample_rate={sample_rate} factors={len(vocabulary)} "
+        f"floor={merge_video_resample.RESAMPLE_FIDELITY_FLOOR} "
+        f"vocabulary={[f'{f.numerator}/{f.denominator}' for f in vocabulary]}\n")
+    gate = merge_video_resample.sweep_rate_ratios(
+        best_video.filePath, candidate_obj.filePath, sample_rate, work_dir,
+        vocabulary=vocabulary)
+    tools.dev_log(
+        f"repair: run_speed_sweep result for {candidate_obj.filePath}: "
+        f"verdict={gate['verdict']} winner={gate.get('ratio')} "
+        f"median={gate.get('median_fidelity')} margin={gate.get('margin')} "
+        f"cause={gate.get('cause')} passing={gate.get('passing')}\n")
+    return gate, None, None
+
+
+def splice_after_rate_normalisation(best_video, candidate_obj, language,
+                                    winner, gate):
+    '''STEP 3 OF THE OWNER'S DIAGRAM -- chimeric, after rate normalisation.
+
+    RESAMPLE FIRST, THEN SPLICE: the standing pipeline-order invariant,
+    applied INSIDE the repair for a mixed rate+content case (ruling point 4).
+    The sweep has already picked `winner` on measured fidelity, so the pair is
+    normalised on disk with `merge_video_resample.build_resampled_candidate`
+    (which exists for exactly this order -- its own docstring says so) and the
+    NORMALISED pair is handed to the splice chain's ordinary entry,
+    `change_point_locator.locate_change_points`. From that entry's point of
+    view this is now a rate-free content-diff case, which is the whole point.
+
+    THE WHOLE-TRACK PASS HAPPENS ONCE, HERE, AND ONLY FOR THE WINNER. The
+    sweep itself never muxes a whole track -- it corrects window anchors
+    arithmetically instead (`_probe_fidelity_at_ratio`) -- which is what keeps
+    sixteen hypotheses affordable. This is the one place a real file is
+    written, and by then exactly one factor is in play.
+
+    Returns `(plan, cause, detail)`.
+    '''
+    import change_point_locator
+    import merge_video_resample
+    ratio = Decimal(winner.numerator) / Decimal(winner.denominator)
+    work_dir = path.join(tools.tmpFolder, "repair", "rate_normalised")
+    tools.make_dirs(work_dir)
+    out_path = path.join(work_dir, candidate_obj.fileBaseName + ".rate_normalised.mkv")
+    tools.dev_log(
+        f"repair: splice_after_rate_normalisation building the normalised "
+        f"candidate for {candidate_obj.filePath} at the sweep winner "
+        f"{winner.numerator}/{winner.denominator} out_path={out_path}\n")
+    try:
+        normalised_path, applied, seen = merge_video_resample.build_resampled_candidate(
+            candidate_obj, ratio, out_path)
+        normalised_obj = video.video(path.dirname(normalised_path),
+                                     path.basename(normalised_path))
+        normalised_obj.get_mediadata()
+    except Exception as error:                          # noqa: BLE001 -- see below
+        # NARROW BY SCOPE, NOT BY TYPE -- the same rule `merge_video_resample`
+        # states at its own whole-track resample site and `change_point_locator`
+        # at `_probe`. Three statements are covered and every one of them is a
+        # NEW step on a path that was a terminal decline an hour ago: an ffmpeg
+        # mux, a mediainfo/mkvmerge read, and a constructor that raises a bare
+        # `Exception` when the file it was just handed does not exist. A
+        # failure in any of them is a measurement ("this pair could not be
+        # normalised"), never a reason to take down a merge that was already
+        # going to reject this file.
+        tools.dev_log(
+            f"repair: splice_after_rate_normalisation could not normalise "
+            f"{candidate_obj.filePath}: {type(error).__name__}: {error}\n")
+        return None, "rate_normalisation_failed", (
+            f"the sweep winner {winner.numerator}/{winner.denominator} "
+            f"cleared the fidelity floor but the normalised candidate could "
+            f"not be built: {type(error).__name__}")
+    # ITS OWN `work_dir`, AS THAT MODULE ASKS. `change_point_locator._probe`
+    # states that its probe `tag` is unique only WITHIN a work_dir, and this
+    # is the SECOND locator run on one candidate inside one repair -- the
+    # first (`get_plan_from_locator`) takes the default `tools.tmpFolder` and
+    # writes `cpl_m_s0.wav` there. Sharing it would have the two runs' probe
+    # files collide by name.
+    locate_dir = path.join(work_dir, "locate")
+    tools.make_dirs(locate_dir)
+    plan, splice_cause = change_point_locator.locate_change_points(
+        best_video, normalised_obj, language, work_dir=locate_dir)
+    tools.dev_log(
+        f"repair: splice_after_rate_normalisation located on the normalised "
+        f"pair for {candidate_obj.filePath}: plan={plan is not None} "
+        f"cause={splice_cause} applied_factor={applied}\n")
+    if plan is None:
+        return None, splice_cause, (
+            f"rate normalised at {winner.numerator}/{winner.denominator} "
+            f"(applied {applied}, sweep median {gate.get('median_fidelity')} "
+            f"against floor {merge_video_resample.RESAMPLE_FIDELITY_FLOOR}), "
+            f"then change_point_locator declined on the normalised pair")
+    # `verdict` IS NOT DECORATION -- IT IS WHAT MAKES `speed_ratio` READABLE.
+    # Found while completing the evidence guard, and it was a silent defect in
+    # my own first draft: `get_speed_ratio` (this file) returns
+    # `(None, prose, "speed_verdict_absent")` for a plan that carries a
+    # `speed_ratio` and NO `verdict`. A None ratio does not raise -- it means
+    # "no speed relation", so the guard would never fire and
+    # `assemble_on_master_timeline` would build the segments while SILENTLY
+    # DROPPING the rate correction the whole route exists to apply. The
+    # transform is `asetrate` by `docs/AUDIO_SPEED_POLICY.MD`, which is a
+    # DECISION, and this route applies exactly it.
+    plan["verdict"] = "asetrate"
+    plan["kind"] = "speed_and_splice"
+    # THE PLAN IS MEASURED ON THE NORMALISED CANDIDATE, AND IT SAYS SO. Its
+    # segment boundaries are positions on a timeline that only exists after
+    # the resample, so a consumer must not apply them to the original file
+    # without applying the factor too. Both facts travel in the plan.
+    plan["speed_ratio"] = str(ratio)
+    plan["speed_ratio_convention"] = RATIO_CONVENTION
+    plan["speed_ratio_exact"] = f"{winner.numerator}/{winner.denominator}"
+    plan["speed_margin"] = gate.get("margin")
+    plan["rate_source"] = "rate_sweep"
+    plan["rate_sweep_passing"] = gate.get("passing")
+    plan["rate_normalised_candidate_path"] = normalised_path
+    plan["rate_normalised_applied_factor"] = str(applied)
+    plan["resample_gate"] = {k: v for k, v in gate.items() if k != "hypotheses"}
+    return plan, None, None
+
+
+def speed_sweep_then_splice(best_video, candidate_obj, language,
+                            discriminator_result, measurements, locator_cause):
+    '''THE no_band ROUTE, IN THE SHAPE OF THE OWNER'S DIAGRAM
+    (RULING_20260922_NO_BAND_ROUTING.MD, ruling + ADDENDUM 2):
+
+        STEP 1  CLASSIFICATION   -- done by the caller
+                                    (`pal_speed_discriminator.discriminate`)
+        STEP 2  SPEED TEST       -- `run_speed_sweep`: every rate combination,
+                                    one fidelity ladder each, best median wins
+        STEP 2b CORROBORATION    -- `corroborate_with_slope`: logged, decides
+                                    nothing
+        STEP 3  CHIMERIC         -- `splice_after_rate_normalisation` when the
+                                    sweep won; the locator's existing verdict
+                                    on the un-normalised pair when it did not
+        STEP 4  PLAN APPLICATION -- the caller's
+                                    `build_repaired_video_object`, behind its
+                                    evidence guard
+
+    WHAT THIS REPLACED. `band == "no_band"` used to reach the resample gate
+    with the raw DURATION RATIO as its hypothesis, and returned a TERMINAL
+    `resample_fidelity_below_floor` when that misaligned every probe window.
+    Two things were wrong at once: the band's own hypothesis text says
+    "wrong-content suspicion", and the number being tested conflated a real
+    rate offset with an unrelated content-length difference -- so the gate was
+    asked whether the WRONG factor explained the drift and correctly said no.
+
+    ON THE SPLICE LEG WHEN THERE IS NO RATE LEG, stated rather than hidden:
+    the ruling says "route DIRECTLY to the splice chain -- the same entry the
+    splice-class cases use today". That entry is
+    `change_point_locator.locate_change_points`, and it has already run on
+    this exact pair: it is what returned `locator_cause` and sent us here.
+    Calling it a second time with the same two files is deterministic and
+    would return the same token at the cost of the whole probe grid, so the
+    splice leg's verdict is read from that run instead of re-measured. The
+    OUTCOME is the ruling's; the mechanism spends nothing to reach it.
+    (Deviation B3, accepted by the Architect in ADDENDUM 1.)
+    '''
+    # ---- STEP 1: classification (already decided by the caller) ----------
+    duration_ratio_screened = discriminator_result.get("speed_ratio")
+    tools.dev_log(
+        f"repair: speed_sweep_then_splice entered for "
+        f"{candidate_obj.filePath} language={language} band=no_band "
+        f"duration_ratio={duration_ratio_screened} "
+        f"(screen only, BANNED as a resample factor on this band) "
+        f"locator_cause={locator_cause} "
+        f"delay_series_points={len((measurements or {}).get('delay_series') or [])}\n")
+
+    splice_prose = (
+        f"change_point_locator already ran on this un-normalised pair and "
+        f"declined with {locator_cause}; no rate correction was confirmed, "
+        f"so there is nothing to re-measure it on")
+
+    # ---- STEP 2: the speed test -- the SWEEP decides ---------------------
+    gate, sweep_cause, sweep_prose = run_speed_sweep(
+        best_video, candidate_obj, language)
+    if gate is None:
+        # The instrument could not be started. Distinct from "it ran and no
+        # factor cleared the floor" -- BRIEF_COMMON rule 5.
+        corroborate_with_slope(best_video, candidate_obj, language,
+                               measurements, None)
+        return _no_band_terminal(sweep_cause, sweep_prose,
+                                 locator_cause, splice_prose)
+
+    winner = gate.get("ratio") if gate["verdict"] == "confirmed" else None
+
+    # ---- STEP 2b: corroboration only. Nothing below branches on it. ------
+    derivation = corroborate_with_slope(best_video, candidate_obj, language,
+                                        measurements, winner)
+
+    # ---- STEP 3: chimeric ------------------------------------------------
+    if winner is None:
+        # NO FACTOR REACHED THE FLOOR -> no rate leg, splice directly.
+        rate_prose = (
+            f"the rate sweep tested {gate.get('vocabulary_size')} exact rate "
+            f"combinations against the unchanged floor "
+            f"{_resample_floor()} and none reached it "
+            f"({describe_resample_decline('the rate sweep vocabulary', gate)}); "
+            f"corroboration: {derivation['sweep_agreement']}; "
+            f"{derivation['declared_rate_corroboration']}")
+        tools.dev_log(
+            f"repair: speed_sweep_then_splice routing {candidate_obj.filePath} "
+            f"to the SPLICE leg with no rate leg: sweep cause="
+            f"{gate.get('cause')}\n")
+        return _no_band_terminal(gate["cause"], rate_prose,
+                                 locator_cause, splice_prose)
+
+    tools.dev_log(
+        f"repair: speed_sweep_then_splice routing {candidate_obj.filePath} "
+        f"to RESAMPLE-THEN-SPLICE at the sweep winner {winner} "
+        f"(median={gate.get('median_fidelity')})\n")
+    plan, cause, detail = splice_after_rate_normalisation(
+        best_video, candidate_obj, language, winner, gate)
+    if plan is not None:
+        return plan, None, None
+    # THE RATE LEG WON AND THE SPLICE LEG DID NOT. Still a two-leg terminal,
+    # and the left token says the rate leg CONFIRMED -- a reader must be able
+    # to tell this apart from a pair with no rate relation at all, which is
+    # the four-states-one-token shape this file has already had to undo twice.
+    return _no_band_terminal(
+        f"rate_confirmed_{winner.numerator}_{winner.denominator}",
+        f"the rate sweep chose {winner} on a median fidelity of "
+        f"{gate.get('median_fidelity')} against floor {_resample_floor()} "
+        f"(passing factors: {gate.get('passing')}); corroboration: "
+        f"{derivation['sweep_agreement']}",
+        cause, detail)
+
+
+def _resample_floor():
+    '''The unchanged fidelity floor, read from its owner rather than repeated.
+
+    A second literal `0.90` in this file would be a second definition of one
+    number, and the ruling keeps saying "floor unchanged" -- which is only
+    checkable if there is exactly one place it lives.
+    '''
+    import merge_video_resample
+    return merge_video_resample.RESAMPLE_FIDELITY_FLOOR
+
+
+
+def confirm_speed_relation_via_resample(best_video, candidate_obj, language,
+                                        locator_cause=None, measurements=None):
     '''STEP 2 DU PIPELINE DU PROPRIETAIRE -- "Test Reechantillonnage
     (Fidelite > 0,90)" (BRIEF.md; RULINGS_IN_FORCE.md, ligne
     `PIPELINE_CANONICAL`, 2026-09-21). LE PRODUCTEUR MANQUANT: avant cette
@@ -531,6 +887,20 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
             "resample fidelity test could not start: no duration-based "
             "ratio candidate from pal_speed_discriminator")
 
+    # *** THE no_band BAND NO LONGER TESTS THE DURATION RATIO BY RESAMPLE ***
+    # RULING_20260922_NO_BAND_ROUTING.MD point 1: on this band the duration
+    # ratio is a SCREEN, not a factor. The paragraph above ("Aucun filtrage
+    # par `band`") remains the rule for every OTHER band -- pal_direct,
+    # pal_inverse and near_unity still reach the gate below unfiltered, and
+    # this file's own floor still arbitrates them. What changed is narrower
+    # than a filter: on the one band whose hypothesis text already said
+    # "wrong-content suspicion", a DIFFERENT and better-founded factor is
+    # derived first, and the pair keeps a splice leg either way.
+    if discriminator_result.get("band") == "no_band":
+        return speed_sweep_then_splice(best_video, candidate_obj, language,
+                                       discriminator_result, measurements,
+                                       locator_cause)
+
     sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
     if sample_rate == None:
         return None, "resample_test_no_sample_rate", (
@@ -566,6 +936,34 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
     if gate["verdict"] != "confirmed":
         return None, gate["cause"], describe_resample_decline(ratio, gate)
 
+    # THIS BRANCH STAYS REFUSED AT THE EVIDENCE GATE, AND THAT IS DELIBERATE
+    # (RULING_20260922_NO_BAND_ROUTING.MD, ADDENDUM: "if that branch produces
+    # equivalent evidence, thread it the same way; if it does not, leave it
+    # refused and say so rather than widening").
+    #
+    # IT DOES NOT. Two of the three evidence legs are here -- the ladder
+    # confirmed and its median cleared the floor (`resample_gate`) -- and the
+    # THIRD IS MISSING BY THIS BRANCH'S OWN DESIGN: `gate["ratio"]` is the
+    # MEASURED duration ratio, never a snapped named rational, because
+    # `pal_speed_discriminator`'s t112 caveat forbids a band from supplying
+    # the number. So `speed_ratio_exact` does not exist here and cannot be
+    # fabricated: writing one would mean asserting a rational this branch
+    # never recognised.
+    #
+    # NOT WIDENED HERE. Snapping this branch's ratio too is a plausible next
+    # step and it is a DIFFERENT change with its own acceptance. MEASURED
+    # 2026-09-22 against the three confirmed real PAL ids this module's own
+    # docstring names (errids 70/135/213, ratios 0.959/0.958/0.956) and the
+    # 5e-4 snap window around 960/1001 = 0.9590410:
+    #     0.959  relative gap 4.271e-5   INSIDE
+    #     0.958  relative gap 1.085e-3   outside
+    #     0.956  relative gap 3.171e-3   outside
+    # So the snap would admit ONE of the three and refuse two, and what to do
+    # with the other two -- whose ratios are real, confirmed, and simply not
+    # within a whisker of the nominal because a DURATION ratio is not a rate
+    # -- is exactly the question this addendum did not answer. Deriving them
+    # from a SLOPE instead (this ruling's own instrument) is the shape of the
+    # answer, and it is a separate ruling's work, not a quiet edit here.
     return {"kind": "speed", "verdict": "asetrate",
             "speed_ratio": str(gate["ratio"]),
             "speed_ratio_convention": RATIO_CONVENTION,
@@ -615,8 +1013,16 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     # REFUSAL AS A SUCCESSFUL PLAN. Measured before landing: bool((None, "tok")) is True.
     # That is why both halves are in one commit and why this line changed shape rather than
     # gaining a branch. ***
+    # THE OUT-DICT IS THE WHOLE POINT OF THIS LINE'S CHANGE
+    # (RULING_20260922_NO_BAND_ROUTING.MD point 2): the locator measures a
+    # per-window offset series on its way to a verdict, and until now threw it
+    # away on every decline. `confirm_speed_relation_via_resample`'s no_band
+    # route needs exactly that series to derive a rate factor from the SLOPE
+    # instead of from the conflated duration ratio. Empty on the earliest
+    # refusals, which is honest: the locator had not probed yet.
+    locator_measurements = {}
     plan, locator_cause = change_point_locator.locate_change_points(
-        best_video, candidate_obj, language)
+        best_video, candidate_obj, language, measurements=locator_measurements)
     if plan is not None:
         return plan, None, None
     if locator_cause in SPEED_CONFIRMER_ENTRY_CAUSES:
@@ -666,7 +1072,8 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # declines correctly on files with no speed relation, at the SAME
         # rate as its already-validated negative controls.
         speed_plan, speed_cause, speed_detail = confirm_speed_relation_via_resample(
-            best_video, candidate_obj, language)
+            best_video, candidate_obj, language,
+            locator_cause=locator_cause, measurements=locator_measurements)
         if speed_plan is not None:
             return speed_plan, None, None
         # NOT CONFIRMED. CORRECTED 2026-09-22 (Lead's fold-in, on his own
@@ -968,6 +1375,134 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         raise
 
 
+SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_sweep"})
+# THE DECIDING INSTRUMENTS THIS GUARD RECOGNISES, as a closed vocabulary --
+# the same shape as `change_point_locator.DECLINE_REASONS`, and for the same
+# reason: a vocabulary kept next to its only consumer cannot drift from it,
+# and a new instrument is not admissible without being enumerated in the same
+# edit that starts producing it. An unenumerated `rate_source` is REFUSED
+# here, not tolerated: this gate stands in front of a destructive transform,
+# so the safe direction of an unknown value is "no".
+
+
+def speed_plan_evidence(plan, speed_ratio):
+    '''Does this plan carry the VALIDATION EVIDENCE that makes its
+    `speed_ratio` admissible? Returns `(admissible, token, prose)`.
+
+    RULING_20260922_NO_BAND_ROUTING.MD, ADDENDUM: the
+    `speed_transform_not_validated` guard is COMPLETED, NOT LIFTED. The three
+    things the addendum names must ALL be present, and this function is where
+    "present" is defined:
+
+      1. THE WINNING EXACT RATIONAL -- `speed_ratio_exact` parses as a
+         Fraction AND is a member of the sweep's own vocabulary
+         (`merge_video_resample.build_rate_ratio_vocabulary`), AND the
+         `speed_ratio` actually being applied is that rational. A plan may
+         not carry evidence about one number and apply another; that is the
+         whole failure mode a guard in front of a destructive transform
+         exists to catch.
+
+         CHECKED AGAINST THE SWEEP'S VOCABULARY, NOT THE DISCRIMINATOR'S SIX
+         (ADDENDUM 2 -- the sweep decides now, so the sweep's set is the
+         authority on what a winner may be). The discriminator's
+         `NAMED_RATE_RATIONALS` is a SUBSET of those sixteen, so nothing that
+         was admissible before this change stopped being admissible.
+      2. THE LADDER MEDIAN >= FLOOR -- `resample_gate["verdict"] ==
+         "confirmed"` and a REAL `median_fidelity` at or above
+         `merge_video_resample.RESAMPLE_FIDELITY_FLOOR`. Read as a number,
+         never as the mere presence of a key: `test_speed_ratio_against_master`
+         sets `median_fidelity` to None on every decline BY DESIGN, so a
+         truth-test on the key would read a decline as evidence.
+      3. THE DECIDING INSTRUMENT -- `rate_source` names one of
+         `SPEED_EVIDENCE_INSTRUMENTS`.
+
+    EACH FAILURE HAS ITS OWN TOKEN, because a future correction acts
+    differently on each (the Lead's granularity rule R1): a plan with no
+    evidence at all is a producer that never ran this route; a plan whose
+    rational is not named is a producer inventing factors; a plan whose median
+    sits below the floor is a producer shipping a measured negative as a
+    confirmation. The token travels in the refusal PROSE -- the raised
+    `cause` stays the stable `speed_transform_not_validated`, because
+    `chimeric_cause`'s own docstring bounds the tokened `chimeric_error`
+    sites and this completion does not add a fourth.
+
+    THIS FUNCTION ONLY EVER SAYS YES TO A NUMBER THAT THREE INDEPENDENT
+    THINGS AGREE ON. It cannot say yes to a plan that merely looks confident.
+    '''
+    import merge_video_resample
+    import pal_speed_discriminator
+
+    vocabulary = merge_video_resample.build_rate_ratio_vocabulary()
+    exact = plan.get("speed_ratio_exact")
+    if exact is None:
+        return False, "speed_evidence_absent", (
+            "the plan carries no speed_ratio_exact: no winning exact rational "
+            "travels with this coefficient, so nothing says WHICH exact ratio "
+            "was recognised or by what")
+    try:
+        named = Fraction(str(exact))
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return False, "speed_evidence_rational_unreadable", (
+            f"speed_ratio_exact={exact!r} does not parse as an exact rational")
+    if named not in vocabulary:
+        return False, "speed_evidence_rational_not_named", (
+            f"speed_ratio_exact={named} is not a member of the rate sweep's "
+            f"vocabulary {[str(f) for f in vocabulary]}: an exact-looking "
+            f"fraction is not a recognised broadcast rate combination")
+
+    # THE APPLIED NUMBER MUST BE THE EVIDENCED NUMBER. Compared at the same
+    # RELATIVE tolerance the snap uses, and that constant survives the move to
+    # the larger set by ARITHMETIC, not by luck: the closest pair anywhere in
+    # the sixteen is 800/1001 = 0.7992008 against 4/5 = 0.8000000, a relative
+    # gap of 9.99e-4, so 5e-4 is still just under half of it and still cannot
+    # confuse two vocabulary members. An exact equality test would fail on
+    # representation alone -- `speed_ratio` reaches here through `str()`.
+    nominal = Decimal(named.numerator) / Decimal(named.denominator)
+    drift = abs(Decimal(str(speed_ratio)) - nominal) / nominal
+    if drift > pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE:
+        return False, "speed_evidence_ratio_is_not_the_snapped_rational", (
+            f"the plan would apply speed_ratio={speed_ratio} while its "
+            f"evidence is for {named} ({nominal}): relative drift {drift} "
+            f"exceeds {pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE}. "
+            f"Evidence about one coefficient does not license another")
+
+    instrument = plan.get("rate_source")
+    if instrument not in SPEED_EVIDENCE_INSTRUMENTS:
+        return False, "speed_evidence_instrument_unrecognised", (
+            f"rate_source={instrument!r} is not one of "
+            f"{sorted(SPEED_EVIDENCE_INSTRUMENTS)}: the deciding instrument "
+            f"must be named, and an unenumerated one is refused rather than "
+            f"trusted")
+
+    gate = plan.get("resample_gate")
+    if not isinstance(gate, dict):
+        return False, "speed_evidence_no_gate", (
+            "the plan names an instrument but carries no resample_gate: the "
+            "fidelity ladder's own result is missing, so the coefficient was "
+            "never validated against the floor")
+    if gate.get("verdict") != "confirmed":
+        return False, "speed_evidence_gate_not_confirmed", (
+            f"resample_gate verdict={gate.get('verdict')!r} "
+            f"cause={gate.get('cause')!r}: the ladder did not confirm")
+    median = gate.get("median_fidelity")
+    if not isinstance(median, (int, float)) or isinstance(median, bool):
+        # BLANK LAW: a gate that confirmed but carries no median has not shown
+        # its measurement, and a missing number is not a passing number.
+        return False, "speed_evidence_median_absent", (
+            f"resample_gate says confirmed but median_fidelity={median!r} is "
+            f"not a measured number")
+    if median < merge_video_resample.RESAMPLE_FIDELITY_FLOOR:
+        return False, "speed_evidence_median_below_floor", (
+            f"ladder median {median} is below the unchanged floor "
+            f"{merge_video_resample.RESAMPLE_FIDELITY_FLOOR}")
+
+    return True, "speed_evidence_complete", (
+        f"snapped named rational {named} (applied as {speed_ratio}), ladder "
+        f"median {median} >= floor "
+        f"{merge_video_resample.RESAMPLE_FIDELITY_FLOOR}, deciding instrument "
+        f"{instrument}")
+
+
 def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_start_utc):
     '''Construit le fichier repare et l'objet video qui va avec.
 
@@ -1073,15 +1608,39 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # sharpened: lift again in the commit where one real file MERGES and
         # its produced duration/marker match a hand-computed target stated
         # before the run.
-        raise merge_video_chimeric.chimeric_error(
-            f"speed transform not validated for production application: "
-            f"speed_ratio={speed_ratio} reached build_repaired_video_object, "
-            f"but Stage 4 (resample application) has been reviewed WITHOUT a "
-            f"single real merge yet produced (2026-09-22 -- every real "
-            f"attempt declined at a different, pre-existing verification "
-            f"stage first) -- refusing rather than applying an untested "
-            f"transform",
-            cause="speed_transform_not_validated")
+        #
+        # *** COMPLETED, NOT LIFTED (RULING_20260922_NO_BAND_ROUTING.MD,
+        # ADDENDUM, 2026-09-22). *** The guard above refused EVERY non-None
+        # `speed_ratio` unconditionally, which was right while no producer
+        # could show its work and wrong the moment one could. What the
+        # addendum orders is not a relaxation of the bar but a STATEMENT of
+        # it: a coefficient is admissible when it arrives with the evidence
+        # that validated it -- a snapped named rational, a ladder median at
+        # or above the unchanged floor, and a named deciding instrument, all
+        # three, all about the SAME number. `speed_plan_evidence` above is
+        # that statement, and everything it cannot vouch for still lands on
+        # the raise below, with the same stable cause it always had.
+        #
+        # THE REMOVAL CONDITION FROM THE BLOCK ABOVE IS NOT SATISFIED AND IS
+        # NOT BEING TREATED AS SATISFIED. No real file has merged through
+        # this path yet. What changed is that the refusal is now a
+        # MEASUREMENT of the plan rather than a blanket "not yet": a plan
+        # with no evidence is refused for a reason that names what is
+        # missing, which is the difference between a wall and a gate.
+        admissible, evidence_token, evidence_prose = speed_plan_evidence(
+            plan, speed_ratio)
+        tools.dev_log(
+            f"repair: speed evidence gate for {candidate_obj.filePath}: "
+            f"speed_ratio={speed_ratio} admissible={admissible} "
+            f"token={evidence_token} detail={evidence_prose}\n")
+        if not admissible:
+            raise merge_video_chimeric.chimeric_error(
+                f"speed transform not validated for production application: "
+                f"speed_ratio={speed_ratio} reached build_repaired_video_object "
+                f"without the validation evidence that makes it admissible "
+                f"({evidence_token}: {evidence_prose}) -- refusing rather "
+                f"than applying an unevidenced transform",
+                cause="speed_transform_not_validated")
     segments = plan.get("segments")
     if not segments:
         # Un plan de VITESSE SEULE n'a pas de tranche: la relation couvre tout le

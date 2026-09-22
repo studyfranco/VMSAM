@@ -321,6 +321,106 @@ def _nominal_shift_frames(offset_ms, fps_num, fps_den):
     return int(round(offset_ms / frame_ms))
 
 
+def _parse_positive_rate(value):
+    '''Exact positive rational, or `None`. SAME CONTRACT, deliberately NOT
+    IMPORTED, as `merge_video_chimeric.parse_positive_rate` (Architect's
+    frame-indexed contract rule 6): that module IMPORTS THIS ONE
+    (`merge_video_chimeric.py`, its `import scene_anchor` inside the repair
+    path), so importing it back at module level is a cycle. A blank string,
+    a non-positive rate, `"0/0"`, `"inf"`/`"nan"`, a malformed `"num/den"`
+    and a wrong type all collapse to the SAME `None` -- "I could not
+    measure" is a property of the value, not of its absence.
+    '''
+    if value is None:
+        return None
+    try:
+        rate = Fraction(value)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+    return rate if rate > 0 else None
+
+
+def _probe_frame_rate(path):
+    '''THE FILE'S OWN frame rate, as an EXACT RATIONAL -- `(Fraction, None)`
+    on success, `(None, reason)` when it could not be measured.
+
+    WHY THIS EXISTS (defect measured 2026-09-22 on errid 5, a 23.976-fps
+    master against a 29.97-fps candidate): this module is handed ONE grid
+    (`fps_num`/`fps_den`, the MASTER's, resolved by the caller from
+    MediaInfo through `merge_video_chimeric.resolve_master_grid`) because
+    every boundary it ships is indexed in MASTER frame numbers, by ruling
+    (F1). But `_scene_cut_frames` hands its `start_frame`/`n_frames` to
+    PySceneDetect, which seeks and counts on the frame grid of THE FILE IT
+    OPENED. Handing the candidate a frame COUNT computed on the master's
+    grid therefore asks for a window inflated by exactly the ratio of the
+    two rates -- measured on that pair: a 180.01 s master scan against a
+    240.71 s candidate scan for what should have been the same span of
+    time. A frame count is only a duration once you say whose frames.
+
+    `r_frame_rate` is the exact rational the container declares -- the same
+    source `frame_compare.py`'s own module docstring names ("r_frame_rate
+    ffprobe ou FrameRate_Original"), read as the string ffprobe prints
+    ("30000/1001"), never a float rounding of it. Its MediaInfo sibling is
+    not reachable here: this module receives PATHS, not the media objects
+    the caller resolved the master's grid from.
+    '''
+    try:
+        cmd = [tools.software["ffprobe"], "-v", "error",
+               "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+               "-of", "default=noprint_wrappers=1:nokey=1", path]
+    except KeyError:
+        return None, "ffprobe_not_configured"
+    # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22): every
+    # external tool call says which file it is on before it can hang.
+    tools.dev_log(f"scene_anchor: _probe_frame_rate calling ffprobe "
+                  f"file={path}\n")
+    try:
+        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+            cmd, max_restart=3, timeout=60)
+    except Exception as exc:
+        return None, f"ffprobe_raised:{type(exc).__name__}"
+    if exit_code != 0:
+        return None, f"ffprobe_exit:{exit_code}"
+    lines = stdout.decode("utf-8", "replace").strip().splitlines()
+    raw = lines[0].strip() if lines else ""
+    rate = _parse_positive_rate(raw)
+    if rate is None:
+        return None, f"unparseable_r_frame_rate:{raw!r}"
+    return rate, None
+
+
+def _frames_at_rate(seconds, rate):
+    '''An exact-rational number of SECONDS, as a frame count/index on
+    `rate`. Exact throughout: `Fraction * Fraction`, rounded once at the
+    end. When the product is already a whole number -- which it always is
+    for the master side, whose seconds were themselves derived FROM master
+    frame counts on this same grid -- the rounding is the identity, so
+    routing the master through this helper changes nothing it computed
+    before (that is the point: one conversion, used by both sides, that
+    degenerates to the old arithmetic whenever the two rates agree).
+    '''
+    return int(round(Fraction(seconds) * Fraction(rate)))
+
+
+def _frame_on_grid(frame, from_rate, to_rate):
+    '''A frame INDEX carried from one grid to another through the instant
+    it names -- `frame / from_rate` seconds, re-counted on `to_rate`.
+    Exactly the identity when the two rates are equal.
+
+    Needed because `_scene_cut_frames` returns indices on the grid of the
+    file PySceneDetect opened, while every seed arithmetic downstream
+    (`f - before_shift` against `m_bracket_first`) is in MASTER frame
+    numbers by ruling (F1). Before this existed the candidate's own cut
+    indices were consumed as if they were master frames: at 30000/1001
+    against 24000/1001 that is a 25% error on the index, i.e. minutes of
+    drift by the middle of an episode, and every translated seed lands in
+    the wrong half of the bracket filter.
+    '''
+    if from_rate == to_rate:
+        return frame
+    return int(round(Fraction(frame) / Fraction(from_rate) * Fraction(to_rate)))
+
+
 def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
     '''PySceneDetect's ContentDetector over [start_frame, start_frame+n_frames)
     of `path`, returning ABSOLUTE frame numbers (this file's own frame 0),
@@ -1076,10 +1176,60 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     c_win_start = max(0, m_bracket_first - candidate_margin_frames + min(before_shift, after_shift))
     c_win_end = m_bracket_last + candidate_margin_frames + max(before_shift, after_shift)
 
-    m_start_s = float(m_win_start * fps_den / fps_num)
-    m_dur_s = float((m_win_end - m_win_start) * fps_den / fps_num)
-    c_start_s = float(c_win_start * fps_den / fps_num)
-    c_dur_s = float((c_win_end - c_win_start) * fps_den / fps_num)
+    # THE WINDOW IS A SPAN OF TIME; A FRAME COUNT IS ONLY A SPAN OF TIME
+    # ONCE YOU SAY WHOSE FRAMES (defect measured 2026-09-22 on errid 5, a
+    # 23.976-fps master against a 29.97-fps candidate -- see
+    # `_probe_frame_rate` for the measurement). `m_win_*`/`c_win_*` above
+    # are MASTER frame numbers and stay that way: every boundary this
+    # module ships is indexed on the master's grid by ruling (F1). But the
+    # two consumers below do NOT read frame numbers the same way:
+    #
+    #   `_extract_hashes`  takes SECONDS -- already per-file correct, and
+    #                      unchanged here (the same rational, floated once).
+    #   `_scene_cut_frames` takes FRAME NUMBERS and gives them to
+    #                      PySceneDetect, which seeks and counts on the grid
+    #                      of THE FILE IT OPENED -- so the candidate's
+    #                      window must be counted on the CANDIDATE's rate,
+    #                      or it asks for a span inflated by the ratio of
+    #                      the two rates (measured: 180.01 s of master
+    #                      against 240.71 s of candidate for what was meant
+    #                      to be the same window of time).
+    #
+    # The seconds are exact rationals, not floats, so neither side's span
+    # is built on a rounded rate; each is rounded ONCE, at its own rate.
+    master_rate = Fraction(fps_num, fps_den)
+    m_win_start_sec = Fraction(m_win_start * fps_den, fps_num)
+    m_win_span_sec = Fraction((m_win_end - m_win_start) * fps_den, fps_num)
+    c_win_start_sec = Fraction(c_win_start * fps_den, fps_num)
+    c_win_span_sec = Fraction((c_win_end - c_win_start) * fps_den, fps_num)
+
+    candidate_rate, candidate_rate_reason = _probe_frame_rate(candidate_path)
+
+    m_start_s = float(m_win_start_sec)
+    m_dur_s = float(m_win_span_sec)
+    c_start_s = float(c_win_start_sec)
+    c_dur_s = float(c_win_span_sec)
+
+    m_scan_start = _frames_at_rate(m_win_start_sec, master_rate)
+    m_scan_frames = _frames_at_rate(m_win_span_sec, master_rate)
+    if candidate_rate is None:
+        c_scan_start = c_scan_frames = None
+    else:
+        c_scan_start = _frames_at_rate(c_win_start_sec, candidate_rate)
+        c_scan_frames = _frames_at_rate(c_win_span_sec, candidate_rate)
+    # BOTH RATES AND BOTH SPANS, AT THE CONVERSION -- so a future asymmetry
+    # is readable from a production log instead of being rediscovered by
+    # timing two scans against each other (which is how this one was
+    # found). Rates as rationals, never as the float that hid the ratio.
+    tools.dev_log(
+        f"scene_anchor: scan_window_conversion "
+        f"master_rate={master_rate.numerator}/{master_rate.denominator} "
+        f"candidate_rate="
+        f"{'unmeasured:' + str(candidate_rate_reason) if candidate_rate is None else str(candidate_rate.numerator) + '/' + str(candidate_rate.denominator)} "
+        f"master_scan=[{m_scan_start},+{m_scan_frames}) "
+        f"({float(m_win_span_sec):.3f} s) "
+        f"candidate_scan=[{c_scan_start},+{c_scan_frames}) "
+        f"({float(c_win_span_sec):.3f} s)\n")
 
     m_base, m_hashes = _extract_hashes(comparer, master_path, m_start_s, m_dur_s)
     c_base, c_hashes = _extract_hashes(comparer, candidate_path, c_start_s, c_dur_s)
@@ -1092,9 +1242,20 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     cd_threshold = content_detector_threshold
 
     master_cuts, master_cuts_failed = _scene_cut_frames(
-        master_path, m_win_start, m_win_end - m_win_start, cd_threshold, debug)
-    candidate_cuts, candidate_cuts_failed = _scene_cut_frames(
-        candidate_path, c_win_start, c_win_end - c_win_start, cd_threshold, debug)
+        master_path, m_scan_start, m_scan_frames, cd_threshold, debug)
+    if candidate_rate is None:
+        # REFUSE A SCAN WE CANNOT ADDRESS, DO NOT GUESS ITS GRID. Falling
+        # back to the master's rate here is precisely the defect this
+        # block fixes, so the candidate simply contributes no scene seeds
+        # and says why -- the SAME shape `_scene_cut_frames` already uses
+        # for "the detector never ran", and the bracket edge is still
+        # tried on both anchors regardless (that function's own contract),
+        # so an unprobeable candidate declines nothing by itself.
+        candidate_cuts = None
+        candidate_cuts_failed = f"candidate_grid_unmeasured:{candidate_rate_reason}"
+    else:
+        candidate_cuts, candidate_cuts_failed = _scene_cut_frames(
+            candidate_path, c_scan_start, c_scan_frames, cd_threshold, debug)
     # `or []` here is SEED GENERATION ONLY, not a re-conflation of the
     # distinction `_scene_cut_frames` just drew: a failed side simply
     # contributes no scene-based seeds (the bracket edge is always tried
@@ -1104,7 +1265,16 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     # WHICH of "no cut found" or "detector never ran" occurred on each
     # side, rather than a shared empty list erasing the difference.
     master_cuts_seeds = master_cuts or []
-    candidate_cuts_seeds = candidate_cuts or []
+    # CARRIED ONTO THE MASTER'S GRID, because that is the only coordinate
+    # the seed arithmetic below speaks (`f - before_shift` compared against
+    # `m_bracket_first`, both master frame numbers, F1's ruling). The cuts
+    # PySceneDetect just returned are indices on the CANDIDATE's own grid --
+    # now that the scan is addressed at the candidate's rate, they are the
+    # right instants, and this is the one step that keeps them the right
+    # NUMBERS too. Exactly the identity for a same-rate pair.
+    candidate_cuts_seeds = [
+        _frame_on_grid(f, candidate_rate, master_rate)
+        for f in (candidate_cuts or [])]
 
     # Anchor A: search BACKWARD from the bracket's own low edge, closest
     # seed first. Seeds: the bracket edge itself (the common, cheap case:
