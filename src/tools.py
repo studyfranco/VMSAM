@@ -445,6 +445,32 @@ def dev_log(message):
         sys.stderr.write(message)
         logs.append(message)
 
+def log_always(message):
+    """`dev_log`'s unconditional sibling -- owner's order via the Lead,
+    2026-09-22, wave 3b. Some lines are deliberately gate-free ALREADY (a
+    terminal verdict -- DECLINED, FAILED, the per-candidate outcome
+    `record()` writes -- must be visible REGARDLESS of the dev flag's value
+    in production, whatever that value actually is; that is the whole
+    reason those sites read unconditional `tools.logs.append` in the first
+    place, per their own comments -- NOT written here as "dev is false in
+    production", which is exactly the kind of claim this same dispatch
+    found stale elsewhere and which a verdict line should not depend on
+    either way). Routing THOSE through `dev_log` would put them BEHIND the
+    gate and silently lose them if dev ever were false -- a regression
+    dressed as a fix, the exact trap the Lead named before dispatching
+    this. `log_always` gives them the stderr half `dev_log` gives
+    everything else, without adding a gate that was never there.
+
+    NOT a blanket fix for every unconditional `tools.logs.append` in these
+    files -- the stderr channel is capped at 500 lines (measured across 36
+    captures); only genuine terminal-verdict lines earn a permanent seat in
+    that window. Narration and bookkeeping stay `tools.logs`-only,
+    deliberately, so a real wedge investigation can still see back far
+    enough.
+    """
+    sys.stderr.write(message)
+    logs.append(message)
+
 def keep_best_audio_fabricated_status(audio):
     """Which key, if any, marks this audio dict as fabricated.
 

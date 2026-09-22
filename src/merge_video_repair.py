@@ -554,7 +554,12 @@ def confirm_speed_relation_via_resample(best_video, candidate_obj, language):
         per_hypothesis = " ".join(
             f"{name}(verdict={r.get('verdict')},median={r.get('median')})"
             for name, r in (gate.get("hypotheses") or {}).items())
-        tools.logs.append(
+        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
+        # 2026-09-22, wave 3): this `tools.logs.append` had no stderr half --
+        # the exact defect class `change_point_locator._log` had, at a site
+        # wave 2 did not reach. `tools.logs` drains only at the end of a
+        # merge; a hung process never gets there. Format string unchanged.
+        tools.dev_log(
             f"repair: resample fidelity gate for {language}: band="
             f"{discriminator_result.get('band')} verdict={gate['verdict']} "
             f"cause={gate.get('cause')} {per_hypothesis}\n")
@@ -592,8 +597,10 @@ def get_plan_from_locator(best_video, candidate_obj, language):
     try:
         import change_point_locator
     except Exception as error:
-        if tools.dev:
-            tools.logs.append(f"repair: no change_point_locator module: {error}\n")
+        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
+        # 2026-09-22, wave 3) -- same reason as every other site in this
+        # batch: this used to write ONLY to `tools.logs`, format unchanged.
+        tools.dev_log(f"repair: no change_point_locator module: {error}\n")
         # THE MODULE IS NOT DEPLOYED. This is MY OWN process state and I am
         # entitled to state it: no measurement was attempted, because there was
         # nothing to attempt it with. Distinct from "the locator ran and refused".
@@ -679,10 +686,15 @@ def get_plan_from_locator(best_video, candidate_obj, language):
         # `locator_cause` survives in the dev log line below for the curious
         # (why entry happened at all); the RETURNED cause and detail are now
         # the confirmer's own -- what actually happened when Stage 2 ran.
-        if tools.dev:
-            tools.logs.append(
-                f"repair: {locator_cause} but speed relation not confirmed "
-                f"by resample for {language}: {speed_cause}\n")
+        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
+        # 2026-09-22, wave 3): this is the site the Lead's own dispatch
+        # cited by name (:682-685) -- the exact line that used to narrate
+        # the whole probe sequence to stderr and then go silent at its own
+        # conclusion, because this one line, the one carrying WHY, only
+        # ever reached `tools.logs`. Format unchanged.
+        tools.dev_log(
+            f"repair: {locator_cause} but speed relation not confirmed "
+            f"by resample for {language}: {speed_cause}\n")
         return None, speed_cause, speed_detail
     # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
     #
@@ -919,10 +931,18 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         # -> `declined` (le module a regarde et a dit non), tout le reste ->
         # `failed` (une panne d'outil ou un defaut a nous). Un prefixe unique
         # ferait absorber chaque echec d'ffprobe dans le cout de la porte.
+        # ROUTED THROUGH `tools.log_always` (owner's order via the Lead,
+        # 2026-09-22, wave 3b), NOT `tools.dev_log` -- this line is
+        # deliberately unconditional (see the comment above: "sans elle,
+        # 'pas de ligne DECLINED' se lirait comme 'pas de declin'"), and
+        # `dev_log` would put it BEHIND a gate that was never there. This is
+        # the terminal verdict for the assembly attempt -- exactly the line
+        # a hung-then-recovered or completed job needs in stderr, and until
+        # now it only ever reached `tools.logs`.
         if isinstance(error, merge_video_chimeric.chimeric_error):
-            tools.logs.append(f"repair: DECLINED {error}\n")
+            tools.log_always(f"repair: DECLINED {error}\n")
         else:
-            tools.logs.append(f"repair: FAILED {type(error).__name__}: {error}\n")
+            tools.log_always(f"repair: FAILED {type(error).__name__}: {error}\n")
         # ET L'ETAT DE L'ARTEFACT ATTEINT UNE LIGNE, PAR CLE ET NON PAR PROSE.
         # dev-4 lit par nom; `state=` et `path=` se lisent, "the file was
         # renamed" ne se lit pas. Emise seulement quand un fichier a REELLEMENT
@@ -2766,7 +2786,13 @@ def record(candidate_path, outcome, reason, detail=None, cause=None):
     head = f"repair: {outcome}"
     if cause != None:
         head += f" cause={cause}"
-    tools.logs.append(f"{head} for {candidate_path}: {reason}\n")
+    # ROUTED THROUGH `tools.log_always` (owner's order via the Lead,
+    # 2026-09-22, wave 3b) -- THE terminal per-candidate verdict, called for
+    # every outcome (no_plan/declined/repaired/failed). Deliberately
+    # unconditional since the comment two paragraphs up this function
+    # explains why (`record()` call is by definition an outcome worth
+    # recording); it just never had a stderr half before now.
+    tools.log_always(f"{head} for {candidate_path}: {reason}\n")
     # LE `detail` N'ATTEIGNAIT AUCUN ARTEFACT. Mesure, `grep -rn` sur tout
     # `src/`: `last_repair_report` a TROIS occurrences -- sa definition, cet
     # `append`, et le `del` qui le vide au debut de chaque passage. PERSONNE NE
@@ -2802,7 +2828,10 @@ def record(candidate_path, outcome, reason, detail=None, cause=None):
                 dump = json.dumps(detail, default=str, sort_keys=True)
             except Exception as error:
                 dump = f"<undumpable: {type(error).__name__}: {error}>"
-            tools.logs.append(f"repair_detail_verbose: {outcome} {dump}\n")
+            # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
+            # 2026-09-22, wave 3): same defect class as the other three
+            # sites in this file, format unchanged.
+            tools.dev_log(f"repair_detail_verbose: {outcome} {dump}\n")
     return entry
 
 

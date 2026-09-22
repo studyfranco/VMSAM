@@ -424,8 +424,18 @@ def _emit(message):
     and not emitted, then emitted into a gated sink, then the gate closed in the only
     configuration that runs the corpus -- and each was invisible until the previous
     was repaired.
+
+    STAYS UNGATED, GAINED A STDERR HALF (owner's order via the Lead,
+    2026-09-22, wave 3b): routed through `tools.log_always` rather than
+    `tools.dev_log` specifically so this function's own ungated-ness is
+    preserved, not converted into a gate that was never here. NOTE FOR THE
+    NEXT READER, NOT ACTED ON HERE: the "`tools.dev` is False in production"
+    premise two paragraphs up is the Lead's own measured-STALE claim as of
+    tonight (dev is ON in both containers) -- left as written, flagged
+    rather than silently corrected, because deciding whether/how to amend it
+    is the Lead's call, not this edit's.
     """
-    tools.logs.append(f"\t\t[change_point_locator] {message}\n")
+    tools.log_always(f"\t\t[change_point_locator] {message}\n")
 
 
 DECLINE_REASONS = (

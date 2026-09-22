@@ -361,10 +361,12 @@ def _probe_pair_fidelity(master_path, candidate_path, start_seconds, window_seco
         # une hypothese qui peut etre la mauvaise moitie d'une paire (r, 1/r).
         # Une panne ici est une mesure ("cette hypothese echoue"), jamais une
         # raison de faire planter tout le declin qui l'a appelee.
-        if tools.dev:
-            tools.logs.append(
-                f"resample fidelity probe at {start_seconds:.1f}s failed: "
-                f"{type(error).__name__}\n")
+        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
+        # 2026-09-22, wave 3): all six sites in this function/module used to
+        # write ONLY to `tools.logs`. Format strings unchanged throughout.
+        tools.dev_log(
+            f"resample fidelity probe at {start_seconds:.1f}s failed: "
+            f"{type(error).__name__}\n")
         return None
     finally:
         for temporary in (master_wav, candidate_wav):
@@ -396,10 +398,9 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
     rungs_log = []
     span = duration_seconds_value - window_seconds - 10
     if span <= 0:
-        if tools.dev:
-            tools.logs.append(
-                f"resample gate [{log_label}]: rung 0 -- file too short for the "
-                f"probe window, no rung attempted\n")
+        tools.dev_log(
+            f"resample gate [{log_label}]: rung 0 -- file too short for the "
+            f"probe window, no rung attempted\n")
         rungs_log.append({"rung": 0, "n_requested": probe_ladder[0], "n_measured": 0,
                            "median": None, "reason": "file_too_short_for_window"})
         return "inconclusive_at_ceiling", None, 0, 0, rungs_log
@@ -413,10 +414,9 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
             if measured[key] is not None:
                 values.append(measured[key])
         if not values:
-            if tools.dev:
-                tools.logs.append(
-                    f"resample gate [{log_label}]: rung {rung_index} "
-                    f"(n_requested={n}) -- every probe failed, no median\n")
+            tools.dev_log(
+                f"resample gate [{log_label}]: rung {rung_index} "
+                f"(n_requested={n}) -- every probe failed, no median\n")
             rungs_log.append({"rung": rung_index, "n_requested": n, "n_measured": 0,
                                "median": None})
             continue
@@ -425,25 +425,22 @@ def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
                            "median": round(median, 4)})
         if median >= floor + inconclusive_band or median <= floor - inconclusive_band:
             verdict = "above" if median >= floor else "below"
-            if tools.dev:
-                tools.logs.append(
-                    f"resample gate [{log_label}]: rung {rung_index} "
-                    f"(n_requested={n}, n_measured={len(values)}) median={median:.4f} "
-                    f"floor={floor} -> {verdict}, unambiguous, ladder stops\n")
-            return verdict, median, len(values), rung_index, rungs_log
-        if tools.dev:
-            tools.logs.append(
+            tools.dev_log(
                 f"resample gate [{log_label}]: rung {rung_index} "
                 f"(n_requested={n}, n_measured={len(values)}) median={median:.4f} "
-                f"floor={floor} -- inside the +/-{inconclusive_band} inconclusive band, "
-                f"widening to the next rung\n")
+                f"floor={floor} -> {verdict}, unambiguous, ladder stops\n")
+            return verdict, median, len(values), rung_index, rungs_log
+        tools.dev_log(
+            f"resample gate [{log_label}]: rung {rung_index} "
+            f"(n_requested={n}, n_measured={len(values)}) median={median:.4f} "
+            f"floor={floor} -- inside the +/-{inconclusive_band} inconclusive band, "
+            f"widening to the next rung\n")
     last = rungs_log[-1]
-    if tools.dev:
-        tools.logs.append(
-            f"resample gate [{log_label}]: HARD CEILING reached at rung "
-            f"{len(probe_ladder) - 1} (max {probe_ladder[-1]} probes), still "
-            f"inconclusive (median={last.get('median')}) -> "
-            f"inconclusive_at_ceiling, named decline\n")
+    tools.dev_log(
+        f"resample gate [{log_label}]: HARD CEILING reached at rung "
+        f"{len(probe_ladder) - 1} (max {probe_ladder[-1]} probes), still "
+        f"inconclusive (median={last.get('median')}) -> "
+        f"inconclusive_at_ceiling, named decline\n")
     return "inconclusive_at_ceiling", last.get("median"), last.get("n_measured", 0), \
         len(probe_ladder) - 1, rungs_log
 
