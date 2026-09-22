@@ -92,6 +92,35 @@ audio_encoder_by_codec = {
     "vorbis": ("libvorbis", "lossy"),
 }
 
+# COMBIEN D'ECHANTILLONS TIENNENT DANS UNE TRAME, PAR CODEC -- et `None` quand
+# ce nombre N'EST PAS UNE PROPRIETE DU CODEC. Sert UNIQUEMENT a borner de
+# combien la fin du dernier bloc d'une piste peut legitimement depasser la fin
+# du contenu: un muxeur ne coupe pas une trame en deux, donc la derniere trame
+# ecrite deborde d'au plus sa propre duree.
+#
+# `None` N'EST PAS ZERO ET N'EST PAS UNE VALEUR PAR DEFAUT. Opus (2.5 a 60 ms
+# par paquet), Vorbis (blocs courts/longs alternes), FLAC (taille de bloc
+# choisie par l'encodeur) et les familles DTS n'ont pas UNE taille de trame; en
+# inventer une donnerait une tolerance qui a l'air mesuree. Ces codecs ne
+# contribuent donc rien, et l'appelant DIT qu'il n'a pas pu les mesurer.
+#
+# AAC: 1024 echantillons par trame en LC -- le profil que ce module encode
+# (`-c:a aac`). `ffprobe` rend `aac` aussi pour HE-AAC, dont la trame de sortie
+# vaut 2048; une piste HE-AAC obtiendrait donc ici une tolerance DEUX FOIS TROP
+# PETITE, ce qui rend la garde plus stricte et jamais plus permissive -- le
+# sens sur lequel une erreur est acceptable.
+audio_codec_frame_samples = {
+    "aac": 1024,
+    "ac3": 1536,
+    "eac3": 1536,
+    "mp3": 1152,
+    "opus": None,
+    "vorbis": None,
+    "flac": None,
+    "truehd": None,
+    "mlp": None,
+}
+
 # Sous-titres: docs/SUBTITLE_CODECS.MD. La liste blanche de la campagne 1 ne
 # couvrait que 6 noms sur ~19 de la classe texte et appelait "bitmap" tout le
 # reste -- une etiquette presentee comme un diagnostic. On accepte donc toute la
@@ -131,12 +160,16 @@ class chimeric_error(Exception):
 
     `None` PAR DEFAUT, ET CE DEFAUT EST UN REFUS DE DEVINER. Les 23 sites
     passent leur message en positionnel, donc ajouter ce parametre ne change
-    le sens d'AUCUN site existant. Deux seulement le posent aujourd'hui --
-    ceux que la production a reellement fait tourner (18 et 5 occurrences sur
-    59 artefacts, mesure dev-cause 2026-09-15) -- sur autorisation explicite
-    du Lead (R2), qui a BORNE la modification a ces deux-la: deux sites
+    le sens d'AUCUN site existant. Deux l'ont pose sur autorisation explicite
+    du Lead (R2) -- ceux que la production a reellement fait tourner (18 et 5
+    occurrences sur 59 artefacts, mesure dev-cause 2026-09-15): deux sites
     achetent 23 declins sur 26, les 21 autres en achetent 3 pour un large
-    diff dans un module porteur.
+    diff dans un module porteur. Un TROISIEME est scope IN par l'Architect
+    (ruling 2026-09-22, RULING_20260922_NO_BAND_ROUTING.MD, "RAISE SITE 1001
+    SCOPED INTO THE TOKENED SET"): la regression cote candidat a :1001-1003,
+    premiere occurrence de production 2026-09-22 (errid 25, wave table).
+    Trois sites portent donc un jeton aujourd'hui; les 21 restants n'en ont
+    toujours pas.
 
     LES AUTRES N'ONT DONC PAS DE JETON, ET C'EST DIT PLUTOT QUE COMBLE.
     L'appelant ecrit alors un SENTINELLE hors de la classe acceptee -- voir
@@ -998,9 +1031,28 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
         # tire ses segments dans l'ordre; un retour en arriere obligerait
         # ffmpeg a bufferiser tout un episode en RAM).
         if previous_candidate_end != None and candidate_start < previous_candidate_end:
+            # THIRD SITE AUTORISE (Architect, scope-in ruling 2026-09-22,
+            # RULING_20260922_NO_BAND_ROUTING.MD, "RAISE SITE 1001 SCOPED
+            # INTO THE TOKENED SET"): first production occurrence 2026-09-22
+            # (errid 25, wave table). Le jeton dit CE QUE LA MESURE A VU: le
+            # plan lit le candidat EN ARRIERE, a partir d'un point deja
+            # depasse -- une regression que le decoupage suivant doit
+            # expliquer ou refaire, pas une piste illisible. Distinct des
+            # deux jetons voisins: `bracket_unnarrowed` dit qu'un intervalle
+            # n'a pas ete affine, `alignment_contradicts_plan` dit qu'un
+            # alignement declare ne tient pas sur une piece -- ici c'est la
+            # MONOTONIE cote candidat qui casse, une troisieme facon de
+            # rater, donc un troisieme jeton (regle de granularite R1). La
+            # question plus profonde -- bruit de precision du localisateur ou
+            # contenu reellement non monotone -- reste OUVERTE (10.93 ms de
+            # regression mesures, moins d'une image a l'une ou l'autre
+            # cadence): ce jeton ne la tranche pas, il la rend MESURABLE sur
+            # le prochain artefact retenu ou le prochain passage d'errid 25.
             raise chimeric_error(
                 f"segment reads the candidate backwards at {candidate_start} ms, "
-                f"after having read up to {previous_candidate_end} ms")
+                f"after having read up to {previous_candidate_end} ms "
+                f"(regression {previous_candidate_end - candidate_start} ms)",
+                cause="candidate_segment_regression")
         previous_candidate_end = candidate_end
 
         if master_start > cursor and narrowed_low is None:
@@ -2356,13 +2408,39 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     reste inchangee: l'intervalle degenere (fin <= debut) apres un decalage
     par ailleurs valide.
 
+    UNE REPLIQUE DONT LE DEBUT EST ADMIS PEUT AVOIR UNE FIN QUI DEPASSE LA
+    TIMELINE, et rien ne la bornait. Le decalage s'applique aux DEUX bornes;
+    seul le DEBUT est teste contre la piece. Une replique qui commence a
+    l'interieur de la derniere piece et dure au-dela de la fin du maitre
+    sortait donc avec une fin POSTERIEURE A TOUTE la timeline -- et Matroska
+    prend la Segment Duration comme le MAXIMUM DES FINS DE BLOC SUR TOUTES LES
+    PISTES, sous-titres compris. Mesure (Undead Unluck S01E12, 2026-09-22):
+    UNE replique, la derniere du `ja` SDH chimerique, finissait 112 ms apres
+    le dernier `master_end_ms` du plan, et le conteneur livre mesurait
+    1428039 ms la ou le maitre en mesure 1427944 -- les 95 ms que la
+    verification independante a refuses. La fin est donc RECADREE sur la fin
+    de timeline (`clamped_to_timeline_end`), jamais silencieusement: le
+    recadrage est une DECISION et il porte sa ligne comme une suppression.
+
+    RECADRAGE SUR LA FIN DE TIMELINE SEULEMENT, jamais sur la fin de la piece
+    qui a emis le decalage: une replique qui deborde a l'INTERIEUR du plan
+    designe un morceau maitre que le plan n'a pas modelise, c'est-a-dire la
+    meme dette de plan (H-A3) que ci-dessus, et la trancher ici la cacherait.
+    Cette question-la est ouverte et tranchee ailleurs; celle-ci ne l'est pas:
+    aucune lecture ne rend defendable un bloc apres la fin du fichier.
+
     Renvoie (gardees, supprimees, decalages_appliques, decisions).
-    `decisions` porte une entree PAR SUPPRESSION, groupee par empan contigu
-    de meme nature (jamais par correspondance candidate ordinaire -- le cas
-    attendu n'a pas besoin d'etre nomme, sinon la ligne finit ignoree).
-    Chaque entree: outcome, cue_count, source_start_ms, source_end_ms,
-    shift_ms (toujours None ici -- rien n'est plus emprunte), piece_reason,
-    gap_ms.
+    `decisions` porte une entree PAR SUPPRESSION OU PAR RECADRAGE, groupee par
+    empan contigu de meme nature (jamais par correspondance candidate
+    ordinaire -- le cas attendu n'a pas besoin d'etre nomme, sinon la ligne
+    finit ignoree). Chaque entree: outcome, cue_count, source_start_ms,
+    source_end_ms, shift_ms, piece_reason, gap_ms. `shift_ms` est None sur
+    toute SUPPRESSION -- rien n'est plus emprunte -- et porte le decalage
+    REELLEMENT applique sur un recadrage, qui est la seule issue ou une
+    replique survit a une decision nommee. Sur un recadrage, `gap_ms` est le
+    DEBORDEMENT retire (la fin decalee moins la fin de timeline) et non une
+    largeur de morceau maitre: une seule replique est concernee a la fois,
+    donc l'entree n'est jamais groupee.
     '''
     import pysubs2
     subtitles = pysubs2.load(subtitle_path)
@@ -2375,6 +2453,18 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
         merge_video_resample.retime_subtitle_events_by_ratio(subtitles, speed_ratio)
     candidate_pieces = [p for p in pieces if p["source"] == "candidate"]
     piece_index = {id(p): i for i, p in enumerate(pieces)}
+    # LA FIN DE LA TIMELINE, LUE SUR LE PLAN LUI-MEME ET NON RECUE EN
+    # PARAMETRE. `normalize_segments` garantit deja que le dernier
+    # `master_end_ms` EST `master_duration_ms`: elle refuse tout segment qui
+    # finit au-dela (`:447`) et comble la queue jusqu'a cette valeur quand le
+    # plan s'arrete avant (`:1168`). La calculer ici plutot que d'ajouter un
+    # parametre garde la fonction testable avec des `pieces` litterales et
+    # rend IMPOSSIBLE qu'un appelant passe une fin en desaccord avec le plan
+    # qu'il passe dans la meme main -- deux valeurs a tenir d'accord est
+    # exactement la forme qui a deja diverge deux fois dans ce module.
+    # `max` et non `pieces[-1]`: l'ordre de la liste est une propriete de
+    # `normalize_segments`, pas un contrat de cette fonction-ci.
+    timeline_end_ms = max(Decimal(str(p["master_end_ms"])) for p in pieces)
 
     def bordering_master(piece, direction):
         '''Le morceau juste avant (direction=-1) ou apres (+1) `piece` dans
@@ -2445,11 +2535,18 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     for event in subtitles.events:
         original_start, original_end = event.start, event.end
         shift = None
+        # LA PIECE EST CAPTUREE, PAS LAISSEE A LA VARIABLE DE BOUCLE. `piece`
+        # survit au `for` en Python et vaut la DERNIERE piece essayee quand
+        # aucune ne correspond -- la lire apres coup nommerait une piece qui
+        # n'a rien decide. Le recadrage ci-dessous doit citer la piece qui a
+        # reellement emis le decalage, donc elle est nommee ici.
+        matched_piece = None
         for piece in candidate_pieces:
             source_start = piece["source_start_ms"]
             source_end = source_start + (piece["master_end_ms"] - piece["master_start_ms"])
             if Decimal(str(event.start)) >= source_start and Decimal(str(event.start)) < source_end:
                 shift = piece["master_start_ms"] - source_start
+                matched_piece = piece
                 break
         if shift == None:
             gap_piece = find_gap_piece(Decimal(str(event.start)))
@@ -2463,6 +2560,36 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
         applied[str(shift)] = applied.get(str(shift), 0) + 1
         event.start = int(event.start + shift)
         event.end = int(event.end + shift)
+        if Decimal(str(event.end)) > timeline_end_ms:
+            # LE BLOC NE PEUT PAS FINIR APRES LE FICHIER. La Segment Duration
+            # de Matroska est le maximum des fins de bloc sur TOUTES les
+            # pistes: une fin de replique posee au-dela de la timeline
+            # ALLONGE le conteneur livre, et le controle de duree ne regardait
+            # que l'audio piste par piste et le COMPTE des sous-titres.
+            #
+            # AVANT LA GARDE DE DEGENERESCENCE, et l'ordre est le fond: une
+            # replique dont le debut decale atteint deja la fin de timeline
+            # recadre vers `fin <= debut` et doit etre SUPPRIMEE, pas gardee a
+            # duree nulle. La garde existante le fait, le nomme
+            # (`dropped_degenerate_duration`) et n'a pas besoin d'etre
+            # repetee ici. Cette replique-la porte alors DEUX entrees -- le
+            # recadrage, puis la suppression qu'il a causee -- et c'est le
+            # compte rendu exact: deux choses lui sont arrivees, dans cet
+            # ordre. Les fusionner dirait qu'une seule a eu lieu.
+            #
+            # `flush_span()` d'abord: un empan de suppressions en cours ne
+            # doit pas se poursuivre PAR-DESSUS cette entree-ci, sinon les
+            # decisions ne se lisent plus dans l'ordre des repliques.
+            overhang_ms = Decimal(str(event.end)) - timeline_end_ms
+            flush_span()
+            decisions.append({
+                "outcome": "clamped_to_timeline_end", "cue_count": 1,
+                "source_start_ms": str(original_start),
+                "source_end_ms": str(original_end),
+                "shift_ms": str(shift),
+                "piece_reason": matched_piece.get("reason"),
+                "gap_ms": str(overhang_ms)})
+            event.end = int(timeline_end_ms)
         if event.end <= event.start:
             dropped_degenerate_duration += 1
             record("dropped_degenerate_duration", original_start, original_end, shift, None)
@@ -2575,7 +2702,7 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
             # entree, et c'est la reponse a "pourquoi deux langues ont-elles la
             # meme constante".
             "shifts_applied_ms": shifts_applied,
-            # PAR SUPPRESSION, jamais par correspondance
+            # PAR SUPPRESSION OU PAR RECADRAGE, jamais par correspondance
             # ordinaire (le cas attendu n'a pas besoin d'une ligne) -- la
             # famille de `head_decisions` / `cut_regions` (audio), etendue au
             # sous-titre pour fermer l'asymetrie que H-A2 a mesuree: le
@@ -2702,6 +2829,40 @@ def get_master_timeline_length_ms(master_obj):
     Construire plus long serait tronque, plus court laisserait un trou.
     '''
     return Decimal(str(master_obj.video["Duration"])) * Decimal("1000")
+
+
+def get_master_container_length_ms(master_obj):
+    '''La duree de CONTENEUR du maitre -- une TROISIEME quantite, distincte de
+    `get_master_timeline_length_ms`, et `None` quand le maitre ne la declare
+    pas.
+
+    Ce n'est PAS la duree de la piste video, et l'ecart n'est pas theorique:
+    sur le maitre d'Undead Unluck S01E12, video `Duration` 1427927 ms et
+    General `Duration` 1427944 ms -- 17 ms, mesures le 2026-09-22. La
+    difference est celle que Matroska cree par construction: la Segment
+    Duration est le MAXIMUM DES FINS DE BLOC SUR TOUTES LES PISTES, donc une
+    piste quelconque qui finit apres l'image la porte.
+
+    C'est donc la SEULE reference contre laquelle la duree de conteneur du
+    fichier produit se compare. La comparer a la duree VIDEO ferait refuser
+    tout fichier dont le maitre porte deja ce depassement -- le controle
+    accuserait la reparation d'un fait de la reference, exactement l'erreur
+    que `fill_short_by_ms` existe pour ne plus commettre du cote audio.
+
+    Lue sur `mediadata` deja en memoire et non sondee: mesure comparative sur
+    ce meme maitre, `mediainfo` General `Duration` = 1427.944 s et `ffprobe
+    format=duration` = 1427.944000 s -- la MEME quantite, une lecture
+    gratuite contre un processus. `None` plutot qu'un repli sur la duree
+    video: un maitre qui ne declare pas sa duree de conteneur est NON MESURE,
+    et un controle qui ne peut pas mesurer ne doit pas conclure.
+    '''
+    try:
+        for track in master_obj.mediadata["media"]["track"]:
+            if track.get("@type") == "General" and "Duration" in track:
+                return Decimal(str(track["Duration"])) * Decimal("1000")
+    except Exception:
+        pass
+    return None
 
 
 def get_candidate_audio_length_ms(candidate_obj):
@@ -3380,9 +3541,14 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # exactement comme le controle de duree, et un artefact orphelin refuse pour
     # desalignement se compte de la meme facon qu'un refuse pour troncature.
     try:
+        # LA DUREE DE CONTENEUR DU MAITRE EST PASSEE A COTE DE SA DUREE VIDEO,
+        # et les deux ne sont pas interchangeables: 1427944 contre 1427927 ms
+        # sur le maitre d'Undead Unluck S01E12. La porte compare conteneur a
+        # conteneur; `master_duration_ms` reste ce que l'assemblage VISE.
         output_check = verify_output_file(out_path, master_duration_ms, audio_reports,
                                           subtitle_reports,
-                                          output_duration_tolerance_ms)
+                                          output_duration_tolerance_ms,
+                                          get_master_container_length_ms(master_obj))
         log_prediction_outcome(predicted_refusals, output_check.get("would_refuse"))
 
         verification = None
@@ -3849,8 +4015,16 @@ def probe_output_streams(file_path):
     enonce sur le TRAVAIL FAIT, pas sur un fichier.
     """
     import json as _json
+    # `codec_name`, `sample_rate` ET `r_frame_rate` SONT LUS DANS LE MEME
+    # APPEL, pas dans un second. Ils servent la tolerance de duree de
+    # conteneur (`container_grid_tolerance_ms`), qui a besoin de la periode
+    # d'une image et de celle d'une trame audio SUR CE FICHIER-CI. Les
+    # demander ici ne coute rien -- `ffprobe` lit deja ces champs pour
+    # repondre aux autres -- et evite une seconde sonde dont le resultat
+    # pourrait decrire un autre fichier.
     command = [tools.software["ffprobe"], "-v", "error",
-               "-show_entries", "stream=index,codec_type:"
+               "-show_entries", "stream=index,codec_type,codec_name,"
+                                "sample_rate,r_frame_rate:"
                                 "stream_tags=language,DURATION:format=duration",
                "-of", "json", file_path]
     # PRE-CALL LOG -- same reasoning as `read_mono_samples` above: this
@@ -3885,6 +4059,9 @@ def probe_output_streams(file_path):
             source = "last packet (under-reads by one packet)" if duration_ms != None else None
         streams.append({"index": index,
                         "codec_type": entry.get("codec_type"),
+                        "codec_name": entry.get("codec_name"),
+                        "sample_rate": entry.get("sample_rate"),
+                        "frame_rate": entry.get("r_frame_rate"),
                         "language": tags.get("language"),
                         "duration_ms": duration_ms,
                         "duration_source": source})
@@ -4086,8 +4263,65 @@ def apply_tail_exemption(delta_ms, exempted_ms):
     return delta_ms + deduction, deduction
 
 
+def container_grid_tolerance_ms(streams):
+    '''De combien la duree de conteneur du fichier produit peut depasser
+    celle du maitre SANS QUE CE SOIT DU CONTENU EN TROP. Renvoie
+    `(tolerance_ms, detail)`; `tolerance_ms` est `None` quand rien n'est
+    mesurable.
+
+    UN MUXEUR N'ECRIT PAS UNE DEMI-TRAME. La derniere unite ecrite sur une
+    piste deborde donc de la fin du contenu d'au plus sa propre duree, et
+    c'est tout ce que le remultiplexage d'un contenu identique peut ajouter.
+    La tolerance est le MAXIMUM des deux periodes, pas leur somme: un seul
+    bloc porte la fin du Segment, et additionner deux quantites dont une
+    seule s'applique ferait une tolerance que rien ne mesure.
+
+    LA CADENCE EST LUE SUR LE FICHIER PRODUIT, COMME UN RATIONNEL EXACT.
+    `r_frame_rate` d'`ffprobe` rend `24000/1001`; le `FrameRate` de mediainfo
+    rend la decimale `23.976`, qui est un ARRONDI D'AFFICHAGE de ce
+    rationnel-la (41.708375 ms contre 41.708333 ms par image). La video du
+    fichier produit est une COPIE DE FLUX de celle du maitre (`mux_repaired_file`
+    passe `-c copy`), donc sa grille EST celle du maitre, lue sans arrondi et
+    sans second parametre a tenir d'accord.
+
+    LA TRAME AUDIO VIENT DU CODEC REELLEMENT LIVRE et de SON taux
+    d'echantillonnage (`audio_codec_frame_samples`). Un codec dont la taille
+    de trame n'est pas une propriete du codec ne contribue RIEN et le `detail`
+    le dit -- la tolerance retombe alors sur la seule periode image, qui reste
+    une vraie mesure.
+    '''
+    video_frame_ms, audio_frame_ms = None, None
+    audio_from = None
+    for stream in streams:
+        if stream.get("codec_type") == "video" and video_frame_ms is None:
+            grid = parse_positive_rate(stream.get("frame_rate"))
+            if grid is not None:
+                video_frame_ms = Decimal(1000 * grid.denominator) / Decimal(grid.numerator)
+        elif stream.get("codec_type") == "audio":
+            samples = audio_codec_frame_samples.get(
+                (stream.get("codec_name") or "").lower())
+            rate = parse_positive_rate(stream.get("sample_rate"))
+            if samples is None or rate is None:
+                continue
+            # LE MAXIMUM SUR LES PISTES AUDIO: n'importe laquelle peut porter
+            # le dernier bloc du fichier, donc la borne doit couvrir la plus
+            # grossiere d'entre elles.
+            frame_ms = Decimal(1000 * samples * rate.denominator) / Decimal(rate.numerator)
+            if audio_frame_ms is None or frame_ms > audio_frame_ms:
+                audio_frame_ms, audio_from = frame_ms, stream.get("codec_name")
+    measured = [value for value in (video_frame_ms, audio_frame_ms) if value is not None]
+    # LES TROIS CHAMPS SONT DES JETONS `cle=valeur` SANS ESPACE dans la
+    # valeur: la ligne de journal qui les porte est lue POSITIONNELLEMENT par
+    # le recensement de dev-4, et une prose dans un champ `cle=` est
+    # exactement le defaut corrige a `:3364`.
+    detail = (f"video_frame_ms={video_frame_ms} "
+              f"audio_frame_ms={audio_frame_ms} "
+              f"audio_codec={audio_from or 'none_with_codec_fixed_frame_size'}")
+    return (max(measured) if measured else None), detail
+
+
 def verify_output_file(out_path, master_duration_ms, audio_reports,
-                       subtitle_reports, tolerance_ms):
+                       subtitle_reports, tolerance_ms, master_container_ms):
     """L'ACCEPTATION PORTE SUR LE FICHIER, pas sur le compte de pistes.
 
     `SPEC_ZONE_A.MD` s4d, apres qu'une reparation a rapporte "7 audio et 24
@@ -4103,9 +4337,34 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     approuver un plan lui-meme tronque -- le controle serait d'accord avec le
     defaut.
 
-    LES SOUS-TITRES SONT VERIFIES PRESENTS ET PAS EN DUREE: la duree d'une
-    piste de sous-titres est celle de sa DERNIERE REPLIQUE, qui finit
-    legitimement avant le fichier.
+    LES SOUS-TITRES SONT VERIFIES PRESENTS ET PAS EN DUREE, ET CE N'EST PAS
+    PARCE QU'ILS FINISSENT AVANT LE FICHIER. La phrase que cette docstring
+    portait -- "la duree d'une piste de sous-titres est celle de sa DERNIERE
+    REPLIQUE, qui finit legitimement avant le fichier" -- etait FAUSSE dans sa
+    seconde moitie, et c'est elle qui a laisse passer le defaut d'Undead
+    Unluck S01E12: la Segment Duration de Matroska est le MAXIMUM DES FINS DE
+    BLOC SUR TOUTES LES PISTES, sous-titres COMPRIS. Une replique dont la fin
+    decalee depassait la timeline a donc allonge le conteneur de 95 ms, sans
+    qu'aucune piste audio ne bouge et sans qu'aucun COMPTE ne change -- les
+    deux seules choses que cette fonction regardait. Une duree PAR PISTE de
+    sous-titres reste hors de portee ici (le conteneur n'en publie pas une
+    fiable), mais la consequence qui compte, elle, se mesure: LA DUREE DU
+    CONTENEUR PRODUIT, comparee a celle du MAITRE.
+
+    `master_container_ms` EST DONC UNE QUATRIEME QUANTITE, exigee et sans
+    defaut. Ni `master_duration_ms` (la duree VIDEO, 17 ms plus courte sur le
+    maitre du cas), ni la duree d'une piste, ni `container_duration_ms` du
+    produit. Comparer le conteneur produit a la duree VIDEO du maitre ferait
+    refuser tout maitre qui porte deja ce depassement -- le controle
+    accuserait la reparation d'un fait de la reference. Sans defaut parce
+    qu'un fil oublie doit lever un `TypeError` a l'appel, et non redevenir
+    silencieusement la garde qui n'a rien vu.
+
+    LA TOLERANCE EST UNE MESURE, PAS LE `tolerance_ms` DE 500 MS. Celle-ci
+    borne une piste audio contre la duree visee et repond a une autre
+    question; le proprietaire a fixe la barre du conteneur a UNE IMAGE. La
+    valeur exacte vient de `container_grid_tolerance_ms` -- la plus longue des
+    deux unites indivisibles que le muxeur a pu ecrire en dernier.
     """
     tools.dev_log(f"chimeric: verify_output_file starting out_path={out_path}\n")
     streams, container_ms = probe_output_streams(out_path)
@@ -4256,6 +4515,39 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
         problems.append("track(s) whose duration the file does not state: "
                         + "; ".join(f"stream {u['index']} ({u['language']})"
                                     for u in unmeasured))
+    # LE FICHIER NE DOIT PAS ETRE PLUS LONG QUE LE MAITRE -- LA MESURE QUI
+    # EXISTAIT ET QUE PERSONNE NE LISAIT. `container_duration_ms` et
+    # `max_av_stream_duration_ms` etaient deja calcules et EMIS juste en
+    # dessous, et aucun `problems.append` ne les consommait: la porte publiait
+    # le chiffre qui la contredisait. Sur Undead Unluck S01E12 elle a ecrit
+    # `container_ms=1428039 expected_ms=1427927` et rendu `would_refuse=False`.
+    #
+    # DANS UN SEUL SENS. Un conteneur plus COURT que celui du maitre est deja
+    # la question des gardes par piste ci-dessus, qui la posent avec les bons
+    # moyens (par piste, avec l'exemption de queue quand la source elle-meme
+    # est courte). Refuser ici les deux sens ferait un second juge sur une
+    # question deja jugee, avec moins d'information.
+    #
+    # NON MESURE N'EST PAS CONFORME: quand l'une des deux durees manque, la
+    # ligne le dit et la porte ne conclut pas -- on ne substitue rien.
+    container_overshoot_ms, container_tolerance_ms = None, None
+    container_refused = False
+    tolerance_detail = "video_frame_ms=None audio_frame_ms=None audio_codec=not_reached"
+    if container_ms != None and master_container_ms != None:
+        container_tolerance_ms, tolerance_detail = container_grid_tolerance_ms(streams)
+        container_overshoot_ms = container_ms - Decimal(str(master_container_ms))
+        if container_tolerance_ms != None and container_overshoot_ms > container_tolerance_ms:
+            container_refused = True
+            problems.append(
+                f"the produced container runs {container_overshoot_ms} ms past "
+                f"the master's own container ({container_ms} vs "
+                f"{master_container_ms}), more than the {container_tolerance_ms} ms "
+                f"a last indivisible block can explain ({tolerance_detail})")
+    tools.logs.append(
+        f"chimeric: output_container_check container_ms={container_ms} "
+        f"master_container_ms={master_container_ms} "
+        f"overshoot_ms={container_overshoot_ms} "
+        f"tolerance_ms={container_tolerance_ms} {tolerance_detail}\n")
     report = {"unmeasured": unmeasured,
               # STREAMS THE TAIL-GAP EXEMPTION KEPT OUT OF `short` -- present
               # here so a refusal that stopped happening is still on the
@@ -4282,6 +4574,16 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                            if s["duration_ms"] != None
                            and s["codec_type"] in ("video", "audio")] or [0]))
                   if streams else None),
+              # CE QUE LA GARDE DE CONTENEUR A REELLEMENT COMPARE, et contre
+              # quelle borne. Un verdict qu'on ne peut pas recalculer depuis
+              # l'artefact est un verdict a croire sur parole.
+              "master_container_duration_ms": (str(master_container_ms)
+                                               if master_container_ms != None else None),
+              "container_overshoot_ms": (str(container_overshoot_ms)
+                                         if container_overshoot_ms != None else None),
+              "container_tolerance_ms": (str(container_tolerance_ms)
+                                         if container_tolerance_ms != None else None),
+              "container_tolerance_detail": tolerance_detail,
               "audio_built": len(audio_reports), "audio_in_file": len(audio),
               "subtitles_built": len(subtitle_reports), "subtitles_in_file": len(subtitle),
               "tolerance_ms": str(tolerance_ms) if tolerance_ms != None else None,
@@ -4372,7 +4674,16 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                                  if not _short_beyond_tolerance(r)]
         nothing_else_wrong = (
             not len(unmeasured) and len(audio) == len(audio_reports)
-            and len(subtitle) == len(subtitle_reports))
+            and len(subtitle) == len(subtitle_reports)
+            # UN DEPASSEMENT DE CONTENEUR EST "AUTRE CHOSE QUI CLOCHE", et la
+            # regle enoncee juste au-dessus s'y applique telle quelle: un
+            # jeton cote MAITRE affirme que le refus est ENTIEREMENT explique
+            # par le maitre. Un fichier qui deborde sa reference porte un
+            # defaut que ni `master_audio_complement_short` ni
+            # `master_duration_sources_disagree` ne decrit, et le nommer
+            # ainsi ferait compter ce cas-ci dans une population mesuree pour
+            # autre chose. Il retombe donc sur `output_check_mismatch`.
+            and not container_refused)
 
         cause = "output_check_mismatch"
         if nothing_else_wrong and short_fill_reports:

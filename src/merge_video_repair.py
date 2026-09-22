@@ -1579,10 +1579,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # path -- not before. A guard without a stated exit outlives its
         # purpose and becomes the thing it was protecting against.
         #
-        # `cause="speed_transform_not_validated"` is a THIRD explicitly
+        # `cause="speed_transform_not_validated"` is a FOURTH explicitly
         # tokened `chimeric_error` site. `chimeric_cause`'s own docstring
         # (this file) records that tokened sites were bounded to exactly two
-        # by the Lead's own ruling (R2) -- this third one is authorized the
+        # by the Lead's own ruling (R2) -- this fourth one is authorized the
         # same way, by the Lead's explicit dispatch naming this exact token,
         # not assumed or added quietly.
         #
@@ -3185,23 +3185,27 @@ def chimeric_cause(error):
 
     23 sites levent `chimeric_error` et un 24e leve `chimeric_bound_error`, qui
     en est une SOUS-CLASSE et tombe donc sur le meme `isinstance` que les
-    autres. DEUX SEULEMENT portent un jeton aujourd'hui, sur bornage explicite
-    du Lead (R2): ce sont les deux que la production a fait tourner -- 18 et 5
-    declins sur les 26 mesures dans 59 artefacts. Les 22 restants sont
-    ATTEIGNABLES depuis le chemin de reparation (mesure statique, zero
-    inatteignable) et ont ZERO occurrence en production.
+    autres. TROIS portent un jeton aujourd'hui. Deux sur bornage explicite du
+    Lead (R2): ce sont les deux que la production a fait tourner -- 18 et 5
+    declins sur les 26 mesures dans 59 artefacts. Le troisieme est scope IN
+    par l'Architect (ruling 2026-09-22, RULING_20260922_NO_BAND_ROUTING.MD,
+    "RAISE SITE 1001 SCOPED INTO THE TOKENED SET"): `candidate_segment_regression`
+    a `merge_video_chimeric.py:1001-1003`, premiere occurrence de production
+    2026-09-22 (errid 25, wave table). Les 21 restants sont ATTEIGNABLES
+    depuis le chemin de reparation (mesure statique, zero inatteignable) et
+    ont ZERO occurrence en production.
 
-    POURQUOI PAS UN JETON GROSSIER POUR LES 22. Un `assembly_refused` aurait
-    rempli la colonne avec une valeur couvrant 22 decisions distinctes et n'en
+    POURQUOI PAS UN JETON GROSSIER POUR LES 21. Un `assembly_refused` aurait
+    rempli la colonne avec une valeur couvrant 21 decisions distinctes et n'en
     classant aucune. Une colonne remplie d'une valeur qui ne classe rien est
     PIRE qu'une colonne vide: elle a l'air notee. Ils sont donc NON COMPTES,
     et non FAUSSEMENT COMPTES.
 
     POURQUOI PAS `(unstated)`, QUI EXISTE DEJA. Cette sentinelle-la signifie
     *le producteur a tourne et n'a rendu AUCUN jeton alors que son contrat
-    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 22
+    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 21
     sites ici sont un MANQUE CONNU, DELIBERE ET AUTORISE. Depenser le signal
-    d'alarme sur 22 faux positifs detruit le sens du signal, et c'est ce
+    d'alarme sur 21 faux positifs detruit le sens du signal, et c'est ce
     signal-la qui protege la colonne. Deux etats qu'un correctif futur traite
     differemment ne partagent pas une etiquette: c'est la meme regle de
     granularite que pour les jetons, appliquee aux sentinelles.
@@ -3214,7 +3218,7 @@ def chimeric_cause(error):
     qui echoue si l'une ou l'autre sentinelle devient acceptable.
 
     LE NUMERO DE LIGNE VOYAGE AVEC LA SENTINELLE quand la trace le porte, si
-    bien que la liste classee des 22 sites se lit dans les artefacts au lieu de
+    bien que la liste classee des 21 sites se lit dans les artefacts au lieu de
     demander une seconde mesure. Il est lu sur la trace de l'exception, donc il
     designe le site de LEVEE et pas ce site-ci. Absent, la sentinelle reste
     valide et simplement moins precise -- elle ne devient jamais un jeton.
