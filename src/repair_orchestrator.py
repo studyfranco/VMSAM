@@ -2101,6 +2101,12 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
                     pitch_peak=resample_routing["pitch_peak"],
                     pitch_refusal=resample_routing["pitch_refusal"],
                     pitch_window_s=resample_routing["pitch_window_seconds"],
+                    # THE R3 VERDICT BELONGS IN THE STRUCTURED LINE, NOT ONLY IN THE PROSE. The
+                    # finding was that the sentence asserted a confirmation the numbers did not
+                    # support; fixing the sentence alone would leave a reader who greps the step
+                    # log unable to tell an earned confirmation from a vacuous one.
+                    pitch_test_discriminating=resample_routing["pitch_test_discriminating"],
+                    pitch_tolerance_band=resample_routing["pitch_tolerance_band"],
                     inverting_case_detector=resample_routing["inverting_case_detector"],
                     inverting_case_observation=resample_routing["inverting_case_observation"],
                     rule=resample_routing["rule"])
