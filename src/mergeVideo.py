@@ -788,12 +788,12 @@ def prepare_get_delay(videos_obj,language,audioRules):
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_commentary"])
                 if tools.special_params["remove_commentary"]:
-                    tools.dev_log(f"Track commentary {audio['StreamOrder']} not added from {video_obj.filePath}.")
+                    tools.dev_log(f"Track commentary {audio['StreamOrder']} not added from {videoObj.filePath}.")
         for language_obj,audios in videoObj.audiodesc.items():
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_descriptive"])
                 if tools.special_params["remove_descriptive"]:
-                    tools.dev_log(f"Track descriptive {audio['StreamOrder']} not added from {video_obj.filePath}.")
+                    tools.dev_log(f"Track descriptive {audio['StreamOrder']} not added from {videoObj.filePath}.")
     
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
