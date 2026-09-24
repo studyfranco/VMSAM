@@ -88,50 +88,6 @@ def get_speed_margin(plan):
     return None if margin == None else str(margin)
 
 
-def get_delay_language(best_video, candidate_obj):
-    """La langue sur laquelle le merge a mesure le delai.
-
-    `remove_not_compatible_video` ne la recoit pas -- elle est choisie dans
-    `sync_merge_video` et jamais passee plus bas. On la LIT plutot que de la
-    redeviner: `prepare_get_delay` pose `videoObj.delays[language] = 0` sur chaque
-    objet (mergeVideo.py:768), donc la cle est deja sur `best_video` au moment du
-    refus. Redupliquer ici la logique de choix de `sync_merge_video` reviendrait a
-    tenir une copie d'une regle qu'on ne controle pas.
-
-    Constat pour le proprietaire: la langue de mesure n'est pas transmise a la
-    zone A, et la relire depuis `delays` marche mais tient a un effet de bord.
-    """
-    keys = [language for language in best_video.delays.keys() if language != "und"]
-    preferred = tools.special_params.get("original_language", "")
-    if preferred in keys:
-        return preferred, "preferred language is among the measured ones"
-    if len(keys) == 1:
-        return keys[0], "only one language was measured"
-    # Repli: la seule langue audio commune aux deux fichiers.
-    common = set(best_video.audios.keys()) & set(candidate_obj.audios.keys())
-    common.discard("und")
-    if len(common) == 1:
-        return common.pop(), "only one language is common to both files"
-    if preferred in common:
-        return preferred, "preferred language is common to both files"
-    if not len(keys):
-        return None, "no language to choose from"
-    # QUEUE ARBITRAIRE, ET ELLE DECIDE DE QUELQUE CHOSE. `keys` vient d'un dict,
-    # donc keys[0] est l'ORDRE D'INSERTION, pas un choix. Mesure: cette queue
-    # tranche sur 6 paires sur 29, toujours entre {en, fr}, toujours vers 'en'.
-    #
-    # Et ce n'est pas gratuit: le locator ne mesure les decalages par flux QUE
-    # pour la langue du plan, donc cette queue decide QUELLE LANGUE EST CALEE
-    # CORRECTEMENT et laquelle emprunte -- 14 a 32 ms mesures, sous la tolerance
-    # du verificateur, donc livrable en silence.
-    #
-    # On ne l'ameliore pas ici: il n'existe pas de regle meilleure a partir de ce
-    # que cette fonction voit, et en inventer une donnerait a un tirage l'allure
-    # d'une decision. On DIT que c'en est un. Devient sans consequence quand la
-    # table par flux couvrira tous les flux (contrat de `vmsam-dev-1`).
-    return keys[0], f"ARBITRARY: insertion order among {sorted(keys)}"
-
-
 def _candidate_sample_rate_for_speed_test(candidate_obj):
     '''Meme lecture que `get_marker_value_for` (ce fichier): ffprobe d'abord,
     MediaInfo en repli.'''
@@ -2105,9 +2061,9 @@ def master_intertrack_verdict(best_video, language, cache):
     verdict du premier au second.
 
     POURQUOI ICI ET PAS LITTERALEMENT AVANT LA BOUCLE. La langue de comparaison
-    n'existe pas avant la boucle: c'est `get_delay_language(best_video,
-    candidate_obj)` qui la rend, et elle depend du candidat. Appeler avant la
-    boucle voudrait dire ENUMERER les langues du maitre -- exactement ce que
+    est celle que l'appelant passe (ADDENDUM 20: celle de get_delay); la mesure
+    reste paresseuse et cachee par langue. Enumerer d'autres langues du maitre
+    serait exactement ce que
     l'ADDENDUM 1 interdit ("Never enumerate or probe other languages' track
     pairs"). Le cache donne la propriete que la regle demande vraiment: la
     mesure tourne AU PLUS UNE FOIS par langue, et son verdict precede TOUT
@@ -2340,7 +2296,7 @@ def _terminal_cause_since(candidate_path, reported_before):
 
 
 def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
-                                 best_video):
+                                 best_video, language):
     """Point d'entree appele depuis la zone A. LA CHAINE EST L'ORCHESTRATEUR.
 
     Owner, 2026-09-24 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 8
@@ -2358,9 +2314,17 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     `generate_merge_command_common_md5`, qui ne passe jamais par la machinerie
     de delai.
 
-    CE QUI RESTE ICI, ET POURQUOI: les deux refus que l'orchestrateur ne peut
-    pas voir (pas d'objet pour le chemin refuse; pas de langue de comparaison --
-    `repair()` la RECOIT, il ne la choisit pas), le cache du maitre par langue
+    LA LANGUE DE COMPARAISON EST PASSEE, JAMAIS REDEVINEE (owner, ADDENDUM 20,
+    2026-09-24): `language` est la langue sur laquelle `mergeVideo.get_delay` /
+    `get_best_video` ont mesure le delai (la cle normalisee ja/en/fr des objets
+    video), transmise par `remove_not_compatible_video`. La re-deduction qui
+    vivait ici (`get_delay_language`, relue sur `best_video.delays`) faisait
+    comparer a l'orchestrateur D'AUTRES pistes que celles de get_delay (famille
+    errid-244); elle est partie, avec son refus `language_undetermined` -- la
+    garde vit chez l'appelant, qui ne mesure aucun delai sans langue.
+
+    CE QUI RESTE ICI, ET POURQUOI: le refus que l'orchestrateur ne peut pas voir
+    (pas d'objet pour le chemin refuse), le cache du maitre par langue
     (une mesure du maitre par (maitre, langue), passe a `repair()` parce qu'un
     etat de module survivrait entre deux maitres), le drain des pools audio
     (CASE id 6), et la couture avec l'etage 5 (`REPAIR_SEAM_ATTRIBUTE`).
@@ -2401,22 +2365,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             _drain_audio_pools((best_video, candidate_obj),
                                "candidate_object_absent")
             continue
-        language, language_route = get_delay_language(best_video, candidate_obj)
-        if language == None:
-            # LA RAISON VOYAGE AVEC LE REFUS (`language_route`).
-            repair_orchestrator._plan_line("none", candidate_path, step="entry",
-                                           cause="language_undetermined")
-            record(candidate_path, "no_plan",
-                   f"could not tell which language the merge measured on "
-                   f"({language_route})", cause="language_undetermined")
-            _drain_audio_pools((best_video, candidate_obj),
-                               "language_undetermined")
-            continue
-        # COMMENT LA LANGUE A ETE CHOISIE, JUSQU'AU JOURNAL: `get_delay_language`
-        # peut rendre "ARBITRARY: insertion order among [...]" -- un tirage --
-        # et un verdict doit pouvoir se recalculer depuis sa propre ligne.
         tools.dev_log(f"repair: comparison language={language} "
-                      f"route={language_route!r} for {candidate_path}\n")
+                      f"route=passed_by_the_caller(get_delay) for {candidate_path}\n")
 
         _open_repair_seam(candidate_obj, job_start_utc)
         reported_before = len(last_repair_report)

@@ -801,7 +801,7 @@ def print_forced_video(forced_best_video):
     if tools.dev:
         tools.logs.append(f"The forced video is {forced_best_video}\n")
 
-def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,best_video):
+def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,best_video,language):
     if len(list_not_compatible_video):
         if show_not_compatible_error:
             sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
@@ -854,7 +854,7 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
             tools.logs.append(f"repair: MODULE_ABSENT cause=repair_module_absent detail={type(e).__name__}\n")
         if merge_video_repair != None:
             try:
-                repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video)
+                repaired_videos = merge_video_repair.repair_not_compatible_videos(list_not_compatible_video,dict_file_path_obj,best_video,language)
             except Exception as e:
                 sys.stderr.write(f"The repair raised and was abandoned: {e}\n")
                 tools.logs.append(f"The repair raised and was abandoned: {e}\n")
@@ -1001,7 +1001,7 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
             
         shuffle(compareObjs)
     
-    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs[0])
+    remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs[0],language)
     return already_compared
 
 def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video):
@@ -1031,7 +1031,7 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
         else:
             list_not_compatible_video.append(launched_compare.video_obj_2.filePath)
 
-        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,dict_file_path_obj[forced_best_video])
+        remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,dict_file_path_obj[forced_best_video],language)
     else:
         already_compared = {forced_best_video:{}}
     

@@ -194,6 +194,15 @@ class chimeric_error(Exception):
         self.cause = cause
 
 
+def _refuse_plan_shape(cause, message, numbers):
+    """A plan whose pieces do not tile the master timeline, refused by NAME: the token rides
+    on the `chimeric_error` (the entry records it) and one unconditional line carries the
+    numbers -- the errid-25/12/50 pattern, applied to the three contiguity raises of
+    `assemble_on_master_timeline`'s admission loop after id 294 met the first one untokened."""
+    tools.log_always(f"chimeric: plan_shape_refused cause={cause} {numbers}\n")
+    raise chimeric_error(message, cause=cause)
+
+
 def delay_in_ms(track):
     """`Delay` en millisecondes, AVEC SON UNITE VERIFIEE CONTRE UN SECOND OUTIL.
 
@@ -2463,22 +2472,33 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     # est un defaut de l'appelant, refuse par son nom, jamais complete ici.
     for label, pieces_to_check in [("reference", reference_pieces)] + [
             (f"stream {order}", plan["pieces"]) for order, plan in track_plans.items()]:
+        # TOKENED AT THE RAISE SITE (id 294, Isekai Suicide Squad S01E01, 2026-09-24:
+        # the first raise below reached production untokened). Each refusal carries
+        # its own cause and leaves one unconditional line with the numbers.
         cursor = Decimal("0")
         for piece in pieces_to_check:
             if Decimal(str(piece["master_start_ms"])) != cursor:
-                raise chimeric_error(
+                _refuse_plan_shape(
+                    "plan_not_contiguous",
                     f"the {label} plan is not contiguous on the master timeline: a "
                     f"piece starts at {piece['master_start_ms']} ms where the previous "
-                    f"one ended at {cursor} ms")
+                    f"one ended at {cursor} ms",
+                    f"plan={label} piece_start_ms={piece['master_start_ms']} "
+                    f"previous_end_ms={cursor}")
             cursor = Decimal(str(piece["master_end_ms"]))
             if cursor <= Decimal(str(piece["master_start_ms"])):
-                raise chimeric_error(
+                _refuse_plan_shape(
+                    "plan_piece_empty_or_inverted",
                     f"the {label} plan carries an empty or inverted piece "
-                    f"[{piece['master_start_ms']},{piece['master_end_ms']})")
+                    f"[{piece['master_start_ms']},{piece['master_end_ms']})",
+                    f"plan={label} piece_start_ms={piece['master_start_ms']} "
+                    f"piece_end_ms={piece['master_end_ms']}")
         if cursor != master_duration_ms:
-            raise chimeric_error(
+            _refuse_plan_shape(
+                "plan_end_not_master_timeline",
                 f"the {label} plan ends at {cursor} ms, not at the master's "
-                f"timeline end {master_duration_ms} ms")
+                f"timeline end {master_duration_ms} ms",
+                f"plan={label} plan_end_ms={cursor} master_timeline_ms={master_duration_ms}")
 
     tools.make_dirs(work_dir)
     audio_reports = []

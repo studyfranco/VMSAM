@@ -1169,6 +1169,83 @@ def _static_shot_anchor_fallback(m_hashes, m_base, c_hashes, c_base,
     return None, shift, first_n_frames, first_reason, None
 
 
+def island_match(master_path, candidate_path, fps_num, fps_den, low_ms, high_ms, offset_ms,
+                 candidate_time_scale=None, shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
+                 scan_cache=None):
+    '''THE NO-CUT TEST ON AN ISLAND (owner ruling 2026-09-24, Addendum 22 pending): the aligned
+    zone between two holes of one cluster is confirmed by the video when its OWN frames match
+    the candidate under the island's own offset. No anchor search: an island is bounded on both
+    sides by holes, so an anchor seated outward from it would read the holes' content; the
+    question is only "are these frames the same pictures under this shift?".
+
+    Every master frame of `[low_ms, high_ms)` is compared with the candidate frame at the
+    nominal shift and at each shift within `shift_search_frames` of it (the offset is precise to
+    one fingerprint quantum, not to a frame); the shift matching the most frames is the island's
+    reading. Verdict by MAJORITY of readable frames -- the same rule the orchestrator's
+    `_span_noise_reading` applies to a sweep's unmatched span, for the same measured reason
+    (pHash noise inside common content runs to a few frames; a real difference matches 0-10 %):
+      "same"        more than half of the readable frames match under the best shift
+      "differs"     they do not
+      "unreadable"  geometry unreconciled or no frame readable -- never a verdict
+    Decodes through `scan_cache` when given (the cluster's shared pass).'''
+    geometry, crop_filters, geometry_reason = _scan_memo(
+        scan_cache, ("geometry", master_path, candidate_path),
+        lambda: _resolve_geometry(master_path, candidate_path))
+    if geometry_reason is not None:
+        return {"verdict": "unreadable", "reason": f"geometry_unreconciled:{geometry_reason}"}
+    comparer = FrameComparer(master_path, candidate_path, low_ms / 1000.0, high_ms / 1000.0,
+                             fps_num, fps_den, crop_filters=crop_filters,
+                             time_scales=({candidate_path: candidate_time_scale}
+                                          if candidate_time_scale is not None else None))
+    first = comparer._frame_index(low_ms / 1000.0)
+    last = comparer._frame_index(high_ms / 1000.0)
+    nominal = _nominal_shift_frames(offset_ms, fps_num, fps_den)
+    frame_s = fps_den / fps_num
+    m_start, m_dur = first * frame_s, (last - first) * frame_s
+    c_start = (first + nominal - shift_search_frames) * frame_s
+    c_dur = (last - first + 2 * shift_search_frames) * frame_s
+    geometry_key = repr(sorted((crop_filters or {}).items()))
+    m_base, m_hashes = _scan_memo(
+        scan_cache, ("hashes", master_path, m_start, m_dur, geometry_key),
+        lambda: _extract_hashes(comparer, master_path, m_start, m_dur))
+    c_base, c_hashes = _scan_memo(
+        scan_cache, ("hashes", candidate_path, c_start, c_dur, geometry_key,
+                     str(candidate_time_scale)),
+        lambda: _extract_hashes(comparer, candidate_path, c_start, c_dur))
+    best = None
+    for shift in range(nominal - shift_search_frames, nominal + shift_search_frames + 1):
+        matched = readable = 0
+        for m_frame in range(first, last):
+            verdict = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
+                                    m_frame + shift, ANCHOR_HAMMING_THRESHOLD_DEFAULT)
+            if verdict is None:
+                continue
+            readable += 1
+            matched += 1 if verdict else 0
+        if readable and (best is None or matched > best[1]
+                         or (matched == best[1] and abs(shift - nominal) < abs(best[0] - nominal))):
+            best = (shift, matched, readable)
+    if best is None:
+        return {"verdict": "unreadable", "reason": "no_frame_readable",
+                "master_frames": [first, last], "nominal_shift_frames": nominal}
+    shift, matched, readable = best
+    return {"verdict": "same" if 2 * matched > readable else "differs",
+            "shift_frames": shift, "nominal_shift_frames": nominal,
+            "matched": matched, "readable": readable, "master_frames": [first, last],
+            "reason": None}
+
+
+def _scan_memo(cache, key, compute):
+    """A cluster's shared scene pass (see `locate_scene_anchors`' `scan_cache`): the decoded
+    hashes and detected cuts of one window, computed once per window and reused by every hole
+    of the cluster that asks for the same window. No cache, no memo: computed as before."""
+    if cache is None:
+        return compute()
+    if key not in cache:
+        cache[key] = compute()
+    return cache[key]
+
+
 def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms,
                          offset_before_ms, offset_after_ms,
@@ -1176,7 +1253,8 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          scene_search_window_sec=None, debug=False,
                          candidate_time_scale=None, normalise_geometry=False,
                          resolve_shift=False,
-                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
+                         cluster_window=None, scan_cache=None):
     '''PUBLIC ENTRY POINT -- unchanged call shape (Lead's ruling,
     2026-09-21), plus three OPT-IN keywords added for the orchestrator's
     hole resolution (stage 4, 2026-09-24). All three default to OFF, and
@@ -1213,6 +1291,23 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                               that window's half-width; its default is the
                               edge constant, and a caller with a coarser
                               offset passes its own derived bound.
+      `cluster_window` /      THE CLUSTER'S SHARED SCENE PASS (owner ruling,
+      `scan_cache`            2026-09-24, Addendum 22 pending: "holes closer
+                              than the resolver reach form a CLUSTER that
+                              shares one scene-detection pass (one extraction
+                              window covering the cluster)"). `cluster_window`
+                              = {"bracket_ms": (low, high), "offsets_ms":
+                              (min, max)} spans every hole of the cluster; the
+                              rung's extraction and detection windows are then
+                              built around IT instead of this bracket alone
+                              (still widened to cover this call's own
+                              bracket and shifts), so every call of the
+                              cluster asks for the SAME windows, and
+                              `scan_cache` (a dict the caller owns for the
+                              cluster's lifetime) memoises the decoded hashes
+                              and the detected cuts by window. Each hole
+                              keeps its own bracket, anchors and walks. Both
+                              default to None: nothing changes without them.
 
     THE OUTER RUNG: resolves `scene_search_window_sec` once
     (explicit argument, else `config.ini`), same as before this refactor,
@@ -1318,6 +1413,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
             master_path, candidate_path, fps_num, fps_den,
             bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
             rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
+            cluster_window=cluster_window, scan_cache=scan_cache,
             content_detector_threshold=rung_cd_threshold, debug=debug,
             candidate_time_scale=candidate_time_scale,
             crop_filters=crop_filters, resolve_shift=resolve_shift,
@@ -1365,7 +1461,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                                     content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
                                     debug=False, candidate_time_scale=None,
                                     crop_filters=None, resolve_shift=False,
-                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
+                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
+                                    cluster_window=None, scan_cache=None):
     '''ONE RUNG of `locate_scene_anchors`'s ladder (below): everything that
     mission originally did at a single, fixed `window_sec`, unchanged
     except that the candidate margin is now the NAMED
@@ -1468,15 +1565,29 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     after_shift = _nominal_shift_frames(offset_after_ms, fps_num, fps_den)
     nominal_before_shift, nominal_after_shift = before_shift, after_shift
 
-    m_win_start = max(0, m_bracket_first - window_frames)
-    m_win_end = m_bracket_last + window_frames
+    # THE SPAN THE WINDOWS ARE BUILT AROUND: this bracket and its two
+    # shifts -- or, for a cluster's shared pass, the whole cluster's bracket
+    # and shift range (never narrower than this call's own).
+    span_first, span_last = m_bracket_first, m_bracket_last
+    low_shift, high_shift = min(before_shift, after_shift), max(before_shift, after_shift)
+    if cluster_window is not None:
+        span_first = min(span_first,
+                         comparer._frame_index(cluster_window["bracket_ms"][0] / 1000.0))
+        span_last = max(span_last,
+                        comparer._frame_index(cluster_window["bracket_ms"][1] / 1000.0))
+        low_shift = min(low_shift, _nominal_shift_frames(cluster_window["offsets_ms"][0],
+                                                         fps_num, fps_den))
+        high_shift = max(high_shift, _nominal_shift_frames(cluster_window["offsets_ms"][1],
+                                                           fps_num, fps_den))
+    m_win_start = max(0, span_first - window_frames)
+    m_win_end = span_last + window_frames
     # Candidate window generously covers BOTH offset hypotheses plus
     # CANDIDATE_SEED_MARGIN_MULTIPLIER times the search margin -- this is
     # seed generation only (see `_anchor_search`'s union-not-agreement
     # note), so generosity here costs decode time, never correctness.
     candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
-    c_win_start = max(0, m_bracket_first - candidate_margin_frames + min(before_shift, after_shift))
-    c_win_end = m_bracket_last + candidate_margin_frames + max(before_shift, after_shift)
+    c_win_start = max(0, span_first - candidate_margin_frames + low_shift)
+    c_win_end = span_last + candidate_margin_frames + high_shift
 
     # THE WINDOW IS A SPAN OF TIME; A FRAME COUNT IS ONLY A SPAN OF TIME
     # ONCE YOU SAY WHOSE FRAMES (defect measured 2026-09-22 on errid 5, a
@@ -1541,8 +1652,14 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         f"candidate_scan=[{c_scan_start},+{c_scan_frames}) "
         f"({float(c_win_span_sec):.3f} s)\n")
 
-    m_base, m_hashes = _extract_hashes(comparer, master_path, m_start_s, m_dur_s)
-    c_base, c_hashes = _extract_hashes(comparer, candidate_path, c_start_s, c_dur_s)
+    geometry_key = repr(sorted((crop_filters or {}).items()))
+    m_base, m_hashes = _scan_memo(
+        scan_cache, ("hashes", master_path, m_start_s, m_dur_s, geometry_key),
+        lambda: _extract_hashes(comparer, master_path, m_start_s, m_dur_s))
+    c_base, c_hashes = _scan_memo(
+        scan_cache, ("hashes", candidate_path, c_start_s, c_dur_s, geometry_key,
+                     str(candidate_time_scale)),
+        lambda: _extract_hashes(comparer, candidate_path, c_start_s, c_dur_s))
     if not m_hashes or not c_hashes:
         return {"declined": True, "reason": "frames_unextractable",
                "evidence": f"master_frames={len(m_hashes)} "
@@ -1551,8 +1668,10 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
     cd_threshold = content_detector_threshold
 
-    master_cuts, master_cuts_failed = _scene_cut_frames(
-        master_path, m_scan_start, m_scan_frames, cd_threshold, debug)
+    master_cuts, master_cuts_failed = _scan_memo(
+        scan_cache, ("cuts", master_path, m_scan_start, m_scan_frames, cd_threshold),
+        lambda: _scene_cut_frames(master_path, m_scan_start, m_scan_frames, cd_threshold,
+                                  debug))
     if candidate_rate is None:
         # REFUSE A SCAN WE CANNOT ADDRESS, DO NOT GUESS ITS GRID. Falling
         # back to the master's rate here is precisely the defect this
@@ -1564,8 +1683,10 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         candidate_cuts = None
         candidate_cuts_failed = f"candidate_grid_unmeasured:{candidate_rate_reason}"
     else:
-        candidate_cuts, candidate_cuts_failed = _scene_cut_frames(
-            candidate_path, c_scan_start, c_scan_frames, cd_threshold, debug)
+        candidate_cuts, candidate_cuts_failed = _scan_memo(
+            scan_cache, ("cuts", candidate_path, c_scan_start, c_scan_frames, cd_threshold),
+            lambda: _scene_cut_frames(candidate_path, c_scan_start, c_scan_frames,
+                                      cd_threshold, debug))
     # `or []` here is SEED GENERATION ONLY, not a re-conflation of the
     # distinction `_scene_cut_frames` just drew: a failed side simply
     # contributes no scene-based seeds (the bracket edge is always tried
@@ -1677,14 +1798,22 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
             # neighbouring shifts -- the anchor lies inside an ambiguous
             # (static) zone, owner ADDENDA 4/12/13. It is refused as a firm
             # anchor. Placing the hole at the END of that zone is the
-            # orchestrator's pin path (`_interior_verdict`), which reads only
-            # the sweep's fronts and shifts, not an anchor flag -- so until
-            # it can take this flag, the hole declines under this name.
+            # orchestrator's pin path (`_interior_verdict`), which reads this
+            # decline's flags AND the firm side's anchor and shift, carried as
+            # fields below (Addendum 21 batch, 2026-09-24) so the pin is made
+            # from numbers, never from the evidence prose. The sweep never
+            # ran: there are no fronts, and no walk lengths to carry.
             return {"declined": True, "reason": "anchor_ambiguous_static_span",
                    "master_seed_count": len(master_cuts_seeds),
                    "candidate_seed_count": len(candidate_cuts_seeds),
                    "anchor_a_ambiguous": anchor_a_ambiguous,
                    "anchor_b_ambiguous": anchor_b_ambiguous,
+                   "anchor_a_frame": anchor_a, "anchor_b_frame": anchor_b,
+                   "before_shift_frames": before_shift,
+                   "after_shift_frames": after_shift,
+                   "nominal_before_shift_frames": nominal_before_shift,
+                   "nominal_after_shift_frames": nominal_after_shift,
+                   "grid": {"num": fps_num, "den": fps_den},
                    "evidence": f"anchor_a={anchor_a} anchor_b={anchor_b} "
                               f"a_ambiguous={anchor_a_ambiguous} "
                               f"b_ambiguous={anchor_b_ambiguous} "
