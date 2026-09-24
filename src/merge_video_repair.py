@@ -1761,6 +1761,28 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # cle: c'est le contrat, et le jour ou le consommateur sera corrige elle
     # sera la.
     mark_audio_dicts(repaired_obj, assembly["marker"])
+    # LA PORTE DE LIVRAISON DES PISTES FABRIQUEES (CASE_wakeup20260924, defaut A).
+    # Ici et pas dans `keep_best_audio`: c'est le seul point ouvert qui voit
+    # TOUTES les pistes construites. En aval, `find_differences_and_keep_best_
+    # audio` (gele) ne soumet a `keep_best_audio` que les pistes qui CORRELENT
+    # entre elles, et les commentaires ne sont jamais soumis du tout -- une
+    # piste fabriquee orpheline y passait sans course, marquee, jusqu'au produit.
+    # `keep=False` pose ici est lu par `generate_new_file_audio_config`: la
+    # piste n'entre jamais dans le fichier intermediaire.
+    assembly["fabricated_dropped"] = gate_fabricated_delivery(repaired_obj, master_obj)
+    # ADDENDUM 7: "si rien n'est livrable sans restauration -> declin nomme
+    # restoration_deferred". Rien de livrable = aucune piste audio ni sous-titre
+    # ne survit, et au moins une piste a ete retiree pour la restauration.
+    if (any(entry["cause"] == "restoration_deferred"
+            for entry in assembly["fabricated_dropped"])
+            and not count_deliverable_tracks(repaired_obj)):
+        raise merge_video_chimeric.chimeric_error(
+            "every track the repair built is speed-corrected audio and nothing "
+            "else survives: speed correction is a MEASUREMENT tool only, the "
+            "owner suspended the delivery of restored audio until he validates "
+            "examples (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 7). "
+            "This is the owner's deferral, not a measurement failure",
+            cause="restoration_deferred")
     # LES SEGMENTS JETES VOYAGENT AVEC L'ASSEMBLAGE, pour que le journal puisse
     # les nommer. Ils etaient comptes (`unverified_segment_ms`) et jamais dits.
     assembly["dropped_segments"] = dropped_segments
@@ -1780,6 +1802,127 @@ def mark_audio_dicts(repaired_obj, marker):
         for language, audios in holder.items():
             for audio in audios:
                 audio["fabricated"] = marker
+
+
+# Les trois porteurs d'audio d'un objet video. Les commentaires y sont: c'est
+# par eux que Rick and Morty S01E01/02 a livre une piste `chimeric` jamais
+# comparee (CASE_wakeup20260924).
+AUDIO_HOLDERS = ("audios", "commentary", "audiodesc")
+
+
+def fabricated_marker_of(audio):
+    """La valeur du marqueur, depuis L'UN OU L'AUTRE porteur (`SPEC_ZONE_A.MD`
+    s4): la cle en memoire ou le tag re-sonde sous `extra.VMSAM_FABRICATED`.
+    Chaine vide = piste intacte. Meme lecture que `tools.keep_best_audio_
+    fabricated_status`, qui ne rend que le NOM du porteur, pas la valeur."""
+    return str(audio.get("fabricated") or
+               (audio.get("extra") or {}).get("VMSAM_FABRICATED") or "")
+
+
+def resampled_factor_of(marker):
+    """Le facteur `resampled:<f>` du marqueur, ou None s'il n'y en a pas.
+
+    FERME PAR DEFAUT: un facteur illisible est rendu tel quel (chaine), jamais
+    None -- une piste dont on ne sait pas lire la correction de vitesse ne peut
+    pas etre declaree non corrigee."""
+    for part in marker.split("+"):
+        if part.startswith("resampled:"):
+            raw = part[len("resampled:"):]
+            try:
+                return Decimal(raw)
+            except Exception:
+                return raw
+    return None
+
+
+def gate_fabricated_delivery(repaired_obj, master_obj):
+    """Aucune piste fabriquee n'atteint la livraison sans avoir ete jugee.
+
+    Deux regles, dans cet ordre, sur CHAQUE piste audio du fichier repare
+    (audios, commentaires, audio-description):
+
+    1. ADDENDUM 7 (owner, RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD):
+       "AUCUN audio corrige en vitesse n'est LIVRE dans un produit tant que le
+       owner n'a pas valide d'exemples". Un marqueur `resampled:<f>` avec
+       f != 1 -> `keep=False`, cause `restoration_deferred`. Pas une course
+       perdue: un retrait, meme quand le maitre ne porte pas la langue.
+    2. LA PISTE INTACTE GAGNE (regle du proprietaire, 2026-09-16). Toute autre
+       piste fabriquee est COURUE contre chaque piste intacte de meme langue du
+       maitre, par `mergeVideo.keep_best_audio` lui-meme -- l'autorite, pas une
+       copie de sa regle. Le maitre y entre en COPIE: la course ne doit jamais
+       pouvoir changer ce que le maitre livre. Une langue que le maitre ne
+       porte pas intacte n'a pas d'adversaire: la piste reste (c'est l'objet de
+       la reparation).
+
+    Renvoie la liste des retraits, une entree par piste, et journalise chacun
+    INCONDITIONNELLEMENT: c'est une decision de livraison, pas du diagnostic.
+    """
+    import mergeVideo
+    dropped = []
+    master_intact = {}
+    for holder in AUDIO_HOLDERS:
+        for language, audios in (getattr(master_obj, holder, None) or {}).items():
+            for audio in audios:
+                if not fabricated_marker_of(audio):
+                    master_intact.setdefault(language, []).append(audio)
+
+    for holder in AUDIO_HOLDERS:
+        for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
+            for audio in audios:
+                marker = fabricated_marker_of(audio)
+                if not marker or not audio.get("keep", True):
+                    continue
+                factor = resampled_factor_of(marker)
+                cause = None
+                opponent = None
+                if factor is not None and factor != 1:
+                    audio["keep"] = False
+                    cause = "restoration_deferred"
+                else:
+                    for intact in master_intact.get(language, []):
+                        rival = dict(intact)
+                        rival["keep"] = True
+                        mergeVideo.keep_best_audio([rival, audio], {})
+                        if not audio["keep"]:
+                            cause = "intact_same_language_wins"
+                            opponent = intact
+                            break
+                if cause is None:
+                    tools.logs.append(
+                        f"repair: fabricated_kept lang={language} holder={holder} "
+                        f"stream={audio.get('StreamOrder')} marker={marker} "
+                        f"reason=the master carries no intact {language} track "
+                        f"to race it against\n")
+                    continue
+                entry = {"kind": "audio", "holder": holder, "language": language,
+                         "stream_order": audio.get("StreamOrder"),
+                         "format": audio.get("Format"), "marker": marker,
+                         "cause": cause}
+                line = (f"repair: fabricated_dropped cause={cause} lang={language} "
+                        f"holder={holder} stream={audio.get('StreamOrder')} "
+                        f"format={audio.get('Format')} marker={marker}")
+                if cause == "restoration_deferred":
+                    line += (f" factor={factor} reason=speed-corrected audio is "
+                             f"never delivered until the owner validates "
+                             f"examples (ADDENDUM 7)")
+                else:
+                    entry["kept_master_stream"] = opponent.get("StreamOrder")
+                    line += (f" kept_master_stream={opponent.get('StreamOrder')} "
+                             f"kept_master_format={opponent.get('Format')} "
+                             f"reason=raced by keep_best_audio, intact wins")
+                dropped.append(entry)
+                tools.logs.append(line + "\n")
+                sys.stderr.write(line + "\n")
+    return dropped
+
+
+def count_deliverable_tracks(repaired_obj):
+    """Pistes audio et sous-titres que la livraison prendra encore (`keep`)."""
+    count = 0
+    for holder in AUDIO_HOLDERS + ("subtitles",):
+        for tracks in (getattr(repaired_obj, holder, None) or {}).values():
+            count += sum(1 for track in tracks if track.get("keep", True))
+    return count
 
 
 def quanta(value_ms, quantum_ms):
@@ -3288,7 +3431,8 @@ def detail_summary(detail):
         value = detail.get(key)
         if value != None:
             fields.append(f"{key}={value}")
-    for key in ("audios", "subtitles", "declined", "failed", "coarse_brackets"):
+    for key in ("audios", "subtitles", "declined", "failed", "coarse_brackets",
+                "fabricated_dropped"):
         value = detail.get(key)
         # UN COMPTE, PAS LE CONTENU. `len` sur une liste de pistes ecartees est
         # la decision; la liste elle-meme est du diagnostic.
@@ -3912,13 +4056,19 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                   "marker": assembly["marker"], "path": assembly["path"],
                   "audios": assembly["audios"], "subtitles": assembly["subtitles"],
                   "declined": assembly["declined"], "failed": assembly["failed"],
+                  "fabricated_dropped": assembly.get("fabricated_dropped") or [],
                   "verification": assembly["verification"]}
         reason = (f"{len(assembly['audios'])} audio and "
                   f"{len(assembly['subtitles'])} subtitle track(s) rebuilt "
                   f"(rebuilt in the repair object; final delivery decided later "
                   f"by keep_best_audio), "
                   f"{len(assembly['declined'])} declined, "
-                  f"{len(assembly['failed'])} failed")
+                  f"{len(assembly['failed'])} failed, "
+                  # CASE_wakeup20260924: retirees AVANT la livraison par
+                  # `gate_fabricated_delivery` -- chacune a sa ligne
+                  # `repair: fabricated_dropped cause=...` plus haut.
+                  f"{len(assembly.get('fabricated_dropped') or [])} fabricated "
+                  f"dropped before delivery")
         if len(coarse):
             # `narrowed: false` = les deux longueurs de fenetre ont diverge et la
             # mesure est retombee sur un intervalle d'une inter-fenetre, ~108 s.
