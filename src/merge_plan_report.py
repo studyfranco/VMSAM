@@ -924,6 +924,9 @@ def parse_job_log(text):
         "candidate_path": None,
         "candidate_digest": None,
         "plan": None,
+        # EVERY `repair: plan ` line, in emission order. `plan` above is the ONE
+        # the geometry is drawn from; the others travel as PLAN_DUPLICATE rows.
+        "plan_lines": [],
         "audios": {},
         "subtitles": [],
         "regions_added": {},
@@ -1068,8 +1071,9 @@ def parse_job_log(text):
             # laissait reellement tomber un champ emis aujourd'hui
             # (`dropped_segments` sur la ligne de plan). Les cinq sont corrigees
             # quand meme -- le defaut est structurel, pas la valeur du jour.
-            job["plan"] = dict(fields)
-            job["plan"].update({
+            plan = dict(fields)
+            job["plan_lines"].append(plan)
+            plan.update({
                 "kind": kind,
                 "language": fields.get("language"),
                 "quantum_ms": fields.get("quantum"),
@@ -1357,7 +1361,30 @@ def parse_job_log(text):
 
         job["unparsed"].append(body[:120])
 
+    job["plan"] = select_plan(job["plan_lines"])
     return job
+
+
+def select_plan(plan_lines):
+    """THE PLAN LINE THE GEOMETRY IS DRAWN FROM, CHOSEN BY CONTENT, NOT POSITION.
+
+    Certification finding B4 (image 1f6f1981 onward): a successful repair log
+    carries TWO `repair: plan` lines -- the real plan (`orchestrator_chimeric
+    ... quantum=... pieces=...`, merge_video_repair.py) and a later
+    geometry-less `plan chimeric orchestrator=1 ... for <path>` written by
+    repair_orchestrator.py only so that `is_job_log` recognises the log. This
+    reader used to keep the LAST line, so every report lost its pieces and
+    printed "No plan geometry" with no figure. The parse never dropped the
+    geometry; the SELECTION overwrote it.
+
+    Rule: the last line carrying `pieces` wins (last, as before, when a log
+    concatenates two repair calls); with none, the last line. Every other line
+    is NOT silently discarded: `build_rows` names each as a PLAN_DUPLICATE row.
+    """
+    if not plan_lines:
+        return None
+    with_geometry = [plan for plan in plan_lines if plan.get("pieces")]
+    return (with_geometry or plan_lines)[-1]
 
 
 def parse_pieces(text):
@@ -2551,6 +2578,31 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                      detail="the_pieces=_token_is_assembly[pieces],_the_one_"
                             "normalize_segments_call_made_with_no_stream_order,"
                             "_i.e._the_geometry_a_BORROWING_track_uses"))
+    # MORE THAN ONE PLAN LINE IS A FINDING, NOT A SILENT CHOICE (B4). The line
+    # drawn is `select_plan`'s; each other one is named here, by shape only --
+    # the orchestrator's line ends in `for <candidate path>`, so its values stay
+    # in the log and only its field NAMES and whether it carries a path travel.
+    plan_lines = job.get("plan_lines") or []
+    for position, other in enumerate(plan_lines, 1):
+        if other is plan:
+            continue
+        raw_names = sorted(name for name, value in other.items()
+                           if value is not None
+                           and name not in ("kind", "quantum_ms", "pieces"))
+        rows.append(_row("PLAN_DUPLICATE", _redactor=redactor,
+                         line=f"{position}/{len(plan_lines)}",
+                         kind=other.get("kind"),
+                         pieces=len(other.get("pieces") or []),
+                         field_names=",".join(n for n in raw_names
+                                              if re.fullmatch(r"[a-z_]+", n)),
+                         carries_path=any(_PATH.search(str(v))
+                                          for v in other.values()),
+                         status="duplicate plan line -- ignored for geometry, "
+                                "emitter to fix (one plan line per run)",
+                         drawn_from=f"line {plan_lines.index(plan) + 1}/"
+                                    f"{len(plan_lines)} (kind "
+                                    f"{plan.get('kind')}, "
+                                    f"{len(plan.get('pieces') or [])} pieces)"))
 
     # L'AFFIRMATION QUE CETTE FIGURE FAIT SANS LA DIRE, AVEC SON OCCASION.
     #
@@ -2599,9 +2651,16 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                           "rather than dropped: a dropped m = 0 is how a reader "
                           "stops being able to tell `verified` from `never put "
                           "to the test`"),
-            refuted_by_nothing_i_hold="0 logs carry more than one `repair: plan` "
-                                      "line, so this reader cannot compare two "
-                                      "per-track geometries even in principle"))
+            refuted_by_nothing_i_hold=(
+                "0 logs carry more than one `repair: plan` line, so this reader "
+                "cannot compare two per-track geometries even in principle"
+                if len(job.get("plan_lines") or []) < 2 else
+                f"THIS log carries {len(job['plan_lines'])} `repair: plan` "
+                f"lines (see PLAN_DUPLICATE), of which "
+                f"{sum(1 for p in job['plan_lines'] if p.get('pieces'))} carry "
+                f"pieces. A plan line is emitted per run, not per track, so a "
+                f"second line is a duplicated emission or a second repair call, "
+                f"never a second per-track geometry to compare")))
     for order in sorted(job.get("audios") or {}):
         fields = job["audios"][order]
         rows.append(_row("TRACK", track=order, kind="audio",
@@ -2716,10 +2775,7 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                 attribution = {"track": "THIS track: it carries the plan's own "
                                         "measurement language"}
             rows.append(_row("PLAN_ATTRIBUTION_LIMIT", track=order,
-                             plan_lines_read=absent(
-                                 "this reader keeps ONE plan per job and would "
-                                 "silently overwrite a second; it cannot report "
-                                 "how many the log carried"),
+                             plan_lines_read=len(job.get("plan_lines") or []),
                              audio_tracks=len(audios),
                              plan_language=(plan_language or
                                             absent("this plan line carries no "
