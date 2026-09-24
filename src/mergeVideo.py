@@ -787,9 +787,13 @@ def prepare_get_delay(videos_obj,language,audioRules):
         for language_obj,audios in videoObj.commentary.items():
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_commentary"])
+                if tools.special_params["remove_commentary"]:
+                    tools.dev_log(f"Track commentary {audio['StreamOrder']} not added from {video_obj.filePath}.")
         for language_obj,audios in videoObj.audiodesc.items():
             for audio in audios:
                 audio["keep"] = (not tools.special_params["remove_descriptive"])
+                if tools.special_params["remove_descriptive"]:
+                    tools.dev_log(f"Track descriptive {audio['StreamOrder']} not added from {video_obj.filePath}.")
     
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
@@ -1781,7 +1785,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         if language in tools.language_to_completely_remove:
             for sub in subs:
                 sub['keep'] = False
-                tools.logs.append(f"Track {sub['StreamOrder']} not added for {language} from {video_obj.filePath}. It is excluded by language policy (config.json language_to_completely_remove).\n")
+                tools.logs.append(f"Track {sub['StreamOrder']} not added for {language} from {video_obj.filePath}.")
                 sub_track_to_remove.append(sub)
         else:
             for sub in subs:
@@ -1808,6 +1812,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     for language,audios in video_obj.audios.items():
         if language in tools.language_to_completely_remove:
             for audio in audios:
+                tools.logs.append(f"Track {audio['StreamOrder']} not added for {language} from {video_obj.filePath}.")
                 audio_track_to_remove.append(audio)
         else:
             for audio in audios:
