@@ -46,13 +46,14 @@ CODE, and the code is this file.
     prove it, not asserted: the speed chain is appended and `candidate_entry`
     is rebound to `[spd]` BEFORE the `asplit` that makes the pieces.
 
-    A CONSTANT-OFFSET-NO-GAP PLAN IS REFUSED HERE, AND THAT REFUSAL MEANS
-    "GOES BACK TO THE CHEAP PATH", NOT "CANNOT BE HELPED". Two sentences a
-    successor must never merge. The reasoning is below, at the refusal itself.
-
-    AND `normalize_segments` REFUSES RATHER THAN CLAMPS -- not by discipline:
-    there is NO CLAMPING MACHINERY IN IT AT ALL. A gap in the plan becomes a
-    MASTER piece, never emptiness.
+    THE PIECES ARRIVE BUILT (stage 5, 2026-09-24). `repair_orchestrator.apply_plan`
+    lays the frame-exact boundaries stage 4 resolved as candidate zones and master
+    fills, one set per track at that track's own sub-frame offset; this module
+    CHECKS that each set covers the master timeline contiguously and builds from
+    it. It measures nothing (ADDENDUM 10 d): the frame tiers and edge walks that
+    `normalize_segments` used to run here, and its rounding of offsets to the
+    frame, were removed with it. A gap between zones is a MASTER piece, never
+    emptiness.
 
 Marquage: SPEC_ZONE_A.MD s4. La chaine est posee comme tag de piste Matroska
 `VMSAM_FABRICATED` sur le fichier produit ici. Mesure 2026-09-03: ce tag survit
@@ -60,7 +61,7 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 `mkvmerge --no-global-tags` du split et au `mkvmerge` final.
 '''
 
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Decimal
 from fractions import Fraction
 from os import path, replace as replace_file
 import re
@@ -193,28 +194,6 @@ class chimeric_error(Exception):
         self.cause = cause
 
 
-class chimeric_bound_error(chimeric_error):
-    '''Le plan sort de la piste decoupee. SOUS-CLASSE et pas un message a
-    reconnaitre: l'appelant reessaie CE refus-la et aucun autre, et un test de
-    chaine se serait casse au premier reformulage.
-
-    Porte `stream_order` et `bound_ms` pour que l'appelant sache contre quoi le
-    refus a ete prononce sans relire le texte.
-
-    Porte aussi `cause`, PAR LA MEME VOIE que la classe mere: `chimeric_error.
-    __init__` l'accepte deja, cette sous-classe se contentait de ne pas le
-    relayer. Un CINQUIEME site (celui-ci, l'unique site qui leve cette
-    sous-classe -- `merge_video_chimeric.py:1279`) est scope IN par
-    `CASE_errid50_untokened_1279.md`: voir la docstring de `chimeric_error`
-    pour le compte a jour.
-    '''
-
-    def __init__(self, message, stream_order=None, bound_ms=None, cause=None):
-        super().__init__(message, cause=cause)
-        self.stream_order = stream_order
-        self.bound_ms = bound_ms
-
-
 def delay_in_ms(track):
     """`Delay` en millisecondes, AVEC SON UNITE VERIFIEE CONTRE UN SECOND OUTIL.
 
@@ -262,1426 +241,6 @@ def delay_in_ms(track):
                     f"by 1000 and would be wrong by that factor. THIS IS A STATEMENT "
                     f"ABOUT THE mediainfo BUILD, not about the media")
     return seconds * Decimal("1000")
-
-
-def get_segment_offset(segment, stream_order=None):
-    """Le decalage de CETTE tranche pour CETTE piste.
-
-    `vmsam-dev-1` mesure et emet un decalage PAR FLUX --
-    `candidate_offset_ms_by_stream`, indexe par StreamOrder -- parce que deux
-    pistes de la meme langue dans un meme fichier ne sont pas forcement calees
-    entre elles. Mesure sur l'erreur 266: 27.6 ms d'ecart entre les deux pistes
-    jpn, confirme par trois instruments.
-
-    Ne PAS le consommer laissait la seconde piste a 27 a 29 ms du maitre pendant
-    que la premiere etait a 1 ms -- sous le cadre video, sous le pas de
-    `adjust_delay_to_frame`, sous la tolerance du verificateur, donc livrable en
-    silence. C'est mon propre verificateur qui l'a vu, piste par piste.
-
-    Repli sur le decalage unique quand la mesure n'en donne pas par flux: un
-    bloc plus ancien reste consommable.
-    """
-    by_stream = segment.get("candidate_offset_ms_by_stream")
-    if by_stream and stream_order is not None:
-        for key in (stream_order, str(stream_order), int(stream_order)):
-            if key in by_stream:
-                return Decimal(str(by_stream[key]))
-    return Decimal(str(segment["candidate_offset_ms"]))
-
-
-def offset_is_measured(segment, stream_order=None):
-    """Ce flux a-t-il SON PROPRE decalage, ou emprunte-t-il celui d'une autre?
-
-    La table par flux ne couvre QUE les flux de la langue mesuree -- le
-    locator la construit sur `candidate_streams`, c'est-a-dire les flux de
-    cette langue-la, et c'est correct dans SON contrat. Mais l'assembleur
-    applique le meme plan a TOUTES les langues, donc chaque piste d'une autre
-    langue retombe sur `candidate_offset_ms`, LE DECALAGE D'UNE AUTRE LANGUE.
-
-    Mesure, id 47, meme paire, meme plan, langue de mesure changee:
-        en mesure le flux 2 -> -983.54    fr mesure le flux 1 -> -959.48
-        tables DISJOINTES; la piste que l'autre langue a mesuree emprunte,
-        et porte 24.06 ms (segment 0) et 14.50 ms (segment 1) d'erreur.
-        id 52: 31.11 et 32.35 ms.
-
-    CORRECTION: ids 47 ET 52 SONT LE MEME DOSSIER -- meme maitre, meme dossier
-    candidat. Je les ai cites comme DEUX fichiers, ici et dans un message de
-    commit ("a second file gives..."), ce qui les fait lire comme une
-    corroboration independante. C'EST UNE OBSERVATION, ECHANTILLONNEE DEUX FOIS.
-
-    La mesure qui porte vraiment, elle, vient de quatre dossiers distincts, sur
-    des sorties PRODUITES et non sur des plans (T67):
-        2c611366b7  en 34.62 et 35.25 ms
-        854984999c  fr 14.75 ms
-        b39a89aa87  en 0.00 et fr 10.62 ms   <- MEME FICHIER, DEUX COUTS
-        80e29f2b4d  fr 1.12 ms
-    Le cout de l'emprunt est PAR PISTE et imprevisible: entre 0 et 35 ms, et
-    rien dans une piste n'annonce dans quelle moitie elle se trouve.
-
-    C'est SOUS la tolerance de 100 ms du verificateur, donc livrable en
-    silence -- exactement la forme des 27.6 ms que `vmsam-dev-1` a trouves
-    entre deux pistes jpn, un cran plus haut: regle DANS une langue, ouvert
-    ENTRE les langues.
-
-    On ne devine pas le bon decalage ici: on dit lequel des deux on a
-    applique. Un repli tacite est une mesure que personne ne lit.
-    """
-    by_stream = segment.get("candidate_offset_ms_by_stream")
-    if not by_stream or stream_order is None:
-        return False
-    return any(key in by_stream
-               for key in (stream_order, str(stream_order), int(stream_order)))
-
-
-def pairing_fidelity(stream_pairing, stream_order=None):
-    """La fidelite du choix PAR FICHIER, celle a laquelle la barre a ete appliquee.
-
-    DEUX NOMBRES, DEUX QUESTIONS, et `vmsam-dev-1` a vu la confusion avant moi.
-
-      par fichier   `candidate_stream_pairing[flux]` -- UN partenaire maitre
-                    choisi une fois pour le fichier, et la fidelite de ce choix.
-                    C'est LE nombre auquel la barre s'applique, donc le nombre
-                    qu'un REFUS doit citer.
-
-      par tranche   `candidate_offset_fidelity_by_stream[flux]` dans chaque
-                    segment -- la fidelite de CETTE sonde-la. Diagnostique.
-                    C'est le nombre que la ligne de POSE doit citer, parce qu'il
-                    decrit la mesure reellement utilisee pour poser ce
-                    morceau-la.
-
-    Les confondre ferait citer un nombre pour deux questions differentes. Ma
-    premiere version le faisait: elle lisait le per-segment et s'en servait
-    aussi dans le refus.
-
-    Un flux ABSENT de la table par fichier n'a passe la barre avec AUCUN
-    partenaire. Absent, jamais `fidelity: 0.0` -- des deux cotes du contrat.
-    """
-    if not stream_pairing or stream_order is None:
-        return None
-    for key in (stream_order, str(stream_order), int(stream_order)):
-        if key in stream_pairing:
-            entry = stream_pairing[key]
-            if isinstance(entry, dict):
-                return entry.get("fidelity")
-            return entry
-    return None
-
-
-def offset_fidelity(segment, stream_order=None):
-    """La fidelite de l'appariement de ce flux, quand la mesure la donne.
-
-    `vmsam-dev-1` a mesure la barre sur 127 paires de 25 fichiers et a trouve un
-    CHEVAUCHEMENT: la meilleure paire INTER-langue atteint 0.8477 et la plus
-    basse paire MEME-etiquette qui a l'air vraie est a 0.8196. AUCUN SEUIL NE
-    LES SEPARE PROPREMENT. 0.85 est donc un choix DANS un chevauchement, pas une
-    frontiere.
-
-    Consequence directe pour ce fichier-ci, et c'est leur formulation: A LA
-    BARRE, UN REFUS N'EST PAS LA PREUVE QUE LA PISTE EST NON MESURABLE -- C'EST
-    LA PREUVE QU'ON N'A PAS PU LA MESURER ASSEZ BIEN POUR EN ETRE SUR. Les deux
-    ne sont pas la meme chose et le journal doit pouvoir dire laquelle.
-
-    Renvoie None quand la mesure ne porte pas de fidelite -- ce qui est le cas
-    de TOUS les plans aujourd'hui, la table par flux ne l'emettant pas encore.
-    None se journalise alors comme absent, jamais comme zero: une fidelite
-    inconnue n'est pas une fidelite nulle.
-    """
-    table = segment.get("candidate_offset_fidelity_by_stream")
-    if not table or stream_order is None:
-        return None
-    for key in (stream_order, str(stream_order), int(stream_order)):
-        if key in table:
-            return table[key]
-    return None
-
-
-def run_edge_walk(edge, master_path, candidate_path, fps_num, fps_den,
-                  bracket_low_ms, bracket_high_ms, offset_ms,
-                  master_duration_ms, candidate_duration_ms,
-                  bracket=None, onset_result=None):
-    '''THE EDGE SINGLE-ANCHOR PROTOCOL, called from the head and the tail
-    blocks of `normalize_segments` below (owner's ruling
-    RULING_20260922_EDGE_SINGLE_ANCHOR.MD + ADDENDUM). Factored out because
-    the two sites need the IDENTICAL isolation, the IDENTICAL six-state shadow
-    line and the IDENTICAL authority rule, and two copies of that would drift
-    -- the interior site's own pattern, which this mirrors, is inline only
-    because it has no twin.
-
-    Returns `(result, errored)`. `result` is `scene_anchor.locate_edge_boundary`'s
-    payload (`declined` True or False) or `None` when the protocol RAISED.
-
-    EXCEPTION ISOLATION -- MANDATORY, same ruling and same reason as the
-    interior site's (Lead, 2026-09-21): a protocol that throws must become a
-    NAMED state, never break a job that would otherwise have succeeded. The
-    blanket `except Exception` is deliberate here, explicitly requested for
-    exactly this purpose, and its scope is the single call it isolates.
-
-    AUTHORITY, AND THE ONE PLACE THIS DIFFERS FROM THE INTERIOR SITE: the
-    caller must NOT consume `locate_match_onset`'s answer when this protocol
-    declines. That is the ruling's point 5 ("failure to establish even the
-    single anchor stays an honest named decline") and this module's own
-    scene_anchor AUTHORITY docstring ("F1's methods ... are NEVER silently
-    promoted to the answer when this protocol declines"). The interior site
-    can let F1 stand on a protocol decline because F1 there is gated by
-    `_validate_boundary`'s `margin`; `locate_match_onset` computes NEITHER
-    `similarity` NOR `margin` (grepped: zero hits in its body, zero
-    `_validate_boundary` calls), so at an edge there is no validation gate
-    behind it at all. MEASURED SCOPE of that difference before adopting it
-    (2026-09-22, every `.log`/`.error` under /config/output): `match_onset`
-    appears 5 times and `could_not_locate_onset` 2 of those -- the instrument
-    is barely exercised in production, so withholding it on a protocol
-    decline changes very little, and what it does change it makes honest.
-    A withheld answer is LOGGED (`edge_onset_withheld`), never dropped
-    silently.
-    '''
-    import scene_anchor
-    try:
-        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
-        # scene_anchor.py runs in-process PySceneDetect decodes and unbounded
-        # ffmpeg reads; this line is the only thing that would say which file
-        # was under the instrument during a hang.
-        tools.dev_log(f"chimeric: calling scene_anchor.locate_edge_boundary "
-                      f"edge={edge} master={master_path} "
-                      f"candidate={candidate_path} "
-                      f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
-        result = scene_anchor.locate_edge_boundary(
-            master_path, candidate_path, fps_num, fps_den,
-            float(bracket_low_ms), float(bracket_high_ms), float(offset_ms),
-            edge, float(master_duration_ms),
-            None if candidate_duration_ms is None else float(candidate_duration_ms),
-            known_match_ms=(bracket.get("known_match_ms")
-                            if bracket is not None else None),
-            step_ms=(bracket.get("step_ms") if bracket is not None else None))
-        errored = False
-    except Exception as _exc:
-        result = None
-        errored = True
-        tools.logs.append(
-            f"chimeric: scene_anchor_error edge={edge} "
-            f"exception={type(_exc).__name__} "
-            f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
-
-    # SIX STATES, the same six the interior site names, with
-    # `locate_match_onset` standing where `locate_bracket_boundary` stands
-    # there: "it declined" and "it threw" are different facts and stay apart.
-    _onset_declined = (onset_result is None or onset_result.get("declined", True))
-    if errored:
-        _state = "protocol_errored"
-    elif result["declined"]:
-        _state = "both_declined" if _onset_declined else "protocol_declined_f1_succeeded"
-    elif _onset_declined:
-        _state = "f1_declined_protocol_succeeded"
-    else:
-        _onset_frame = onset_result.get("onset_frame")
-        _state = ("agree" if _onset_frame == result.get("boundary_frame")
-                  else "disagree")
-    # PROVENANCE, MANDATORY (Architect's ruling, 2026-09-21): a census must be
-    # able to exclude fixture-produced entries MECHANICALLY. A categorical
-    # marker only -- never the raw path.
-    _source = ("synthetic_fixture"
-               if ("VMSAM_HELP_AI" in str(master_path)
-                   or "fixtures" in str(master_path))
-               else "production")
-    tools.logs.append(
-        f"chimeric: edge_walk_shadow edge={edge} state={_state} "
-        f"source={_source} "
-        f"protocol_reason={result.get('reason') if result else 'errored'} "
-        f"protocol_termination={result.get('termination') if result else None} "
-        f"protocol_net_kind={result.get('net_kind') if result else None} "
-        f"onset_reason={onset_result.get('reason') if onset_result else None} "
-        f"onset_frame={onset_result.get('onset_frame') if onset_result else None} "
-        f"bracket=[{bracket_low_ms},{bracket_high_ms}]\n")
-    if (errored or result["declined"]) and not _onset_declined:
-        tools.logs.append(
-            f"chimeric: edge_onset_withheld edge={edge} "
-            f"onset_frame={onset_result.get('onset_frame')} "
-            f"protocol_reason={result.get('reason') if result else 'errored'} "
-            f"-- the protocol declined, so its cross-check is recorded as "
-            f"evidence and NOT consumed for the boundary\n")
-    return result, errored
-
-
-def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
-                       speed_ratio=None, stream_order=None,
-                       master_path=None, candidate_path=None,
-                       fps_num=None, fps_den=None, bound_label=None,
-                       quantum_ms=None):
-    '''Valide le plan et renvoie la liste des morceaux a coller, dans l'ordre.
-
-    Chaque morceau est un dict: `source` ("candidate" | "master" | "silence"),
-    `master_start_ms`, `master_end_ms`, et `source_start_ms` quand il y a une
-    source. Les trous du plan deviennent des morceaux "master".
-
-    Refuse plutot que de rattraper: un plan qui sort du candidat est un plan
-    faux, et le clamper produirait un fichier plausible et silencieusement
-    decale.
-    '''
-    if not len(segments):
-        raise chimeric_error("empty plan: no segment to assemble")
-
-    ordered = sorted(segments, key=lambda s: s["master_start_ms"])
-
-    # UN DECALAGE CONSTANT SANS TROU N'EST PAS UNE REPARATION, et le reconstruire
-    # serait pire que ne rien faire.
-    #
-    # Si toutes les tranches portent le meme decalage ET se touchent bout a bout
-    # sur toute la timeline du maitre, alors le candidat n'a ni contenu en trop
-    # ni contenu en moins: il est simplement decale. Ce cas se traite par un
-    # delai de conteneur -- `--sync` ou `-itsoffset` -- que le merge sait deja
-    # poser. Le reconstruire couterait une generation de codec sur chaque piste
-    # audio, et docs/SUBTITLE_CODECS.MD dit la suite: "A constant delay needs no
-    # adaptation at all, for any codec", alors que la reconstruction PERD les
-    # sous-titres bitmap que le simple decalage aurait gardes.
-    #
-    # C'est la sixieme population que vmsam-forensic a mesuree: 24 fichiers
-    # (7.6 %) au decalage constant, refuses quand meme, et pour 11 d'entre eux la
-    # cause mesuree est dans le MAITRE et pas dans le candidat. Les reparer ici
-    # reviendrait a reconstruire une piste pour corriger un defaut de la
-    # reference.
-    offsets = set(get_segment_offset(segment, stream_order) for segment in ordered)
-    touching = all(Decimal(str(ordered[i]["master_end_ms"]))
-                   == Decimal(str(ordered[i + 1]["master_start_ms"]))
-                   for i in range(len(ordered) - 1))
-    covers_all = (Decimal(str(ordered[0]["master_start_ms"])) <= 0
-                  and Decimal(str(ordered[-1]["master_end_ms"])) >= master_duration_ms)
-    # ...SAUF si une relation de vitesse est appliquee. Une tranche unique a
-    # decalage nul par-dessus un reechantillonnage n'est pas un simple decalage:
-    # c'est la forme normale d'un plan de VITESSE SEULE, ou le travail est fait
-    # par asetrate et non par le decoupage. Sans cette exception le chemin de
-    # l'objectif 3 serait refuse par une garde ecrite pour l'objectif 2 -- ce
-    # qu'elle a fait sur le premier vrai run, et c'est pour cela qu'on tire les
-    # gardes plutot que de les relire.
-    if len(offsets) == 1 and touching and covers_all and speed_ratio == None:
-        raise chimeric_error(
-            f"constant offset of {offsets.pop()} ms with no gap: this pair needs a "
-            f"container delay, not a rebuilt track. Rebuilding would cost a codec "
-            f"generation on every audio track and would drop the bitmap subtitles "
-            f"that a plain shift keeps")
-    def exact_ms_from_frame(frame_count, grid):
-        '''The EXACT master-timeline ms a frame-tier frame INDEX names --
-        Decimal, never float, and never `derived_ms`. Architect's ruling,
-        2026-09-16: `derived_ms` (`frame_compare.py`'s `_f1_payload`) is
-        `round(frame * frame_ms, 2)` -- ROUNDED FOR DISPLAY, and correct
-        for that purpose. Consuming it as an input to arithmetic is the
-        actual defect this replaces: on real E04 media the rounding lost
-        0.0043777110... ms (verified to full Decimal precision against
-        `onset_frame=65`, `grid={2997,125}`), which a reconciliation
-        chasing a ~0.497-frame residual cannot afford to also lose. The
-        exact value was in the SAME result the whole time -- the frame
-        index times the grid's own exact frame duration -- so this
-        recomputes it instead of trusting the field shaped for a human to
-        read. Takes an explicit frame index because the two callers name
-        it differently: `locate_match_onset`'s `onset_frame` (one index),
-        `locate_bracket_boundary`'s `master_start_frame`/`master_end_frame`
-        (two, for the interior tier -- the THIRD consumer this same sweep
-        found, not covered by the head/tail fix alone).
-        '''
-        frame_ms_exact = Decimal(1000 * grid["den"]) / Decimal(grid["num"])
-        return Decimal(frame_count) * frame_ms_exact
-
-    pieces = []
-    cursor = Decimal("0")
-    previous_candidate_end = None
-    previous_offset = None
-    previous_segment = None
-
-    for segment in ordered:
-        master_start = Decimal(str(segment["master_start_ms"]))
-        master_end = Decimal(str(segment["master_end_ms"]))
-        offset = get_segment_offset(segment, stream_order)
-
-        if master_end <= master_start:
-            raise chimeric_error(
-                f"segment [{master_start},{master_end}) is empty or inverted")
-        if master_start < cursor:
-            raise chimeric_error(
-                f"segment [{master_start},{master_end}) overlaps the previous one")
-        if master_end > master_duration_ms:
-            raise chimeric_error(
-                f"segment ends at {master_end} ms, past the master's "
-                f"{master_duration_ms} ms")
-
-        # THE FRAME TIER -- SPEC_ZONE_A.MD S4h: this is where the refinement
-        # belongs, downstream of the locator, which only bracketed the gap.
-        # UNCONDITIONAL when the inputs to run it are present (WRITE_ZONES.MD
-        # S4: "must not be conditioned on a parameter") -- the two call sites
-        # in `assemble_on_master_timeline` always pass them; a caller that
-        # omits them (a test building `pieces` directly) gets the old,
-        # unnarrowed behaviour rather than an error, which is what lets this
-        # stay a default parameter instead of a required one without being a
-        # feature flag.
-        #
-        # H-TIER (2026-09-16, Architect's ruling). The gate used to be
-        # `bracket_is_bound_only` -- one bit, set at
-        # `change_point_locator.py:1924` as `not narrowed`, collapsing
-        # "narrowed to the bisector's own 12000ms floor" (a SUCCESS state,
-        # `:1303-1309`'s own measured history) and "never narrowed, still
-        # 100000ms wide" into the same value. A bracket the locator marks
-        # "narrowed" could still be 12000ms -- E04's real interior bracket,
-        # `bracket_is_bound_only=False`, verbatim -- and the old gate never
-        # even offered it to this tier. `bracket_is_bound_only` is now
-        # DEMOTED TO EVIDENCE: it may still travel on the record (it says HOW
-        # a bracket arose) but it gates NOTHING here.
-        #
-        # THE GATE IS WIDTH, in frames of the pair's own grid -- one frame is
-        # this repair's atomic resolution; a bracket already <=2 frames sits
-        # at the tier's own achievable precision, and anything wider is
-        # repair-at-indication-granularity, which "a la frame pres" bans.
-        # Explicitly NOT the owner's ~1s: that was his tolerance reading one
-        # artefact, a ceiling on what he would accept, not a floor to
-        # install here -- coding it as the threshold would trade today's
-        # hardcoded-quantum defect for a differently-hardcoded, coarser one
-        # wearing a tolerance's authority.
-        #
-        # UNKNOWN GRID -> the tier is still ASKED, never silently skipped.
-        # `frame_ms` needs `fps_num > 0`; when it is not (fps present as a
-        # number but unusable), the width comparison cannot rule the tier
-        # out, so the call still happens and `locate_bracket_boundary`
-        # itself declines with `grid_unmeasured` (`frame_compare.py:601`) --
-        # an honest bracket ships, nothing is silently filled. `fps_num`/
-        # `fps_den` being ABSENT (`None`) is the one case that still skips
-        # the call outright: `locate_bracket_boundary` does `int(fps_num)`
-        # at its own first line and `int(None)` raises, so calling it
-        # without a grid at all would crash, not decline.
-        #
-        # Fires ONLY on an INTERIOR gap (`cursor > 0`) for now -- head and
-        # tail have no `following_bracket` today by construction and are a
-        # separate, ruled piece of this mission, built where this comment
-        # is, not yet at this landing.
-        # `locate_bracket_boundary` REFINES the exact [cursor, master_start)
-        # this assembly already has, it does not go looking for one.
-        narrowed_low = narrowed_high = None
-        head_frame_tier_result = None
-        frame_tier_result = None
-        gap_width_ms = float(master_start - cursor) if master_start > cursor else 0.0
-        grid_known_good = fps_num is not None and fps_den is not None and fps_num > 0 and fps_den > 0
-        frame_ms = (1000.0 * fps_den / fps_num) if grid_known_good else None
-        tier_asked = (frame_ms is None) or (gap_width_ms > 2.0 * frame_ms)
-        if (cursor > 0 and master_start > cursor and previous_segment is not None
-                and previous_offset is not None
-                and master_path is not None and candidate_path is not None
-                and fps_num is not None and fps_den is not None
-                and tier_asked):
-            import frame_compare
-            # STAGE 4's OWN INPUT (Architect's ruling, 2026-09-17, point i):
-            # `step_ms` is the LOCATOR's own audio-measured step for THIS
-            # bracket -- already on the bracket dict change_point_locator.py
-            # sets (`"step_ms": ...`), read here fresh rather than trusted
-            # from a stale local (same reasoning as `relevant_bracket`
-            # below: `following_bracket` lives on `previous_segment`, the
-            # segment whose GAP this is, not on `segment` itself).
-            # `quantum_ms` is a PLAN-LEVEL field (one per pair, not per
-            # bracket) threaded through this function's own new parameter
-            # -- `None` when a caller does not supply it, which stage 4
-            # reads as "cannot corroborate" and declines named, never
-            # silently skips.
-            _interior_bracket_for_tier = (
-                previous_segment.get("following_bracket")
-                if previous_segment is not None else None)
-            # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
-            # frame_compare.py's ffmpeg calls are unbounded; the call INTO
-            # the module is the observable checkpoint from here.
-            tools.dev_log(f"chimeric: calling frame_compare."
-                          f"locate_bracket_boundary master={master_path} "
-                          f"candidate={candidate_path}\n")
-            frame_tier_result = frame_compare.locate_bracket_boundary(
-                master_path, candidate_path, fps_num, fps_den,
-                float(cursor), float(master_start),
-                float(previous_offset), float(offset),
-                step_ms=(_interior_bracket_for_tier.get("step_ms")
-                        if _interior_bracket_for_tier is not None else None),
-                quantum_ms=quantum_ms)
-            # REGION A -- THE VALIDATION GATE (dev-tiergate mission,
-            # 2026-09-16). `_validate_boundary` (frame_compare.py) computes
-            # `similarity`/`margin` on every non-declined result and never
-            # gates on them itself -- its own docstring says so verbatim:
-            # "the caller decides what to do with a failing margin, this
-            # function only measures." Measured before writing this: no
-            # consumer in this repository's history has EVER read either
-            # field (`git log -p` over every module that could -- one
-            # unrelated prose hit, zero in the frame-tier sense, ever).
-            # This is that consumer.
-            #
-            # `margin < 0` means the worst probed frame on either flank
-            # exceeded the calibrated Hamming threshold -- the 50-frame
-            # check the spec names did NOT pass, whatever method located
-            # the boundary. A FAILED validation reverts to the bracket
-            # (never widens, never ships a boundary nobody confirmed) and
-            # is NAMED so a sweep can count it -- joining frame_compare's
-            # own per-boundary vocabulary (`grid_unmeasured`,
-            # `empty_bracket`, `frames_unextractable`, `bracket_unreadable`,
-            # `structure_present_could_not_narrow`), never
-            # `change_point_locator`'s unrelated `DECLINE_REASONS` -- two
-            # `reason=`-shaped vocabularies at two module layers, never
-            # mixed (ARTEFACT_FORMATS.md S9c).
-            #
-            # `locate_match_onset` (head/tail, below) computes NEITHER
-            # field -- grepped its full body, zero hits, zero
-            # `_validate_boundary` calls -- so this gate is interior-only
-            # until that is ruled elsewhere; reported to the Lead rather
-            # than papered over with a check that can never fire.
-            if not frame_tier_result["declined"]:
-                _sim = frame_tier_result.get("similarity")
-                _mgn = frame_tier_result.get("margin")
-                if _mgn is None:
-                    # FAIL CLOSED, NOT OPEN (Lead's finding, 2026-09-16): a
-                    # non-declined interior result always carries a numeric
-                    # `margin` in the CURRENT contract -- every success
-                    # return in `locate_bracket_boundary` routes through
-                    # `_validate_boundary`/`_f1_payload`, both of which
-                    # always set it. `None` should be IMPOSSIBLE here. That
-                    # is exactly why an `else` branch (the first version of
-                    # this gate) would have been wrong: it would have taken
-                    # the "validated" path and logged
-                    # `frame_tier_validated` on a narrowing NOBODY checked
-                    # -- the one state that would be BELIEVED if it ever
-                    # occurred, because it would arrive wearing the
-                    # trusted log line. Named distinctly from a MEASURED
-                    # failure (`frame_tier_validation_failed`, margin<0)
-                    # because "the check failed" and "the check produced no
-                    # answer" are different facts.
-                    tools.logs.append(
-                        f"chimeric: frame_tier_validation_absent edge=interior "
-                        f"similarity={_sim} margin={_mgn} "
-                        f"method={frame_tier_result.get('method')} "
-                        f"bracket=[{cursor},{master_start}]\n")
-                    frame_tier_result = {**frame_tier_result,
-                                         "declined": True,
-                                         "reason": "frame_tier_validation_absent"}
-                elif _mgn < 0:
-                    tools.logs.append(
-                        f"chimeric: frame_tier_validation_failed edge=interior "
-                        f"similarity={_sim} margin={_mgn} "
-                        f"method={frame_tier_result.get('method')} "
-                        f"bracket=[{cursor},{master_start}]\n")
-                    frame_tier_result = {**frame_tier_result,
-                                         "declined": True,
-                                         "reason": "frame_tier_validation_failed"}
-                else:
-                    tools.logs.append(
-                        f"chimeric: frame_tier_validated edge=interior "
-                        f"similarity={_sim} margin={_mgn} "
-                        f"method={frame_tier_result.get('method')} "
-                        f"bracket=[{cursor},{master_start}]\n")
-            if not frame_tier_result["declined"]:
-                # EXACT, NOT `derived_ms` -- the THIRD consumer this sweep
-                # found (Architect's ruling, 2026-09-16): the interior tier
-                # was reading the same rounded-for-display field the
-                # head/tail reconciliation was built to stop reading, just
-                # never audited for it because this site predates tonight's
-                # mission. `master_start_frame`/`master_end_frame` are the
-                # exact frame indices `_f1_payload` already carries.
-                lo = exact_ms_from_frame(frame_tier_result["master_start_frame"],
-                                         frame_tier_result["grid"])
-                hi = exact_ms_from_frame(frame_tier_result["master_end_frame"],
-                                         frame_tier_result["grid"])
-                # DEFENSIVE CLAMP: never let the frame tier WIDEN the gap the
-                # locator already bracketed, whatever it returns -- the
-                # bracket is the search interval (F1 rule 1), and widening it
-                # here would let a refiner bug turn into candidate content
-                # read from outside where it was ever measured.
-                lo = min(max(lo, cursor), master_start)
-                hi = min(max(hi, lo), master_start)
-                narrowed_low, narrowed_high = lo, hi
-
-            # SCENE ANCHOR SHADOW/AUTHORITY (owner's 2026-09-21 amendments,
-            # dev-anchor mission, ARCH_FRAME_ACCURATE.MD's Bidirectional
-            # Scene Anchor Protocol). RUNS UNCONDITIONALLY whenever this
-            # tier is asked, same trigger as F1 above -- Architect's
-            # ruling, 2026-09-21: the config flag gates AUTHORITY, not
-            # EXECUTION. Lead's refinement, same date: report-only data
-            # must come from EVERY production job, not a configured sweep
-            # -- a comparison over chosen material is a weaker measurement
-            # than one over material nobody selected.
-            import scene_anchor
-            # EXCEPTION ISOLATION -- MANDATORY (Lead's ruling, 2026-09-21):
-            # "a shadow observer must never be able to fail the thing it
-            # observes." Report-only means this call now runs on EVERY
-            # interior bracket in production, proven safe only for inputs
-            # it handles -- an unforeseen shape raising inside
-            # `scene_anchor` must become a NAMED shadow state, never
-            # propagate and break a job that would otherwise have
-            # succeeded. This is the one place in this landing where a
-            # blanket `except Exception` is deliberate rather than the
-            # defect AGENT.MD warns against (no blanket try/except unless
-            # explicitly requested) -- it IS explicitly requested, for
-            # exactly this reason, and its scope is drawn as tight as the
-            # single call it exists to isolate: nothing else in this tier
-            # is inside it.
-            try:
-                # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
-                # 2026-09-22): scene_anchor.py runs an in-process
-                # PySceneDetect decode with no timeout and no thread.
-                tools.dev_log(f"chimeric: calling scene_anchor."
-                              f"locate_scene_anchors master={master_path} "
-                              f"candidate={candidate_path}\n")
-                scene_anchor_result = scene_anchor.locate_scene_anchors(
-                    master_path, candidate_path, fps_num, fps_den,
-                    float(cursor), float(master_start),
-                    float(previous_offset), float(offset),
-                    step_ms=(_interior_bracket_for_tier.get("step_ms")
-                            if _interior_bracket_for_tier is not None else None),
-                    quantum_ms=quantum_ms)
-                _sa_errored = False
-            except Exception as _sa_exc:
-                scene_anchor_result = None
-                _sa_errored = True
-                tools.logs.append(
-                    f"chimeric: scene_anchor_error edge=interior "
-                    f"exception={type(_sa_exc).__name__} "
-                    f"bracket=[{cursor},{master_start}]\n")
-
-            # SIX STATES. Lead named four, approved a fifth
-            # (`both_declined`) rather than folding it into one that
-            # doesn't fit, and required a sixth (`protocol_errored`) for
-            # exception isolation -- "it declined" and "it threw" are
-            # different facts and must stay apart, same rule as the fifth.
-            #   agree                            both succeed, same frames
-            #   disagree                         both succeed, different frames
-            #   protocol_declined_f1_succeeded    THE YIELD-COST NUMBER --
-            #                                     what the promotion
-            #                                     decision turns on
-            #   f1_declined_protocol_succeeded    the protocol's own upside
-            #   both_declined                     neither could narrow
-            #   protocol_errored                  the protocol raised;
-            #                                     NEVER reaches the
-            #                                     narrowing or authority
-            #                                     logic below
-            _f1_declined = frame_tier_result["declined"]
-            if _sa_errored:
-                _sa_declined = True  # never authoritative, same as a decline
-                _shadow_state = "protocol_errored"
-            else:
-                _sa_declined = scene_anchor_result["declined"]
-                if _sa_declined and _f1_declined:
-                    _shadow_state = "both_declined"
-                elif _sa_declined and not _f1_declined:
-                    _shadow_state = "protocol_declined_f1_succeeded"
-                elif not _sa_declined and _f1_declined:
-                    _shadow_state = "f1_declined_protocol_succeeded"
-                else:
-                    _shadow_state = "agree" if (
-                        frame_tier_result["master_start_frame"] == scene_anchor_result["master_start_frame"]
-                        and frame_tier_result["master_end_frame"] == scene_anchor_result["master_end_frame"]
-                    ) else "disagree"
-            # PROVENANCE, MANDATORY (Architect's ruling, 2026-09-21): a
-            # future four/five-state census must be able to exclude
-            # fixture-produced shadow entries MECHANICALLY, not by memory
-            # -- the census design he and the Lead fixed on another
-            # instrument an hour before this one landed. NOT the raw path
-            # (no path has ever appeared in this module's log lines, and
-            # `VMSAM_TEST_OUTPUT_DIR` is a documented disclosure surface,
-            # BRIEF_COMMON.md): a categorical marker only, derived from
-            # whether the path lies under a known lab/fixture tree. A
-            # census that needs the real path for something else already
-            # has it -- the job's own log carries `master_path` elsewhere
-            # in this pipeline; this line's job is classification, not
-            # location.
-            _shadow_source = ("synthetic_fixture"
-                              if ("VMSAM_HELP_AI" in str(master_path)
-                                  or "fixtures" in str(master_path))
-                              else "production")
-            tools.logs.append(
-                f"chimeric: scene_anchor_shadow edge=interior state={_shadow_state} "
-                f"source={_shadow_source} "
-                f"scene_anchor_reason="
-                f"{scene_anchor_result.get('reason') if scene_anchor_result else 'errored'} "
-                f"scene_anchor_net_kind="
-                f"{scene_anchor_result.get('net_kind') if scene_anchor_result else None} "
-                f"f1_reason={frame_tier_result.get('reason')} "
-                f"bracket=[{cursor},{master_start}]\n")
-
-            # AUTHORITY, UNCONDITIONAL -- owner's order, 2026-09-21:
-            # "no option needed to activate the pipeline". The flag that
-            # used to gate this exited by its own pre-registered removal
-            # criterion; a scaffolding flag surviving campaign closure is
-            # forbidden by CAMPAIGN.MD's closure protocol, and removing it
-            # is part of finishing (WRITE_ZONES.MD S4), not a follow-up.
-            # When the protocol succeeded, ITS answer replaces F1's for
-            # narrowing; F1 stays the cross-check above and is NEVER
-            # silently promoted on a protocol decline -- when the protocol
-            # declines, this block does not run and the EXISTING F1-only
-            # logic already computed above is what decides.
-            if _sa_declined:
-                pass
-            else:
-                lo = exact_ms_from_frame(scene_anchor_result["master_start_frame"],
-                                         scene_anchor_result["grid"])
-                hi = exact_ms_from_frame(scene_anchor_result["master_end_frame"],
-                                         scene_anchor_result["grid"])
-                lo = min(max(lo, cursor), master_start)
-                hi = min(max(hi, lo), master_start)
-                narrowed_low, narrowed_high = lo, hi
-                frame_tier_result = scene_anchor_result
-                # INSERTION RULE (SPEC_ZONE_A S4h AMENDMENTS) -- NO EXTRA
-                # OFFSET ARITHMETIC NEEDED, AND AN EARLIER VERSION OF THIS
-                # LANDING GOT THAT WRONG (dev-anchor, 2026-09-21, caught
-                # before it ever reached src/): `offset` (this segment's
-                # OWN given offset, `previous_segment`'s/`segment`'s own
-                # hypothesis fed to `locate_scene_anchors` as
-                # `offset_after_ms`) is what the caller ALREADY measured
-                # for content on THIS side of the bracket -- it already
-                # accounts for any insertion between the anchors, because
-                # that is exactly what "the offset changed at this
-                # boundary" already means. Adding `frames_to_cut` to it a
-                # SECOND time double-counts the cut: measured directly,
-                # doing so moved the candidate read to
-                # [9009,19009) ms against fixture 1's 17007 ms bound --
-                # `chimeric_bound_error`, immediately, on the very first
-                # artefact-level run. `narrowed_high == narrowed_low`
-                # (scene_anchor's own contract on an addition: zero
-                # master-side length) already makes the EXISTING `if
-                # narrowed_high > narrowed_low` guard below skip the
-                # master-fill piece for free, and `master_start =
-                # narrowed_high` below already advances this segment's OWN
-                # read to start exactly where its OWN (correct) offset
-                # resumes matching -- which is the entire insertion rule,
-                # already implemented by the narrowing this tier already
-                # does for every other net_kind. The "genuinely new
-                # mechanism" this mission's plan promised turned out to be
-                # no mechanism at all: `net_kind`/`frames_to_cut` are
-                # diagnostic (SPEC_ZONE_A S4e's per-track report -- "what
-                # was cut and what was added, with the timings"), not
-                # inputs to further arithmetic.
-
-        if narrowed_low is not None:
-            # EXTEND THE PREVIOUS PIECE, DON'T INSERT A NEW ONE: it is
-            # already the candidate content read at `previous_offset`: more
-            # of the SAME read, up to where the frame tier says it stops
-            # matching, is exactly what "extend" means here.
-            if narrowed_low > cursor:
-                extended_end_candidate = narrowed_low + previous_offset
-                if extended_end_candidate <= candidate_duration_ms:
-                    pieces[-1]["master_end_ms"] = narrowed_low
-                    pieces[-1]["frame_tier"] = frame_tier_result
-                else:
-                    # The frame tier's answer would read the candidate past
-                    # its own end -- decline the narrowing, not the file.
-                    narrowed_low = cursor
-            if narrowed_high is None or narrowed_high < narrowed_low:
-                narrowed_high = narrowed_low
-            if narrowed_high > narrowed_low:
-                pieces.append({"source": "master", "master_start_ms": narrowed_low,
-                               "master_end_ms": narrowed_high,
-                               "source_start_ms": narrowed_low,
-                               "reason": "interior_bracket_frame_narrowed",
-                               "frame_tier": frame_tier_result})
-            # THIS SEGMENT NOW READS THE CANDIDATE FROM THE NARROWED POINT,
-            # not from its original `master_start` -- the frame tier already
-            # established the candidate matches from here on, under THIS
-            # segment's own offset.
-            if narrowed_high > master_start:
-                narrowed_high = master_start
-            master_start = narrowed_high
-
-        # HEAD CONSUMPTION (H-A3/H-TIER, 2026-09-16, Architect's ruling).
-        # `cursor == 0` here means this is the FIRST segment -- there is no
-        # `pieces[-1]` to extend (head has no preceding piece at all), so
-        # this does NOT reuse the interior block above; it only updates
-        # `master_start` in place. The generic head_gap creation below
-        # (`if master_start > cursor and narrowed_low is None`) then fires
-        # on the SAME, now-narrower `master_start` with no further change
-        # needed there. `locate_match_onset`, not `locate_bracket_boundary`
-        # -- a head span has only ONE real offset (this segment's own),
-        # and the two-hypothesis function degenerates on that (see its own
-        # docstring and `locate_match_onset`'s).
-        head_walk_offset_ms = None
-        if cursor == 0 and master_start > cursor:
-            leading_bracket = segment.get("leading_bracket")
-            head_onset_result = None
-            head_grid_ok = (fps_num is not None and fps_den is not None
-                           and fps_num > 0 and fps_den > 0)
-            head_frame_ms = (1000.0 * fps_den / fps_num) if head_grid_ok else None
-            head_inputs_ok = (master_path is not None and candidate_path is not None
-                              and fps_num is not None and fps_den is not None)
-            # DOES A HEAD GAP EXIST AT ALL -- the ONE place this landing needs
-            # a real tolerance, and it is ONE MASTER VIDEO FRAME, not an
-            # epsilon on the bracket's distance from the file edge (that
-            # distance is ZERO by construction at every edge: the locator pins
-            # `bracket_low_ms = 0.0` at a head and `bracket_high_ms =
-            # master_end_ms` at a tail). The unit is the code's own:
-            # `normalize_segments` already gates its tier at `gap_width_ms >
-            # 2.0 * frame_ms` because "one frame is this repair's atomic
-            # resolution". A gap under one frame is below anything this
-            # instrument can resolve, so asking the walk about it would be
-            # repair-at-indication-granularity wearing a frame answer's
-            # authority.
-            head_gap_ms = float(master_start - cursor)
-            head_gap_exists = (head_frame_ms is None or head_gap_ms > head_frame_ms)
-            edge_walk_bracket = None
-            if leading_bracket is not None:
-                edge_walk_bracket = (
-                    Decimal(str(leading_bracket["bracket_low_ms"])),
-                    Decimal(str(leading_bracket["bracket_high_ms"])))
-            elif head_gap_exists:
-                # A HEAD GAP ON THE MASTER'S OWN TIMELINE WITH NO BRACKET TO
-                # BOUND IT. The tail mirror of this is MEASURED (errid 5, see
-                # the tail block below); the head shape is not, and is named
-                # here rather than left to be discovered as a silent fill.
-                # LOUD: it is a LOCATOR defect, not a content fact.
-                tools.logs.append(
-                    f"chimeric: edge_bracket_absent edge=head "
-                    f"gap=[{cursor},{master_start}) = {head_gap_ms} ms "
-                    f"frame_ms={head_frame_ms} -- an edge gap exists on the "
-                    f"master's own timeline and the locator attached no "
-                    f"leading_bracket; walking the gap itself\n")
-                tools.logs.append(
-                    f"chimeric: FORENSIC REVIEW edge_bracket_absent edge=head "
-                    f"gap_ms={head_gap_ms}\n")
-                edge_walk_bracket = (cursor, master_start)
-            if leading_bracket is not None:
-                lb_low, lb_high = edge_walk_bracket
-                lb_width_ms = float(lb_high - lb_low) if lb_high > lb_low else 0.0
-                head_tier_asked = (head_inputs_ok
-                                   and (head_frame_ms is None
-                                        or lb_width_ms > 2.0 * head_frame_ms))
-                if head_tier_asked:
-                    import frame_compare
-                    # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
-                    # 2026-09-22): same unbounded frame_compare.py calls.
-                    tools.dev_log(f"chimeric: calling frame_compare."
-                                  f"locate_match_onset (head) "
-                                  f"master={master_path} "
-                                  f"candidate={candidate_path}\n")
-                    onset_result = frame_compare.locate_match_onset(
-                        master_path, candidate_path, fps_num, fps_den,
-                        float(lb_low), float(lb_high), float(offset),
-                        leading_bracket.get("known_match_ms", float(lb_high)),
-                        leading_bracket.get("known_absent_ms", float(lb_low)),
-                        edge="head")
-                    # CAPTURED UNCONDITIONALLY -- success OR decline -- so a
-                    # declined head onset reaches the piece it belongs to
-                    # (observability fix, 2026-09-16, same mission as the
-                    # interior site above). The NARROWING below is still
-                    # gated on `not declined`, unchanged: this line only
-                    # decides what gets RECORDED, never what gets DECIDED.
-                    head_frame_tier_result = onset_result
-                    head_onset_result = onset_result
-
-            # THE EDGE SINGLE-ANCHOR PROTOCOL, AND IT IS THE AUTHORITY HERE
-            # (owner's ruling, 2026-09-22). GATED ON THE GAP, NOT ON THE
-            # BRACKET'S WIDTH: a bracket narrower than two frames still needs
-            # walking when it sits at the wrong PLACE, and the question this
-            # protocol answers is "where does the common content start", not
-            # "is this interval wide enough to be worth refining".
-            if edge_walk_bracket is not None and head_gap_exists and head_inputs_ok:
-                _ew_low, _ew_high = edge_walk_bracket
-                edge_walk_result, edge_walk_errored = run_edge_walk(
-                    "head", master_path, candidate_path, fps_num, fps_den,
-                    _ew_low, _ew_high, offset,
-                    master_duration_ms, candidate_duration_ms,
-                    bracket=leading_bracket, onset_result=head_onset_result)
-                head_frame_tier_result = (edge_walk_result
-                                          if edge_walk_result is not None
-                                          else head_frame_tier_result)
-                if not edge_walk_errored and not edge_walk_result["declined"]:
-                    # THE PROTOCOL'S INTERVAL IS THE BOUNDARY. Outcome 3's
-                    # head shape (ADDENDUM): `boundary_frame` is the first
-                    # master frame with a readable candidate counterpart, so
-                    # `[0, boundary)` is a master ADDITION whose length is the
-                    # frame COUNT itself, times the grid's exact rational
-                    # frame time -- `exact_ms_from_frame`, never `derived_ms`,
-                    # which is rounded for display. Outcome 1's head shape
-                    # lands on the same line: `boundary_frame` is the last
-                    # master frame still matching as the walk went outward,
-                    # and everything before it is content to replace. The
-                    # generic `head_gap` piece built below then fires on this
-                    # same, now-frame-exact `master_start` with no further
-                    # change -- and its `reason` string stays `"head_gap"`,
-                    # which three call sites match as a literal.
-                    master_start = exact_ms_from_frame(
-                        edge_walk_result["boundary_frame"],
-                        edge_walk_result["grid"])
-                    # CLAMPED TO THE MASTER TIMELINE, AND DELIBERATELY NOT TO
-                    # THE BRACKET. The interior site clamps to its bracket
-                    # because a bracket there IS the search interval with
-                    # content proven on both sides. An edge walk's whole
-                    # purpose is to travel OUTWARD past the bracket to where
-                    # content actually stops matching, so clamping to the
-                    # bracket would discard the answer it was called for --
-                    # the same shape of defect as the 2026-09-16 head clamp
-                    # that silently threw away a correct 3753.75 ms onset.
-                    # What remains non-negotiable is the segment's own frame:
-                    # a start before `cursor` or past this segment's end is
-                    # not a narrower answer, it is nonsense, and
-                    # `normalize_segments`' own empty/inverted guard below is
-                    # the word on the latter.
-                    if master_start < cursor:
-                        master_start = cursor
-                    # THE BOUNDARY AND THE OFFSET ARE ONE STATEMENT AT A HEAD,
-                    # AND CONSUMING ONE WITHOUT THE OTHER IS INCOHERENT.
-                    # `boundary_frame` is the master frame the walk proved the
-                    # candidate's content sits at under `shift_frames`; the
-                    # segment's offset IS that shift, in ms. Keeping the
-                    # audio-derived offset while moving `master_start` to the
-                    # frame-exact boundary makes the piece read the candidate
-                    # at `master_start + offset`, which is a DIFFERENT point
-                    # than the walk measured -- on Undead Unluck S01E13 that
-                    # is candidate -41.71 ms, i.e. one frame BEFORE the
-                    # candidate's own first frame, and
-                    # `chimeric_bound_error` refuses the whole plan
-                    # (reproduced 2026-09-22, before this block existed).
-                    #
-                    # THIS IS THE EXISTING SUB-FRAME DOCTRINE REACHING A SITE
-                    # THAT NOW HAS A GOVERNOR, not new law: the reconciliation
-                    # below already snaps an offset to a whole frame when a
-                    # frame tier ran, and its own comment says that doctrine
-                    # "presupposes a governor". Here the governor MEASURED the
-                    # shift directly instead of rounding the audio's, so its
-                    # value is used rather than `ROUND_HALF_EVEN` on a number
-                    # the video has just superseded.
-                    #
-                    # NEVER SILENT, AND TRIPWIRED AGAINST THE AUDIO'S OWN
-                    # UNCERTAINTY: the audio offset is measured to a quantum
-                    # (129 ms on this very pair), so a video-vs-audio
-                    # disagreement INSIDE that quantum is the two instruments
-                    # agreeing at their respective precisions -- Undead Unluck
-                    # S01E13 measures -959.29 ms against the audio's -1017.33,
-                    # 58.04 ms apart, well inside 129. A disagreement LARGER
-                    # than the quantum is not a precision gain and is named
-                    # for review rather than quietly applied.
-                    head_walk_offset_ms = exact_ms_from_frame(
-                        edge_walk_result["shift_frames"],
-                        edge_walk_result["grid"])
-                    _hw_delta = head_walk_offset_ms - Decimal(str(offset))
-                    tools.logs.append(
-                        f"chimeric: edge_walk_offset edge=head "
-                        f"audio_offset_ms={offset} "
-                        f"walk_offset_ms={head_walk_offset_ms} "
-                        f"shift_frames={edge_walk_result['shift_frames']} "
-                        f"delta_ms={_hw_delta} quantum_ms={quantum_ms}\n")
-                    if quantum_ms is not None and abs(_hw_delta) > Decimal(str(quantum_ms)):
-                        tools.logs.append(
-                            f"chimeric: FORENSIC REVIEW edge_walk_offset "
-                            f"edge=head delta_ms={_hw_delta} exceeds the "
-                            f"audio quantum {quantum_ms} ms -- the frame walk "
-                            f"and the audio measurement disagree by more than "
-                            f"the audio's own uncertainty\n")
-            elif head_onset_result is not None and not head_onset_result["declined"]:
-                # THE PROTOCOL WAS NOT ASKED (no gap worth a frame, or inputs
-                # absent) -- so nothing has superseded the cross-check and
-                # TODAY'S behaviour stands, unchanged. THE TIER'S INTERVAL IS
-                # THE BOUNDARY (Architect's ruling, 2026-09-16: "a contract's
-                # consumer must consume"): `locate_match_onset`'s own contract
-                # already guarantees `declined: False` implies a valid
-                # interval inside `[lb_low, lb_high]`, consumed directly, not
-                # re-derived behind a safety net that duplicates it. THE
-                # DEFECT THAT REPLACED: the first version clamped against
-                # `master_start` -- this segment's own cruder, audio-only
-                # `max(0,-offset)` estimate, not the bracket the question was
-                # asked against -- and on real E04 media silently discarded a
-                # correct 3753.75 ms answer back to 2731.75 ms.
-                master_start = exact_ms_from_frame(
-                    head_onset_result["onset_frame"], head_onset_result["grid"])
-
-        # SUBFRAME RECONCILIATION (Architect's ruling, 2026-09-16, SCOPE
-        # CORRECTED same night after id 12's regression caught the first
-        # version). EXISTING LAW REACHING A SITE IT NEVER REACHED, not new
-        # law: AGENT.MD already says a delay measured by comparison is
-        # snapped to a whole video frame when the reference is CFR, and
-        # that sub-frame precision is discarded BY DESIGN. That doctrine
-        # is applied at the merge level (`adjust_delay_to_frame`), ONCE,
-        # to THE PAIR'S SINGLE comparison delay. THIS combination site is
-        # a DIFFERENT site with a DIFFERENT blast radius -- a per-segment
-        # repair offset, one per piece, not one per pair -- and extending
-        # the doctrine there is NEW DESIGN, not an application of existing
-        # doctrine, for any piece that never had a frame measurement to
-        # begin with.
-        #
-        # SCOPED to pieces where a frame measurement ACTUALLY EXISTS:
-        # "the frame instrument governs sub-frame" presupposes a governor.
-        # The first version of this fix ran at EVERY combination
-        # regardless, and id 12's own regression caught it: three of its
-        # segments carry plain, audio-only offsets that happen to sit
-        # under one frame from a whole-frame value (residuals 0.186/0.104/
-        # 0.0157 frames at 24fps) -- reconciling THOSE is not governing a
-        # frame answer, it is SNAPPING an audio-only measurement with no
-        # frame instrument involved at all, a broader, unruled design
-        # question now parked on the Architect's board (no dispatch until
-        # a MEASURED case shows sub-frame per-segment drift causing
-        # observable harm in a shipped file -- tonight's own residuals cut
-        # AGAINST that trigger existing).
-        #
-        # Measured consequence THIS scope fixes, E04's head: the frame
-        # tier's onset landed on frame 65 almost exactly (65.0005 frames),
-        # the audio offset read 65.497 frames -- residual ~0.497 frame,
-        # under one frame, that turned into a hard `chimeric_bound_error`
-        # only because the frame tier is precise enough to land on the far
-        # side of it. `frame_measured_here` is True only when THIS
-        # iteration's `master_start` actually came from a frame tier
-        # (head or interior) that ran and did not decline -- never for a
-        # segment whose boundary is the locator's own audio-only reading.
-        #
-        # CFR ONLY -- same condition `adjust_delay_to_frame` uses. VFR
-        # (or an unmeasured grid) keeps TODAY's behaviour: no
-        # reconciliation attempted, the guard below is the only word.
-        #
-        # A residual STRICTLY under one frame resolves the OFFSET used for
-        # THIS combination to the nearest frame boundary and emits a
-        # NAMED, COUNTABLE record -- `subframe_reconciled` -- carrying
-        # BOTH raw values and the residual. This is NEVER a silent clamp:
-        # it is F1 quantization with a receipt, and that receipt is the
-        # entire difference between this and clamping a negative to zero.
-        #
-        # THE GUARD BELOW IS UNTOUCHED. It still refuses residuals >= one
-        # frame -- it guards a real violation and proved tonight that it
-        # fires. Reconciliation runs BEFORE the guard, never instead of it:
-        # `offset_for_combination` is what the guard actually sees.
-        offset_for_combination = offset
-        subframe_record = None
-        if head_walk_offset_ms is not None:
-            # THE FRAME INSTRUMENT MEASURED THIS OFFSET, it was not rounded
-            # from the audio's -- so it stands, and the nearest-frame
-            # reconciliation below has nothing left to decide (it would round
-            # an already-exact whole-frame value to itself). Recorded in the
-            # same `subframe_reconciled` shape so one census reads both.
-            offset_for_combination = head_walk_offset_ms
-            subframe_record = {
-                "raw_offset_ms": str(offset),
-                "reconciled_offset_ms": str(head_walk_offset_ms),
-                "reconciled_by": "edge_walk_head",
-                "shift_frames": head_frame_tier_result.get("shift_frames")}
-        subframe_record_from_walk = subframe_record is not None
-        frame_measured_here = (head_frame_tier_result is not None
-                               or (frame_tier_result is not None
-                                   and not frame_tier_result["declined"]))
-        recon_grid_ok = (frame_measured_here
-                         and fps_num is not None and fps_den is not None
-                         and fps_num > 0 and fps_den > 0)
-        if recon_grid_ok and not subframe_record_from_walk:
-            # PURE DECIMAL, NOT float-then-Decimal: the SAME precision
-            # lesson as `exact_ms_from_frame` above, applied to the
-            # reconciliation's own frame duration -- `1000.0*fps_den/fps_num`
-            # rounds at float precision before ever reaching Decimal, and
-            # a fix chasing a sub-millisecond residual cannot afford to
-            # reintroduce the same class of loss it exists to close.
-            recon_frame_ms = Decimal(1000 * fps_den) / Decimal(fps_num)
-            offset_frames_raw = Decimal(str(offset)) / recon_frame_ms
-            nearest_frame = offset_frames_raw.to_integral_value(rounding=ROUND_HALF_EVEN)
-            residual_frames = abs(offset_frames_raw - nearest_frame)
-            if residual_frames < 1:
-                reconciled_offset_ms = nearest_frame * recon_frame_ms
-                offset_for_combination = reconciled_offset_ms
-                subframe_record = {
-                    "raw_offset_ms": str(offset),
-                    "raw_offset_frames": str(offset_frames_raw),
-                    "reconciled_frame": int(nearest_frame),
-                    "reconciled_offset_ms": str(reconciled_offset_ms),
-                    "residual_frames": str(residual_frames)}
-                tools.logs.append(
-                    f"chimeric: subframe_reconciled master_start={master_start} "
-                    f"raw_offset_frames={offset_frames_raw} "
-                    f"reconciled_frame={int(nearest_frame)} "
-                    f"residual_frames={residual_frames}\n")
-                if residual_frames > Decimal("0.75"):
-                    # PRE-REGISTERED TRIPWIRE: drift wearing a
-                    # reconciliation, named so it cannot accumulate unread.
-                    tools.logs.append(
-                        f"chimeric: FORENSIC REVIEW subframe_reconciled "
-                        f"residual_frames={residual_frames} exceeds 0.75 "
-                        f"frame -- drift, not quantization noise\n")
-
-        candidate_start = master_start + offset_for_combination
-        candidate_end = master_end + offset_for_combination
-        if candidate_start < 0 or candidate_end > candidate_duration_ms:
-            # LA GARDE DIT CE QU'ELLE A VERIFIE. Sans `bound_label` ce message
-            # citait un nombre sans dire de quelle piste il venait -- et pendant
-            # qu'il etait la borne du FICHIER et non celle de la piste decoupee,
-            # il PASSAIT, donc personne ne l'a jamais lu. Le numero de flux est
-            # ce qui distingue les deux pistes `en` d'un meme fichier.
-            #
-            # CINQUIEME SITE AUTORISE (Architect, CASE_errid50_untokened_1279.md,
-            # errids 50 et 58, wave table pass 10): premieres occurrences de
-            # production 2026-09-24. Le jeton dit CE QUE LA MESURE A VU: la
-            # fenetre calculee du morceau tombe hors de la duree PROPRE du
-            # candidat (`candidate_duration_ms`, mesuree sur le flux -- et deja
-            # revalidee contre le flux reel par `normalize_with_measured_bound`
-            # avant que ce refus n'atteigne l'appelant, jamais une metadonnee
-            # crue sur parole), pas seulement hors d'une piste. C'est le SEUL
-            # site qui leve `chimeric_bound_error` -- distinct des jetons
-            # voisins comme `candidate_segment_regression` (monotonie entre
-            # deux morceaux places) et `delivery_timeline_misalignment`
-            # (verification post-mux contre le maitre): ici c'est la fenetre
-            # d'un morceau qui sort de la piste elle-meme, une quatrieme facon
-            # de rater (regle de granularite R1), donc un cinquieme jeton.
-            raise chimeric_bound_error(
-                f"segment reads the candidate at [{candidate_start},"
-                f"{candidate_end}) ms, outside its {candidate_duration_ms} ms"
-                + (f" [{bound_label}]" if bound_label != None else ""),
-                stream_order=stream_order, bound_ms=candidate_duration_ms,
-                cause="candidate_admission_window_exceeded")
-        # Monotonie cote candidat: exigee par la nature du probleme (les deux
-        # timelines avancent), et exigee par l'implementation (le filtre concat
-        # tire ses segments dans l'ordre; un retour en arriere obligerait
-        # ffmpeg a bufferiser tout un episode en RAM).
-        if previous_candidate_end != None and candidate_start < previous_candidate_end:
-            # THIRD SITE AUTORISE (Architect, scope-in ruling 2026-09-22,
-            # RULING_20260922_NO_BAND_ROUTING.MD, "RAISE SITE 1001 SCOPED
-            # INTO THE TOKENED SET"): first production occurrence 2026-09-22
-            # (errid 25, wave table). Le jeton dit CE QUE LA MESURE A VU: le
-            # plan lit le candidat EN ARRIERE, a partir d'un point deja
-            # depasse -- une regression que le decoupage suivant doit
-            # expliquer ou refaire, pas une piste illisible. Distinct des
-            # deux jetons voisins: `bracket_unnarrowed` dit qu'un intervalle
-            # n'a pas ete affine, `alignment_contradicts_plan` dit qu'un
-            # alignement declare ne tient pas sur une piece -- ici c'est la
-            # MONOTONIE cote candidat qui casse, une troisieme facon de
-            # rater, donc un troisieme jeton (regle de granularite R1). La
-            # question plus profonde -- bruit de precision du localisateur ou
-            # contenu reellement non monotone -- reste OUVERTE (10.93 ms de
-            # regression mesures, moins d'une image a l'une ou l'autre
-            # cadence): ce jeton ne la tranche pas, il la rend MESURABLE sur
-            # le prochain artefact retenu ou le prochain passage d'errid 25.
-            raise chimeric_error(
-                f"segment reads the candidate backwards at {candidate_start} ms, "
-                f"after having read up to {previous_candidate_end} ms "
-                f"(regression {previous_candidate_end - candidate_start} ms)",
-                cause="candidate_segment_regression")
-        previous_candidate_end = candidate_end
-
-        if master_start > cursor and narrowed_low is None:
-            # POURQUOI CE MORCEAU DE MAITRE EST LA, ET C'EST L'ARCHITECTE QUI A
-            # MONTRE QUE PERSONNE NE POUVAIT LE DIRE.
-            #
-            # Un morceau maitre insere a TROIS causes possibles et le journal les
-            # ecrivait toutes de la meme facon:
-            #
-            #   head_gap          rien avant le premier segment. Soit le candidat
-            #                     n'a rien la (decalage negatif), soit un segment
-            #                     a ete JETE comme inutilisable -- deux faits
-            #                     opposes qui produisaient la meme ligne.
-            #   interior_bracket  le trou EST l'incertitude du localisateur entre
-            #                     deux plateaux; sa largeur est `bracket_high -
-            #                     bracket_low` -- ou, quand la troisieme grille de
-            #                     cadres a pu l'affiner, la largeur RESIDUELLE
-            #                     apres narrowing (branche ci-dessus).
-            #   tail_gap          rien apres le dernier segment.
-            #
-            # LA DISTINCTION EST LA QUESTION DU PROPRIETAIRE. Sa regle dit de
-            # RETIRER l'exces de tete et de queue et de GARDER ce qui tombe dans
-            # la portee du maitre. Un lecteur ne pouvait pas verifier laquelle des
-            # trois s'etait produite, donc ne pouvait pas voir qu'une substitution
-            # avait remplace du materiel candidat par du maitre.
-            # `head_piece` BUILDS BOTH HEAD AND INTERIOR PIECES (its `reason`
-            # branches on `cursor` right above) -- the name itself invites the
-            # next reader to reach for a head-only variable here, which is
-            # EXACTLY the mistake this site made until this landing:
-            # `head_frame_tier_result` is set ONLY inside the head's own
-            # `cursor==0` block (:616-ish), so for an interior piece it was
-            # ALWAYS `None` and interior's own `frame_tier_result` (set
-            # unconditionally at the top of this loop iteration, success OR
-            # decline) was never even consulted at this site -- not "declined
-            # and discarded downstream", but the WRONG VARIABLE read here,
-            # which also silently dropped a SUCCESSFUL interior narrowing's
-            # own frame_tier detail, not only a declined one (Lead's finding,
-            # verified independently, 2026-09-16).
-            head_piece = {"source": "master", "master_start_ms": cursor,
-                         "master_end_ms": master_start,
-                         "source_start_ms": cursor,
-                         "reason": "head_gap" if cursor == 0 else "interior_bracket"}
-            relevant_frame_tier_result = (head_frame_tier_result if cursor == 0
-                                         else frame_tier_result)
-            if relevant_frame_tier_result is not None:
-                head_piece["frame_tier"] = relevant_frame_tier_result
-            # REGION B -- bracket reference for the post-tier width check
-            # near the end of this function. Fetched fresh here rather than
-            # reused from the head block's own local (`leading_bracket`),
-            # which is only ever assigned inside `if cursor == 0`, so a
-            # bare reference to it from the interior branch would be an
-            # UnboundLocalError on the very first interior gap of a file
-            # whose head never ran the head block at all (`master_start_ms
-            # == 0` at admission -- CASE 1 in `change_point_locator.py`).
-            relevant_bracket = (segment.get("leading_bracket") if cursor == 0
-                               else (previous_segment.get("following_bracket")
-                                     if previous_segment is not None else None))
-            if relevant_bracket is not None:
-                head_piece["bracket"] = relevant_bracket
-            pieces.append(head_piece)
-        candidate_piece = {"source": "candidate", "master_start_ms": master_start,
-                          "master_end_ms": master_end,
-                          "source_start_ms": candidate_start}
-        if subframe_record is not None:
-            candidate_piece["subframe_reconciled"] = subframe_record
-        pieces.append(candidate_piece)
-        cursor = master_end
-        # THE RECONCILED VALUE, NOT THE RAW ONE: `previous_offset` feeds
-        # the NEXT iteration's interior-tier "extend the previous piece"
-        # arithmetic (`extended_end_candidate = narrowed_low +
-        # previous_offset`) -- that computation reads the candidate at a
-        # position, so it must use the offset THIS piece was actually
-        # placed at, not the pre-reconciliation measurement.
-        previous_offset = offset_for_combination
-        previous_segment = segment
-
-    # TAIL CONSUMPTION (H-A3/H-TIER, 2026-09-16), mirroring HEAD above:
-    # `locate_match_onset(edge="tail")` finds the LAST position that still
-    # matches the surviving plateau, so a successful result PULLS `cursor`
-    # forward (shrinking the tail gap) and EXTENDS `pieces[-1]` -- unlike
-    # head, tail DOES have a preceding candidate piece to extend, same
-    # shape as the interior tier's own "extend the preceding piece" step.
-    tail_frame_tier_result = None
-    tail_onset_result = None
-    trailing_bracket = None
-    if cursor < master_duration_ms:
-        trailing_bracket = segment.get("trailing_bracket")
-        tail_grid_ok = (fps_num is not None and fps_den is not None
-                       and fps_num > 0 and fps_den > 0)
-        tail_frame_ms = (1000.0 * fps_den / fps_num) if tail_grid_ok else None
-        tail_inputs_ok = (master_path is not None and candidate_path is not None
-                          and fps_num is not None and fps_den is not None)
-        # DOES A TAIL GAP EXIST AT ALL -- measured against the MASTER'S OWN
-        # TIMELINE (`master_duration_ms`, which `assemble_on_master_timeline`
-        # reads from `get_master_timeline_length_ms`, the video Duration
-        # `generate_new_file` imposes with `-t duration_best_video`), with ONE
-        # MASTER VIDEO FRAME of tolerance. NEVER the locator's own
-        # `master_end_ms`, which is `min(master, candidate)` and is therefore
-        # the CANDIDATE's duration whenever the master is longer.
-        tail_gap_ms = float(master_duration_ms - cursor)
-        tail_gap_exists = (tail_frame_ms is None or tail_gap_ms > tail_frame_ms)
-        tail_edge_walk_bracket = None
-        if trailing_bracket is not None:
-            tail_edge_walk_bracket = (
-                Decimal(str(trailing_bracket["bracket_low_ms"])),
-                Decimal(str(trailing_bracket["bracket_high_ms"])))
-        elif tail_gap_exists:
-            # THE STRUCTURAL HOLE, CLOSED (ANALYSIS_edge_single_anchor.md
-            # finding 3). A tail gap exists on the MASTER's own timeline and
-            # the locator attached NO `trailing_bracket` -- because its own
-            # `master_end_ms` is `round(shortest*1000, 2)` with `shortest =
-            # min(master_duration, candidate_duration)`
-            # (`change_point_locator.py:1842,2913`), so on a master LONGER
-            # than its candidate the locator's "master end" is the CANDIDATE's
-            # duration, the last segment reaches it exactly, and
-            # `tail_ends_at_master_end` takes CASE 1. Meanwhile THIS function,
-            # which gets the REAL master timeline, appends a `tail_gap` piece
-            # anyway -- with `bracket=None`, invisible to the frame tier and
-            # skipped by the `bracket_unnarrowed` gate below, which returns
-            # early on a `None` bracket. MEASURED on errid 5 (Fate/Strange
-            # Fake S01E01: master 1487.947 s, candidate 1450.016 s, locator
-            # `master_end_ms=1450016.0`): 37.93 s of master fill with no
-            # bracket, no frame tier and no width gate. Mai-HiME S01E11's
-            # 78.19 s tail is the same shape.
-            #
-            # THE MINIMAL FIX IS HERE, NOT IN THE LOCATOR, and deliberately:
-            # `master_end_ms` there also CLAMPS every segment
-            # (`end_ms = min(master_end_ms, candidate_end_ms - offset_ms)`),
-            # so splitting it into two quantities inside a module that already
-            # carries three "master end"s would move far more than this hole.
-            # The master's own timeline is already in scope HERE, and this is
-            # the site where the silent fill is actually appended.
-            #
-            # LOUD, because it is a LOCATOR defect and not a content fact.
-            tools.logs.append(
-                f"chimeric: edge_bracket_absent edge=tail "
-                f"gap=[{cursor},{master_duration_ms}) = {tail_gap_ms} ms "
-                f"frame_ms={tail_frame_ms} -- a tail gap exists on the "
-                f"master's own timeline and the locator attached no "
-                f"trailing_bracket (its master_end is min(master,candidate)); "
-                f"walking the gap itself instead of filling it unverified\n")
-            tools.logs.append(
-                f"chimeric: FORENSIC REVIEW edge_bracket_absent edge=tail "
-                f"gap_ms={tail_gap_ms}\n")
-            tail_edge_walk_bracket = (cursor, master_duration_ms)
-        if trailing_bracket is not None:
-            tb_low, tb_high = tail_edge_walk_bracket
-            tb_width_ms = float(tb_high - tb_low) if tb_high > tb_low else 0.0
-            tail_tier_asked = (tail_inputs_ok
-                               and (tail_frame_ms is None
-                                    or tb_width_ms > 2.0 * tail_frame_ms))
-            if tail_tier_asked:
-                import frame_compare
-                # IMMEDIATELY-PRE-CALL (owner's order via the Lead,
-                # 2026-09-22): same unbounded frame_compare.py calls.
-                tools.dev_log(f"chimeric: calling frame_compare."
-                              f"locate_match_onset (tail) master={master_path} "
-                              f"candidate={candidate_path}\n")
-                onset_result = frame_compare.locate_match_onset(
-                    master_path, candidate_path, fps_num, fps_den,
-                    float(tb_low), float(tb_high), float(offset),
-                    trailing_bracket.get("known_match_ms", float(tb_low)),
-                    trailing_bracket.get("known_absent_ms", float(tb_high)),
-                    edge="tail")
-                # CAPTURED UNCONDITIONALLY -- success OR decline, same
-                # observability fix as HEAD above, 2026-09-16. Everything
-                # below (the narrowing, the `cursor` advance) stays gated on
-                # `not declined`, unchanged: this line only decides what
-                # gets RECORDED.
-                tail_frame_tier_result = onset_result
-                tail_onset_result = onset_result
-
-        # THE EDGE SINGLE-ANCHOR PROTOCOL AT THE TAIL -- the authority, same
-        # rule and same reasons as the head block above. Gated on the GAP
-        # (one master frame, against the master's own timeline), not on the
-        # bracket's width, and reached whether or not a bracket exists: the
-        # no-bracket branch is the structural hole this landing closes.
-        if (tail_edge_walk_bracket is not None and tail_gap_exists
-                and tail_inputs_ok):
-            _tw_low, _tw_high = tail_edge_walk_bracket
-            tail_walk_result, tail_walk_errored = run_edge_walk(
-                "tail", master_path, candidate_path, fps_num, fps_den,
-                _tw_low, _tw_high, offset,
-                master_duration_ms, candidate_duration_ms,
-                bracket=trailing_bracket, onset_result=tail_onset_result)
-            tail_frame_tier_result = (tail_walk_result
-                                      if tail_walk_result is not None
-                                      else tail_frame_tier_result)
-            if not tail_walk_errored and not tail_walk_result["declined"]:
-                # THE THREE TERMINATIONS, EACH ONTO A PIECE CONSTRUCTION THAT
-                # ALREADY EXISTS (ADDENDUM; spec S3d). No new piece `source`,
-                # no new `reason` string, no second tail-pad mechanism:
-                #
-                #   candidate_exhausted -> `pieces[-1]` runs to
-                #     `exact_ms_from_frame(boundary+1)` and the `tail_gap`
-                #     piece below covers `[that, master_duration_ms)`. Its
-                #     length IS `addition_frames` times the grid's exact
-                #     rational frame time, BY CONSTRUCTION -- the count is the
-                #     measurement, which is what the ADDENDUM demands.
-                #   sustained_mismatch -> identical arithmetic; the `tail_gap`
-                #     piece is the REPLACE rather than the addition.
-                #   master_exhausted   -> `pieces[-1]` runs to
-                #     `master_duration_ms`, `cursor` reaches it, the
-                #     `if cursor < master_duration_ms` guard below is False
-                #     and NO `tail_gap` piece is appended. The candidate's
-                #     remainder is never read = trimmed. That is exactly
-                #     Undead Unluck S01E12's current behaviour, reproduced
-                #     rather than replaced.
-                #
-                # THE `reason` STRING STAYS `"tail_gap"`. It is matched as a
-                # LITERAL by `split_master_fill_shortfall` and by the
-                # `bracket_unnarrowed` gate; renaming it by analogy with
-                # `interior_bracket_frame_narrowed` would silently disable the
-                # tail exemption and start refusing files on
-                # `fill_source_too_short`. The narrowing is recorded in
-                # `piece["frame_tier"]`, which already travels.
-                if tail_walk_result["termination"] == "master_exhausted":
-                    tail_boundary_ms = master_duration_ms
-                else:
-                    tail_boundary_ms = exact_ms_from_frame(
-                        tail_walk_result["boundary_frame"] + 1,
-                        tail_walk_result["grid"])
-                    if tail_boundary_ms > master_duration_ms:
-                        tail_boundary_ms = master_duration_ms
-                if tail_boundary_ms > cursor:
-                    # `offset_for_combination`, not raw `offset`: the LAST
-                    # segment's own combination (main loop above) already
-                    # reconciled it if a residual under one frame applied --
-                    # this extension reads the SAME candidate position at the
-                    # SAME offset, so it must agree with what that piece was
-                    # actually placed at.
-                    extended_end_candidate = tail_boundary_ms + offset_for_combination
-                    if extended_end_candidate <= candidate_duration_ms:
-                        pieces[-1]["master_end_ms"] = tail_boundary_ms
-                        pieces[-1]["frame_tier"] = tail_walk_result
-                        cursor = tail_boundary_ms
-                    else:
-                        # The protocol's answer would read the candidate past
-                        # its own declared end -- decline the extension, not
-                        # the file (the interior tier's own rule).
-                        tools.logs.append(
-                            f"chimeric: edge_walk_extension_refused edge=tail "
-                            f"boundary_ms={tail_boundary_ms} "
-                            f"would_read_candidate_to={extended_end_candidate} "
-                            f"candidate_bound={candidate_duration_ms}\n")
-        elif tail_onset_result is not None and not tail_onset_result["declined"]:
-            # THE PROTOCOL WAS NOT ASKED -- today's behaviour, unchanged.
-            # THE TIER'S INTERVAL IS THE BOUNDARY, same rule as HEAD above,
-            # consumed directly and not re-clamped: `cursor` here is the LAST
-            # segment's own end and `[tb_low, tb_high]` starts forward of it
-            # by how the bracket was built (`tail_run["last"] +
-            # PROBE_WINDOW_SECONDS`), not by a coincidence this site has to
-            # re-verify.
-            onset_ms = exact_ms_from_frame(
-                tail_onset_result["onset_frame"], tail_onset_result["grid"])
-            if onset_ms > cursor:
-                extended_end_candidate = onset_ms + offset_for_combination
-                if extended_end_candidate <= candidate_duration_ms:
-                    pieces[-1]["master_end_ms"] = onset_ms
-                    cursor = onset_ms
-
-    if cursor < master_duration_ms:
-        tail_piece = {"source": "master", "master_start_ms": cursor,
-                     "master_end_ms": master_duration_ms,
-                     "source_start_ms": cursor,
-                     "reason": "tail_gap"}
-        if tail_frame_tier_result is not None:
-            tail_piece["frame_tier"] = tail_frame_tier_result
-        if trailing_bracket is not None:
-            tail_piece["bracket"] = trailing_bracket
-        pieces.append(tail_piece)
-
-    # REGION B -- THE POST-TIER WIDTH CHECK (dev-tiergate mission,
-    # 2026-09-16; owner ruling RULING_20260916_MINIMAL_DESTRUCTION_NORTH_
-    # STAR.MD item 4, via the Lead/Architect: "100 s may NOT ship
-    # un-narrowed"). A SINGLE PASS OVER THE FINISHED LIST, never an inline
-    # raise at the first offending bracket: raising mid-loop above would
-    # abort before later brackets in THIS SAME FILE ever got their own
-    # tier call, silently dropping their narrowings from ever running --
-    # the opposite of what this file's own acceptance case exists to
-    # demonstrate (two valid narrowings must still run, validate, and be
-    # LOGGED even though the file as a whole declines on a third bracket).
-    # Region A's log lines above (`frame_tier_validated` /
-    # `frame_tier_validation_failed`) are the ONLY carrier of "this
-    # bracket validated" once a decline aborts the plan here:
-    # `normalize_segments` never returns `pieces` on a raise, so the
-    # `filled_regions` plan builder downstream never runs and the
-    # structured plan does not exist for a declined file -- the job log is
-    # the report.
-    #
-    # THE PREDICATE, worked from the two bracket-construction shapes
-    # rather than a magic width: `bracket_is_bound_only` is EVIDENCE (the
-    # H-TIER ruling above already demoted it from a GATE, for the same
-    # reason) -- a bound_only bracket the frame tier DID narrow (fill
-    # width < bracket width) must still ship, so the flag ALONE would
-    # wrongly decline it. A quantum-refined, non-bound_only bracket the
-    # frame tier never touches must ALSO still ship ("loudly named",
-    # owner ruling) -- "unnarrowed" ALONE would wrongly decline THAT.
-    # Only the CONJUNCTION names "the shipped fill's width IS the
-    # un-refined search bound": `bracket_is_bound_only == True` (the
-    # quantum tier's own widest, unrefined interval) AND the shipped
-    # width still equals what that bracket arrived with -- neither tier
-    # ever reduced it.
-    #
-    # NO ABSOLUTE MS THRESHOLD: interior's un-refined bound is
-    # deterministically `PROBE_STEP_SECONDS + PROBE_WINDOW_SECONDS =
-    # 100000` ms (`change_point_locator.py`'s `_bracket_transition`
-    # bound_only return), but head/tail's `constructed_gap_onset_not_found`
-    # bracket is CONTENT-DEPENDENT WIDTH (`[0, head_run["first"]]` /
-    # `[tail_run["last"]+PROBE_WINDOW_SECONDS, master_end]`) -- a
-    # fixed-magnitude test would be right for interior and silently wrong
-    # for head/tail. Comparing each fill against ITS OWN originating
-    # bracket avoids inventing a constant that is only true for one of
-    # the three sites.
-    #
-    # SCOPE EDGE, reported and left alone (Lead's ruling): an interior gap
-    # whose two flanking change points are not ADJACENT in the locator's
-    # own numbering carries no `following_bracket` at all
-    # (`change_point_locator.py:2229`'s `if next_position == this_position
-    # + 1`); `_piece.get("bracket")` is then `None` and this predicate
-    # cannot fire, same as today.
-    for _piece in pieces:
-        if _piece.get("source") != "master":
-            continue
-        if _piece.get("reason") not in ("head_gap", "interior_bracket", "tail_gap"):
-            continue
-        _bracket = _piece.get("bracket")
-        if _bracket is None or not _bracket.get("bracket_is_bound_only"):
-            continue
-        _bracket_width_ms = (float(_bracket["bracket_high_ms"])
-                             - float(_bracket["bracket_low_ms"]))
-        _fill_width_ms = (float(_piece["master_end_ms"])
-                          - float(_piece["master_start_ms"]))
-        if _fill_width_ms >= _bracket_width_ms:
-            _ft = _piece.get("frame_tier")
-            _tier_reason = _ft.get("reason") if _ft else None
-            raise chimeric_error(
-                f"bracket unnarrowed: {_piece['reason']} fill "
-                f"[{_piece['master_start_ms']},{_piece['master_end_ms']}) = "
-                f"{_fill_width_ms} ms ships at the un-refined search bound "
-                f"[{_bracket['bracket_low_ms']},{_bracket['bracket_high_ms']}] "
-                f"({_bracket_width_ms} ms); frame_tier_reason={_tier_reason}",
-                cause="bracket_unnarrowed")
-
-    return pieces
 
 
 def preferred_with_disagreement(name, preferred, other, preferred_tool, other_tool):
@@ -2264,18 +823,18 @@ def split_master_fill_shortfall(pieces, fill_source_ms):
     be told apart from a single pooled number, which is what this site
     computed before this landing (`max` over every `reason` together).
 
-    SEPARABLE BY CONSTRUCTION, not by convention: `normalize_segments`
-    appends at most ONE `tail_gap` piece, after its main loop, and that
-    piece's `master_end_ms` is ALWAYS `master_duration_ms` exactly -- the
-    ceiling `normalize_segments` itself refuses any piece from exceeding
-    (`segment ends at ... past the master's ...`, its own admission guard).
+    SEPARABLE BY CONSTRUCTION, not by convention: `repair_orchestrator.
+    track_pieces` merges adjacent master pieces, so at most ONE `tail_gap`
+    piece exists, and it ends at `master_duration_ms` exactly -- the end
+    `assemble_on_master_timeline` checks every plan reaches, and never
+    exceeds.
     So the tail-gap piece can never be shadowed by, or hide, another
     piece's own shortfall: it is provably the largest `master_end_ms` among
     all master pieces whenever it exists, and every other reason's own
     shortfall is computed from the OTHER pieces alone.
 
-    Takes THIS TRACK'S OWN `pieces` (each track gets its own, from its own
-    `normalize_with_measured_bound` call) -- so the split is per-track by
+    Takes THIS TRACK'S OWN `pieces` (each track gets its own set from
+    `repair_orchestrator.apply_plan`) -- so the split is per-track by
     construction, not a file-wide default a later edit could drift into
     applying uniformly.
 
@@ -2510,7 +1069,11 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
         # `concat` et les labels d'entree sont numerotes: on garde l'entree 1
         # meme inutilisee pour que le graphe ait toujours la meme forme.
         command.extend(["-i", master_obj.filePath])
-    command.extend(["-filter_complex", filtergraph, "-map", "[aout]"])
+    # `-map_chapters -1`: ffmpeg copies by default the chapters of the first input that has
+    # some -- the CANDIDATE's raw editions, or the master's when the candidate has none -- into
+    # every file it writes. ADDENDUM 9 points 3 and 7: no raw candidate edition ever reaches
+    # the product; the chapters are set once, re-timed, by `mux_chapters`.
+    command.extend(["-filter_complex", filtergraph, "-map", "[aout]", "-map_chapters", "-1"])
     command.extend(encoder_arguments)
     command.extend(["-ar", sample_rate, "-vn", "-sn", "-dn",
                     "-max_muxing_queue_size", "16384", out_path])
@@ -2858,10 +1421,9 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     candidate_pieces = [p for p in pieces if p["source"] == "candidate"]
     piece_index = {id(p): i for i, p in enumerate(pieces)}
     # LA FIN DE LA TIMELINE, LUE SUR LE PLAN LUI-MEME ET NON RECUE EN
-    # PARAMETRE. `normalize_segments` garantit deja que le dernier
-    # `master_end_ms` EST `master_duration_ms`: elle refuse tout segment qui
-    # finit au-dela (`:447`) et comble la queue jusqu'a cette valeur quand le
-    # plan s'arrete avant (`:1168`). La calculer ici plutot que d'ajouter un
+    # PARAMETRE. `assemble_on_master_timeline` verifie deja que le dernier
+    # `master_end_ms` de chaque plan EST `master_duration_ms` (il refuse tout
+    # plan qui n'atteint pas exactement la fin de timeline). La calculer ici plutot que d'ajouter un
     # parametre garde la fonction testable avec des `pieces` litterales et
     # rend IMPOSSIBLE qu'un appelant passe une fin en desaccord avec le plan
     # qu'il passe dans la meme main -- deux valeurs a tenir d'accord est
@@ -2901,6 +1463,7 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
         return None
 
     kept_events = []
+    kept_meta = {}
     dropped_master_filled_span = 0
     dropped_no_offset_evidence = 0
     dropped_degenerate_duration = 0
@@ -3000,7 +1563,14 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
             continue
         flush_span()  # correspondance candidate ordinaire: attendue, non nommee, mais ne fusionne pas a travers elle
         kept_events.append(event)
+        kept_meta[id(event)] = (matched_piece, original_start, original_end, shift)
     flush_span()
+    # LA SEULE INTELLIGENCE DE L'APPLICATION DU PLAN (ADDENDUM 10 d): aux
+    # raccords, jamais deux fois la meme replique, et une replique s'arrete
+    # avant la suivante au lieu de la chevaucher.
+    kept_events, hygiene = splice_cue_hygiene(kept_events, kept_meta)
+    decisions.extend(hygiene)
+    dropped_at_splice = sum(1 for d in hygiene if d["outcome"].startswith("dropped"))
     subtitles.events = kept_events
     subtitles.save(subtitle_path)
     # QUEL DECALAGE A ETE APPLIQUE, ET DEPUIS QUEL MORCEAU. `vmsam-ci` ne pouvait
@@ -3015,8 +1585,102 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     # controle qui en a besoin vit HORS du processus. Ma propre phrase: c'est un
     # saut manquant, et le saut est a moi.
     return (len(kept_events),
-            dropped_master_filled_span + dropped_no_offset_evidence + dropped_degenerate_duration,
+            dropped_master_filled_span + dropped_no_offset_evidence + dropped_degenerate_duration
+            + dropped_at_splice,
             applied, decisions)
+
+
+# COMBIEN DE REPLIQUES DE PART ET D'AUTRE D'UN RACCORD SONT COMPAREES pour y
+# trouver un doublon (ADDENDUM 9 point 8: "les N cues de part et d'autre"). Un
+# raccord deplace au plus quelques repliques l'une contre l'autre: la meme
+# phrase lue deux fois tombe dans les deux ou trois voisines, jamais plus loin,
+# parce que les deux lectures sont a la MEME position maitre a un decalage de
+# plan pres. Trois couvre une replique intercalee de chaque cote.
+SPLICE_DEDUP_NEIGHBOURS = 3
+
+
+def normalized_cue_text(event):
+    """Le texte d'une replique tel qu'on le compare pour un doublon: sans balises
+    (`plaintext` de pysubs2 retire les `{\\...}` et rend les `\\N` en fin de
+    ligne), sans casse, sans ponctuation, espaces reduits (ADDENDUM 9 point 8)."""
+    import unicodedata
+    text = event.plaintext.lower()
+    kept = "".join(ch if not unicodedata.category(ch).startswith("P") else " "
+                   for ch in text)
+    return " ".join(kept.split())
+
+
+def splice_cue_hygiene(events, meta):
+    """Les deux regles de sous-titres de l'application du plan, et SEULEMENT aux
+    raccords -- entre deux repliques venues de DEUX MORCEAUX differents du plan.
+
+    1. PAS DE DOUBLON: une replique dont le texte normalise egale celui d'une des
+       `SPLICE_DEDUP_NEIGHBOURS` suivantes d'un autre morceau, et qui la
+       chevauche ou la touche dans le temps, est la meme phrase lue deux fois
+       par le raccord: la seconde est retiree (`dropped_duplicate_at_splice`).
+    2. PAS DE CHEVAUCHEMENT: une replique qui depasse le debut de la prochaine
+       replique d'un AUTRE morceau est ARRETEE a ce debut
+       (`truncated_before_next_cue`); si elle n'a plus de duree, elle est
+       retiree (`dropped_degenerate_after_truncation`).
+
+    POURQUOI PAS ENTRE DEUX REPLIQUES DU MEME MORCEAU: leur relation est celle
+    de la SOURCE (un panneau ASS pose pendant un dialogue se chevauche par
+    construction), et le plan ne l'a pas creee; y toucher serait modifier un
+    fichier au-dela de ce que le plan applique.
+
+    `meta[id(event)] = (morceau, debut_source, fin_source, decalage)`. Renvoie
+    (repliques gardees dans leur ordre d'origine, decisions nommees)."""
+    order = sorted(range(len(events)), key=lambda i: (events[i].start, events[i].end))
+    dropped = set()
+    decisions = []
+
+    def decide(outcome, index, gap_ms):
+        piece, source_start, source_end, shift = meta[id(events[index])]
+        decisions.append({
+            "outcome": outcome, "cue_count": 1,
+            "source_start_ms": str(source_start), "source_end_ms": str(source_end),
+            "shift_ms": str(shift), "piece_reason": (piece or {}).get("reason"),
+            "gap_ms": str(gap_ms)})
+
+    def piece_of(index):
+        return id(meta[id(events[index])][0])
+
+    for rank, i in enumerate(order):
+        if i in dropped:
+            continue
+        text = normalized_cue_text(events[i])
+        if not text:
+            continue
+        seen = 0
+        for j in order[rank + 1:]:
+            if j in dropped:
+                continue
+            seen += 1
+            if seen > SPLICE_DEDUP_NEIGHBOURS:
+                break
+            if piece_of(j) == piece_of(i):
+                continue
+            if (events[j].start <= events[i].end
+                    and normalized_cue_text(events[j]) == text):
+                dropped.add(j)
+                decide("dropped_duplicate_at_splice", j, events[i].end - events[j].start)
+
+    for rank, i in enumerate(order):
+        if i in dropped:
+            continue
+        following = next((j for j in order[rank + 1:]
+                          if j not in dropped and piece_of(j) != piece_of(i)
+                          and events[j].start >= events[i].start), None)
+        if following is None or events[i].end <= events[following].start:
+            continue
+        overlap = events[i].end - events[following].start
+        events[i].end = events[following].start
+        if events[i].end <= events[i].start:
+            dropped.add(i)
+            decide("dropped_degenerate_after_truncation", i, overlap)
+        else:
+            decide("truncated_before_next_cue", i, overlap)
+    return [event for index, event in enumerate(events) if index not in dropped], decisions
 
 
 def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir,
@@ -3042,7 +1706,7 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
     command = [tools.software["ffmpeg"], "-y", "-nostdin",
                "-analyzeduration", "1000M", "-probesize", "1000M",
                "-i", candidate_obj.filePath,
-               "-map", f"0:{int(subtitle['StreamOrder'])}",
+               "-map", f"0:{int(subtitle['StreamOrder'])}", "-map_chapters", "-1",
                "-c:s", target, out_path]
     tools.dev_log(f"chimeric: build_one_subtitle_track ffmpeg extract call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
@@ -3144,7 +1808,7 @@ def log_prediction_outcome(predicted, would_refuse):
 
 
 def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout, job_start_utc):
+                      timeout, job_start_utc, chapters_path=None):
     '''Assemble les pistes produites et pose les tags VMSAM_FABRICATED et VMSAM_ERA.
 
     Le tag est pose ici, sur le fichier de la reparation, et non dans
@@ -3166,7 +1830,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     chez qui lit celui-ci aujourd'hui.
     '''
     tools.dev_log(f"chimeric: mux_repaired_file starting out_path={out_path} "
-                  f"n_audio={len(audio_reports)} n_subtitle={len(subtitle_reports)}\n")
+                  f"n_audio={len(audio_reports)} n_subtitle={len(subtitle_reports)} "
+                  f"chapters={chapters_path}\n")
     command = [tools.software["ffmpeg"], "-y", "-nostdin"]
     for report in audio_reports:
         command.extend(["-i", report["path"]])
@@ -3175,18 +1840,25 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 
     for i in range(len(audio_reports) + len(subtitle_reports)):
         command.extend(["-map", f"{i}:0"])
-    command.extend(["-c", "copy"])
+    # NO CHAPTERS FROM THE INPUTS (see `build_one_audio_track`): the only chapters this file
+    # carries are the ones `mux_chapters` sets from the re-timed XML.
+    command.extend(["-map_chapters", "-1", "-c", "copy"])
 
     era_value = f"git_commit={tools.get_git_commit()} job_start_utc={job_start_utc}"
+    # LE MARQUEUR DE CHAQUE PISTE EST LE SIEN (`report["marker"]`, pose par
+    # l'assemblage au facteur que CETTE piste a recu); `marker_value` reste le
+    # repli d'un compte-rendu qui n'en porterait pas.
     for i, report in enumerate(audio_reports):
-        command.extend([f"-metadata:s:a:{i}", f"VMSAM_FABRICATED={marker_value}"])
+        command.extend([f"-metadata:s:a:{i}",
+                        f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
         command.extend([f"-metadata:s:a:{i}", f"VMSAM_ERA={era_value}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:a:{i}", f"language={report['language']}"])
         if report["title"] != None:
             command.extend([f"-metadata:s:a:{i}", f"title={report['title']}"])
     for i, report in enumerate(subtitle_reports):
-        command.extend([f"-metadata:s:s:{i}", f"VMSAM_FABRICATED={marker_value}"])
+        command.extend([f"-metadata:s:s:{i}",
+                        f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
         command.extend([f"-metadata:s:s:{i}", f"VMSAM_ERA={era_value}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:s:{i}", f"language={report['language']}"])
@@ -3197,6 +1869,269 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     tools.dev_log(f"chimeric: mux_repaired_file ffmpeg mux call "
                   f"out_path={out_path}\n")
     tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+    if chapters_path is not None:
+        mux_chapters(out_path, chapters_path, timeout)
+
+
+def mux_chapters(out_path, chapters_path, timeout):
+    '''Pose le XML de chapitres (deja re-cale, `build_delivered_chapters`) sur le
+    fichier produit: `mkvmerge --chapters` (ADDENDUM 9 point 7), en remux par
+    copie -- les pistes, leurs octets et leurs tags de piste (VMSAM_FABRICATED,
+    VMSAM_ERA) traversent inchanges, mesure a la premiere production de ce
+    site. mkvmerge rend 1 sur un simple avertissement: 0 et 1 sont des succes,
+    2 est une erreur, et une erreur ici LEVE -- un fichier dont les chapitres
+    n'ont pas pu etre poses n'est pas le fichier que le plan decrit.'''
+    remuxed = out_path + ".chapters.mkv"
+    command = [tools.software["mkvmerge"], "-q", "-o", remuxed,
+               "--chapters", chapters_path, out_path]
+    tools.dev_log(f"chimeric: mux_chapters mkvmerge call out_path={out_path} "
+                  f"chapters={chapters_path}\n")
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    if completed.returncode not in (0, 1) or not path.exists(remuxed):
+        raise chimeric_error(
+            f"mkvmerge could not set the chapters on the produced file (exit "
+            f"{completed.returncode}): {(completed.stdout + completed.stderr).strip()[-300:]}")
+    replace_file(remuxed, out_path)
+
+
+def extract_chapters_xml(file_path, out_path, timeout=120):
+    """`mkvextract <fichier> chapters <xml>` -> `(racine ElementTree | None, raison)`.
+
+    `raison` vaut `extracted`, ou dit POURQUOI il n'y a rien: `no_chapters` (le
+    fichier n'en porte pas -- un fait, pas une panne), `mkvextract_not_configured`,
+    `mkvextract_exit_<n>`, `timeout`, `unparseable(<type>)`. "Pas de chapitres" et
+    "je n'ai pas pu les lire" sont deux reponses differentes."""
+    import xml.etree.ElementTree as ElementTree
+    tool = tools.software.get("mkvextract")
+    if not tool:
+        return None, "mkvextract_not_configured"
+    command = [tool, file_path, "chapters", out_path]
+    tools.dev_log(f"chimeric: extract_chapters_xml mkvextract call file={file_path} "
+                  f"out={out_path}\n")
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    if completed.returncode not in (0, 1):
+        return None, f"mkvextract_exit_{completed.returncode}"
+    if not path.exists(out_path) or not path.getsize(out_path):
+        return None, "no_chapters"
+    try:
+        root = ElementTree.parse(out_path).getroot()
+    except Exception as error:
+        return None, f"unparseable({type(error).__name__})"
+    if root.find("EditionEntry") is None:
+        return None, "no_chapters"
+    return root, "extracted"
+
+
+CHAPTER_TIME_PATTERN = re.compile(r"^\s*(\d+):(\d{2}):(\d{2})(?:\.(\d{1,9}))?\s*$")
+
+
+def parse_chapter_time_ms(text):
+    """`HH:MM:SS.nnnnnnnnn` -> millisecondes EXACTES (Decimal), ou None."""
+    match = CHAPTER_TIME_PATTERN.match(text or "")
+    if match is None:
+        return None
+    hours, minutes, seconds, fraction = match.groups()
+    nanoseconds = int((fraction or "0").ljust(9, "0"))
+    return (Decimal(int(hours) * 3600 + int(minutes) * 60 + int(seconds)) * Decimal(1000)
+            + Decimal(nanoseconds) / Decimal(1000000))
+
+
+def format_chapter_time(ms):
+    """Millisecondes -> `HH:MM:SS.nnnnnnnnn`, a la nanoseconde (Matroska)."""
+    nanoseconds = int((Decimal(str(ms)) * Decimal(1000000)).to_integral_value())
+    seconds, nanoseconds = divmod(max(0, nanoseconds), 1000000000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{nanoseconds:09d}"
+
+
+def map_candidate_time_to_master(equivalent_ms, candidate_pieces):
+    """Le temps candidat (timeline corrigee sur une paire a taux) -> la timeline du
+    MAITRE, par la fonction par morceaux du plan. `(ms_maitre | None, comment)`:
+      mapped                   le temps tombe dans un morceau candidat: temps
+                               moins le decalage de CE morceau
+      snapped_to_next_piece    il tombe dans du contenu candidat que le plan a
+                               COUPE: sa place sur le maitre est le debut du
+                               morceau suivant, la ou la coupe se referme
+      past_last_piece          apres le dernier contenu candidat lu: aucune place
+    """
+    following = None
+    for piece in candidate_pieces:
+        start = Decimal(str(piece["source_start_ms"]))
+        length = Decimal(str(piece["master_end_ms"])) - Decimal(str(piece["master_start_ms"]))
+        if start <= equivalent_ms < start + length:
+            return (Decimal(str(piece["master_start_ms"])) + (equivalent_ms - start),
+                    "mapped")
+        if start > equivalent_ms and (following is None
+                                      or start < Decimal(str(following["source_start_ms"]))):
+            following = piece
+    if following is not None:
+        return Decimal(str(following["master_start_ms"])), "snapped_to_next_piece"
+    return None, "past_last_piece"
+
+
+def build_delivered_chapters(master_path, candidate_path, reference_pieces, time_scale,
+                             timeline_ms, work_dir):
+    """LES CHAPITRES DU FICHIER PRODUIT (ADDENDUM 9 points 3 et 7), en XML.
+
+    Les editions du MAITRE sont conservees TELLES QUELLES: elles sont deja sur la
+    timeline du maitre, a decalage nul. Une edition du CANDIDAT n'est livree que
+    RE-CALEE, jamais brute: chaque `ChapterTimeStart`/`ChapterTimeEnd` passe par
+    le facteur de vitesse (paire a taux) puis par la fonction par morceaux du
+    plan (`map_candidate_time_to_master`), et est recadre sur la fin de
+    timeline. Ses UID sont retires pour que mkvmerge en pose de neufs -- une
+    edition candidate copiee du meme disque que le maitre porterait sinon les
+    MEMES UID. Une edition ORDONNEE (segment linking) n'est pas re-calable par
+    une fonction de temps: elle n'est pas livree, et c'est dit.
+
+    TOUTE DECISION CHAPITRE EST JOURNALISEE (point 7), une ligne par atome
+    candidat et une par edition maitre. Renvoie `(chemin_xml | None, decisions)`
+    -- None quand aucun des deux fichiers ne porte de chapitres."""
+    import xml.etree.ElementTree as ElementTree
+    decisions = []
+    master_root, master_reason = extract_chapters_xml(
+        master_path, path.join(work_dir, "chapters_master.xml"))
+    candidate_root, candidate_reason = extract_chapters_xml(
+        candidate_path, path.join(work_dir, "chapters_candidate.xml"))
+    decisions.append({"source": "master", "extraction": master_reason})
+    decisions.append({"source": "candidate", "extraction": candidate_reason})
+    out_root = ElementTree.Element("Chapters")
+    master_editions = list(master_root.findall("EditionEntry")) if master_root is not None else []
+    for number, edition in enumerate(master_editions):
+        out_root.append(edition)
+        decisions.append({"source": "master", "edition": number, "decision": "kept_as_is",
+                          "atoms": len(list(edition.iter("ChapterAtom")))})
+    candidate_pieces = [piece for piece in reference_pieces if piece["source"] == "candidate"]
+    scale = Decimal(str(time_scale)) if time_scale is not None else Decimal(1)
+    for number, edition in enumerate(candidate_root.findall("EditionEntry")
+                                     if candidate_root is not None else []):
+        if (edition.findtext("EditionFlagOrdered") or "0").strip() == "1":
+            decisions.append({"source": "candidate", "edition": number,
+                              "decision": "not_delivered_ordered_edition"})
+            continue
+        for tag in ("EditionUID",):
+            for element in edition.findall(tag):
+                edition.remove(element)
+        if len(master_editions):
+            flag = edition.find("EditionFlagDefault")
+            if flag is None:
+                flag = ElementTree.SubElement(edition, "EditionFlagDefault")
+            flag.text = "0"
+        dropped = []
+        for parent in [edition] + list(edition.iter("ChapterAtom")):
+            for atom in list(parent.findall("ChapterAtom")):
+                for element in atom.findall("ChapterUID"):
+                    atom.remove(element)
+                title = atom.findtext("ChapterDisplay/ChapterString")
+                start_in = parse_chapter_time_ms(atom.findtext("ChapterTimeStart"))
+                if start_in is None:
+                    dropped.append((parent, atom))
+                    decisions.append({"source": "candidate", "edition": number,
+                                      "atom": title, "decision": "dropped_unreadable_start"})
+                    continue
+                start_out, start_how = map_candidate_time_to_master(start_in * scale,
+                                                                    candidate_pieces)
+                if start_out is None or start_out >= timeline_ms:
+                    dropped.append((parent, atom))
+                    decisions.append({"source": "candidate", "edition": number,
+                                      "atom": title, "start_in_ms": str(start_in),
+                                      "decision": f"dropped_{start_how}"
+                                      if start_out is None else "dropped_past_timeline"})
+                    continue
+                atom.find("ChapterTimeStart").text = format_chapter_time(start_out)
+                end_element = atom.find("ChapterTimeEnd")
+                end_in = end_out = None
+                end_how = "absent"
+                if end_element is not None:
+                    end_in = parse_chapter_time_ms(end_element.text)
+                    if end_in is None:
+                        atom.remove(end_element)
+                        end_how = "removed_unreadable"
+                    else:
+                        end_out, end_how = map_candidate_time_to_master(end_in * scale,
+                                                                        candidate_pieces)
+                        if end_out is None or end_out > timeline_ms:
+                            end_out, end_how = timeline_ms, f"clamped_to_timeline_end({end_how})"
+                        if end_out < start_out:
+                            end_out, end_how = start_out, f"raised_to_start({end_how})"
+                        end_element.text = format_chapter_time(end_out)
+                decisions.append({"source": "candidate", "edition": number, "atom": title,
+                                  "start_in_ms": str(start_in), "start_out_ms": str(start_out),
+                                  "start": start_how,
+                                  "end_in_ms": None if end_in is None else str(end_in),
+                                  "end_out_ms": None if end_out is None else str(end_out),
+                                  "end": end_how})
+        for parent, atom in dropped:
+            parent.remove(atom)
+        if edition.find("ChapterAtom") is None:
+            decisions.append({"source": "candidate", "edition": number,
+                              "decision": "not_delivered_no_atom_left"})
+            continue
+        out_root.append(edition)
+        decisions.append({"source": "candidate", "edition": number,
+                          "decision": "delivered_retimed"})
+    if out_root.find("EditionEntry") is None:
+        return None, decisions
+    out_path = path.join(work_dir, "chapters_delivered.xml")
+    ElementTree.ElementTree(out_root).write(out_path, encoding="utf-8", xml_declaration=True)
+    return out_path, decisions
+
+
+def probe_delivered_durations(file_path, timeout=300):
+    """DELIVERED_DURATIONS (ADDENDUM 10 b): ce que le FICHIER CHIMERIQUE mesure,
+    par ffprobe, juste apres l'application du plan -- le mux final est une copie
+    de flux, ces durees ne bougent plus. Conteneur, chaque flux (par son type et
+    son index), et la fin de la derniere replique par piste de sous-titres
+    (max pts+duree des paquets). C'est ce que le verificateur forensique
+    compare. Renvoie un dict; une valeur illisible vaut None, jamais 0."""
+    import json as _json
+    result = {"container_ms": None, "streams": [], "max_cue_end_ms": None}
+    command = [tools.software["ffprobe"], "-v", "error", "-show_entries",
+               "format=duration:stream=index,codec_type,duration:stream_tags=DURATION",
+               "-of", "json", file_path]
+    tools.dev_log(f"chimeric: probe_delivered_durations ffprobe call file={file_path}\n")
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    data = _json.loads(completed.stdout or "{}")
+    try:
+        result["container_ms"] = str(Decimal(str(data["format"]["duration"])) * 1000)
+    except Exception:
+        pass
+    subtitle_indices = []
+    for stream in data.get("streams") or []:
+        duration = stream.get("duration") or (stream.get("tags") or {}).get("DURATION")
+        value = None
+        if duration not in (None, "N/A"):
+            try:
+                value = (str(Decimal(str(duration)) * 1000) if ":" not in str(duration)
+                         else str(parse_chapter_time_ms(str(duration))))
+            except Exception:
+                value = None
+        result["streams"].append({"index": stream.get("index"),
+                                  "type": stream.get("codec_type"), "duration_ms": value})
+        if stream.get("codec_type") == "subtitle":
+            subtitle_indices.append(stream.get("index"))
+    cue_ends = []
+    for index in subtitle_indices:
+        command = [tools.software["ffprobe"], "-v", "error", "-select_streams", str(index),
+                   "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0",
+                   file_path]
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        last = None
+        for line in completed.stdout.splitlines():
+            parts = line.split(",")
+            try:
+                end = (Decimal(parts[0]) + Decimal(parts[1])) * 1000
+            except Exception:
+                continue
+            last = end if last is None or end > last else last
+        if last is not None:
+            cue_ends.append(last)
+    if cue_ends:
+        result["max_cue_end_ms"] = str(max(cue_ends))
+    return result
 
 
 def iterate_candidate_audios(candidate_obj):
@@ -3267,26 +2202,6 @@ def get_master_container_length_ms(master_obj):
     except Exception:
         pass
     return None
-
-
-def get_candidate_audio_length_ms(candidate_obj):
-    '''Ce qu'on peut reellement lire dans le candidat.
-
-    La duree de sa piste video n'est pas la borne: on decoupe de l'audio, et
-    une piste audio peut etre plus longue ou plus courte que l'image. On prend
-    la plus longue piste audio, et on retombe sur la video si le fichier n'en a
-    aucune.
-    '''
-    longest = None
-    for language, audio in iterate_candidate_audios(candidate_obj):
-        if "Duration" not in audio:
-            continue
-        duration = Decimal(str(audio["Duration"])) * Decimal("1000")
-        if longest == None or duration > longest:
-            longest = duration
-    if longest == None:
-        longest = Decimal(str(candidate_obj.video["Duration"])) * Decimal("1000")
-    return longest
 
 
 def get_track_audio_length_ms(audio):
@@ -3390,78 +2305,6 @@ def measure_track_extent_ms(file_path, stream_order, timeout=300):
     return last, "measured"
 
 
-def normalize_with_measured_bound(probe_path, probe_stream_order, speed_ratio,
-                                  bound_label, timeout, *args, **kwargs):
-    '''`normalize_segments`, mais SANS JAMAIS REFUSER SUR UN CHAMP DE CONTENEUR
-    SEUL.
-
-    `Duration` sous-estime parfois son propre flux -- 16 pistes sur 58 dans les
-    plans de production disponibles, jusqu'a 120 ms (`tools/blast_radius.py`).
-    Un refus prononce sur ce nombre-la seul finirait par refuser une paire qui
-    marche, et ce serait un FAUX REFUS DANS UNE GARDE AJOUTEE POUR SUPPRIMER UN
-    FAUX PASSAGE -- la pire facon de corriger ce defaut.
-
-    Alors quand, et seulement quand, la borne declaree prononce un refus, on
-    demande au FLUX. Cout: zero sur le chemin qui passe, 310 ms mesures sur un
-    episode de 24 minutes sur celui qui refuse.
-
-    LA MESURE NE PEUT QU'ELARGIR. Plus courte, absente, ou impossible a prendre:
-    le refus d'origine tient. Une seconde mesure n'est pas une seconde chance --
-    elle ne sert qu'a ne pas croire un champ sur parole quand le croire coute un
-    refus.
-
-    Ne rattrape que `chimeric_bound_error`, par SOUS-CLASSE et pas par texte: les
-    autres refus de `normalize_segments` (plan vide, chevauchement, decalage
-    constant, lecture a rebours) ne sont pas des questions de borne et rien ici
-    ne les concerne.
-    '''
-    declared_bound = args[2] if len(args) > 2 else kwargs.get("candidate_duration_ms")
-    try:
-        return normalize_segments(*args, bound_label=bound_label, **kwargs), \
-            declared_bound, "declared"
-    except chimeric_bound_error:
-        measured_ms, probe_reason = None, "no-probe-target"
-        if probe_path != None and probe_stream_order != None:
-            measured_ms, probe_reason = measure_track_extent_ms(
-                probe_path, probe_stream_order, timeout)
-        if measured_ms != None and speed_ratio != None:
-            measured_ms = measured_ms * Decimal(str(speed_ratio))
-        if measured_ms == None or measured_ms <= declared_bound:
-            # `probe=` PORTE LE POURQUOI, PAS SEULEMENT L'ABSENCE. Sans lui,
-            # `ffprobe` non enregistre dans un enfant forkserver produirait des
-            # refus en hausse et un journal disant `unmeasured` partout, sans
-            # rien qui designe l'instrument (revue du Lead, 2026-09-15).
-            tools.logs.append(
-                f"chimeric: extraction bound {bound_label} REFUSED "
-                f"declared_ms={declared_bound} packets_ms="
-                f"{measured_ms if measured_ms != None else 'unmeasured'} "
-                f"probe={probe_reason} decided_by=declared\n")
-            raise
-        tools.logs.append(
-            f"chimeric: extraction bound {bound_label} declared_ms="
-            f"{declared_bound} UNDER-REPORTS packets_ms={measured_ms} "
-            f"probe={probe_reason}: re-testing against the stream\n")
-        widened = list(args)
-        widened[2] = measured_ms
-        try:
-            pieces = normalize_segments(*widened, bound_label=bound_label, **kwargs)
-        except chimeric_bound_error:
-            # LE REFUS LE PLUS FORT ETAIT LE MOINS DOCUMENTE. Quand meme
-            # l'etendue REELLE refuse, c'est la conclusion la plus solide que
-            # cette garde puisse produire -- et elle ressortait sans une ligne,
-            # parce que le `raise` traversait. Trouve en tirant la garde.
-            tools.logs.append(
-                f"chimeric: extraction bound {bound_label} REFUSED "
-                f"declared_ms={declared_bound} packets_ms={measured_ms} "
-                f"probe={probe_reason} decided_by=packets\n")
-            raise
-        tools.logs.append(
-            f"chimeric: extraction bound {bound_label} PASSES on the stream's "
-            f"real extent {measured_ms} ms probe={probe_reason} "
-            f"decided_by=packets\n")
-        return pieces, measured_ms, "packets(declared under-reported)"
-
-
 def describe_candidate_track(audio, language):
     '''De quoi la garde parle, en toutes lettres: flux + langue + codec.
 
@@ -3525,22 +2368,57 @@ def resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original):
     return parse_positive_rate(frame_rate_original)
 
 
-def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
-                                out_path, marker_value, job_start_utc, timeout=3600,
-                                verify=True, verify_tolerance_ms=100,
+def compose_marker(base_marker, factor):
+    '''`chimeric+resampled:<facteur>` DANS CET ORDRE (SPEC_ZONE_A.MD s4), par
+    PISTE. `base_marker` porte la decision de l'ADDENDUM 5 (chimerique ou non,
+    decidee par l'orchestrateur sur le plan); `factor` est le facteur REELLEMENT
+    applique a cette piste-ci (`build_speed_filter_chain` le quantifie sur SA
+    frequence, donc deux pistes a deux frequences recoivent deux facteurs
+    effectifs mesurablement differents) -- ou None quand aucune vitesse n'est
+    appliquee (ADDENDUM 6: pas de filtre a 1, donc pas de marqueur).
+    ADDENDUM 5 clause (c): le marqueur `resampled` est INDEPENDANT du seuil des
+    15 s, une piste resamplee le porte meme sans splice.'''
+    parts = [base_marker] if base_marker else []
+    if factor is not None:
+        import merge_video_resample
+        parts.append(f"resampled:{merge_video_resample.format_factor(factor)}")
+    return "+".join(parts)
+
+
+def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, reference_pieces,
+                                work_dir, out_path, marker_value, job_start_utc,
+                                timeout=3600, verify=True, verify_tolerance_ms=100,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
-                                comparison_language=None, stream_pairing=None,
-                                quantum_ms=None):
-    '''Point d'entree du module.
+                                comparison_language=None, chapters_path=None):
+    '''Point d'entree du module: CONSTRUIT le fichier, il ne MESURE rien.
+
+    STAGE 5 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 10 d): "LA
+    FONCTION QUI TRAITE LE PLAN NE FAIT QUE TRAITER LE PLAN". Les morceaux
+    arrivent CONSTRUITS par `repair_orchestrator.apply_plan`, a partir des
+    frontieres a la frame exacte que l'etage 4 a resolues et des decalages
+    sous-frame mesures par piste. Il n'y a plus ici de tier de frames, de
+    marche de bord ni de reconciliation sous-frame: ces mesures ont eu lieu une
+    fois, a l'etage 4, et les refaire ici serait re-mesurer ce que le plan a
+    decide (l'ancienne `normalize_segments` le faisait, et l'arrondi de ses
+    decalages a la frame est exactement le saut d'une frame que l'ADDENDUM 9
+    point 2 interdit).
+
+    `track_plans`: {StreamOrder (int): {"pieces", "extent_ms", "extent_source",
+    "offset_measured", "borrow_reason", "offset_sources"}} -- CHAQUE piste
+    porte ses PROPRES morceaux, parce que chaque piste porte son propre decalage
+    mesure (ADDENDUM 9 point 14). Les frontieres sur la timeline du MAITRE sont
+    les memes pour toutes; seul l'endroit ou l'on lit le candidat change.
+
+    `reference_pieces`: les morceaux de la piste de comparaison -- ceux qui
+    re-calent les SOUS-TITRES (le plan de la langue sur laquelle la mesure a ete
+    prise) et que le verificateur sonde.
+
+    `chapters_path`: le XML de chapitres deja re-cale (`build_delivered_
+    chapters`), pose au mux; None = aucun chapitre a livrer.
 
     `job_start_utc`: EXIGE, SANS DEFAUT (Architect's ruling, VMSAM_ERA,
-    2026-09-16). Capture par l'appelant au sommet de la boucle par-candidat
-    (`merge_video_repair.py:repair_not_compatible_videos`), transmis tel quel
-    jusqu'a `mux_repaired_file`. Aucune valeur par defaut: un fil oublie doit
-    lever un `TypeError` a l'appel, pas produire silencieusement un artefact
-    sans preuve d'ere -- un trou silencieux dans un tag de provenance est
-    indiscernable d'un tag qui marche, vu de l'exterieur.
+    2026-09-16), transmis tel quel jusqu'a `mux_repaired_file`.
 
     Renvoie un compte-rendu: ce qui a ete construit, ce qui a ete REFUSE et
     pourquoi. Une piste refusee est comptee separement d'une piste en echec --
@@ -3553,22 +2431,9 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
                   f"out_path={out_path}\n")
     # LA CADENCE DU MAITRE, SONDEE A L'ADMISSION. Architect's ruling,
     # 2026-09-15: "a precondition is probed at admission, before any work
-    # begins; a refusal must cost a probe, not a mux." `FrameRate_Mode` est
-    # une propriete de L'ENTREE et rien de ce qui suit ne la rend plus
-    # connaissable -- donc rien de ce qui suit ne doit tourner avant qu'elle
-    # ait ete verifiee.
-    #
-    # DEUX CHAMPS, ET LEUR DESACCORD EST L'INFORMATION. vmsam-dev-3: sur les
-    # deux seuls fichiers dont la cadence est inhabituelle, `FrameRate` et
-    # `FrameRate_Original` DIFFERENT -- 23.839 contre 23.976, 47.281 contre
-    # 29.970. Emettre un seul champ collapse precisement ce qui rend ces
-    # fichiers interessants, et un lecteur qui calcule une periode d'image
-    # obtient 41.948 ms la ou le nominal est 41.708.
-    #
-    # Et le MODE se dit aussi, parce que la branche de collage ne teste pas
-    # "VFR": elle teste l'egalite avec la chaine exacte "CFR". Un mode absent
-    # ou vide prend donc silencieusement le chemin non colle, et rien ne
-    # disait lequel avait tourne.
+    # begins; a refusal must cost a probe, not a mux." Les deux champs, et leur
+    # desaccord, sont publies dans le compte-rendu (vmsam-dev-3: 23.839 contre
+    # 23.976 sur les deux seuls fichiers a cadence inhabituelle).
     frame_rate = None
     frame_rate_mode = None
     frame_rate_original = None
@@ -3580,82 +2445,40 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             frame_rate_original = original
     except Exception:
         pass
-    # ARCH_FRAME_ACCURATE.MD defect 4, refused AT ADMISSION rather than
-    # mirrored after the mux: `segments`, a parameter of THIS call, already
-    # carries frame-indexed boundaries the CALLER computed. If nothing
-    # anchors the master's grid, those boundaries are not a coordinate, and
-    # no amount of correct audio mixing changes that.
-    #
-    # No `mark_output`/`partial_assembly` here, unlike the refusal below that
-    # follows the mux: at this point NOTHING has been produced -- no ffmpeg
-    # call, no track, no content at `out_path` -- so there is nothing to
-    # rename and nothing partial to report. Mirroring that scaffolding here
-    # would be inventing a decline record for work that never started.
-    master_grid = resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original)
-    if master_grid is None:
-        # NEUTRAL, AND NAMES ALL THREE VALUES: which field actually failed to
-        # parse depends on the path (CFR resolves through `frame_rate`, any
-        # other mode through `frame_rate_original` -- `resolve_master_grid`
-        # above), and a message written for one path is a wrong accusation on
-        # the other. Lead's finding, 2026-09-15: the previous wording always
-        # named `FrameRate_Original` and always parenthesised the mode against
-        # `"CFR"`, so a CFR file with an unparseable `FrameRate` produced
-        # `'CFR' (not "CFR")` and blamed the field that was never in question.
+    # ARCH_FRAME_ACCURATE.MD defect 4, refused AT ADMISSION: the pieces carry
+    # boundaries that are master FRAMES; if nothing anchors the master's grid,
+    # those boundaries are not a coordinate.
+    if resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original) is None:
         raise chimeric_error(
             f"the master's frame grid is not measurable -- FrameRate_Mode="
             f"{frame_rate_mode!r} FrameRate={frame_rate!r} "
             f"FrameRate_Original={frame_rate_original!r}: this candidate's "
             f"segment boundaries are not expressed on a measured grid")
-    # KEPT AS THE EXACT RATIONAL, NEVER RE-DERIVED. `master_grid` is already a
-    # `Fraction` (RULE 2, `parse_positive_rate`) -- `.numerator`/`.denominator`
-    # ARE the grid `locate_bracket_boundary` needs, not a float rounding of it.
-    master_fps_num = master_grid.numerator
-    master_fps_den = master_grid.denominator
 
     master_duration_ms = get_master_timeline_length_ms(master_obj)
-    # CE QUE CETTE VALEUR EST, ET CE QU'ELLE N'EST PAS.
-    #
-    # C'est le MAXIMUM sur toutes les pistes audio du candidat -- une borne DE
-    # FICHIER. Ce n'est PAS l'etendue d'une piste, et elle ne doit jamais servir
-    # de borne d'extraction pour une piste: la garde d'extraction a compare a ce
-    # nombre-la et PASSAIT, sur un plan qui lisait des secondes au-dela de la
-    # fin reelle de la piste decoupee. La docstring de la fonction nomme deja le
-    # risque, et c'est exactement ce qui a persuade le lecteur suivant qu'il
-    # etait traite. Pour une piste, `get_track_audio_length_ms(audio)`.
-    #
-    # Elle reste juste ici pour deux usages de FICHIER: l'admission ci-dessous
-    # (le plan tient-il dans la piste la plus permissive) et le plan des
-    # SOUS-TITRES, qui consomme `pieces` plus bas.
-    candidate_duration_ms = get_candidate_audio_length_ms(candidate_obj)
-    if speed_ratio != None:
-        # Apres reechantillonnage le candidat dure `ratio` fois plus longtemps,
-        # et c'est cette timeline-la que les tranches decoupent. Garder l'ancienne
-        # borne refuserait des plans corrects.
-        candidate_duration_ms = candidate_duration_ms * Decimal(str(speed_ratio))
-    # LE MEME REFUS D'ECOUTER UN CHAMP SUR PAROLE, A L'ADMISSION.
-    #
-    # Cette passe-ci est de FICHIER: sa borne est le maximum, donc le flux a
-    # sonder quand elle refuse est CELUI QUI PORTE CE MAXIMUM. Sans cela un
-    # candidat A UNE SEULE PISTE AUDIO serait refuse ici, sur une `Duration`
-    # sous-estimee, AVANT que la passe par piste ait la moindre chance de
-    # sonder -- trouve en tirant la garde, pas en la relisant.
-    longest_stream_order = None
-    longest_seen = None
-    for _language, _audio in iterate_candidate_audios(candidate_obj):
-        _extent = get_track_audio_length_ms(_audio)
-        if _extent == None:
-            continue
-        if longest_seen == None or _extent > longest_seen:
-            longest_seen = _extent
-            longest_stream_order = int(_audio["StreamOrder"])
-    pieces, _admission_bound, _admission_source = normalize_with_measured_bound(
-        candidate_obj.filePath, longest_stream_order, speed_ratio,
-        "file-wide admission (longest audio track)", timeout,
-        segments, master_duration_ms, candidate_duration_ms,
-        speed_ratio, master_path=master_obj.filePath,
-        candidate_path=candidate_obj.filePath,
-        fps_num=master_fps_num, fps_den=master_fps_den,
-        quantum_ms=quantum_ms)
+    # LE PLAN COUVRE LA TIMELINE DU MAITRE, DE 0 A SA FIN, SANS TROU NI
+    # CHEVAUCHEMENT -- verifie ici parce que c'est la propriete dont tout le
+    # reste depend (`split_master_fill_shortfall`, le recadrage des repliques
+    # sur la fin de timeline, le controle de duree). Un plan qui ne la tient pas
+    # est un defaut de l'appelant, refuse par son nom, jamais complete ici.
+    for label, pieces_to_check in [("reference", reference_pieces)] + [
+            (f"stream {order}", plan["pieces"]) for order, plan in track_plans.items()]:
+        cursor = Decimal("0")
+        for piece in pieces_to_check:
+            if Decimal(str(piece["master_start_ms"])) != cursor:
+                raise chimeric_error(
+                    f"the {label} plan is not contiguous on the master timeline: a "
+                    f"piece starts at {piece['master_start_ms']} ms where the previous "
+                    f"one ended at {cursor} ms")
+            cursor = Decimal(str(piece["master_end_ms"]))
+            if cursor <= Decimal(str(piece["master_start_ms"])):
+                raise chimeric_error(
+                    f"the {label} plan carries an empty or inverted piece "
+                    f"[{piece['master_start_ms']},{piece['master_end_ms']})")
+        if cursor != master_duration_ms:
+            raise chimeric_error(
+                f"the {label} plan ends at {cursor} ms, not at the master's "
+                f"timeline end {master_duration_ms} ms")
 
     tools.make_dirs(work_dir)
     audio_reports = []
@@ -3668,145 +2491,36 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         track_path = path.join(work_dir, f"audio_{index}.mka")
         index += 1
         try:
-            # LA BORNE D'EXTRACTION EST L'ETENDUE DE CETTE PISTE-CI, jamais le
-            # maximum du fichier. Le fait par piste est deja en main ici --
-            # `audio` est le dict du flux qu'on s'apprete a decouper.
-            track_bound_ms = get_track_audio_length_ms(audio)
+            stream_order = int(audio["StreamOrder"])
+            track_plan = track_plans.get(stream_order)
             track_label = describe_candidate_track(audio, language)
-            if track_bound_ms == None:
-                # "JE N'AI PAS PU MESURER" N'EST PAS "LA PISTE VA JUSQU'AU
-                # BOUT". Sans `Duration` on retombe sur la borne de fichier --
-                # le comportement d'avant, ni meilleur ni pire -- et LA LIGNE LE
-                # DIT, au lieu de laisser croire qu'une borne par piste a ete
-                # appliquee. Refuser ici rejetterait des fichiers qui passent
-                # aujourd'hui, ce qui deborde ce defaut.
-                track_bound_ms = candidate_duration_ms
-                bound_source = "file-wide-fallback(track Duration unmeasured)"
-            else:
-                if speed_ratio != None:
-                    # MEME MISE A L'ECHELLE QUE LA BORNE DE FICHIER plus haut,
-                    # et par le ratio DEMANDE, qui est celui du fichier. Le
-                    # ratio EFFECTIF est par piste (`build_speed_filter_chain`
-                    # le quantifie sur la frequence de CETTE piste) et s'en
-                    # ecarte de 0.35 a 2.75 ms sur 1435 s -- mesure, sous le
-                    # cadre video de 41.708 ms. Effet SEPARE, pas replie ici.
-                    track_bound_ms = track_bound_ms * Decimal(str(speed_ratio))
-                bound_source = "track"
+            if track_plan is None:
+                raise chimeric_error(
+                    f"the plan carries no pieces for {track_label}: no offset was "
+                    f"established for this stream, and none is borrowed silently")
+            track_bound_ms = track_plan["extent_ms"]
             # UNE GARDE QUI N'A JAMAIS TIRE EST INDISCERNABLE D'UNE GARDE QUI
-            # MARCHE. Cette ligne sort a CHAQUE piste, passante ou non, et nomme
-            # le flux verifie -- sur un fichier portant deux pistes `en`, "la
-            # piste en" ne distingue pas la bonne reponse de la mauvaise.
+            # MARCHE: la borne de CETTE piste, et sa provenance, a chaque piste.
             tools.logs.append(
                 f"chimeric: extraction bound {track_label} "
-                f"bound_ms={track_bound_ms} source={bound_source} "
-                f"file_wide_ms={candidate_duration_ms}\n")
-            # Les frontieres sur la timeline du MAITRE sont les memes pour toutes
-            # les pistes; seul l'endroit ou l'on lit le candidat change. On
-            # recalcule donc les morceaux avec le decalage de CE flux.
-            track_pieces, track_bound_ms, decided_by = normalize_with_measured_bound(
-                candidate_obj.filePath, int(audio["StreamOrder"]), speed_ratio,
-                track_label, timeout,
-                segments, master_duration_ms, track_bound_ms, speed_ratio,
-                stream_order=int(audio["StreamOrder"]),
-                master_path=master_obj.filePath, candidate_path=candidate_obj.filePath,
-                fps_num=master_fps_num, fps_den=master_fps_den,
-                quantum_ms=quantum_ms)
-            if decided_by != "declared":
-                bound_source = decided_by
+                f"bound_ms={track_bound_ms} source={track_plan['extent_source']}\n")
             report = build_one_audio_track(
-                candidate_obj, master_obj, audio, language, track_pieces, track_path,
-                timeout, speed_ratio, reference_stream, comparison_language,
+                candidate_obj, master_obj, audio, language, track_plan["pieces"],
+                track_path, timeout, speed_ratio, reference_stream, comparison_language,
                 track_bound_ms)
-            # LE RAPPORT PORTE LA BORNE ET SA PROVENANCE. La coupe de queue est
-            # calculee contre elle (`build_one_audio_track`), donc un lecteur
-            # qui trouve la queue etrange doit pouvoir voir contre QUOI elle a
-            # ete mesuree sans relire le code.
             report["extraction_bound_ms"] = str(track_bound_ms)
-            report["extraction_bound_source"] = bound_source
+            report["extraction_bound_source"] = track_plan["extent_source"]
             report["extraction_bound_track"] = track_label
-            # Cette piste a-t-elle son propre decalage, ou emprunte-t-elle celui
-            # de la langue mesuree? La table par flux ne couvre que cette
-            # langue-la, donc toute autre langue emprunte, silencieusement, avec
-            # 14 a 32 ms d'erreur mesures -- SOUS la tolerance du verificateur.
-            report["offset_measured"] = all(
-                offset_is_measured(segment, int(audio["StreamOrder"]))
-                for segment in segments)
-            report["pairing_contract"] = stream_pairing != None
-            # POURQUOI CETTE PISTE EMPRUNTE, SUR LA LIGNE QUI EST REELLEMENT
-            # EMISE. La distinction entre "aucun partenaire n'existe" et "le
-            # meilleur partenaire est sous la barre" vivait UNIQUEMENT dans le
-            # message de refus -- et le proprietaire vient de trancher: ON
-            # CONTINUE D'EMPRUNTER, le drapeau reste desarme. Le refus ne se
-            # declenche donc jamais et la distinction ne serait jamais ecrite.
-            #
-            # Si l'emprunt est ce qui est LIVRE, dire quelles pistes ont emprunte
-            # et pourquoi est la seule chose entre un fichier faux et un fichier
-            # indecouvrable.
-            if report["offset_measured"]:
-                report["borrow_reason"] = None
-            elif stream_pairing == None:
-                report["borrow_reason"] = "no pairing table in this plan"
-            elif pairing_fidelity(stream_pairing, int(audio["StreamOrder"])) != None:
-                report["borrow_reason"] = (
-                    f"best partner fidelity "
-                    f"{pairing_fidelity(stream_pairing, int(audio['StreamOrder']))}"
-                    f", below the bar")
-            else:
-                report["borrow_reason"] = (
-                    f"the master carries no {language} stream; no probe was run")
-            report["offset_fidelity"] = next(
-                (offset_fidelity(segment, int(audio["StreamOrder"]))
-                 for segment in segments
-                 if offset_fidelity(segment, int(audio["StreamOrder"])) != None),
-                None)
-            # TROISIEME ETAT, QUE NI MOI NI L'AUTEUR DE LA MESURE N'AVIONS
-            # ECRIT: le contrat a change DANS SON DEPOT ET PAS ENCORE EN
-            # PRODUCTION. On avait deux sens pour "pas d'entree" -- "autre
-            # langue" avant, "aucun partenaire n'a passe la barre" apres -- et
-            # il en existe un troisieme: "CE LOCATOR NE CONNAIT PAS ENCORE LA
-            # QUESTION".
-            #
-            # Armer le drapeau contre un ancien locator refuserait CHAQUE piste
-            # hors langue mesuree, et contre un locator plus ancien encore
-            # TOUTES les pistes, y compris celle du plan -- et le journal dirait
-            # "no offset was measured", ce qui serait VRAI et ruineux.
-            #
-            # La presence de la table PAR FICHIER est donc la marque du contrat.
-            # Absente, on emprunte et on le journalise, comme aujourd'hui.
-            # Presente, une entree manquante veut enfin dire ce qu'elle doit.
-            contract_present = stream_pairing != None
-            if (not report["offset_measured"] and refuse_borrowed_offset
-                    and contract_present):
-                # La fidelite, QUAND ELLE EXISTE, distingue "aucun partenaire
-                # n'a passe la barre, a 0.82" de "rien n'a ete mesure du tout".
-                # LE REFUS CITE LE NOMBRE PAR FICHIER, pas celui d'une
-                # tranche: la barre a ete appliquee au choix de partenaire, une
-                # fois, pour tout le fichier.
-                # DEUX FORMES, PARCE QUE CE SONT DEUX FAITS DIFFERENTS.
-                #
-                #   fidelite = UN NOMBRE sous la barre -> une sonde a tourne et a
-                #       rendu une valeur. Depuis le defaut de sonde a cheval
-                #       trouve ce matin, ce nombre peut decrire LE PLACEMENT DE
-                #       LA SONDE et non la piste.
-                #   fidelite = None -> AUCUNE SONDE N'A TOURNE. Le maitre ne
-                #       porte aucun flux de cette langue, donc il n'existe aucun
-                #       partenaire a scorer. Ce n'est pas un refus de mesurer:
-                #       LA QUANTITE N'EXISTE PAS.
-                #
-                # Un lecteur voyant la premiere forme sur une piste de la seconde
-                # chercherait une fidelite qui n'a jamais ete prise.
-                seen = pairing_fidelity(stream_pairing, int(audio["StreamOrder"]))
-                if seen != None:
-                    raise chimeric_error(
-                        f"no offset was measured for this stream (best partner "
-                        f"fidelity {seen}, below the bar): it would carry another "
-                        f"track's alignment, and a borrowed offset is not a "
-                        f"measurement")
-                raise chimeric_error(
-                    f"no offset is measurable for this stream: the master "
-                    f"carries no {language} stream, so no partner exists to "
-                    f"measure against and no probe was run -- the quantity does "
-                    f"not exist, by any method")
+            # SON PROPRE DECALAGE, OU UN HERITAGE NOMME (ADDENDUM 9 point 14):
+            # jamais l'offset d'une autre langue en silence.
+            report["offset_measured"] = track_plan["offset_measured"]
+            report["borrow_reason"] = track_plan.get("borrow_reason")
+            report["offset_sources"] = track_plan.get("offset_sources")
+            report["offset_fidelity"] = None
+            report["marker"] = compose_marker(
+                marker_value,
+                Decimal(report["speed_ratio_applied"])
+                if report.get("speed_ratio_applied") is not None else None)
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
@@ -3822,9 +2536,15 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     for language, subtitles in candidate_obj.subtitles.items():
         for subtitle in subtitles:
             try:
-                subtitle_reports.append(build_one_subtitle_track(
-                    candidate_obj, subtitle, language, pieces, work_dir, index,
-                    timeout, speed_ratio))
+                report = build_one_subtitle_track(
+                    candidate_obj, subtitle, language, reference_pieces, work_dir, index,
+                    timeout, speed_ratio)
+                # LES REPLIQUES SUBISSENT LE RATIO DEMANDE, EXACT (pas un facteur
+                # quantifie par une frequence d'echantillonnage): c'est lui que
+                # porte leur marqueur.
+                report["marker"] = compose_marker(
+                    marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None)
+                subtitle_reports.append(report)
             except chimeric_error as error:
                 declined.append({"kind": "subtitle",
                                  "stream_order": int(subtitle["StreamOrder"]),
@@ -3909,8 +2629,13 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
             f"tolerance_ms={output_duration_tolerance_ms} "
             f"reason=fill_source_too_short\n")
 
+    # LE MARQUEUR DE FICHIER, pour les lecteurs qui n'en lisent qu'un
+    # (`mark_audio_dicts` en repli): la decision de l'ADDENDUM 5 et le ratio
+    # DEMANDE. Chaque piste porte en plus le sien, au facteur qu'ELLE a recu.
+    file_marker = compose_marker(
+        marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None)
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout, job_start_utc)
+                      timeout, job_start_utc, chapters_path=chapters_path)
 
     # L'ACCEPTATION PORTE SUR LE FICHIER ET ELLE PASSE AVANT L'ALIGNEMENT.
     # `SPEC_ZONE_A.MD` s4d. Verifier l'alignement d'une piste tronquee sonde des
@@ -3958,7 +2683,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         verification = None
         if verify:
             verification = verify_on_master_timeline(
-                out_path, master_obj, audio_reports, pieces, verify_tolerance_ms,
+                out_path, master_obj, audio_reports, reference_pieces, verify_tolerance_ms,
                 verify_search_ms, reference_stream)
 
         # VERIFY-THE-FILL (Architect's ruling, verification half, 2026-09-16),
@@ -4066,9 +2791,10 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
         # de duree, auquel cas l'alignement n'a jamais ete mesure, et "pas
         # mesure" n'est pas "mesure et vide".
         error.partial_assembly = {
-            "path": out_path, "pieces": pieces, "audios": audio_reports,
+            "path": out_path, "pieces": reference_pieces, "audios": audio_reports,
             "subtitles": subtitle_reports, "declined": declined,
-            "failed": failed, "marker": marker_value, "verification": None}
+            "failed": failed, "marker": file_marker, "base_marker": marker_value,
+            "verification": None}
         raise
 
     # LA CADENCE DU MAITRE, PUBLIEE. Elle n'est derivable d'AUCUNE ligne du
@@ -4087,12 +2813,12 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
     # admission (top of this function, alongside the grid refusal) -- reused
     # here rather than re-read, so there is exactly one place this module
     # asks the master what its grid is.
-    return {"path": out_path, "pieces": pieces, "audios": audio_reports,
+    return {"path": out_path, "pieces": reference_pieces, "audios": audio_reports,
             "master_frame_rate": frame_rate,
             "master_frame_rate_mode": frame_rate_mode,
             "master_frame_rate_original": frame_rate_original,
             "subtitles": subtitle_reports, "declined": declined,
-            "failed": failed, "marker": marker_value,
+            "failed": failed, "marker": file_marker, "base_marker": marker_value,
             "output_check": output_check,
             "verification": verification}
 
@@ -4268,6 +2994,48 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     return samples - samples.mean()
 
 
+def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout=900):
+    """UNE piste ENTIERE, decodee une fois, mono, a `rate` Hz, en float32 --
+    pour la mesure sous-frame des decalages de l'application du plan
+    (ADDENDUM 9 point 2), ou chaque zone de chaque piste est sondee plusieurs
+    fois: relire le fichier par recherche de SORTIE a chaque fenetre (ce que
+    `read_mono_samples` fait, a raison, pour quelques sondes) redecoderait
+    depuis le debut a chaque fois.
+
+    L'echantillon `i` est au temps `start_time + i / rate` de la piste -- la
+    meme convention que `atrim` dans `build_audio_filtergraph` et que la
+    recherche du verificateur, qui lisent les deux le temps du flux.
+    `audio_filter` (la chaine de vitesse, sur une paire a taux) est applique
+    AVANT la conversion: les temps sont alors ceux de la timeline corrigee,
+    `start_time * ratio + i / rate`, exactement comme l'assemblage les lit.
+
+    BORNE (`timeout`) et journalisee AVANT l'appel: un decodage entier qui
+    bloquerait laisserait sinon un journal muet. Leve `chimeric_error` sur un
+    echec d'outil -- une affirmation sur l'OUTIL, jamais sur le media."""
+    import numpy
+    command = [tools.software["ffmpeg"], "-v", "error", "-nostdin",
+               "-i", file_path, "-map", f"0:{int(stream_order)}", "-vn", "-sn", "-dn"]
+    if audio_filter:
+        command.extend(["-af", audio_filter])
+    command.extend(["-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
+                    "-ar", str(rate), "-"])
+    tools.dev_log(f"chimeric: read_track_samples starting file={file_path} "
+                  f"stream_order={stream_order} rate={rate} filter={audio_filter}\n")
+    try:
+        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise chimeric_error(
+            f"the whole-track read of stream {stream_order} did not finish in "
+            f"{timeout} s: a statement about the tool, not about the media")
+    if process.returncode != 0:
+        raise chimeric_error(
+            f"the whole-track read of stream {stream_order} FAILED: ffmpeg exited "
+            f"{process.returncode}: "
+            f"{(process.stderr or b'').decode('utf-8', 'replace').strip()[-300:]}")
+    return numpy.frombuffer(process.stdout, dtype=numpy.float32)
+
+
 def get_rms(samples):
     import numpy
     return float(numpy.sqrt((samples ** 2).mean())) if len(samples) else 0.0
@@ -4373,41 +3141,6 @@ output_duration_tolerance_ms = Decimal("500")
 # un seul choisi en silence ne l'est pas. Lequel est LA norme appartient au
 # proprietaire, pas a celui des deux qui imprime "validated".
 output_check_enforcing = True
-
-# UN DECALAGE EMPRUNTE SE REFUSE-T-IL? PAS ENCORE, ET LA RAISON N'EST PAS LA
-# PRUDENCE: C'EST QUE "PAS D'ENTREE DANS LA TABLE" NE VEUT PAS ENCORE DIRE CE
-# QU'IL VOUDRA DIRE.
-#
-#   AUJOURD'HUI  le locator ne mesure que les flux de la langue du plan, donc
-#                une entree absente signifie "cette piste est d'une AUTRE
-#                langue" -- et `vmsam-dev-1` vient de mesurer que ces pistes
-#                sont parfaitement mesurables: 0.944 a 0.990 de fidelite contre
-#                un flux maitre de LEUR langue. Refuser maintenant jetterait des
-#                pistes dont le decalage est disponible, simplement pas demande.
-#
-#   APRES        quand la table sera construite par flux, chaque flux candidat
-#                apparie a son MEILLEUR flux maitre et l'appariement filtre par
-#                fidelite, une entree absente signifiera "aucun partenaire n'a
-#                passe la barre", c'est-a-dire VRAIMENT non mesurable. Refuser
-#                devient alors la seule reponse honnete.
-#
-# LA MEME CONDITION, DEUX SENS OPPOSES. Ce drapeau ne bascule donc PAS sur un
-# comptage d'artefacts: il bascule quand le contrat du locator change, et pas
-# avant. Le lier a un nombre serait mesurer la mauvaise chose avec assurance.
-#
-# En attendant, le repli reste, et il est VISIBLE: `offset=BORROWED` sur la
-# ligne de chaque piste concernee. Mesure: 14 a 32 ms d'erreur sur deux
-# fichiers, sous la tolerance de 100 ms du verificateur.
-#
-# Et le cas que ni dev-1 ni moi n'avions nomme, qui interdit la solution
-# evidente: sur ces deux fichiers, DEUX pistes candidates portent l'etiquette
-# eng et une seule est celle du maitre -- l'autre correle a 0.59 avec l'anglais
-# du maitre et 0.57 avec son francais. ELLE NE CORRESPOND A RIEN. Une regle qui
-# apparie PAR ETIQUETTE lui donnerait le decalage d'une piste avec laquelle elle
-# ne partage aucun contenu, et cela aurait l'air juste dans tous les journaux.
-# Une etiquette de langue est une AFFIRMATION sur une piste; la fidelite en est
-# une MESURE.
-refuse_borrowed_offset = False
 
 
 def probe_output_streams(file_path):

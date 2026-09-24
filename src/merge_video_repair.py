@@ -71,150 +71,6 @@ verify_tolerance_ms = 100
 last_repair_report = []
 
 
-def parse_segments(raw_segments):
-    '''JSON -> Decimal. Les nombres arrivent en chaines pour ne rien perdre.
-
-    On COPIE la tranche et on convertit, au lieu de reconstruire un dict avec
-    trois cles choisies. La version precedente enumerait les champs qu'elle
-    connaissait et jetait tout le reste en silence -- dont
-    `candidate_offset_ms_by_stream`, que la mesure emettait et que l'assemblage
-    savait deja lire. Le consommateur et l'emetteur etaient tous les deux
-    corrects; le transport entre les deux perdait la charge utile, et le test
-    unitaire ne l'a pas vu parce qu'il passait un dict a la main sans traverser
-    ce transport.
-
-    Une liste blanche de champs dans un transport est un defaut par
-    construction: elle rend muette toute extension du format, et le seul signe
-    est que rien ne change.
-    '''
-    segments = []
-    for raw in raw_segments:
-        segment = dict(raw)
-        segment["master_start_ms"] = Decimal(str(raw["master_start_ms"]))
-        segment["master_end_ms"] = Decimal(str(raw["master_end_ms"]))
-        segment["candidate_offset_ms"] = Decimal(str(raw["candidate_offset_ms"]))
-        segments.append(segment)
-    return segments
-
-
-def get_speed_ratio(plan):
-    """Le coefficient a appliquer, ou None. Le VERDICT decide, pas le nombre.
-
-    `docs/AUDIO_SPEED_POLICY.MD` exige trois issues et un refus, et mesure que
-    l'erreur destructrice -- reechantillonner un fichier qui n'avait besoin de
-    rien -- etait DEUX FOIS plus frequente que le cas inversant que le detecteur
-    existe pour trouver. On n'applique donc rien sans verdict explicite.
-
-    REND `(ratio, refus, jeton)`. Le troisieme element est un jeton stable en
-    snake_case, produit ICI -- a la decision -- et non au site de journalisation.
-
-    ONZE REFUS DISTINCTS PASSENT PAR CETTE FONCTION, et non neuf: quatre sont
-    rendus directement ci-dessous, un vient de `check_ratio_convention` et
-    TROIS de `check_ratio_labelled`, puis trois autres directement. Un appelant
-    ne peut pas les distinguer -- il ne voit qu'une prose libre -- donc un seul
-    jeton pose chez lui aurait effondre onze decisions en une. Mesure
-    dev-cause 2026-09-15, confirmee par le Lead; le compte de neuf qui
-    circulait comptait les `return` de cette fonction, ce qui est exact et
-    n'est pas la meme quantite.
-    """
-    if plan.get("kind") != "speed" and plan.get("speed_ratio") == None:
-        return None, None, None
-    verdict = plan.get("verdict")
-    if verdict == None:
-        return None, ("the measurement carries a speed ratio but no verdict; "
-                      "AUDIO_SPEED_POLICY.MD requires three outcomes and a decline, "
-                      "and applying asetrate on a bare coefficient would let an "
-                      "inverting case through undetected"), "speed_verdict_absent"
-    if verdict == "leave_alone":
-        # PAS DE CORRECTIF A FAIRE SUR CETTE POPULATION, et le jeton doit le
-        # dire: la paire va bien. Un seat futur qui compte les fichiers
-        # recuperables doit pouvoir SOUSTRAIRE ceux-ci, pas les empiler avec
-        # des refus qui attendent un outil.
-        return None, ("the measurement says LEAVE IT ALONE: the pair already "
-                      "matches and a correction would take it apart"
-                      ), "speed_verdict_leave_alone"
-    if verdict == "decline":
-        return (None, "the measurement declined to name a transformation",
-                "speed_verdict_declined")
-    if verdict == "indeterminate":
-        # SPEC_ZONE_A s4f: DEUX HYPOTHESES AU-DESSUS DE LA BARRE ET TROP PROCHES
-        # POUR ETRE SEPAREES EST *INDETERMINE*, PAS PAL. Le proprietaire l'a
-        # nomme parce que la faute inverse a deja ete commise: un balayage dont
-        # les trois meilleures positions tenaient dans 0.028 a ete lu comme une
-        # localisation et a produit deux cartes fausses en une nuit.
-        #
-        # Appliquer la meilleure des deux ici serait choisir par la marge la plus
-        # mince disponible, c'est-a-dire par le bruit.
-        return None, ("the measurement could not separate two rate hypotheses "
-                      "above the bar: INDETERMINATE, not a rate. "
-                      "SPEC_ZONE_A.MD s4f requires escalation to scene detection "
-                      "-- a different modality -- and a tie-break computed from "
-                      "the same correlations is not a third opinion"
-                      ), "speed_hypotheses_indeterminate"
-    # LA CONVENTION DU RAPPORT, VERIFIEE CONTRE LES DUREES ET NON CONTRE UN NOM.
-    #
-    # ATTRIBUTION CORRECTED 2026-09-05, AND THE DEFECT IT RECORDS IS UNCHANGED.
-    # The line below named `vmsam-dev-1` as having emitted `speed_ratio` in the
-    # reciprocal convention. MEASURED AT THE AUTHORITY, with a control:
-    #     "speed_ratio" in change_point_locator.py   0
-    #     control "quantum_ms"                      12   (the grep fires)
-    #     the plan dict it returns carries 25 keys, and NONE is speed_ratio.
-    # SO THE ATTRIBUTION NAMED A PRODUCER THAT DOES NOT EXIST HERE -- the same
-    # class as the four margin keys documented below, and the same class dev-4
-    # filed and corrected to NO WRITER EXISTS. The CONVENTION statement that is
-    # correct lives in merge_video_resample.py's own docstring, as an equation.
-    #
-    # THE HAZARD BELOW IS REAL AND STAYS: two reciprocal conventions for one
-    # name, where taking the wrong one stretches a track the wrong way by 8.7 %
-    # and nothing inside a sweep can catch it.
-    # (historical, kept per the append-only rule:)
-    # vmsam-dev-1 a emis `speed_ratio` dans SA convention -- candidat/maitre --
-    # la ou `TASKS/009` definit maitre/candidat. RECIPROQUES. Sur l'id 70 cela
-    # aurait etire la piste de 0.9590 la ou il faut 1.0425: 8.7 % dans le MAUVAIS
-    # SENS. `AUDIO_SPEED_POLICY.MD` faiblesse 3 enregistre exactement ce defaut,
-    # et note que RIEN A L'INTERIEUR DU BALAYAGE NE POUVAIT L'ATTRAPER.
-    #
-    # Mes deux gardes -- bornes et verificateur -- l'attrapent quand le rapport
-    # est loin de 1. Elles NE L'ATTRAPENT PAS pres de l'unite: 0.999001 contre
-    # 1.000999 passe toute borne et toute tolerance, et c'est le cas DESTRUCTEUR.
-    #
-    # UN NOM DE CHAMP NE PORTE PAS SA CONVENTION. Les DUREES si. Quand le plan
-    # les porte, on demande laquelle de `r` ou `1/r` est proche du rapport des
-    # durees -- et on ne tranche que lorsque la reponse est nette.
-    #
-    # TROIS ETATS, parce que la verification n'est pas toujours possible: sur
-    # l'id 33 les durees sont dans un rapport de 1.0687 pour une relation de
-    # cadence de 1.001 -- LE CANDIDAT EST PLUS LONG PARCE QU'IL PORTE DU CONTENU
-    # DIFFERENT. Un rapport de durees N'EST PAS UNE CADENCE, et un controle qui
-    # l'oublierait refuserait l'id 33 a tort.
-    # LES JETONS DES DEUX AIDES PASSENT INCHANGES. Ni traduits, ni normalises,
-    # et aucun jeton a moi ajoute a cote: c'est la regle que
-    # `get_plan_from_locator` applique au producteur de plans, et elle vaut
-    # entre deux fonctions du meme fichier pour la meme raison -- celui qui
-    # decide nomme, celui qui transporte se tait.
-    convention, convention_cause = check_ratio_convention(plan)
-    if convention != None:
-        return None, convention, convention_cause
-    labelled, labelled_cause = check_ratio_labelled(plan)
-    if labelled != None:
-        return None, labelled, labelled_cause
-    if verdict == "rubberband":
-        return None, ("the measurement says rubberband -- the inverting case, a "
-                      "source already pitch-corrected at origin. Not implemented: "
-                      "applying asetrate here would drag the pitch 72.4 cents flat"
-                      ), "speed_verdict_rubberband_unimplemented"
-    if verdict != "asetrate":
-        # LE VERDICT INCONNU VA DANS LA PROSE, LE JETON RESTE FIXE. Regle
-        # lexicale 4: un jeton qui porterait `verdict` varierait a chaque
-        # valeur inattendue et ne compterait rien.
-        return None, f"unknown speed verdict {verdict!r}", "speed_verdict_unknown"
-    ratio = plan.get("speed_ratio")
-    if ratio == None:
-        return (None, "verdict asetrate with no speed_ratio",
-                "speed_ratio_absent_for_asetrate")
-    return Decimal(str(ratio)), None, None
-
-
 def get_speed_margin(plan):
     """DE COMBIEN LA MEILLEURE HYPOTHESE A GAGNE, pas seulement qu'elle a gagne.
 
@@ -230,92 +86,6 @@ def get_speed_margin(plan):
     """
     margin = plan.get("speed_margin")
     return None if margin == None else str(margin)
-
-
-def get_marker_value(plan):
-    '''SPEC_ZONE_A.MD s4. `chimeric+resampled:<factor>` DANS CET ORDRE.
-
-    Le facteur ecrit est celui reellement applique, a la precision reellement
-    appliquee: un tag `resampled:1.042709` sur une piste etiree autrement est
-    pire que pas de tag du tout.
-    '''
-    parts = []
-    # `chimeric` veut dire ASSEMBLE DE PLUSIEURS SOURCES. Une relation de vitesse
-    # seule, sur une tranche unique qui couvre tout, ne l'est pas: la marquer
-    # ainsi mentirait sur ce qu'a subi la piste.
-    segments = plan.get("segments") or []
-    if len(segments) > 1 or (len(segments) == 1 and plan.get("kind") == "piecewise_constant"):
-        parts.append("chimeric")
-    applied = plan.get("applied_speed_factor")
-    if applied != None:
-        parts.append(f"resampled:{applied}")
-    return "+".join(parts)
-
-
-def get_master_timeline_ms(master_obj):
-    return Decimal(str(master_obj.video["Duration"])) * Decimal("1000")
-
-
-def get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj):
-    """`SPEC_ZONE_A.MD` s4, avec le facteur REELLEMENT applique.
-
-    Le facteur ecrit n'est pas celui demande: `asetrate` prend un entier, donc la
-    transformation obtenue est `intermediaire / round(intermediaire / ratio)`. On
-    le calcule ici avec la meme frequence que l'assemblage utilisera, sinon le
-    tag decrirait une transformation que le fichier n'a pas subie.
-
-    CORRIGE 2026-09-22 -- DEFAUT TROUVE EN REVUE, PAS EN PRODUCTION: cette
-    fonction ne regardait qu'UNE piste -- la premiere trouvee en iterant
-    `candidate_obj.audios` seul (ordre d'insertion du dict), IGNORANT
-    `.audiodesc`/`.commentary` alors que `iterate_candidate_audios`
-    (`merge_video_chimeric.py`, la fonction qui decide reellement ce qui est
-    reconstruit) couvre les trois, commentaire compris ("on repare toujours",
-    proprietaire 2026-09-16). Et `build_speed_filter_chain`'s facteur EFFECTIF
-    depend de la frequence SOURCE (l'arrondi de `asetrate` sur un entier),
-    donc deux pistes a des frequences differentes recoivent des facteurs
-    EFFECTIFS mesurablement differents (docstring de ce module: 0.35 a
-    2.75 ms d'ecart sur 1435 s) -- alors que cette fonction en ecrivait UN
-    SEUL, applique IDENTIQUEMENT a chaque piste par `mux_repaired_file`.
-    `build_resampled_candidate` (`merge_video_resample.py`) mesure deja ce cas
-    et le nomme `"mixed"` (:177-180 de ce fichier); cette fonction ne le
-    faisait pas -- la connaissance existait, un seul appelant l'ignorait. Un
-    tag faux est "pire que pas de tag du tout" (docstring de ce module, en
-    tete): donc mesurer TOUTES les pistes, et REFUSER plutot que deviner
-    quand elles ne s'accordent pas -- un DECLIN mesure (`chimeric_error`),
-    pas une PANNE d'outil, meme raisonnement que le reste de ce fichier
-    (repair.py:2798-2829: `chimeric_error` -> `declined`, tout le reste ->
-    `failed`).
-    """
-    applied_factor = None
-    if speed_ratio != None:
-        import merge_video_chimeric
-        import merge_video_resample
-        factors_by_rate = {}
-        for audio in merge_video_resample.iter_audio_dicts(candidate_obj):
-            rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
-            if rate == None:
-                continue
-            rate = int(float(rate))
-            if rate not in factors_by_rate:
-                _, applied, _, _ = merge_video_resample.build_speed_filter_chain(
-                    rate, speed_ratio)
-                factors_by_rate[rate] = merge_video_resample.format_factor(applied)
-        if not len(factors_by_rate):
-            raise merge_video_chimeric.chimeric_error(
-                "no sampling rate is readable on any candidate audio track: "
-                "cannot state the applied speed factor for the fabricated marker",
-                cause="speed_marker_no_sample_rate")
-        distinct_factors = set(factors_by_rate.values())
-        if len(distinct_factors) > 1:
-            raise merge_video_chimeric.chimeric_error(
-                f"the candidate's audio tracks' sample rates "
-                f"({sorted(factors_by_rate.keys())}) resolve to DIFFERENT "
-                f"effective speed factors ({sorted(distinct_factors)}): one "
-                f"marker cannot describe what every stream actually "
-                f"received -- refusing rather than tagging some tracks wrong",
-                cause="speed_marker_ambiguous_mixed_sample_rates")
-        applied_factor = next(iter(distinct_factors))
-    return get_marker_value(dict(plan, applied_speed_factor=applied_factor))
 
 
 def get_delay_language(best_video, candidate_obj):
@@ -405,116 +175,6 @@ def run_speed_sweep(best_video, candidate_obj, language):
         f"median={gate.get('median_fidelity')} margin={gate.get('margin')} "
         f"cause={gate.get('cause')} passing={gate.get('passing')}\n")
     return gate, None, None
-
-
-def drop_unverified_segments(segments):
-    """Une tranche dont le decalage n'a pas pu etre mesure proprement devient un
-    TROU, et le trou est rempli depuis le maitre.
-
-    `vmsam-dev-1` marque `offset_unverified` quand la tranche est plus courte que
-    sa fenetre de sonde: aucune sonde propre n'y tient, toute fenetre qui la
-    recouvre franchit la transition, et un correlateur a pic sur une fenetre a
-    cheval rend un pic DEPLACE -- de signe arbitraire et non borne par la grille.
-    Sur l'erreur 266 cela valait 168 ms, mais 168 n'est pas un plafond: il n'y a
-    rien a comparer a ma tolerance de 100 ms, donc la verification ne peut pas
-    rattraper le cas.
-
-    Coller du contenu candidat a un decalage non borne et non verifie est
-    exactement le cas de DEGAT. Le contenu du maitre dans un trou de la timeline
-    du maitre est correct par definition, et le cout est la duree de la tranche
-    elle-meme -- 29 s sur 1428 pour 266, environ 2 %. On paie ce cout et on le
-    DECLARE dans la colonne de remplissage.
-
-    On ne refuse PAS la paire: jeter trois points de changement confirmes pour en
-    proteger un seul mauvais est le mauvais echange, et `vmsam-dev-1` a eu raison
-    de ne pas le faire dans son module.
-    """
-    kept, dropped_ms, dropped = [], Decimal("0"), []
-    for segment in segments:
-        if segment.get("offset_unverified"):
-            span = Decimal(str(segment["master_end_ms"])) - Decimal(str(segment["master_start_ms"]))
-            dropped_ms += span
-            # LES BORNES, PAS SEULEMENT LE TOTAL. Un segment jete ici devient une
-            # region remplie DEPUIS LE MAITRE plus bas, et sur la ligne de
-            # journal elle est indistinguable d'un trou ordinaire du plan. Le
-            # lecteur ne peut donc pas separer "le plan n'avait pas de candidat
-            # ici" de "le plan en avait un ET ON L'A JETE".
-            dropped.append({"master_start_ms": str(segment["master_start_ms"]),
-                            "master_end_ms": str(segment["master_end_ms"]),
-                            "dropped_ms": str(span)})
-            continue
-        kept.append(segment)
-    return kept, dropped_ms, dropped
-
-
-def clamp_segments_to_master(segments, master_obj):
-    """Coupe le plan a la duree VIDEO du maitre, et jette ce qui tombe apres.
-
-    `generate_new_file` passe `-t best_video.video['Duration']`
-    (mergeVideo.py:1781), donc tout ce qui depasse est tronque par le merge de
-    toute facon. `vmsam-dev-1` s'arrete a la duree AUDIO la plus courte et m'a
-    demande de serrer ici, ou la valeur est disponible, plutot que de deviner
-    l'attribut de son cote. Sur les fichiers d'exemple l'ecart est de l'ordre de
-    la seconde.
-    """
-    limit = Decimal(str(master_obj.video["Duration"])) * Decimal("1000")
-    clamped = []
-    for segment in segments:
-        start = Decimal(str(segment["master_start_ms"]))
-        end = Decimal(str(segment["master_end_ms"]))
-        if start >= limit:
-            continue
-        if end > limit:
-            segment = dict(segment)
-            segment["master_end_ms"] = limit
-        clamped.append(segment)
-    return clamped
-
-
-# Un decalage est mesure a un QUANTUM pres -- 124 a 142 ms selon l'appel chez
-# `vmsam-dev-1`. Une tranche dont le debut cote candidat tombe juste avant zero
-# est donc du bruit de mesure, pas un plan qui lit hors du fichier. On rogne
-# jusqu'a un quantum (borne haute de la plage mesuree); au-dela on REFUSE,
-# parce qu'un debut negatif d'une seconde n'est plus une precision, c'est un
-# plan faux.
-head_clamp_max_ms = Decimal("150")
-
-
-def clamp_segments_to_candidate_head(segments, stream_order=None):
-    """Rogne une tranche qui commence juste AVANT le debut du candidat.
-
-    Symetrique de `clamp_segments_to_master`, qui coupe a l'autre bout. Trouve
-    le 2026-09-03 sur le premier plan chimeric+resampled reel: la premiere
-    tranche partait de master 1876 ms avec un decalage de -1876.36 ms, soit un
-    debut candidat de -0.36 MS, et l'assemblage refusait le fichier entier pour
-    trois dixiemes de milliseconde.
-
-    On avance le DEBUT MAITRE du depassement plutot que de bricoler le
-    decalage: on perd le fragment qui n'existe pas dans le candidat, et le
-    maitre le remplit -- ce que l'assemblage fait deja pour tout trou. Aucune
-    seconde n'est inventee.
-    """
-    import merge_video_chimeric
-    clamped = []
-    for segment in segments:
-        # LE MINIMUM SUR TOUS LES FLUX, pas le repli. Le rognage vaut pour
-        # TOUTES les pistes -- une seule borne de morceau -- donc il doit
-        # proteger la piste la plus negative. `vmsam-dev-1` a demande que la
-        # garantie vive ici: son emetteur ne promet PAS que le decalage de repli
-        # soit le plus negatif, c'est simplement la langue sur laquelle l'appel
-        # a ete fait. Dependre de cette propriete serait dependre de quelque
-        # chose que personne n'a promis.
-        offsets = [merge_video_chimeric.get_segment_offset(segment, stream_order)]
-        by_stream = segment.get("candidate_offset_ms_by_stream") or {}
-        offsets.extend(Decimal(str(v)) for v in by_stream.values())
-        offset = min(offsets)
-        start = Decimal(str(segment["master_start_ms"]))
-        candidate_start = start + Decimal(str(offset))
-        if candidate_start < 0 and -candidate_start <= head_clamp_max_ms:
-            segment = dict(segment)
-            segment["master_start_ms"] = start - candidate_start
-        clamped.append(segment)
-    return clamped
 
 
 def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **kwargs):
@@ -745,129 +405,47 @@ def speed_plan_evidence(plan, speed_ratio):
 
 
 def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_start_utc):
-    '''Construit le fichier repare et l'objet video qui va avec.
+    '''Construit le fichier repare et l'objet video qui va avec, A PARTIR DU PLAN
+    DE L'ORCHESTRATEUR (`repair_orchestrator.apply_plan`, etage 5).
 
-    `job_start_utc`: EXIGE, SANS DEFAUT -- voir VMSAM_ERA a l'appelant
-    (`repair_not_compatible_videos`). Traverse cette fonction sans etre lu:
-    seul `assemble_on_master_timeline` (via `assemble_or_log_the_decline`) en
-    a besoin, pour le tag pose au mux.
+    `plan` porte des MORCEAUX DEJA CONSTRUITS, un jeu par piste (`track_plans`)
+    et celui de la piste de comparaison (`reference_pieces`, qui re-cale les
+    sous-titres et que le verificateur sonde), le marqueur decide par l'ADDENDUM
+    5, et -- sur une paire a taux -- le ratio EXACT avec ses preuves. Cette
+    fonction ne mesure rien et ne re-decoupe rien (ADDENDUM 10 d).
+
+    `job_start_utc`: EXIGE, SANS DEFAUT -- voir VMSAM_ERA a l'appelant.
+    Traverse cette fonction sans etre lu: seul `assemble_on_master_timeline`
+    en a besoin, pour le tag pose au mux.
 
     Renvoie (objet, compte-rendu de l'assemblage).
     '''
     import merge_video_chimeric
 
-    # UNE SEULE DERIVATION, PARTAGEE. La meme cle sert de repertoire de travail
-    # ici et de repertoire de cas dans le magasin durable de `merge_video_chimeric`;
-    # deux copies qui doivent s'accorder sont une divergence en attente.
+    # UNE SEULE DERIVATION, PARTAGEE: la meme cle sert de repertoire de travail
+    # et nomme le fichier produit.
     key = merge_video_chimeric.stable_case_key(candidate_obj.filePath)
     work_dir = path.join(work_root, key)
     tools.make_dirs(work_dir)
     out_path = path.join(work_root, f"{key}_repaired.mkv")
 
-    # WHERE IT PLANTS (owner's decision, 2026-09-22, same hang investigation
-    # as the entry log above). If this candidate's repair wedges anywhere
-    # downstream, this is the last line that says where on disk its
-    # intermediate and final artefacts were headed -- `work_dir` for the
-    # per-track extraction/build files `assemble_on_master_timeline` writes,
-    # `out_path` for the muxed product. Logged once, here, rather than
-    # re-derived from `key` at investigation time: the derivation
-    # (`stable_case_key`) is a hash, not something a reader reconstructs by
-    # eye from a candidate path under time pressure.
+    # WHERE IT PLANTS (owner's decision, 2026-09-22): if this candidate's repair
+    # wedges anywhere downstream, this is the last line that says where on disk
+    # its intermediate and final artefacts were headed.
     tools.dev_log(f"repair: build_repaired_video_object starting "
                   f"candidate={candidate_obj.filePath} work_dir={work_dir} "
                   f"out_path={out_path}\n")
 
-    # STOP AND READ BEFORE POPULATING `plan["verdict"]` OR
-    # `plan["speed_ratio"]`. Populating either routes THROUGH A DESTRUCTIVE
-    # TRANSFORM on a real candidate file, applied below. If you are here for
-    # a REPORTING reason -- a chain that wants to log its own speed_ratio or
-    # margin -- STOP: emit on YOUR OWN decline line instead (see
-    # `pal_speed_verdict.py`'s `speed_margin`, VMSAM_HELP_AI/dev-pal/
-    # 013-speed-margin-producer.MD for the investigation that found this the
-    # hard way). A hard guard immediately below refuses unconditionally
-    # regardless, but the guard is the second line of defence -- this
-    # comment is the first, so the next person gets the warning without
-    # having to trace it themselves.
-    speed_ratio, _refusal, _cause = get_speed_ratio(plan)
+    speed_ratio = plan.get("speed_ratio")
     if speed_ratio is not None:
-        # HARD GUARD, unconditional -- Lead dispatch 2026-09-21
-        # (VMSAM_HELP_AI/dev-pal/013-speed-margin-producer.MD). `speed_ratio`
-        # reaching here applies a REAL asetrate transform to a real
-        # candidate file, and nothing populates `plan["verdict"]`/
-        # `plan["speed_ratio"]` anywhere in this codebase today -- this arm
-        # has never fired in production. The investigation that found this
-        # was chasing a REPORTING task (emitting `speed_margin` on the PAL
-        # chain's own decline line); populating this plan for that reason
-        # would have activated a destructive transform nobody reviewed.
-        # Refusing here, unconditionally, turns that trap into a named
-        # no-op: a well-lit signpost now leads somewhere safe instead of
-        # somewhere destructive.
-        #
-        # WHY THIS IS NOT A PARAMETER ON A FINISHED CAPABILITY
-        # (WRITE_ZONES.MD SS4's own rule against exactly that): this is
-        # SS4's OTHER case -- a capability under construction, kept out of
-        # the library until it is finished, not a setting on one that
-        # already works. Removing this guard is the deliberate, reviewed
-        # commit that ships Stage-3 confirmation as an APPLIED repair, not a
-        # flag anyone flips at runtime. The finished capability ends up
-        # unconditional either way, exactly as the no-parameter rule
-        # demands -- this refusal is the state BEFORE that commit, not a
-        # configuration of the state after it.
-        #
-        # REMOVAL CONDITION, STATED SO THIS GUARD DOES NOT OUTLIVE ITS
-        # PURPOSE: remove this block in the commit that ships Stage 4
-        # (resample application) as a reviewed, validated, applied repair
-        # path -- not before. A guard without a stated exit outlives its
-        # purpose and becomes the thing it was protecting against.
-        #
-        # `cause="speed_transform_not_validated"` is a FOURTH explicitly
-        # tokened `chimeric_error` site. `chimeric_cause`'s own docstring
-        # (this file) records that tokened sites were bounded to exactly two
-        # by the Lead's own ruling (R2) -- this fourth one is authorized the
-        # same way, by the Lead's explicit dispatch naming this exact token,
-        # not assumed or added quietly.
-        #
-        # REVIEWED 2026-09-22, STILL HELD (dev-stage4's mission,
-        # VMSAM_HELP_AI/dev-stage4/001-stage4-apply-review.MD): the apply
-        # path below WAS reviewed and two real defects WERE found and fixed
-        # in this same commit (the decline-path cause fall-through in
-        # `get_plan_from_locator`/`confirm_speed_relation_via_resample`, and
-        # the fabricated-marker mixed-sample-rate gap in
-        # `get_marker_value_for`). The guard was lifted, tested end to end on
-        # real media (errid 46 and three more episodes of the same pairing,
-        # Rick and Morty S01E01-E04), and put back: all four real attempts
-        # DECLINED at `assemble_on_master_timeline`'s own PRE-EXISTING
-        # `alignment_contradicts_plan` verification, same cause, same piece,
-        # same ~1.9-3.6s window every time -- a real, consistent, explicable
-        # population defect in the only confirmed real population available
-        # (this pairing needs the composite/resample-first-then-locate path
-        # to ever merge, not a single-segment plan). ZERO merges were
-        # produced. `alignment_contradicts_plan` verifies that offsets hold;
-        # it does not verify the applied speed factor or the written marker
-        # are correct -- those are exactly what remains unexercised, per the
-        # Lead's ruling (2026-09-22). REMOVAL CONDITION UNCHANGED, now
-        # sharpened: lift again in the commit where one real file MERGES and
-        # its produced duration/marker match a hand-computed target stated
-        # before the run.
-        #
-        # *** COMPLETED, NOT LIFTED (RULING_20260922_NO_BAND_ROUTING.MD,
-        # ADDENDUM, 2026-09-22). *** The guard above refused EVERY non-None
-        # `speed_ratio` unconditionally, which was right while no producer
-        # could show its work and wrong the moment one could. What the
-        # addendum orders is not a relaxation of the bar but a STATEMENT of
-        # it: a coefficient is admissible when it arrives with the evidence
-        # that validated it -- a snapped named rational, a ladder median at
-        # or above the unchanged floor, and a named deciding instrument, all
-        # three, all about the SAME number. `speed_plan_evidence` above is
-        # that statement, and everything it cannot vouch for still lands on
-        # the raise below, with the same stable cause it always had.
-        #
-        # THE REMOVAL CONDITION FROM THE BLOCK ABOVE IS NOT SATISFIED AND IS
-        # NOT BEING TREATED AS SATISFIED. No real file has merged through
-        # this path yet. What changed is that the refusal is now a
-        # MEASUREMENT of the plan rather than a blanket "not yet": a plan
-        # with no evidence is refused for a reason that names what is
-        # missing, which is the difference between a wall and a gate.
+        # LA GARDE DEVANT LA TRANSFORMATION DESTRUCTIVE, COMPLETEE ET NON LEVEE
+        # (RULING_20260922_NO_BAND_ROUTING.MD, ADDENDUM), ET MAINTENANT
+        # ATTEIGNABLE: l'ADDENDUM 8 autorise la livraison d'un audio resample,
+        # et un coefficient n'est admissible qu'avec la preuve qui l'a valide --
+        # un rationnel nomme du vocabulaire du balayage, une mediane d'echelle
+        # au-dessus du plancher inchange, un instrument nomme, les trois sur le
+        # MEME nombre. `speed_plan_evidence` est cet enonce; ce qu'il ne peut
+        # pas garantir leve, avec la cause stable qu'il a toujours eue.
         admissible, evidence_token, evidence_prose = speed_plan_evidence(
             plan, speed_ratio)
         tools.dev_log(
@@ -882,102 +460,26 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
                 f"({evidence_token}: {evidence_prose}) -- refusing rather "
                 f"than applying an unevidenced transform",
                 cause="speed_transform_not_validated")
-    segments = plan.get("segments")
-    if not segments:
-        # Un plan de VITESSE SEULE n'a pas de tranche: la relation couvre tout le
-        # fichier. On en fabrique une qui couvre la timeline du maitre, plutot que
-        # d'exiger de la mesure une structure qu'elle n'a pas a inventer.
-        # `.get("base_offset_ms", 0)` FABRIQUE UNE VALEUR A PARTIR D'UNE ABSENCE.
-        #
-        # Regle de `vmsam-ci`: un defaut zero sur une quantite qui a un plancher
-        # est un defaut DETECTABLE -- tout ce qui passe sous le plancher est une
-        # valeur manufacturee. Un decalage n'a PAS de plancher, donc rien dans la
-        # donnee ne trahit le cas ici: `absent` et `zero` sortent identiques.
-        #
-        # ET LES DEUX SONT DES FAITS DIFFERENTS. "ce plan est une vitesse pure,
-        # sans decalage" et "aucun decalage n'a ete mesure" produisent tous deux
-        # `0`, et le second place le candidat au zero du maitre sur la foi d'une
-        # cle manquante.
-        #
-        # ON NE CHANGE PAS LE COMPORTEMENT -- je ne peux pas justifier de refuser
-        # un plan de vitesse pure qui n'a legitimement pas de decalage. ON REND
-        # LE CHOIX VISIBLE: le segment fabrique porte de quel cas il vient, et la
-        # ligne `repair: segment` le dit.
-        stated_offset = plan.get("base_offset_ms")
-        segments = [{"master_start_ms": Decimal("0"),
-                     "master_end_ms": get_master_timeline_ms(master_obj),
-                     "candidate_offset_ms": Decimal(str(
-                         stated_offset if stated_offset != None else 0)),
-                     # PAS D'ESPACE DANS LE JETON. `vmsam-ci` a teste le
-                     # marqueur contre ses deux lecteurs AVANT qu'il ne se
-                     # deploie: l'un capturait `0` et JETAIT le marqueur -- une
-                     # valeur fabriquee lue comme une mesure, exactement ce que
-                     # le marqueur existe pour empecher -- et l'autre ne
-                     # correspondait PLUS DU TOUT, parce que le texte s'intercale
-                     # avant ` by_stream=`, donc le segment disparaissait en
-                     # silence.
-                     #
-                     # LE SECOND EST LE PIRE: le lecteur perd EXACTEMENT les
-                     # lignes qu'on lui demande de surveiller, et rapporte un
-                     # denominateur plus petit, plus propre et entierement faux.
-                     # 21 segments devenus 18 se lit comme trois fichiers qui
-                     # n'ont pas emis.
-                     #
-                     # Meme correction que `language_route` il y a une heure: un
-                     # jeton `cle=valeur` separe par des espaces ne peut pas
-                     # CONTENIR d'espace.
-                     "offset_origin": ("stated" if stated_offset != None
-                                       else "DEFAULTED_plan_carries_no_"
-                                            "base_offset_ms")}]
-    else:
-        segments = parse_segments(segments)
-    segments, unverified_ms, dropped_segments = drop_unverified_segments(segments)
-    if not len(segments):
-        raise merge_video_chimeric.chimeric_error(
-            "every segment's offset is unverified (each shorter than the "
-            "measurement's probe window); nothing can be spliced at a bounded offset")
-    marker = get_marker_value_for(plan, speed_ratio, candidate_obj, master_obj)
+
     assembly = assemble_or_log_the_decline(
-        candidate_obj, plan, unverified_ms,
-        candidate_obj, master_obj,
-        clamp_segments_to_candidate_head(
-            clamp_segments_to_master(segments, master_obj)),
-        work_dir, out_path, marker,
+        candidate_obj, plan, Decimal("0"),
+        candidate_obj, master_obj, plan["track_plans"], plan["reference_pieces"],
+        work_dir, out_path, plan["marker"],
         job_start_utc=job_start_utc,
         speed_ratio=speed_ratio,
-        # LE FLUX MAITRE SUR LEQUEL LA MESURE A ETE PRISE. C'est la seule piste
-        # dont on SAIT qu'elle est calee sur le plan, et on le sait par mesure
-        # et non par deduction: le plan a ete produit contre elle.
+        # LE FLUX MAITRE SUR LEQUEL LA MESURE A ETE PRISE: la seule piste dont
+        # on SAIT, par mesure, qu'elle est calee sur le plan.
         reference_stream=plan.get("reference_stream"),
-        # LA LANGUE DE COMPARAISON: celle sur laquelle la mesure a ete prise, et
-        # le repli de remplissage quand le maitre ne porte pas la langue de la
-        # piste (SPEC_ZONE_A.MD s4c, decision du proprietaire).
+        # LA LANGUE DE COMPARAISON, repli de remplissage quand le maitre ne
+        # porte pas la langue de la piste (SPEC_ZONE_A.MD s4c).
         comparison_language=plan.get("language"),
-        # LE CHOIX DE PARTENAIRE PAR FICHIER, auquel la barre de fidelite a ete
-        # appliquee. Distinct de la fidelite par tranche, qui vit dans chaque
-        # segment: le refus cite celui-ci, la ligne de pose cite celui-la.
-        stream_pairing=plan.get("candidate_stream_pairing"),
-        # STAGE 4's OWN CORROBORATION INPUT (Architect's ruling, 2026-09-17,
-        # point i): the pair's own audio quantum, already a TOP-LEVEL plan
-        # field the locator emits (`change_point_locator.py`'s own
-        # `quantum_ms`) -- consumed here, never re-derived or produced.
-        # `None` when the plan carries none, which the frame tier's stage 4
-        # reads as "cannot corroborate" and declines named, never silently
-        # skips the check.
-        quantum_ms=plan.get("quantum_ms"),
+        chapters_path=plan.get("chapters_path"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms)
 
-    # Le compte-rendu porte la mesure jetee: `repair_not_compatible_videos` la
-    # cite dans son entree "repaired", et elle etait jusqu'ici une locale d'ici,
-    # donc invisible la-bas -- toute reparation REUSSIE levait un NameError,
-    # apres avoir deja accroche l'objet a best_video. Trouve le 2026-09-03 en
-    # branchant le balayage sur cette fonction plutot que sur l'assembleur:
-    # aucun test ne parcourait la branche de succes de l'orchestrateur.
-    assembly["unverified_segment_ms"] = unverified_ms
+    assembly["unverified_segment_ms"] = Decimal("0")
     # LE JOURNAL EST ECRIT ICI, avant que l'objet video soit construit: si la
     # relecture du fichier produit echoue, on veut quand meme savoir ce qui a
-    # ete fait a chaque piste. Un journal ecrit seulement en cas de succes ne
-    # documente jamais les cas qui en avaient besoin.
+    # ete fait a chaque piste.
     try:
         log_assembly(candidate_obj.filePath, assembly, plan)
     except Exception as error:
@@ -991,46 +493,28 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # Exigence 1. Zero, et non None: la reparation a deja pose le contenu sur la
     # timeline du maitre.
     repaired_obj.delay_same_md5_audio = Decimal('0')
-
-    # Exigence de SPEC_ZONE_A.MD s4 cote memoire. A savoir, et a dire: cette cle
-    # n'est lue par personne aujourd'hui. Les deux appels de `keep_best_audio`
-    # (mergeVideo.py:1853, et :998 via :1861) parcourent les dicts de
-    # `out_video_metadata`, un objet neuf construit sur le fichier fusionne
-    # (:1822) et rempli par `get_mediadata` (:1823) -- qui ne pose jamais
-    # `fabricated`. Le marqueur revient du fichier sous
-    # `extra['VMSAM_FABRICATED']`. Mesure le 2026-09-03. On pose quand meme la
-    # cle: c'est le contrat, et le jour ou le consommateur sera corrige elle
-    # sera la.
     mark_audio_dicts(repaired_obj, assembly["marker"])
-    # LA PORTE DE LIVRAISON DES PISTES FABRIQUEES (CASE_wakeup20260924, defaut A).
-    # Ici et pas dans `keep_best_audio`: c'est le seul point ouvert qui voit
-    # TOUTES les pistes construites. En aval, `find_differences_and_keep_best_
-    # audio` (gele) ne soumet a `keep_best_audio` que les pistes qui CORRELENT
-    # entre elles, et les commentaires ne sont jamais soumis du tout -- une
-    # piste fabriquee orpheline y passait sans course, marquee, jusqu'au produit.
-    # `keep=False` pose ici est lu par `generate_new_file_audio_config`: la
-    # piste n'entre jamais dans le fichier intermediaire.
+    # LA PORTE DE LIVRAISON DES PISTES FABRIQUEES (CASE_wakeup20260924, defaut A):
+    # le seul point ouvert qui voit TOUTES les pistes construites. `keep=False`
+    # pose ici est lu par `generate_new_file_audio_config`.
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
         repaired_obj, master_obj, work_dir=work_dir)
-    # LES SEGMENTS JETES VOYAGENT AVEC L'ASSEMBLAGE, pour que le journal puisse
-    # les nommer. Ils etaient comptes (`unverified_segment_ms`) et jamais dits.
-    assembly["dropped_segments"] = dropped_segments
-
     return repaired_obj, assembly
 
 
 def mark_audio_dicts(repaired_obj, marker):
-    if not len(marker):
-        return
-    # PAS LES COMMENTAIRES: l'assemblage n'en construit plus, donc en marquer un
-    # serait ecrire "fabrique" sur une piste copiee -- un enregistrement de
-    # provenance FAUX, ce qui est pire qu'aucun. L'audio-description reste
-    # marquee tant que le proprietaire n'a pas tranche; l'incoherence est
-    # voulue et documentee.
+    # LE MARQUEUR DE CHAQUE PISTE EST CELUI QU'ELLE PORTE DANS LE FICHIER
+    # (`extra.VMSAM_FABRICATED`, pose par piste au mux: deux pistes a deux
+    # frequences recoivent deux facteurs `resampled:` differents); le marqueur
+    # de fichier n'est que le repli d'une piste relue sans son tag.
+    # PAS LES COMMENTAIRES: les marquer ici changerait le holder par lequel
+    # `gate_fabricated_delivery` les reconnait -- ils y sont traites a part.
     for holder in (repaired_obj.audios, repaired_obj.audiodesc):
         for language, audios in holder.items():
             for audio in audios:
-                audio["fabricated"] = marker
+                own = fabricated_marker_of(audio)
+                if own or len(marker):
+                    audio["fabricated"] = own or marker
 
 
 # Les trois porteurs d'audio d'un objet video. Les commentaires y sont: c'est
@@ -1298,172 +782,6 @@ def _track_shortfall_ms(assembly, report):
     return None
 
 
-def check_ratio_convention(plan):
-    """`speed_ratio` est-il dans MA convention? Renvoie `(refus, jeton)`.
-
-    PAIRE `(prose, jeton)`, comme `get_plan_from_locator` rend `(plan, cause)`
-    et `locate_change_points` rend `(plan, cause)`: le jeton est produit LA OU
-    LA DECISION EST PRISE, jamais au site de journalisation. Un jeton pose chez
-    l'appelant ne peut pas etre plus fin que le site d'appel, et ce site-ci
-    couvre onze decisions distinctes.
-
-    `(None, None)` quand il n'y a pas de refus.
-
-    Ma convention, `TASKS/009`: r = duree_maitre / duree_candidat, donc r > 1
-    veut dire que le candidat court VITE et doit etre RALENTI.
-
-    On ne decide que si la reponse est NETTE: le bon sens a moins de 1 % du
-    rapport des durees ET le sens inverse au-dela. Sinon on ne dit rien, parce
-    qu'un rapport de durees n'est une cadence que si les deux fichiers portent
-    la meme quantite de contenu -- ce qui est faux des qu'il y a une coupe.
-    """
-    ratio = plan.get("speed_ratio")
-    master_s = plan.get("duration_master_s")
-    candidate_s = plan.get("duration_candidate_s")
-    if ratio == None or master_s in (None, 0) or candidate_s in (None, 0):
-        return None, None
-    try:
-        r = Decimal(str(ratio))
-        expected = Decimal(str(master_s)) / Decimal(str(candidate_s))
-    except Exception:
-        return None, None
-    if r == 0:
-        return None, None
-    direct = abs(r - expected)
-    inverse = abs((Decimal(1) / r) - expected)
-    near = expected * Decimal("0.01")
-    if inverse <= near and direct > near:
-        # JETON DISTINCT DE CELUI DE `check_ratio_labelled`, ET LA DIFFERENCE
-        # EST CE SUR QUOI UN CORRECTIF AGIT. Ici RIEN N'EST DECLARE: la
-        # convention est DEDUITE des durees du plan. La-bas elle est ECRITE par
-        # le producteur. Corriger l'arithmetique d'un producteur muet et ecrire
-        # un traducteur pour un producteur qui declare sa convention sont deux
-        # gestes differents, donc deux jetons.
-        return ("the speed_ratio looks like the RECIPROCAL of this module's "
-                "convention: TASKS/009 defines r = master_span / candidate_span, "
-                "and the value shipped matches candidate_span / master_span "
-                "against the durations in the same plan. Applying it would "
-                "resample in the WRONG DIRECTION"), "speed_ratio_reciprocal_vs_durations"
-    return None, None
-
-
-# LA OU LES DUREES NE PEUVENT PAS TRANCHER, ET C'EST LE CAS DESTRUCTEUR.
-#
-# `check_ratio_convention` n'attrape l'inversion que LOIN de l'unite -- c'est-a-
-# dire exactement la ou mes bornes et mon verificateur l'attrapaient deja. Pres
-# de l'unite il ne dit rien, parce qu'un rapport de durees n'est pas une cadence
-# des qu'il y a une coupe: sur l'id 33 les durees sont dans un rapport de 1.0687
-# pour une cadence de 1.001.
-#
-# Or 0.999001 contre 1.000999 passe TOUTE borne et TOUTE tolerance. C'est 0.2 %
-# dans le mauvais sens, livrable en silence, et vmsam-dev-1 l'a nomme comme le
-# cas destructeur.
-#
-# DONC: pres de l'unite, un rapport SANS CONVENTION DECLAREE ne s'applique pas.
-# Ce n'est pas de la prudence, c'est la seule position defendable: aucun controle
-# de ce module ne peut distinguer les deux sens la, donc appliquer revient a
-# parier sur l'identite de l'agent qui a ecrit le champ.
-RATIO_CONVENTION = "master_span / candidate_span"
-CONVENTION_FREE_MARGIN = Decimal("0.01")
-
-
-def normalise_convention(stated):
-    """`mine` / `inverse` / `unknown`, en IGNORANT la forme.
-
-    PREMIERE VERSION: egalite de chaines apres suppression des espaces. Elle a
-    REFUSE le premier plan correctement etiquete que vmsam-dev-1 m'ait envoye,
-    parce que l'etiquette portait une glose:
-
-        "master_span / candidate_span  (dev-2's definition, TASKS/009)"
-
-    La convention est JUSTE. Seule la FORME differait. C'est la regle que j'ai
-    adoptee ce matin -- un controle qui echoue pour une raison de forme est un
-    controle qu'on eteint -- et je l'ai enfreinte quelques heures plus tard, dans
-    un controle ecrit pour empecher une inversion.
-
-    On lit donc l'ORDRE DES DEUX TERMES et rien d'autre: la glose, la casse, les
-    espaces et la ponctuation ne portent aucun sens ici.
-    """
-    text = str(stated).lower()
-    # TROISIEME FORME, ET LA TRONCATURE ETAIT ELLE-MEME LA FAUTE.
-    #
-    # La version precedente coupait au premier `(` pour jeter une glose EN
-    # SUFFIXE. Sur une glose ENVELOPPANTE -- `"ratio (master_span /
-    # candidate_span)"` -- la coupe tombe AVANT les deux termes, il ne reste que
-    # `"ratio "`, et un plan CORRECTEMENT ETIQUETE est refuse.
-    #
-    # Trouve par `vmsam-auditor`. Cette fonction DOCUMENTE la regle -- un
-    # controle qui echoue pour une raison de forme est un controle qu'on eteint
-    # -- DOCUMENTE l'avoir enfreinte une fois, a ete reecrite pour cesser de
-    # l'enfreindre, ET L'ENFREINT UNE FORME PLUS LOIN. Lire une regle installe la
-    # RECONNAISSANCE, pas l'EVITEMENT.
-    #
-    # ON NE COUPE DONC PLUS RIEN. On cherche les deux termes dans TOUTE la
-    # chaine: une glose en suffixe laisse deja les termes dans le bon ordre avant
-    # elle, et une glose enveloppante les laisse dans le bon ordre dedans. La
-    # troncature ne protegeait contre rien et coutait une forme entiere.
-    master = text.find("master")
-    candidate = text.find("candidate")
-    if master == -1 or candidate == -1:
-        return "unknown"
-    return "mine" if master < candidate else "inverse"
-
-
-def check_ratio_labelled(plan):
-    """La convention est-elle DECLAREE, et est-ce la mienne? `(refus, jeton)`.
-
-    TROIS REFUS DISTINCTS ET TROIS JETONS, parce qu'un correctif futur agit
-    DIFFEREMMENT sur chacun -- c'est la regle de granularite du Lead (R1), et
-    le defaut qu'elle vise n'est pas un jeton qui contredit sa prose, c'est
-    deux refus qu'on corrigerait autrement portant la meme etiquette:
-
-        convention declaree INVERSE      -> le producteur SAIT ce qu'il emet et
-                                            c'est l'autre sens: un traducteur
-                                            est ecrivable sans risque
-        convention declaree ILLISIBLE    -> etendre le vocabulaire de
-                                            `normalise_convention`
-        AUCUNE convention, pres de 1     -> faire EMETTRE le champ au
-                                            producteur. C'est le cas
-                                            DESTRUCTEUR: 0.999001 contre
-                                            1.000999 passe toute borne et
-                                            toute tolerance
-
-    Les trois disaient "la direction du coefficient n'est pas etablie", et un
-    seul jeton pour les trois aurait rempli la colonne sans rien classer.
-    """
-    ratio = plan.get("speed_ratio")
-    if ratio == None:
-        return None, None
-    stated = plan.get("speed_ratio_convention")
-    if stated != None:
-        named = normalise_convention(stated)
-        if named == "mine":
-            return None, None
-        if named == "inverse":
-            return (f"the plan states its ratio convention as {stated!r}, which "
-                    f"is the RECIPROCAL of {RATIO_CONVENTION!r}; this module will "
-                    f"not reinterpret a coefficient whose meaning it did not define"
-                    ), "speed_convention_stated_reciprocal"
-        # LA VALEUR DECLAREE VA DANS LA PROSE, PAS DANS LE JETON. `stated` est
-        # du texte du producteur: un jeton qui la porterait varierait a chaque
-        # fichier et ne s'agregerait pas. Regle lexicale 4.
-        return (f"the plan states a ratio convention this module does not "
-                f"recognise ({stated!r}); it applies {RATIO_CONVENTION!r} and a "
-                f"convention it cannot read is not a convention it can trust"
-                ), "speed_convention_unrecognised"
-    try:
-        distance = abs(Decimal(str(ratio)) - Decimal(1))
-    except Exception:
-        return None, None
-    if distance < CONVENTION_FREE_MARGIN:
-        return ("the plan carries no speed_ratio_convention and the ratio is "
-                "within 1% of unity, where NEITHER the bounds check NOR the "
-                "verifier can tell the two directions apart. An unlabelled "
-                "near-unity coefficient is not applied"
-                ), "speed_convention_absent_near_unity"
-    return None, None
-
-
 def _margin_fields(plan):
     """`speed_margin=` when it exists, the REASON when it does not.
 
@@ -1585,51 +903,6 @@ def _margin_fields(plan):
     parts.append(f"decided_by={decided}" if decided != None
                  else "decided_by=absent(not_in_plan)")
     return (" ".join(parts) + " ") if len(parts) else ""
-
-
-def check_candidate_admissibility(plan):
-    """`RULING_20260916_PLAN_ADMISSIBILITY_NOT_TELEMETRY.MD`, Ruling 2 --
-    the EXACT per-boundary invariant, checked ONCE at admission, before
-    any extraction or assembly (`RULING_PRECONDITIONS_AT_ADMISSION`: a
-    refusal must cost a probe, not a mux).
-
-    NEVER `offset_monotone` (Ruling 1: it is a wrong-signed TELEMETRY
-    proxy, schema-agreed as reporting whether `offset_max_abs_ms` is
-    comparable across the summary line -- and its own definition counts
-    a monotone-DECREASING offset sequence as `true`, which is precisely
-    the shape that CAN read the candidate backwards. Gating on it would
-    both miss real backward reads it calls `true` and refuse plans E2's
-    own consistency gate was built to accept on `false`).
-
-    For consecutive candidate-reading pieces, in the plan's own
-    master-timeline order:
-        candidate_start(next) >= candidate_end(prev)
-    equivalently
-        offset(next) - offset(prev) >= -(master_start(next) - master_end(prev))
-
-    A plan may be non-monotone (offset decreasing between pieces) and
-    still satisfy this at every boundary, when the master-side gap
-    between the pieces absorbs the drop -- E2's own tolerated shape.
-    Only a drop LARGER than the gap reads the candidate backwards.
-
-    Returns `None` if every boundary is admissible. Otherwise a dict
-    naming the FIRST violating boundary (not every one -- the plan is
-    inadmissible after the first, and enumerating the rest would cost a
-    probe measuring a boundary the first violation already discards)."""
-    segments = parse_segments(plan.get("segments") or [])
-    for index in range(1, len(segments)):
-        prev_segment, next_segment = segments[index - 1], segments[index]
-        master_gap = (next_segment["master_start_ms"]
-                      - prev_segment["master_end_ms"])
-        offset_delta = (next_segment["candidate_offset_ms"]
-                        - prev_segment["candidate_offset_ms"])
-        if offset_delta < -master_gap:
-            return {"master_boundary_ms": str(prev_segment["master_end_ms"]),
-                   "offset_delta_ms": str(offset_delta),
-                   "master_gap_ms": str(master_gap),
-                   "prev_segment_index": index - 1,
-                   "next_segment_index": index}
-    return None
 
 
 def _head_pad_summary(report):
@@ -3074,10 +2347,9 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     points 4 et 6): remplacement direct, sans drapeau de cohabitation --
     `repair_orchestrator.repair()` par candidat, et l'ancienne chaine
     (`get_plan_from_locator`, le routage par bande, `change_point_locator`)
-    est partie dans le meme lot. Tant que l'etage 5 (application du plan) n'est
-    pas construit, `repair()` rend False avec
-    `cause=plan_application_not_implemented` sur toute paire qui va au bout: la
-    production DECLINE honnetement, et ses journaux pilotent le debogage.
+    est partie dans le meme lot. L'etage 5 (application du plan,
+    `repair_orchestrator.apply_plan`) accroche l'objet repare a la couture et
+    ecrit lui-meme le terminal `repaired`.
 
     Renvoie la liste des chemins effectivement repares et raccroches. Les
     fichiers restent retires de `dict_file_path_obj` par la zone A dans tous les

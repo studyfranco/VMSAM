@@ -101,15 +101,6 @@ def retime_subtitle_events_by_ratio(subtitles, speed_ratio):
         event.end = int((Decimal(event.end) * ratio).to_integral_value())
     return subtitles
 
-def iter_audio_dicts(video_obj):
-    """Toutes les pistes audio de l'objet, dans l'ordre du conteneur."""
-    audios = []
-    for holder in (video_obj.audios, video_obj.commentary, video_obj.audiodesc):
-        for language, tracks in holder.items():
-            for audio in tracks:
-                audios.append(audio)
-    return sorted(audios, key=lambda a: int(a["StreamOrder"]))
-
 
 '''
 STEP 2 OF THE OWNER'S PIPELINE -- "Test Reechantillonnage (Fidelite > 0,90)"
