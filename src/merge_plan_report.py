@@ -58,6 +58,7 @@ que s4e demande. Une resolution par forme remplirait la cellule `plateau` avec
 """
 
 from decimal import Decimal
+from fractions import Fraction
 import html
 import hashlib
 import re
@@ -947,6 +948,10 @@ def parse_job_log(text):
         "locator_measurements": [],
         "locator_notes": [],
         "brackets": [],
+        # `repair: fabricated_dropped|fabricated_kept` -- the delivery gate's
+        # verdict on each rebuilt track. Read for the human summary only; the
+        # line is ALSO kept in `unparsed` so the AI rows are unchanged.
+        "delivery": [],
         "segments": [],
         "output_durations": None,
     }
@@ -1358,6 +1363,12 @@ def parse_job_log(text):
             job["candidate_opaque_id"] = opaque_id(matched.group(1))
             job["summary_counts"] = matched.group(2)
             continue
+
+        matched = re.match(r"fabricated_(dropped|kept) (.*)$", body)
+        if matched:
+            gate = {"verdict": matched.group(1)}
+            gate.update(split_fields(matched.group(2)))
+            job["delivery"].append(gate)
 
         job["unparsed"].append(body[:120])
 
@@ -1923,6 +1934,21 @@ font-size:14px}
 .sw{display:inline-block;width:11px;height:11px;vertical-align:-1px;margin-right:4px}
 .diagram{overflow-x:auto}
 .note{color:var(--faint)}
+h2{font-size:15px;border-bottom:1px solid var(--rule);padding-bottom:4px}
+h3{font-size:13px;font-weight:700;margin:20px 0 6px}
+.schema{max-width:1100px;display:block}
+.sw.dashed{border:1.5px dashed var(--lost);width:9px;height:9px}
+.sw.cut{width:1px;height:12px;background:var(--ink)}
+.badge{display:inline-block;background:var(--master);color:#fff;padding:2px 8px;
+border-radius:3px;font-weight:700}
+.resume{font-family:ui-sans-serif,"DejaVu Sans",system-ui,sans-serif;font-size:14px;
+max-width:110ch;padding-left:18px}
+.resume li{margin:.3em 0}
+.resume li.table{list-style:none;margin-left:-18px}
+table.cuts{border-collapse:collapse;margin:4px 0;font-variant-numeric:tabular-nums}
+table.cuts th,table.cuts td{border-bottom:1px solid var(--grid);padding:3px 10px;
+text-align:left;white-space:nowrap}
+table.cuts th{color:var(--faint);font-weight:600}
 """
 
 
@@ -4905,17 +4931,598 @@ def validate_job(job):
     return job
 
 
-def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
+# ---------------------------------------------------------------------------
+# THE PAGE IN THREE PARTS (owner, 2026-09-25): "que le plan soit en premier.
+# Avec un schema lisible facilement par l'humain. [...] Un premier recap simple
+# pour l'humain (resample, quand debut coupe, quand fin de coupe, qu'est-ce qui
+# est rajoute) et un second pour toi (AI)".
+#
+#   A. THE PLAN      a light schematic of the master timeline, read at a glance
+#   B. RESUME        five to ten lines in FRENCH, decimal comma, one table row
+#                    per cut
+#   C. DETAIL (IA)   everything the report emitted before, unchanged in content
+#
+# A and B are VIEWS of C. The schematic is drawn from the rows (REGION, STEP,
+# LOST, REFUSED, PLAN) and `_assert_figure_says_nothing_new` checks it like the
+# old figure: every number it writes is in the rows. Axis graduations are
+# SCALE, not data, and carry `data-scale` so the check can tell them apart.
+# The summary reads the job directly (tracks, delivery gate, durations) and,
+# when the caller passes it, the full merge log for the final mux's
+# "not added" lines -- those are emitted AFTER the repair slice, so they are
+# never in the `merge_plan` bytes.
+
+def _fr_number(value, decimals=3):
+    """A number with a decimal COMMA, TRUNCATED (never rounded) to `decimals`.
+
+    Truncation keeps the printed digits a PREFIX of the row's value, so a label
+    such as `-1001,101` is found in `step_ms=-1001.101` by the figure check.
+    """
+    if value is None:
+        return "?"
+    quantum = Decimal(1).scaleb(-decimals)
+    text = format(Decimal(str(value)).quantize(quantum, rounding="ROUND_DOWN"), "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    if text in ("-0", ""):
+        text = "0"
+    return text.replace(".", ",")
+
+
+def _fr_clock(ms):
+    """`mm:ss,mmm` on the master timeline (`h:mm:ss,mmm` past the hour).
+
+    Built from `clock` itself, so a label and its row agree digit for digit.
+    """
+    if ms is None:
+        return "?"
+    text = clock(ms)
+    sign = "-" if text.startswith("-") else ""
+    hours, _, rest = text.lstrip("-").partition(":")
+    return sign + (rest if hours == "0" else f"{hours}:{rest}").replace(".", ",")
+
+
+def _fr_duration(ms):
+    """A duration for the human table: `6,023 s`, `1 min 12,5 s`."""
+    if ms is None:
+        return "?"
+    value = Decimal(str(ms)) / 1000
+    if 0 < abs(value) < 1:
+        return f"{_fr_number(ms, 3)} ms"
+    if abs(value) < 60:
+        return f"{_fr_number(value, 3)} s"
+    minutes, seconds = divmod(value, 60)
+    return f"{int(minutes)} min {_fr_number(seconds, 1)} s"
+
+
+def _dec(value):
+    try:
+        return Decimal(str(plain(value)))
+    except Exception:
+        return None
+
+
+def plan_geometry(records):
+    """The ONE geometry the schematic and the table draw, read off the rows.
+
+    Lead track = the first audio track that is measured (not BORROWED) and has
+    regions, as in `render_svg`. A CUT is every region that is not candidate
+    material (a fill from the master, or silence), plus every seam where two
+    candidate pieces meet with nothing inserted (a "coupe franche"). LOST rows
+    (candidate material dropped) are attached to the cut where they happen,
+    by construction `candidate = master + offset_ms`; when an offset is not
+    emitted, leftovers are paired by order and marked derived (`~`).
+    """
+    plan = next((f for k, f in records if k == "PLAN"), None)
+    if not plan or not plan.get("master_end_ms"):
+        return None
+    span = Decimal(plan["master_end_ms"])
+    tracks, regions, steps, lost, refused = [], {}, {}, {}, []
+    for kind, fields in records:
+        if kind == "TRACK" and fields.get("kind") == "audio":
+            tracks.append(fields)
+        elif kind == "REGION":
+            regions.setdefault(fields["track"], []).append(fields)
+        elif kind == "STEP":
+            steps.setdefault(fields["track"], []).append(fields)
+        elif kind == "LOST":
+            lost.setdefault(fields["track"], []).append(fields)
+        elif kind == "REFUSED":
+            refused.append(fields)
+    measured = [t for t in tracks if regions.get(t["track"])
+                and not (plain(t.get("offset")) or "").startswith("BORROWED")]
+    with_regions = [t for t in tracks if regions.get(t["track"])]
+    lead = (measured or with_regions or [None])[0]
+    if lead is None:
+        return None
+    number = lead["track"]
+    regs = sorted(regions[number], key=lambda r: Decimal(r["master_start_ms"]))
+    step_at = {Decimal(s["at_master_ms"]): s for s in steps.get(number, [])}
+
+    cuts = []
+    for index, region in enumerate(regs):
+        start = Decimal(region["master_start_ms"])
+        end = Decimal(region["master_end_ms"])
+        kind = region.get("kind") or "?"
+        where = ("head" if index == 0 else
+                 "tail" if index == len(regs) - 1 else "interior")
+        if kind != "CANDIDATE":
+            source = plain(region.get("source")) or ""
+            language = source.partition("/")[2] or "?"
+            inserted = ("silence" if kind == "SILENCE" else
+                        f"maître ({language})" + (" ~" if kind.endswith("?") else ""))
+            cuts.append({"start": start, "end": end, "region": region,
+                         "where": where, "inserted": inserted, "fill": kind,
+                         "step": step_at.get(start), "lost": []})
+        elif index and regs[index - 1].get("kind") == "CANDIDATE":
+            cuts.append({"start": start, "end": start, "region": None,
+                         "where": "interior", "inserted": "rien — coupe franche",
+                         "fill": "NONE", "step": step_at.get(start), "lost": []})
+
+    candidates = [r for r in regs if r.get("kind") == "CANDIDATE"]
+    unplaced = []
+
+    def cut_at(boundary):
+        return next((c for c in cuts
+                     if c["start"] == boundary or c["end"] == boundary), None)
+
+    for item in lost.get(number, []):
+        where = item.get("where")
+        target = None
+        if where == "head" and candidates:
+            boundary = Decimal(candidates[0]["master_start_ms"])
+            target = cut_at(boundary)
+            if target is None:
+                target = {"start": boundary, "end": boundary, "region": None,
+                          "where": "head", "fill": "NONE",
+                          "inserted": "rien — début du candidat coupé",
+                          "short": "début du candidat coupé",
+                          "step": None, "lost": []}
+                cuts.insert(0, target)
+        elif where == "tail" and candidates:
+            boundary = Decimal(candidates[-1]["master_end_ms"])
+            target = cut_at(boundary)
+            if target is None:
+                target = {"start": boundary, "end": boundary, "region": None,
+                          "where": "tail", "fill": "NONE",
+                          "inserted": "rien — fin du candidat coupée",
+                          "short": "fin du candidat coupée",
+                          "step": None, "lost": []}
+                cuts.append(target)
+        else:
+            begin = _dec(item.get("candidate_start_ms"))
+            for region in candidates:
+                offset = _dec(region.get("offset_ms"))
+                if offset is None or begin is None:
+                    continue
+                if abs(Decimal(region["master_end_ms"]) + offset - begin) < 1:
+                    target = cut_at(Decimal(region["master_end_ms"]))
+                    break
+        if target is None:
+            unplaced.append(item)
+        else:
+            target["lost"].append((item, False))
+    interior_free = [c for c in cuts if c["where"] == "interior" and not c["lost"]]
+    interior_left = [i for i in unplaced if i.get("where") == "interior"]
+    if interior_left and len(interior_left) == len(interior_free):
+        for cut, item in zip(interior_free, interior_left):
+            cut["lost"].append((item, True))
+        unplaced = [i for i in unplaced if i not in interior_left]
+    cuts.sort(key=lambda c: (c["start"], c["end"]))
+    geometries = len({_geometry_key(regions.get(t["track"], []))
+                      for t in with_regions})
+    return {"plan": plan, "span": span, "lead": lead, "regions": regs,
+            "candidates": candidates, "cuts": cuts, "refused": refused,
+            "unplaced": unplaced, "tracks": tracks, "geometries": geometries}
+
+
+_SCHEMA_COLOURS = {"CANDIDATE": "var(--candidate)", "MASTER": "var(--master)",
+                   "MASTER?": "var(--master)", "SILENCE": "var(--silence)"}
+
+
+def render_plan_schematic(geometry):
+    """A. THE PLAN, for a human, at a glance. Light, one axis, no prose.
+
+    Top: each cut, labelled with its master time and its offset step. Middle:
+    the file as a bar on the master timeline -- candidate pieces, fills from
+    the master, silence; refused candidate material dashed. Under the axis:
+    the offset staircase, one level per distinct candidate offset.
+    """
+    if geometry is None:
+        return ('<p class="note">Pas de géométrie de plan dans cet artefact : '
+                'rien à dessiner. Le détail pour l\'IA porte tout ce que le '
+                'journal a émis.</p>')
+    span = geometry["span"]
+    width, left, right = 1100, 60, 60
+    plot = width - left - right
+
+    def x_of(value):
+        return left + float(Decimal(str(value)) / span) * plot
+
+    # --- labels above the bar, staggered so neighbours never overwrite ----
+    level_gap, label_w = 30, 118
+    levels_last = []
+    placed = []
+    for cut in geometry["cuts"]:
+        x = x_of(cut["start"])
+        for level, last in enumerate(levels_last):
+            if x - last >= label_w:
+                levels_last[level] = x
+                break
+        else:
+            if len(levels_last) < 4:
+                level = len(levels_last)
+                levels_last.append(x)
+            else:
+                level = min(range(len(levels_last)), key=lambda i: levels_last[i])
+                levels_last[level] = x
+        placed.append((cut, level))
+    top = 14 + max(1, len(levels_last)) * level_gap
+    bar_y, bar_h = top + 6, 30
+    axis_y = bar_y + bar_h + 12
+
+    body = []
+    # Candidate pieces first, fills ON TOP and never thinner than 5 px: a
+    # one-second fill on a 24-minute axis is 0.7 px, which a human does not
+    # see -- the width is exaggerated for the eye, the exact bounds are in the
+    # hover title, in the table below and on the REGION rows.
+    ordered = sorted(geometry["regions"],
+                     key=lambda r: r.get("kind") != "CANDIDATE")
+    for region in ordered:
+        x0, x1 = x_of(region["master_start_ms"]), x_of(region["master_end_ms"])
+        colour = _SCHEMA_COLOURS.get(region.get("kind"), "var(--faint)")
+        opacity = ' fill-opacity="0.55"' if region.get("kind") == "MASTER?" else ""
+        minimum = 1.5 if region.get("kind") == "CANDIDATE" else 5.0
+        if x1 - x0 < minimum and x0 + minimum > left + plot:
+            x0 = left + plot - minimum
+        body.append(
+            f'<rect x="{x0:.1f}" y="{bar_y}" width="{max(minimum, x1 - x0):.1f}" '
+            f'height="{bar_h}" fill="{colour}"{opacity}><title>'
+            f'{_escape(region.get("kind"))} {_escape(_fr_clock(region["master_start_ms"]))}'
+            f' → {_escape(_fr_clock(region["master_end_ms"]))}</title></rect>')
+    for fields in geometry["refused"]:
+        x0, x1 = x_of(fields["master_start_ms"]), x_of(fields["master_end_ms"])
+        body.append(f'<rect x="{x0:.1f}" y="{bar_y - 4}" '
+                    f'width="{max(3.0, x1 - x0):.1f}" height="{bar_h + 8}" '
+                    f'fill="none" stroke="var(--lost)" stroke-width="1.5" '
+                    f'stroke-dasharray="5 3"><title>matériau du candidat refusé'
+                    f'</title></rect>')
+
+    for cut, level in placed:
+        x = x_of(cut["start"])
+        label_y = 14 + level * level_gap
+        body.append(f'<line x1="{x:.1f}" y1="{label_y + 16}" x2="{x:.1f}" '
+                    f'y2="{bar_y + bar_h + 4}" stroke="var(--ink)" '
+                    f'stroke-width="1"/>')
+        anchor = "start" if x < width - left - label_w else "end"
+        dx = 3 if anchor == "start" else -3
+        body.append(_text(x + dx, label_y, _fr_clock(cut["start"]),
+                          "var(--ink)", 11, anchor, ' font-weight="600"'))
+        if cut["step"] is not None:
+            second = (("coupe franche · " if cut["fill"] == "NONE" else "")
+                      + f"saut {_fr_number(cut['step']['step_ms'])} ms")
+        elif cut["fill"] == "NONE":
+            second = cut.get("short", "coupe franche")
+        else:
+            second = "rempli " + cut["inserted"].split(" ")[0]
+        body.append(_text(x + dx, label_y + 12, second, "var(--faint)", 10, anchor))
+
+    # --- the axis: graduations are SCALE (data-scale), the end is DATA ------
+    body.append(f'<line x1="{left}" y1="{axis_y}" x2="{left + plot}" '
+                f'y2="{axis_y}" stroke="var(--rule)" stroke-width="1"/>')
+    seconds = float(span) / 1000
+    tick = next((t for t in (30, 60, 120, 300, 600, 900, 1800, 3600)
+                 if seconds / t <= 9), 3600)
+    value = 0
+    while value * 1000 < float(span) - tick * 250:
+        x = x_of(value * 1000)
+        body.append(f'<line x1="{x:.1f}" y1="{axis_y}" x2="{x:.1f}" '
+                    f'y2="{axis_y + 5}" stroke="var(--rule)"/>')
+        minutes, secs = divmod(int(value), 60)
+        body.append(_text(x, axis_y + 17, f"{minutes:02d}:{secs:02d}",
+                          "var(--faint)", 10, "middle", ' data-scale="1"'))
+        value += tick
+    end_x = x_of(span)
+    body.append(f'<line x1="{end_x:.1f}" y1="{axis_y}" x2="{end_x:.1f}" '
+                f'y2="{axis_y + 5}" stroke="var(--ink)"/>')
+    body.append(_text(end_x, axis_y + 17, _fr_clock(span), "var(--ink)", 10,
+                      "end"))
+
+    # --- the staircase: one level per distinct candidate offset -------------
+    stair_top = axis_y + 48
+    offsets = sorted({_dec(c.get("offset_ms")) for c in geometry["candidates"]
+                      if _dec(c.get("offset_ms")) is not None}, reverse=True)
+    # PROPORTIONAL, not by rank: a 0,003 ms step must not look like a
+    # one-second one. The step's value is printed on its cut label anyway.
+    row_gap = 18
+    depth = min(110, row_gap * max(1, len(offsets) - 1))
+    high, low = (offsets[0], offsets[-1]) if offsets else (0, 0)
+    level_of = {offset: (float((high - offset) / (high - low)) * depth / row_gap
+                         if high != low else 0.0)
+                for offset in offsets}
+    unknown_y = stair_top + (depth + row_gap if offsets else 0)
+    body.append(_text(left, stair_top - 16,
+                      "décalage du candidat (ms) — une marche par saut",
+                      "var(--faint)", 10))
+    previous = None
+    for region in geometry["candidates"]:
+        offset = _dec(region.get("offset_ms"))
+        y = (round(stair_top + level_of[offset] * row_gap, 1)
+             if offset is not None else unknown_y)
+        x0, x1 = x_of(region["master_start_ms"]), x_of(region["master_end_ms"])
+        dash = "" if offset is not None else ' stroke-dasharray="3 3"'
+        label = (f"{_fr_number(offset)} ms" if offset is not None
+                 else "décalage non émis")
+        body.append(f'<line x1="{x0:.1f}" y1="{y}" x2="{x1:.1f}" y2="{y}" '
+                    f'stroke="var(--candidate)" stroke-width="3"{dash}>'
+                    f'<title>{_escape(label)}</title></line>')
+        if previous is not None:
+            body.append(f'<line x1="{previous[0]:.1f}" y1="{previous[1]}" '
+                        f'x2="{x0:.1f}" y2="{y}" stroke="var(--faint)" '
+                        f'stroke-width="1" stroke-dasharray="2 2"/>')
+        if x1 - x0 > 70:
+            body.append(_text(x0 + 3, y - 4, label, "var(--ink)", 10))
+        previous = (x1, y)
+    missing = any(_dec(c.get("offset_ms")) is None for c in geometry["candidates"])
+    height = int((unknown_y if missing else stair_top + depth) + 14)
+    lead = geometry["lead"]
+    title = (f"Plan sur la timeline du maître, piste {lead.get('track')} "
+             f"({lead.get('lang')})")
+    return (f'<svg class="schema" viewBox="0 0 {width} {height}" width="100%" '
+            f'role="img" aria-label="{_escape(title)}" '
+            f'xmlns="http://www.w3.org/2000/svg" '
+            f'font-family="ui-sans-serif,DejaVu Sans,system-ui,sans-serif">'
+            f'<title>{_escape(title)}</title>' + "".join(body) + "</svg>")
+
+
+def _resample_badge(job):
+    """The rate actually applied, as the exact fraction and in %, or ''."""
+    applied = []
+    for order in sorted(job.get("audios") or {}):
+        ratio = applied_ratio(job["audios"][order])
+        if ratio not in (None, "UNREADABLE"):
+            applied.append((order, ratio))
+    if not applied:
+        return ""
+    order, ratio = applied[0]
+    fraction = Fraction(ratio).limit_denominator(100000)
+    percent = (ratio - 1) * 100
+    sign = "+" if percent >= 0 else ""
+    tracks = ", ".join(str(o) for o, _ in applied)
+    return (f'<p class="badge">Rééchantillonné ×{_escape(_fr_number(ratio, 6))} '
+            f'= {fraction.numerator}/{fraction.denominator} '
+            f'({sign}{_escape(_fr_number(percent, 3))} %) — piste(s) {tracks}</p>')
+
+
+# `tools.logs` lines of the final mux, mergeVideo.py (generate_new_file and
+# the commentary / descriptive filter, commit 3df2bfb1). Matched by SEARCH on
+# the de-indented line: `dev_log` may prefix it.
+_MUX_DROPS = (
+    (re.compile(r"Track (commentary|descriptive) (\d+) not added from (.*?)\.?$"),
+     None),
+    (re.compile(r"Skip the element (\d+) not added for (\S+) from (.*?)\. It seems to be empty"),
+     "piste vide"),
+    (re.compile(r"Track (\d+) with md5 \S+ not added for (\S+?)(?: from (.*?))?\. "
+                r"It have the same md5 as other track added"),
+     "doublon (même md5 qu'une piste déjà ajoutée)"),
+    (re.compile(r"Track (\d+) with md5 \S+ not added for (\S+?)(?: from (.*?))?\. "
+                r"It is not keep"),
+     "non retenue par les règles de langue"),
+    (re.compile(r"^Track (\d+) not added for (\S+) from (.*?)\.?$"),
+     "langue à retirer complètement"),
+)
+
+
+def mux_drops(merge_log):
+    """{reason: [(stream, language, source path or None)]} from the full log."""
+    drops = {}
+    for line in (merge_log or "").splitlines():
+        text = line.strip()
+        for pattern, reason in _MUX_DROPS:
+            matched = pattern.search(text)
+            if not matched:
+                continue
+            if reason is None:
+                kind = matched.group(1)
+                drops.setdefault("commentaire" if kind == "commentary"
+                                 else "audiodescription", []).append(
+                    (matched.group(2), None, matched.group(3)))
+            else:
+                drops.setdefault(reason, []).append(
+                    (matched.group(1), matched.group(2),
+                     matched.group(3) if matched.lastindex >= 3 else None))
+            break
+    return drops
+
+
+def _source_word(path, job):
+    if not path:
+        return None
+    name = path.rsplit("/", 1)[-1]
+    if job.get("master_path") and name == job["master_path"].rsplit("/", 1)[-1]:
+        return "maître"
+    if (job.get("candidate_path") and name == job["candidate_path"].rsplit("/", 1)[-1]) \
+            or "_repaired" in name:
+        return "candidat"
+    return "autre source"
+
+
+def render_human_summary(job, geometry, merge_log=None):
+    """B. RESUME POUR L'HUMAIN, in French, decimal comma, five to ten lines."""
+    said = []
+    if job.get("declined"):
+        said.append("<li><b>Réparation REFUSÉE</b> — aucun fichier produit ; "
+                    "ce qui suit décrit ce que le plan AURAIT fait.</li>")
+
+    # 1. resample
+    applied = [ratio for ratio in (applied_ratio(job["audios"][order])
+                                   for order in sorted(job.get("audios") or {}))
+               if ratio not in (None, "UNREADABLE")]
+    if applied:
+        ratio = applied[0]
+        fraction = Fraction(ratio).limit_denominator(100000)
+        percent = (ratio - 1) * 100
+        said.append(f"<li><b>Rééchantillonnage : oui</b> — ×{_fr_number(ratio, 6)} "
+                    f"= {fraction.numerator}/{fraction.denominator} "
+                    f"({'+' if percent >= 0 else ''}{_fr_number(percent, 3)} %).</li>")
+    elif job.get("audios"):
+        said.append("<li><b>Rééchantillonnage : non</b> — vitesse 1 (la mesure "
+                    "n'a proposé aucun facteur).</li>")
+    else:
+        said.append("<li><b>Rééchantillonnage :</b> inconnu — aucune piste audio "
+                    "dans ce journal.</li>")
+
+    # 2. the cuts
+    table = ""
+    if geometry is None:
+        said.append("<li><b>Coupes :</b> pas de géométrie de plan dans ce journal.</li>")
+    else:
+        cuts = geometry["cuts"]
+        pieces = len(geometry["candidates"])
+        said.append(
+            f"<li><b>Coupes : {len(cuts)}</b> — {pieces} morceau(x) du candidat "
+            f"recollé(s) sur la timeline du maître, qui dure "
+            f"{_fr_clock(geometry['span'])} (piste {geometry['lead'].get('track')}, "
+            f"{_escape(geometry['lead'].get('lang'))}"
+            + (f" ; {geometry['geometries']} géométries différentes entre pistes, "
+               f"voir le détail" if geometry["geometries"] > 1 else "")
+            + ").</li>")
+        lines = ["<table class=\"cuts\"><thead><tr><th>#</th><th>où</th>"
+                 "<th>début (maître)</th><th>fin</th><th>durée</th>"
+                 "<th>inséré</th><th>saut de décalage</th>"
+                 "<th>retiré du candidat</th></tr></thead><tbody>"]
+        where_fr = {"head": "tête", "tail": "fin", "interior": "milieu"}
+        for index, cut in enumerate(cuts, 1):
+            removed = " + ".join(
+                ("~" if derived else "") + _fr_duration(item.get("dropped_ms"))
+                for item, derived in cut["lost"]) or "—"
+            step = (f"{_fr_number(cut['step']['step_ms'])} ms"
+                    if cut["step"] is not None else "—")
+            lines.append(
+                f"<tr><td>{index}</td><td>{where_fr.get(cut['where'], '?')}</td>"
+                f"<td>{_fr_clock(cut['start'])}</td><td>{_fr_clock(cut['end'])}</td>"
+                f"<td>{_fr_duration(cut['end'] - cut['start'])}</td>"
+                f"<td>{_escape(cut['inserted'])}</td><td>{step}</td>"
+                f"<td>{removed}</td></tr>")
+        lines.append("</tbody></table>")
+        table = "".join(lines)
+        if geometry["unplaced"]:
+            said.append("<li>Retiré du candidat sans point de coupe identifiable : "
+                        + ", ".join(_fr_duration(i.get("dropped_ms"))
+                                    for i in geometry["unplaced"]) + ".</li>")
+
+    # 3. what was rebuilt and what the delivery gate did with it
+    marker = re.search(r"marker '([^']+)'", job.get("summary_counts") or "")
+    tag = marker.group(1) if marker else "?"
+    audios = job.get("audios") or {}
+    audio_text = ", ".join(
+        f"{_escape(f.get('lang'))} (trous remplis : {_escape(plain(f.get('fill')) or '?')})"
+        for _, f in sorted(audios.items())) or "aucune"
+    subs = job.get("subtitles") or []
+    sub_langs = ", ".join(sorted({str(s.get("lang")) for s in subs}))
+    said.append(f"<li><b>Reconstruit</b> (tag <code>{_escape(tag)}</code>) : "
+                f"audio {len(audios)} — {audio_text} ; sous-titres {len(subs)}"
+                + (f" ({_escape(sub_langs)})" if subs else "") + ".</li>")
+    delivery = job.get("delivery") or []
+    # ONE LINE PER VERDICT AND CAUSE, each track named in it: four identical
+    # "dropped, intact wins" lines are one fact about four tracks.
+    causes = {
+        "intact_same_language_wins": "même contenu qu'une piste intacte du "
+                                     "maître, l'intacte gagne",
+        "no_intact_master_track": "aucune piste intacte du maître dans cette "
+                                  "langue",
+        "commentary_tagged": "piste de commentaire",
+        "different_version": "version différente de celle du maître",
+    }
+    grouped = {}
+    for gate in delivery:
+        grouped.setdefault((gate["verdict"], gate.get("cause")), []).append(gate)
+    for (verdict, cause), gates in grouped.items():
+        names = ", ".join(
+            f"{_escape(g.get('lang'))} {_escape(g.get('format'))}"
+            + (f" → maître {_escape(g.get('kept_master_stream'))} "
+               f"{_escape(g.get('kept_master_format'))}"
+               if g.get("kept_master_stream") else "")
+            for g in gates)
+        said.append(f"<li>Livraison : {len(gates)} piste(s) reconstruite(s) "
+                    f"<b>{'écartée(s)' if verdict == 'dropped' else 'gardée(s)'}</b>"
+                    f" — {_escape(causes.get(cause, cause))} : {names}.</li>")
+    dropped_audio = sum(1 for g in delivery if g["verdict"] == "dropped"
+                        and g.get("holder") in ("audios", "commentary", "audiodesc"))
+    if audios and dropped_audio >= len(audios):
+        said.append("<li><b>→ Aucune piste audio du candidat n'entre dans le "
+                    "fichier</b> : toutes ont été écartées par la porte de "
+                    "livraison.</li>")
+
+    # 4. the final mux's refusals, from the full log when it was passed
+    if merge_log is None:
+        said.append("<li>Merge final : les lignes « not added » (pistes non "
+                    "ajoutées) sont émises après la réparation et n'ont pas été "
+                    "transmises à ce rapport.</li>")
+    else:
+        drops = mux_drops(merge_log)
+        if not drops:
+            said.append("<li>Merge final : aucune piste signalée « not added » "
+                        "dans le journal.</li>")
+        for reason, items in drops.items():
+            languages = ", ".join(sorted({str(l) for _, l, _ in items if l}))
+            sources = {}
+            for _, _, path in items:
+                word = _source_word(path, job)
+                if word:
+                    sources[word] = sources.get(word, 0) + 1
+            origin = ", ".join(f"{w} {n}" for w, n in sorted(sources.items()))
+            said.append(f"<li>Merge final — non ajoutée(s), {_escape(reason)} : "
+                        f"{len(items)} piste(s)"
+                        + (f" ({_escape(languages)})" if languages else "")
+                        + (f" — {_escape(origin)}" if origin else "") + ".</li>")
+
+    # 5. final length vs the master's video
+    durations = job.get("output_durations") or {}
+    container = _dec(durations.get("container_ms"))
+    expected = _dec(durations.get("expected_ms"))
+    if container is not None and expected is not None:
+        gap = container - expected
+        tolerance = (job.get("output_check") or {}).get("tolerance_ms")
+        outside = (tolerance is not None and _dec(tolerance) is not None
+                   and abs(gap) > _dec(tolerance))
+        # The PRODUCED file here is the repaired candidate the repair hands to
+        # the mux (audio/subtitles only), not the final .mkv: said as such.
+        said.append(f"<li><b>Longueur du fichier réparé</b> : "
+                    f"{_fr_clock(container)} · vidéo maître {_fr_clock(expected)}"
+                    f" · écart {'+' if gap >= 0 else ''}{_fr_number(gap)} ms"
+                    + (f" (tolérance {_escape(tolerance)} ms)" if tolerance else "")
+                    + (" — <b>HORS TOLÉRANCE</b>" if outside else "") + ".</li>")
+    else:
+        said.append("<li><b>Longueur du fichier réparé</b> : non mesurée dans "
+                    "ce journal.</li>")
+
+    # the table sits right after the "Coupes" line
+    if table:
+        cut_line = next(i for i, s in enumerate(said) if "<b>Coupes" in s)
+        said.insert(cut_line + 1, f'<li class="table">{table}</li>')
+    return f'<ul class="resume" lang="fr">{"".join(said)}</ul>'
+
+
+def render_report(job, artefact_id, source_name, caveats=(), corpus=None,
+                  merge_log=None):
     """LE FICHIER. Un seul, et le rapport EST la page.
 
-    L'ordre est deliberé: LES LIGNES D'ABORD. Le test qui prime est que rien
-    dans la specification ne depende de l'existence du HTML -- alors on met en
-    tete ce qui survit a `cat`, et le dessin apres, rendu depuis ces lignes.
+    ORDER, by the owner's ruling of 2026-09-25: A. the plan as a schematic,
+    B. a short French summary for the human, C. the detail for the AI -- the
+    rows, the findings, the old figure and the narrative, unchanged in content
+    and moved below. The rows are still the report: A and B are rendered from
+    them (and from the job) and the figure check still holds over every SVG.
+    The HTML comment below keeps the rows' `cat`-first guarantee: nothing in
+    the specification depends on the drawing.
+
+    `merge_log`: the FULL job log, optional. Only the summary reads it, for
+    the final mux's "not added" lines, which the repair slice never carries.
     """
     validate_job(job)
     rows = build_rows(job, artefact_id, source_name, list(caveats), corpus)
     records = parse_rows(rows)
     generation, description = format_generation(job)
+    geometry = plan_geometry(records)
 
     document = [
         # LE DOCTYPE EN PREMIER OCTET. Un commentaire AVANT lui fait basculer
@@ -4947,6 +5554,20 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
         f"<title>merge_plan {_escape(artefact_id)}</title>",
         f"<style>{_STYLE}</style></head><body>",
         f"<h1>merge_plan — artefact {_escape(artefact_id)}</h1>",
+        ('<p class="note">Ce fichier contient des noms de médias : ne pas le '
+         'copier hors du dossier de sortie.</p>' if not REDACT_MEDIA_NAMES else ''),
+        "<h2>Le plan</h2>",
+        '<p class="legend">'
+        '<span><i class="sw" style="background:var(--candidate)"></i>candidat</span>'
+        '<span><i class="sw" style="background:var(--master)"></i>rempli depuis le maître</span>'
+        '<span><i class="sw" style="background:var(--silence)"></i>silence</span>'
+        '<span><i class="sw dashed"></i>candidat refusé</span>'
+        '<span><i class="sw cut"></i>coupe : heure maître + saut</span></p>',
+        _resample_badge(job),
+        f'<div class="diagram">{render_plan_schematic(geometry)}</div>',
+        "<h2>Résumé pour l'humain</h2>",
+        render_human_summary(job, geometry, merge_log),
+        "<h2>Détail pour l'IA</h2>",
         ('<p class="note"><b>This file carries media names.</b> It is generated '
          'by VMSAM, written beside the produced file in the output directory, '
          'and never enters the repository. <b>Do not copy it, or lines from it, '
@@ -4958,12 +5579,12 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
         'Resolve by name; there are no columns. A value that is not present carries '
         '<code>&lt;key&gt;_state</code> instead, so a field this format predates is '
         'never confused with a field nothing emits.</p>',
-        "<h2>Rows</h2>", "<pre>",
+        "<h3>Rows</h3>", "<pre>",
     ]
     document.extend(_escape(row) for row in rows)
     document.append("</pre>")
 
-    document.append("<h2>Timeline</h2>")
+    document.append("<h3>Timeline</h3>")
     document.append(
         '<p class="note legend">'
         '<span><i class="sw" style="background:var(--candidate)"></i>from the candidate</span>'
@@ -4987,7 +5608,7 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None):
         'that nothing is ever refused.</p>')
     document.append(f'<div class="diagram">{render_svg(records)}</div>')
 
-    document.append("<h2>What was done to this file</h2>")
+    document.append("<h3>What was done to this file</h3>")
     document.append(f'<div class="narrative">{render_narrative(records)}</div>')
 
     # LA PROPRIETE QUE CE MODULE REVENDIQUE DEPUIS LE DEBUT ET NE VERIFIAIT PAS:
@@ -5100,14 +5721,20 @@ REDACT_MEDIA_NAMES = False
 
 def _assert_figure_says_nothing_new(document):
     """Tout nombre VISIBLE dans la figure existe dans les lignes."""
+    # EVERY figure, now that the page carries two (the plan schematic first,
+    # the detailed figure in the AI section), each against the text outside
+    # ALL figures. A `<text data-scale>` is an axis graduation -- scale, not
+    # data -- and is the only exemption.
     text = "".join(document)
-    figure = re.search(r"<svg.*?</svg>", text, re.S)
-    if not figure:
+    figures = re.findall(r"<svg.*?</svg>", text, re.S)
+    if not figures:
         return
-    rows = text[figure.end():] + text[:figure.start()]
+    rows = re.sub(r"<svg.*?</svg>", " ", text, flags=re.S)
     drawn = set()
-    for label in re.findall(r"<text[^>]*>([^<]*)</text>", figure.group(0)):
-        drawn |= set(re.findall(r"\d+[.,]?\d*", html.unescape(label)))
+    for figure in figures:
+        for label in re.findall(r"<text(?![^>]*data-scale)[^>]*>([^<]*)</text>",
+                                figure):
+            drawn |= set(re.findall(r"\d+[.,]?\d*", html.unescape(label)))
     plain_rows = html.unescape(re.sub(r"<[^>]+>", " ", rows))
     missing = sorted(n for n in drawn
                      if n not in plain_rows and n.replace(",", ".") not in plain_rows)
@@ -5213,7 +5840,7 @@ def report_path(produced_file_path):
 # producteur qui ne voit pas sa propre sortie ne teste pas sa sortie mais sa
 # fixture.
 def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
-                 corpus=None):
+                 corpus=None, merge_log=None):
     """Ecrit le rapport A SA DESTINATION, puis rend la copie de transport.
 
     L'appelant ecrit d'abord, transporte ensuite. Rien ici n'appelle
@@ -5224,7 +5851,8 @@ def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
     Renvoie (chemin, entree_de_transport).
     """
     validate_job(job)
-    document = render_report(job, artefact_id, source_name, caveats, corpus)
+    document = render_report(job, artefact_id, source_name, caveats, corpus,
+                             merge_log)
     destination = report_path(produced_file_path)
     with open(destination, "w", encoding="utf-8") as handle:
         handle.write(document)
