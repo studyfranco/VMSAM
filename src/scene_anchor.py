@@ -1095,6 +1095,11 @@ DECLINE_RETRY_CLASS = {
     # and could not be reconciled by a crop. No window size makes two
     # differently-framed pictures the same picture.
     "edge_geometry_unreconciled": "TERMINAL",
+    # The SAME refusal on the interior path, reached only when a caller opts
+    # into `normalise_geometry` (orchestrator stage 4). Named apart from the
+    # edge token for the reason this table gives above: a census must tell
+    # which protocol could not reconcile the pictures.
+    "geometry_unreconciled": "TERMINAL",
     # An edge gap exists ON THE MASTER'S OWN TIMELINE but the locator attached
     # no bracket to bound it. TERMINAL -- and LOUD at the call site: it is a
     # LOCATOR DEFECT, not a content fact. Its measured shape is errid 5's
@@ -1128,9 +1133,48 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms,
                          offset_before_ms, offset_after_ms,
                          step_ms=None, quantum_ms=None,
-                         scene_search_window_sec=None, debug=False):
+                         scene_search_window_sec=None, debug=False,
+                         candidate_time_scale=None, normalise_geometry=False,
+                         resolve_shift=False,
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''PUBLIC ENTRY POINT -- unchanged call shape (Lead's ruling,
-    2026-09-21). THE OUTER RUNG: resolves `scene_search_window_sec` once
+    2026-09-21), plus three OPT-IN keywords added for the orchestrator's
+    hole resolution (stage 4, 2026-09-24). All three default to OFF, and
+    with them off every line this function runs, and every byte it returns
+    except three added fields, is what it was before -- the live chain
+    (`merge_video_chimeric`) passes none of them.
+
+      `candidate_time_scale`  a rate relation `r` (Fraction): the
+                              candidate's content plays `r` times faster
+                              than the master's. Offsets and every second
+                              handed in are then REFERENCE-EQUIVALENT
+                              (master) time, which is exactly the domain the
+                              orchestrator's speed-corrected audio alignment
+                              measured them in; see
+                              `frame_compare.FrameComparer`'s `time_scales`.
+      `normalise_geometry`    run the EDGE path's geometry precondition
+                              (`_resolve_geometry`, the letterbox crop) here
+                              too. The edge ruling built it because a
+                              geometry mismatch is indistinguishable from a
+                              real divergence, and that is no less true
+                              between two anchors than beside one: MEASURED,
+                              errid-27 (Fallout S01E02) is 1920x1080 against
+                              1920x800.
+      `resolve_shift`         resolve each anchor's frame shift within
+                              `EDGE_SHIFT_SEARCH_FRAMES` of its nominal one,
+                              through the edge path's `_edge_anchor_search`,
+                              instead of trusting the nominal shift exactly.
+                              Needed when the offsets come from fingerprint
+                              points: they are quantised to one fingerprint
+                              hop (~124 ms, ~3 frames), so the nominal shift
+                              can be 1-2 frames off -- the same two reasons
+                              `EDGE_SHIFT_SEARCH_FRAMES` documents, plus a
+                              coarser instrument. `shift_search_frames` is
+                              that window's half-width; its default is the
+                              edge constant, and a caller with a coarser
+                              offset passes its own derived bound.
+
+    THE OUTER RUNG: resolves `scene_search_window_sec` once
     (explicit argument, else `config.ini`), same as before this refactor,
     then calls `_locate_scene_anchors_at_window` up to
     `WINDOW_LADDER_MAX_RUNGS` times, doubling the window each time
@@ -1197,6 +1241,24 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     window_sec = (scene_search_window_sec if scene_search_window_sec is not None
                  else _scene_anchor_config())
 
+    crop_filters = {}
+    geometry = None
+    if normalise_geometry:
+        # THE PRECONDITION, BEFORE ANY ANCHOR, ONCE PER CALL -- the edge
+        # path's own function, unmodified. Its refusal is TERMINAL for the
+        # same reason it is there: no window size makes two differently
+        # framed pictures the same picture.
+        geometry, crop_filters, geometry_reason = _resolve_geometry(
+            master_path, candidate_path)
+        tools.logs.append(
+            f"scene_anchor: interior_geometry "
+            f"master={geometry.get('master')} candidate={geometry.get('candidate')} "
+            f"normalised={geometry.get('normalised')} crop={geometry.get('crop')} "
+            f"verdict={geometry.get('verdict')} reason={geometry_reason}\n")
+        if geometry_reason is not None:
+            return {"declined": True, "reason": "geometry_unreconciled",
+                    "geometry": geometry, "evidence": geometry_reason}
+
     result = None
     rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
     for rung in range(WINDOW_LADDER_MAX_RUNGS):
@@ -1216,7 +1278,12 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
             master_path, candidate_path, fps_num, fps_den,
             bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
             rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
-            content_detector_threshold=rung_cd_threshold, debug=debug)
+            content_detector_threshold=rung_cd_threshold, debug=debug,
+            candidate_time_scale=candidate_time_scale,
+            crop_filters=crop_filters, resolve_shift=resolve_shift,
+            shift_search_frames=shift_search_frames)
+        if geometry is not None:
+            result["geometry"] = geometry
         matched = not result["declined"]
         tools.logs.append(
             f"scene_anchor: window_ladder_rung rung={rung} "
@@ -1245,7 +1312,9 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                                     offset_before_ms, offset_after_ms,
                                     window_sec, step_ms=None, quantum_ms=None,
                                     content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
-                                    debug=False):
+                                    debug=False, candidate_time_scale=None,
+                                    crop_filters=None, resolve_shift=False,
+                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''ONE RUNG of `locate_scene_anchors`'s ladder (below): everything that
     mission originally did at a single, fixed `window_sec`, unchanged
     except that the candidate margin is now the NAMED
@@ -1336,12 +1405,17 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
 
     comparer = FrameComparer(master_path, candidate_path,
                              bracket_low_ms / 1000.0, bracket_high_ms / 1000.0,
-                             fps_num, fps_den, debug=debug)
+                             fps_num, fps_den, debug=debug,
+                             crop_filters=crop_filters,
+                             time_scales=({candidate_path: candidate_time_scale}
+                                          if candidate_time_scale is not None
+                                          else None))
     m_bracket_first = comparer._frame_index(bracket_low_ms / 1000.0)
     m_bracket_last = comparer._frame_index(bracket_high_ms / 1000.0)
 
     before_shift = _nominal_shift_frames(offset_before_ms, fps_num, fps_den)
     after_shift = _nominal_shift_frames(offset_after_ms, fps_num, fps_den)
+    nominal_before_shift, nominal_after_shift = before_shift, after_shift
 
     m_win_start = max(0, m_bracket_first - window_frames)
     m_win_end = m_bracket_last + window_frames
@@ -1381,6 +1455,14 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     c_win_span_sec = Fraction((c_win_end - c_win_start) * fps_den, fps_num)
 
     candidate_rate, candidate_rate_reason = _probe_frame_rate(candidate_path)
+    # A SPEED-CHANGED CANDIDATE IS SCANNED ON ITS CORRECTED RATE (opt-in,
+    # `candidate_time_scale`): the candidate window above is in master-
+    # EQUIVALENT seconds, and `native / r` frames per equivalent second is
+    # exactly `native` frames per raw second -- so the scan addresses the
+    # right raw span and `_frame_on_grid` carries its cuts back onto the
+    # master grid through the same corrected rate. Identity when absent.
+    if candidate_rate is not None and candidate_time_scale is not None:
+        candidate_rate = candidate_rate / Fraction(candidate_time_scale)
 
     m_start_s = float(m_win_start_sec)
     m_dur_s = float(m_win_span_sec)
@@ -1463,9 +1545,23 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         | {f for f in master_cuts_seeds if f <= m_bracket_first}
         | {f - before_shift for f in candidate_cuts_seeds if f - before_shift <= m_bracket_first},
         reverse=True)
-    anchor_a, anchor_a_reason, anchor_a_n_frames = _anchor_search(
-        m_hashes, m_base, c_hashes, c_base, a_seeds_master,
-        before_shift, "backward", threshold)
+    if resolve_shift:
+        # OPT-IN (see `locate_scene_anchors`): the edge path's own search,
+        # unmodified -- `_validate_anchor` and `_check_anchor_distinctive`
+        # offered each shift within `EDGE_SHIFT_SEARCH_FRAMES` of the
+        # nominal one, smallest summed Hamming wins, ties to the nominal.
+        # Each anchor resolves ITS OWN hypothesis; the sweep below then runs
+        # on the resolved pair, and `_check_step_plumbing` still compares
+        # their difference against the caller's step.
+        anchor_a, resolved, anchor_a_n_frames, anchor_a_reason = _edge_anchor_search(
+            m_hashes, m_base, c_hashes, c_base, a_seeds_master,
+            before_shift, "backward", threshold, search_frames=shift_search_frames)
+        if anchor_a is not None:
+            before_shift = resolved
+    else:
+        anchor_a, anchor_a_reason, anchor_a_n_frames = _anchor_search(
+            m_hashes, m_base, c_hashes, c_base, a_seeds_master,
+            before_shift, "backward", threshold)
 
     # Anchor B: search FORWARD from the bracket's own high edge, symmetric,
     # under the AFTER hypothesis.
@@ -1473,9 +1569,16 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         {m_bracket_last}
         | {f for f in master_cuts_seeds if f >= m_bracket_last}
         | {f - after_shift for f in candidate_cuts_seeds if f - after_shift >= m_bracket_last})
-    anchor_b, anchor_b_reason, anchor_b_n_frames = _anchor_search(
-        m_hashes, m_base, c_hashes, c_base, b_seeds_master,
-        after_shift, "forward", threshold)
+    if resolve_shift:
+        anchor_b, resolved, anchor_b_n_frames, anchor_b_reason = _edge_anchor_search(
+            m_hashes, m_base, c_hashes, c_base, b_seeds_master,
+            after_shift, "forward", threshold, search_frames=shift_search_frames)
+        if anchor_b is not None:
+            after_shift = resolved
+    else:
+        anchor_b, anchor_b_reason, anchor_b_n_frames = _anchor_search(
+            m_hashes, m_base, c_hashes, c_base, b_seeds_master,
+            after_shift, "forward", threshold)
 
     if anchor_a is None or anchor_b is None:
         # THREE DISTINCT FACTS, per the Architect's ruling, 2026-09-21:
@@ -1569,6 +1672,27 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     sweep_crossed = split_end_master < split_start_master
     pre_collapse_start_master = split_start_master
     pre_collapse_end_master = split_end_master
+    # WHAT THE TWO FRONTS LEFT UNMATCHED, READ UNDER EACH SHIFT (orchestrator
+    # stage 4, 2026-09-24; observational, additive, decides nothing here). The
+    # sweep stops on `SWEEP_SUSTAINED_MISMATCH_FRAMES` consecutive mismatches,
+    # which assumes pHash noise inside common content never runs that long.
+    # MEASURED FALSE on errid-70 (PAL, under the true shift, master
+    # 11152-14801): mismatch runs of 3 (x6), 4 (x3), 5 and 15 frames inside
+    # content that matches 92-96 % -- the backward walk stopped 124 frames
+    # into 3647 frames of common content. The caller can only tell a
+    # divergent span from a noise stop by counting how much of the span
+    # each hypothesis actually matches, from the hashes already in hand.
+    span_counts = {}
+    for label, span_shift in (("before", before_shift), ("after", after_shift)):
+        matched = readable = 0
+        for m_frame in range(pre_collapse_start_master, pre_collapse_end_master):
+            verdict = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
+                                    m_frame + span_shift, threshold)
+            if verdict is None:
+                continue
+            readable += 1
+            matched += 1 if verdict else 0
+        span_counts[label] = [matched, readable]
     if sweep_crossed:
         # The two sweeps crossed -- forward-from-A matched further into
         # the bracket than backward-from-B did, meaning there is no
@@ -1661,6 +1785,24 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         # (same master_start_frame == master_end_frame), and nobody reading
         # the result, then or later, can tell which one happened.
         "sweep_crossed": sweep_crossed,
+        # THE TWO FRONTS AND THE SHIFTS, AS FIELDS (orchestrator stage 4,
+        # 2026-09-24). They were already measured here and already in the
+        # evidence STRING; a caller that has to decide on them -- ADDENDUM 3's
+        # `no_cut_confirmed`, ADDENDUM 4's `boundary_pinned_to_right_anchor`,
+        # which must log "the lengths of both walks and the size of the span"
+        # -- must not parse prose to get them. Additive: no existing key moves.
+        "pre_collapse_start_master": pre_collapse_start_master,
+        "pre_collapse_end_master": pre_collapse_end_master,
+        "unmatched_span_matches_before": span_counts["before"],
+        "unmatched_span_matches_after": span_counts["after"],
+        "forward_walk_frames": pre_collapse_start_master - anchor_a,
+        "backward_walk_frames": anchor_b - pre_collapse_end_master,
+        "before_shift_frames": before_shift,
+        "after_shift_frames": after_shift,
+        "nominal_before_shift_frames": nominal_before_shift,
+        "nominal_after_shift_frames": nominal_after_shift,
+        "anchor_a_n_frames": anchor_a_n_frames,
+        "anchor_b_n_frames": anchor_b_n_frames,
         "derived_ms": {
             "master_start_ms": f"{round(float(_exact_ms_from_frame(split_start_master, fps_num, fps_den)), 2)}",
             "master_end_ms": f"{round(float(_exact_ms_from_frame(split_end_master, fps_num, fps_den)), 2)}",
@@ -2099,7 +2241,8 @@ def _anchor_window_distance(m_hashes, m_base, c_hashes, c_base, m_seed,
 
 
 def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
-                        nominal_shift, direction, threshold):
+                        nominal_shift, direction, threshold,
+                        search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''`_anchor_search`, but resolving the frame SHIFT at the same time as the
     seed -- the one thing the two-anchor path does not have to do, because it
     is handed two independently-measured offset hypotheses and this path is
@@ -2125,9 +2268,13 @@ def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
     uninformative seed's evidence otherwise -- the same two facts, kept apart
     for the same reason.
     '''
+    # `search_frames` defaults to `EDGE_SHIFT_SEARCH_FRAMES`, derived for a
+    # millisecond-precise offset. A caller whose offset is COARSER passes its
+    # own derived bound (orchestrator stage 4: one fingerprint quantum in
+    # frames, plus the labelling frame) -- see `locate_edge_boundary`.
     shift_candidates = sorted(
-        range(nominal_shift - EDGE_SHIFT_SEARCH_FRAMES,
-              nominal_shift + EDGE_SHIFT_SEARCH_FRAMES + 1),
+        range(nominal_shift - search_frames,
+              nominal_shift + search_frames + 1),
         key=lambda s: (abs(s - nominal_shift), s))
     last_uninformative_reason = None
     last_uninformative_n_frames = None
@@ -2269,7 +2416,9 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms, offset_ms, edge,
                          master_timeline_ms, candidate_duration_ms,
                          known_match_ms=None, step_ms=None, quantum_ms=None,
-                         scene_search_window_sec=None, debug=False):
+                         scene_search_window_sec=None, debug=False,
+                         candidate_time_scale=None,
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''PUBLIC ENTRY POINT for an EDGE bracket -- owner's ruling
     RULING_20260922_EDGE_SINGLE_ANCHOR.MD and its ADDENDUM.
 
@@ -2311,6 +2460,21 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
     Returns the same dict SHAPE as `locate_scene_anchors` (`declined` True or
     False, never neither) so the head/tail call sites can consume it with the
     interior site's own code.
+
+    `candidate_time_scale` (OPT-IN, orchestrator stage 4, 2026-09-24): the
+    same rate relation `locate_scene_anchors` takes under that name. With it,
+    `offset_ms` and `candidate_duration_ms` are master-EQUIVALENT time (the
+    candidate's raw duration times `r`), and the walk reads the candidate on
+    its corrected grid. Absent -> bit-identical to before.
+
+    `shift_search_frames` (OPT-IN, same stage): the half-width of the anchor's
+    shift search, default `EDGE_SHIFT_SEARCH_FRAMES`. That constant is derived
+    for a MILLISECOND-precise offset (one frame of rounding, one of
+    labelling). An offset read off fingerprint points is precise only to one
+    fingerprint quantum (~124 ms, ~3 frames at 24000/1001) -- MEASURED on
+    errid-70's head: nominal -45, true -48 (50/50 over every block from frame
+    50 to 440), unreachable at +/-2 -- so such a caller passes one quantum in
+    frames plus the labelling frame, by the constant's own derivation.
     '''
     fps_num = int(fps_num)
     fps_den = int(fps_den)
@@ -2353,7 +2517,9 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
             bracket_low_ms, bracket_high_ms, offset_ms, edge,
             master_timeline_ms, candidate_duration_ms, rung_window_sec,
             crop_filters, geometry,
-            content_detector_threshold=rung_cd_threshold, debug=debug)
+            content_detector_threshold=rung_cd_threshold, debug=debug,
+            candidate_time_scale=candidate_time_scale,
+            shift_search_frames=shift_search_frames)
         matched = not result["declined"]
         tools.logs.append(
             f"scene_anchor: edge_window_ladder_rung edge={edge} rung={rung} "
@@ -2401,7 +2567,8 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
                                     edge, master_timeline_ms, candidate_duration_ms,
                                     window_sec, crop_filters, geometry,
                                     content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
-                                    debug=False):
+                                    debug=False, candidate_time_scale=None,
+                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''ONE RUNG of `locate_edge_boundary`'s ladder: establish the single
     common-side anchor at this window, then walk. Same split, same reasons and
     same per-rung logging as `_locate_scene_anchors_at_window` -- resolving
@@ -2427,7 +2594,10 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     comparer = FrameComparer(master_path, candidate_path,
                              bracket_low_ms / 1000.0, bracket_high_ms / 1000.0,
                              fps_num, fps_den, debug=debug,
-                             crop_filters=crop_filters)
+                             crop_filters=crop_filters,
+                             time_scales=({candidate_path: candidate_time_scale}
+                                          if candidate_time_scale is not None
+                                          else None))
     m_bracket_first = comparer._frame_index(bracket_low_ms / 1000.0)
     m_bracket_last = comparer._frame_index(bracket_high_ms / 1000.0)
     shift_frames = _nominal_shift_frames(offset_ms, fps_num, fps_den)
@@ -2450,6 +2620,10 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     c_win_span_sec = Fraction((c_win_end - c_win_start) * fps_den, fps_num)
 
     candidate_rate, candidate_rate_reason = _probe_frame_rate(candidate_path)
+    # Corrected rate for a speed-changed candidate -- same arithmetic and same
+    # reason as the interior path (`_locate_scene_anchors_at_window`).
+    if candidate_rate is not None and candidate_time_scale is not None:
+        candidate_rate = candidate_rate / Fraction(candidate_time_scale)
 
     m_scan_start = _frames_at_rate(m_win_start_sec, master_rate)
     m_scan_frames = _frames_at_rate(m_win_span_sec, master_rate)
@@ -2524,7 +2698,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     nominal_shift_frames = shift_frames
     anchor, shift_frames, anchor_n_frames, anchor_reason = _edge_anchor_search(
         m_hashes, m_base, c_hashes, c_base, seeds, nominal_shift_frames,
-        direction, threshold)
+        direction, threshold, search_frames=shift_search_frames)
 
     if anchor is None:
         # TWO DISTINCT FACTS, same split and same reasoning as the two-anchor

@@ -21,14 +21,19 @@ MEASUREMENT CLASS. Nothing here returns True on work it did not do.
     landed   step 3e the comparison resample           -- `merge_video_resample
                                                           .build_speed_filter_chain` behind the
                                                           pitch layer's own reading; applied on
-                                                          the candidate's extraction only, and
-                                                          never delivered (ADDENDUM 7)
-    STUB     step 4  frame-exact hole resolution       -- declines `hole_resolution_
-                                                          not_implemented`
+                                                          the candidate's comparison extraction
+                                                          only -- the fingerprint WAV is deleted
+                                                          after one pass; DELIVERING resampled
+                                                          audio is stage 5's (ADDENDUM 8)
+    landed   step 4  frame-exact hole resolution       -- `scene_anchor.locate_scene_anchors`
+                                                          (interior, two anchors) and
+                                                          `.locate_edge_boundary` (head/tail,
+                                                          one anchor), sequential; see
+                                                          `resolve_hole`
     STUB     step 5  plan application                  -- declines `plan_application_
-                                                          not_implemented`, or
-                                                          `restoration_deferred` on a
-                                                          rate-family pair (addendum 7)
+                                                          not_implemented` on every pair, rate
+                                                          pairs included (ADDENDUM 8 lifted the
+                                                          `restoration_deferred` deferral)
 
 *** NOT WIRED INTO THE LIVE CHAIN. Nothing in `src/` calls `repair()` yet. The owner's ruling
 is REMPLACEMENT DIRECT -- one switch, no cohabitation flag -- and that switch is the design's
@@ -43,7 +48,10 @@ False leaves behind a `cause=<token>` whose MEASUREMENT CLASS is emitted beside 
 
     ran_conclusive_negative   the instrument ran and returned a negative
     could_not_run             the instrument could not be run, or is not built yet
-    owner_choice              neither -- a deferral the owner ordered, cited verbatim
+
+(A third class, `owner_choice`, existed for the owner's restoration deferral -- ADDENDUM 7. The
+owner lifted that deferral in ADDENDUM 8, the class lost its only token, and it was retired with
+it rather than left as a name nothing can emit.)
 
 A reader who sees `False` and wants to know which of the three it was reads the token; a reader
 who never looks gets a boolean that is safe either way, because all three mean "do not ship".
@@ -63,6 +71,7 @@ the ruling says "SORTENT MEME A tools.dev=false" and which therefore goes throug
 """
 from decimal import Decimal
 from fractions import Fraction
+import math
 from os import path, remove
 import subprocess
 import time
@@ -183,8 +192,9 @@ MAX_HOLES_PER_COUPLE = 45
 # PAL 25/23.976 pair whose two fr tracks are 51.87 s apart) returned that token with n_zones=0
 # and coverage 0.000, the gate returned should_sweep=False, the sweep never ran, and the
 # orchestrator logged `audios_fully_compatible_offset_only` -- a positive claim of compatibility
-# about a pair one frame rate apart -- which also made the owner's `restoration_deferred`
-# deferral (ADDENDUM 7) unreachable, since that gate tests `speed_factor != 1`. The same pair on
+# about a pair one frame rate apart -- which also made the owner's then-standing
+# `restoration_deferred` deferral (ADDENDUM 7, lifted since by ADDENDUM 8) unreachable, since that
+# gate tested `speed_factor != 1`. The same pair on
 # `en` took the correct path, which is what proved it was the gate and not the media.
 #
 # THE NUMBER IS READ OFF A BIMODAL DISTRIBUTION, NOT CHOSEN. Coverage over all 31 success-token
@@ -388,7 +398,6 @@ assert not (set(ALIGNMENT_COULD_NOT_MEASURE_VERDICTS)
 # contract. The boolean cannot carry this and the ledger needs it.
 CLASS_CONCLUSIVE = "ran_conclusive_negative"
 CLASS_COULD_NOT_RUN = "could_not_run"
-CLASS_OWNER_CHOICE = "owner_choice"
 
 # THE CAUSE VOCABULARY, CLOSED, EACH WITH ITS CLASS. The design's section 6.2 migration replaces
 # fifteen dying `change_point_locator.DECLINE_REASONS` tokens with a deliberately small set; the
@@ -424,11 +433,19 @@ DECLINE_CAUSES = {
     # a measurement about the pair.
     "comparison_resample_refused_at_unity": CLASS_COULD_NOT_RUN,
     "comparison_resample_filter_unbuildable": CLASS_COULD_NOT_RUN,
-    # the stubs -- honest declines for stages not yet landed
-    "hole_resolution_not_implemented": CLASS_COULD_NOT_RUN,
+    # step 4. `hole_resolution_not_implemented` was here until the stage landed and is GONE, by
+    # this table's own rule (see step 3e above). Its replacement is the resolver's REAL refusal:
+    # the frame-exact search could not establish a boundary on at least one hole (anchors not
+    # established, geometry unreconciled, an unreadable walk, no measurable grid). Could-not-run,
+    # never conclusive: a resolver that could not seed an anchor has measured nothing about the
+    # pair -- the per-hole resolver reason travels in the prose and in the step log.
+    "hole_resolution_declined": CLASS_COULD_NOT_RUN,
+    # the stub -- honest decline for the stage not yet landed, on EVERY pair
     "plan_application_not_implemented": CLASS_COULD_NOT_RUN,
-    # the owner's deferral
-    "restoration_deferred": CLASS_OWNER_CHOICE,
+    # RETIRED 2026-09-24: `restoration_deferred` (class `owner_choice`). The owner's ADDENDUM 8
+    # lifted ADDENDUM 7's deferral -- "L'audio corrige en vitesse PEUT etre livre ... Le declin
+    # `restoration_deferred` disparait de `apply_plan` et de la porte de livraison" -- so the
+    # token can no longer be emitted and, by this table's own rule, is not in it.
 }
 
 # THE HOLE-RESULT VOCABULARY. `no_cut_confirmed` is FIRST CLASS (owner's ADDENDUM 3): the audio
@@ -436,9 +453,25 @@ DECLINE_CAUSES = {
 # without dropping out is a hole that CLOSES -- not a failure. The orchestrator restores zone
 # continuity across it, and if every hole closes this way the pair merges with a simple offset
 # and no splice at all.
+#
+# THE FULL VOCABULARY, CLOSED (stage 4). Every status but `declined` carries exact frames:
+#   resolved                          interior, two anchors, the cut pinned on both files
+#   no_cut_confirmed                  ADDENDUM 3 -- the video crossed the hole under ONE shift
+#   boundary_pinned_to_right_anchor   ADDENDUM 4 -- a static span, cause=static_span_ambiguity
+#   sustained_mismatch                EDGE ruling termination 1 -- divergent content: replace
+#   master_exhausted                  EDGE ruling termination 2 -- candidate excess: trim
+#   candidate_exhausted               EDGE ruling termination 3 -- master addition, COUNTED
+#   declined                          the resolver could not establish a boundary; named reason
 HOLE_RESOLVED = "resolved"
 HOLE_NO_CUT_CONFIRMED = "no_cut_confirmed"
-HOLE_NOT_IMPLEMENTED = "not_implemented"
+HOLE_PINNED_TO_RIGHT_ANCHOR = "boundary_pinned_to_right_anchor"
+EDGE_SUSTAINED_MISMATCH = "sustained_mismatch"
+EDGE_MASTER_EXHAUSTED = "master_exhausted"
+EDGE_CANDIDATE_EXHAUSTED = "candidate_exhausted"
+HOLE_DECLINED = "declined"
+EDGE_TERMINATIONS = (EDGE_SUSTAINED_MISMATCH, EDGE_MASTER_EXHAUSTED, EDGE_CANDIDATE_EXHAUSTED)
+HOLE_STATUSES_WITH_FRAMES = (HOLE_RESOLVED, HOLE_NO_CUT_CONFIRMED, HOLE_PINNED_TO_RIGHT_ANCHOR
+                             ) + EDGE_TERMINATIONS
 
 # The three `why=` tokens are a CLOSED SET PINNED BY A TOOL, not a naming choice:
 # `tools/validate_merge_plan.py:154-156` matches `(head_gap|interior_bracket|tail_gap|absent\()`
@@ -947,11 +980,21 @@ def edge_addition_seconds(holes):
     Feeds ADDENDUM 5's marker decision and, per that addendum's clause (d), is LOGGED ALWAYS --
     tagged or not, the artefact must always know what was done; only the competitive marker
     follows the threshold.
+
+    ONCE THE VIDEO HAS RESOLVED AN EDGE, ITS COUNT REPLACES THE AUDIO'S ESTIMATE (stage 4).
+    Before resolution the only number available is the audio hole's candidate span. After it,
+    `resolve_hole` sets `resolved_edge_addition_seconds` on the hole: the MASTER frames that
+    will stand on the output timeline where the candidate has no common content -- the
+    EDGE ruling's addendum, verbatim, "the number of master frames remaining past the last
+    compared frame IS the length to take from the master ... duration = frames x the exact
+    rational frame time". A trim (`master_exhausted`) adds nothing and counts zero; a closed
+    edge counts zero. The audio estimate is kept only where no resolution happened.
     """
     total = 0.0
     for hole in holes:
         if hole["kind"] in ("head", "tail"):
-            total += hole["candidate_span_seconds"]
+            resolved = hole.get("resolved_edge_addition_seconds")
+            total += hole["candidate_span_seconds"] if resolved is None else resolved
     return total
 
 
@@ -1417,13 +1460,13 @@ def comparison_resample(speed_factor, master_obj, candidate_obj, language, work_
     invocation that already extracts them for fingerprinting (`fingerprint_track`), so the
     correction costs no extra decode, no extra temporary file and no extra generation of codec.
 
-    A MEASUREMENT TOOL, AND ONLY THAT (owner's ADDENDUM 7 point 1): "la correction de vitesse
-    reste un OUTIL DE MESURE : le sweep et le resample de comparaison servent a ALIGNER et
-    LOCALISER". NOTHING PRODUCED HERE IS EVER SHIPPED. The corrected audio exists for the length
-    of one fingerprint pass and is deleted by `fingerprint_track`'s own `finally`; the delivery
-    question -- which corrected audio a product should carry -- is SUSPENDED until the owner
-    validates examples himself, and `apply_plan` declines `restoration_deferred` when a
-    rate-family pair reaches it.
+    WHAT THIS PRODUCES IS A COMPARISON EXTRACTION, NEVER A PRODUCT TRACK. The sweep and this
+    resample serve to ALIGN and LOCATE (ADDENDUM 7 point 1, fpcalc validated by the owner). The
+    corrected audio exists for the length of one fingerprint pass and is deleted by
+    `fingerprint_track`'s own `finally`. DELIVERING speed-corrected audio is now AUTHORISED --
+    ADDENDUM 8 lifted ADDENDUM 7's deferral: "L'audio corrige en vitesse PEUT etre livre ... La
+    piste livree porte le marqueur `resampled:<facteur exact>`" -- but building that track is
+    plan application (stage 5), from the source, not from this temporary extraction.
 
     NO FILTER AT ALL AT speed_factor = 1 (owner's ADDENDUM 6): "aucun filtre de correction ne
     tourne JAMAIS sur une piste dont la vitesse n'a pas change". That is enforced TWICE and
@@ -1474,7 +1517,7 @@ def comparison_resample(speed_factor, master_obj, candidate_obj, language, work_
     routing.update({
         "modality": MODALITY,
         "side": "candidate",
-        "rule": "ADDENDUM_7_measurement_tool_never_delivered",
+        "rule": "comparison_extraction_only_never_a_product_track",
         "requested_ratio": (f"{speed_factor.numerator}/{speed_factor.denominator}"
                             if isinstance(speed_factor, Fraction) else str(speed_factor)),
         "requested_ratio_value": float(speed_factor),
@@ -1511,67 +1554,732 @@ def _candidate_audio_sample_rate(candidate_obj):
     return None
 
 
-def resolve_hole(hole, master_obj, candidate_obj, work_dir):
-    """STUB -- design stage 4. Returns a result dict whose `status` is `not_implemented`.
+# ---------------------------------------------------------------------------
+# STEP 4 -- FRAME-EXACT HOLE RESOLUTION
+# ---------------------------------------------------------------------------
 
-    WHAT IT WILL DO, and every piece of it already exists:
-      interior  -> `scene_anchor.locate_scene_anchors` (scene detection at +/-10 s both sides,
-                   nearest compatible pHash-validated anchors, then `run_edge_walk` to pin the
-                   boundary) -- it already returns exactly the ruling's "positions de frames
-                   debut et fin EXACTES sur master et candidat".
-      head/tail -> `scene_anchor.locate_edge_boundary`, the single-anchor bounded walk with its
-                   three named terminations (`sustained_mismatch`, `master_exhausted`,
-                   `candidate_exhausted`).
+def _round_half_up(value):
+    """One rounding, on an exact rational, half away from zero -- never `int()`'s truncation."""
+    value = Fraction(value)
+    return int(value + Fraction(1, 2)) if value >= 0 else -int(-value + Fraction(1, 2))
 
-    AND IT CAN RETURN `no_cut_confirmed` (owner's ADDENDUM 3), which the orchestrator already
-    handles: the anchors land, the walk crosses the candidate hole WITHOUT dropping out, so
-    there is no cut -- the hole CLOSES and that is a first-class success. The hierarchy is
-    graven: audio alignment PROPOSES the zones to examine, video pHash DISPOSES.
 
-    AND `boundary_pinned_to_right_anchor` (owner's ADDENDUM 4), for a hole whose content is a
-    static span where every frame matches every other at pHash: the two walks cross it at
-    different speeds and the true position is undecidable inside it, so the boundary is pinned
-    to the frames JUST BEFORE THE RIGHT-HAND ANCHOR -- a deterministic convention producing the
-    same bytes every run, emitted as a NAMED verdict with both walk lengths and the span size,
-    never as a silent placement.
+def _exact_video_rate(video_obj):
+    """THIS FILE'S frame rate as an EXACT RATIONAL -- `(Fraction, source)` or `(None, reason)`.
 
-    A STUB RETURNS A REFUSAL, NEVER A PLAUSIBLE ANSWER. Returning a guessed boundary here would
-    be the one failure this whole campaign exists to prevent.
+    Never `int(fps)` and never MediaInfo's decimal `FrameRate`: `Fraction("23.976")` is 2997/125,
+    not 24000/1001, and the difference is one frame every 41.7 s -- 90 frames over an hour of the
+    corpus's longest master. The exact source, in order: MediaInfo's own `FrameRate_Num` /
+    `FrameRate_Den` (MEASURED present on the errid-70, errid-202 and errid-27 masters: 24000/1001;
+    ABSENT on errid-27's candidate), then ffprobe's `r_frame_rate` through
+    `scene_anchor._probe_frame_rate`, the same probe the resolvers themselves use for the
+    candidate. No decimal fallback: a grid that cannot be read exactly is a grid not measured.
     """
-    return {"modality": MODALITY, "status": HOLE_NOT_IMPLEMENTED,
-            "kind": hole["kind"], "why_token": hole["why_token"],
-            "cause": "hole_resolution_not_implemented"}
+    video = getattr(video_obj, "video", None) or {}
+    try:
+        num, den = video.get("FrameRate_Num"), video.get("FrameRate_Den")
+        if num not in (None, "") and den not in (None, ""):
+            rate = Fraction(int(str(num)), int(str(den)))
+            if rate > 0:
+                return rate, "mediainfo_num_den"
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass
+    try:
+        import scene_anchor
+        rate, reason = scene_anchor._probe_frame_rate(video_obj.filePath)
+    except Exception as error:                                           # noqa: BLE001
+        return None, f"probe_raised:{type(error).__name__}"
+    if rate is None:
+        return None, f"ffprobe_r_frame_rate:{reason}"
+    return rate, "ffprobe_r_frame_rate"
+
+
+def _video_duration_ms(video_obj):
+    """The VIDEO stream's own duration in ms, as the output timeline reads it -- the same
+    expression as `merge_video_chimeric.get_master_timeline_length_ms` (`video["Duration"]`
+    seconds, times 1000), restated rather than imported so this stage adds no dependency on the
+    module stage 5 rewrites. None when unreadable, never zero."""
+    try:
+        return Decimal(str(video_obj.video["Duration"])) * Decimal("1000")
+    except Exception:                                                    # noqa: BLE001
+        return None
+
+
+def frame_domain(master_obj, candidate_obj, speed_factor):
+    """The pair's FRAME DOMAIN, computed once per pair and carried onto every hole.
+
+    Returns `(domain, None)` or `(None, reason)`. The domain says how a millisecond of the
+    alignment becomes a frame of each file:
+      * master frames are on the master's exact grid (F1: every boundary this chain ships is a
+        master frame number);
+      * the candidate's alignment milliseconds are MASTER-EQUIVALENT time. At speed factor 1
+        that is simply candidate time. Under a comparison resample it is the candidate's raw
+        time times `r` -- `fingerprint_track` extracts the corrected audio at
+        `duration * effective_ratio` -- so a candidate frame's NATIVE index is
+        `equivalent_ms / r` on the candidate's own exact rate.
+    `r` handed to the video instruments is the sweep's EXACT rational (1001/960, 1001/1000), not
+    the audio filter's effective ratio: the filter's integer `asetrate` makes it 7.4e-7 off at
+    PAL (0.9 ms over 1220 s -- logged beside it, below any frame), and the VIDEO relation of a
+    speed-up pair is the exact one. It is corroborated, not assumed: the candidate's native
+    rate over the master's is logged against it (errid-70: 25 / (24000/1001) = 1001/960 exactly;
+    errid-27: 24 / (24000/1001) = 1001/1000 exactly).
+    """
+    master_rate, master_source = _exact_video_rate(master_obj)
+    if master_rate is None:
+        return None, f"master_grid_unmeasured:{master_source}"
+    candidate_rate, candidate_source = _exact_video_rate(candidate_obj)
+    if candidate_rate is None:
+        return None, f"candidate_grid_unmeasured:{candidate_source}"
+    master_timeline_ms = _video_duration_ms(master_obj)
+    if master_timeline_ms is None:
+        return None, "master_timeline_unmeasured"
+    candidate_raw_ms = _video_duration_ms(candidate_obj)
+    scale = None
+    if speed_factor is not None and speed_factor != 1:
+        scale = Fraction(speed_factor)
+    video_ratio = candidate_rate / master_rate
+    return {
+        "master_rate": master_rate, "master_rate_source": master_source,
+        "candidate_rate": candidate_rate, "candidate_rate_source": candidate_source,
+        "time_scale": scale,
+        "video_rate_ratio": video_ratio,
+        "video_ratio_matches_speed_factor": (None if scale is None else video_ratio == scale),
+        "master_timeline_ms": master_timeline_ms,
+        "candidate_raw_duration_ms": candidate_raw_ms,
+        "candidate_equivalent_duration_ms": (
+            None if candidate_raw_ms is None
+            else candidate_raw_ms * (Decimal(scale.numerator) / Decimal(scale.denominator)
+                                     if scale is not None else Decimal(1))),
+        "frame_ms": Fraction(1000) / master_rate,
+    }, None
+
+
+def _exact_ms_of_frame(frame, domain):
+    """A master frame index as the EXACT millisecond it starts at, on the exact rational grid --
+    a string, six decimals, never a float carried into arithmetic (ADDENDUM 9: the result must
+    carry the millisecond measurement beside the frame indices). None in, None out."""
+    if frame is None:
+        return None
+    return f"{float(Fraction(frame) * 1000 / domain['master_rate']):.6f}"
+
+
+def _audio_offsets(hole):
+    """The AUDIO's own offsets across a hole, UNROUNDED milliseconds (ADDENDUM 9 point 2: "les
+    offsets audio a la milliseconde ... jamais arrondi a la frame video"). They are the
+    aligner's `offset_points * quantum_ms`, i.e. precise to ONE FINGERPRINT QUANTUM (~124 ms) --
+    COARSER than a frame, which is why they are carried and flagged, not presented as the
+    offset to apply: stage 5 must refine each to sub-frame milliseconds before applying it."""
+    quantum_ms = hole["quantum_ms"]
+    return {
+        "audio_offset_before_ms": (None if hole.get("offset_before_points") is None
+                                   else round(hole["offset_before_points"] * quantum_ms, 3)),
+        "audio_offset_after_ms": (None if hole.get("offset_after_points") is None
+                                  else round(hole["offset_after_points"] * quantum_ms, 3)),
+        "audio_offset_precision_ms": round(quantum_ms, 3),
+    }
+
+
+def _master_frame_of_ms(ms, domain):
+    return _round_half_up(Fraction(str(ms)) * domain["master_rate"] / 1000)
+
+
+def _candidate_native_frame(equivalent_frame, domain):
+    """A master-grid EQUIVALENT frame index (what the resolvers return for the candidate) as the
+    CANDIDATE FILE'S OWN frame number: equivalent seconds, divided by `r`, counted on the
+    candidate's exact native rate. Exactly the identity on a same-rate pair and on an exact
+    speed-up pair (errid-70: k -> k). None in, None out."""
+    if equivalent_frame is None:
+        return None
+    scale = domain["time_scale"] or Fraction(1)
+    return _round_half_up(Fraction(equivalent_frame) / domain["master_rate"] / scale
+                          * domain["candidate_rate"])
+
+
+def _candidate_native_frame_of_ms(equivalent_ms, domain):
+    scale = domain["time_scale"] or Fraction(1)
+    return _round_half_up(Fraction(str(equivalent_ms)) / 1000 / scale * domain["candidate_rate"])
+
+
+def _shift_search_frames(domain, quantum_ms):
+    """The anchors' shift-search half-width, DERIVED for an offset read off fingerprint points.
+
+    `scene_anchor.EDGE_SHIFT_SEARCH_FRAMES` (2) is one frame of rounding a millisecond-precise
+    offset onto the grid, plus one frame of extraction labelling. The orchestrator's offsets are
+    integer fingerprint points, precise to one QUANTUM, so the rounding term becomes one quantum
+    in frames, rounded up; the labelling frame is unchanged. At 24000/1001 with a 124.07 ms
+    quantum that is 3 + 1 = 4. MEASURED need: errid-70's head, nominal -45 frames, true -48.
+    """
+    return int(math.ceil(Fraction(str(quantum_ms)) / domain["frame_ms"])) + 1
+
+
+def _declined(hole, cause_detail, evidence=None, **extra):
+    outcome = {"modality": MODALITY, "status": HOLE_DECLINED, "kind": hole["kind"],
+               "why_token": hole["why_token"], "cause": "hole_resolution_declined",
+               "resolver_reason": cause_detail, "evidence": evidence}
+    outcome.update(extra)
+    return outcome
+
+
+def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
+                     offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
+                     resolve_shift=True):
+    """ONE call of the interior resolver, launched and logged as its own step. Exception-
+    isolated: a resolver that raises is a named decline, never a crash of the repair (the same
+    rule the live chain's own call sites carry for these two functions)."""
+    import scene_anchor
+    step_launch("two_anchor", candidate=candidate_obj.filePath, probe=probe,
+                resolve_shift=resolve_shift,
+                bracket_ms=[round(float(low_ms), 2), round(float(high_ms), 2)],
+                offset_before_ms=round(float(offset_before_ms), 3),
+                offset_after_ms=round(float(offset_after_ms), 3),
+                time_scale=(None if domain["time_scale"] is None
+                            else f"{domain['time_scale'].numerator}/"
+                                 f"{domain['time_scale'].denominator}"))
+    try:
+        result = scene_anchor.locate_scene_anchors(
+            master_obj.filePath, candidate_obj.filePath,
+            domain["master_rate"].numerator, domain["master_rate"].denominator,
+            float(low_ms), float(high_ms), float(offset_before_ms), float(offset_after_ms),
+            step_ms=float(step_ms), quantum_ms=float(quantum_ms),
+            candidate_time_scale=domain["time_scale"],
+            normalise_geometry=True, resolve_shift=resolve_shift,
+            shift_search_frames=_shift_search_frames(domain, quantum_ms))
+    except Exception as error:                                           # noqa: BLE001
+        result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
+                  "evidence": str(error)[:300]}
+    step_result("two_anchor", candidate=candidate_obj.filePath, probe=probe,
+                declined=result["declined"], reason=result.get("reason"),
+                anchor_a=result.get("anchor_a_frame"), anchor_b=result.get("anchor_b_frame"),
+                before_shift=result.get("before_shift_frames"),
+                after_shift=result.get("after_shift_frames"),
+                nominal_before_shift=result.get("nominal_before_shift_frames"),
+                nominal_after_shift=result.get("nominal_after_shift_frames"),
+                forward_walk=result.get("forward_walk_frames"),
+                backward_walk=result.get("backward_walk_frames"),
+                sweep_crossed=result.get("sweep_crossed"), net_kind=result.get("net_kind"),
+                unmatched_span_matches_before=result.get("unmatched_span_matches_before"),
+                unmatched_span_matches_after=result.get("unmatched_span_matches_after"),
+                evidence=result.get("evidence"))
+    return result
+
+
+def _span_noise_reading(result):
+    """Which hypothesis, if any, MATCHES THE MAJORITY of the span the two fronts left unmatched.
+
+    Returns "before", "after", "both" or None. None is the only reading under which the span is
+    what the sweep says it is -- content that neither side's shift explains.
+
+    WHY A MAJORITY, AND WHY IT IS NOT A TUNING KNOB. The sweep stops on a short run of
+    consecutive mismatches (`scene_anchor.SWEEP_SUSTAINED_MISMATCH_FRAMES`), which is only safe
+    if pHash noise inside common content never runs that long. MEASURED on errid-70 under the
+    true shift -70, over 3650 frames of common content: mismatch runs of 3 (x6), 4 (x3), 5 and
+    15 -- the backward walk stopped 124 frames in and reported a 3523-frame "divergent" span.
+    That span matches the after-shift on 92-96 % of its frames; the genuinely divergent spans
+    measured on errid-202 (holes 1 and 4) match EITHER shift on 0-10 %. "More frames of the
+    span agree with a hypothesis than disagree" sits between the two with the data far on both
+    sides, and it is the plain meaning of "the span is that hypothesis's content" -- not a
+    number fitted to one pair.
+    """
+    readings = []
+    for label in ("before", "after"):
+        matched, readable = result.get(f"unmatched_span_matches_{label}") or [0, 0]
+        if readable and 2 * matched > readable:
+            readings.append(label)
+    if len(readings) == 2:
+        return "both"
+    return readings[0] if readings else None
+
+
+def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
+                        offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
+                        resolve_shift=True):
+    """`_two_anchor_call`, then the majority test on what its fronts left unmatched.
+
+    A front that stopped INSIDE common content (the span's majority matches the OTHER side's
+    shift) leaves the cut at the front that did not stop on noise: when the after-shift claims
+    the span, the backward walk stopped early and the cut is at the FORWARD front; when the
+    before-shift claims it, the reverse. The search is then asked again with its bracket
+    collapsed onto that front -- the anchors re-seat beside the cut, the walks between them are
+    short -- and the second answer must pass the same test. A span both shifts claim, or a
+    second answer that still fails, is a NAMED decline: never the first answer's frames, which
+    are proven wrong by the resolver's own hashes.
+    """
+    result = _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
+                              offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
+                              resolve_shift=resolve_shift)
+    if result["declined"]:
+        return result
+    reading = _span_noise_reading(result)
+    if reading is None:
+        return result
+    frame_ms = float(domain["frame_ms"])
+    step_result("sweep_front_inside_common_content", candidate=candidate_obj.filePath,
+                probe=probe, claimed_by=reading,
+                unmatched_master_frames=[result["pre_collapse_start_master"],
+                                         result["pre_collapse_end_master"]],
+                matches_before=result["unmatched_span_matches_before"],
+                matches_after=result["unmatched_span_matches_after"])
+    if reading == "both":
+        return {"declined": True, "reason": "unmatched_span_claimed_by_both_shifts",
+                "evidence": (f"span {result['pre_collapse_start_master']}-"
+                             f"{result['pre_collapse_end_master']} before="
+                             f"{result['unmatched_span_matches_before']} after="
+                             f"{result['unmatched_span_matches_after']}")}
+    front = (result["pre_collapse_start_master"] if reading == "after"
+             else result["pre_collapse_end_master"])
+    narrowed = _two_anchor_call(hole, domain, master_obj, candidate_obj,
+                                front * frame_ms, (front + 1) * frame_ms,
+                                offset_before_ms, offset_after_ms, step_ms, quantum_ms,
+                                probe=f"{probe}_refront_{reading}", resolve_shift=resolve_shift)
+    if narrowed["declined"]:
+        return narrowed
+    if _span_noise_reading(narrowed) is not None:
+        return {"declined": True, "reason": "sweep_front_inside_common_content",
+                "evidence": (f"first span {result['pre_collapse_start_master']}-"
+                             f"{result['pre_collapse_end_master']} claimed by {reading}; "
+                             f"re-fronted span {narrowed['pre_collapse_start_master']}-"
+                             f"{narrowed['pre_collapse_end_master']} still claimed "
+                             f"(before={narrowed['unmatched_span_matches_before']} "
+                             f"after={narrowed['unmatched_span_matches_after']})")}
+    return narrowed
+
+
+def _interior_verdict(result):
+    """ONE shift and nothing left between the fronts -> the hole closes (ADDENDUM 3). Two shifts
+    and fronts that OVERLAP, on either file's axis -> a static span, pinned right (ADDENDUM 4).
+    Anything else is a cut pinned on both files.
+
+    WHY THESE ARE THE RIGHT READINGS OF THE SWEEP. The forward walk from A only advances on
+    frames that MATCH under A's shift, the backward walk from B only on frames matching under
+    B's. (1) With the two shifts EQUAL, both walks test the same hypothesis, so they either both
+    cross the whole span -- no frame between the anchors disagrees: no cut -- or both stop on
+    the same disagreeing run, leaving a same-length replacement between them. (2) With the
+    shifts DIFFERENT, the two fronts can only overlap if some frames match under BOTH shifts at
+    once, and on content that moves that is impossible: one candidate frame cannot be the
+    picture of two different master frames. The overlap can show on EITHER axis --
+    `sweep_crossed` is the master's; a candidate interval of negative length is the candidate's
+    -- and it is the ruling's own detection, "chevauchement ... des deux fronts dans un span
+    auto-similaire". MEASURED on errid-202 hole 1: shift -24 holds to master 5716, -48 from
+    5729, 12 master frames match neither, and past 5738 BOTH shifts match 6/6 -- a static
+    span; the candidate fronts overlap by 12 frames while the master's do not cross.
+    """
+    same_shift = result["before_shift_frames"] == result["after_shift_frames"]
+    if same_shift and result["master_end_frame"] == result["master_start_frame"]:
+        return HOLE_NO_CUT_CONFIRMED
+    candidate_overlap = result["candidate_end_frame"] < result["candidate_start_frame"]
+    if not same_shift and (result["sweep_crossed"] or candidate_overlap):
+        return HOLE_PINNED_TO_RIGHT_ANCHOR
+    return HOLE_RESOLVED
+
+
+def _pin_point(result):
+    """WHERE "the right anchor" is, for ADDENDUM 4 -- the right end of the span the two walks
+    CLAIM IN CONFLICT. Returns `(pin_frame, ambiguous_frames)`.
+
+    The ruling's premise is that BOTH walks traverse the whole static span, so the ambiguous
+    region is everything between the anchors and its right end IS anchor B. On real media the
+    fronts can overlap by far less than the span, and then the literal anchor B is provably
+    wrong. MEASURED on errid-70 hole 1: anchors 10936 / 14570, forward front 11155, backward
+    front 11153 -- a TWO-frame overlap in a 3634-frame span. Pinning at B would put the 23-frame
+    fill at 14547-14570, on content the backward walk had just proven common under its shift
+    for 3417 frames, and would read the before-shift across 3400 frames proven NOT to match it;
+    the measured cut is at 11131-11153 (a 22-frame mismatch run under the after-shift ends at
+    11151). So the pin is the right end of the CONFLICT:
+      * master fronts crossed: the conflict is [backward front, forward front) -> pin at the
+        forward front;
+      * candidate fronts overlapped by k frames (master fronts did not cross): the backward
+        walk's first k master frames read candidate frames the forward walk also claimed ->
+        pin at backward front + k.
+    When both walks cross the whole span -- the ruling's own case -- the forward front IS
+    anchor B and this is the ruling verbatim. errid-202 hole 1 (candidate overlap 12, backward
+    front 5729) pins at 5741, which is also its anchor B.
+    """
+    if result["sweep_crossed"]:
+        start, end = result["pre_collapse_start_master"], result["pre_collapse_end_master"]
+        return start, start - end
+    overlap = result["candidate_start_frame"] - result["candidate_end_frame"]
+    return result["pre_collapse_end_master"] + overlap, overlap
+
+
+def _pinned_frames(result):
+    """ADDENDUM 4's placement, written out for BOTH signs of the step, at `_pin_point`.
+
+    "LE TROU EST PLACE SUR LES FRAMES JUSTE AVANT L'ANCRE DE DROITE ... le splice/fill
+    s'applique aux frames qui la precedent." With `delta = after_shift - before_shift` (the
+    candidate's net frames, + = it holds more) and P the pin:
+      * delta >= 0 (addition): nothing of the master is replaced; the candidate's `delta` extra
+        frames are the ones just before P's content -- master [P, P), candidate
+        [P + before, P + after). At P = anchor B this is `locate_scene_anchors`' own collapse.
+      * delta < 0 (deletion): the master's `-delta` frames the candidate lacks are FILLED, and
+        the fill is the frames just before P -- master [P + delta, P), candidate empty at
+        P + after. The resolver's collapse would instead return master [B, B) with an INVERTED
+        candidate interval, i.e. `-delta` candidate frames read twice across the pin; on an
+        AUDIO product that is an audible repetition, so it is not used.
+    Both forms are continuous with the two shifts: the before-shift read ends exactly where the
+    after-shift read begins, on each axis.
+    """
+    pin, _ambiguous = _pin_point(result)
+    before, after = result["before_shift_frames"], result["after_shift_frames"]
+    delta = after - before
+    if delta >= 0:
+        return pin, pin, pin + before, pin + after
+    return pin + delta, pin, pin + after, pin + after
+
+
+def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
+    grid = result["grid"]
+    master_start, master_end = result["master_start_frame"], result["master_end_frame"]
+    candidate_start, candidate_end = result["candidate_start_frame"], result["candidate_end_frame"]
+    if status == HOLE_PINNED_TO_RIGHT_ANCHOR:
+        master_start, master_end, candidate_start, candidate_end = _pinned_frames(result)
+    length_master = master_end - master_start
+    length_candidate = candidate_end - candidate_start
+    net_kind = ("addition" if length_candidate > length_master
+                else "deletion" if length_candidate < length_master
+                else "still_image" if length_master == 0 else "ordinary")
+    outcome = {
+        "modality": MODALITY, "status": status, "kind": hole["kind"],
+        "why_token": hole["why_token"], "cause": None,
+        "grid": f"{grid['num']}/{grid['den']}",
+        "anchor_a_frame": result["anchor_a_frame"], "anchor_b_frame": result["anchor_b_frame"],
+        "master_start_frame": master_start, "master_end_frame": master_end,
+        "candidate_start_frame_equivalent": candidate_start,
+        "candidate_end_frame_equivalent": candidate_end,
+        "candidate_start_frame": _candidate_native_frame(candidate_start, domain),
+        "candidate_end_frame": _candidate_native_frame(candidate_end, domain),
+        # ADDENDUM 9 point 1: THESE ARE THE FILL BOUNDS, EXACTLY -- the tightest frames the
+        # walks prove, and their exact milliseconds beside them.
+        "master_start_ms": _exact_ms_of_frame(master_start, domain),
+        "master_end_ms": _exact_ms_of_frame(master_end, domain),
+        # The frame shifts place CUTS; they are never an audio offset (ADDENDUM 9 point 2).
+        "video_shift_ms_frame_quantised": [
+            _exact_ms_of_frame(result["before_shift_frames"], domain),
+            _exact_ms_of_frame(result["after_shift_frames"], domain)],
+        **_audio_offsets(hole),
+        "net_kind": net_kind,
+        "frames_to_cut": max(0, length_candidate - length_master),
+        "frames_to_fill": max(0, length_master - length_candidate),
+        # THE RESOLVER'S OWN FRONTS, KEPT BESIDE ANY PLACEMENT MADE FROM THEM.
+        "sweep_master_frames": [result["master_start_frame"], result["master_end_frame"]],
+        "sweep_candidate_frames_equivalent": [result["candidate_start_frame"],
+                                              result["candidate_end_frame"]],
+        "pre_collapse_master_frames": [result["pre_collapse_start_master"],
+                                       result["pre_collapse_end_master"]],
+        "before_shift_frames": result["before_shift_frames"],
+        "after_shift_frames": result["after_shift_frames"],
+        "nominal_before_shift_frames": result["nominal_before_shift_frames"],
+        "nominal_after_shift_frames": result["nominal_after_shift_frames"],
+        "forward_walk_frames": result["forward_walk_frames"],
+        "backward_walk_frames": result["backward_walk_frames"],
+        "span_frames": result["anchor_b_frame"] - result["anchor_a_frame"],
+        "sweep_crossed": result["sweep_crossed"],
+        "geometry": (result.get("geometry") or {}).get("verdict"),
+        "evidence": result.get("evidence"),
+    }
+    if status == HOLE_PINNED_TO_RIGHT_ANCHOR:
+        outcome["cause"] = "static_span_ambiguity"
+        outcome["pin_frame"], outcome["ambiguous_frames"] = _pin_point(result)
+    if refuted_proposal is not None:
+        outcome["refuted_proposal"] = refuted_proposal
+    return outcome
+
+
+def _resolve_interior(hole, domain, master_obj, candidate_obj):
+    """research_exact_frame, TWO ANCHORS (ruling): scene detection +/-10 s both sides of the hole
+    on master AND candidate, the nearest compatible pHash anchors outward from the hole, then the
+    walks between them -- all of it `scene_anchor.locate_scene_anchors`, called with the hole's
+    master bracket and the offsets of the two zones that bound it.
+
+    THE AUDIO PROPOSES, THE VIDEO DISPOSES (ADDENDUM 3) -- AND FOR A PROPOSAL UNDER THE ALIGNER'S
+    RESOLUTION FLOOR THE VIDEO IS ALWAYS ASKED THE NO-CUT QUESTION, not only when the proposal's
+    own anchors fail. MEASURED on errid-202 hole 4: the audio proposes -124 ms (one quantum,
+    under the two-quanta floor); the proposal's anchors DO validate, at shifts -96 and -98, on
+    three frames each -- yet over the next 100 frames -96 matches 50/50 where -98 matches 7/50,
+    and -96 holds from there to the tail anchor 4000 frames later. Three slow frames tolerated a
+    two-frame error; the question "does ONE shift carry across this hole?" does not. So under
+    the floor (step 0 included -- a zero step is still a one-quantum measurement):
+      * the proposal's two shifts come back EQUAL -> its own verdict stands;
+      * otherwise the video is offered a SINGLE shift on both sides, held EXACTLY (no +/-2
+        search: the question is whether that shift is accepted, not which shift fits best) --
+        A's resolved shift first, B's second; with no anchors resolved at all, each zone's
+        audio offset with the +/-2 search, since nothing better is known. The first that seats
+        BOTH anchors under one shift REFUTES the step: logged with its step, position and the
+        video's verdict, and the hole takes that single-shift reading -- `no_cut_confirmed`
+        when nothing differs between the fronts, `resolved` (an equal-length replacement,
+        zero frames cut or filled) when a picture differs but the timeline does not.
+      * none does -> the proposal's reading stands (or its decline).
+    At or above the floor none of this runs: a step of two quanta or more is a measured edit.
+    """
+    quantum_ms = hole["quantum_ms"]
+    offset_before_ms = hole["offset_before_points"] * quantum_ms
+    offset_after_ms = hole["offset_after_points"] * quantum_ms
+    step_ms = hole["step_ms"]
+    low_ms, high_ms = hole["master_ms"]
+    # AN EMPTY MASTER SPAN IS A REAL SHAPE, NOT A DEGENERATE ONE: a pure insertion in the
+    # candidate leaves no master content between the zones. The resolver refuses a bracket of
+    # zero width (`empty_bracket`), so it is given ONE master frame -- the atomic resolution --
+    # and the anchors still seed outward from it.
+    frame_ms = domain["frame_ms"]
+    if high_ms - low_ms < float(frame_ms):
+        high_ms = low_ms + float(frame_ms)
+    result = _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
+                                 offset_before_ms, offset_after_ms, step_ms, quantum_ms,
+                                 probe="proposal")
+    below_floor = (hole["step_points"] is not None
+                   and abs(hole["step_points"]) < banded_seed_alignment.RESOLUTION_FLOOR_QUANTA)
+    proposal_single_shift = (not result["declined"]
+                             and result["before_shift_frames"] == result["after_shift_frames"])
+    if below_floor and not proposal_single_shift:
+        if result["declined"]:
+            hypotheses = [("no_cut_at_offset_before", offset_before_ms, True),
+                          ("no_cut_at_offset_after", offset_after_ms, True)]
+        else:
+            hypotheses = [
+                ("no_cut_at_anchor_a_shift",
+                 float(result["before_shift_frames"] * frame_ms), False),
+                ("no_cut_at_anchor_b_shift",
+                 float(result["after_shift_frames"] * frame_ms), False)]
+        for label, hypothesis, search in hypotheses:
+            probe = _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms,
+                                        high_ms, hypothesis, hypothesis, 0.0, quantum_ms,
+                                        probe=label, resolve_shift=search)
+            if probe["declined"] or probe["before_shift_frames"] != probe["after_shift_frames"]:
+                continue
+            verdict = _interior_verdict(probe)
+            refuted = {"audio_step_ms": round(step_ms, 3),
+                       "audio_step_points": hole["step_points"],
+                       "master_position_ms": [round(float(hole["master_ms"][0]), 2),
+                                              round(float(hole["master_ms"][1]), 2)],
+                       "master_position_frames": [
+                           _master_frame_of_ms(hole["master_ms"][0], domain),
+                           _master_frame_of_ms(hole["master_ms"][1], domain)],
+                       "proposal_reading": (result.get("reason") if result["declined"] else
+                                            f"shifts {result['before_shift_frames']}/"
+                                            f"{result['after_shift_frames']} anchors "
+                                            f"{result['anchor_a_frame']}/"
+                                            f"{result['anchor_b_frame']}"),
+                       "video_probe": label,
+                       "video_single_shift": probe["before_shift_frames"],
+                       "video_verdict": verdict}
+            return _interior_outcome(hole, domain, probe, verdict, refuted_proposal=refuted)
+    if result["declined"]:
+        return _declined(hole, result.get("reason"), result.get("evidence"),
+                         no_cut_probe_run=below_floor)
+    return _interior_outcome(hole, domain, result, _interior_verdict(result))
+
+
+def _resolve_edge(hole, domain, master_obj, candidate_obj):
+    """research_exact_frame, ONE ANCHOR (ruling + EDGE_SINGLE_ANCHOR): scene detection on the
+    common side of the hole, the nearest compatible anchor, then the bounded walk outward to the
+    LAST COMMON FRAME, terminating in exactly one of the three named ways. All of it
+    `scene_anchor.locate_edge_boundary`, geometry precondition included.
+
+    THE BRACKET IS THE HOLE'S MASTER SPAN, CLAMPED TO ONE FRAME ON THE TIMELINE. A tail hole
+    whose master span is empty (errid-70: the candidate carries 3.1 s the master does not) would
+    otherwise start at or past the master's last frame; a head hole with no master content
+    (errid-202's candidate starts on common content) would be zero wide. Either way the anchor
+    seeds from the common side and the walk runs outward to a FILE fact, so one frame of bracket
+    is all the resolver needs to know which side is common.
+    """
+    import scene_anchor
+    edge = hole["kind"]
+    quantum_ms = hole["quantum_ms"]
+    frame_ms = float(domain["frame_ms"])
+    timeline_ms = float(domain["master_timeline_ms"])
+    if edge == "head":
+        offset_ms = hole["offset_after_points"] * quantum_ms
+        low_ms, high_ms = 0.0, max(float(hole["master_ms"][1]), frame_ms)
+    else:
+        offset_ms = hole["offset_before_points"] * quantum_ms
+        low_ms = min(float(hole["master_ms"][0]), timeline_ms - frame_ms)
+        high_ms = timeline_ms
+    candidate_duration_ms = domain["candidate_equivalent_duration_ms"]
+    step_launch("edge_walk", candidate=candidate_obj.filePath, edge=edge,
+                bracket_ms=[round(low_ms, 2), round(high_ms, 2)],
+                offset_ms=round(offset_ms, 3), master_timeline_ms=timeline_ms,
+                candidate_equivalent_duration_ms=(None if candidate_duration_ms is None
+                                                  else float(candidate_duration_ms)))
+    try:
+        result = scene_anchor.locate_edge_boundary(
+            master_obj.filePath, candidate_obj.filePath,
+            domain["master_rate"].numerator, domain["master_rate"].denominator,
+            low_ms, high_ms, float(offset_ms), edge, timeline_ms,
+            None if candidate_duration_ms is None else float(candidate_duration_ms),
+            quantum_ms=float(quantum_ms), candidate_time_scale=domain["time_scale"],
+            shift_search_frames=_shift_search_frames(domain, quantum_ms))
+    except Exception as error:                                           # noqa: BLE001
+        result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
+                  "evidence": str(error)[:300]}
+    step_result("edge_walk", candidate=candidate_obj.filePath, edge=edge,
+                declined=result["declined"], reason=result.get("reason"),
+                termination=result.get("termination"), anchor=result.get("anchor_frame"),
+                shift=result.get("shift_frames"), nominal_shift=result.get("nominal_shift_frames"),
+                boundary=result.get("boundary_frame"), walked=result.get("walked_frames"),
+                mismatch_run=result.get("mismatch_run"),
+                max_mismatch_run=result.get("max_mismatch_run"),
+                addition_frames=result.get("addition_frames"),
+                evidence=result.get("evidence"))
+    if result["declined"]:
+        return _declined(hole, result.get("reason"), result.get("evidence"))
+
+    boundary = result["boundary_frame"]
+    shift = result["shift_frames"]
+    termination = result["termination"]
+    master_last = result["master_last_frame"]
+    if edge == "head":
+        # [0, boundary) on the master is not common; the candidate's non-common head is
+        # [0, boundary + shift) in equivalent frames.
+        master_start, master_end = 0, boundary
+        candidate_start_eq, candidate_end_eq = 0, boundary + shift
+        master_non_common = boundary
+        candidate_non_common = boundary + shift
+    else:
+        # (boundary, last] on the master is not common. The candidate's end is a FILE fact only
+        # the walk's own termination can state: it is known exactly on `candidate_exhausted`
+        # (the candidate stopped at the very step the master continued), and on the other two it
+        # is "to the candidate's end" -- stage 5 reads that end, it is never guessed here.
+        master_start, master_end = boundary + 1, master_last + 1
+        candidate_start_eq = boundary + 1 + shift
+        candidate_end_eq = (boundary + 1 + shift
+                            if termination == EDGE_CANDIDATE_EXHAUSTED else None)
+        master_non_common = master_last - boundary
+        candidate_non_common = (0 if termination == EDGE_CANDIDATE_EXHAUSTED else None)
+
+    # MASTER CONTENT PLACED ON THE OUTPUT WHERE THE CANDIDATE HAS NONE THAT IS COMMON: an
+    # addition (termination 3) or a replacement (termination 1). A trim (termination 2) adds
+    # nothing. Counted in frames on the exact grid -- the addendum's "no probe, no estimate".
+    added_frames = 0 if termination == EDGE_MASTER_EXHAUSTED else max(0, master_non_common)
+    added_seconds = float(Fraction(added_frames) / domain["master_rate"])
+
+    status = termination
+    # AN EDGE HOLE THAT CLOSES: the walk reached the file edge on BOTH files at the same step --
+    # nothing to trim, nothing to add. The audio saw an edge the video says is not there
+    # (typically a silent or music-only intro the fingerprint could not anchor).
+    if master_non_common == 0 and candidate_non_common == 0:
+        status = HOLE_NO_CUT_CONFIRMED
+    return {
+        "modality": MODALITY, "status": status, "kind": edge, "why_token": hole["why_token"],
+        "cause": None, "termination": termination, "net_kind": result["net_kind"],
+        "grid": f"{result['grid']['num']}/{result['grid']['den']}",
+        "anchor_frame": result["anchor_frame"], "anchor_side": result["anchor_side"],
+        "anchor_n_frames": result["anchor_n_frames"],
+        "shift_frames": shift, "nominal_shift_frames": result["nominal_shift_frames"],
+        "boundary_frame": boundary, "walked_frames": result["walked_frames"],
+        "mismatch_run": result["mismatch_run"],
+        "max_mismatch_run": result["max_mismatch_run"],
+        "addition_frames": result["addition_frames"], "addition_ms": result["addition_ms"],
+        "master_last_frame": master_last,
+        "master_start_frame": master_start, "master_end_frame": master_end,
+        "candidate_start_frame_equivalent": candidate_start_eq,
+        "candidate_end_frame_equivalent": candidate_end_eq,
+        "candidate_start_frame": _candidate_native_frame(candidate_start_eq, domain),
+        "candidate_end_frame": _candidate_native_frame(candidate_end_eq, domain),
+        "edge_addition_frames": added_frames,
+        "edge_addition_seconds": added_seconds,
+        "master_start_ms": _exact_ms_of_frame(master_start, domain),
+        "master_end_ms": _exact_ms_of_frame(master_end, domain),
+        "boundary_ms": _exact_ms_of_frame(boundary, domain),
+        "video_shift_ms_frame_quantised": _exact_ms_of_frame(shift, domain),
+        **_audio_offsets(hole),
+        "geometry": (result.get("geometry") or {}).get("verdict"),
+        "evidence": result.get("evidence"),
+    }
+
+
+def resolve_hole(hole, master_obj, candidate_obj, work_dir):
+    """research_exact_frame for ONE hole -- the ruling's two functions, wired to the resolvers
+    that already exist. Returns an outcome dict whose `status` is one of the closed vocabulary
+    above (`HOLE_STATUSES_WITH_FRAMES`, or `declined` with a named `resolver_reason`).
+
+      interior  -> `_resolve_interior`: `scene_anchor.locate_scene_anchors`, two anchors, with
+                   the geometry precondition, per-anchor shift resolution and the pair's rate
+                   relation switched on (all three opt-in keywords of that function; the live
+                   chain passes none of them).
+      head/tail -> `_resolve_edge`: `scene_anchor.locate_edge_boundary`, one anchor, the bounded
+                   walk and its three named terminations.
+
+    THE HOLE MUST CARRY ITS FRAME DOMAIN (`hole["frame_domain"]`, from `frame_domain`) and the
+    couple's quantum (`hole["quantum_ms"]`): the hole's bounds are fingerprint points, and the
+    ONLY conversion to milliseconds is points x that quantum -- the aligner's own
+    `offset_ms = offset_points * quantum_ms` -- then milliseconds to frames on the exact rational
+    grid. `work_dir` is unused today: the resolvers decode through pipes and write nothing; it
+    stays in the signature because stage 7's parallel pool will need a per-hole scratch path.
+
+    A resolver that cannot establish a boundary returns a NAMED refusal. Returning a plausible
+    boundary it did not measure would be the one failure this whole campaign exists to prevent.
+    """
+    domain = hole.get("frame_domain")
+    if domain is None:
+        return _declined(hole, "frame_domain_absent")
+    if hole["kind"] == "interior":
+        outcome = _resolve_interior(hole, domain, master_obj, candidate_obj)
+    elif hole["kind"] in ("head", "tail"):
+        outcome = _resolve_edge(hole, domain, master_obj, candidate_obj)
+    else:
+        outcome = _declined(hole, f"no_resolver_for_kind:{hole['kind']}")
+    # THE AUDIO'S BRACKET, IN FRAMES, BESIDE THE VIDEO'S ANSWER -- so a reader can see where the
+    # audio proposed and where the video disposed without redoing the conversion.
+    outcome["audio_master_frames"] = [_master_frame_of_ms(hole["master_ms"][0], domain),
+                                      _master_frame_of_ms(hole["master_ms"][1], domain)]
+    outcome["audio_candidate_frames"] = [
+        _candidate_native_frame_of_ms(hole["candidate_ms"][0], domain),
+        _candidate_native_frame_of_ms(hole["candidate_ms"][1], domain)]
+    outcome["audio_step_ms"] = (None if hole["step_ms"] is None else round(hole["step_ms"], 3))
+    return outcome
 
 
 def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj):
-    """STUB -- design stage 5. Returns `(False, cause, reason)`.
+    """STUB -- design stage 5. Returns `(False, "plan_application_not_implemented", reason)` on
+    EVERY pair, rate pairs included.
 
-    THE RESTORATION GATE IS REAL AND LANDS HERE, NOT IN A LATER STAGE, because this is the
-    DELIVERY decision and the owner's ADDENDUM 7 is about delivery: no speed-corrected audio
-    ships in any product until the owner has validated examples. On a rate-family pair the
-    repair delivers what the alignment permits WITHOUT restored audio -- retimed subtitles,
-    untransformed candidate tracks where they align, intact master tracks (the errid-195 pattern,
-    audio alignment as the vehicle for measuring the subtitle recalage). If nothing is
-    deliverable on those terms, the decline is `restoration_deferred`, and that is an OWNER
-    CHOICE cited in the prose, NOT a measurement failure -- which is why its measurement class is
-    `owner_choice` and not `ran_conclusive_negative`.
+    THERE IS NO LONGER A RESTORATION GATE HERE. It used to decline `restoration_deferred` on any
+    `speed_factor != 1` (ADDENDUM 7); ADDENDUM 8 lifted that deferral -- "Le declin
+    `restoration_deferred` disparait de `apply_plan` et de la porte de livraison" -- so a rate
+    pair reaches the same honest decline as any other until assembly exists.
 
-    At `speed_factor` of 1 or None nothing was ever speed-corrected, so the gate does not apply
-    and the honest decline is simply that assembly is not built yet.
+    WHAT STAGE 5 RECEIVES (the contract stage 4 hands over). `holes` is the list of holes that
+    REMAIN after resolution -- every `no_cut_confirmed` hole has already been removed, because a
+    closed hole is continuity, not work (ADDENDUM 3); an empty list with a pair that reached here
+    is the simple-offset merge. Each hole dict carries its audio decomposition (`kind`,
+    `why_token`, points, `master_ms`/`candidate_ms`, `offset_before_points`/`offset_after_points`,
+    `step_ms`) and a `resolution` dict from `resolve_hole` with, in MASTER frame numbers on the
+    exact grid (`resolution["grid"]`, "num/den"):
+      interior   `status` resolved | boundary_pinned_to_right_anchor (cause
+                 static_span_ambiguity); `master_start_frame`/`master_end_frame` = the master
+                 interval to FILL from the master (empty on an addition or a same-length
+                 replacement); `candidate_start_frame(_equivalent)`/`candidate_end_frame(...)` =
+                 the candidate interval to CUT (empty on a deletion); `before_shift_frames` /
+                 `after_shift_frames` = the frame shift (candidate = master + shift, in
+                 master-equivalent frames) to read the candidate at on each side;
+                 `frames_to_cut` / `frames_to_fill`.
+      head/tail  `status` = the EDGE ruling's termination -- sustained_mismatch (replace the
+                 master interval from the master), master_exhausted (trim the candidate's excess:
+                 at the head [0, candidate_end), at the tail from candidate_start to the
+                 candidate's end, which the walk does not read), candidate_exhausted (master
+                 addition, `edge_addition_frames` COUNTED); `shift_frames`; `boundary_frame`.
+    ADDENDUM 9, BOTH HALVES, AS THIS CONTRACT STATES THEM:
+      1. `master_start_frame`/`master_end_frame` (+ their exact `master_start_ms`/`master_end_ms`)
+         ARE THE FILL BOUNDS -- fill exactly that, never wider; every real candidate frame
+         outside them is kept.
+      2. The frame shifts (`*_shift_frames`, `video_shift_ms_frame_quantised`) place CUTS only.
+         The AUDIO offset to apply is never one of them: it is `audio_offset_before_ms` /
+         `audio_offset_after_ms`, unrounded -- but those are fingerprint-point measurements,
+         precise to `audio_offset_precision_ms` (one quantum, ~124 ms), which is COARSER than a
+         frame. Stage 5 must refine each zone's offset to sub-frame milliseconds (the
+         pipeline's existing correlation measurement, on a window inside the zone) before it
+         applies it; applying either the frame shift or the raw point offset would reproduce the
+         audible jump ADDENDUM 9 point 2 was written against.
+    `candidate_*_frame` is the candidate FILE's own frame number; `*_equivalent` is the same
+    frame on the master grid through the rate relation (identical at speed factor 1). On a rate
+    pair the delivered track carries `resampled:<exact factor>` (ADDENDUM 8 point 1) and its
+    subtitles are stretched by the factor before the offsets/splices (point 3).
     """
-    if speed_factor is not None and speed_factor != 1:
-        return False, "restoration_deferred", (
-            "the pair is a rate-family pair and speed correction is a MEASUREMENT tool only: "
-            "the owner has suspended the restoration filter question until he validates "
-            "examples himself (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 7), so no "
-            "speed-corrected audio may be delivered. What the alignment permits without "
-            "restored audio -- retimed subtitles, untransformed candidate tracks, intact master "
-            "tracks -- is not assembled yet (design stage 5), so nothing ships for this pair. "
-            "This is the owner's deferral, not a measurement failure")
     return False, "plan_application_not_implemented", (
-        "the alignment and the hole decomposition completed, but plan application "
-        "(normalize_segments on pre-resolved boundaries, assemble, retime, mux, verify) is "
-        "design stage 5 and is not built yet -- no file was produced and none is claimed")
+        f"the alignment, the hole decomposition and the frame-exact resolution completed "
+        f"({len(holes)} hole(s) left to apply after closures, speed factor {speed_factor}), but "
+        f"plan application (normalize_segments on pre-resolved boundaries, assemble, retime, "
+        f"mux, verify) is design stage 5 and is not built yet -- no file was produced and none "
+        f"is claimed")
 
 
 # ---------------------------------------------------------------------------
@@ -2085,8 +2793,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
             return False, cause, (
                 f"the pair carries a confirmed rate relation ({factor}) but the comparison "
                 f"resample that would let the aligner measure across it could not be built "
-                f"({cause}) -- speed correction here is a MEASUREMENT tool only (ADDENDUM 7), "
-                f"and no measurement was made"), None
+                f"({cause}) -- without it the aligner cannot measure across the rate "
+                f"relation, and no measurement was made"), None
         step_result("comparison_resample", candidate=candidate_path, ok=True,
                     side=resample_routing["side"],
                     filter=resample_routing["filter_name"],
@@ -2322,7 +3030,44 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
         step_result("holes", candidate=candidate_path, couple=driving["couple"],
                     n_holes=0, verdict="audios_fully_compatible_offset_only")
 
-    resolved = []
+    # THE FRAME DOMAIN, ONCE PER PAIR: exact rational grids for both files, the master's
+    # timeline, and the rate relation the candidate's alignment milliseconds are expressed in.
+    # A pair whose grid cannot be read exactly cannot have a single hole resolved, so it is
+    # refused here, by name, before any video is decoded.
+    domain = None
+    if holes:
+        step_launch("frame_domain", candidate=candidate_path)
+        domain, domain_reason = frame_domain(master_obj, candidate_obj, factor)
+        step_result("frame_domain", candidate=candidate_path, reason=domain_reason,
+                    **({} if domain is None else {
+                        "master_rate": f"{domain['master_rate'].numerator}/"
+                                       f"{domain['master_rate'].denominator}",
+                        "master_rate_source": domain["master_rate_source"],
+                        "candidate_rate": f"{domain['candidate_rate'].numerator}/"
+                                          f"{domain['candidate_rate'].denominator}",
+                        "candidate_rate_source": domain["candidate_rate_source"],
+                        "time_scale": (None if domain["time_scale"] is None
+                                       else f"{domain['time_scale'].numerator}/"
+                                            f"{domain['time_scale'].denominator}"),
+                        "audio_effective_ratio": (None if resample_routing is None
+                                                  else resample_routing["effective_ratio_str"]),
+                        "video_rate_ratio": f"{domain['video_rate_ratio'].numerator}/"
+                                            f"{domain['video_rate_ratio'].denominator}",
+                        "video_ratio_matches_speed_factor":
+                            domain["video_ratio_matches_speed_factor"],
+                        "master_timeline_ms": float(domain["master_timeline_ms"]),
+                        "candidate_equivalent_duration_ms": (
+                            None if domain["candidate_equivalent_duration_ms"] is None
+                            else float(domain["candidate_equivalent_duration_ms"]))}))
+        if domain is None:
+            return False, "hole_resolution_declined", (
+                f"the pair decomposed into {len(holes)} hole(s) but its frame domain could not "
+                f"be measured ({domain_reason}) -- a boundary that is not a frame on an exact "
+                f"grid is not a boundary, so none was sought"), None
+
+    # SEQUENTIAL, ONE HOLE AFTER THE OTHER, EVERY HOLE RESOLVED EVEN AFTER ONE DECLINES -- so the
+    # log holds the whole pair's reading, not the first refusal's. Stage 7 parallelises this.
+    outcomes = []
     for index, hole in enumerate(holes):
         step_launch("resolve_hole", candidate=candidate_path, hole=index, kind=hole["kind"],
                     why=hole["why_token"], master_span_s=round(hole["master_span_seconds"], 3),
@@ -2330,27 +3075,98 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
                     step_ms=(round(hole["step_ms"], 1) if hole["step_ms"] is not None
                               else None),
                     merged_from=hole["merged_from"])
-        outcome = resolve_hole(hole, master_obj, candidate_obj, work_dir)
-        step_result("resolve_hole", candidate=candidate_path, hole=index,
-                    status=outcome["status"], cause=outcome.get("cause"))
-        if outcome["status"] == HOLE_NOT_IMPLEMENTED:
-            return False, outcome["cause"], (
-                f"the pair decomposed cleanly into {len(holes)} hole(s) "
-                f"({[h['kind'] for h in holes]}) and the couples agree, but frame-exact hole "
-                f"resolution is design stage 4 and is not built yet -- no boundary was measured "
-                f"and none is claimed"), None
-        # ADDENDUM 3: a closed hole restores zone continuity and is NOT a failure. Unreachable
-        # from the stub above, and implemented anyway because the orchestration of it is this
-        # module's job, not the resolver's, and building it with the resolver would mean
-        # building it under time pressure with a real pair waiting.
-        if outcome["status"] != HOLE_NO_CUT_CONFIRMED:
-            resolved.append((hole, outcome))
-    if holes and not resolved:
+        started = time.time()
+        outcome = resolve_hole(dict(hole, frame_domain=domain,
+                                    quantum_ms=driving["alignment"]["quantum_ms"]),
+                               master_obj, candidate_obj, work_dir)
+        # A STATUS FROM OUTSIDE THE CLOSED VOCABULARY IS A RESOLVER BUG, AND IT IS NOT ALLOWED TO
+        # PASS AS A RESOLUTION: it becomes a named decline, loudly, rather than a hole the plan
+        # would read frames off.
+        if outcome["status"] not in HOLE_STATUSES_WITH_FRAMES + (HOLE_DECLINED,):
+            tools.log_always(f"repair: orchestrator UNVOCABULARISED hole status="
+                             f"{outcome['status']} hole={index} for {candidate_path} -- "
+                             f"treated as declined\n")
+            outcome = dict(outcome, status=HOLE_DECLINED, cause="hole_resolution_declined",
+                           resolver_reason=f"unvocabularised_status:{outcome['status']}")
+        step_result("resolve_hole", candidate=candidate_path, hole=index, kind=hole["kind"],
+                    status=outcome["status"], cause=outcome.get("cause"),
+                    resolver_reason=outcome.get("resolver_reason"),
+                    termination=outcome.get("termination"),
+                    master_frames=[outcome.get("master_start_frame"),
+                                   outcome.get("master_end_frame")],
+                    master_ms=[outcome.get("master_start_ms"), outcome.get("master_end_ms")],
+                    audio_offsets_ms=[outcome.get("audio_offset_before_ms"),
+                                      outcome.get("audio_offset_after_ms")],
+                    candidate_frames=[outcome.get("candidate_start_frame"),
+                                      outcome.get("candidate_end_frame")],
+                    candidate_frames_equivalent=[
+                        outcome.get("candidate_start_frame_equivalent"),
+                        outcome.get("candidate_end_frame_equivalent")],
+                    audio_master_frames=outcome.get("audio_master_frames"),
+                    audio_candidate_frames=outcome.get("audio_candidate_frames"),
+                    audio_step_ms=outcome.get("audio_step_ms"),
+                    anchors=[outcome.get("anchor_a_frame", outcome.get("anchor_frame")),
+                             outcome.get("anchor_b_frame")],
+                    shifts=[outcome.get("before_shift_frames", outcome.get("shift_frames")),
+                            outcome.get("after_shift_frames")],
+                    walks=[outcome.get("forward_walk_frames", outcome.get("walked_frames")),
+                           outcome.get("backward_walk_frames")],
+                    span_frames=outcome.get("span_frames"),
+                    net_kind=outcome.get("net_kind"),
+                    edge_addition_frames=outcome.get("edge_addition_frames"),
+                    seconds=round(time.time() - started, 2))
+        # ADDENDUM 3, POINT 3: "un candidat audio sous le plancher que la video refute est logge
+        # (candidat, position, verdict video) puis ferme".
+        if outcome.get("refuted_proposal"):
+            step_result("refuted_proposal", candidate=candidate_path, hole=index,
+                        **outcome["refuted_proposal"])
+        # ADDENDUM 4, POINT 3: "jamais un placement silencieux" -- both walks and the span.
+        if outcome["status"] == HOLE_PINNED_TO_RIGHT_ANCHOR:
+            step_result("boundary_pinned_to_right_anchor", candidate=candidate_path,
+                        hole=index, cause="static_span_ambiguity",
+                        forward_walk_frames=outcome["forward_walk_frames"],
+                        backward_walk_frames=outcome["backward_walk_frames"],
+                        span_frames=outcome["span_frames"],
+                        ambiguous_frames=outcome["ambiguous_frames"],
+                        pin_frame=outcome["pin_frame"],
+                        anchor_b_frame=outcome["anchor_b_frame"],
+                        fill_master_frames=[outcome["master_start_frame"],
+                                            outcome["master_end_frame"]])
+        outcomes.append((hole, outcome))
+
+    declined = [(index, hole, outcome) for index, (hole, outcome) in enumerate(outcomes)
+                if outcome["status"] == HOLE_DECLINED]
+    if declined:
+        return False, "hole_resolution_declined", (
+            f"{len(declined)} of {len(holes)} hole(s) could not be pinned to a frame: "
+            + "; ".join(f"hole {index} ({hole['kind']}) {outcome.get('resolver_reason')}"
+                        for index, hole, outcome in declined)
+            + " -- no boundary was invented for them, and a plan with an unresolved hole is "
+              "not a plan"), None
+
+    # ADDENDUM 3: a closed hole restores zone continuity and is NOT a failure -- it simply
+    # leaves the plan. What remains is the work actually to be done, and ADDENDUM 5's marker is
+    # decided on THAT, with the edges' COUNTED additions in place of the audio's estimate.
+    effective = []
+    for hole, outcome in outcomes:
+        if outcome["status"] == HOLE_NO_CUT_CONFIRMED:
+            continue
+        entry = dict(hole, resolution=outcome)
+        if hole["kind"] in ("head", "tail"):
+            entry["resolved_edge_addition_seconds"] = outcome["edge_addition_seconds"]
+        effective.append(entry)
+    tagged, tag_reason = chimeric_tag_required(effective)
+    step_result("plan_shape_resolved", candidate=candidate_path,
+                n_holes=len(holes), n_closed=len(holes) - len(effective),
+                statuses=[outcome["status"] for _hole, outcome in outcomes],
+                edge_addition_s=round(edge_addition_seconds(effective), 3),
+                chimeric_tag=tagged, chimeric_tag_reason=tag_reason.replace(" ", "_"))
+    if holes and not effective:
         step_result("holes", candidate=candidate_path, couple=driving["couple"],
                     verdict="all_holes_no_cut_confirmed",
                     rule="ADDENDUM_3_video_disposes_pair_merges_without_splice")
 
-    ok, cause, reason = apply_plan(candidate_path, holes, factor, master_obj, candidate_obj)
+    ok, cause, reason = apply_plan(candidate_path, effective, factor, master_obj, candidate_obj)
     return ok, cause, reason, None
 
 

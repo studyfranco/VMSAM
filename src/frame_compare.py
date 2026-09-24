@@ -32,7 +32,7 @@ class FrameComparer:
     def __init__(self, ref_path, tgt_path, start_sec, end_sec,
                  fps_num, fps_den,
                  band_width_sec=2.0, max_search_sec=5.0, debug=False,
-                 scene_threshold=0.30, crop_filters=None):
+                 scene_threshold=0.30, crop_filters=None, time_scales=None):
         self.ref_path = ref_path
         self.tgt_path = tgt_path
         self.start_sec = float(start_sec)
@@ -87,6 +87,34 @@ class FrameComparer:
         # duplicating that command in another module to add four characters
         # is how the two copies drift apart.
         self.crop_filters = dict(crop_filters) if crop_filters else {}
+        # A RATE RELATION, PER PATH, OPTIONAL AND ADDITIVE (orchestrator stage
+        # 4, 2026-09-24). `{path: Fraction r}` says: this file's content plays
+        # `r` times FASTER than the reference's, so its RAW time `t` shows what
+        # the reference shows at `t * r` -- the relation the audio speed sweep
+        # measured (PAL 1001/960, NTSC 1001/1000). Every second this class is
+        # handed for such a path is then read as REFERENCE-EQUIVALENT time:
+        # the seek and the duration are divided by `r` before ffmpeg sees
+        # them, and `_on_comparer_grid` re-indexes the decoded frames through
+        # `native_rate / (grid_rate * r)` instead of `native_rate / grid_rate`.
+        # WHY: without it a speed-changed candidate is placed on the grid by
+        # WALL time, and its content drifts `r - 1` frames per frame -- MEASURED
+        # arithmetic on errid-70 (25 fps against 24000/1001, r = 1001/960):
+        # 0.427 s, ten frames, across one +/-10 s anchor window, which no
+        # constant shift can absorb. On an exact speed-up pair the corrected
+        # ratio is EXACTLY 1 (25 == 24000/1001 * 1001/960), so the candidate's
+        # frame k simply faces the reference's frame k -- which is what a
+        # speed-up physically is. `None` (the default, and every existing
+        # caller) keeps the class bit-identical to before.
+        self.time_scales = {}
+        for scaled_path, scale in (time_scales or {}).items():
+            if scale is None:
+                continue
+            scale = Fraction(scale)
+            if scale <= 0:
+                raise ValueError(f"FrameComparer time scale must be positive, "
+                                 f"got {scale} for {scaled_path}")
+            if scale != 1:
+                self.time_scales[scaled_path] = scale
 
     @staticmethod
     def _popcount64(x: int) -> int:
@@ -123,6 +151,12 @@ class FrameComparer:
         # celle d'avant, au caractère près.
         crop = self.crop_filters.get(path)
         vf = f"scale={w}:{h},format=gray" if not crop else f"{crop},scale={w}:{h},format=gray"
+        # REFERENCE-EQUIVALENT SECONDS -> THIS FILE'S RAW SECONDS (see
+        # `time_scales` in `__init__`). Absent for every path by default.
+        scale = self.time_scales.get(path)
+        if scale is not None:
+            start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
+            dur_sec = float(Fraction(dur_sec).limit_denominator(10**9) / scale)
         cmd = [
             ffmpeg, "-v", "error", "-nostdin",
             "-ss", f"{start_sec}",
@@ -613,6 +647,13 @@ def _on_comparer_grid(comparer, path, values):
     if native_rate is None:
         return None, reason
     grid_rate = comparer.fps_frac
+    # A SPEED-CHANGED PATH IS RE-INDEXED ON ITS CORRECTED GRID: one reference
+    # grid frame of equivalent time is `1 / (grid_rate * r)` of this file's raw
+    # time. `getattr` so a comparer built before `time_scales` existed (a
+    # pickled or duck-typed one) keeps the old arithmetic exactly.
+    scale = getattr(comparer, "time_scales", {}).get(path)
+    if scale is not None:
+        grid_rate = grid_rate * scale
     if native_rate == grid_rate:
         return values, None
     # Exact rationals throughout, rounded ONCE per output element, through
