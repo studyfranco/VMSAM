@@ -2,9 +2,14 @@
 Reparation d'un fichier REFUSE, au moment du refus.
 
 Appele depuis la zone A (`mergeVideo.remove_not_compatible_video`,
-`SPEC_ZONE_A.MD` s1). Ce module est l'orchestrateur: il decide s'il y a quelque
-chose a tenter, va chercher la mesure, fait construire le fichier par le module
-d'assemblage, puis raccroche l'objet reparé au merge.
+`SPEC_ZONE_A.MD` s1). Ce module est l'ENTREE de la reparation: il ecarte ce que
+l'orchestrateur ne peut pas voir (pas d'objet, pas de langue), passe chaque
+candidat a `repair_orchestrator.repair()` -- LA chaine depuis la bascule du
+2026-09-24 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 8) -- puis
+raccroche l'objet repare au merge. Il porte aussi les briques que
+l'orchestrateur et l'application du plan reutilisent: `record`,
+`master_intertrack_verdict`, `run_speed_sweep`, `build_repaired_video_object`,
+`gate_fabricated_delivery`, et la retraite des pools ffmpeg (CASE id 6).
 
 TROIS EXIGENCES VERIFIEES CONTRE LE CODE (SPEC_ZONE_A.MD s1), toutes tenues ici:
 
@@ -38,8 +43,8 @@ laquelle tout le reste repose -- donc une capacite qui attend qu'un humain
 l'active ne tournera jamais. Il y avait une cinquieme issue, `disabled`; elle
 existait parce que le drapeau existait.
 
-LA PORTE EST LA MESURE. `change_point_locator` rend `None` quand il ne peut rien
-etablir, et on decline. L'erreur 237 a ete refusee sur une fidelite mediane de
+LA PORTE EST LA MESURE. L'orchestrateur rend False quand il ne peut rien
+etablir, avec un jeton et sa classe de mesure, et on decline. L'erreur 237 a ete refusee sur une fidelite mediane de
 0.576 avec 18 changements de signe, pas sur un reglage: c'est une procedure de
 decision, pas un renvoi vers quelqu'un qui n'est pas la.
 '''
@@ -47,7 +52,7 @@ decision, pas un renvoi vers quelqu'un qui n'est pas la.
 from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
-from os import environ, path
+from os import path
 import hashlib
 import json
 import sys
@@ -64,39 +69,6 @@ import video
 verify_tolerance_ms = 100
 
 last_repair_report = []
-
-# LES TROIS CAUSES QUI DECLENCHENT LE PRODUCTEUR DE STEP 2 (Lead
-# authorization, 2026-09-21, sur une mesure de population:
-# `dev-step1-classify` a mesure 0/20 des identifiants PAL reels confirmes de
-# la campagne atteignant `speed_relation_suspected` -- 12/20 declinent en
-# `median_fidelity_below_floor`, 7/20 en `offsets_scattered`, la derive de
-# 4.27% de PAL etant assez grande pour transformer la correlation en bruit
-# A L'INTERIEUR D'UNE SEULE FENETRE non corrigee, et le bruit n'est pas
-# monotone). `confirm_speed_relation_via_resample` ne depend PAS du test de
-# monotonicite de la Stage 1: il redérive son propre ratio depuis la DUREE
-# seule et reechantillonne LA PISTE ENTIERE avant de sonder -- la derive
-# intra-fenetre qui defait la Stage 1 est deja corrigee au moment ou ce
-# module mesure. D'ou: essayer ce producteur sur ces trois causes n'est pas
-# deux sieges qui rafistolent le meme symptome; si la Stage 1 repare un jour
-# son test de monotonicite, `speed_relation_suspected` devient simplement une
-# troisieme entree a cote des deux autres, additive et non conflictuelle.
-# ON N'OUVRE QUE LA PORTE QU'ON A MESUREE. Le bras de faux positifs du siege
-# a tourne sur TROIS residents reels de `median_fidelity_below_floor` (meme
-# frequence d'image des deux cotes, donc aucune relation de vitesse possible;
-# le confirmateur a essaye LES DEUX hypotheses et decline proprement au seuil
-# lui-meme, fidelites 0.5631-0.6107, jamais un delai ni un plantage a une
-# etape ulterieure): ZERO faux positif, n=3, 2026-09-21.
-# `offsets_scattered` N'EST PAS DANS CET ENSEMBLE, et son absence est une
-# mesure et non un oubli: sur ~20 paires reelles depouillees, AUCUN resident
-# reel de ce seau-la n'est apparu -- les paires same-fps de l'arbre d'erreurs
-# sont surtout de vraies coupes, pas des declins de basse fidelite. Un bras
-# mesure sur un seau n'autorise pas l'autre (INSTRUMENT SCOPE LAW appliquee a
-# une PORTE): la population franchissant `offsets_scattered` n'a jamais ete
-# observee, donc le taux de faux positifs qu'elle produirait est inconnu.
-# 7 des 20 PAL confirmes de la campagne declinent par ce jeton, donc la porte
-# VAUT d'etre ouverte -- quand elle aura son propre nombre.
-SPEED_CONFIRMER_ENTRY_CAUSES = frozenset(
-    {"speed_relation_suspected", "median_fidelity_below_floor"})
 
 
 def parse_segments(raw_segments):
@@ -392,166 +364,13 @@ def get_delay_language(best_video, candidate_obj):
 
 def _candidate_sample_rate_for_speed_test(candidate_obj):
     '''Meme lecture que `get_marker_value_for` (ce fichier): ffprobe d'abord,
-    MediaInfo en repli. Duplique volontairement plutot qu'appelle
-    `pal_speed_verdict._candidate_sample_rate` -- fonction privee d'un autre
-    module, et la meme logique existe deja, publique en pratique, ICI.'''
+    MediaInfo en repli.'''
     for language, audios in candidate_obj.audios.items():
         for audio in audios:
             rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
             if rate != None:
                 return int(float(rate))
     return None
-
-
-def describe_resample_decline(candidate_ratio, gate):
-    '''VERDICT_WITHOUT_MEASUREMENT (RULINGS_IN_FORCE.md, 2026-09-21): the
-    resample gate's decline must carry the numbers it concluded from, in the
-    SAME line a reader actually sees -- not only in a `tools.logs` line gated
-    `if tools.dev`, which is dead on the production instance (`dev: false`).
-
-    `gate` is `merge_video_resample.test_speed_ratio_against_master`'s return
-    dict. ITS OWN TOP-LEVEL `median_fidelity`/`margin`/`ratio` ARE `None` ON
-    EVERY DECLINE, BY THAT FUNCTION'S OWN DESIGN (they carry the WINNING
-    hypothesis only, and a decline has no winner) -- reading them here would
-    reproduce exactly the blank-reads-as-no-measurement defect this function
-    exists to avoid. The real numbers, when they exist, live PER HYPOTHESIS in
-    `gate["hypotheses"]["direct"/"reciprocal"]["median"]`.
-
-    Measured 2026-09-22 against real wave declines (Lead's ids
-    e8f7bc8a55924482, 79b17a3f34c007df): `merge_video_resample.
-    test_speed_ratio_against_master` now distinguishes a per-hypothesis
-    `"unmeasurable"` verdict (filter could not be built, or the whole-track
-    resample itself failed -- the instrument never ran) from a genuine
-    measured `"below"` verdict (a real median was computed and it did not
-    clear the floor). This function reads THAT distinction rather than the
-    outer `cause` token alone, because `cause="resample_fidelity_below_floor"`
-    only guarantees at least one hypothesis has a real median -- it does not
-    say the OTHER one does, and picking the best available is what SPEC_ZONE_A
-    s4f's own "report by how much it won" asks for on the CONFIRM side; on
-    DECLINE the closest miss is the equivalent quantity.
-    '''
-    import merge_video_resample
-    hypotheses = gate.get("hypotheses") or {}
-    best_name, best_median = None, None
-    for name, result in hypotheses.items():
-        median = result.get("median")
-        if median is None:
-            continue
-        if best_median is None or median > best_median:
-            best_name, best_median = name, median
-    if best_median is None:
-        # NEITHER HYPOTHESIS PRODUCED A MEDIAN -- the instrument did not run
-        # (filter build / whole-track resample failed on both sides), or ran
-        # and stayed inconclusive at the hard ceiling with nothing usable.
-        # BRIEF_COMMON rule 5: this is a DIFFERENT answer from a measured
-        # negative, and it is said as one.
-        return (f"resample fidelity gate ran but produced no usable median "
-                f"for either hypothesis (candidate duration ratio={candidate_ratio}): "
-                f"{gate.get('cause')}")
-    gap = merge_video_resample.RESAMPLE_FIDELITY_FLOOR - best_median
-    return (f"resample fidelity gate declined: ratio={candidate_ratio} "
-            f"(tested as {best_name}) median_fidelity={best_median} "
-            f"floor={merge_video_resample.RESAMPLE_FIDELITY_FLOOR} "
-            f"gap={gap:.4f} cause={gate.get('cause')}")
-
-
-NO_RATE_RELATION_CAUSE = "no_rate_relation"
-# THE LEFT HALF of the combined verdict token the no_band route produces when
-# the RATE leg found nothing to test: `cause=no_rate_relation+<splice_cause>`
-# (RULING_20260922_NO_BAND_ROUTING.MD point 5). It is never emitted alone --
-# a token with no splice cause beside it would be a one-leg terminal, which is
-# exactly what that ruling made illegal.
-
-
-def _no_band_terminal(rate_cause, rate_prose, splice_cause, splice_prose):
-    '''BOTH LEGS HAVE DECLINED -- the only shape in which the no_band route is
-    allowed to end (RULING_20260922_NO_BAND_ROUTING.MD point 5, applying
-    VERDICT_WITHOUT_MEASUREMENT).
-
-    The token carries BOTH named causes, joined by `+`, so a census can split
-    it and see which leg decided what; the prose carries both legs' deciding
-    INSTRUMENTS and their numbers, because a cause without the measurement it
-    came from is the defect `describe_resample_decline` above exists to
-    refuse.
-    '''
-    return None, f"{rate_cause}+{splice_cause}", (
-        f"no_band route declined on both legs. "
-        f"RATE leg [{rate_cause}]: {rate_prose} "
-        f"SPLICE leg [{splice_cause}]: {splice_prose}")
-
-
-
-def corroborate_with_slope(best_video, candidate_obj, language, measurements,
-                           sweep_winner):
-    '''THE SLOPE, DEMOTED TO CORROBORATION (RULING_20260922_NO_BAND_ROUTING.MD,
-    ADDENDUM 2 -- OWNER OVERRIDE). Returns the derivation dict; GATES NOTHING.
-
-    IT USED TO DECIDE. Until the owner's override, an unsnappable slope meant
-    "no rate leg" and the pair went straight to splice without the ladder ever
-    running. That made ONE inferred number the gatekeeper of a MEASUREMENT,
-    which is backwards: the sweep can ask the ladder about every rate
-    combination that exists, and sixteen measured answers do not need an
-    inferred one's permission to be heard.
-
-    IT IS STILL COMPUTED, AND THAT IS NOT SENTIMENT. Three things this line
-    can say that the sweep cannot:
-      * the slope AGREES with the winner -- two independent instruments, one
-        answer, which is the strongest evidence this chain ever produces;
-      * the slope DISAGREES with the winner -- the sweep won on fidelity and
-        the drift says otherwise, which is exactly the row a census should
-        pull first;
-      * the slope REFUSED (scatter-dominated) while the sweep still found a
-        winner -- the owner asked for this case by name, and it is the
-        signature of a pair whose per-window offsets are noise while a whole-
-        track relation is nonetheless real.
-
-    So this writes a line and returns. Nothing downstream branches on it.
-    '''
-    import pal_speed_discriminator
-    series = (measurements or {}).get("delay_series") or []
-    window = (measurements or {}).get("window")
-    derivation = pal_speed_discriminator.derive_rate_factor_from_slope(
-        series, window=window)
-    snapped = pal_speed_discriminator.snap_to_named_rational(derivation["factor"])
-    derivation["snapped"] = (None if snapped is None
-                             else f"{snapped.numerator}/{snapped.denominator}")
-    # HEADERS CORROBORATE, NEVER DECIDE (ruling point 2c). They corroborated
-    # nothing that decided anything before the override either; now the whole
-    # function is in that category, which is the tidiest place for them.
-    master_fps = getattr(best_video, "get_fps", lambda: None)()
-    candidate_fps = getattr(candidate_obj, "get_fps", lambda: None)()
-    derivation["declared_rate_corroboration"] = \
-        pal_speed_discriminator.describe_rate_corroboration(
-            snapped, master_fps, candidate_fps)
-
-    if sweep_winner is None:
-        agreement = "no sweep winner to compare against"
-    elif derivation["factor"] is None:
-        agreement = (f"slope REFUSED ({derivation['refusal']}) while the sweep "
-                     f"chose {sweep_winner}: no corroboration available, and a "
-                     f"scatter-dominated slope beside a real winner is itself "
-                     f"worth seeing")
-    else:
-        winner_value = Decimal(sweep_winner.numerator) / Decimal(sweep_winner.denominator)
-        gap = abs(Decimal(str(derivation["factor"])) - winner_value) / winner_value
-        agrees = gap <= pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE
-        agreement = (f"measured slope factor {derivation['factor']} "
-                     f"(snapped {derivation['snapped']}) vs sweep winner "
-                     f"{sweep_winner}: relative gap {gap} -> "
-                     f"{'AGREE' if agrees else 'DISAGREE'}")
-    derivation["sweep_agreement"] = agreement
-    tools.dev_log(
-        f"repair: corroborate_with_slope on {candidate_obj.filePath} "
-        f"language={language} n_points={derivation['n_points']} "
-        f"n_used={derivation['n_used']} "
-        f"slope_ms_per_s={derivation['slope_ms_per_s']} "
-        f"factor={derivation['factor']} "
-        f"residual_scatter_ms={derivation['residual_scatter_ms']} "
-        f"r_squared={derivation['r_squared']} "
-        f"snapped={derivation['snapped']} refusal={derivation['refusal']} "
-        f"window={derivation['window']} | {agreement} | "
-        f"{derivation['declared_rate_corroboration']}\n")
-    return derivation
 
 
 def run_speed_sweep(best_video, candidate_obj, language):
@@ -586,593 +405,6 @@ def run_speed_sweep(best_video, candidate_obj, language):
         f"median={gate.get('median_fidelity')} margin={gate.get('margin')} "
         f"cause={gate.get('cause')} passing={gate.get('passing')}\n")
     return gate, None, None
-
-
-def splice_after_rate_normalisation(best_video, candidate_obj, language,
-                                    winner, gate):
-    '''STEP 3 OF THE OWNER'S DIAGRAM -- chimeric, after rate normalisation.
-
-    RESAMPLE FIRST, THEN SPLICE: the standing pipeline-order invariant,
-    applied INSIDE the repair for a mixed rate+content case (ruling point 4).
-    The sweep has already picked `winner` on measured fidelity, so the pair is
-    normalised on disk with `merge_video_resample.build_resampled_candidate`
-    (which exists for exactly this order -- its own docstring says so) and the
-    NORMALISED pair is handed to the splice chain's ordinary entry,
-    `change_point_locator.locate_change_points`. From that entry's point of
-    view this is now a rate-free content-diff case, which is the whole point.
-
-    THE WHOLE-TRACK PASS HAPPENS ONCE, HERE, AND ONLY FOR THE WINNER. The
-    sweep itself never muxes a whole track -- it corrects window anchors
-    arithmetically instead (`_probe_fidelity_at_ratio`) -- which is what keeps
-    sixteen hypotheses affordable. This is the one place a real file is
-    written, and by then exactly one factor is in play.
-
-    Returns `(plan, cause, detail)`.
-    '''
-    import change_point_locator
-    import merge_video_resample
-    ratio = Decimal(winner.numerator) / Decimal(winner.denominator)
-    work_dir = path.join(tools.tmpFolder, "repair", "rate_normalised")
-    tools.make_dirs(work_dir)
-    out_path = path.join(work_dir, candidate_obj.fileBaseName + ".rate_normalised.mkv")
-    tools.dev_log(
-        f"repair: splice_after_rate_normalisation building the normalised "
-        f"candidate for {candidate_obj.filePath} at the sweep winner "
-        f"{winner.numerator}/{winner.denominator} out_path={out_path}\n")
-    try:
-        normalised_path, applied, seen = merge_video_resample.build_resampled_candidate(
-            candidate_obj, ratio, out_path)
-        normalised_obj = video.video(path.dirname(normalised_path),
-                                     path.basename(normalised_path))
-        normalised_obj.get_mediadata()
-    except Exception as error:                          # noqa: BLE001 -- see below
-        # NARROW BY SCOPE, NOT BY TYPE -- the same rule `merge_video_resample`
-        # states at its own whole-track resample site and `change_point_locator`
-        # at `_probe`. Three statements are covered and every one of them is a
-        # NEW step on a path that was a terminal decline an hour ago: an ffmpeg
-        # mux, a mediainfo/mkvmerge read, and a constructor that raises a bare
-        # `Exception` when the file it was just handed does not exist. A
-        # failure in any of them is a measurement ("this pair could not be
-        # normalised"), never a reason to take down a merge that was already
-        # going to reject this file.
-        tools.dev_log(
-            f"repair: splice_after_rate_normalisation could not normalise "
-            f"{candidate_obj.filePath}: {type(error).__name__}: {error}\n")
-        return None, "rate_normalisation_failed", (
-            f"the sweep winner {winner.numerator}/{winner.denominator} "
-            f"cleared the fidelity floor but the normalised candidate could "
-            f"not be built: {type(error).__name__}")
-    # ITS OWN `work_dir`, AS THAT MODULE ASKS. `change_point_locator._probe`
-    # states that its probe `tag` is unique only WITHIN a work_dir, and this
-    # is the SECOND locator run on one candidate inside one repair -- the
-    # first (`get_plan_from_locator`) takes the default `tools.tmpFolder` and
-    # writes `cpl_m_s0.wav` there. Sharing it would have the two runs' probe
-    # files collide by name.
-    locate_dir = path.join(work_dir, "locate")
-    tools.make_dirs(locate_dir)
-    plan, splice_cause = change_point_locator.locate_change_points(
-        best_video, normalised_obj, language, work_dir=locate_dir)
-    tools.dev_log(
-        f"repair: splice_after_rate_normalisation located on the normalised "
-        f"pair for {candidate_obj.filePath}: plan={plan is not None} "
-        f"cause={splice_cause} applied_factor={applied}\n")
-    if plan is None:
-        return None, splice_cause, (
-            f"rate normalised at {winner.numerator}/{winner.denominator} "
-            f"(applied {applied}, sweep median {gate.get('median_fidelity')} "
-            f"against floor {merge_video_resample.RESAMPLE_FIDELITY_FLOOR}), "
-            f"then change_point_locator declined on the normalised pair")
-    # `verdict` IS NOT DECORATION -- IT IS WHAT MAKES `speed_ratio` READABLE.
-    # Found while completing the evidence guard, and it was a silent defect in
-    # my own first draft: `get_speed_ratio` (this file) returns
-    # `(None, prose, "speed_verdict_absent")` for a plan that carries a
-    # `speed_ratio` and NO `verdict`. A None ratio does not raise -- it means
-    # "no speed relation", so the guard would never fire and
-    # `assemble_on_master_timeline` would build the segments while SILENTLY
-    # DROPPING the rate correction the whole route exists to apply. The
-    # transform is `asetrate` by `docs/AUDIO_SPEED_POLICY.MD`, which is a
-    # DECISION, and this route applies exactly it.
-    plan["verdict"] = "asetrate"
-    plan["kind"] = "speed_and_splice"
-    # THE PLAN IS MEASURED ON THE NORMALISED CANDIDATE, AND IT SAYS SO. Its
-    # segment boundaries are positions on a timeline that only exists after
-    # the resample, so a consumer must not apply them to the original file
-    # without applying the factor too. Both facts travel in the plan.
-    plan["speed_ratio"] = str(ratio)
-    plan["speed_ratio_convention"] = RATIO_CONVENTION
-    plan["speed_ratio_exact"] = f"{winner.numerator}/{winner.denominator}"
-    plan["speed_margin"] = gate.get("margin")
-    plan["rate_source"] = "rate_sweep"
-    plan["rate_sweep_passing"] = gate.get("passing")
-    plan["rate_normalised_candidate_path"] = normalised_path
-    plan["rate_normalised_applied_factor"] = str(applied)
-    plan["resample_gate"] = {k: v for k, v in gate.items() if k != "hypotheses"}
-    return plan, None, None
-
-
-def speed_sweep_then_splice(best_video, candidate_obj, language,
-                            discriminator_result, measurements, locator_cause):
-    '''THE no_band ROUTE, IN THE SHAPE OF THE OWNER'S DIAGRAM
-    (RULING_20260922_NO_BAND_ROUTING.MD, ruling + ADDENDUM 2):
-
-        STEP 1  CLASSIFICATION   -- done by the caller
-                                    (`pal_speed_discriminator.discriminate`)
-        STEP 2  SPEED TEST       -- `run_speed_sweep`: every rate combination,
-                                    one fidelity ladder each, best median wins
-        STEP 2b CORROBORATION    -- `corroborate_with_slope`: logged, decides
-                                    nothing
-        STEP 3  CHIMERIC         -- `splice_after_rate_normalisation` when the
-                                    sweep won; the locator's existing verdict
-                                    on the un-normalised pair when it did not
-        STEP 4  PLAN APPLICATION -- the caller's
-                                    `build_repaired_video_object`, behind its
-                                    evidence guard
-
-    WHAT THIS REPLACED. `band == "no_band"` used to reach the resample gate
-    with the raw DURATION RATIO as its hypothesis, and returned a TERMINAL
-    `resample_fidelity_below_floor` when that misaligned every probe window.
-    Two things were wrong at once: the band's own hypothesis text says
-    "wrong-content suspicion", and the number being tested conflated a real
-    rate offset with an unrelated content-length difference -- so the gate was
-    asked whether the WRONG factor explained the drift and correctly said no.
-
-    ON THE SPLICE LEG WHEN THERE IS NO RATE LEG, stated rather than hidden:
-    the ruling says "route DIRECTLY to the splice chain -- the same entry the
-    splice-class cases use today". That entry is
-    `change_point_locator.locate_change_points`, and it has already run on
-    this exact pair: it is what returned `locator_cause` and sent us here.
-    Calling it a second time with the same two files is deterministic and
-    would return the same token at the cost of the whole probe grid, so the
-    splice leg's verdict is read from that run instead of re-measured. The
-    OUTCOME is the ruling's; the mechanism spends nothing to reach it.
-    (Deviation B3, accepted by the Architect in ADDENDUM 1.)
-    '''
-    # ---- STEP 1: classification (already decided by the caller) ----------
-    duration_ratio_screened = discriminator_result.get("speed_ratio")
-    tools.dev_log(
-        f"repair: speed_sweep_then_splice entered for "
-        f"{candidate_obj.filePath} language={language} band=no_band "
-        f"duration_ratio={duration_ratio_screened} "
-        f"(screen only, BANNED as a resample factor on this band) "
-        f"locator_cause={locator_cause} "
-        f"delay_series_points={len((measurements or {}).get('delay_series') or [])}\n")
-
-    splice_prose = (
-        f"change_point_locator already ran on this un-normalised pair and "
-        f"declined with {locator_cause}; no rate correction was confirmed, "
-        f"so there is nothing to re-measure it on")
-
-    # ---- STEP 2: the speed test -- the SWEEP decides ---------------------
-    gate, sweep_cause, sweep_prose = run_speed_sweep(
-        best_video, candidate_obj, language)
-    if gate is None:
-        # The instrument could not be started. Distinct from "it ran and no
-        # factor cleared the floor" -- BRIEF_COMMON rule 5.
-        corroborate_with_slope(best_video, candidate_obj, language,
-                               measurements, None)
-        return _no_band_terminal(sweep_cause, sweep_prose,
-                                 locator_cause, splice_prose)
-
-    winner = gate.get("ratio") if gate["verdict"] == "confirmed" else None
-
-    # ---- STEP 2b: corroboration only. Nothing below branches on it. ------
-    derivation = corroborate_with_slope(best_video, candidate_obj, language,
-                                        measurements, winner)
-
-    # ---- STEP 3: chimeric ------------------------------------------------
-    if winner is None:
-        # NO FACTOR REACHED THE FLOOR -> no rate leg, splice directly.
-        rate_prose = (
-            f"the rate sweep tested {gate.get('vocabulary_size')} exact rate "
-            f"combinations against the unchanged floor "
-            f"{_resample_floor()} and none reached it "
-            f"({describe_resample_decline('the rate sweep vocabulary', gate)}); "
-            f"corroboration: {derivation['sweep_agreement']}; "
-            f"{derivation['declared_rate_corroboration']}")
-        tools.dev_log(
-            f"repair: speed_sweep_then_splice routing {candidate_obj.filePath} "
-            f"to the SPLICE leg with no rate leg: sweep cause="
-            f"{gate.get('cause')}\n")
-        return _no_band_terminal(gate["cause"], rate_prose,
-                                 locator_cause, splice_prose)
-
-    tools.dev_log(
-        f"repair: speed_sweep_then_splice routing {candidate_obj.filePath} "
-        f"to RESAMPLE-THEN-SPLICE at the sweep winner {winner} "
-        f"(median={gate.get('median_fidelity')})\n")
-    plan, cause, detail = splice_after_rate_normalisation(
-        best_video, candidate_obj, language, winner, gate)
-    if plan is not None:
-        return plan, None, None
-    # THE RATE LEG WON AND THE SPLICE LEG DID NOT. Still a two-leg terminal,
-    # and the left token says the rate leg CONFIRMED -- a reader must be able
-    # to tell this apart from a pair with no rate relation at all, which is
-    # the four-states-one-token shape this file has already had to undo twice.
-    return _no_band_terminal(
-        f"rate_confirmed_{winner.numerator}_{winner.denominator}",
-        f"the rate sweep chose {winner} on a median fidelity of "
-        f"{gate.get('median_fidelity')} against floor {_resample_floor()} "
-        f"(passing factors: {gate.get('passing')}); corroboration: "
-        f"{derivation['sweep_agreement']}",
-        cause, detail)
-
-
-def _resample_floor():
-    '''The unchanged fidelity floor, read from its owner rather than repeated.
-
-    A second literal `0.90` in this file would be a second definition of one
-    number, and the ruling keeps saying "floor unchanged" -- which is only
-    checkable if there is exactly one place it lives.
-    '''
-    import merge_video_resample
-    return merge_video_resample.RESAMPLE_FIDELITY_FLOOR
-
-
-
-def confirm_speed_relation_via_resample(best_video, candidate_obj, language,
-                                        locator_cause=None, measurements=None):
-    '''STEP 2 DU PIPELINE DU PROPRIETAIRE -- "Test Reechantillonnage
-    (Fidelite > 0,90)" (BRIEF.md; RULINGS_IN_FORCE.md, ligne
-    `PIPELINE_CANONICAL`, 2026-09-21). LE PRODUCTEUR MANQUANT: avant cette
-    fonction, rien dans le depot n'ecrivait jamais `plan["speed_ratio"]` --
-    mesure independamment par `dev-step1-classify` (call graph) et par moi
-    (`_decline` de `change_point_locator.py` rend `(None, reason)`, DEUX
-    elements, jamais les champs `pal_chain_*` qu'elle journalise).
-
-    Appelee quand `change_point_locator` a decline avec l'une des trois
-    causes de `SPEED_CONFIRMER_ENTRY_CAUSES` -- `speed_relation_suspected`
-    (derive monotone vue), ou `median_fidelity_below_floor` /
-    `offsets_scattered` (la Stage 1 n'a PAS vu de monotonie, mais 19 des 20
-    PAL confirmes de la campagne declinent par l'un de ces deux jetons a
-    cause du bruit intra-fenetre, voir `SPEED_CONFIRMER_ENTRY_CAUSES`).
-    Dans tous les cas la fidelite mediane originale etait sous son propre
-    plancher (`MIN_MEDIAN_FIDELITY`, 0.70, UNE AUTRE QUANTITE que celle
-    testee ici).
-
-    STEP 2 EST SON PROPRE CONFIRMATEUR (Lead ruling on Q1, 2026-09-21): le
-    diagramme du proprietaire dessine DEUX boites -- Classification, puis Test
-    Reechantillonnage -- et aucune troisieme. La premiere version de cette
-    fonction exigeait D'ABORD `pal_speed_verdict.determine_speed_verdict`
-    (pitch + NCC, un plancher NCC_FLOOR=0.80 DIFFERENT et un instrument
-    DIFFERENT) avant de tenter mon propre plancher -- mesure sur un vrai
-    exemplaire PAL confirme (curated-46, `VMSAM_CORPUS`) que cette chaine
-    DECLINE (NCC 0.60 contre son propre plancher 0.80) alors que sa PROPRE
-    sonde de hauteur tonale est D'ACCORD et que mon plancher de
-    reechantillonnage confirme a 0.93. Le proprietaire n'a jamais dessine
-    cette troisieme boite; l'exiger transformait le Test Reechantillonnage en
-    second avis sur le verdict d'une autre chaine plutot que le test qu'il a
-    specifie. RETIRE. `pal_speed_verdict` reste utile ailleurs (son propre
-    journal sur le decline de la Stage 1); il n'est plus un prealable ici.
-
-    LE RATIO CANDIDAT VIENT DE LA DUREE SEULE (`pal_speed_discriminator`,
-    deja publique, deuxieme site d'appel de sa fonction privee -- convention
-    deja etablie par ce meme module). Aucun filtrage par `band`: la
-    classification (`pal_direct`/`pal_inverse`/`no_band`) est une etiquette
-    pour LA CHAINE pal_speed_verdict, pas une condition pour ce test -- mon
-    propre plancher, avec son bras reciproque et sa mesure sur fichier entier,
-    est l'arbitre. Un ratio `None` (duree inutilisable) est le seul cas qui ne
-    peut pas etre teste du tout.
-
-    LE BRAS RECIPROQUE RESTE PERMANENT (Lead ruling): appliquer le mauvais
-    sens et voir la fidelite RESTER BASSE est ce qui rend ce test une VRAIE
-    mesure et non une seconde lecture de la meme correlation -- SPEC_ZONE_A.MD
-    s4f l'exige explicitement ("un depatageage tire des memes correlations
-    n'est pas un second avis").
-
-    Renvoie (plan, cause, detail). `plan` est None si la relation n'a pas ete
-    confirmee. Le plan produit ne porte PAS de `segments`: une relation de
-    vitesse pure couvre toute la timeline (`build_repaired_video_object` le
-    sait deja construire).
-
-    `detail` est None quand `plan` n'est pas None (rien a expliquer), et une
-    PROSE portant les nombres mesures (ratio, fidelite, ecart au plancher)
-    quand `cause` n'est pas None -- VERDICT_WITHOUT_MEASUREMENT, voir
-    `describe_resample_decline` ci-dessus. Ajoute 2026-09-22: avant ce
-    changement seul `cause` voyageait, et le seul site qui portait les
-    nombres etait un `tools.logs.append` gate par `if tools.dev` -- mort sur
-    l'instance de production (`dev: false`).
-    '''
-    tools.dev_log(f"repair: confirm_speed_relation_via_resample starting "
-                  f"master={best_video.filePath} "
-                  f"candidate={candidate_obj.filePath} language={language}\n")
-    import pal_speed_discriminator
-    discriminator_result, disc_error = pal_speed_discriminator.discriminate_from_videos(
-        best_video, candidate_obj, language)
-    if disc_error is not None:
-        return None, "resample_test_locator_module_absent", (
-            f"resample fidelity test could not even start: {disc_error}")
-    ratio = discriminator_result.get("speed_ratio")
-    if ratio is None:
-        return None, "resample_test_duration_unmeasurable", (
-            "resample fidelity test could not start: no duration-based "
-            "ratio candidate from pal_speed_discriminator")
-
-    # *** THE no_band BAND NO LONGER TESTS THE DURATION RATIO BY RESAMPLE ***
-    # RULING_20260922_NO_BAND_ROUTING.MD point 1: on this band the duration
-    # ratio is a SCREEN, not a factor. The paragraph above ("Aucun filtrage
-    # par `band`") remains the rule for every OTHER band -- pal_direct,
-    # pal_inverse and near_unity still reach the gate below unfiltered, and
-    # this file's own floor still arbitrates them. What changed is narrower
-    # than a filter: on the one band whose hypothesis text already said
-    # "wrong-content suspicion", a DIFFERENT and better-founded factor is
-    # derived first, and the pair keeps a splice leg either way.
-    if discriminator_result.get("band") == "no_band":
-        return speed_sweep_then_splice(best_video, candidate_obj, language,
-                                       discriminator_result, measurements,
-                                       locator_cause)
-
-    sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
-    if sample_rate == None:
-        return None, "resample_test_no_sample_rate", (
-            "resample fidelity test could not start: no sampling rate "
-            "readable on the candidate")
-
-    import merge_video_resample
-    work_dir = path.join(tools.tmpFolder, "repair", "resample_fidelity_test")
-    tools.make_dirs(work_dir)
-    gate = merge_video_resample.test_speed_ratio_against_master(
-        best_video.filePath, candidate_obj.filePath, ratio, sample_rate, work_dir)
-    if tools.dev:
-        # THE NUMBERS THAT ACTUALLY EXIST ON A DECLINE, not the outer
-        # fields that `test_speed_ratio_against_master` sets to None on
-        # every decline by design (they carry the WINNING hypothesis only).
-        # Reading `gate.get('median_fidelity')` here reproduced exactly the
-        # blank-reads-as-no-measurement confusion this file exists to
-        # refuse elsewhere -- measured 2026-09-22 against real declines
-        # (ids e8f7bc8a55924482, 79b17a3f34c007df) that this line printed
-        # as `median=None` while `gate['hypotheses']` held real numbers.
-        per_hypothesis = " ".join(
-            f"{name}(verdict={r.get('verdict')},median={r.get('median')})"
-            for name, r in (gate.get("hypotheses") or {}).items())
-        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
-        # 2026-09-22, wave 3): this `tools.logs.append` had no stderr half --
-        # the exact defect class `change_point_locator._log` had, at a site
-        # wave 2 did not reach. `tools.logs` drains only at the end of a
-        # merge; a hung process never gets there. Format string unchanged.
-        tools.dev_log(
-            f"repair: resample fidelity gate for {language}: band="
-            f"{discriminator_result.get('band')} verdict={gate['verdict']} "
-            f"cause={gate.get('cause')} {per_hypothesis}\n")
-    if gate["verdict"] != "confirmed":
-        return None, gate["cause"], describe_resample_decline(ratio, gate)
-
-    # THIS BRANCH STAYS REFUSED AT THE EVIDENCE GATE, AND THAT IS DELIBERATE
-    # (RULING_20260922_NO_BAND_ROUTING.MD, ADDENDUM: "if that branch produces
-    # equivalent evidence, thread it the same way; if it does not, leave it
-    # refused and say so rather than widening").
-    #
-    # IT DOES NOT. Two of the three evidence legs are here -- the ladder
-    # confirmed and its median cleared the floor (`resample_gate`) -- and the
-    # THIRD IS MISSING BY THIS BRANCH'S OWN DESIGN: `gate["ratio"]` is the
-    # MEASURED duration ratio, never a snapped named rational, because
-    # `pal_speed_discriminator`'s t112 caveat forbids a band from supplying
-    # the number. So `speed_ratio_exact` does not exist here and cannot be
-    # fabricated: writing one would mean asserting a rational this branch
-    # never recognised.
-    #
-    # NOT WIDENED HERE. Snapping this branch's ratio too is a plausible next
-    # step and it is a DIFFERENT change with its own acceptance. MEASURED
-    # 2026-09-22 against the three confirmed real PAL ids this module's own
-    # docstring names (errids 70/135/213, ratios 0.959/0.958/0.956) and the
-    # 5e-4 snap window around 960/1001 = 0.9590410:
-    #     0.959  relative gap 4.271e-5   INSIDE
-    #     0.958  relative gap 1.085e-3   outside
-    #     0.956  relative gap 3.171e-3   outside
-    # So the snap would admit ONE of the three and refuse two, and what to do
-    # with the other two -- whose ratios are real, confirmed, and simply not
-    # within a whisker of the nominal because a DURATION ratio is not a rate
-    # -- is exactly the question this addendum did not answer. Deriving them
-    # from a SLOPE instead (this ruling's own instrument) is the shape of the
-    # answer, and it is a separate ruling's work, not a quiet edit here.
-    return {"kind": "speed", "verdict": "asetrate",
-            "speed_ratio": str(gate["ratio"]),
-            "speed_ratio_convention": RATIO_CONVENTION,
-            "speed_margin": gate["margin"],
-            "duration_master_s": float(best_video.video["Duration"]),
-            "duration_candidate_s": float(candidate_obj.video["Duration"]),
-            "resample_gate": {k: v for k, v in gate.items() if k != "hypotheses"}}, None, None
-
-
-def get_plan_from_locator(best_video, candidate_obj, language):
-    """La mesure de `vmsam-dev-1`, appelee ici et nulle part ailleurs.
-
-    Import tardif et tolerant: le module peut ne pas etre deploye, et une
-    capacite fermee par defaut n'a pas le droit de casser un merge parce qu'une
-    dependance manque.
-
-    `None` veut dire *je n'ai pas pu mesurer*, jamais *les fichiers sont
-    compatibles*. On laisse alors le refus tel quel.
-
-    Renvoie (plan, cause, detail) depuis 2026-09-22 -- `detail` est None
-    partout SAUF quand le confirmateur de vitesse (Stage 2) a decline avec des
-    nombres a porter (voir `describe_resample_decline`); tous les autres
-    chemins de cette fonction gardent leur prose historique, inchangee, au
-    site d'appel.
-    """
-    tools.dev_log(f"repair: get_plan_from_locator starting "
-                  f"master={best_video.filePath} "
-                  f"candidate={candidate_obj.filePath} language={language}\n")
-    try:
-        import change_point_locator
-    except Exception as error:
-        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
-        # 2026-09-22, wave 3) -- same reason as every other site in this
-        # batch: this used to write ONLY to `tools.logs`, format unchanged.
-        tools.dev_log(f"repair: no change_point_locator module: {error}\n")
-        # THE MODULE IS NOT DEPLOYED. This is MY OWN process state and I am
-        # entitled to state it: no measurement was attempted, because there was
-        # nothing to attempt it with. Distinct from "the locator ran and refused".
-        # LE JETON EST STABLE; la classe d'exception va dans la PROSE. dev-4
-        # classe sur le jeton, donc un jeton qui varie n'est pas un jeton.
-        return None, "locator_module_absent", None
-    # *** THE PRODUCER HALF LANDED. `locate_change_points` now returns `(plan, cause)`
-    # per CAMPAIGN.MD 1153-1164 -- cause is None when a plan is returned, and a stable
-    # snake_case token on every one of the ten boundary refusals.
-    # UNPACKED, NOT TRUTH-TESTED. The old line read `if plan != None`, and a `(None, token)`
-    # TUPLE IS NOT None AND IS TRUTHY -- so leaving that test in place would have read EVERY
-    # REFUSAL AS A SUCCESSFUL PLAN. Measured before landing: bool((None, "tok")) is True.
-    # That is why both halves are in one commit and why this line changed shape rather than
-    # gaining a branch. ***
-    # THE OUT-DICT IS THE WHOLE POINT OF THIS LINE'S CHANGE
-    # (RULING_20260922_NO_BAND_ROUTING.MD point 2): the locator measures a
-    # per-window offset series on its way to a verdict, and until now threw it
-    # away on every decline. `confirm_speed_relation_via_resample`'s no_band
-    # route needs exactly that series to derive a rate factor from the SLOPE
-    # instead of from the conflated duration ratio. Empty on the earliest
-    # refusals, which is honest: the locator had not probed yet.
-    locator_measurements = {}
-    plan, locator_cause = change_point_locator.locate_change_points(
-        best_video, candidate_obj, language, measurements=locator_measurements)
-    if plan is not None:
-        return plan, None, None
-    if locator_cause in SPEED_CONFIRMER_ENTRY_CAUSES:
-        # STEP 2 OF THE OWNER'S PIPELINE, HERE AND ONLY HERE (BRIEF.md;
-        # RULINGS_IN_FORCE.md `PIPELINE_CANONICAL`, 2026-09-21: "Q1 RESOLVED =
-        # ACT-and-decide"). Stage 1 (`change_point_locator.py`, not mine) only
-        # SUSPECTS a speed relation and declines unconditionally today -- see
-        # its own comment at the call site, "No resample, no repair call".
-        # `confirm_speed_relation_via_resample` is the missing producer: it
-        # confirms the ratio (PAL/NTSC chain) AND gates it against a
-        # WHOLE-TRACK RESAMPLE's fidelity (`merge_video_resample`,
-        # RESAMPLE_FIDELITY_FLOOR=0.90 -- a DIFFERENT quantity from Stage 1's
-        # own MIN_MEDIAN_FIDELITY=0.70, see that module's docstring). A plan
-        # returned here still cannot reach a real repair today:
-        # `build_repaired_video_object`'s unconditional guard
-        # (`speed_transform_not_validated`) refuses any non-None
-        # `speed_ratio` until the Lead's own commit lifts it with evidence --
-        # this branch stops at "the plan exists and is admissible", which is
-        # everything this file can validate on its own.
-        #
-        # WHY THREE CAUSES, NOT ONE (Lead's authorization, 2026-09-21, on a
-        # measured population): `dev-step1-classify` ran all 20 of the
-        # campaign's confirmed real PAL ids through the real classifier and
-        # found ZERO reach `speed_relation_suspected` -- a 4.27% drift inside
-        # one UNCORRECTED probe window is large enough to turn the
-        # correlation into noise, and noise is not monotone
-        # (`change_point_locator.py:1952-1955`'s own comment, predicted
-        # before either seat measured a real file). 12/20 land in
-        # `median_fidelity_below_floor`, 7/20 in `offsets_scattered`. This
-        # producer does NOT depend on Stage 1's monotone check having
-        # succeeded: it re-derives its own ratio from DURATION alone
-        # (`pal_speed_discriminator`, unaffected by per-window noise) and
-        # gates it by resampling the WHOLE track BEFORE probing -- by the
-        # time it measures, the within-window drift that defeats Stage 1 is
-        # already corrected away. So trying it on these two additional
-        # causes is not two seats patching one symptom: if Stage 1's monotone
-        # check is later repaired, `speed_relation_suspected` simply becomes
-        # a third entry alongside these two, additive, not conflicting --
-        # this producer's own gate stays the decider either way.
-        #
-        # THE ACCEPTANCE COST OF WIDENING (Lead's mandatory arm, same
-        # authorization): `median_fidelity_below_floor` and
-        # `offsets_scattered` are BROAD buckets -- every pair with low
-        # fidelity for ANY reason lands here, not only PAL. Verified on real,
-        # non-PAL error-tree pairs before shipping (see
-        # `VMSAM_HELP_AI/dev-step2-resample/`'s task file) that this producer
-        # declines correctly on files with no speed relation, at the SAME
-        # rate as its already-validated negative controls.
-        speed_plan, speed_cause, speed_detail = confirm_speed_relation_via_resample(
-            best_video, candidate_obj, language,
-            locator_cause=locator_cause, measurements=locator_measurements)
-        if speed_plan is not None:
-            return speed_plan, None, None
-        # NOT CONFIRMED. CORRECTED 2026-09-22 (Lead's fold-in, on his own
-        # measurement against real wave declines): this used to fall through
-        # to the ORIGINAL `locator_cause` unchanged, on the argument that
-        # Stage 1's token was "the finding" and `speed_cause` was merely a
-        # log-line detail. That was wrong in a way that cost a census: the
-        # terminal `no_plan cause=` line this function's caller writes
-        # (`repair_not_compatible_videos`) is the ONLY place anyone reads the
-        # outcome, and Stage 1's token only ever said WHY THIS PRODUCER WAS
-        # TRIED -- never WHAT IT FOUND when it ran. A pair that never reached
-        # the resample gate at all and a pair that reached it and measured
-        # 0.5631 median fidelity are two different findings, and collapsing
-        # them onto the same `median_fidelity_below_floor`/`offsets_scattered`
-        # token is precisely the four-states-one-token shape da10f16c and
-        # ca8e3307 already had to undo one layer down in this same file.
-        # `locator_cause` survives in the dev log line below for the curious
-        # (why entry happened at all); the RETURNED cause and detail are now
-        # the confirmer's own -- what actually happened when Stage 2 ran.
-        # ROUTED THROUGH `tools.dev_log` (owner's order via the Lead,
-        # 2026-09-22, wave 3): this is the site the Lead's own dispatch
-        # cited by name (:682-685) -- the exact line that used to narrate
-        # the whole probe sequence to stderr and then go silent at its own
-        # conclusion, because this one line, the one carrying WHY, only
-        # ever reached `tools.logs`. Format unchanged.
-        tools.dev_log(
-            f"repair: {locator_cause} but speed relation not confirmed "
-            f"by resample for {language}: {speed_cause}\n")
-        return None, speed_cause, speed_detail
-    # THE LOCATOR RAN, RETURNED NO PLAN, AND NOW SAYS WHY.
-    #
-    # This block used to say the producer half was unlanded and held by dev-1's user,
-    # so any cause written here would be INVENTED, NOT READ. That was true when it was
-    # written and it is no longer true. THE CAUSE BELOW IS READ, NOT INVENTED.
-    #
-    # HISTORICAL, AND KEPT BECAUSE THE REASONING STILL DECIDES THINGS: the token that used
-    # to stand here was `cause_unavailable`, and it replaced a string claiming no measurement
-    # existed. THAT TOKEN IS GONE TOO -- see below -- but the argument for why it beat its
-    # predecessor is the argument for why the producer's token beats it in turn.
-    # "no measurement available" claims a property of the WORLD -- that no
-    # measurement exists. For the fidelity-floor path that is FALSE: the probes
-    # RAN, they SUCCEEDED, and they returned a CONCLUSIVE NEGATIVE. A
-    # conclusive negative filed as an absence of evidence is exactly the
-    # substitution change_point_locator warns about in its own words:
-    # "None means I could not measure -- never the files are compatible."
-    #
-    # This file's own instruction, followed to the letter: READ ITS CAUSE HERE AND PASS
-    # IT THROUGH UNCHANGED -- one site, this one. NOT TRANSLATED, NOT NORMALISED, AND NO
-    # CAUSE OF MY OWN ADDED BESIDE IT.
-    #
-    # *** I WROTE `or "cause_unavailable"` HERE AN HOUR AGO, IN THE SAME EDIT WHERE I QUOTED
-    # THIS FILE'S INSTRUCTION NOT TO ADD A CAUSE OF MY OWN BESIDE THE PRODUCER'S. THAT `or`
-    # IS A CAUSE OF MY OWN. I violated the line I was citing, in the comment citing it.
-    #
-    # AND IT WAS WORSE THAN UNTIDY. `cause_unavailable` MATCHES dev-4'S ACCEPTING REGEX, so a
-    # producer that returned no token would have been counted as A STATED CAUSE -- silently
-    # inflating the column the campaign's end condition is scored on, with a non-cause.
-    # arch-heir's ruling, and it generalises past this file: *** A FALLBACK TOKEN MUST NOT BE A
-    # MEMBER OF THE SET IT FALLS BACK FROM. A sentinel that satisfies the predicate it exists to
-    # signal the absence of is not a sentinel, it is a silent pass. *** And "unreachable by
-    # construction" is not a defence: reachability is a property of today's call graph, not of
-    # the token.
-    #
-    # THE CAUSE PASSES THROUGH UNCHANGED WHENEVER THERE IS ONE. NOT TRANSLATED, NOT NORMALISED,
-    # NOTHING ADDED BESIDE IT.
-    #
-    # *** THE ONE CASE THAT IS NOT A PASS-THROUGH, AND dev-4 IS RIGHT THAT IT NEEDS A VALUE:
-    # the producer RAN and returned NO TOKEN. Under the contract that CANNOT HAPPEN -- every
-    # boundary return carries one -- so this is a CONTRACT VIOLATION and it must be LOUD.
-    # Passing None here would have emitted NO cause field at all, which is a DIFFERENT and
-    # legitimate outcome for other call sites of `record`, and folding the two together would
-    # hide a violation inside an ordinary row. I had them collapsed; they are not the same.
-    #
-    # THE SENTINEL IS LEXICALLY OUTSIDE THE ACCEPTED CLASS, NOT MERELY A DIFFERENT WORD.
-    # dev-4 accepts `cause=([A-Za-z0-9_]+)`; parentheses cannot satisfy that class, so
-    # `(unstated)` is excluded BY CONSTRUCTION rather than by a denylist in the reader.
-    # *** A NAME-BASED EXCLUSION DOWNSTREAM WOULD LEAVE THE SENTINEL A MEMBER OF THE SET AND
-    # THE NEXT SENTINEL ANYONE ADDS WOULD WALK STRAIGHT PAST IT. *** That is arch-heir's rule
-    # taken literally: not a member, rather than a member that is filtered.
-    #
-    # ORDERING, STATED BECAUSE IT DECIDES WHO MOVES FIRST: dev-4's reader change is NECESSARY
-    # AND NOT SUFFICIENT. Reader-side classification cannot repair a sentinel that is lexically
-    # a member of the accepted set, so THIS SIDE HAS TO MOVE FIRST OR THE NEW COLUMN NEVER FILLS.
-    if locator_cause is None:
-        # *** THE PARENTHESES ARE THE MECHANISM. THEY ARE NOT PUNCTUATION, NOT STYLE, AND NOT
-        # DECORATION. The consuming parser accepts `cause=([A-Za-z0-9_]+)`. A parenthesis
-        # CANNOT satisfy that class, which is the entire reason this value is excluded.
-        #     cause=cause_unavailable  -> ACCEPTED as a stated cause  (the live miscount)
-        #     cause=(unstated)         -> NOT ACCEPTED                (this line)
-        #     cause=unstated           -> ACCEPTED                    (this line, "tidied")
-        # *** DELETING TWO CHARACTERS FOR NEATNESS SILENTLY RESTORES THE INFLATION OF THE
-        # COLUMN THE CAMPAIGN'S END CONDITION IS SCORED ON, AND NOTHING AT RUN TIME WILL SAY
-        # SO. *** dev-4 asked for this comment; the guard below it is mine, because a rule that
-        # has to be remembered is a habit, and this one is two keystrokes from being forgotten.
-        # A TEST EXISTS FOR EXACTLY THIS: `lab/ladder_token.sh::sentinel_ladder` in the records
-        # repository reads THIS literal and the parser's class FROM SOURCE and fails if the
-        # sentinel ever becomes acceptable. If you change this line, run it.
-        return None, "(unstated)", None
-    return None, locator_cause, None
 
 
 def drop_unverified_segments(segments):
@@ -1377,12 +609,22 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
 
 SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_sweep"})
 # THE DECIDING INSTRUMENTS THIS GUARD RECOGNISES, as a closed vocabulary --
-# the same shape as `change_point_locator.DECLINE_REASONS`, and for the same
+# the same shape as `repair_orchestrator.DECLINE_CAUSES`, and for the same
 # reason: a vocabulary kept next to its only consumer cannot drift from it,
 # and a new instrument is not admissible without being enumerated in the same
 # edit that starts producing it. An unenumerated `rate_source` is REFUSED
 # here, not tolerated: this gate stands in front of a destructive transform,
 # so the safe direction of an unknown value is "no".
+
+# THE APPLIED-VS-EVIDENCED TOLERANCE, RELATIVE. Moved here 2026-09-24 from
+# `pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE` when the switch to the
+# orchestrator left this guard its only reader and the module was removed.
+# ARITHMETIC, NOT A TUNED MARGIN: the two closest named broadcast rates,
+# 1001/960 = 1.04270833 and 25/24 = 1.04166667, sit a relative 1.0e-3 apart,
+# and 5e-4 is half of that, so no measurement can be within tolerance of two
+# of them at once. `speed_plan_evidence` restates why it still holds on the
+# sweep's larger vocabulary.
+SPEED_EVIDENCE_RELATIVE_TOLERANCE = Decimal("0.0005")
 
 
 def speed_plan_evidence(plan, speed_ratio):
@@ -1430,7 +672,6 @@ def speed_plan_evidence(plan, speed_ratio):
     THINGS AGREE ON. It cannot say yes to a plan that merely looks confident.
     '''
     import merge_video_resample
-    import pal_speed_discriminator
 
     vocabulary = merge_video_resample.build_rate_ratio_vocabulary()
     exact = plan.get("speed_ratio_exact")
@@ -1459,11 +700,11 @@ def speed_plan_evidence(plan, speed_ratio):
     # representation alone -- `speed_ratio` reaches here through `str()`.
     nominal = Decimal(named.numerator) / Decimal(named.denominator)
     drift = abs(Decimal(str(speed_ratio)) - nominal) / nominal
-    if drift > pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE:
+    if drift > SPEED_EVIDENCE_RELATIVE_TOLERANCE:
         return False, "speed_evidence_ratio_is_not_the_snapped_rational", (
             f"the plan would apply speed_ratio={speed_ratio} while its "
             f"evidence is for {named} ({nominal}): relative drift {drift} "
-            f"exceeds {pal_speed_discriminator.SNAP_RELATIVE_TOLERANCE}. "
+            f"exceeds {SPEED_EVIDENCE_RELATIVE_TOLERANCE}. "
             f"Evidence about one coefficient does not license another")
 
     instrument = plan.get("rate_source")
@@ -2389,79 +1630,6 @@ def check_candidate_admissibility(plan):
                    "prev_segment_index": index - 1,
                    "next_segment_index": index}
     return None
-
-
-def compare_plan_master(plan, best_video):
-    """Le plan a-t-il ete mesure contre CE maitre? Rend `(raison, jeton)`.
-
-    TROIS ETATS ET NON DEUX, et le troisieme a ete trouve en faisant tourner ce
-    lecteur sur les VRAIS octets de vmsam-dev-1 plutot que sur le contrat:
-
-        absent          rien a comparer -- le plan ne nomme pas de maitre
-        egal            meme maitre
-        different       maitres differents  -> DECLIN, et c'est le controle
-        INCOMPARABLE    la valeur n'est pas un chemin: `WRITE_ZONES.MD` s8 dit
-                        de RETENIR plutot que d'assainir, et dev-1 emet donc un
-                        jeton opaque. `'opaque:...' != '/srv/...'` est VRAI, donc
-                        l'ancienne ligne declinait TOUT plan portant un jeton --
-                        en disant `mesure contre un autre maitre`, ce qui est
-                        FAUX. Une raison fausse est pire qu'un refus: elle envoie
-                        le lecteur chercher un desaccord de maitre qui n'existe
-                        pas.
-
-    ON DECLINE QUAND MEME dans le cas incomparable -- ne pas pouvoir verifier
-    l'identite du maitre n'autorise pas a l'assumer -- mais la raison DIT
-    laquelle des deux choses s'est produite. `AGENT.MD`: je n'ai pas pu mesurer
-    n'est pas un verdict sur le fichier.
-
-    TROIS REFUS, TROIS JETONS, ET LE REGROUPEMENT SERAIT LE DEFAUT QUE CETTE
-    FONCTION EXISTE DEJA POUR EVITER. Deux d'entre eux disent *je n'ai pas pu
-    verifier* et le troisieme dit *j'ai verifie, et ils different*. Les fondre
-    classerait un NEGATIF CONCLUANT comme une absence de preuve -- exactement
-    la substitution que `BRIEF_COMMON.md` regle 5 nomme, et exactement la
-    raison pour laquelle l'ancienne ligne unique disait `mesure contre un autre
-    maitre` sur un plan qui portait un jeton opaque, ce qui etait FAUX.
-
-    Et les correctifs different: un digest qui ne correspond pas se repare en
-    normalisant CE QU'ON HACHE; un jeton incomparable se repare en APPRENANT le
-    schema au lecteur; un maitre reellement different veut dire que le plan est
-    PERIME et qu'il faut remesurer.
-    """
-    # LE DIGEST D'ABORD QUAND IL EXISTE: c'est la seule forme comparable qui ne
-    # fait voyager aucun texte libre. `WRITE_ZONES.MD` s8.
-    #
-    # ET SA LIMITE SE DIT, parce que vmsam-dev-1 l'a nommee avant moi: un digest
-    # de CHEMIN prouve que deux agents ont recu la meme CHAINE, pas le meme
-    # FICHIER. Un lien symbolique, une barre finale, un prefixe de montage ou une
-    # normalisation unicode differente donnent un digest different pour les memes
-    # octets sur le disque. Un desaccord de digest n'est donc PAS une preuve de
-    # maitre different: c'est le meme etat `non verifie`, un cran plus bas.
-    digest = plan.get("master_path_digest")
-    if digest != None:
-        import hashlib
-        mine = hashlib.sha256(best_video.filePath.encode()).hexdigest()
-        if mine == digest:
-            return None, None
-        return ("the plan's master path digest does not match this master's. "
-                "NOTE: a path digest proves two agents were handed the same "
-                "STRING, not the same FILE -- a symlink, a mount prefix or a "
-                "different unicode normalisation differs here too, so this is "
-                "UNVERIFIED rather than proof of a different master"
-                ), "master_digest_mismatch_unverified"
-    stated = plan.get("master_path")
-    if stated == None or stated == best_video.filePath:
-        return None, None
-    if not str(stated).startswith("/"):
-        return ("the plan names its master with a token this reader cannot "
-                "compare to a filesystem path, so the master's identity is "
-                "UNVERIFIED -- this is not evidence of a different master"
-                ), "master_identity_token_uncomparable"
-    # LE SEUL DES TROIS QUI AFFIRME QUELQUE CHOSE SUR LE MONDE. Les deux
-    # au-dessus disent `UNVERIFIED`; celui-ci a compare et les chemins
-    # different. Le jeton ne porte AUCUN des deux chemins -- une raison qui
-    # contient un chemin media voyage avec lui.
-    return ("the plan was measured against a different master than the "
-            "one selected here"), "master_path_differs"
 
 
 def _head_pad_summary(report):
@@ -3825,9 +2993,91 @@ def retire_ffmpeg_pools(grace_seconds=300):
                           f"{type(error).__name__}: {error}\n")
 
 
+# ---------------------------------------------------------------------------
+# THE SEAM WITH STAGE 5 (plan application), DEFINED HERE BECAUSE THIS ENTRY IS
+# ITS ONLY READER.
+#
+# The owner's `repair()` returns a BOOLEAN (RULING_20260922_ORCHESTRATOR_
+# ARCHITECTURE.MD, ADDENDUM point 4: "True = plan trouve ET fichier temporaire
+# chimerique cree avec succes"), so the repaired video object cannot travel in
+# the return value. It travels in ONE dict this entry hangs on the candidate
+# object BEFORE calling `repair()`, and reads back AFTER it returns:
+#
+#   getattr(candidate_obj, REPAIR_SEAM_ATTRIBUTE) == {
+#       "job_start_utc": <ISO-8601 UTC str>   IN  -- written here; VMSAM_ERA
+#                                                   (Architect's ruling
+#                                                   2026-09-16: the start of
+#                                                   the JOB on this candidate)
+#       "repaired_obj":  None                 OUT -- stage 5's `apply_plan`
+#                                                   sets it to the repaired
+#                                                   video object, built to the
+#                                                   three requirements of this
+#                                                   module's docstring
+#                                                   (`delay_same_md5_audio =
+#                                                   Decimal('0')`, mediadata
+#                                                   read, temp file under
+#                                                   `tools.tmpFolder/repair/`)
+#                                                   -- exactly what
+#                                                   `build_repaired_video_object`
+#                                                   returns today
+#       "assembly":      None                 OUT -- the assembly report beside
+#                                                   it, for stage 5's own
+#                                                   `record(..., "repaired",
+#                                                   reason, detail)` terminal
+#   }
+#
+# CONTRACT: `repair()` returns True ONLY when `repaired_obj` is set. A True
+# with no object is a broken seam and is recorded `failed`
+# (cause=repaired_object_missing) -- never attached, never silent. The dict is
+# removed after the call, whatever the outcome, so no object can outlive the
+# call that produced it and be attached by a later one. `apply_plan` must
+# tolerate the attribute's ABSENCE (the orchestrator driven standalone, without
+# this entry): it then has no job start to stamp and must say so, not invent
+# one. The `repaired` terminal line is stage 5's to write through `record()`;
+# this entry writes none, so one repair never reads as two.
+# ---------------------------------------------------------------------------
+REPAIR_SEAM_ATTRIBUTE = "vmsam_repair_seam"
+
+
+def _open_repair_seam(candidate_obj, job_start_utc):
+    seam = {"job_start_utc": job_start_utc, "repaired_obj": None, "assembly": None}
+    setattr(candidate_obj, REPAIR_SEAM_ATTRIBUTE, seam)
+    return seam
+
+
+def _close_repair_seam(candidate_obj):
+    seam = getattr(candidate_obj, REPAIR_SEAM_ATTRIBUTE, None)
+    if seam is not None:
+        delattr(candidate_obj, REPAIR_SEAM_ATTRIBUTE)
+    return seam or {}
+
+
+def _terminal_cause_since(candidate_path, reported_before):
+    """The cause token the orchestrator's terminal carried for THIS candidate.
+
+    `repair_orchestrator._terminal` routes every refusal through `record()`
+    above, which appends to `last_repair_report`; reading it back here is how
+    the boolean's reason reaches the drain site without a second channel. None
+    when no terminal was recorded (a True, or an orchestrator that returned
+    False without recording -- which its own contract forbids)."""
+    for entry in reversed(last_repair_report[reported_before:]):
+        if entry.get("candidate") == candidate_path:
+            return entry.get("cause")
+    return None
+
+
 def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                                  best_video):
-    '''Point d'entree appele depuis la zone A.
+    """Point d'entree appele depuis la zone A. LA CHAINE EST L'ORCHESTRATEUR.
+
+    Owner, 2026-09-24 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 8
+    points 4 et 6): remplacement direct, sans drapeau de cohabitation --
+    `repair_orchestrator.repair()` par candidat, et l'ancienne chaine
+    (`get_plan_from_locator`, le routage par bande, `change_point_locator`)
+    est partie dans le meme lot. Tant que l'etage 5 (application du plan) n'est
+    pas construit, `repair()` rend False avec
+    `cause=plan_application_not_implemented` sur toute paire qui va au bout: la
+    production DECLINE honnetement, et ses journaux pilotent le debogage.
 
     Renvoie la liste des chemins effectivement repares et raccroches. Les
     fichiers restent retires de `dict_file_path_obj` par la zone A dans tous les
@@ -3835,351 +3085,132 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     `best_video.sameAudioMD5UseForCalculation`, consomme par
     `generate_merge_command_common_md5`, qui ne passe jamais par la machinerie
     de delai.
-    '''
+
+    CE QUI RESTE ICI, ET POURQUOI: les deux refus que l'orchestrateur ne peut
+    pas voir (pas d'objet pour le chemin refuse; pas de langue de comparaison --
+    `repair()` la RECOIT, il ne la choisit pas), le cache du maitre par langue
+    (une mesure du maitre par (maitre, langue), passe a `repair()` parce qu'un
+    etat de module survivrait entre deux maitres), le drain des pools audio
+    (CASE id 6), et la couture avec l'etage 5 (`REPAIR_SEAM_ATTRIBUTE`).
+    Chaque candidat laisse une ligne `repair: plan ` (la seule chose que
+    `merge_plan_report.is_job_log` teste) et un terminal `record()`.
+    """
+    import repair_orchestrator
+    import merge_video_chimeric
     del last_repair_report[:]
     work_root = path.join(tools.tmpFolder, "repair")
     tools.make_dirs(work_root)
     repaired = []
     # UNE SEULE MESURE DU MAITRE PAR LANGUE DE COMPARAISON, et ce dictionnaire
-    # EST ce "une seule". Voir `master_intertrack_verdict` juste au-dessus pour
-    # la raison pour laquelle il vit ici et pas plus haut dans la fonction.
+    # EST ce "une seule": `repair()` le recoit et le passe a
+    # `master_intertrack_verdict`. Il vit ici, par appel, parce qu'un appel de
+    # cette fonction = un maitre.
     master_intertrack_by_language = {}
 
     for candidate_path in list_not_compatible_video:
         # VMSAM_ERA (Architect's ruling, 2026-09-16): capture ICI, avant tout
-        # declin, parce que c'est le debut du JOB sur CE candidat -- pas le
-        # debut du mux, qui peut arriver bien plus tard ou jamais si le
-        # candidat decline avant. Un candidat decline avant `mux_repaired_file`
-        # calcule cette valeur pour rien (aucun fichier n'existe pour la
-        # porter) -- sans cout, et plus honnete qu'un second point de capture
-        # plus tard qui laisserait deux definitions possibles de "job start".
+        # declin, parce que c'est le debut du JOB sur CE candidat. Voyage vers
+        # l'etage 5 par la couture.
         job_start_utc = datetime.now(timezone.utc).isoformat()
-        # WHICH FILE, BEFORE ANY WORK ON IT (owner's decision, 2026-09-22,
-        # on a real 7-hour hang tonight: two containers logged the
-        # "not compatible" line at mergeVideo.py:803, then NOTHING --
-        # `repair_not_compatible_videos` is called from inside a bare
-        # `except Exception`, and an except clause cannot catch a hang.
-        # `merge_video_chimeric.py` carries three unbounded `subprocess.run`
-        # calls downstream of here -- traced, not yet confirmed which one
-        # runs the process into the ground). This line exists so that WHEN
-        # this happens again, the last thing logged before silence names the
-        # file, not just the fact that repair was entered at all. Emitted
-        # BEFORE the object lookup below, which is itself cheap and cannot
-        # hang -- the hang lives further down this loop, in the work that
-        # follows once a plan exists.
+        # WHICH FILE, BEFORE ANY WORK ON IT (owner's decision, 2026-09-22, on a
+        # real 7-hour hang whose last line named no file). The orchestrator
+        # logs a launch line per step as well; this one precedes even the
+        # object lookup.
         tools.dev_log(f"repair: repair_not_compatible_videos starting on "
                       f"{candidate_path}\n")
         candidate_obj = dict_file_path_obj.get(candidate_path)
         if candidate_obj == None:
-            # UNE SEULE DECISION ICI, DONC UN SEUL JETON, et il n'est pas
-            # grossier: la zone A a refuse un chemin dont elle n'a jamais porte
-            # l'objet. Un correctif agit sur la comptabilite de la zone A.
+            # La zone A a refuse un chemin dont elle n'a jamais porte l'objet.
+            repair_orchestrator._plan_line("none", candidate_path, step="entry",
+                                           cause="candidate_object_absent")
             record(candidate_path, "declined",
                    "the rejected path has no video object in dict_file_path_obj",
                    cause="candidate_object_absent")
-            # STOPGAP, not the fix: removes the fast-decline trigger of the
-            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
-            # fix is the owner's initializer in fusion.py; remove this note
-            # when that lands.
             _drain_audio_pools((best_video, candidate_obj),
-                                "candidate_object_absent")
+                               "candidate_object_absent")
             continue
         language, language_route = get_delay_language(best_video, candidate_obj)
         if language == None:
-            # LA RAISON VOYAGE AVEC LE REFUS. `language_route` etait calcule,
-            # rendu, DEPAQUETE ET JAMAIS UTILISE -- une occurrence dans tout le
-            # fichier. Trouve par `vmsam-auditor`.
-            # FORME `cause=<jeton>: <prose>` -- convenue avec dev-4 (EMISSION)
-            # AVANT ecriture, des deux cotes. dev-4 decoupe sur `cause=`, classe
-            # le JETON et rend la prose VERBATIM sans la relire dans sa voix.
-            # Ce site nommait deja sa cause; seule la FORME change, pour que le
-            # lecteur de dev-4 ne voie pas une population MIXTE ou un jeton reel
-            # et une constante survivante sont indiscernables.
+            # LA RAISON VOYAGE AVEC LE REFUS (`language_route`).
+            repair_orchestrator._plan_line("none", candidate_path, step="entry",
+                                           cause="language_undetermined")
             record(candidate_path, "no_plan",
                    f"could not tell which language the merge measured on "
                    f"({language_route})", cause="language_undetermined")
-            # STOPGAP, not the fix: removes the fast-decline trigger of the
-            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
-            # fix is the owner's initializer in fusion.py; remove this note
-            # when that lands.
             _drain_audio_pools((best_video, candidate_obj),
-                                "language_undetermined")
+                               "language_undetermined")
             continue
-        # ---- STEP 1: CLASSIFICATION -- LE MAITRE, CONTRE LUI-MEME ----------
-        # Avant le test de vitesse, avant le chimerique, avant toute mesure du
-        # candidat: le maitre est-il d'accord avec lui-meme sur LA LANGUE QU'ON
-        # MESURE? Si non, le candidat n'a rien fait de mal et le mesurer contre
-        # ce maitre produirait un delai qui depend de laquelle de ses propres
-        # pistes le localisateur a tiree (`change_point_locator.py:1800`).
-        # La classification SORT EN ERREUR ici, avec son jeton et ses nombres.
-        master_intertrack = master_intertrack_verdict(
-            best_video, language, master_intertrack_by_language)
-        if master_intertrack != None and master_intertrack["verdict"] != None:
-            # LE JETON EST CELUI DU MODULE QUI L'A MESURE, pas une constante
-            # recopiee ici: un jeton duplique est un jeton qui divergera.
-            # LES NOMBRES VOYAGENT AVEC LE REFUS -- instrument, decalage,
-            # correlation, et LES DEUX PISTES -- parce que c'est exactement ce
-            # qui manquait aux onze refus du dossier 86: la cause nommait le
-            # candidat pendant que la preuve etait dans le maitre.
-            # `verdict` EST DEJA UNE CLE DU VOCABULAIRE DE `detail_summary`
-            # (ligne "plan_kind, verdict, plan_source, ..."), donc la ligne
-            # `repair_detail: declined verdict=master_intertrack_desync` sort
-            # INCONDITIONNELLEMENT sans qu'il faille toucher a ce resume. Le
-            # dict complet (les deux pistes, le decalage, la correlation) part
-            # dans le vidage verbeux garde par `tools.dev`, ou il a sa place.
-            record(candidate_path, "declined", master_intertrack["reason"],
-                   detail={"verdict": master_intertrack["verdict"],
-                           "master_intertrack": master_intertrack},
-                   cause=master_intertrack["verdict"])
-            # STOPGAP, not the fix: removes the fast-decline trigger of the
-            # frozen fusion.py Pool.terminate() deadlock (CASE id 6) -- the
-            # fix is the owner's initializer in fusion.py; remove this note
-            # when that lands.
-            _drain_audio_pools((best_video, candidate_obj),
-                                "master_intertrack_desync")
-            # FALSIFIEUR (appendice A.7 du dossier id 6), et RIEN D'AUTRE. Le
-            # blocage observe apres le stopgap precedent laissait DEUX lectures
-            # indiscernables dans les traces: "le drain a tourne et a perdu la
-            # course contre `Pool.terminate()`" ou "le drain lui-meme a bloque,
-            # dans `wait_end_ffmpeg_progress_audio` -> `ApplyResult.get()`, sur
-            # un worker mort qu'aucun `Pool` de CPython ne detecte". La derniere
-            # ligne sortie avant le silence les separe. `log_always` et non
-            # `dev_log`: une ligne qui ne sert qu'a lire un blocage ne peut pas
-            # dependre d'un drapeau dont la valeur en production est justement
-            # ce qu'on ne peut pas verifier pendant le blocage. Elle est posee
-            # APRES le drain et AVANT le `continue`, parce que c'est exactement
-            # cet intervalle qui est en question.
-            tools.log_always(f"repair: drain complete at master_intertrack_desync "
-                             f"for {candidate_path}\n")
-            continue
-        plan, plan_refusal_cause, plan_refusal_detail = get_plan_from_locator(
-            best_video, candidate_obj, language)
-        plan_source = "change_point_locator"
-        if plan != None:
-            # COMMENT LA LANGUE A ETE CHOISIE, JUSQU'AU JOURNAL.
-            #
-            # `get_delay_language` peut rendre `"ARBITRARY: insertion order
-            # among [...]"` -- LE MODULE DECLARE QUE SON DEPARTAGE EST UN TIRAGE
-            # AU SORT -- et cette declaration n'atteignait aucun artefact. Un
-            # verdict de reparation ne pouvait donc pas etre recalcule depuis sa
-            # propre ligne de journal.
-            #
-            # C'est la meme classe que mon ecart sous-titre/audio de 119.55 ms:
-            # une valeur que le code connait et que le compte rendu ne porte pas.
-            # Et elle touche la question OWNER-PENDING -- quelle piste audio un
-            # sous-titre suit quand sa langue n'a pas d'audio -- parce qu'avec ce
-            # champ la question aurait des preuves sur CHAQUE fichier livre au
-            # lieu d'un cas mesure.
-            #
-            # Attache au plan plutot que passe en parametre: `log_assembly` recoit
-            # le plan et pas cette variable, et une annotation locale sur un dict
-            # que je viens de recevoir coute moins qu'une signature de plus.
-            plan["language_route"] = language_route
-        if plan == None:
-            # None de la mesure = "je n'ai pas pu mesurer", et surtout pas
-            # "les fichiers vont ensemble". Le refus reste, intact.
-            # LA CAUSE, PAS UNE CONSTANTE. Voir ACCEPTANCE_T12A: la chaine
-            # precedente affirmait qu'AUCUNE mesure n'existait, ce qui est FAUX
-            # sur le chemin du plancher de fidelite -- les sondes ont TOURNE et
-            # ont rendu un NEGATIF CONCLUANT.
-            #
-            # LA RAISON, QUAND LE CONFIRMATEUR DE VITESSE EN PORTE UNE. Ajoute
-            # 2026-09-22: `plan_refusal_detail` est non-None uniquement quand
-            # `get_plan_from_locator` est passe par le confirmateur de Stage 2
-            # (`describe_resample_decline`) -- ratio, fidelite mediane et
-            # ecart au plancher, la ou avant seule `f"no plan from
-            # {plan_source}"` atteignait cette ligne, quel que soit ce que la
-            # mesure avait trouve.
-            record(candidate_path, "no_plan",
-                   plan_refusal_detail if plan_refusal_detail != None
-                   else f"no plan from {plan_source}", cause=plan_refusal_cause)
-            continue
-        if plan.get("kind") == "constant":
-            # Troisieme issue de la mesure, et elle n'est pas la notre. Un
-            # decalage constant se corrige par un delai de conteneur; le
-            # reconstruire couterait une generation de codec par piste et
-            # perdrait les sous-titres bitmap qu'un simple decalage garde
-            # (docs/SUBTITLE_CODECS.MD). C'est aussi la sixieme population que
-            # vmsam-forensic a mesuree, dont 11 fichiers sont refuses pour un
-            # defaut du MAITRE et pas du candidat.
-            # On DECLINE, et on ne recommande rien. La formulation precedente
-            # disait "cette paire a besoin d'un delai de conteneur", ce qui est
-            # un conseil -- et vmsam-dev-1 a mesure le 2026-09-03 qu'il peut etre
-            # faux: son balayage a dix fenetres ne voit structurellement pas les
-            # ~227 premieres secondes d'un episode, donc "constant" veut dire
-            # "aucun pas visible" et non "le decalage est constant". Sur
-            # l'erreur 108 un delai de conteneur serait faux de 500 ms pendant
-            # les 146 premieres secondes et juste ensuite: un fichier plausible,
-            # silencieusement faux en tete. Un message de refus est ce sur quoi
-            # un lecteur agit; il ne doit pas porter une recommandation que la
-            # mesure ne soutient pas.
-            record(candidate_path, "declined",
-                   f"the measurement reports no change point, so there is nothing "
-                   f"to splice and a rebuild would cost a codec generation and "
-                   f"drop bitmap subtitles. NOT a warrant for a container delay: "
-                   f"'constant' means no step was VISIBLE, and the measurement is "
-                   f"blind to the head of the file ({plan_source})",
-                   {"plan_kind": "constant", "plan": plan},
-                   # LE JETON NOMME CE QUE LA MESURE A RAPPORTE, PAS CE QUE LE
-                   # FICHIER EST. `plan_kind_constant` aurait decrit le champ;
-                   # celui-ci decrit la DECISION, et il dit au seat suivant ou
-                   # frapper: elargir la couverture du locator, qui ne voit
-                   # structurellement pas la tete du fichier. 3 des 26 declins
-                   # mesures en production passent ici.
-                   cause="plan_reports_no_change_point")
-            continue
-        speed_ratio, speed_refusal, speed_cause = get_speed_ratio(plan)
-        if speed_refusal != None:
-            # LE JETON VIENT DE `get_speed_ratio`, QUI L'A PRODUIT A LA
-            # DECISION. Onze refus distincts arrivent ici et la prose est la
-            # seule chose qui les separe -- un jeton pose sur cette ligne les
-            # aurait tous appeles pareil, ce qui remplit la colonne et ne
-            # classe rien.
-            record(candidate_path, "declined", f"{speed_refusal} ({plan_source})",
-                   {"plan_kind": plan.get("kind"), "verdict": plan.get("verdict")},
-                   cause=speed_cause)
-            continue
-        if speed_ratio == None and not len(plan.get("segments") or []):
-            record(candidate_path, "declined",
-                   f"the measurement returned neither a segment nor a speed "
-                   f"relation ({plan_source})",
-                   cause="plan_has_neither_segment_nor_speed")
-            continue
-        master_check, master_cause = compare_plan_master(plan, best_video)
-        if master_check != None:
-            # LA RAISON NE PORTE PAS LE CHEMIN. `record` ecrit deja le fichier
-            # sur sa propre ligne; une RAISON, elle, se cite -- dans un rapport,
-            # dans un message a un autre agent, dans un resume -- et une raison
-            # qui contient un chemin media voyage avec lui. On redige avant que
-            # l'extrait ne parte, pas apres.
-            # TROIS JETONS POSSIBLES, PRODUITS PAR `compare_plan_master`. Deux
-            # veulent dire `je n'ai pas pu verifier` et un seul `j'ai verifie et
-            # ils different`; les confondre remettrait un negatif concluant dans
-            # le sac des absences de preuve.
-            record(candidate_path, "declined", master_check, cause=master_cause)
-            continue
-        admissibility_violation = check_candidate_admissibility(plan)
-        if admissibility_violation != None:
-            # RULING_20260916_PLAN_ADMISSIBILITY_NOT_TELEMETRY.MD, Ruling 2:
-            # checked HERE, at admission, before `build_repaired_video_object`
-            # does any extraction -- a refusal costs a probe, not a mux.
-            # The plan RAN and was MEASURED inadmissible; this is a decline,
-            # not a could-not-measure, same as every other check on this path.
-            record(candidate_path, "declined",
-                   f"plan reads the candidate backwards at master boundary "
-                   f"{admissibility_violation['master_boundary_ms']} ms: "
-                   f"offset steps by {admissibility_violation['offset_delta_ms']} ms "
-                   f"across a {admissibility_violation['master_gap_ms']} ms master gap "
-                   f"({plan_source})",
-                   admissibility_violation, cause="plan_reads_candidate_backwards")
-            continue
+        # COMMENT LA LANGUE A ETE CHOISIE, JUSQU'AU JOURNAL: `get_delay_language`
+        # peut rendre "ARBITRARY: insertion order among [...]" -- un tirage --
+        # et un verdict doit pouvoir se recalculer depuis sa propre ligne.
+        tools.dev_log(f"repair: comparison language={language} "
+                      f"route={language_route!r} for {candidate_path}\n")
+
+        _open_repair_seam(candidate_obj, job_start_utc)
+        reported_before = len(last_repair_report)
         try:
-            repaired_obj, assembly = build_repaired_video_object(
-                candidate_obj, best_video, plan, work_root, job_start_utc)
+            ok = repair_orchestrator.repair(
+                best_video, candidate_obj, language,
+                work_root=path.join(work_root,
+                                    merge_video_chimeric.stable_case_key(candidate_path),
+                                    "orchestrator"),
+                master_intertrack_cache=master_intertrack_by_language)
         except Exception as error:
-            # Un refus de l'assemblage est un DECLIN, pas une panne: le module a
-            # tourne, a regarde le plan ou le fichier produit, et a dit non. Les
-            # confondre reduirait les cinq issues a quatre, et l'issue perdue
-            # serait justement celle qui porte une raison.
-            import merge_video_chimeric
+            _close_repair_seam(candidate_obj)
+            # UNE LEVEE N'EST PAS UN VERDICT, ET ELLE NE DOIT PAS EMPORTER LES
+            # CANDIDATS SUIVANTS: la zone A l'attraperait ("The repair raised
+            # and was abandoned") et abandonnerait toute la liste. Un refus de
+            # l'assemblage (`chimeric_error`, l'etage 5) est un DECLIN avec son
+            # jeton pose au site de levee; toute autre levee est une PANNE, avec
+            # sa classe dans la prose et un jeton fixe.
             if isinstance(error, merge_video_chimeric.chimeric_error):
-                # Le declin porte ses sondes quand il en a: c'est ce qui permet
-                # a la mesure de diagnostiquer son propre plan sans rejouer le
-                # fichier.
-                # `output_check` VOYAGE AVEC LE DECLIN, ET C'EST LE DRAPEAU
-                # LEVE QUI REND CETTE LIGNE NECESSAIRE. Tant que le controle
-                # etait inerte, ce rapport n'apparaissait QUE sur des artefacts
-                # PRODUITS; maintenant il est la RAISON d'un declin, et sans lui
-                # le declin dit "le fichier produit ne correspond pas" sans
-                # jamais dire QUELLE piste ni de combien. La levee le porte
-                # (`error.output_check = report`) et le pilote le jetait.
+                cause = chimeric_cause(error)
                 record(candidate_path, "declined", str(error),
-                       decline_detail(error), cause=chimeric_cause(error))
-                sys.stderr.write(f"repair: declined {candidate_path}: {error}\n")
+                       decline_detail(error), cause=cause)
             else:
-                # LE MEME DETAIL SUR `failed` QUE SUR `declined`, ET C'EST CE
-                # CHEMIN-CI QUI PRODUIT `NOVERDICT`: une panne d'outil apres le
-                # mux laisse un artefact renomme, et le seul enregistrement qui
-                # peut le nommer est celui-ci. L'omettre remettrait le fichier
-                # hors de tout compte rendu, ce que le renommage existe pour
-                # empecher.
-                # LA CLASSE D'EXCEPTION ENTRE DANS LA PROSE, ET LE JETON RESTE
-                # FIXE. `str(error)` seul ne porte PAS le nom de la classe:
-                # une `TypeError` et une `OSError` arrivaient ici avec le seul
-                # message, donc la partie qui varie n'atteignait AUCUN artefact
-                # -- ni le jeton (regle lexicale 4 l'interdit) ni la prose. Le
-                # jeton unique n'avait alors RIEN pour etre decoupe.
-                #
-                # ET C'EST PRECISEMENT PARCE QUE CE SITE N'A JAMAIS TOURNE EN
-                # PRODUCTION (0 ligne sur 59 artefacts) QUE CA NE POUVAIT PAS
-                # ATTENDRE: le jour ou il tourne, ce premier artefact est
-                # TOUTE la base de preuve, et une classe absente est absente
-                # pour toujours. On n'ajoute pas un champ a un chemin mort, on
-                # rend lisible sa premiere levee. Autorise par le Lead, hors du
-                # perimetre des sept tampons.
+                cause = "repair_raised_unhandled"
                 record(candidate_path, "failed",
                        f"{type(error).__name__}: {error}", decline_detail(error),
-                       cause="repair_raised_unhandled")
-                sys.stderr.write(f"repair: failed for {candidate_path}: {error}\n")
+                       cause=cause)
+            repair_orchestrator._plan_line("none", candidate_path,
+                                           step="orchestrator_raised", cause=cause)
+            sys.stderr.write(f"repair: {cause} for {candidate_path}: {error}\n")
+            _drain_audio_pools((best_video, candidate_obj), cause)
             continue
-
-        # ORDRE, ET NON GARDE. Tout ce qui suit la reparation peut lever, et la
-        # mutation etait EN TETE: `best_video.sameAudioMD5UseForCalculation` etait
-        # deja accroche quand la levee partait. La zone A attrape
-        # (mergeVideo.py:808) et journalise "The repair raised and was
-        # abandoned", et `repaired_videos` reste vide parce que le `return` n'a
-        # jamais eu lieu. Le journal dit donc QU'IL NE S'EST RIEN PASSE pendant
-        # que l'objet repare est accroche -- et a trois fichiers ou plus, le
-        # garde `len(dict_file_path_obj) < 2` ne se declenche pas, la fusion
-        # continue, et mergeVideo.py:1815 parcourt cette liste SANS consulter
-        # `repaired_videos`. Le fichier produit porterait une piste fabriquee
-        # que le compte rendu declare inexistante -- la panne de provenance que
-        # SPEC_ZONE_A.MD s4 existe pour empecher, arrivee par le chemin d'erreur.
-        #
-        # On calcule donc TOUT ce qui peut lever d'abord, on raconte, et on
-        # mute en dernier. `plan.get("change_points", [])` rend None quand la
-        # cle existe a None -- ce que la mesure produit -- et `for c in None`
-        # est une TypeError: c'etait une levee REELLE juste apres la mutation.
-        # Trouve par l'architecte en lisant le correctif precedent plutot que
-        # le code corrige.
-        coarse = [c for c in (plan.get("change_points") or [])
-                  if c.get("narrowed") is False]
-        detail = {"plan_source": plan_source,
-                  "unverified_segment_ms": str(assembly["unverified_segment_ms"]),
-                  "coarse_brackets": coarse,
-                  "marker": assembly["marker"], "path": assembly["path"],
-                  "audios": assembly["audios"], "subtitles": assembly["subtitles"],
-                  "declined": assembly["declined"], "failed": assembly["failed"],
-                  "fabricated_dropped": assembly.get("fabricated_dropped") or [],
-                  "verification": assembly["verification"]}
-        reason = (f"{len(assembly['audios'])} audio and "
-                  f"{len(assembly['subtitles'])} subtitle track(s) rebuilt "
-                  f"(rebuilt in the repair object; final delivery decided later "
-                  f"by keep_best_audio), "
-                  f"{len(assembly['declined'])} declined, "
-                  f"{len(assembly['failed'])} failed, "
-                  # CASE_wakeup20260924: retirees AVANT la livraison par
-                  # `gate_fabricated_delivery` -- chacune a sa ligne
-                  # `repair: fabricated_dropped cause=...` plus haut.
-                  f"{len(assembly.get('fabricated_dropped') or [])} fabricated "
-                  f"dropped before delivery")
-        if len(coarse):
-            # `narrowed: false` = les deux longueurs de fenetre ont diverge et la
-            # mesure est retombee sur un intervalle d'une inter-fenetre, ~108 s.
-            # Le trou correspondant est cher; il faut que ca se voie dans le
-            # journal plutot que dans un champ que personne ne lit.
-            sys.stderr.write(f"repair: {len(coarse)} change point(s) of "
-                             f"{candidate_path} have a COARSE bracket; the gap "
-                             f"substituted from the master is correspondingly wide\n")
-            tools.logs.append(f"repair: {len(coarse)} coarse bracket(s) for {candidate_path}\n")
-        sys.stdout.write(f"\tRepaired {candidate_path} as {assembly['path']} "
-                         f"({assembly['marker']})\n")
-        # DERNIER, ET ADJACENT. Plus rien entre le compte rendu et la mutation:
-        # soit les deux ont lieu, soit aucun des deux, et le journal ne peut plus
-        # etre en desaccord avec l'etat partage. L'accrochage a `best_video` est
-        # la toute derniere instruction parce que c'est la seule que l'appelant
-        # peut voir apres une levee.
-        record(candidate_path, "repaired", reason, detail)
+        seam = _close_repair_seam(candidate_obj)
+        if not ok:
+            # Le refus est deja journalise par l'orchestrateur (ligne
+            # `repair: plan none ...`, puis `record()` avec son jeton et sa
+            # classe de mesure). Il reste le drain, sur TOUT refus et plus
+            # seulement sur les trois refus rapides de l'ancienne chaine: un
+            # drain sans travail en vol ne coute rien, et le refus le plus
+            # rapide -- `master_intertrack_desync`, l'etape 1 -- est justement
+            # celui qui a bloque 4 fois sur 3 SHA (CASE id 6).
+            cause = _terminal_cause_since(candidate_path, reported_before)
+            _drain_audio_pools((best_video, candidate_obj),
+                               cause or "orchestrator_declined")
+            # FALSIFIEUR (appendice A.7 du dossier id 6): la derniere ligne
+            # avant un eventuel silence dit si le drain a rendu la main.
+            # `log_always`, parce qu'une ligne qui sert a lire un blocage ne peut
+            # pas dependre de `tools.dev`. Meme forme qu'avant la bascule pour
+            # `master_intertrack_desync`.
+            tools.log_always(f"repair: drain complete at {cause} "
+                             f"for {candidate_path}\n")
+            continue
+        repaired_obj = seam.get("repaired_obj")
+        if repaired_obj == None:
+            record(candidate_path, "failed",
+                   f"the orchestrator returned True but handed over no repaired "
+                   f"object through `{REPAIR_SEAM_ATTRIBUTE}['repaired_obj']`: "
+                   f"the seam with plan application is broken, nothing is "
+                   f"attached and the refusal stands",
+                   cause="repaired_object_missing")
+            continue
+        sys.stdout.write(f"\tRepaired {candidate_path} as "
+                         f"{getattr(repaired_obj, 'filePath', repaired_obj)}\n")
+        # DERNIER, ET ADJACENT: l'accrochage a `best_video` est la toute
+        # derniere instruction parce que c'est la seule que l'appelant peut voir
+        # apres une levee.
         repaired.append(candidate_path)
         best_video.sameAudioMD5UseForCalculation.append(repaired_obj)
     return repaired

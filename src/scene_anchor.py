@@ -942,193 +942,6 @@ def _check_anchor_ordering(anchor_a, anchor_b):
     return False, None
 
 
-# DECLINE TAXONOMY (dev-step7-sweep, 2026-09-21, per the Lead's ruling on
-# the owner's ladder order: "if anchor are not the same ... increase the
-# number" -- a failed rung must know whether widening could plausibly
-# change its own answer, or whether it is re-running an already-fixed
-# computation at N times the cost). Covers every `reason`
-# `_locate_scene_anchors_at_window` can return. dev-step4-extract's own
-# `WINDOW_LADDER_RETRYABLE_REASONS` above is value-identical to the
-# RETRYABLE set below (confirmed directly, 2026-09-21) -- this function is
-# offered as the single source of truth for whoever's ladder consumes it
-# next; not force-adopted into their already-shipped loop unasked.
-#
-#   RETRYABLE          widening scene_search_window_sec (more readable
-#                       frames, more candidate seeds) could plausibly
-#                       change this outcome.
-#   TERMINAL            MEASURED, not assumed, to be independent of this
-#                       module's own window parameter -- see the per-reason
-#                       note below. Retrying is not a second measurement.
-#   CANNOT_DETERMINE    no reason of this module's own falls here today;
-#                       kept so an unrecognised future reason fails
-#                       EXPLICITLY rather than being silently folded into
-#                       either bucket (BRIEF_COMMON rule 5's distinction,
-#                       one level up: "unknown" and "known-not-retryable"
-#                       are different facts).
-DECLINE_RETRY_CLASS = {
-    # Pre-anchor input/config defects. A wider window cannot repair a bad
-    # frame-rate grid or a Stage-1 bracket that is already empty; listed
-    # for completeness of this function's whole reason vocabulary.
-    "grid_unmeasured": "TERMINAL",
-    "empty_bracket": "TERMINAL",
-    # CORRECTED (dev-step7-sweep, 2026-09-21, catching an error
-    # dev-step4-extract's own read found): this single token covers THREE
-    # different shapes at the decline site
-    # (`_locate_scene_anchors_at_window`, `window_sec is None or
-    # window_sec <= 0 or window_frames < MIN_VALIDATION_FRAMES`), and only
-    # ONE of them is fixable by widening. `window_sec is None` (an
-    # unparseable config value, `_scene_anchor_config`'s own contract) and
-    # `window_sec <= 0` (a literal zero/negative setting) are config
-    # DEFECTS, not narrow searches -- doubling `None` stays `None`,
-    # doubling a non-positive number never crosses into positive. Only
-    # `window_sec` being a valid, small POSITIVE value whose
-    # `window_frames` still falls under the floor is genuinely retryable.
-    # Marking the WHOLE token RETRYABLE (an earlier revision of this
-    # table did) means a malformed-config decline burns every rung before
-    # failing, AND its ceiling-reached report BURIES the sharper "someone
-    # typo'd config.ini" diagnosis one level down in the evidence string
-    # instead of surfacing it as the top-level reason -- the same
-    # token-conflation defect BLANK LAW / INSTRUMENT SCOPE LAW name
-    # elsewhere in tools/RULINGS_IN_FORCE.md. RULED (Lead, 2026-09-21):
-    # split into two tokens, see `WINDOW_LADDER_RETRYABLE_REASONS`'s own
-    # comment above for the full ruling text -- `search_window_unviable`
-    # now means None/<=0 ONLY (config defect, TERMINAL) and
-    # `search_window_too_narrow` means valid-positive-but-under-the-floor
-    # (RETRYABLE). The decline site below is the code half of that ruling
-    # (dev-step7-sweep, same pass: the ruling had landed in the comments
-    # and the frozenset but not yet in the `if` that actually returns the
-    # reason -- `search_window_too_narrow` was unreachable dead vocabulary
-    # until this edit).
-    "search_window_unviable": "TERMINAL",
-    "search_window_too_narrow": "RETRYABLE",
-    # ffmpeg produced no frames at all on one side. A wider window reads a
-    # LARGER span of the SAME unreadable source (same path, same codec,
-    # same failure) -- there is no reason more of the same input becomes
-    # readable. TERMINAL, not RETRYABLE-but-unlikely.
-    "frames_unextractable": "TERMINAL",
-    # Anchor establishment: no seed validated at all, or every validated
-    # seed failed the distinctiveness probe (at every rung of the OTHER,
-    # inner ladder -- dev-step6-phash's VALIDATION_FRAME_LADDER already
-    # widens the frame count per seed before this reason is ever reached).
-    # A wider window changes BOTH the candidate seed set (more
-    # PySceneDetect cuts in range) and the extracted hash range (more
-    # distinctiveness probes become readable instead of returning `None`)
-    # -- the two reasons the owner's order names directly ("if anchor are
-    # not the same, the 10 seconds is not enough").
-    "anchors_not_established": "RETRYABLE",
-    "anchor_uninformative": "RETRYABLE",
-    # DOWNSTREAM OF ANCHORS -- dev-step7-sweep's own domain. All three
-    # PROVEN TERMINAL below, not merely judged unlikely to help:
-    #
-    # `cross_sweep_refuted`: fires ONLY when `_check_anchor_ordering` is
-    # reached, which requires BOTH anchor_a and anchor_b to already be
-    # non-None -- i.e. `_anchor_search` already returned successfully for
-    # both, on its CLOSEST-seed-first, first-match-wins ordering
-    # (docstring above, "Try each seed ... return the first that
-    # validates"). PROVEN UNREACHABLE, not merely rare, at the sole call
-    # site (grepped: one call, right here): `a_seeds_master`'s every
-    # member is filtered `<= m_bracket_first` and `b_seeds_master`'s every
-    # member is filtered `>= m_bracket_last` (the two seed-construction
-    # blocks immediately above this function's own call site), so
-    # whichever seed each search returns, `anchor_a <= m_bracket_first <=
-    # m_bracket_last <= anchor_b` ALWAYS holds (`_frame_index` is
-    # monotonic non-decreasing, and `bracket_high_ms > bracket_low_ms` is
-    # already guaranteed by the `empty_bracket` decline above) --
-    # `anchor_a > anchor_b` cannot occur given the current seed filters,
-    # independent of window size, content, or anything else. CORRECTS the
-    # Architect's 2026-09-21 ruling on this same branch, above ("reachable
-    # in principle, no natural construction found") -- that reading did
-    # not account for the seed-set filters themselves proving the bound;
-    # reported to the Lead/Architect as a measured refutation, not acted
-    # on here (the guard stays: it is not an invariant of
-    # `_check_anchor_ordering` in isolation, only of the CURRENT seed
-    # construction that feeds it, so it remains real defense against a
-    # future change to that construction). Reproduced directly: the same
-    # non-inversion holds under adversarial seed injection at
-    # scene_search_window_sec=1.0 and =10.0 on a bracket built to try to
-    # force it (dev-step7-sweep lab, T6). Production check, n=59
-    # (`scene_anchor_shadow` lines, /config/output, 2026-09-21): zero
-    # occurrences of `cross_sweep_refuted`, consistent with the proof.
-    "cross_sweep_refuted": "TERMINAL",
-    # `anchor_step_unavailable`/`anchor_step_inconsistent`: both come out
-    # of `_check_step_plumbing`, which compares `delta_frames` against the
-    # LOCATOR's OWN `step_ms`/`quantum_ms` -- fields this function receives
-    # as opaque parameters and never computes. PROVEN (not assumed) that
-    # `delta_frames` itself cannot be moved by this module's window
-    # parameter: by construction, `split_start_candidate = split_start_master
-    # + before_shift` and `split_end_candidate = split_end_master +
-    # after_shift` ALWAYS (both the ordinary sweep and the crossed-collapse
-    # branch preserve this), so
-    #   delta_frames = length_candidate - length_master
-    #                = (split_end_candidate - split_start_candidate)
-    #                  - (split_end_master - split_start_master)
-    #                = after_shift - before_shift
-    # identically, for EVERY possible anchor_a/anchor_b/sweep outcome --
-    # this module's own `_check_step_plumbing` docstring already proves the
-    # same identity by 20-case simulation. `step_ms`/`quantum_ms` are
-    # supplied unchanged by the caller (`change_point_locator.py`, not this
-    # module) and are equally untouched by `scene_search_window_sec`. A
-    # wider window changes NEITHER side of the comparison
-    # `_check_step_plumbing` makes, so it cannot change whether it agrees.
-    "anchor_step_unavailable": "TERMINAL",
-    "anchor_step_inconsistent": "TERMINAL",
-    # EDGE / SINGLE-ANCHOR VOCABULARY (owner's ruling, 2026-09-22). Classified
-    # here, in the SAME table, because the edge path runs the SAME outer
-    # window ladder and must be able to ask the same question of its own
-    # reasons. Named apart from the two-anchor tokens on purpose: a census
-    # must be able to tell "the edge protocol could not seed one anchor" from
-    # "the interior protocol could not seed two", and a shared token would
-    # erase exactly the distinction this ruling turns on.
-    #
-    # The two establishment reasons are RETRYABLE for the reason the owner's
-    # order names: a wider window brings more candidate seeds into range and
-    # makes more distinctiveness probes readable -- "if anchor are not the
-    # same, the 10 seconds is not enought".
-    "edge_anchor_not_established": "RETRYABLE",
-    "edge_anchor_uninformative": "RETRYABLE",
-    # `_extract_hashes` returned nothing for a walk chunk on one side while
-    # the file was not yet exhausted, or a chunk seam could not be
-    # re-established. A wider ANCHOR window reads a different span of the same
-    # unreadable source and changes neither fact.
-    "edge_walk_unreadable": "TERMINAL",
-    # Coded/active geometry differs beyond `EDGE_GEOMETRY_ASPECT_TOLERANCE`
-    # and could not be reconciled by a crop. No window size makes two
-    # differently-framed pictures the same picture.
-    "edge_geometry_unreconciled": "TERMINAL",
-    # The SAME refusal on the interior path, reached only when a caller opts
-    # into `normalise_geometry` (orchestrator stage 4). Named apart from the
-    # edge token for the reason this table gives above: a census must tell
-    # which protocol could not reconcile the pictures.
-    "geometry_unreconciled": "TERMINAL",
-    # An edge gap exists ON THE MASTER'S OWN TIMELINE but the locator attached
-    # no bracket to bound it. TERMINAL -- and LOUD at the call site: it is a
-    # LOCATOR DEFECT, not a content fact. Its measured shape is errid 5's
-    # tail: `change_point_locator.py:2913` reports `master_end_ms =
-    # min(master, candidate)`, so on a master LONGER than its candidate the
-    # locator's "master end" is the CANDIDATE's duration, `tail_ends_at_
-    # master_end` takes CASE 1, no `trailing_bracket` is attached -- and
-    # `normalize_segments`, which gets the REAL master timeline, appends a
-    # 37.93 s `tail_gap` piece with `bracket=None`, invisible to the frame
-    # tier and to the `bracket_unnarrowed` gate (which returns early on a
-    # `None` bracket).
-    "edge_bracket_absent": "TERMINAL",
-}
-
-
-def classify_decline(reason):
-    '''RETRYABLE / TERMINAL / CANNOT_DETERMINE for a `reason`
-    `locate_scene_anchors` can return -- the predicate a retry ladder built
-    OUTSIDE this module (dev-step4-extract's window rungs, which already
-    wrap the whole call) should consult before spending another rung:
-    widen and retry only on RETRYABLE; stop and decline, named, on
-    anything else. Unrecognised reasons return `CANNOT_DETERMINE` rather
-    than silently joining either bucket -- an unclassified reason must be
-    visible as unclassified, not mistaken for a measured verdict either
-    way.
-    '''
-    return DECLINE_RETRY_CLASS.get(reason, "CANNOT_DETERMINE")
-
-
 def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms,
                          offset_before_ms, offset_after_ms,
@@ -1788,7 +1601,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         # THE TWO FRONTS AND THE SHIFTS, AS FIELDS (orchestrator stage 4,
         # 2026-09-24). They were already measured here and already in the
         # evidence STRING; a caller that has to decide on them -- ADDENDUM 3's
-        # `no_cut_confirmed`, ADDENDUM 4's `boundary_pinned_to_right_anchor`,
+        # `no_cut_confirmed`, ADDENDUM 4/13's `boundary_pinned_to_ambiguous_zone_end`,
         # which must log "the lengths of both walks and the size of the span"
         # -- must not parse prose to get them. Additive: no existing key moves.
         "pre_collapse_start_master": pre_collapse_start_master,
@@ -2542,23 +2355,51 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                               f"last_reason={result.get('reason')} "
                               f"last_evidence={result.get('evidence')}"}
 
-    # A NORMALISED PAIR THAT STILL COULD NOT SEED AN ANCHOR IS A GEOMETRY
-    # ANSWER, NOT A CONTENT ONE (spec S3a preference order (ii), and the id 33
-    # acceptance arm's own words: the walk must NEVER report a divergence
-    # here). Once a crop is in play, "no seed validated" and "the crop is
-    # wrong" are indistinguishable from inside this module -- so the honest
-    # token is the one that names the thing we could not establish, and it is
-    # TERMINAL where the establishment tokens are RETRYABLE.
-    if (result["declined"] and geometry.get("normalised")
-            and result.get("reason") in (
-                "edge_anchor_not_established", "edge_anchor_uninformative",
-                "search_window_ceiling_reached")):
-        result = {**result, "reason": "edge_geometry_unreconciled",
-                  "geometry": geometry,
-                  "evidence": (f"normalisation {geometry.get('crop')} applied but "
-                               f"no anchor could be established on it: "
-                               f"{result.get('reason')} "
-                               f"{result.get('evidence')}")}
+    # A NORMALISED PAIR THAT COULD NOT SEED AN ANCHOR IS A GEOMETRY ANSWER --
+    # BUT ONLY WHEN THE CROP WAS ACTUALLY TESTED AND FAILED. Spec S3a
+    # preference order (ii) and the id 33 acceptance arm: the walk must never
+    # report a divergence on a crop that is wrong. It used to relabel EVERY
+    # establishment failure on a normalised pair, which is wrong in two cases,
+    # MEASURED on errid-27's tail (2026-09-24, Fallout end credits):
+    #   * `edge_anchor_uninformative` -- a seed VALIDATED (>= 3 consecutive
+    #     frames under the crop, at shifts 103-108 at once). The crop is
+    #     therefore demonstrably fine; what failed is distinctiveness, a
+    #     CONTENT fact. Relabelling it named the crop for a static span.
+    #   * `edge_anchor_not_established` with ZERO scene cuts on both sides --
+    #     only the bracket-edge seed was offered, so the crop met one frame
+    #     pair at most and was never exercised. "No scene cut in reach" is the
+    #     cause; the crop is untested, not refuted.
+    # So the relabel now requires scene-cut seeds on at least one side AND no
+    # validation at any of them -- the one shape a wrong crop produces. The
+    # ladder's ceiling carries its last rung's reason and counts, and is
+    # judged on those.
+    if result["declined"] and geometry.get("normalised"):
+        reason = result.get("reason")
+        if reason == "search_window_ceiling_reached":
+            evidence = result.get("evidence") or ""
+            last_reason = next((token for token in ("edge_anchor_not_established",
+                                                    "edge_anchor_uninformative")
+                                if f"last_reason={token}" in evidence), None)
+        else:
+            last_reason = reason
+        cut_seeds = ((result.get("master_seed_count") or 0)
+                     + (result.get("candidate_seed_count") or 0))
+        if last_reason == "edge_anchor_not_established" and cut_seeds > 0:
+            result = {**result, "reason": "edge_geometry_unreconciled",
+                      "geometry": geometry,
+                      "evidence": (f"normalisation {geometry.get('crop')} applied, "
+                                   f"{cut_seeds} scene-cut seed(s) offered and none "
+                                   f"validated under it: {reason} "
+                                   f"{result.get('evidence')}")}
+        elif last_reason in ("edge_anchor_not_established",
+                             "edge_anchor_uninformative") and cut_seeds == 0:
+            result = {**result,
+                      "evidence": (f"no_scene_cut_in_reach (crop {geometry.get('crop')} "
+                                   f"not refuted -- "
+                                   + ("a seed validated under it"
+                                      if last_reason == "edge_anchor_uninformative"
+                                      else "untested")
+                                   + f"): {result.get('evidence')}")}
     return result
 
 

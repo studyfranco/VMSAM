@@ -1,32 +1,20 @@
 # -*- coding: utf-8 -*-
 """
 audio_extract.py -- the shared audio-extraction and stream-enumeration helpers, lifted out of
-`change_point_locator.py` so they can outlive it.
+`change_point_locator.py` (2026-09-22) so they could outlive it.
 
-WHY THIS FILE EXISTS, AND IT IS NOT A TIDY-UP. Four helpers that nothing about the probe grid
-made locator-specific ended up private names inside the locator, and three OTHER modules already
-reach across the underscore to call them (`zone_similarity_vector`, `banded_seed_alignment`,
-`pal_speed_discriminator` -- measured, `grep -rn` over `src/`, 2026-09-22). The orchestrator
-(RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD) removes the locator; removing it with these
-functions still inside would take three unrelated modules down with it. So they MOVE, they do
-not get copied and they do not get deleted -- `change_point_locator` keeps thin re-export shims
-bound to the objects defined here, so every existing caller keeps calling the SAME function
-object, not a second implementation that can drift.
+The locator was removed with the switch to the orchestrator (2026-09-24,
+RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 8 points 4 and 6), and with it the
+re-export shims (`_extract`, `_streams_for`, `_all_audio_streams`, `_audio_duration_seconds`)
+that kept its callers on the same function objects, plus `all_audio_streams` and
+`audio_duration_seconds`, whose only callers were the locator and the modules that reached
+into it. What remains is what `repair_orchestrator` calls: `extract_audio_window` and
+`streams_for`, and the `ExtractProducedNothing` refusal the former raises.
 
-WHAT IS DELIBERATELY UNCHANGED, BYTE FOR BYTE: the bodies, the thresholds, and the
-`locator: _extract ffmpeg call ...` narration line. That prefix now names a module this code no
-longer lives in, and it stays anyway for one stage: the acceptance condition for this move is
-that a locator run on a real pair is byte-identical to the run before it, and renaming a line
-that appears in every captured log would break exactly the comparison that proves the move was
-safe. The rename belongs with the locator's own removal, where the line has a new owner to be
-named after, not here where it would be an unmeasurable change riding along with a mechanical
-one.
-
-NEW PUBLIC NAMES, OLD PRIVATE ONES KEPT ALIVE BY THE SHIMS. A helper three modules import is
-not private, and carrying the leading underscore into a module built to be shared would
-enshrine the very confusion that put them behind one. The locator's `_extract`,
-`_audio_duration_seconds`, `_streams_for` and `_all_audio_streams` are now aliases for
-`extract_audio_window`, `audio_duration_seconds`, `streams_for` and `all_audio_streams`.
+The ffmpeg narration line was renamed from `locator: _extract ...` to
+`audio_extract: extract_audio_window ...` in the same batch -- the rename this file's first
+version deferred "to the locator's own removal, where the line has a new owner to be named
+after". No parser reads that prefix (grep over src/ and VMSAM_HELP_AI/tools, 2026-09-24).
 """
 from os import stat as os_stat
 
@@ -41,10 +29,9 @@ class ExtractProducedNothing(Exception):
     This is the one failure mode `vmsam-ci` traced to a root cause, and it deserves to be
     distinguishable from a correlation that ran and failed. ***
 
-    MOVED HERE 2026-09-22, CLASS IDENTITY PRESERVED: `change_point_locator` binds its own
-    `ExtractProducedNothing` name to THIS class object, so `except cpl.ExtractProducedNothing`
-    at the locator's own probe site still catches what this module raises. A copy of the class
-    would have compiled, passed every import, and caught nothing.
+    MOVED HERE 2026-09-22 from `change_point_locator`, which bound its own name to THIS class
+    object so its probe site kept catching it; the class identity lives here alone since the
+    locator's removal.
     """
 
 
@@ -125,16 +112,16 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     # IMMEDIATELY-PRE-CALL, NOT FUNCTION-ENTRY (owner's order, 2026-09-22,
     # via the Architect: `tools.launch_cmdExt` here is genuinely unbounded --
     # `Popen` + bare `communicate()`, no timeout at any layer). A line at
-    # `_extract`'s own top would not name THIS call in flight if a hang
-    # happens here specifically, since `_extract` runs many times per pair
+    # `extract_audio_window`'s own top would not name THIS call in flight if a
+    # hang happens here specifically, since it runs many times per pair
     # and nothing upstream of this point can hang -- the log has to sit
     # where the block actually starts, not where the function does.
-    # THE FILTER IS NAMED ONLY WHEN THERE IS ONE, so the no-filter line stays byte-identical to
-    # the one every captured log already carries (the stage-2 acceptance condition above) while a
-    # filtered extraction can never be mistaken for an untouched one by a reader of the same log.
+    # THE FILTER IS NAMED ONLY WHEN THERE IS ONE, so a filtered extraction can never be mistaken
+    # for an untouched one by a reader of the same log (the prefix was `locator: _extract` until
+    # the locator's removal, 2026-09-24).
     # A speed-corrected extraction that looked exactly like a raw one would make the single most
     # consequential fact about this call invisible.
-    tools.dev_log(f"locator: _extract ffmpeg call file={source_path} "
+    tools.dev_log(f"audio_extract: extract_audio_window ffmpeg call file={source_path} "
                   f"stream_order={stream_order} out_path={out_path}"
                   + (f" audio_filter={audio_filter}" if audio_filter else "") + "\n")
     tools.launch_cmdExt(cmd)
@@ -174,48 +161,3 @@ def streams_for(video_obj, language):
         return []
     return [entry["StreamOrder"] for entry in audios[language]
             if entry.get("StreamOrder") is not None]
-
-
-def all_audio_streams(video_obj):
-    """EVERY audio stream with its language, not only one language's.
-
-    `streams_for` answers "the streams of language L". This answers "the streams",
-    which is what a per-language pairing needs.
-    """
-    audios = getattr(video_obj, "audios", None) or {}
-    out = []
-    for lang, entries in audios.items():
-        for entry in entries:
-            order = entry.get("StreamOrder")
-            if order is not None:
-                out.append((order, lang))
-    return sorted(out)
-
-
-def audio_duration_seconds(video_obj, language):
-    """The comparison language's own declared duration, off the video object's metadata.
-
-    Returns None when the object carries no such reading. NONE MEANS "I COULD NOT MEASURE",
-    never "zero" and never "the track is absent" -- the standing invariant, restated here
-    because this function is now reachable from a second chain whose entry point cannot see the
-    locator's own docstring saying it.
-    """
-    audios = getattr(video_obj, "audios", None)
-    if not audios or language not in audios or not audios[language]:
-        return None
-    for key in ("Duration", "duration"):
-        if key in audios[language][0]:
-            try:
-                return float(audios[language][0][key])
-            except (TypeError, ValueError):
-                pass
-    return None
-
-
-# THE OLD PRIVATE NAMES, ALIASED TO THE SAME OBJECTS. `change_point_locator` re-exports these,
-# and three modules call them through it today. Aliases rather than wrappers: a wrapper would
-# put a second frame in every traceback and a second place for a signature to drift.
-_extract = extract_audio_window
-_streams_for = streams_for
-_all_audio_streams = all_audio_streams
-_audio_duration_seconds = audio_duration_seconds

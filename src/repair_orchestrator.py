@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 repair_orchestrator.py -- the owner's flat orchestrator (RULING_20260922_ORCHESTRATOR_
-ARCHITECTURE.MD, plus its seven addenda), stage 1 of the staged switch described in
+ARCHITECTURE.MD, plus its seven addenda), built through the staged switch described in
 `VMSAM_HELP_AI/architect/cases/DESIGN_orchestrator_mapping.md` section 5.
 
 WHAT THIS IS, AND WHAT IT IS NOT YET. The owner's shape is "une fonction qui agence des
@@ -35,10 +35,12 @@ MEASUREMENT CLASS. Nothing here returns True on work it did not do.
                                                           pairs included (ADDENDUM 8 lifted the
                                                           `restoration_deferred` deferral)
 
-*** NOT WIRED INTO THE LIVE CHAIN. Nothing in `src/` calls `repair()` yet. The owner's ruling
-is REMPLACEMENT DIRECT -- one switch, no cohabitation flag -- and that switch is the design's
-stage 6, not this one. Until then `merge_video_repair.repair_not_compatible_videos` remains the
-production entry unchanged, and this module is driven directly against real pairs. ***
+*** WIRED: THIS IS THE LIVE CHAIN (stage 6, 2026-09-24, owner's REMPLACEMENT DIRECT --
+ADDENDUM 8 points 4 and 6). `merge_video_repair.repair_not_compatible_videos`, the zone-A entry,
+calls `repair()` once per refused candidate; the legacy chain (`get_plan_from_locator`, the band
+routing, `change_point_locator`) was removed in the same batch. Until step 5 lands, production
+declines `plan_application_not_implemented` on every pair that reaches the end. The seam that
+carries the repaired object back to the entry is `merge_video_repair.REPAIR_SEAM_ATTRIBUTE`. ***
 
 RETURN CONTRACT: a BOOLEAN (owner's ADDENDUM 1, point 4). True = a plan was found AND the
 temporary chimeric file was created successfully. False = everything else. The boolean has NO
@@ -57,7 +59,8 @@ A reader who sees `False` and wants to know which of the three it was reads the 
 who never looks gets a boolean that is safe either way, because all three mean "do not ship".
 
 SEQUENTIAL, DELIBERATELY. The design's section 4 measured that this code path carries NO
-threading today (`frame_compare.py:5` imports `Thread` and never calls it -- a dead import),
+threading today (`frame_compare.py` imported `Thread` and never called it -- removed as
+dead with the switch),
 that the cost bottleneck is per-track ffmpeg extraction rather than hole resolution, and that
 the process already lives under a wedge-prone frozen `Pool.terminate()` (CASE id 6). Parallelism
 is the design's stage 7 and lands AFTER the switch, so that a 317 re-score regression can be
@@ -348,20 +351,13 @@ LADDER_MIN_RUNG_MONOTONE_FRACTION = 0.85
 # were.
 LADDER_CORROBORATION_BAND = 2.0
 
-# THE MAGNITUDE FLOOR, IMPORTED NOT RESTATED. `change_point_locator.RATE_SLOPE_MIN_FACTOR_
-# DEVIATION` is 5e-4, derived there as HALF the smallest deviation in the named rate vocabulary
-# (1001/1000, |f-1| = 1/1001 = 9.99e-4) and landed on a measured false fire. The locator dies in
-# the switch and its measurement does not, so this reads the constant while the module still
-# exists and falls back to the same literal -- with the fallback logged, never silent -- for the
-# day it does not.
-try:
-    import change_point_locator as _change_point_locator
-    RATE_LADDER_MIN_FACTOR_DEVIATION = float(
-        _change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION)
-    _RATE_LADDER_DEVIATION_SOURCE = "change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION"
-except Exception:                                                        # noqa: BLE001
-    RATE_LADDER_MIN_FACTOR_DEVIATION = 5e-4
-    _RATE_LADDER_DEVIATION_SOURCE = "literal fallback -- change_point_locator unimportable"
+# THE MAGNITUDE FLOOR, DERIVED HERE. Half the smallest deviation in the named rate vocabulary:
+# 1001/1000 is the closest named rate to unity, |f - 1| = 1/1001 = 9.99e-4, and half of it is
+# 5e-4 -- the smallest deviation a real rate relation can have, split so that a ladder reading
+# under it cannot be a member of the vocabulary. It was `change_point_locator.RATE_SLOPE_MIN_
+# FACTOR_DEVIATION`, derived there the same way and landed on a measured false fire; the locator
+# was removed with the switch (2026-09-24), so the derivation lives with its only reader.
+RATE_LADDER_MIN_FACTOR_DEVIATION = 5e-4
 
 # The aligner's own "I could not measure" vocabulary -- the step-2 gate's one calibrated arm.
 # These are `banded_seed_alignment`'s tokens, read from the module rather than restated here.
@@ -457,20 +453,22 @@ DECLINE_CAUSES = {
 # THE FULL VOCABULARY, CLOSED (stage 4). Every status but `declined` carries exact frames:
 #   resolved                          interior, two anchors, the cut pinned on both files
 #   no_cut_confirmed                  ADDENDUM 3 -- the video crossed the hole under ONE shift
-#   boundary_pinned_to_right_anchor   ADDENDUM 4 -- a static span, cause=static_span_ambiguity
+#   boundary_pinned_to_ambiguous_zone_end
+#                                     ADDENDUM 4/12/13 -- a self-similar span, pinned at the
+#                                     END OF THE AMBIGUOUS ZONE, cause=static_span_ambiguity
 #   sustained_mismatch                EDGE ruling termination 1 -- divergent content: replace
 #   master_exhausted                  EDGE ruling termination 2 -- candidate excess: trim
 #   candidate_exhausted               EDGE ruling termination 3 -- master addition, COUNTED
 #   declined                          the resolver could not establish a boundary; named reason
 HOLE_RESOLVED = "resolved"
 HOLE_NO_CUT_CONFIRMED = "no_cut_confirmed"
-HOLE_PINNED_TO_RIGHT_ANCHOR = "boundary_pinned_to_right_anchor"
+HOLE_PINNED_TO_AMBIGUOUS_ZONE_END = "boundary_pinned_to_ambiguous_zone_end"
 EDGE_SUSTAINED_MISMATCH = "sustained_mismatch"
 EDGE_MASTER_EXHAUSTED = "master_exhausted"
 EDGE_CANDIDATE_EXHAUSTED = "candidate_exhausted"
 HOLE_DECLINED = "declined"
 EDGE_TERMINATIONS = (EDGE_SUSTAINED_MISMATCH, EDGE_MASTER_EXHAUSTED, EDGE_CANDIDATE_EXHAUSTED)
-HOLE_STATUSES_WITH_FRAMES = (HOLE_RESOLVED, HOLE_NO_CUT_CONFIRMED, HOLE_PINNED_TO_RIGHT_ANCHOR
+HOLE_STATUSES_WITH_FRAMES = (HOLE_RESOLVED, HOLE_NO_CUT_CONFIRMED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END
                              ) + EDGE_TERMINATIONS
 
 # The three `why=` tokens are a CLOSED SET PINNED BY A TOOL, not a naming choice:
@@ -643,6 +641,21 @@ def enumerate_couples(master_obj, candidate_obj, language):
     return [(m, c) for m in master_streams for c in candidate_streams]
 
 
+# THE FINGERPRINT QUANTUM IS FPCALC'S HOP, A CONSTANT OF CHROMAPRINT -- NOT duration/points.
+# Chromaprint resamples every input to 11025 Hz and frames it at 4096 samples with an overlap of
+# `4096 - 4096 / 3` in C++ INTEGER arithmetic, so consecutive points are 1365 samples apart:
+# 1365 / 11025 s = 123.8095 ms. (The float 4096/3/11025 = 123.84 ms is NOT the hop; the integer
+# division is.) MEASURED 2026-09-24 on fpcalc 1.6.1, the binary the pipeline calls: synthetic
+# noise of 60 / 120 / 600 / 1200 s yields 463 / 948 / 4825 / 9671 points, slope 8.0772
+# points/s = 123.806 ms per point (1365/11025 gives 8.0769), and a constant ~21.6-point deficit
+# (the classifier/filter window at the end of the stream) that `duration / len(points)` used to
+# spread over the whole file. Positions are `index * CHROMAPRINT_HOP_MS` from the start of the
+# extraction, on every track, raw or rate-corrected.
+CHROMAPRINT_SAMPLE_RATE = 11025
+CHROMAPRINT_HOP_SAMPLES = 4096 // 3
+CHROMAPRINT_HOP_MS = CHROMAPRINT_HOP_SAMPLES * 1000.0 / CHROMAPRINT_SAMPLE_RATE
+
+
 def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_rate,
                       duration_seconds, audio_filter=None, output_duration_seconds=None):
     """One whole-file fingerprint list for ONE track. Returns `(points, quantum_ms)`, or
@@ -651,12 +664,11 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
     ON `audio_filter` / `output_duration_seconds` -- THE COMPARISON RESAMPLE, AND WHY THE SECOND
     ARGUMENT IS NOT OPTIONAL ONCE THE FIRST IS GIVEN. `duration_seconds` bounds what is READ from
     the source (it lands on ffmpeg's `-t`, before `-i`); a speed filter changes what is WRITTEN.
-    So a corrected extraction is `duration_seconds * effective_ratio` long, and BOTH the fpcalc
-    `-length` and the quantum must be computed from THAT, not from the input length. Passing the
-    input length would (a) tell fpcalc to stop early and truncate exactly the tail the correction
-    just restored, and (b) divide the real span by the wrong number and hand every consumer a
-    quantum that is wrong by the rate relation -- a per-track quantum silently off by 4.27 % is
-    worse than no quantum, because everything downstream would keep working and be wrong.
+    So a corrected extraction is `duration_seconds * effective_ratio` long, and the fpcalc
+    `-length` must be THAT, not the input length -- the input length would tell fpcalc to stop
+    early and truncate exactly the tail the correction just restored. The quantum does not depend
+    on it: see `CHROMAPRINT_HOP_MS` -- the points of a corrected extraction sit one hop apart on
+    the corrected (master-equivalent) timeline, exactly as those of a raw one do on its own.
     `output_duration_seconds` defaults to `duration_seconds`, which is exactly right when there
     is no filter and never right when there is one.
 
@@ -672,9 +684,11 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
 
     Unequal point counts are fine for the aligner: `b2_align` is index-based and
     `extend_seed` bounds itself on both `len(fp_master)` and `len(fp_candidate)` independently.
-    What unequal counts DO produce is two different quanta, which is why each side's quantum is
-    computed here from ITS OWN count and carried separately -- the standing per-track-quantum
-    invariant, measured live on errid-232 at 124.0636 ms master vs 124.0418 ms candidate.
+    The quantum is still returned PER TRACK and carried separately (the standing per-track-quantum
+    invariant): it used to be `duration / len(points)`, which differed per track (124.0636 vs
+    124.0418 ms on errid-232) only because fpcalc drops a fixed ~21 trailing points, so the
+    division spread that loss over the file -- 124.05 ms against the real 123.81 ms hop, a
+    position error that grows to ~2 s by the end of a 20-minute file. It is now the hop itself.
 
     `length` IS PASSED TO fpcalc EXPLICITLY. `audioCorrelation.calculate_fingerprints` defaults
     to `length=1`, i.e. ONE SECOND of fingerprints, silently -- a caller that forgets this gets a
@@ -705,7 +719,7 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
             pass
     if not points:
         return None, None
-    return points, output_duration_seconds * 1000.0 / len(points)
+    return points, CHROMAPRINT_HOP_MS
 
 
 # ---------------------------------------------------------------------------
@@ -1846,7 +1860,8 @@ def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms
 
 def _interior_verdict(result):
     """ONE shift and nothing left between the fronts -> the hole closes (ADDENDUM 3). Two shifts
-    and fronts that OVERLAP, on either file's axis -> a static span, pinned right (ADDENDUM 4).
+    and fronts that OVERLAP, on either file's axis -> a static span, pinned at the end of the
+    ambiguous zone (ADDENDUM 4, 12, 13).
     Anything else is a cut pinned on both files.
 
     WHY THESE ARE THE RIGHT READINGS OF THE SWEEP. The forward walk from A only advances on
@@ -1868,13 +1883,23 @@ def _interior_verdict(result):
         return HOLE_NO_CUT_CONFIRMED
     candidate_overlap = result["candidate_end_frame"] < result["candidate_start_frame"]
     if not same_shift and (result["sweep_crossed"] or candidate_overlap):
-        return HOLE_PINNED_TO_RIGHT_ANCHOR
+        return HOLE_PINNED_TO_AMBIGUOUS_ZONE_END
     return HOLE_RESOLVED
 
 
 def _pin_point(result):
-    """WHERE "the right anchor" is, for ADDENDUM 4 -- the right end of the span the two walks
-    CLAIM IN CONFLICT. Returns `(pin_frame, ambiguous_frames)`.
+    """THE END OF THE AMBIGUOUS ZONE -- ADDENDUM 4 as confirmed and named by the owner in
+    ADDENDA 12 and 13 (2026-09-24). Returns `(pin_frame, ambiguous_frames)`.
+
+    The owner's vocabulary, verbatim in substance: A = the last common scene before, B = the
+    first common scene after (`scene_anchor`'s anchors). THE AMBIGUOUS ZONE = the frames that
+    match under BOTH shifts; its END is the right edge of those frames -- where the walk from B
+    stops matching under the after-shift. The N-frame addition or removal is made IN ONE BLOCK at
+    that end, never in the middle: addition => candidate_zone_end + N; removal =>
+    candidate_zone_end - N. Anchor B is only the special case where the zone extends all the way
+    to it (a fully static span, Bleach). The verdict is `boundary_pinned_to_ambiguous_zone_end`
+    (it was `boundary_pinned_to_right_anchor` until ADDENDUM 13 fixed the vocabulary; the
+    behaviour below did not change, only the name).
 
     The ruling's premise is that BOTH walks traverse the whole static span, so the ambiguous
     region is everything between the anchors and its right end IS anchor B. On real media the
@@ -1902,14 +1927,14 @@ def _pin_point(result):
 
 
 def _pinned_frames(result):
-    """ADDENDUM 4's placement, written out for BOTH signs of the step, at `_pin_point`.
-
-    "LE TROU EST PLACE SUR LES FRAMES JUSTE AVANT L'ANCRE DE DROITE ... le splice/fill
-    s'applique aux frames qui la precedent." With `delta = after_shift - before_shift` (the
+    """ADDENDUM 4/12/13's placement, written out for BOTH signs of the step, at `_pin_point`
+    (the end of the ambiguous zone): "l'ajout/suppression de N frames se fait D'UN BLOC A
+    L'EXTREMITE DROITE de cette zone ... ajout => timecode_droit_candidat + N ; suppression =>
+    timecode_droit_candidat - N". With `delta = after_shift - before_shift` (the
     candidate's net frames, + = it holds more) and P the pin:
       * delta >= 0 (addition): nothing of the master is replaced; the candidate's `delta` extra
         frames are the ones just before P's content -- master [P, P), candidate
-        [P + before, P + after). At P = anchor B this is `locate_scene_anchors`' own collapse.
+        [P + before, P + after). At P = anchor B (zone reaching B) this is `locate_scene_anchors`' own collapse.
       * delta < 0 (deletion): the master's `-delta` frames the candidate lacks are FILLED, and
         the fill is the frames just before P -- master [P + delta, P), candidate empty at
         P + after. The resolver's collapse would instead return master [B, B) with an INVERTED
@@ -1930,7 +1955,7 @@ def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
     grid = result["grid"]
     master_start, master_end = result["master_start_frame"], result["master_end_frame"]
     candidate_start, candidate_end = result["candidate_start_frame"], result["candidate_end_frame"]
-    if status == HOLE_PINNED_TO_RIGHT_ANCHOR:
+    if status == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
         master_start, master_end, candidate_start, candidate_end = _pinned_frames(result)
     length_master = master_end - master_start
     length_candidate = candidate_end - candidate_start
@@ -1976,7 +2001,7 @@ def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
         "geometry": (result.get("geometry") or {}).get("verdict"),
         "evidence": result.get("evidence"),
     }
-    if status == HOLE_PINNED_TO_RIGHT_ANCHOR:
+    if status == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
         outcome["cause"] = "static_span_ambiguity"
         outcome["pin_frame"], outcome["ambiguous_frames"] = _pin_point(result)
     if refuted_proposal is not None:
@@ -2244,7 +2269,7 @@ def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj):
     `why_token`, points, `master_ms`/`candidate_ms`, `offset_before_points`/`offset_after_points`,
     `step_ms`) and a `resolution` dict from `resolve_hole` with, in MASTER frame numbers on the
     exact grid (`resolution["grid"]`, "num/den"):
-      interior   `status` resolved | boundary_pinned_to_right_anchor (cause
+      interior   `status` resolved | boundary_pinned_to_ambiguous_zone_end (cause
                  static_span_ambiguity); `master_start_frame`/`master_end_frame` = the master
                  interval to FILL from the master (empty on an addition or a same-length
                  replacement); `candidate_start_frame(_equivalent)`/`candidate_end_frame(...)` =
@@ -2913,6 +2938,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
                     verdict=alignment["verdict"], n_zones=len(alignment.get("zones") or []),
                     n_cut_zones=len(alignment.get("cut_zones") or []),
                     overlaps_resolved=alignment.get("segments_overlap_resolved"),
+                admitted_self_evident=alignment.get("admitted_self_evident"),
                     coverage=alignment.get("master_axis_coverage_fraction"),
                     residual_fraction=alignment.get("residual_fraction"),
                     seconds=round(alignment["alignment_seconds"], 2))
@@ -3121,8 +3147,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir,
             step_result("refuted_proposal", candidate=candidate_path, hole=index,
                         **outcome["refuted_proposal"])
         # ADDENDUM 4, POINT 3: "jamais un placement silencieux" -- both walks and the span.
-        if outcome["status"] == HOLE_PINNED_TO_RIGHT_ANCHOR:
-            step_result("boundary_pinned_to_right_anchor", candidate=candidate_path,
+        if outcome["status"] == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
+            step_result("boundary_pinned_to_ambiguous_zone_end", candidate=candidate_path,
                         hole=index, cause="static_span_ambiguity",
                         forward_walk_frames=outcome["forward_walk_frames"],
                         backward_walk_frames=outcome["backward_walk_frames"],
@@ -3399,6 +3425,7 @@ def _prime_primary_couple(master_obj, candidate_obj, language, work_dir, couple,
                 verdict=alignment["verdict"], n_zones=len(alignment.get("zones") or []),
                 n_cut_zones=len(alignment.get("cut_zones") or []),
                 overlaps_resolved=alignment.get("segments_overlap_resolved"),
+                admitted_self_evident=alignment.get("admitted_self_evident"),
                 coverage=alignment.get("master_axis_coverage_fraction"),
                 residual_fraction=alignment.get("residual_fraction"),
                 seconds=round(alignment["alignment_seconds"], 2))

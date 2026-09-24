@@ -62,7 +62,6 @@ a la premiere passe ffmpeg (`-c copy -map_metadata 0`), a la seconde, au
 
 from decimal import Decimal, ROUND_HALF_EVEN
 from fractions import Fraction
-import os
 from os import path, replace as replace_file
 import re
 import subprocess
@@ -4128,7 +4127,6 @@ def assemble_on_master_timeline(candidate_obj, master_obj, segments, work_dir,
 # prix de ne pas decoder chaque fichier en entier a chaque reparation.
 verify_window_seconds = 20
 verify_probe_rate = 8000
-verify_max_probes = 4
 # Une fenetre sans signal n'est pas une fenetre. Mesure 2026-09-03 sur l'erreur
 # 266: les premieres secondes du programme sont quasi muettes, RMS 1e-5 en pleine
 # echelle, et la correlation y rend -170.69 ms avec r=0.82 -- du bruit contre du

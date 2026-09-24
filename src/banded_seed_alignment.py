@@ -5,12 +5,12 @@ Et on fait un alignement adn." — B2_ADOPTED, production integration ordered). 
 `VMSAM_HELP_AI/prover-stage1/lab/candidate_b2.py`, whose bench results
 (`b2_results_constructed.md`) are the acceptance record this build answers to.
 
-*** SEQUENCING (Lead's explicit ruling, 2026-09-21): THIS FILE IS ADDITIVE ONLY. Nothing in
-src/ imports it yet. The call-site edit into `change_point_locator.py` is a SEPARATE, later
-step, held back deliberately -- all seats share one working tree, and an edit to a shared
-call site is not the same risk as a new file nobody references. Do not wire this in without
-being told; that instruction will come once prover's remaining bench arms (real-corpus wild
-pairs, drift/PAL discrimination, the collapsed-ladder fixture) have landed. ***
+WIRED (2026-09-24): `repair_orchestrator` is this module's caller -- `b2_align` is the
+orchestrator's alignment function (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD, "la fonction
+d'alignement de sequences"), and since the switch the orchestrator is THE repair chain. The
+standalone `locate_zones_by_alignment` wrapper that existed for pre-wiring acceptance runs was
+removed with the switch: it had no caller, and the orchestrator extracts each track to its own
+full duration instead (see `repair_orchestrator.fingerprint_track`).
 
 DNA-style k-mer WORD SEEDING (BLAST-style) on a REDUCED alphabet (top `B` bits of each 32-bit
 chromaprint value), seed-and-extend with Hamming-tolerant extension on FULL 32-bit values,
@@ -93,6 +93,7 @@ plus edge slack," and the truth has been inside it every time measured so far (7
 must read `edge_slack_note` on each zone rather than treating `zone_master_time_bounds_s`'s own
 width as either the resolution floor or a plausible-only-once-refined margin.
 """
+import math
 import statistics
 
 # THE COMPLETE VERDICT VOCABULARY, AS CONSTANTS, BECAUSE A CONSUMER HAS TO BRANCH ON IT.
@@ -122,7 +123,6 @@ COULD_NOT_MEASURE_VERDICTS = (
     VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR,
 )
 MEASURED_VERDICTS = (VERDICT_SINGLE_SEGMENT_NO_CUT, VERDICT_SEGMENTS_FOUND)
-VERDICTS = COULD_NOT_MEASURE_VERDICTS + MEASURED_VERDICTS
 
 # *** AND A MEASURED VERDICT IS NOT THE SAME AS A USABLE ONE. `VERDICT_SINGLE_SEGMENT_NO_CUT`
 # says "no offset STEP was found"; it says nothing about how much of the master axis any zone
@@ -157,6 +157,30 @@ LOCAL_BASELINE_MIN = 0.75        # a segment's flanking region must average at l
                                    # actually discriminates rather than passing everything or
                                    # nothing -- re-verify per corpus rather than assume this
                                    # margin transfers to material this was not measured against.
+LOCAL_BASELINE_SELF_EVIDENT_SECONDS = 30.0  # a run at least this long, over non-degenerate
+                                   # content, is its OWN local region and is admitted without its
+                                   # flanks. WHY THE FLANKS CANNOT JUDGE IT: `extend_seed` grows a
+                                   # run until similarity drops, so on BIT-IDENTICAL audio (a
+                                   # same-source release, typically at offset 0) the run covers the
+                                   # WHOLE matching region and its flanks are, by construction, the
+                                   # far side of the cut or the file edge. MEASURED 2026-09-24 on the
+                                   # stage-4 constructed fixture: a 1930-point (240 s) identical
+                                   # half at offset 0 read flank baseline 0.598 (left flank empty,
+                                   # right flank = post-cut) and was REFUSED -- the half went
+                                   # unaligned. Re-encoded pairs never showed it because noise
+                                   # breaks their runs into pieces whose flanks still match. 30 s
+                                   # is ~240 points: two orders of magnitude past the guard's own
+                                   # 15-point window, and longer than any in-file exact repeat the
+                                   # guard exists to refuse at a wrong offset (a shared music cue
+                                   # carries different dialogue/effects on top and does not stay
+                                   # >= 0.85 for 30 s).
+LOCAL_BASELINE_SELF_EVIDENT_MIN_DISTINCT_FRACTION = 0.5  # ...and "non-degenerate" means at
+                                   # least half of the run's master values are distinct. Silence
+                                   # and flat tone repeat ONE value (measured on the same fixture:
+                                   # a 29-point silent run at offset 0 carries 1 distinct value) and
+                                   # match at every offset, which is exactly the trap the flank
+                                   # guard is for; real programme audio reads ~99 % distinct
+                                   # (1921 of 1930 on the fixture's identical half).
 OFFSET_MERGE_TOLERANCE_POINTS = 3  # merge two extended runs into one segment when their offsets
                                      # agree within this many points (~one quantum of ordinary
                                      # per-seed measurement jitter), not only on an exact match --
@@ -608,7 +632,8 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         # orchestrator branches on `zones`, and a KeyError on an early return would turn "the
         # aligner could not measure" into a crash instead of a named verdict.
         "zones": None, "zones_detail": None, "master_axis_coverage_fraction": None,
-        "refused_by_local_baseline_guard": None, "segments_filtered_short_fragments": None,
+        "refused_by_local_baseline_guard": None, "admitted_self_evident": None,
+        "segments_filtered_short_fragments": None,
         "segments_overlap_resolved": None,
         "drift_trace": None, "drift_fit": None,
         "residual_ms": None, "residual_fraction": None,
@@ -627,6 +652,7 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
 
     extended = []
     seen_seed_offsets = set()
+    self_evident_points = math.ceil(LOCAL_BASELINE_SELF_EVIDENT_SECONDS * 1000.0 / quantum_ms)
     for i, j in seeds:
         offset = j - i
         if (i, offset) in seen_seed_offsets:
@@ -639,15 +665,24 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
                        # exactly the noise-alignment trap this module's own acceptance contract
                        # names; refused here, before it can ever reach a segment.
         base = local_baseline(fp_master, fp_candidate, i_lo, i_hi, offset)
+        self_evident = (run_len >= self_evident_points
+                        and len(set(fp_master[i_lo:i_hi + 1]))
+                        >= LOCAL_BASELINE_SELF_EVIDENT_MIN_DISTINCT_FRACTION * run_len)
         extended.append({"i_lo": i_lo, "i_hi": i_hi, "j_lo": j_lo, "j_hi": j_hi,
                           "offset_points": offset, "run_len": run_len, "mean_sim": mean_sim,
-                          "local_baseline": base})
+                          "local_baseline": base, "self_evident": self_evident})
 
     # LOCAL-BASELINE GUARD -- refuse any run whose surrounding region does not itself read high,
     # even when the run's own extension looked clean. See the module docstring's acceptance
     # condition 2 and `local_baseline`'s own docstring for the measured failure this refuses.
-    trusted = [run for run in extended if run["local_baseline"] is None
+    # A SELF-EVIDENT run (see LOCAL_BASELINE_SELF_EVIDENT_SECONDS) is admitted on its own
+    # length and content: its flanks are the far side of its own boundary, not its environment.
+    trusted = [run for run in extended if run["self_evident"]
+               or run["local_baseline"] is None
                or run["local_baseline"] >= local_baseline_min]
+    result["admitted_self_evident"] = sum(
+        1 for run in extended if run["self_evident"] and run["local_baseline"] is not None
+        and run["local_baseline"] < local_baseline_min)
     # COUNT ONLY -- this used to also build `refused_by_baseline = [run for run in extended if
     # run not in trusted]`, an O(len(extended) * len(trusted)) dict-equality scan of a list
     # (measured: 8.8s of a 9.7s seed+extend+baseline phase at 23,028 points -- 65,582 extended
@@ -981,112 +1016,4 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
             _value = result["drift_fit"].get(_points_key)
             result["drift_fit"][_ms_key] = None if _value is None else _value * quantum_ms
 
-    return result
-
-
-def locate_zones_by_alignment(master_path, master_stream, candidate_path, candidate_stream,
-                               work_dir, sample_rate, band=None, k=K, bits=B,
-                               min_run_points=MIN_RUN_POINTS,
-                               local_baseline_min=LOCAL_BASELINE_MIN,
-                               include_drift_trace=True, tag="b2"):
-    """Convenience wrapper matching the eventual call-site shape: extracts the FULL audio track
-    of both files (WHOLE-FILE, no pre-windowing -- this module's own defining property, see the
-    module docstring) and runs `b2_align` over the resulting fingerprints.
-
-    NOT CALLED FROM ANYWHERE IN src/ YET (see the module-level sequencing note at the top of this
-    file) -- provided so a real acceptance run can exercise this module's real public shape on
-    real media ahead of the call-site wiring, per this campaign's own "a unit test cannot tell
-    you nothing calls the unit" discipline applied to this module's OWN entry point before any
-    production caller exists.
-
-    Duration is read once, from the shorter side's own probed duration, via `change_point_locator
-    ._audio_duration_seconds`-style reasoning is NOT reused here (that function reads a
-    `video_obj`'s own metadata dict, which this module does not carry) -- callers with a video
-    object already available should pass the correct `length_seconds` upstream by calling
-    `audioCorrelation.calculate_fingerprints` themselves and using `b2_align` directly; this
-    wrapper measures duration fresh via `ffprobe`, so it is usable standalone.
-    """
-    import os
-    import subprocess
-    # `audio_extract`, NOT `change_point_locator`, since 2026-09-22: the extraction helper this
-    # wrapper needs was moved out of the locator precisely so the modules that use it stop
-    # depending on a module the orchestrator removes. Importing the locator here would have
-    # pulled in the whole probe grid (and `zone_similarity_vector`, and the saturation screen)
-    # to call one ffmpeg command.
-    import audio_extract
-    import audioCorrelation
-
-    def _duration_seconds(path):
-        completed = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=nw=1:nk=1", path],
-            capture_output=True, text=True, timeout=60)
-        return float(completed.stdout.strip())
-
-    master_duration = _duration_seconds(master_path)
-    candidate_duration = _duration_seconds(candidate_path)
-    length_seconds = min(master_duration, candidate_duration)
-    # Measured BEFORE either side is truncated to the shorter one below -- this is the real
-    # physical duration difference `b2_align`'s duration-budget classification bounds against,
-    # not derivable from the truncated fingerprints it receives.
-    duration_diff_ms = abs(master_duration - candidate_duration) * 1000.0
-    # SIGNED (same convention as step_ms: positive = candidate longer) and the shorter side's own
-    # duration -- both needed for `b2_align`'s per-result residual_ms/residual_fraction, kept
-    # separate from the per-zone `duration_diff_ms` above (see that function's own docstring).
-    signed_duration_diff_ms = (candidate_duration - master_duration) * 1000.0
-    shorter_duration_ms = length_seconds * 1000.0
-
-    master_wav = os.path.join(work_dir, f"{tag}_master_full.wav")
-    candidate_wav = os.path.join(work_dir, f"{tag}_candidate_full.wav")
-    # SPLIT TIMER (the Lead's ruling, 2026-09-21): a single pass/fail duration conflates two
-    # quantities that scale with completely different things -- EXTRACTION (whole-file decode of
-    # both sides: track count, codec, duration) and ALIGNMENT (B2 itself: seeding density, how
-    # far extensions walk). A sweep that only records one number cannot tell "this file has heavy
-    # audio tracks" apart from "this file is where B2 works hardest" -- and the second class is
-    # very likely the degraded, densely-seeding content the local-baseline guard exists for, so
-    # its silent absence from a timeout-filtered sample would make every other number optimistic.
-    # Both phases timed separately and returned on every result, success or not.
-    import time
-    extraction_t0 = time.time()
-    try:
-        audio_extract.extract_audio_window(master_path, master_stream, 0.0, length_seconds,
-                                            master_wav, sample_rate)
-        audio_extract.extract_audio_window(candidate_path, candidate_stream, 0.0, length_seconds,
-                                            candidate_wav, sample_rate)
-        fp_master = audioCorrelation.calculate_fingerprints(master_wav, length=length_seconds)
-        fp_candidate = audioCorrelation.calculate_fingerprints(candidate_wav, length=length_seconds)
-    finally:
-        for path in (master_wav, candidate_wav):
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-    extraction_seconds = time.time() - extraction_t0
-
-    # PER-TRACK QUANTUM, DERIVED PER TRACK -- standing invariant, and it used to hold here only
-    # by accident. This read `min(len(fp_master), len(fp_candidate))` for BOTH sides, which
-    # happens to equal the master's own point count whenever the master is the shorter-sampled
-    # side (it was, on the pair this was measured against) and silently reads the master's axis
-    # on the CANDIDATE's grid whenever it is not. Both tracks cover the same `length_seconds`
-    # here -- both were extracted to it -- so each one's quantum is its own count's business.
-    quantum_ms = (length_seconds * 1000.0 / len(fp_master)) if fp_master else None
-    candidate_quantum_ms = ((length_seconds * 1000.0 / len(fp_candidate))
-                             if fp_candidate else None)
-    if quantum_ms is None or candidate_quantum_ms is None:
-        return {"verdict": VERDICT_NO_SEEDS_FOUND, "modality": MODALITY,
-                "stage_contract": "WHOLE-FILE fingerprinting produced zero comparable points.",
-                "degeneracy": None, "segments": None, "all_zones": None, "cut_zones": None,
-                "zones": None, "zones_detail": None, "master_axis_coverage_fraction": None,
-                "quantum_ms": None, "candidate_quantum_ms": None,
-                "n_master": len(fp_master), "n_candidate": len(fp_candidate),
-                "extraction_seconds": extraction_seconds, "alignment_seconds": 0.0}
-    alignment_t0 = time.time()
-    result = b2_align(fp_master, fp_candidate, quantum_ms, band=band, k=k, bits=bits,
-                       min_run_points=min_run_points, local_baseline_min=local_baseline_min,
-                       include_drift_trace=include_drift_trace, duration_diff_ms=duration_diff_ms,
-                       signed_duration_diff_ms=signed_duration_diff_ms,
-                       shorter_duration_ms=shorter_duration_ms,
-                       candidate_quantum_ms=candidate_quantum_ms)
-    result["extraction_seconds"] = extraction_seconds
-    result["alignment_seconds"] = time.time() - alignment_t0
     return result
