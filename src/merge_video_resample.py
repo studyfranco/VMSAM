@@ -73,9 +73,72 @@ def build_speed_filter_chain(source_rate, speed_ratio):
         raise resample_error(
             f"speed ratio {ratio} would set the sample rate to {target}")
     effective = Decimal(intermediate) / Decimal(target)
-    chain = (f"aresample={intermediate},asetrate={target},"
-             f"aresample={source_rate}")
+    # SOXR VERY HIGH QUALITY ON BOTH RESAMPLING STEPS (RULING_20260922 ADDENDUM
+    # 18 and 21.5). `asetrate` only re-labels the rate -- it is lossless; the two
+    # `aresample` steps are the only real sinc interpolations in the chain, so
+    # they are where the resampler's transparency is decided. precision=28 is
+    # soxr's "Very High Quality" tier, cutoff=0.91 its own 0 dB point (swr's
+    # default is a 6 dB point at 0.97). ffmpeg here is built --enable-libsoxr
+    # (`ffmpeg -buildconf`, 2026-09-24). The effective factor does not change:
+    # it is fixed by the two INTEGER rates, not by the interpolator.
+    chain = (f"aresample={intermediate}:{SOXR_RESAMPLER_OPTIONS},"
+             f"asetrate={target},"
+             f"aresample={source_rate}:{SOXR_RESAMPLER_OPTIONS}")
     return chain, effective, intermediate, target
+
+
+SOXR_RESAMPLER_OPTIONS = "resampler=soxr:precision=28:cutoff=0.91"
+
+# THE INVERTING CASE'S ENGINES, in preference order (ADDENDUM 18: ffmpeg's
+# `rubberband` FILTER is R2 real-time, never R3 -- R3 exists only as the CLI
+# from `rubberband-cli`; the container image does not carry it yet, owner
+# decision pending, so ffmpeg `atempo` is the fallback that always exists).
+RUBBERBAND_R3_BINARIES = ("rubberband-r3", "rubberband")
+
+
+def build_tempo_filter_chain(speed_ratio, rubberband_binary=None):
+    '''THE INVERTING CASE'S CORRECTION: tempo only, pitch untouched.
+
+    Same convention as `build_speed_filter_chain` (speed_ratio = duree_maitre /
+    duree_candidat), so the candidate's duration is multiplied by `speed_ratio`
+    and its tempo by `1 / speed_ratio`. A candidate whose pitch was ALREADY
+    corrected at the source (duration moved, pitch did not -- ADDENDUM 19(f))
+    must not go through `asetrate`, which would shift a correct pitch.
+
+    Returns a dict, never None:
+      engine        "rubberband_r3" when an R3-capable binary is on PATH (or
+                    passed), else "ffmpeg_atempo".
+      filter        the ffmpeg `-af` string (`atempo=<1/ratio>`), for the
+                    ffmpeg engine; None for rubberband.
+      argv          for rubberband: the argv with "{in}" / "{out}" placeholders
+                    (`-3` selects the R3 "finer" engine, `-t` is the TIME
+                    ratio = `speed_ratio`); None for ffmpeg.
+      tempo         1 / speed_ratio as a Decimal (the atempo coefficient).
+      time_ratio    speed_ratio as a Decimal.
+    '''
+    import shutil
+    ratio = Decimal(str(speed_ratio)) if not isinstance(speed_ratio, Fraction) else \
+        Decimal(speed_ratio.numerator) / Decimal(speed_ratio.denominator)
+    if ratio <= 0:
+        raise resample_error(f"speed ratio {ratio} is not positive")
+    if ratio == 1:
+        raise resample_error("speed ratio is exactly 1: nothing to apply")
+    getcontext().prec = 28
+    tempo = Decimal(1) / ratio
+    binary = rubberband_binary
+    if binary is None:
+        for name in RUBBERBAND_R3_BINARIES:
+            binary = shutil.which(name)
+            if binary:
+                break
+    if binary:
+        return {"engine": "rubberband_r3", "filter": None,
+                "argv": [binary, "-3", "-t", f"{ratio:.12f}", "{in}", "{out}"],
+                "tempo": tempo, "time_ratio": ratio}
+    # atempo takes a double in [0.5, 100]; every named broadcast ratio is well
+    # inside it. Twelve decimals are far below the aligner's resolution.
+    return {"engine": "ffmpeg_atempo", "filter": f"atempo={tempo:.12f}",
+            "argv": None, "tempo": tempo, "time_ratio": ratio}
 
 
 def format_factor(effective_ratio, digits=6):
