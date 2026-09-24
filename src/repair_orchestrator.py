@@ -263,11 +263,16 @@ PITCH_PROBE_WINDOW_MINIMUM_SECONDS = 30.0
 #   errid-352 jpn   edits        segments_found                         26      0   0.000  --     7.0e-4
 #   errid-24  jpn   no edit      single_segment_no_cut                   1      0   --     --    0
 #
-# RUNG COUNT separates 32 from {0,0,0,0,1,1,1,3,8,12}; MONOTONICITY separates 0.9375 from a
-# nearest negative of 0.500. The two pairs that get past the rung count -- errid-213 and
-# errid-100, the two the bake-off and the locator both flagged as line-fit traps -- are refused
-# on direction, which is the condition that rests on a MECHANISM rather than on a sample: a rate
-# relation drifts one way for the whole file, and an editor's cuts do not.
+# CORRECTED AFTER A LARGER SAMPLE, AND THE CORRECTION MATTERS. On the eleven alignments above,
+# rung count looked like a separator (32 against a largest negative of 12). On an independent
+# tester's 35 real alignments it is NOT: the largest negatives read 26 rungs at purity 1.000
+# (errid-24/es) and 26 at purity 0.963 (errid-99/fr), eight alignments clear LADDER_MIN_RUNGS,
+# and six of those sit at purity >= 0.96. So RUNG COUNT AND PURITY DO NOT SEPARATE AT ALL.
+# `rung_monotone_fraction` ALONE does -- every negative measured sits at 0.500-0.538 against the
+# positive's 0.9375 -- and it does so because drift has a direction and editing does not, which
+# is a mechanism rather than a coincidence of this sample. The other conditions stay as cheap
+# conservative guards and as logged observations; they are not evidence and are no longer
+# described as if they were.
 #
 # DRIVEN END TO END THROUGH `repair()` ON THE POSITIVE, so the arm is not merely calibrated on
 # paper: errid-27 blind reads `gate_arm=rate_relation_signature` (rungs 32, purity 0.9697,
@@ -290,24 +295,48 @@ RATE_RELATION_SLOPE_GATE_CALIBRATED = True
 # THE LADDER CONSTANTS, each set between two measured populations, never on one side of one.
 #
 # RUNGS: a STATISTICAL-SUFFICIENCY floor, NOT a detection floor, and the difference decides the
-# number. The detection floor is set by the magnitude condition below, which scales with the
-# file: requiring |f-1| >= 5e-4 already requires the total rise to be at least 5e-4 of the span,
-# so a longer file needs proportionally more rungs on its own. This constant exists only so that
-# `rung_fraction` and `rung_monotone_fraction` are computed over enough samples to mean
-# something. 8 sits above the largest negative that is not one of the two line-fit traps (3) and
-# a quarter of the way to the positive (32). CONSEQUENCE, STATED BECAUSE IT IS A REAL LIMIT: at
-# the smallest named deviation (1001/1000) and a ~124 ms quantum, 8 rungs need 8*0.124/0.000999
-# = 993 s of aligned span, so this arm cannot see an NTSC relation on anything under ~16.5
-# minutes and does not claim to. A 24-minute episode yields ~11.7 rungs; the 62-minute pair
-# measured above yielded 32.
+# number. This constant exists only so that `rung_fraction` and `rung_monotone_fraction` are
+# computed over enough samples to mean something -- it does not separate anything (eight of 35
+# real alignments clear it, including both 26-rung negatives).
+#
+# IT IS ALSO ONLY THE LOWER EDGE OF A BAND WITH TWO EDGES. The SPAN bound: at the smallest named
+# deviation (1001/1000) and a ~124 ms quantum, 8 rungs need 8*0.124/0.000999 = 993 s of aligned
+# span, so this arm cannot see an NTSC relation on anything under ~16.5 minutes. A 24-minute
+# episode yields ~11.7 rungs; the 62-minute positive yielded 32. The RATE bound, undocumented
+# until an independent tester measured it and the reason this comment was wrong to stop at the
+# first: `banded_seed_alignment.OFFSET_MERGE_TOLERANCE_POINTS = 3` merges runs whose offsets sit
+# within 3 points, so drift fast enough to accumulate 3+ quanta before a segment ends emerges as
+# steps of 3-5 quanta and produces NO RUNGS AT ALL. Measured on graded synthetic fixtures,
+# 0 of 10 fired: |f-1| 0.0017 gave 4 rungs, 0.0050 gave 0, and PAL (0.0427) gave 0-3 rungs
+# against 29 steps above the floor. On a 300 s fixture the two bounds cross and the band is
+# empty. See `zone_ladder_signature` for the full table and the raw step sequences.
 LADDER_MIN_RUNGS = 8
-# PURITY: measured 0.970 on the positive against 0.250-0.500 on the four ordinary edit pairs.
-# 0.80 sits between them. It does NOT reject errid-213 (0.889) -- direction does.
+# PURITY: NOT A SEPARATOR, and this comment used to claim it was. On the first eleven
+# alignments it read 0.970 on the positive against 0.250-0.500 on the edit pairs, which looked
+# like a boundary; on 35 alignments the largest negative reads purity 1.000 at 26 rungs. It is
+# retained as a cheap conservative guard against a file that both drifts and is heavily edited,
+# and because it has never false-refused anything -- not as evidence. It does not reject
+# errid-213 (0.889) either; direction does.
 LADDER_MIN_RUNG_FRACTION = 0.80
-# DIRECTION: the condition that actually decides at the boundary. Measured 0.9375 on the
-# positive against 0.500 on both line-fit traps. 0.85 sits between, nearer the negative side
-# than the positive's value, so the positive keeps 0.09 of margin and the negatives 0.35.
+# DIRECTION: the condition that actually decides, and on the larger sample the ONLY one that
+# does. Measured 0.9375 on the positive against 0.500-0.538 on every negative, including the two
+# line-fit traps the bake-off and the locator independently flagged. 0.85 sits between, nearer
+# the negative side than the positive's value, so the positive keeps 0.09 of margin and the
+# negatives 0.31. It rests on a mechanism -- drift has a sign, editing does not -- which is what
+# makes a single positive an acceptable basis for it.
 LADDER_MIN_RUNG_MONOTONE_FRACTION = 0.85
+
+# THE CORROBORATION BAND -- how far the ladder's own implied ratio and the sweep's winner may
+# differ in MAGNITUDE before the two stop describing the same relation. See
+# `corroborate_sweep_against_ladder`: sign is the condition that decides, this one is a
+# deliberately wide sanity check. The ladder's implied deviation is a ratio of integer point
+# counts, so its relative precision is about `1/|total_rise|` -- 3 % on the one real positive
+# (errid-27, 30 points of rise). A factor of two is fifteen to thirty times looser than that,
+# which is the intent: refuse a contradiction, never an imprecision. MEASURED: the real positive
+# lands at 1.008 and the forced false fire at 2.19, but the forced case is already rejected on
+# sign alone, so this constant is not carrying the discrimination and must not be read as if it
+# were.
+LADDER_CORROBORATION_BAND = 2.0
 
 # THE MAGNITUDE FLOOR, IMPORTED NOT RESTATED. `change_point_locator.RATE_SLOPE_MIN_FACTOR_
 # DEVIATION` is 5e-4, derived there as HALF the smallest deviation in the named rate vocabulary
@@ -1267,6 +1296,8 @@ def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, s
         "pitch_peak": None,
         "pitch_refusal": None,
         "pitch_window_seconds": None,
+        "pitch_test_discriminating": None,
+        "pitch_tolerance_band": None,
         "inverting_case_detector": "not_implemented",
         "inverting_case_observation": None,
     }
@@ -1324,12 +1355,49 @@ def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, s
             "measured_from_unity": round(abs(measured - 1.0), 6),
             "applied_from_unity": round(abs(float(speed_factor) - 1.0), 6),
         }
-    if reading.get("refusal") is None:
+    # *** CAN THIS TEST EVEN TELL "THE PITCH MOVED" FROM "THE PITCH DID NOT"? At some ratios it
+    # cannot, and until an independent tester caught it the prose below claimed a confirmation
+    # anyway. `confirm_pitch` accepts when |measured - applied| <= TOL_ARM * applied, an
+    # ABSOLUTE band on the ratio. When that band is WIDER than the whole defect being corrected,
+    # it contains unity -- so "no refusal" is satisfied by a measurement of NO PITCH SHIFT AT ALL
+    # and carries no information. MEASURED on a forced NTSC run: pitch_measured_ratio 1.000005
+    # (a shift of 5e-6) against an applied 1.000999 (9.99e-4), two hundred times larger, and the
+    # old sentence still read "confirms the pitch moved with the speed".
+    #
+    # THE CONDITION IS DERIVED, NOT CHOSEN: the band half-width is TOL_ARM * applied and the
+    # quantity being measured is |applied - 1|, so the test discriminates exactly when
+    # TOL_ARM * applied < |applied - 1|. At PAL (1.042708) that is 0.003128 against 0.042708 --
+    # discriminating, and errid-70's measured 1.042504 is a real confirmation. At NTSC (1.001)
+    # it is 0.003003 against 0.000999 -- the band swallows the defect, and no reading from this
+    # instrument at that ratio can confirm anything. THE ROUTING DOES NOT CHANGE EITHER WAY
+    # (ADDENDUM 2 keeps asetrate); only the sentence changes, so that it stops asserting a
+    # confirmation nobody obtained. ***
+    try:
+        import pal_pitch_confirmer as _confirmer
+        tolerance_arm = float(_confirmer.TOL_ARM)
+    except Exception:                                                    # noqa: BLE001
+        tolerance_arm = 0.0030
+    applied = float(speed_factor)
+    band_half_width = tolerance_arm * applied
+    discriminating = band_half_width < abs(applied - 1.0)
+    routing["pitch_test_discriminating"] = discriminating
+    routing["pitch_tolerance_band"] = round(band_half_width, 7)
+    if reading.get("refusal") is None and discriminating:
         routing["route_reason"] = (
-            f"the pitch layer confirms the pitch moved with the speed (measured "
-            f"{measured}, applied {float(speed_factor):.7f}, peak {reading.get('peak')}): this "
+            f"the pitch layer confirms the pitch moved with the speed (measured {measured}, "
+            f"applied {applied:.7f}, peak {reading.get('peak')}; its +/-{band_half_width:.6f} "
+            f"tolerance band excludes unity at this ratio, so agreement is informative): this "
             f"is the naive-speedup family, and asetrate is its exact inverse -- it undoes speed "
             f"AND pitch together (ruling body, step 2)")
+    elif reading.get("refusal") is None:
+        routing["route_reason"] = (
+            f"the pitch layer did not refuse (measured {measured}, applied {applied:.7f}, peak "
+            f"{reading.get('peak')}) BUT THAT IS NOT A CONFIRMATION AT THIS RATIO: its "
+            f"+/-{band_half_width:.6f} tolerance band is wider than the {abs(applied - 1.0):.6f} "
+            f"deviation being corrected, so the band contains unity and a completely unshifted "
+            f"pitch would have passed the same test. Nothing here says the pitch moved. asetrate "
+            f"stands on the policy default (AUDIO_SPEED_POLICY 23/23 PAL, 6/6 NTSC), not on this "
+            f"reading")
     else:
         routing["route_reason"] = (
             f"the pitch layer returned {reading.get('refusal')} ({reading.get('reason')}). That "
@@ -1544,6 +1612,109 @@ def speed_factor(master_obj, candidate_obj, language):
     return winner, gate, None
 
 
+def corroborate_sweep_against_ladder(winner, ladder_implied_ratio):
+    """TWO INSTRUMENTS OR NONE: a factor the ladder asked for must be one the ladder RECOGNISES.
+
+    WHY THIS EXISTS, AND IT CLOSES A HOLE IN MY OWN SAFETY ARGUMENT. The rate arm was switched
+    on because its refusal is non-terminal: a false fire was supposed to cost one sweep and then
+    continue on the alignment already measured. An independent tester forced the arm to fire on
+    two healthy pairs and measured that the promise fails in the branch that matters -- THE SWEEP
+    DID NOT DECLINE, IT CONFIRMED a near-unity factor on both, so the non-terminal branch never
+    ran. The real cost of a false fire was a DIFFERENT PLAN BUILT ON DELIBERATELY SPEED-ALTERED
+    AUDIO: errid-202 went 6 holes -> 12, and its real, consistent -992.37 ms editorial step
+    (three times over) dissolved into a scatter of -124 / -248 / -1116 ms; errid-100 went 1 hole
+    -> 12 on one couple and 9 -> 15 on the other, coverage 0.9997 -> 0.9552. The premise that
+    licensed n=1 enablement was false, and this is the guard that makes it true.
+
+    THE TEST IS THE TESTER'S OWN DISCRIMINATOR, AND IT NEEDS NO NEW CONSTANT. The ladder already
+    measures an `implied_speed_ratio` from the zone offsets it counted. The sweep independently
+    picks a rational. On the real positive they agree: errid-27's ladder implied 1.0009911 and
+    the sweep returned 1001/1000 = 1.001000 -- 8.9e-6 apart, and the ladder never saw that
+    nominal. On the forced false fire they contradict each other IN SIGN: errid-202's ladder
+    implied 1.0021909 (candidate slower) while the sweep returned 1000/1001 = 0.999001
+    (candidate faster). A relation cannot run in both directions at once.
+
+    TWO CONDITIONS, AND THE FIRST IS THE ONE THAT DECIDES:
+      sign       `implied - 1` and `winner - 1` must share a sign. This is the discriminator the
+                 measurement named, and it alone rejects the forced case.
+      magnitude  the two deviations must agree within a factor of `LADDER_CORROBORATION_BAND`
+                 -- a DELIBERATELY WIDE sanity check, not a precision test. The ladder's implied
+                 deviation is `total_rise / span_points` over integer point counts, so its own
+                 relative precision is about `1/|total_rise|`: errid-27's 30-point rise makes it
+                 good to ~3 %. A factor of two is fifteen to thirty times looser than that, which
+                 is the point -- this condition must refuse a CONTRADICTION and never a
+                 imprecision, because refusing imprecision would throw away a correct factor.
+
+    AN EARLIER DRAFT USED A NEAREST-MEMBER TEST INSTEAD ("the winner must be the vocabulary
+    member closest to what the ladder implied") AND IT WAS WRONG IN A WAY WORTH RECORDING. The
+    vocabulary contains 25/24 = 1.0416667 and 1001/960 = 1.0427083, one tenth of a percent apart,
+    which is FINER than the ladder can measure; a ladder reading of 1.0421 in the PAL band would
+    then have rejected the correct 1001/960 in favour of 25/24. The condition would have been
+    strict exactly where the instrument is coarse. Measured while building it, not discovered
+    afterwards -- and unreachable today only because R2 shows the ladder cannot fire in the PAL
+    band at all, which is not a reason to have shipped it.
+
+    A FAILED CORROBORATION IS NOT A REFUSAL OF THE PAIR. The caller discards the factor and
+    proceeds at 1 on the alignment already in hand -- which is exactly the behaviour that existed
+    before this arm was built, so the worst case of the guard being too strict is the status quo
+    ante. That asymmetry is deliberate: over-strictness costs a rate correction the other arms
+    would usually have caught anyway, while over-permissiveness rebuilds the plan on altered
+    audio, which is what was measured going wrong.
+
+    Returns a dict, always, with `corroborated` and every number it rests on.
+    """
+    detail = {
+        "corroborated": False,
+        "winner": (f"{winner.numerator}/{winner.denominator}"
+                   if isinstance(winner, Fraction) else str(winner)),
+        "winner_value": float(winner),
+        "ladder_implied_ratio": ladder_implied_ratio,
+        "sign_agrees": None,
+        "magnitude_ratio": None,
+        "reason": None,
+    }
+    if ladder_implied_ratio is None:
+        detail["reason"] = ("the ladder armed the sweep but reported no implied speed ratio, so "
+                            "there is nothing for the winner to corroborate against")
+        return detail
+    implied_deviation = ladder_implied_ratio - 1.0
+    winner_deviation = float(winner) - 1.0
+    detail["ladder_deviation"] = round(implied_deviation, 7)
+    detail["winner_deviation"] = round(winner_deviation, 7)
+    detail["sign_agrees"] = (implied_deviation > 0) == (winner_deviation > 0)
+    if not detail["sign_agrees"]:
+        detail["reason"] = (
+            f"the two instruments contradict each other in SIGN: the ladder counted a drift "
+            f"implying {ladder_implied_ratio} (deviation {implied_deviation:+.7f}) while the "
+            f"sweep confirmed {detail['winner']} = {float(winner)} (deviation "
+            f"{winner_deviation:+.7f}). A rate relation does not run in both directions")
+        return detail
+    if winner_deviation == 0 or implied_deviation == 0:
+        # A ZERO DEVIATION IS NOT A RELATION AT ALL. The sweep never returns 1 (the vocabulary
+        # excludes it) and the ladder's magnitude floor already refuses a flat reading, so this
+        # is unreachable by construction -- and it is handled rather than divided by, because an
+        # unreachable branch that raises is still a crash the day something makes it reachable.
+        detail["reason"] = ("one of the two readings is exactly unity, which is not a rate "
+                            "relation either instrument can be describing")
+        return detail
+    spread = abs(implied_deviation) / abs(winner_deviation)
+    detail["magnitude_ratio"] = round(spread, 4)
+    detail["magnitude_band"] = LADDER_CORROBORATION_BAND
+    if spread > LADDER_CORROBORATION_BAND or spread < 1.0 / LADDER_CORROBORATION_BAND:
+        detail["reason"] = (
+            f"the two instruments agree on direction but not on size: the ladder implied a "
+            f"deviation of {implied_deviation:+.7f} and the sweep confirmed {detail['winner']} "
+            f"at {winner_deviation:+.7f}, a factor of {spread:.2f} apart, outside the "
+            f"{LADDER_CORROBORATION_BAND}x band")
+        return detail
+    detail["corroborated"] = True
+    detail["reason"] = (
+        f"the ladder implied {ladder_implied_ratio} and the sweep independently confirmed "
+        f"{detail['winner']} = {float(winner)}: same direction, and their deviations agree to a "
+        f"factor of {spread:.3f}, inside the {LADDER_CORROBORATION_BAND}x band")
+    return detail
+
+
 def zone_offset_rate_signature(alignment):
     """The rate-relation reading taken off the ZONES, not off the drift trace. Measurement only.
 
@@ -1626,16 +1797,60 @@ def zone_ladder_signature(alignment):
     named the reading that CAN separate them -- the residual -- but the residual is only
     available in a unit this aligner cannot deliver finely: everything here is quantised to
     ~124 ms, so the bake-off's five orders of magnitude (10 microseconds against 22 seconds)
-    collapse to at best one. The LADDER STRUCTURE survives the quantisation intact, because it
-    IS the quantisation: a rate relation is the one thing that produces a long monotone run of
-    exactly-one-quantum steps. So that is what gets counted.
+    collapse to at best one. The LADDER STRUCTURE survives the quantisation intact, because
+    inside a certain band it IS the quantisation.
 
-    FOUR CONDITIONS, ALL REQUIRED, each answering a different way of being wrong:
-      rungs      enough one-quantum steps that a handful of coincidences cannot supply them
-      purity     those rungs DOMINATE the steps -- a file with three big edits and two
-                 one-quantum wobbles is not a ladder
-      direction  the rungs almost all point the same way -- drift has a sign, edits do not
-      magnitude  the implied rate deviation is large enough for some NAMED rate to explain it
+    *** AND THAT BAND HAS TWO EDGES, NOT ONE. An earlier version of this docstring said "a rate
+    relation is the one thing that produces a long monotone run of exactly-one-quantum steps",
+    full stop. That is true only BETWEEN two bounds, and only the lower one was documented:
+
+      LOWER (span): the drift must accumulate enough quanta across the file to make
+        `LADDER_MIN_RUNGS` rungs -- at the smallest named deviation that needs ~16.5 minutes of
+        aligned span (see that constant).
+      UPPER (rate): the drift must be SLOW ENOUGH that a segment ends before the offset has
+        moved more than one quantum. `banded_seed_alignment.OFFSET_MERGE_TOLERANCE_POINTS` is 3,
+        so runs whose offsets sit within 3 points are merged into ONE segment -- and any drift
+        fast enough to accumulate 3 or more quanta before a segment would naturally end emerges
+        as a step of 3, 4 or 5 quanta, which `abs(step) < RESOLUTION_FLOOR_QUANTA` never counts
+        as a rung.
+
+    MEASURED by an independent tester on `corpus-B-pal-ntsc`'s graded synthetic drift fixtures,
+    driven through this exact function -- 0 of 10 fired, INCLUDING PAL:
+        |f-1| 0.0010  zones  3  rungs 1   |f-1| 0.0050  zones  4  rungs 0
+        |f-1| 0.0017  zones  6  rungs 4   |f-1| 0.0085  zones  6  rungs 0
+        |f-1| 0.0029  zones  3  rungs 0   |f-1| 0.0146  zones  9  rungs 1
+        |f-1| 0.0249  zones 17  rungs 0   |f-1| 0.0427  zones 27-33 rungs 0-3, 29 above floor
+    with the mechanism visible in the raw steps: at |f-1|=0.0017 the offsets walk
+    [0,-1,-2,-3,-4,-4] (four rungs); at 0.0050 they walk [-3,-6,-9,-12] (steps of three, zero
+    rungs); at PAL they scatter [-4,-1,-2,-1,-3,-2,-4,-5,...]. Those fixtures are 300 s long, so
+    the two bounds CROSS and the band is empty -- which is why nothing fired.
+
+    SO THE HONEST SCOPE OF THIS ARM IS "NTSC-SCALE DRIFT ON LONG FILES", NOT "the rate family".
+    The one real positive (errid-27, 1001/1000 on a 62-minute file) sits squarely inside the
+    band. The real PAL pair does NOT, and is caught by other arms entirely -- errid-70 reaches
+    its sweep through `all_segments_below_duration_floor` on fr and
+    `all_seeds_refused_by_local_baseline_guard` on en, with the coverage floor behind both. This
+    arm adds reach; it is not the thing standing between a rate pair and a wrong answer. ***
+
+    FOUR CONDITIONS, ALL REQUIRED -- BUT ONLY ONE OF THEM SEPARATES, AND SAYING SO IS THE POINT:
+      rungs      enough one-quantum steps that the two FRACTIONS below mean anything. A
+                 PRECONDITION for the statistic, not a separator: on 35 real alignments EIGHT
+                 clear it, so it is not what keeps negatives out.
+      purity     those rungs dominate the steps. ALSO NOT A SEPARATOR, measured: the largest
+                 negative reads 26 rungs at purity 1.000 (errid-24/es) and another 26 at 0.963
+                 (errid-99/fr), against the positive's 32 at 0.970. Kept as a cheap conservative
+                 guard against a file that both drifts and is heavily edited, and because it has
+                 never false-refused anything -- never as evidence.
+      direction  the rungs almost all point the same way. *** THIS IS THE WHOLE DISCRIMINATION.
+                 Every negative on the measured population sits at 0.500-0.538; the positive
+                 sits at 0.9375; the threshold is 0.85. Drift has a sign and editing does not,
+                 so this condition rests on a MECHANISM rather than on a sample -- which is the
+                 only reason a single positive is an acceptable basis for it. ***
+      magnitude  the implied rate deviation is large enough for some NAMED rate to explain it.
+
+    A READER WHO TAKES THIS FOR FOUR INDEPENDENT LINES OF DEFENCE IS BEING MISLED BY THE SHAPE
+    OF THE CODE, which is why the paragraph above exists. It is one line of defence with three
+    cheap guards standing next to it.
 
     THE MAGNITUDE CONDITION IS NOT MINE AND IS NOT TUNED. It is
     `change_point_locator.RATE_SLOPE_MIN_FACTOR_DEVIATION` (5e-4), derived there as HALF the
@@ -1787,6 +2002,19 @@ def similarity_gate(alignment):
     # confirmed PAL pair. `None` here is could-not-measure, not zero, and is treated as low --
     # the gate's business is deciding whether to spend a sweep, and a coverage nobody could read
     # is not evidence that similarity is fine.
+    #
+    # SCOPE: THIS ARM SEES ONLY THE PRIMARY COUPLE, and that is a property of the gate, not an
+    # oversight -- `similarity_gate` is called once, on `couples[0]`, because step 2 decides ONE
+    # thing for the whole pair (is a sweep worth running) and the design does not fingerprint
+    # every couple before answering it. MEASURED consequence, errid-24 on es: the primary covers
+    # 0.977 so this arm passes, while two siblings sit at 0.306 and 0.304 -- under the floor and
+    # invisible here. THE COUPLES THIS ARM CANNOT REACH ARE REFUSED ANYWAY, one layer down: the
+    # per-couple screen in `chimeric` applies the SAME floor to every couple and logs each
+    # exclusion as `couple_screened`, so those two contribute no holes and no cross-check
+    # events. What is lost by the gate's narrow view is only the chance to skip the work, never
+    # the refusal itself. Extending the gate to all couples would mean fingerprinting every
+    # track before deciding whether to sweep -- the dominant cost of the whole step -- to buy a
+    # decision the second screen already makes correctly.
     coverage = alignment.get("master_axis_coverage_fraction")
     if coverage is None or coverage < MASTER_AXIS_COVERAGE_FLOOR:
         observations["gate_arm"] = "master_axis_coverage_below_floor"
@@ -2213,24 +2441,60 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                     median_fidelity=(sweep_gate or {}).get("median_fidelity"),
                     margin=(sweep_gate or {}).get("margin"),
                     passing=(sweep_gate or {}).get("passing"))
-        if winner is None and observations.get("gate_arm") == "rate_relation_signature":
+        # THE CORROBORATION GUARD -- ONLY ON THE LADDER ARM, AND ONLY WHEN THE SWEEP CONFIRMED.
+        # This is the branch the non-terminal promise forgot. A ladder-armed sweep that DECLINES
+        # is handled below and always was; a ladder-armed sweep that CONFIRMS used to be accepted
+        # unconditionally, and an independent tester measured what that costs on a healthy pair:
+        # the factor gets applied, the candidate gets resampled, and the plan is rebuilt on
+        # deliberately speed-altered audio (errid-202: 6 holes -> 12, its real -992.37 ms step
+        # dissolved into scatter). See `corroborate_sweep_against_ladder`.
+        #
+        # SCOPE, STATED BECAUSE IT IS THE WHOLE POINT: this runs ONLY when the gate fired on
+        # `rate_relation_signature`. The other two arms (`alignment_could_not_measure`,
+        # `master_axis_coverage_below_floor`) are untouched, because on those the aligner
+        # produced no ladder to corroborate against and the sweep is the ONLY instrument in the
+        # room -- errid-70 reaches its 1001/960 through `alignment_could_not_measure` and never
+        # comes near this code.
+        ladder_armed = observations.get("gate_arm") == "rate_relation_signature"
+        corroboration = None
+        if winner is not None and ladder_armed:
+            corroboration = corroborate_sweep_against_ladder(
+                winner, observations.get("ladder_implied_speed_ratio"))
+            step_result("sweep_corroboration", candidate=candidate_path,
+                        **{key: value for key, value in corroboration.items()
+                           if key != "reason"})
+            tools.dev_log(f"orchestrator: sweep corroboration for {candidate_path}: "
+                          f"{corroboration['reason']}\n")
+            if not corroboration["corroborated"]:
+                # DISCARDED, NOT DECLINED. Dropping the winner routes this into the non-terminal
+                # branch below, which is exactly where a ladder-armed suggestion belongs once it
+                # has failed to be corroborated: the pair continues on the alignment already
+                # measured, at factor 1, and no filter ever runs (ADDENDUM 6).
+                winner = None
+        if winner is None and ladder_armed:
             # THE RATE ARM'S REFUSAL IS NOT TERMINAL, AND THAT ASYMMETRY IS DELIBERATE -- see
             # `similarity_gate`. This arm fired on an alignment that SUCCEEDED; the sweep was
-            # asked because the zones looked like a rate ladder, and it has now answered no.
-            # Declining here would convert a suggestion into a refusal and manufacture a new
-            # false-decline family every time the ladder reading misfired on a healthy pair.
-            # The honest continuation is the alignment we already have, at factor 1, with the
-            # sweep's own cause recorded so nobody has to wonder why a sweep ran.
+            # asked because the zones looked like a rate ladder, and either it answered no or its
+            # answer was not corroborated. Declining here would convert a suggestion into a
+            # refusal and manufacture a new false-decline family every time the ladder reading
+            # misfired on a healthy pair. The honest continuation is the alignment we already
+            # have, at factor 1, with the reason recorded so nobody has to wonder why a sweep ran.
             step_result("speed_sweep", candidate=candidate_path,
                         arm="rate_relation_signature", terminal=False,
-                        cause=sweep_cause,
+                        cause=(sweep_cause if corroboration is None
+                               else "sweep_winner_uncorroborated_by_ladder"),
+                        corroborated=(None if corroboration is None
+                                      else corroboration["corroborated"]),
                         continuing="at_factor_1_with_the_blind_alignment",
                         rule="a_suggestion_that_was_refused_is_not_a_refusal_of_the_pair")
             tools.dev_log(
                 f"orchestrator: the rate-ladder arm asked for a sweep on {candidate_path} and "
-                f"the sweep declined ({sweep_cause} / {(sweep_gate or {}).get('cause')}); the "
-                f"pair CONTINUES at speed_factor 1 on the alignment already measured -- this "
-                f"arm suggests, it does not refuse\n")
+                + (f"the sweep declined ({sweep_cause} / "
+                   f"{(sweep_gate or {}).get('cause')})" if corroboration is None
+                   else f"the sweep's answer was NOT corroborated -- "
+                        f"{corroboration['reason']}")
+                + f"; the pair CONTINUES at speed_factor 1 on the alignment already measured "
+                  f"-- this arm suggests, it does not refuse\n")
         elif winner is None:
             _plan_line("none", candidate_path, step="speed_sweep", cause=sweep_cause)
             return _terminal(
