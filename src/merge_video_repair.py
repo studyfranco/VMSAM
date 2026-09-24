@@ -1769,20 +1769,8 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # piste fabriquee orpheline y passait sans course, marquee, jusqu'au produit.
     # `keep=False` pose ici est lu par `generate_new_file_audio_config`: la
     # piste n'entre jamais dans le fichier intermediaire.
-    assembly["fabricated_dropped"] = gate_fabricated_delivery(repaired_obj, master_obj)
-    # ADDENDUM 7: "si rien n'est livrable sans restauration -> declin nomme
-    # restoration_deferred". Rien de livrable = aucune piste audio ni sous-titre
-    # ne survit, et au moins une piste a ete retiree pour la restauration.
-    if (any(entry["cause"] == "restoration_deferred"
-            for entry in assembly["fabricated_dropped"])
-            and not count_deliverable_tracks(repaired_obj)):
-        raise merge_video_chimeric.chimeric_error(
-            "every track the repair built is speed-corrected audio and nothing "
-            "else survives: speed correction is a MEASUREMENT tool only, the "
-            "owner suspended the delivery of restored audio until he validates "
-            "examples (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 7). "
-            "This is the owner's deferral, not a measurement failure",
-            cause="restoration_deferred")
+    assembly["fabricated_dropped"] = gate_fabricated_delivery(
+        repaired_obj, master_obj, work_dir=work_dir)
     # LES SEGMENTS JETES VOYAGENT AVEC L'ASSEMBLAGE, pour que le journal puisse
     # les nommer. Ils etaient comptes (`unverified_segment_ms`) et jamais dits.
     assembly["dropped_segments"] = dropped_segments
@@ -1819,52 +1807,156 @@ def fabricated_marker_of(audio):
                (audio.get("extra") or {}).get("VMSAM_FABRICATED") or "")
 
 
-def resampled_factor_of(marker):
-    """Le facteur `resampled:<f>` du marqueur, ou None s'il n'y en a pas.
-
-    FERME PAR DEFAUT: un facteur illisible est rendu tel quel (chaine), jamais
-    None -- une piste dont on ne sait pas lire la correction de vitesse ne peut
-    pas etre declaree non corrigee."""
-    for part in marker.split("+"):
-        if part.startswith("resampled:"):
-            raw = part[len("resampled:"):]
-            try:
-                return Decimal(raw)
-            except Exception:
-                return raw
-    return None
+# LE SEUIL DE "MEME CONTENU" EST CELUI DU REGROUPEMENT GELE, PAS UN NOUVEAU.
+# `mergeVideo.find_differences_and_keep_best_audio` (mergeVideo.py:1036-1120)
+# decide quelles pistes d'une langue sont la MEME version -- et donc lesquelles
+# `keep_best_audio` departage -- avec: `correlate` (audioCorrelation, empreintes
+# chromaprint) sur `video.number_cut` fenetres placees par
+# `prepare_get_delay_sub`, longueur passee `length_time*2`, puis moyenne des
+# fidelites >= 0.90 ET un ensemble de decalages {0}, ou un seul |d| < 128 ms, ou
+# deux valeurs toutes deux < 128 ms (mergeVideo.py:1058-1086). Recopie ici,
+# constante pour constante, pour que la porte et le regroupement ne puissent
+# pas etre en desaccord sur ce qu'est "la meme piste".
+SAME_CONTENT_MEAN_FIDELITY = 0.90
+SAME_CONTENT_MAX_DELAY_MS = 128
 
 
-def gate_fabricated_delivery(repaired_obj, master_obj):
+def same_content_verdict(delay_fidelity_values):
+    """Le verdict de mergeVideo.py:1058-1086 sur UNE paire, sans les journaux.
+
+    `delay_fidelity_values`: une liste de retours de `correlate`, un par
+    fenetre -- (fidelite, _, decalage_ms). Renvoie (bool, moyenne, decalages)."""
+    from statistics import mean
+    fidelity = mean([fi[0] for fi in delay_fidelity_values])
+    delays = set(fi[2] for fi in delay_fidelity_values)
+    if fidelity < SAME_CONTENT_MEAN_FIDELITY:
+        return False, fidelity, delays
+    values = list(delays)
+    if len(values) == 1:
+        return abs(values[0]) < SAME_CONTENT_MAX_DELAY_MS, fidelity, delays
+    if len(values) == 2:
+        return (abs(values[0]) < SAME_CONTENT_MAX_DELAY_MS
+                and abs(values[1]) < SAME_CONTENT_MAX_DELAY_MS), fidelity, delays
+    return False, fidelity, delays
+
+
+def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir):
+    """La piste fabriquee est-elle LA MEME VERSION que la piste intacte du maitre?
+
+    MEMES INSTRUMENTS que le regroupement gele: fenetres de
+    `video.generate_begin_and_length_by_segment`/`generate_cut_with_begin_length`
+    sur la plus courte des deux durees, extraction pcm_s16le stereo (mono si
+    l'une est mono, comme `prepare_get_delay_sub`), normalisation
+    `video.generate_normalised_file`, `audioCorrelation.correlate` avec
+    `length_time*2`. MAIS dans un repertoire PRIVE et sans passer par
+    `extract_audio_in_part`: cette methode ecrit `tmpFiles` et
+    `audio_pos_file` sur l'objet maitre du pipeline et nomme ses fichiers
+    d'apres `fileBaseName` -- l'appeler ici effacerait ou ecraserait les
+    extraits dont la fusion a encore besoin.
+
+    Renvoie (verdict_bool_ou_None, detail). None = PAS MESURE: l'appelant ne
+    doit pas le lire comme "different"."""
+    import shutil
+    import tempfile
+    from time import strftime, gmtime
+    from audioCorrelation import correlate
+    private = tempfile.mkdtemp(prefix="fab_gate_", dir=work_dir or tools.tmpFolder)
+    try:
+        duration = min(float(master_audio["Duration"]), float(audio["Duration"]))
+        begin, length_time = video.generate_begin_and_length_by_segment(duration)
+        cuts = video.generate_cut_with_begin_length(
+            begin, length_time, strftime('%H:%M:%S', gmtime(length_time * 2)))
+        channels = "1" if "1" in (str(master_audio.get("Channels")),
+                                  str(audio.get("Channels"))) else "2"
+        codec_param = ["-c:a", "pcm_s16le", "-ac", channels]
+
+        # EN PARALLELE, comme le pool `ffmpeg_pool_audio_convert` du chemin gele:
+        # chaque fenetre est un ffmpeg independant (sortie `-ss` apres `-i`, donc
+        # decodee depuis le debut) et en serie la mesure coutait des minutes.
+        jobs = []
+
+        def extract(file_path, stream_order, tag):
+            out = []
+            for number, cut in enumerate(cuts):
+                final = path.join(private, f"{tag}.{number}.wav")
+                tmp = path.join(private, f"{tag}_tmp.{number}.wav")
+                cmd = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M",
+                       "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
+                       file_path, "-copyts", "-vn", "-dn", "-sn"] + codec_param + [
+                       "-map", f"0:{stream_order}", "-ss", cut[0], "-t", cut[1], tmp]
+                jobs.append(pool.submit(video.generate_normalised_file, cmd,
+                                        codec_param.copy(), final, tmp))
+                out.append(final)
+            return out
+
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max(1, int(tools.core_to_use or 1))) as pool:
+            master_cuts = extract(master_obj.filePath, master_audio["StreamOrder"], "m")
+            fab_cuts = extract(repaired_obj.filePath, audio["StreamOrder"], "f")
+            for job in jobs:
+                job.result()
+            values = list(pool.map(lambda pair: correlate(pair[0], pair[1], length_time * 2),
+                                    zip(master_cuts, fab_cuts)))
+        verdict, fidelity, delays = same_content_verdict(values)
+        return verdict, f"mean_fidelity={fidelity:.4f} delays_ms={sorted(delays)} windows={len(values)}"
+    except Exception as error:
+        return None, f"unmeasured={type(error).__name__}: {error}"
+    finally:
+        shutil.rmtree(private, ignore_errors=True)
+
+
+def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
+                             content_probe=None):
     """Aucune piste fabriquee n'atteint la livraison sans avoir ete jugee.
 
-    Deux regles, dans cet ordre, sur CHAQUE piste audio du fichier repare
-    (audios, commentaires, audio-description):
+    Sur CHAQUE piste audio du fichier repare (audios, commentaires,
+    audio-description), dans cet ordre:
 
-    1. ADDENDUM 7 (owner, RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD):
-       "AUCUN audio corrige en vitesse n'est LIVRE dans un produit tant que le
-       owner n'a pas valide d'exemples". Un marqueur `resampled:<f>` avec
-       f != 1 -> `keep=False`, cause `restoration_deferred`. Pas une course
-       perdue: un retrait, meme quand le maitre ne porte pas la langue.
-    2. LA PISTE INTACTE GAGNE (regle du proprietaire, 2026-09-16). Toute autre
-       piste fabriquee est COURUE contre chaque piste intacte de meme langue du
-       maitre, par `mergeVideo.keep_best_audio` lui-meme -- l'autorite, pas une
-       copie de sa regle. Le maitre y entre en COPIE: la course ne doit jamais
-       pouvoir changer ce que le maitre livre. Une langue que le maitre ne
-       porte pas intacte n'a pas d'adversaire: la piste reste (c'est l'objet de
-       la reparation).
+    0. PAS DE RETRAIT POUR CORRECTION DE VITESSE (owner, ADDENDUM 8,
+       2026-09-24, qui leve le report de l'ADDENDUM 7): une piste
+       `resampled:<f>` est une piste fabriquee comme les autres, jugee par les
+       regles ci-dessous, et son marqueur `resampled:<facteur>` voyage avec
+       elle jusqu'au produit (ADDENDUM 5 clause c) -- cette porte ne touche
+       jamais aux tags, elle ne pose que `keep`.
+    1. UN COMMENTAIRE N'EST JAMAIS COURU (owner, 2026-09-24: "un commentaire
+       doit etre tague comme tel -- soit par sa piste, soit dans ses
+       metadonnees"). Une piste rangee sous `.commentary` y est parce que
+       `video.py:113` a lu son titre ("commentary") ou `flag_commentary`: la
+       re-sonde du fichier intermediaire la range au meme endroit et
+       `generate_merge_command_insert_ID_...` (mergeVideo.py:1556) pose
+       `--commentary-flag` au mux final. Gardee, `fabricated_kept
+       cause=commentary_tagged`, avec ce qui la porte.
+    2. LA PISTE INTACTE GAGNE -- SUR LE MEME CONTENU SEULEMENT (owner,
+       2026-09-16, precise le 2026-09-24: "une VFQ chimerique ne sera jamais
+       perdue face a une VFF intacte"). Chaque piste intacte de meme langue du
+       maitre est comparee par empreinte (`measure_same_content`, seuil du
+       regroupement gele). Correle -> course `mergeVideo.keep_best_audio`
+       (l'autorite, maitre en COPIE), l'intacte gagne. Ne correle avec aucune
+       -> AUTRE VERSION: gardee, taguee VMSAM_FABRICATED, jamais courue.
+       Non mesurable -> pas de preuve d'une autre version: course.
+       Sans piste intacte de la langue au maitre: gardee (objet de la
+       reparation).
 
-    Renvoie la liste des retraits, une entree par piste, et journalise chacun
-    INCONDITIONNELLEMENT: c'est une decision de livraison, pas du diagnostic.
+    `content_probe`: injectable pour les tests; par defaut `measure_same_content`.
+    Renvoie la liste des retraits; journalise chaque decision
+    INCONDITIONNELLEMENT (decision de livraison, pas du diagnostic).
     """
     import mergeVideo
+    probe = content_probe or measure_same_content
     dropped = []
     master_intact = {}
-    for holder in AUDIO_HOLDERS:
+    # Les adversaires: les pistes PRINCIPALES intactes (et l'audio-description).
+    # Jamais un commentaire du maitre: ce n'est pas le meme contenu par nature.
+    for holder in ("audios", "audiodesc"):
         for language, audios in (getattr(master_obj, holder, None) or {}).items():
             for audio in audios:
                 if not fabricated_marker_of(audio):
                     master_intact.setdefault(language, []).append(audio)
+
+    def say(line, to_stderr=False):
+        tools.logs.append(line + "\n")
+        if to_stderr:
+            sys.stderr.write(line + "\n")
 
     for holder in AUDIO_HOLDERS:
         for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
@@ -1872,57 +1964,59 @@ def gate_fabricated_delivery(repaired_obj, master_obj):
                 marker = fabricated_marker_of(audio)
                 if not marker or not audio.get("keep", True):
                     continue
-                factor = resampled_factor_of(marker)
-                cause = None
-                opponent = None
-                if factor is not None and factor != 1:
-                    audio["keep"] = False
-                    cause = "restoration_deferred"
-                else:
-                    for intact in master_intact.get(language, []):
-                        rival = dict(intact)
-                        rival["keep"] = True
-                        mergeVideo.keep_best_audio([rival, audio], {})
-                        if not audio["keep"]:
-                            cause = "intact_same_language_wins"
-                            opponent = intact
-                            break
-                if cause is None:
-                    tools.logs.append(
-                        f"repair: fabricated_kept lang={language} holder={holder} "
-                        f"stream={audio.get('StreamOrder')} marker={marker} "
-                        f"reason=the master carries no intact {language} track "
-                        f"to race it against\n")
+                where = (f"lang={language} holder={holder} "
+                         f"stream={audio.get('StreamOrder')} "
+                         f"format={audio.get('Format')} marker={marker}")
+                if holder == "commentary":
+                    carrier = []
+                    if "commentary" in str(audio.get("Title", "")).lower():
+                        carrier.append(f"title={audio.get('Title')}")
+                    if (audio.get("properties") or {}).get("flag_commentary"):
+                        carrier.append("flag_commentary=true")
+                    say(f"repair: fabricated_kept cause=commentary_tagged {where} "
+                        f"tagged_by={'+'.join(carrier) or 'unknown'} "
+                        f"reason=a commentary is never raced against a main "
+                        f"track; delivered with --commentary-flag")
                     continue
-                entry = {"kind": "audio", "holder": holder, "language": language,
-                         "stream_order": audio.get("StreamOrder"),
-                         "format": audio.get("Format"), "marker": marker,
-                         "cause": cause}
-                line = (f"repair: fabricated_dropped cause={cause} lang={language} "
-                        f"holder={holder} stream={audio.get('StreamOrder')} "
-                        f"format={audio.get('Format')} marker={marker}")
-                if cause == "restoration_deferred":
-                    line += (f" factor={factor} reason=speed-corrected audio is "
-                             f"never delivered until the owner validates "
-                             f"examples (ADDENDUM 7)")
-                else:
-                    entry["kept_master_stream"] = opponent.get("StreamOrder")
-                    line += (f" kept_master_stream={opponent.get('StreamOrder')} "
-                             f"kept_master_format={opponent.get('Format')} "
-                             f"reason=raced by keep_best_audio, intact wins")
-                dropped.append(entry)
-                tools.logs.append(line + "\n")
-                sys.stderr.write(line + "\n")
+                opponents = master_intact.get(language, [])
+                if not len(opponents):
+                    say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
+                        f"reason=the master carries no intact {language} track "
+                        f"to race it against")
+                    continue
+                lost_to = None
+                measures = []
+                for intact in opponents:
+                    same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
+                    measures.append(f"vs_master_stream={intact.get('StreamOrder')}"
+                                    f"[same_content={same} {detail}]")
+                    if same is False:
+                        continue
+                    rival = dict(intact)
+                    rival["keep"] = True
+                    mergeVideo.keep_best_audio([rival, audio], {})
+                    if not audio["keep"]:
+                        lost_to = (intact, same)
+                        break
+                if lost_to is None:
+                    say(f"repair: fabricated_kept cause=different_version {where} "
+                        f"{' '.join(measures)} reason=its fingerprint matches no "
+                        f"intact {language} master track: another version, "
+                        f"delivered tagged VMSAM_FABRICATED")
+                    continue
+                intact, same = lost_to
+                dropped.append({"kind": "audio", "holder": holder, "language": language,
+                                "stream_order": audio.get("StreamOrder"),
+                                "format": audio.get("Format"), "marker": marker,
+                                "cause": "intact_same_language_wins",
+                                "kept_master_stream": intact.get("StreamOrder"),
+                                "same_content": same})
+                say(f"repair: fabricated_dropped cause=intact_same_language_wins {where} "
+                    f"kept_master_stream={intact.get('StreamOrder')} "
+                    f"kept_master_format={intact.get('Format')} {' '.join(measures)} "
+                    f"reason=same content (or unmeasured), raced by keep_best_audio, "
+                    f"intact wins", to_stderr=True)
     return dropped
-
-
-def count_deliverable_tracks(repaired_obj):
-    """Pistes audio et sous-titres que la livraison prendra encore (`keep`)."""
-    count = 0
-    for holder in AUDIO_HOLDERS + ("subtitles",):
-        for tracks in (getattr(repaired_obj, holder, None) or {}).values():
-            count += sum(1 for track in tracks if track.get("keep", True))
-    return count
 
 
 def quanta(value_ms, quantum_ms):
