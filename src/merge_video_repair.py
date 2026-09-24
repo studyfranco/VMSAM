@@ -3185,7 +3185,7 @@ def chimeric_cause(error):
 
     23 sites levent `chimeric_error` et un 24e leve `chimeric_bound_error`, qui
     en est une SOUS-CLASSE et tombe donc sur le meme `isinstance` que les
-    autres. QUATRE portent un jeton aujourd'hui. Deux sur bornage explicite du
+    autres. CINQ portent un jeton aujourd'hui. Deux sur bornage explicite du
     Lead (R2): ce sont les deux que la production a fait tourner -- 18 et 5
     declins sur les 26 mesures dans 59 artefacts. Le troisieme est scope IN
     par l'Architect (ruling 2026-09-22, RULING_20260922_NO_BAND_ROUTING.MD,
@@ -3196,21 +3196,27 @@ def chimeric_cause(error):
     pass 8): `delivery_timeline_misalignment` a
     `merge_video_chimeric.py:5360-5397`, la verification post-construction
     contre la timeline du maitre, premiere occurrence de production
-    2026-09-22/23. Les 20 restants sont ATTEIGNABLES depuis le chemin de
-    reparation (mesure statique, zero inatteignable) et ont ZERO occurrence
-    en production.
+    2026-09-22/23. Le cinquieme est scope IN par ce cas
+    (`architect/cases/CASE_errid50_untokened_1279.md`, errids 50 et 58, wave
+    table pass 10): `candidate_admission_window_exceeded` a
+    `merge_video_chimeric.py:1279-1283`, le seul site qui leve
+    `chimeric_bound_error` -- la fenetre calculee d'un morceau sort de la
+    duree propre du candidat (mesuree sur le flux, jamais un reglage),
+    premieres occurrences de production 2026-09-24. Les 19 restants sont
+    ATTEIGNABLES depuis le chemin de reparation (mesure statique, zero
+    inatteignable) et ont ZERO occurrence en production.
 
-    POURQUOI PAS UN JETON GROSSIER POUR LES 20. Un `assembly_refused` aurait
-    rempli la colonne avec une valeur couvrant 20 decisions distinctes et n'en
+    POURQUOI PAS UN JETON GROSSIER POUR LES 19. Un `assembly_refused` aurait
+    rempli la colonne avec une valeur couvrant 19 decisions distinctes et n'en
     classant aucune. Une colonne remplie d'une valeur qui ne classe rien est
     PIRE qu'une colonne vide: elle a l'air notee. Ils sont donc NON COMPTES,
     et non FAUSSEMENT COMPTES.
 
     POURQUOI PAS `(unstated)`, QUI EXISTE DEJA. Cette sentinelle-la signifie
     *le producteur a tourne et n'a rendu AUCUN jeton alors que son contrat
-    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 20
+    l'exige* -- une VIOLATION DE CONTRAT, et elle doit etre bruyante. Les 19
     sites ici sont un MANQUE CONNU, DELIBERE ET AUTORISE. Depenser le signal
-    d'alarme sur 20 faux positifs detruit le sens du signal, et c'est ce
+    d'alarme sur 19 faux positifs detruit le sens du signal, et c'est ce
     signal-la qui protege la colonne. Deux etats qu'un correctif futur traite
     differemment ne partagent pas une etiquette: c'est la meme regle de
     granularite que pour les jetons, appliquee aux sentinelles.

@@ -171,8 +171,15 @@ class chimeric_error(Exception):
     QUATRIEME est scope IN par ce cas (CASE_errid12_untokened_5367.md, errid
     12, wave table pass 8): `delivery_timeline_misalignment` a :5360-5397 --
     la verification post-construction contre le maitre, premiere occurrence
-    de production 2026-09-22/23.
-    Quatre sites portent donc un jeton aujourd'hui; les 20 restants n'en ont
+    de production 2026-09-22/23. Un CINQUIEME est scope IN par ce cas
+    (CASE_errid50_untokened_1279.md, errids 50 et 58, wave table pass 10):
+    `candidate_admission_window_exceeded` a :1279-1283 -- le SEUL site qui leve
+    `chimeric_bound_error`, la sous-classe borne, refusant un morceau dont la
+    fenetre calculee [candidate_start,candidate_end) sort de la duree du
+    candidat lui-meme (mesuree, jamais un reglage); deux occurrences de
+    production 2026-09-24, meme fraction de borne inferieure negative sur les
+    deux, un seul site.
+    Cinq sites portent donc un jeton aujourd'hui; les 19 restants n'en ont
     toujours pas.
 
     LES AUTRES N'ONT DONC PAS DE JETON, ET C'EST DIT PLUTOT QUE COMBLE.
@@ -194,10 +201,17 @@ class chimeric_bound_error(chimeric_error):
 
     Porte `stream_order` et `bound_ms` pour que l'appelant sache contre quoi le
     refus a ete prononce sans relire le texte.
+
+    Porte aussi `cause`, PAR LA MEME VOIE que la classe mere: `chimeric_error.
+    __init__` l'accepte deja, cette sous-classe se contentait de ne pas le
+    relayer. Un CINQUIEME site (celui-ci, l'unique site qui leve cette
+    sous-classe -- `merge_video_chimeric.py:1279`) est scope IN par
+    `CASE_errid50_untokened_1279.md`: voir la docstring de `chimeric_error`
+    pour le compte a jour.
     '''
 
-    def __init__(self, message, stream_order=None, bound_ms=None):
-        super().__init__(message)
+    def __init__(self, message, stream_order=None, bound_ms=None, cause=None):
+        super().__init__(message, cause=cause)
         self.stream_order = stream_order
         self.bound_ms = bound_ms
 
@@ -1276,11 +1290,27 @@ def normalize_segments(segments, master_duration_ms, candidate_duration_ms,
             # qu'il etait la borne du FICHIER et non celle de la piste decoupee,
             # il PASSAIT, donc personne ne l'a jamais lu. Le numero de flux est
             # ce qui distingue les deux pistes `en` d'un meme fichier.
+            #
+            # CINQUIEME SITE AUTORISE (Architect, CASE_errid50_untokened_1279.md,
+            # errids 50 et 58, wave table pass 10): premieres occurrences de
+            # production 2026-09-24. Le jeton dit CE QUE LA MESURE A VU: la
+            # fenetre calculee du morceau tombe hors de la duree PROPRE du
+            # candidat (`candidate_duration_ms`, mesuree sur le flux -- et deja
+            # revalidee contre le flux reel par `normalize_with_measured_bound`
+            # avant que ce refus n'atteigne l'appelant, jamais une metadonnee
+            # crue sur parole), pas seulement hors d'une piste. C'est le SEUL
+            # site qui leve `chimeric_bound_error` -- distinct des jetons
+            # voisins comme `candidate_segment_regression` (monotonie entre
+            # deux morceaux places) et `delivery_timeline_misalignment`
+            # (verification post-mux contre le maitre): ici c'est la fenetre
+            # d'un morceau qui sort de la piste elle-meme, une quatrieme facon
+            # de rater (regle de granularite R1), donc un cinquieme jeton.
             raise chimeric_bound_error(
                 f"segment reads the candidate at [{candidate_start},"
                 f"{candidate_end}) ms, outside its {candidate_duration_ms} ms"
                 + (f" [{bound_label}]" if bound_label != None else ""),
-                stream_order=stream_order, bound_ms=candidate_duration_ms)
+                stream_order=stream_order, bound_ms=candidate_duration_ms,
+                cause="candidate_admission_window_exceeded")
         # Monotonie cote candidat: exigee par la nature du probleme (les deux
         # timelines avancent), et exigee par l'implementation (le filtre concat
         # tire ses segments dans l'ordre; un retour en arriere obligerait
