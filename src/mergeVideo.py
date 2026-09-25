@@ -680,7 +680,15 @@ class compare_video(Thread):
             """
             BEGIN: AGENT modification ok
             """
-
+            # The rounding below picks the frame nearest to the AUDIO delay. With
+            # both videos CFR at the same exact rate, frame_snap lets the pictures
+            # vote between that frame and its two neighbours at eight positions;
+            # it hands back `delay` untouched (today's rounding) unless a
+            # neighbour wins by consensus, then exactly that frame's delay, which
+            # the rounding below keeps. Every outcome is one `frame_snap` line.
+            import frame_snap
+            delay = frame_snap.snap_for_merge(self.video_obj_1, self.video_obj_2,
+                                              self.video_obj_with_best_quality, delay)
             """
             END: AGENT modification
             """
