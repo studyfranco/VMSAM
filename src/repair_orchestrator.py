@@ -38,14 +38,15 @@ MEASUREMENT CLASS. Nothing here returns True on work it did not do.
                                                           the coalescing absorbed, logged and,
                                                           above the resolver's reach, checked by
                                                           the video (ADDENDUM 21.9)
-    landed   step 4  frame-exact hole resolution       -- `scene_anchor.locate_scene_anchors`
-                                                          (interior, two anchors) and
-                                                          `.locate_edge_boundary` (head/tail,
-                                                          one anchor), sequential, EDGES FIRST
-                                                          (ADDENDUM 19 d), a refuted step's
-                                                          surviving shift carried to the next
-                                                          hole (ADDENDUM 19 c); see
-                                                          `resolve_holes`
+    landed   step 4  THE AUDIO BOUNDS, THE VIDEO PINS  -- ADDENDUM 25: the millisecond walk
+                                                          (`audio_walk`) on the reference couple
+                                                          fixes offsets, steps, fill widths and
+                                                          the intervals a cut may lie in; the
+                                                          video (`scene_anchor`, two anchors /
+                                                          one anchor) only chooses the frame
+                                                          inside them or says there is no cut
+                                                          (a slip); see `audio_transitions`,
+                                                          `audio_edges`
     landed   step 5  plan application                  -- `apply_plan`: the resolved frames
                                                           laid as zones and fills, each track's
                                                           own sub-frame offset, resample at the
@@ -95,6 +96,7 @@ from decimal import Decimal
 from fractions import Fraction
 import math
 from os import path, remove
+import statistics
 import subprocess
 import time
 
@@ -202,7 +204,12 @@ INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 # the machine time (memo THROUGHPUT_ANALYSIS_20260925). The values are the ruling's.
 ALIGNMENT_BUDGET_S = 120.0          # one couple's b2_align (`alignment_budget_exceeded`)
 HOLE_BUDGET_S = 300.0               # one hole's frame-exact search (`hole_budget_exceeded`)
-REPAIR_BUDGET_S = 1200.0            # one candidate's whole repair (`repair_budget_exceeded`)
+# One candidate's whole repair (`repair_budget_exceeded`), PROPORTIONAL to the master's video
+# (ADDENDUM 26.8): 20 min per started 30-min slice, floor 20 min (60 min -> 40 min, 2 h -> 80 min).
+# A budget that declines a file for its length alone is a defect, not a cap (Fallout S01E02, a
+# 60-min master, legitimately approaches 20 min).
+REPAIR_BUDGET_PER_SLICE_S = 1200.0
+REPAIR_BUDGET_SLICE_S = 1800.0
 # THE HOLE SANITY BOUND (ADDENDUM 26.2): an interior hole wider than this is not searched. Measured:
 # resolved holes <= 2 s, absorbed <= 7.7 s, edge additions <= 27 s on the corpus; id 691 carried an
 # interior "hole" of 6,803 s past the end of its master's video.
@@ -526,6 +533,36 @@ DECLINE_CAUSES = {
     "plan_reads_no_candidate_content": CLASS_CONCLUSIVE,
     # The build returned and the temporary chimeric file is not on disk.
     "plan_application_no_file": CLASS_COULD_NOT_RUN,
+    # ADDENDUM 25 (the audio plan). The walk could not read the comparison tracks, or found no
+    # level at all:
+    "audio_walk_unavailable": CLASS_COULD_NOT_RUN,
+    # A change point whose edges the 20 ms and 100 ms profiles could not read:
+    "audio_step_unlocalised": CLASS_COULD_NOT_RUN,
+    # 25.1: the master content the candidate lacks does not fit between the audio edges -- the
+    # audio step and the hole contradict each other, measured:
+    "hole_width_contradicts_audio_step": CLASS_CONCLUSIVE,
+    # 25.2 c: a sub-quantum step the video could neither place nor rule out:
+    "sub_quantum_step_video_ambiguous": CLASS_COULD_NOT_RUN,
+    # The audio's transitions or edges do not tile the timeline (a plan defect, not the pair's):
+    "audio_transitions_overlap": CLASS_COULD_NOT_RUN,
+    # THE ASSEMBLY'S OWN REFUSALS (B5 of the certification: a stage-5 refusal left the
+    # vocabulary and the ledger could not class it). They are raised by `merge_video_chimeric` /
+    # `merge_video_repair` with the token set at the raise site and recorded by the entry, which
+    # now writes their measurement class through `log_measurement_class`. Measured refusals of
+    # the built file are conclusive; a plan the assembly cannot lay is could-not-run.
+    "alignment_contradicts_plan": CLASS_CONCLUSIVE,
+    "delivery_offset_exceeds_tolerance": CLASS_CONCLUSIVE,
+    "master_audio_complement_short": CLASS_CONCLUSIVE,
+    "master_duration_sources_disagree": CLASS_CONCLUSIVE,
+    "candidate_admission_window_exceeded": CLASS_CONCLUSIVE,
+    "candidate_segment_regression": CLASS_CONCLUSIVE,
+    "speed_transform_not_validated": CLASS_COULD_NOT_RUN,
+    "plan_not_contiguous": CLASS_COULD_NOT_RUN,
+    "plan_piece_empty_or_inverted": CLASS_COULD_NOT_RUN,
+    "plan_end_not_master_timeline": CLASS_COULD_NOT_RUN,
+    # A delivery probe landed where a compared track has no audio (the verifier could not
+    # measure there -- not a measurement about the pair):
+    "probe_reads_no_audio": CLASS_COULD_NOT_RUN,
     # RETIRED 2026-09-24: `restoration_deferred` (class `owner_choice`). The owner's ADDENDUM 8
     # lifted ADDENDUM 7's deferral -- "L'audio corrige en vitesse PEUT etre livre ... Le declin
     # `restoration_deferred` disparait de `apply_plan` et de la porte de livraison" -- so the
@@ -547,13 +584,8 @@ DECLINE_CAUSES = {
 #   sustained_mismatch                EDGE ruling termination 1 -- divergent content: replace
 #   master_exhausted                  EDGE ruling termination 2 -- candidate excess: trim
 #   candidate_exhausted               EDGE ruling termination 3 -- master addition, COUNTED
-#   absorbed_by_edge                  ADDENDUM 19 d -- an interior hole whose master bracket lies
-#                                     inside a RESOLVED edge's master span: the edge's fill
-#                                     already covers it, so it is not searched and leaves the
-#                                     plan (it carries no frames of its own)
 #   declined                          the resolver could not establish a boundary; named reason
 HOLE_RESOLVED = "resolved"
-HOLE_ABSORBED_BY_EDGE = "absorbed_by_edge"
 HOLE_NO_CUT_CONFIRMED = "no_cut_confirmed"
 HOLE_PINNED_TO_AMBIGUOUS_ZONE_END = "boundary_pinned_to_ambiguous_zone_end"
 EDGE_SUSTAINED_MISMATCH = "sustained_mismatch"
@@ -563,8 +595,6 @@ HOLE_DECLINED = "declined"
 EDGE_TERMINATIONS = (EDGE_SUSTAINED_MISMATCH, EDGE_MASTER_EXHAUSTED, EDGE_CANDIDATE_EXHAUSTED)
 HOLE_STATUSES_WITH_FRAMES = (HOLE_RESOLVED, HOLE_NO_CUT_CONFIRMED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END
                              ) + EDGE_TERMINATIONS
-# The statuses that take a hole OUT of the plan without it being a failure.
-HOLE_STATUSES_LEAVING_THE_PLAN = (HOLE_NO_CUT_CONFIRMED, HOLE_ABSORBED_BY_EDGE)
 
 # The three `why=` tokens are a CLOSED SET PINNED BY A TOOL, not a naming choice:
 # `tools/validate_merge_plan.py:154-156` matches `(head_gap|interior_bracket|tail_gap|absent\()`
@@ -636,6 +666,19 @@ def _plan_line(kind, candidate_path, **fields):
 _PLAN_LINE_MARK = {}
 
 
+def log_measurement_class(candidate_path, cause):
+    """The measurement-class line beside a cause token, unconditional -- for the orchestrator's
+    own terminals (`_terminal`) and for the assembly's refusals the entry records (B5). A token
+    outside `DECLINE_CAUSES` is named loudly and classed `unclassified`, never borrowed."""
+    if cause not in DECLINE_CAUSES:
+        tools.log_always(f"repair: orchestrator UNVOCABULARISED cause={cause} for "
+                         f"{candidate_path} -- this token is not in DECLINE_CAUSES and has no "
+                         f"measurement class; add it there. The refusal below stands.\n")
+    tools.log_always(f"repair: orchestrator cause={cause} "
+                     f"measurement={DECLINE_CAUSES.get(cause, 'unclassified')} "
+                     f"for {candidate_path}\n")
+
+
 def _terminal(candidate_path, outcome, cause, reason, detail=None):
     """The one terminal per-candidate verdict line, and the ONLY place a cause token leaves this
     module.
@@ -658,13 +701,7 @@ def _terminal(candidate_path, outcome, cause, reason, detail=None):
     # in THIS table, and the candidate is still refused either way. So the refusal stands, the
     # gap is named on the unconditional channel where nobody can miss it, and the measurement
     # class reads `unclassified` rather than borrowing one it was not given.
-    if cause not in DECLINE_CAUSES:
-        tools.log_always(f"repair: orchestrator UNVOCABULARISED cause={cause} for "
-                         f"{candidate_path} -- this token is not in DECLINE_CAUSES and has no "
-                         f"measurement class; add it there. The refusal below stands.\n")
-    measurement_class = DECLINE_CAUSES.get(cause, "unclassified")
-    tools.log_always(f"repair: orchestrator cause={cause} "
-                     f"measurement={measurement_class} for {candidate_path}\n")
+    log_measurement_class(candidate_path, cause)
     try:
         import merge_video_repair
     except Exception as error:                                           # noqa: BLE001
@@ -1034,54 +1071,12 @@ def holes_for_couple(alignment):
 def edge_addition_seconds(holes):
     """Total candidate content to be added at the head and the tail, in seconds.
 
-    Feeds ADDENDUM 5's marker decision and, per that addendum's clause (d), is LOGGED ALWAYS --
-    tagged or not, the artefact must always know what was done; only the competitive marker
-    follows the threshold.
-
-    ONCE THE VIDEO HAS RESOLVED AN EDGE, ITS COUNT REPLACES THE AUDIO'S ESTIMATE (stage 4).
-    Before resolution the only number available is the audio hole's candidate span. After it,
-    `resolve_hole` sets `resolved_edge_addition_seconds` on the hole: the MASTER frames that
-    will stand on the output timeline where the candidate has no common content -- the
-    EDGE ruling's addendum, verbatim, "the number of master frames remaining past the last
-    compared frame IS the length to take from the master ... duration = frames x the exact
-    rational frame time". A trim (`master_exhausted`) adds nothing and counts zero; a closed
-    edge counts zero. The audio estimate is kept only where no resolution happened.
+    The b2 ESTIMATE, logged beside the holes; since ADDENDUM 25 the marker decision reads the
+    edge fills the master actually WRITES (`written_edge_seconds`), never this estimate.
     """
-    total = 0.0
-    for hole in holes:
-        if hole["kind"] in ("head", "tail"):
-            resolved = hole.get("resolved_edge_addition_seconds")
-            total += hole["candidate_span_seconds"] if resolved is None else resolved
-    return total
+    return sum(hole["candidate_span_seconds"] for hole in holes
+               if hole["kind"] in ("head", "tail"))
 
-
-def chimeric_tag_required(holes):
-    """ADDENDUM 5, the marker rule, as a single decision with its reasons attached.
-
-    Returns `(required, reason)`. (a) ANY interior splice tags, whatever its size. (b) Edge
-    additions totalling at or above the threshold tag. Otherwise the track keeps its INTACT
-    status in `keep_best_audio`, which is the point: the standing "intact wins" rule must not
-    demote a near-intact track over a marginal edge completion.
-
-    The `resampled:<factor>` marker is deliberately NOT decided here -- clause (c) makes it
-    INDEPENDENT of this threshold, because a resample transforms the WHOLE track with or without
-    any splice.
-    """
-    if any(hole["kind"] == "interior" for hole in holes):
-        return True, "an interior splice tags regardless of its size (addendum 5 bound a)"
-    added = edge_addition_seconds(holes)
-    if added >= EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS:
-        return True, (f"edge additions total {added:.3f}s, at or above the "
-                      f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold "
-                      f"(addendum 5 bound b)")
-    return False, (f"edge additions total {added:.3f}s, under the "
-                   f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold and no interior "
-                   f"splice -- the original track with a marginal completion, not a chimera")
-
-
-# ---------------------------------------------------------------------------
-# THE UNION OF HOLES ACROSS COUPLES -- ADDENDUM 21.8
-# ---------------------------------------------------------------------------
 
 def hole_on_file_clock(hole, couple, fold):
     """One couple's hole, moved from its TRACKS' clocks to the FILE's (ADDENDUM 19 b).
@@ -1285,96 +1280,37 @@ def cluster_holes(holes, per_couple_alignments):
     return clusters
 
 
-def _clusters_with_islands_tested(holes, couple_results, domain, master_obj, candidate_obj,
-                                  candidate_path):
-    """The owner's clusters (2026-09-24), built on the final hole list, LOGGED (members, islands
-    with their b2 similarity), and every island at or above `ISLAND_VIDEO_CHECK_MIN_FRAMES`
-    confirmed by the video (`scene_anchor.island_match`, the island's own frames under its own
-    offset, through the cluster's shared scan):
-      same        the island is common content -- the holes stay separate (the ruling's case)
-      unreadable  the video could not read it -- kept, and said so; not a refutation
-      differs     the island is NOT the same content under its offset: the aligner's zone was
-                  wrong there, so the two holes around it are ONE edit and are searched as one
-                  (bounds of both, offset before the first, after the second) -- logged
-    Returns the hole list to resolve, each multi-hole cluster's members carrying their shared
-    scan (`cluster_holes`)."""
-    import scene_anchor
-    alignments = [(record["couple"], record["alignment"], record["fold"])
-                  for record in couple_results]
-    clusters = cluster_holes(holes, alignments)
-    refuted = set()
-    for cluster in clusters:
-        for number, island in enumerate(cluster["islands"]):
-            left, right = cluster["members"][number], cluster["members"][number + 1]
-            span_frames = (_master_frame_of_ms(island["master_ms"][1], domain)
-                           - _master_frame_of_ms(island["master_ms"][0], domain))
-            if span_frames < ISLAND_VIDEO_CHECK_MIN_FRAMES or island["offset_ms"] is None:
-                reading = {"verdict": "untestable",
-                           "reason": f"island_of_{span_frames}_frames_under_the_"
-                                     f"{ISLAND_VIDEO_CHECK_MIN_FRAMES}_the_video_can_validate"}
-            else:
-                try:
-                    reading = scene_anchor.island_match(
-                        master_obj.filePath, candidate_obj.filePath,
-                        domain["master_rate"].numerator, domain["master_rate"].denominator,
-                        float(island["master_ms"][0]), float(island["master_ms"][1]),
-                        float(island["offset_ms"]), candidate_time_scale=domain["time_scale"],
-                        shift_search_frames=_shift_search_frames(domain, island["quantum_ms"]),
-                        scan_cache=holes[left].get("scan_cache"))
-                except Exception as error:                               # noqa: BLE001
-                    reading = {"verdict": "unreadable",
-                               "reason": f"island_match_raised:{type(error).__name__}"}
-            island["video"] = reading
-            if reading["verdict"] == "differs":
-                refuted.add(left)
-        step_result("cluster", candidate=candidate_path, cluster=cluster["cluster_id"],
-                    members=cluster["members"],
-                    member_master_ms=[[round(holes[i]["master_ms"][0], 2),
-                                       round(holes[i]["master_ms"][1], 2)]
-                                      for i in cluster["members"]],
-                    member_steps_ms=[None if holes[i]["step_ms"] is None
-                                     else round(holes[i]["step_ms"], 3)
-                                     for i in cluster["members"]],
-                    shared_scan=len(cluster["members"]) > 1,
-                    islands=[{"master_ms": [round(isl["master_ms"][0], 2),
-                                            round(isl["master_ms"][1], 2)],
-                              "offset_ms": (None if isl["offset_ms"] is None
-                                            else round(isl["offset_ms"], 3)),
-                              "b2_zones": isl["b2_zones"], "video": isl["video"]}
-                             for isl in cluster["islands"]])
-    if not refuted:
-        return holes
-    merged = []
-    for index, hole in enumerate(holes):
-        if merged and index - 1 in refuted:
-            united = _widen(dict(merged[-1], _members=[merged[-1]]), hole)
-            del united["_members"]
-            merged[-1] = united
-            continue
-        merged.append(hole)
-    for hole in merged:
-        for key in ("cluster_id", "cluster_window", "scan_cache"):
-            hole.pop(key, None)
-    step_result("islands_refuted_holes_united", candidate=candidate_path,
-                n_refuted=len(refuted), n_holes_before=len(holes), n_holes=len(merged),
-                rule="an_island_the_video_refutes_is_not_common_content")
-    cluster_holes(merged, alignments)
-    return merged
+def walk_agreement(walk, low_ms, high_ms, offset_ms, tolerance_ms):
+    """What the audio walk read inside master [low, high): `(n_agree, n_ok, n_windows)` --
+    windows wholly inside the span, those measured (`ok`), and those whose offset lies within
+    `tolerance_ms` of `offset_ms`."""
+    import audio_walk
+    rows = [row for row in walk["rows"]
+            if row["t"] * 1000.0 >= low_ms
+            and (row["t"] + audio_walk.WALK_WINDOW_S) * 1000.0 <= high_ms]
+    ok = [row for row in rows if row["status"] == "ok"]
+    agree = [row for row in ok if abs(row["off"] - offset_ms) <= tolerance_ms]
+    return len(agree), len(ok), len(rows)
 
 
-def absorbed_gaps_to_examine(couple_results, union, candidate_path):
+def log_absorbed_gaps(couple_results, union, walk, candidate_path):
     """ADDENDUM 21.9: the same-offset gaps are ABSORBED FOR THE PLAN, LOGGED, and above
-    `ABSORBED_GAP_VIDEO_CHECK_SECONDS` confirmed by the video's no-cut test. This returns the
-    gaps the video must examine, as interior holes (offset before = offset after, step 0), after
-    logging EVERY absorbed gap of every couple with its span and what happens to it:
+    `ABSORBED_GAP_VIDEO_CHECK_SECONDS` confirmed -- since ADDENDUM 25 by the AUDIO WALK, not the
+    video: the walk reads every window of the gap at the millisecond, and a difference of
+    picture with no audio step can no longer change the plan (25.2 corollary), so only the audio
+    can refute an absorption, and the walk is the audio's own instrument. Every absorbed gap of
+    every couple is logged with its span and one of:
 
       under_threshold             logged only (see the constant's derivation)
-      inside_a_hole               the union already searches that stretch
+      inside_a_hole               the union already covers that stretch
       confirmed_by_another_couple another usable couple ALIGNED most of it (more than half its
-                                  master span) at the same offset, within one quantum -- a second
-                                  instrument already saw the zone is the same, so no video is spent
-      to_video                    handed to the no-cut test (overlapping ones merged across
-                                  couples, widest bounds -- one search region, as for holes)
+                                  master span) at the same offset, within one quantum
+      confirmed_by_walk           most of the walk's measured windows inside it read the gap's
+                                  offset within one quantum (the b2 offset's own precision)
+      walk_change_point_inside    the walk found a level change inside it -- it is a change
+                                  point of the plan like any other (resolved there, not here)
+      unverified_by_walk          the walk measured too little inside it to say (silence) --
+                                  absorbed, and said so
 
     Everything is on the file's clock, each couple with its own fold."""
     raw_zones = []
@@ -1388,7 +1324,9 @@ def absorbed_gaps_to_examine(couple_results, union, candidate_path):
                               + fold["master_start_ms"],
                               detail["offset_points"] * quantum_ms + fold["delta_ms"],
                               quantum_ms))
-    pending = []
+    changes = [(min(p["level_before"]["t_last"], p["level_after"]["t_first"]) * 1000.0,
+                max(p["level_before"]["t_last"], p["level_after"]["t_first"]) * 1000.0)
+               for p in walk["points"] if p["kind"] == "change_point"]
     for record in couple_results:
         fold = record["fold"]
         quantum_ms = record["alignment"]["quantum_ms"]
@@ -1397,6 +1335,7 @@ def absorbed_gaps_to_examine(couple_results, union, candidate_path):
             high = gap["master_ms"][1] + fold["master_start_ms"]
             offset = gap["offset_ms"] + fold["delta_ms"]
             span_s = (high - low) / 1000.0
+            evidence = None
             if span_s < ABSORBED_GAP_VIDEO_CHECK_SECONDS:
                 action = "under_threshold"
             elif any(low < hole["master_ms"][1] and high > hole["master_ms"][0]
@@ -1407,55 +1346,21 @@ def absorbed_gaps_to_examine(couple_results, union, candidate_path):
                               for couple, z_low, z_high, z_offset, z_quantum in raw_zones
                               if couple != record["couple"]
                               and abs(z_offset - offset) <= z_quantum)
-                action = ("confirmed_by_another_couple" if 2 * covered > (high - low)
-                          else "to_video")
+                if 2 * covered > (high - low):
+                    action = "confirmed_by_another_couple"
+                elif any(c_low < high and c_high > low for c_low, c_high in changes):
+                    action = "walk_change_point_inside"
+                else:
+                    agree, measured, windows = walk_agreement(walk, low, high, offset,
+                                                              quantum_ms)
+                    evidence = {"agree": agree, "ok": measured, "windows": windows}
+                    action = ("confirmed_by_walk" if measured and 2 * agree > measured
+                              else "unverified_by_walk")
             step_result("absorbed_gap", candidate=candidate_path, couple=record["couple"],
                         master_ms=[round(low, 2), round(high, 2)],
-                        candidate_ms=[round(gap["candidate_ms"][0] + fold["candidate_start_ms"]
-                                            * fold["scale"], 2),
-                                      round(gap["candidate_ms"][1] + fold["candidate_start_ms"]
-                                            * fold["scale"], 2)],
                         span_s=round(span_s, 3), offset_ms=round(offset, 3),
-                        threshold_s=ABSORBED_GAP_VIDEO_CHECK_SECONDS, action=action)
-            if action == "to_video":
-                candidate_low = gap["candidate_ms"][0] + fold["candidate_start_ms"] * fold["scale"]
-                candidate_high = gap["candidate_ms"][1] + fold["candidate_start_ms"] * fold["scale"]
-                pending.append({
-                    "modality": MODALITY, "kind": "interior",
-                    "why_token": WHY_TOKEN["interior"], "origin": "absorbed_gap",
-                    "touches_head": False, "touches_tail": False,
-                    "master_ms": [low, high], "candidate_ms": [candidate_low, candidate_high],
-                    "master_span_seconds": span_s,
-                    "candidate_span_seconds": max(0.0, (candidate_high - candidate_low) / 1000.0),
-                    "offset_before_ms": offset, "offset_after_ms": offset,
-                    "offset_before_points": gap["offset_points"],
-                    "offset_after_points": gap["offset_points"],
-                    "step_ms": 0.0, "step_points": 0, "quantum_ms": quantum_ms,
-                    "track_delay_delta_ms": fold["delta_ms"],
-                    "offset_sources": [record["couple"], record["couple"]],
-                    "members": [{"couple": record["couple"], "kind": "absorbed_gap",
-                                 "master_ms": [round(low, 2), round(high, 2)],
-                                 "step_ms": 0.0}],
-                    "union_of": 1})
-    pending.sort(key=lambda gap: gap["master_ms"][0])
-    merged = []
-    for gap in pending:
-        if merged and gap["master_ms"][0] < merged[-1]["master_ms"][1]:
-            last = merged[-1]
-            last["master_ms"][1] = max(last["master_ms"][1], gap["master_ms"][1])
-            last["candidate_ms"] = [min(last["candidate_ms"][0], gap["candidate_ms"][0]),
-                                    max(last["candidate_ms"][1], gap["candidate_ms"][1])]
-            last["master_span_seconds"] = (last["master_ms"][1] - last["master_ms"][0]) / 1000.0
-            last["members"] += gap["members"]
-            last["union_of"] += 1
-            continue
-        merged.append(gap)
-    return merged
-
-
-# ---------------------------------------------------------------------------
-# THE MULTI-COUPLE CROSS-CHECK -- step 3, sub-step 3
-# ---------------------------------------------------------------------------
+                        threshold_s=ABSORBED_GAP_VIDEO_CHECK_SECONDS, action=action,
+                        walk=evidence)
 
 def cross_verify_couples(couple_results):
     """The ruling's step 3: the couples must agree, or the pair returns with everything measured.
@@ -2118,8 +2023,7 @@ def _audio_offsets(hole):
     `couple_start_delta_ms`), and each couple's start delta is folded in ONCE, when its holes are
     put on the file's clock (`hole_on_file_clock`), before the union and before any video is
     searched -- so `offset_before_ms` / `offset_after_ms` here are already file-time, and every
-    reader downstream (the video search, the plan) receives them as they are. A carried offset
-    (ADDENDUM 19 c, `_carry_offset`) replaces the audio's own, and says so on the hole."""
+    reader downstream (the video search, the plan) receives them as they are."""
     quantum_ms = hole["quantum_ms"]
     return {
         "audio_offset_before_ms": (None if hole.get("offset_before_ms") is None
@@ -2128,7 +2032,6 @@ def _audio_offsets(hole):
                                   else round(hole["offset_after_ms"], 3)),
         "audio_offset_precision_ms": round(quantum_ms, 3),
         "track_delay_delta_ms": hole.get("track_delay_delta_ms"),
-        "carried_offset_replaced_ms": hole.get("carried_offset_replaced_ms"),
     }
 
 
@@ -2661,8 +2564,6 @@ def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_m
             "surviving_shift_walk_frames": [None, None],
             "surviving_shift_span_frames": last - first},
     }
-    if hole["step_points"]:
-        outcome["surviving_offset_ms"] = float(shift * frame_ms)
     return outcome
 
 
@@ -2699,12 +2600,9 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
     shift. So the no-cut hypothesis is put to the video AT THAT SHIFT, held exactly, first; the
     rest proceeds as above.
 
-    A HOLE CLOSED OR RE-READ UNDER ONE SHIFT THE AUDIO DID NOT PROPOSE CARRIES THAT SHIFT OUT
-    (`surviving_offset_ms`, the video's single shift in ms): the zone after the hole is the SAME
-    zone as before it, so the NEXT hole's `offset_before` is that shift, not the audio's refuted
-    `offset_after` -- `resolve_holes` applies it (id 134: the tail inherits -72, not +181876 ms).
-    Only a hole whose audio step was non-zero carries: a zero step proposed no change, so nothing
-    was refuted and nothing is carried.
+    SINCE ADDENDUM 25 this resolver is asked about the AUDIO WALK's change points only (the
+    walk measures the offsets at the millisecond, so no offset is carried from hole to hole any
+    more): its answer places the cut inside the audio's interval, or says there is none (a slip).
 
     A PROPOSAL DECLINED ON AN AMBIGUOUS ANCHOR is the static-span verdict reached from the anchor
     side (`_interior_verdict`, case 3) and is pinned by `_ambiguous_pin_outcome` -- after the
@@ -2791,10 +2689,7 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
                                                        probe.get("backward_walk_frames")],
                        "surviving_shift_span_frames": (probe["anchor_b_frame"]
                                                        - probe["anchor_a_frame"])}
-            outcome = _interior_outcome(hole, domain, probe, verdict, refuted_proposal=refuted)
-            if hole["step_points"]:
-                outcome["surviving_offset_ms"] = float(probe["before_shift_frames"] * frame_ms)
-            return outcome
+            return _interior_outcome(hole, domain, probe, verdict, refuted_proposal=refuted)
     if result["declined"]:
         # AN AMBIGUOUS ANCHOR PINS ONLY A MEASURED EDIT. Under the aligner's resolution floor
         # the audio step is not a claim (b2 keeps such zones out of its cut list), so an N read
@@ -2812,10 +2707,7 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
             return _ambiguous_pin_outcome(hole, domain, result)
         return _declined(hole, result.get("reason"), result.get("evidence"),
                          no_cut_probe_run=bool(hypotheses))
-    outcome = _interior_outcome(hole, domain, result, _interior_verdict(result))
-    if proposal_single_shift and hole["step_points"]:
-        outcome["surviving_offset_ms"] = float(result["before_shift_frames"] * frame_ms)
-    return outcome
+    return _interior_outcome(hole, domain, result, _interior_verdict(result))
 
 
 def _resolve_edge(hole, domain, master_obj, candidate_obj):
@@ -2969,15 +2861,7 @@ def resolve_hole(hole, master_obj, candidate_obj, work_dir):
     deadline = time.monotonic() + HOLE_BUDGET_S
     hole = dict(hole, deadline=(deadline if repair_deadline is None
                                 else min(deadline, repair_deadline)))
-    if hole.get("absorbed_by_edge") is not None:
-        edge = hole["absorbed_by_edge"]
-        outcome = {"modality": MODALITY, "status": HOLE_ABSORBED_BY_EDGE, "kind": hole["kind"],
-                   "why_token": hole["why_token"], "cause": None,
-                   "absorbing_edge": edge["kind"],
-                   "absorbing_master_frames": [edge["master_start_frame"],
-                                               edge["master_end_frame"]],
-                   "absorbing_status": edge["status"]}
-    elif hole["kind"] == "interior":
+    if hole["kind"] == "interior":
         outcome = _resolve_interior(hole, domain, master_obj, candidate_obj)
     elif hole["kind"] in ("head", "tail"):
         outcome = _resolve_edge(hole, domain, master_obj, candidate_obj)
@@ -3020,8 +2904,7 @@ def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_o
     # A STATUS FROM OUTSIDE THE CLOSED VOCABULARY IS A RESOLVER BUG, AND IT IS NOT ALLOWED TO
     # PASS AS A RESOLUTION: it becomes a named decline, loudly, rather than a hole the plan would
     # read frames off.
-    if outcome["status"] not in HOLE_STATUSES_WITH_FRAMES + (HOLE_DECLINED,
-                                                             HOLE_ABSORBED_BY_EDGE):
+    if outcome["status"] not in HOLE_STATUSES_WITH_FRAMES + (HOLE_DECLINED,):
         tools.log_always(f"repair: orchestrator UNVOCABULARISED hole status="
                          f"{outcome['status']} hole={index} for {candidate_path} -- "
                          f"treated as declined\n")
@@ -3053,9 +2936,6 @@ def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_o
                 span_frames=outcome.get("span_frames"),
                 net_kind=outcome.get("net_kind"),
                 edge_addition_frames=outcome.get("edge_addition_frames"),
-                surviving_offset_ms=outcome.get("surviving_offset_ms"),
-                absorbing_edge=outcome.get("absorbing_edge"),
-                absorbing_master_frames=outcome.get("absorbing_master_frames"),
                 seconds=round(time.time() - started, 2))
     # ADDENDUM 3, POINT 3: "un candidat audio sous le plancher que la video refute est logge
     # (candidat, position, verdict video) puis ferme" -- AND IT IS A DECISION ON THE MATERIAL, SO
@@ -3112,44 +2992,15 @@ def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_o
     return outcome
 
 
-def _carry_offset(candidate_path, index, hole, offset_ms, from_index):
-    """ADDENDUM 19 c: the shift that survived the video's refutation of hole `from_index` becomes
-    this hole's `offset_before` -- the zone between them is the zone the video read under that
-    shift, whatever the audio said. When this hole's `offset_after` is the very value being
-    replaced (a same-offset hole inside that zone), it is replaced too. The step is recomputed
-    from the offsets it now sits between. The replaced audio value stays on the hole and in the
-    log."""
-    replaced = hole["offset_before_ms"]
-    hole["carried_offset_replaced_ms"] = replaced
-    hole["offset_before_ms"] = offset_ms
-    if hole["kind"] == "interior" and hole["offset_after_ms"] == replaced:
-        hole["offset_after_ms"] = offset_ms
-    if hole["offset_after_ms"] is not None:
-        hole["step_ms"] = hole["offset_after_ms"] - offset_ms
-        hole["step_points"] = _round_half_up(
-            Fraction(str(hole["step_ms"])) / Fraction(str(hole["quantum_ms"])))
-    step_result("offset_carried", candidate=candidate_path, hole=index, kind=hole["kind"],
-                from_hole=from_index,
-                replaced_offset_before_ms=(None if replaced is None else round(replaced, 3)),
-                carried_offset_ms=round(offset_ms, 3),
-                offset_after_ms=(None if hole["offset_after_ms"] is None
-                                 else round(hole["offset_after_ms"], 3)),
-                step_ms=(None if hole["step_ms"] is None else round(hole["step_ms"], 3)),
-                rule="ADDENDUM_19c_the_refuted_step_s_surviving_shift_carries_forward")
 
+# ---------------------------------------------------------------------------
+# STEP 4 (ADDENDUM 25) -- THE AUDIO BOUNDS, THE VIDEO PINS
+# ---------------------------------------------------------------------------
 
-def _edge_containing(hole, edges, domain):
-    """The resolved edge whose master span holds this interior hole's WHOLE master bracket, or
-    None (ADDENDUM 19 d). Only an edge that places master content (a fill or a trim span with
-    frames) can absorb; a closed edge (`no_cut_confirmed`) has no span."""
-    low = _master_frame_of_ms(hole["master_ms"][0], domain)
-    high = _master_frame_of_ms(hole["master_ms"][1], domain)
-    for edge in edges:
-        if edge["status"] not in EDGE_TERMINATIONS:
-            continue
-        start, end = edge["master_start_frame"], edge["master_end_frame"]
-        if start is not None and end is not None and start <= low and high <= end:
-            return edge
+def _audio_entry(video_obj, language, stream):
+    for entry in (getattr(video_obj, "audios", None) or {}).get(language) or []:
+        if str(entry.get("StreamOrder")) == str(stream):
+            return entry
     return None
 
 
@@ -3190,29 +3041,40 @@ def hole_sanity(holes, domain, candidate_path):
     return None
 
 
-def budget_cause(declined, repair_deadline):
-    """The time bound that stopped a hole, if one did (ADDENDUM 26.3): the repair's own budget
-    first (everything after it declines on it), then a hole's, then a decoder's."""
-    reasons = {outcome.get("resolver_reason") for _index, _hole, outcome in declined}
-    if "repair_budget_exceeded" in reasons or (
-            repair_deadline is not None and declined and time.monotonic() > repair_deadline):
+# The resolver reasons that are a TIME BOUND, not a reading (ADDENDUM 26.3).
+BUDGET_REASONS = ("repair_budget_exceeded", "hole_budget_exceeded", "decoder_timeout")
+
+
+def budget_cause(outcome, domain):
+    """The time bound that stopped this video call, if one did (ADDENDUM 26.3): the repair's own
+    budget first (everything after it declines on it), then the hole's, then a decoder's. With
+    ADDENDUM 25 the audio places a transition the video could not snap -- but a video stopped by
+    a CLOCK is the job running out of time, and 26.3 declines the file on it by name."""
+    reason = outcome.get("resolver_reason")
+    if reason not in BUDGET_REASONS:
+        return None
+    deadline = domain.get("repair_deadline")
+    if reason == "repair_budget_exceeded" or (deadline is not None
+                                              and time.monotonic() > deadline):
         return "repair_budget_exceeded"
-    for cause in ("hole_budget_exceeded", "decoder_timeout"):
-        if cause in reasons:
-            return cause
-    return None
+    return reason
 
 
-def log_partial_plan(candidate_path, cause, holes, outcomes):
-    """ADDENDUM 26.3: "un budget depasse decline le fichier avec le plan partiel logge" -- every
-    hole with what was resolved before the bound, unconditional (the file's next wave reads it)."""
-    tools.log_always(
-        f"repair: partial_plan cause={cause} holes=["
-        + ", ".join(f"({index}, {hole['kind']}, {outcome['status']}, "
-                    f"{outcome.get('master_start_frame')}-{outcome.get('master_end_frame')}, "
-                    f"{outcome.get('resolver_reason')})"
-                    for index, (hole, outcome) in enumerate(zip(holes, outcomes)))
-        + f"] for {candidate_path}\n")
+def log_partial_plan(candidate_path, cause, placed):
+    """ADDENDUM 26.3: "un budget depasse decline le fichier avec le plan partiel logge" -- what
+    was placed before the bound, unconditional (the file's next wave reads it). `placed`: one
+    (what, decision, where) per transition or edge."""
+    tools.log_always(f"repair: partial_plan cause={cause} placed={placed} for {candidate_path}\n")
+
+
+def repair_budget_seconds(master_obj):
+    """The repair's budget for this master (ADDENDUM 26.8) and the video duration that set it:
+    REPAIR_BUDGET_PER_SLICE_S per STARTED REPAIR_BUDGET_SLICE_S of the master's video, never
+    below one slice's worth. An unreadable duration (None) gets the floor."""
+    video_ms = _video_duration_ms(master_obj)
+    video_s = None if video_ms is None else float(video_ms) / 1000.0
+    slices = max(1, math.ceil((video_s or 0.0) / REPAIR_BUDGET_SLICE_S))
+    return slices * REPAIR_BUDGET_PER_SLICE_S, video_s
 
 
 def _budget_terminal(candidate_path, step, budget_s):
@@ -3223,140 +3085,330 @@ def _budget_terminal(candidate_path, step, budget_s):
                      f"statement about this run's cost; the file comes back next wave")
 
 
-def resolve_holes(holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
-    """Every hole of the union, in the order ADDENDUM 19 rules (fixes F4 and F3). Returns the
-    outcomes, index for index with `holes` (which it updates in place with carried offsets).
+def _speed_chain(audio, speed_ratio):
+    """A candidate track's speed filter at a confirmed ratio (Decimal), built by the assembly's
+    own `build_speed_filter_chain` at the track's own rate -- or None at 1 (ADDENDUM 6)."""
+    if speed_ratio is None:
+        return None
+    import merge_video_resample
+    rate = (audio.get("ffprobe") or {}).get("sample_rate") or audio.get("SamplingRate")
+    return merge_video_resample.build_speed_filter_chain(int(float(rate)), speed_ratio)[0]
 
-      1  THE EDGES FIRST (19 d): head and tail, each on its audio offset.
-      2  THE INTERIORS IN MASTER ORDER. An interior whose whole master bracket lies inside a
-         resolved edge's span is `absorbed_by_edge` -- the edge's fill already covers it and a
-         search there would read content the plan replaces anyway (MEASURED, Bleach S17E25
-         hole 4: [33894, 33906] inside the tail's [33660, 34334), declined before this rule).
-         Every other interior is resolved; a hole whose audio step the video refuted leaves
-         `surviving_offset_ms`, and the NEXT hole's `offset_before` becomes it (19 c).
-      3  A CARRY THAT REACHES THE TAIL re-resolves the tail on the carried offset (its first
-         reading was taken on the audio's refuted one -- id 134: +181876 ms, declined), and any
-         interior now inside the re-resolved tail's span is absorbed by it.
-    SEQUENTIAL, EVERY HOLE RESOLVED EVEN AFTER ONE DECLINES, so the log holds the whole pair's
-    reading, not the first refusal's. Stage 7 parallelises the independent ones."""
-    outcomes = [None] * len(holes)
-    edge_indices = [index for index, hole in enumerate(holes)
-                    if hole["kind"] in ("head", "tail")]
-    for index in edge_indices:
-        outcomes[index] = _resolve_logged(candidate_path, index, holes[index], domain,
-                                          master_obj, candidate_obj, work_dir)
-    carry, carry_from = None, None
+
+def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_ratio,
+                   candidate_path):
+    """THE MILLISECOND WALK ON THE REFERENCE COUPLE (ADDENDUM 25.2): the comparison track of
+    the master against the candidate's, whole, on the file clock, seeded by every b2 offset
+    the reference couple's zones and the union's holes carry. Returns `(walk, None)` or
+    `(None, reason)`; the walk keeps the two decoded tracks for the edges and the plan."""
+    import audio_walk
+    master_stream, candidate_stream = reference["couple"].split("x")
+    master_audio = _audio_entry(master_obj, language, master_stream)
+    candidate_audio = _audio_entry(candidate_obj, language, candidate_stream)
+    alignment, fold = reference["alignment"], reference["fold"]
+    _zones, detail = coalesce_same_offset_zones(alignment.get("zones") or [],
+                                                alignment.get("zones_detail") or [])
+    seeds = sorted({round(zone["offset_points"] * alignment["quantum_ms"] + fold["delta_ms"], 3)
+                    for zone in detail}
+                   | {round(value, 3) for hole in holes
+                      for value in (hole["offset_before_ms"], hole["offset_after_ms"])
+                      if value is not None})
+    step_launch("audio_walk", candidate=candidate_path, couple=reference["couple"],
+                seeds=seeds, window_s=audio_walk.WALK_WINDOW_S, hop_s=audio_walk.WALK_HOP_S,
+                search_ms=audio_walk.WALK_SEARCH_MS)
+    started = time.time()
+    if master_audio is None or candidate_audio is None:
+        return None, f"reference couple {reference['couple']} has no {language} audio entry"
+    try:
+        scale = speed_ratio if speed_ratio is not None else Decimal(1)
+        master = audio_walk.read_on_file_clock(master_obj, master_audio)
+        candidate = audio_walk.read_on_file_clock(
+            candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio), scale)
+    except Exception as error:                                           # noqa: BLE001
+        return None, f"the comparison tracks could not be read ({type(error).__name__}: {error})"
+    rows = audio_walk.walk(master, candidate, seeds)
+    found, outliers = audio_walk.levels(rows)
+    points = audio_walk.change_points(master, candidate, found)
+    seconds = time.time() - started
+    audio_walk.log_walk(candidate_path, rows, found, points, seconds)
+    step_result("audio_walk", candidate=candidate_path, n_windows=len(rows),
+                n_levels=len(found), n_outliers=len(outliers),
+                levels=[(lv["t_first"], lv["t_last"], lv["off_ms"], lv["mad_ms"]) for lv in found],
+                change_points=[(p["a_ms"], p["b_ms"], p["jump_ms"], p["kind"],
+                                (p.get("edges") or {}).get("interval")) for p in points],
+                seconds=round(seconds, 1))
+    if not found:
+        return None, "the walk measured no level: no window of the comparison tracks matched"
+    return {"master": master, "candidate": candidate, "rows": rows, "levels": found,
+            "points": points, "seeds": seeds, "master_audio": master_audio,
+            "candidate_audio": candidate_audio, "master_stream": master_stream,
+            "candidate_stream": candidate_stream,
+            "master_audio_end_s": len(master) / audio_walk.WALK_RATE}, None
+
+
+def _frame_s(frame, domain):
+    return float(Fraction(frame) / domain["master_rate"])
+
+
+def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
+    """HEAD AND TAIL, PLACED BY THE AUDIO (ADDENDUM 25: "l'audio borne, la video epingle").
+
+    The head fill ends where the first level's content starts in the waveform, the tail fill
+    starts where the last level's ends (`audio_walk.single_edge`, 20 ms, from inside the level
+    outward, stopping at a sustained mismatch). The union's head/tail hole, when there is one,
+    is still put to the video (`_resolve_edge`); its boundary REPLACES the audio edge only when
+    it falls within one frame of it (the frame containing the audio instant) -- a video boundary
+    elsewhere is a picture fact and loses, logged. MEASURED, Bleach S17E25: the video tail
+    boundary sits at 1403.9 s, the candidate's audio keeps matching the master to ~1426 s.
+
+    Returns `(head_end_s or None, tail_start_s or None, refusal or None)`; None = no fill on that edge (the edge
+    is within one frame of the file's own start / the master timeline's end). An edge the
+    20 ms / 100 ms profiles cannot read falls back to the level's measured window."""
+    import audio_walk
+    master, candidate = walk["master"], walk["candidate"]
+    first, last = walk["levels"][0], walk["levels"][-1]
+    frame = float(domain["frame_ms"]) / 1000.0
+    reach = audio_walk.WALK_WINDOW_S + audio_walk.WALK_HOP_S + HOLE_MERGE_WINDOW_SECONDS
+    # Anchored at the level's OWN measured window (the head's first window's end, the tail's
+    # last window's start) and walked outward: a window mid-point can fall in silence past the
+    # content it matched (errid-202's tail: silent from 1418.4 s, mid-point 1419.0 s).
+    window = audio_walk.WALK_WINDOW_S
+    head = audio_walk.single_edge(master, candidate, first["off_ms"], first["t_first"] + window,
+                                  max(0.0, first["t_first"] - reach), "head")
+    tail = audio_walk.single_edge(master, candidate, last["off_ms"], last["t_last"],
+                                  min(walk["master_audio_end_s"], last["t_last"] + reach), "tail")
+    # NO FINE EDGE READ (a quiet or re-mixed stretch on a rate pair, where neither the 20 ms
+    # residual nor the 100 ms NCC clears its threshold): the level's own measured window is the
+    # proven extent of common content -- the head starts no later than the first window, the
+    # tail ends no earlier than the last one's end. MEASURED, Fallout S01E02 (1001/1000): no
+    # fine edge at either end, level measured over [1.0, 3747.0] s.
+    head_s = first["t_first"] if head is None else head["edge_s"]
+    tail_s = (last["t_last"] + window) if tail is None else tail["edge_s"]
+    edge_source = {"head": "walk_window_edge" if head is None else "audio_edge",
+                   "tail": "walk_window_edge" if tail is None else "audio_edge"}
+    by_kind = {hole["kind"]: (index, hole) for index, hole in enumerate(holes)
+               if hole["kind"] in ("head", "tail")}
+    decisions = {}
+    for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
+        video_s = None
+        if kind in by_kind:
+            index, hole = by_kind[kind]
+            offsets = ({"offset_after_ms": level["off_ms"]} if kind == "head"
+                       else {"offset_before_ms": level["off_ms"]})
+            outcome = _resolve_logged(candidate_path, index, dict(hole, **offsets), domain,
+                                      master_obj, candidate_obj, work_dir)
+            budget = budget_cause(outcome, domain)
+            if budget is not None:
+                log_partial_plan(candidate_path, budget,
+                                 [(edge, "placed", value) for edge, value in decisions.items()]
+                                 + [(kind, "stopped", audio_s)])
+                return None, None, (budget, f"the video on the {kind} edge stopped on a time "
+                                            f"bound ({outcome.get('evidence')}) -- the partial "
+                                            f"plan is logged; the file comes back next wave")
+            if outcome["status"] in EDGE_TERMINATIONS:
+                video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
+                                   else outcome["master_start_frame"], domain)
+        placed = audio_s
+        decision = edge_source[kind]
+        if video_s is not None and abs(video_s - audio_s) <= frame:
+            placed, decision = video_s, "video_frame_at_audio_edge"
+        elif video_s is not None:
+            decision = f"{edge_source[kind]}_video_boundary_elsewhere"
+        decisions[kind] = placed
+        tools.log_always(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
+                         f"audio_edge_s={audio_s} video_boundary_s="
+                         f"{None if video_s is None else round(video_s, 4)} placed_s={placed} "
+                         f"decision={decision} for {candidate_path}\n")
+    head_end = decisions["head"]
+    if head_end is not None and head_end <= frame:
+        head_end = None
+    # THE TAIL FILL EXISTS WHENEVER THE AUDIO EDGE IS SHORT OF THE MASTER'S TIMELINE, even when
+    # it coincides with the end of the master's own AUDIO: past the edge nothing proves the
+    # candidate's content is common, so it is never read there -- the master fill writes what
+    # audio the master has (nothing, past its audio end; ADDENDUM 25.6 counts only what is
+    # written). MEASURED, id 134 (Mai-HiME 12): edge 1437.685 s, master audio ends 1437.69 s,
+    # master video 1516.1 s -- reading the candidate to the timeline's end delivered ~78 s of
+    # the candidate's own extra content and the verifier found no master audio to compare it to.
+    tail_start = decisions["tail"]
+    if tail_start is not None and tail_start >= float(domain["master_timeline_ms"]) / 1000.0 - frame:
+        tail_start = None
+    return head_end, tail_start, None
+
+
+def _cp_hole(point, reference, index):
+    """A walk change point as an interior hole for the video (ADDENDUM 25.2: "soumis a la
+    video comme tout trou"): bracket = the audio's own edges, offsets = the two levels."""
+    edges = point["edges"]
+    quantum_ms = reference["alignment"]["quantum_ms"]
+    low = min(edges["edge_A"], edges["edge_B"]) * 1000.0
+    high = max(edges["edge_A"], edges["edge_B"]) * 1000.0
+    a, b = point["a_ms"], point["b_ms"]
+    return {"modality": MODALITY, "kind": "interior", "why_token": WHY_TOKEN["interior"],
+            "origin": "audio_walk", "touches_head": False, "touches_tail": False,
+            "master_ms": [low, high], "candidate_ms": [low + a, high + b],
+            "master_span_seconds": (high - low) / 1000.0,
+            "candidate_span_seconds": max(0.0, (high + b - low - a) / 1000.0),
+            "offset_before_ms": a, "offset_after_ms": b, "offset_before_points": None,
+            "offset_after_points": None, "step_ms": b - a,
+            "step_points": _round_half_up(Fraction(str(b - a)) / Fraction(str(quantum_ms))),
+            "quantum_ms": quantum_ms, "track_delay_delta_ms": reference["fold"]["delta_ms"],
+            "offset_sources": ["audio_walk", "audio_walk"], "union_of": 1,
+            "members": [{"couple": reference["couple"], "kind": "audio_walk_change_point",
+                         "master_ms": [round(low, 2), round(high, 2)],
+                         "step_ms": round(b - a, 3), "change_point": index}]}
+
+
+def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
+                      candidate_path):
+    """EVERY WALK CHANGE POINT, PLACED (ADDENDUM 25.1-25.2). Returns `(transitions, None)` or
+    `(None, (cause, reason))`.
+
+    For each change point a -> b the AUDIO fixes the step (b - a, at the millisecond), the fill
+    width (`extra` = max(0, a - b): master content the candidate lacks, never a frame count read
+    off an anchor) and the interval the cut may lie in (fill start for a deletion, cut instant
+    for an addition). An empty interval is `hole_width_contradicts_audio_step`. The video is
+    then asked, as for any hole, and only CHOOSES INSIDE the interval:
+      a cut at a frame inside the interval (+/- one frame)  -> the cut is at that frame
+      no cut, and the step is under one quantum            -> a SLIP: the offset changes at the
+                                                              interval's quietest instant, no
+                                                              fill (25.2 b), `slip_applied`
+      no cut on a step of a quantum or more, a cut outside -> the audio places it at the
+      the interval, or a width the audio step contradicts    interval's quietest instant
+                                                              (25.1: where the video is blind
+                                                              the waveform decides), logged
+      the video could not say, on a sub-quantum step       -> `sub_quantum_step_video_ambiguous`
+                                                              (25.2 c)
+    One unconditional line per change point: it is a decision on the material."""
+    import audio_walk
+    points = [p for p in walk["points"] if p["kind"] == "change_point"]
+    holes, frame = [], float(domain["frame_ms"]) / 1000.0
+    for index, point in enumerate(points):
+        edges = point.get("edges") or {}
+        if edges.get("status") != "ok":
+            return None, ("audio_step_unlocalised",
+                          f"the walk measured a {point['jump_ms']} ms step between levels "
+                          f"{point['a_ms']} and {point['b_ms']} ms (t {point['level_before']['t_last']}"
+                          f" -> {point['level_after']['t_first']} s) but its edges could not be "
+                          f"read at 20 ms or 100 ms")
+        if not edges["feasible"]:
+            return None, ("hole_width_contradicts_audio_step",
+                          f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
+                          f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not fit "
+                          f"between the audio edges around its audible master-only sound "
+                          f"(interval {edges['interval']})")
+        holes.append(_cp_hole(point, reference, index))
+    # CLUSTERS (owner 2026-09-24): nearby change points share one scene pass; each keeps its
+    # bounds; the ISLAND between two of them is a walk level, confirmed by the walk's own
+    # windows (the video no longer decides anything about an island -- 25.2 corollary).
+    import audio_walk
+    for cluster in cluster_holes(holes, [(reference["couple"], reference["alignment"],
+                                          reference["fold"])]):
+        islands = []
+        for island in cluster["islands"]:
+            agree, measured, windows = walk_agreement(
+                walk, island["master_ms"][0], island["master_ms"][1],
+                island["offset_ms"], audio_walk.LEVEL_TOLERANCE_MS)
+            islands.append({"master_ms": [round(island["master_ms"][0], 2),
+                                          round(island["master_ms"][1], 2)],
+                            "offset_ms": round(island["offset_ms"], 3),
+                            "b2_zones": island["b2_zones"],
+                            "walk": {"agree": agree, "ok": measured, "windows": windows}})
+        step_result("cluster", candidate=candidate_path, cluster=cluster["cluster_id"],
+                    members=cluster["members"], shared_scan=len(cluster["members"]) > 1,
+                    islands=islands)
+    transitions = []
+    for index, (point, hole) in enumerate(zip(points, holes)):
+        edges = point["edges"]
+        lo, hi = edges["interval"]
+        extra = edges["extra_s"]
+        jump = point["b_ms"] - point["a_ms"]
+        sub_quantum = abs(jump) < hole["quantum_ms"]
+        outcome = _resolve_logged(candidate_path, f"change_point_{index}", hole, domain,
+                                  master_obj, candidate_obj, work_dir)
+        budget = budget_cause(outcome, domain)
+        if budget is not None:
+            log_partial_plan(candidate_path, budget,
+                             [(f"change_point_{t['change_point']}", t["decision"], t["at_s"],
+                               t["fill_s"]) for t in transitions]
+                             + [(f"change_point_{index}", "stopped", lo, hi)])
+            return None, (budget, f"the video on change point {index} ({lo}-{hi} s) stopped on "
+                                  f"a time bound ({outcome.get('evidence')}) -- the partial plan "
+                                  f"is logged; the file comes back next wave")
+        status = outcome["status"]
+        video_s, width_note = None, None
+        if status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
+            video_s = _frame_s(outcome["master_start_frame"], domain)
+            video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) \
+                * float(domain["frame_ms"])
+            if abs(video_fill_ms - extra * 1000.0) > hole["quantum_ms"] + 2 * float(domain["frame_ms"]):
+                width_note = (f"video fill {round(video_fill_ms, 3)} ms vs audio "
+                              f"{round(extra * 1000.0, 3)} ms")
+                video_s = None
+        fill = extra
+        if video_s is not None and lo - frame <= video_s <= hi + frame:
+            at, decision = min(max(video_s, lo), hi), "video_frame_inside_audio_interval"
+        elif status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
+            at = audio_walk.quietest_instant(walk["master"], lo, hi)
+            fill, decision = 0.0, "slip_applied"
+        elif status == HOLE_DECLINED and sub_quantum:
+            return None, ("sub_quantum_step_video_ambiguous",
+                          f"the walk measured a {round(jump, 3)} ms step (under one quantum) in "
+                          f"[{lo}, {hi}] s and the video could neither place a cut nor confirm "
+                          f"there is none ({outcome.get('resolver_reason')})")
+        else:
+            at = audio_walk.quietest_instant(walk["master"], lo, hi, extra)
+            decision = ("audio_instant_video_width_contradicts" if width_note
+                        else "audio_instant_video_no_cut" if status == HOLE_NO_CUT_CONFIRMED
+                        else "audio_instant_video_declined" if status == HOLE_DECLINED
+                        else "audio_instant_video_outside_interval")
+        transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
+                            "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
+                            "edges": [edges["edge_A"], edges["edge_B"]],
+                            "video_status": status, "video_s": video_s, "change_point": index})
+        tools.log_always(
+            f"repair: {'slip_applied' if decision == 'slip_applied' else 'audio_transition'} "
+            f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
+            f"step_ms={round(jump, 3)} at_s={at} fill_ms={round(fill * 1000.0, 3)} "
+            f"interval_s=[{lo}, {hi}] audio_edges_s=[{edges['edge_A']}, {edges['edge_B']}] "
+            f"video_status={status} video_s={None if video_s is None else round(video_s, 4)} "
+            f"decision={decision}{' ' + width_note.replace(' ', '_') if width_note else ''} "
+            f"for {candidate_path}\n")
+    return transitions, None
+
+
+def log_holes_against_walk(holes, walk, candidate_path):
+    """ADDENDUM 25.2 COROLLARY, logged per b2 hole: an interior hole of the union with no walk
+    change point in its reach carries no audio step -- whatever the picture does there, it
+    creates NO fill (`picture_only`, unconditional: a decision on the material). A change point
+    no b2 hole reaches is a sub-quantum step the aligner could not see (logged)."""
+    import audio_walk
+    regions = [(p["level_before"]["t_last"] * 1000.0,
+                (p["level_after"]["t_first"] + audio_walk.WALK_WINDOW_S) * 1000.0, p)
+               for p in walk["points"] if p["kind"] == "change_point"]
+    reach = HOLE_MERGE_WINDOW_SECONDS * 1000.0
+    seen = set()
     for index, hole in enumerate(holes):
         if hole["kind"] != "interior":
             continue
-        edge = _edge_containing(hole, [outcomes[i] for i in edge_indices], domain)
-        if edge is not None:
-            hole["absorbed_by_edge"] = edge
-        elif carry is not None:
-            _carry_offset(candidate_path, index, hole, carry, carry_from)
-            carry, carry_from = None, None
-        outcomes[index] = _resolve_logged(candidate_path, index, hole, domain, master_obj,
-                                          candidate_obj, work_dir)
-        if outcomes[index].get("surviving_offset_ms") is not None:
-            carry, carry_from = outcomes[index]["surviving_offset_ms"], index
-    tail = [index for index in edge_indices if holes[index]["kind"] == "tail"]
-    if carry is not None and tail:
-        index = tail[0]
-        _carry_offset(candidate_path, index, holes[index], carry, carry_from)
-        step_result("edge_reresolved_after_carry", candidate=candidate_path, hole=index,
-                    first_status=outcomes[index]["status"],
-                    first_reason=outcomes[index].get("resolver_reason"))
-        outcomes[index] = _resolve_logged(candidate_path, index, holes[index], domain,
-                                          master_obj, candidate_obj, work_dir)
-        for inner, hole in enumerate(holes):
-            if (hole["kind"] == "interior" and outcomes[inner]["status"] != HOLE_ABSORBED_BY_EDGE
-                    and _edge_containing(hole, [outcomes[index]], domain) is not None):
-                hole["absorbed_by_edge"] = outcomes[index]
-                outcomes[inner] = _resolve_logged(candidate_path, inner, hole, domain,
-                                                  master_obj, candidate_obj, work_dir)
-    _rebase_edges_on_absorption(holes, outcomes, domain, candidate_path)
-    return outcomes
-
-
-def _rebase_edges_on_absorption(holes, outcomes, domain, candidate_path):
-    """THE ZONE BESIDE AN EDGE THAT ABSORBED INTERIOR HOLES READS AT THE OFFSET OF ITS OWN SIDE.
-
-    An edge's audio offset is the offset of the zone that touches it IN THE ALIGNMENT -- for a
-    tail, the zone after the LAST interior hole. When that interior (and the zone after it) lies
-    inside the edge's replaced span, the zone that really touches the fill is the one BEFORE the
-    first absorbed hole, and its offset is that hole's `offset_before` (and its video shift the
-    previous resolved hole's after-shift, when there is one). Without this, the plan reads that
-    zone at the absorbed side's offset -- MEASURED, Bleach S17E25: the zone [hole 3, tail fill)
-    read at +33428 ms instead of +31943 ms and the delivery gate refused the build, 1586 ms off.
-    The head mirrors it with the last absorbed hole's `offset_after`. Rewritten on the edge's
-    OUTCOME only (the plan's input; the edge's own frames stand), and logged."""
-    frame_ms = domain["frame_ms"]
-    for index, hole in enumerate(holes):
-        if hole["kind"] not in ("head", "tail"):
-            continue
-        absorbed = [i for i, other in enumerate(holes)
-                    if outcomes[i]["status"] == HOLE_ABSORBED_BY_EDGE
-                    and other.get("absorbed_by_edge") is outcomes[index]]
-        if not absorbed:
-            continue
-        outcome = outcomes[index]
-        if hole["kind"] == "tail":
-            source = holes[absorbed[0]]
-            offset = source["offset_before_ms"]
-            previous = [outcomes[i] for i in range(absorbed[0])
-                        if holes[i]["kind"] == "interior"
-                        and outcomes[i]["status"] in HOLE_STATUSES_WITH_FRAMES
-                        and outcomes[i].get("after_shift_frames") is not None]
-            shift = (previous[-1]["after_shift_frames"] if previous
-                     else _round_half_up(Fraction(str(offset)) / frame_ms))
-            replaced = outcome.get("audio_offset_before_ms")
-            outcome["audio_offset_before_ms"] = round(offset, 3)
-        else:
-            source = holes[absorbed[-1]]
-            offset = source["offset_after_ms"]
-            following = [outcomes[i] for i in range(absorbed[-1] + 1, len(holes))
-                         if holes[i]["kind"] == "interior"
-                         and outcomes[i]["status"] in HOLE_STATUSES_WITH_FRAMES
-                         and outcomes[i].get("before_shift_frames") is not None]
-            shift = (following[0]["before_shift_frames"] if following
-                     else _round_half_up(Fraction(str(offset)) / frame_ms))
-            replaced = outcome.get("audio_offset_after_ms")
-            outcome["audio_offset_after_ms"] = round(offset, 3)
-        outcome["zone_shift_frames"] = shift
-        step_result("edge_rebased_on_absorption", candidate=candidate_path, hole=index,
-                    kind=hole["kind"], absorbed=absorbed,
-                    replaced_offset_ms=replaced, zone_offset_ms=round(offset, 3),
-                    zone_shift_frames=shift, edge_shift_frames=outcome.get("shift_frames"))
+        hits = [id(p) for low, high, p in regions
+                if low < hole["master_ms"][1] + reach and high > hole["master_ms"][0] - reach]
+        seen.update(hits)
+        if not hits:
+            tools.log_always(
+                f"repair: picture_only hole={index} master_ms=[{round(hole['master_ms'][0], 2)}, "
+                f"{round(hole['master_ms'][1], 2)}] b2_step_ms="
+                f"{None if hole['step_ms'] is None else round(hole['step_ms'], 3)} "
+                f"rule=ADDENDUM_25_2_no_audio_jump_no_fill for {candidate_path}\n")
+    for low, high, point in regions:
+        if id(point) not in seen:
+            step_result("change_point_unseen_by_b2", candidate=candidate_path,
+                        a_ms=point["a_ms"], b_ms=point["b_ms"], jump_ms=point["jump_ms"],
+                        region_ms=[round(low, 1), round(high, 1)])
 
 
 # ---------------------------------------------------------------------------
 # STEP 5 -- PLAN APPLICATION. It applies the plan and nothing else (ADDENDUM 10 d).
 # ---------------------------------------------------------------------------
-
-# THE REFINEMENT'S WINDOW IS THE DELIVERY GATE'S OWN: `merge_video_chimeric.verify_window_
-# seconds` (20 s) at `verify_probe_rate` (8 kHz, 0.125 ms per sample). The offset is measured at
-# the scale the gate will check it at, with the same instrument (`measure_lag_ms`), and never on
-# a window of its own invention. Read from the module at call time, not restated.
-#
-# THREE WINDOWS PER ZONE, when the zone holds them: two can disagree with nothing to break the
-# tie, three give a majority -- the same reasoning `choose_probe_positions` gives for probing a
-# piece twice ("their DISAGREEMENT is the signal"), plus the one that decides.
-REFINE_WINDOWS_PER_ZONE = 3
-
-# THE FLOOR UNDER A SHORTENED WINDOW. A zone shorter than the gate's 20 s gets a window as long
-# as the zone allows, but not below this. Chosen, not derived -- a floor on the INSTRUMENT, the
-# same status as `PITCH_PROBE_WINDOW_MINIMUM_SECONDS`: a cross-correlation over less programme
-# than this is a peak nobody should call a measurement. A zone under it is not measured, and the
-# fallbacks below are named and logged.
-REFINE_MIN_WINDOW_SECONDS = 4.0
-
-# HOW FAR THE REFINEMENT SEARCHES, IN QUANTA OF THE COUPLE: the carried offset is precise to one
-# fingerprint quantum, and a zone the video closed across (ADDENDUM 3) carries the audio's two
-# readings one quantum apart -- so the truth lies within one quantum and a half of the offset the
-# search is centred on. The SAME slack the inter-couple step tolerance was measured to need
-# (`INTERCOUPLE_STEP_TOLERANCE_SLACK`), bound to it rather than retyped.
-REFINE_SEARCH_QUANTA = INTERCOUPLE_STEP_TOLERANCE_SLACK
-
 
 def _decimal(value):
     """An exact `Fraction` (or anything `str()` renders exactly) as a `Decimal`, for the
@@ -3366,86 +3418,227 @@ def _decimal(value):
     return Decimal(str(value))
 
 
-def _frame_start_ms(frame, domain):
-    """A master frame index as the EXACT millisecond it starts at (Decimal)."""
-    return _decimal(Fraction(frame) * 1000 / domain["master_rate"])
+def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
+    """The plan laid on the master timeline IN MILLISECONDS (ADDENDUM 25.1-25.2): the audio's
+    transitions in order, each zone read from the candidate at ITS level's offset, each fill
+    exactly the width the audio step measured.
 
+      head      fill [0, head_end) from the master when the audio's head edge is past one frame
+      transition at T, fill w:   the zone before ends at T; a fill [T, T + w) when w > 0 (a
+                deletion); the zone after starts at T + w (an addition or a slip starts it at T)
+      tail      fill [tail_start, timeline end) from the master; the master writes what audio it
+                has there (ADDENDUM 25.6 counts only that, see `written_edge_seconds`)
+    Each zone's `offset_ms` is the median offset of the walk's measured windows wholly inside it
+    -- the walk's own level, at the millisecond (replaces the three-window majority, 25.2) --
+    and the level on the zone's side of its transition when no window lies wholly inside.
 
-def plan_geometry(holes, domain, default_offset_ms):
-    """The resolved holes, laid on the master timeline: the ZONES read from the candidate and
-    the FILLS read from the master, in master milliseconds, at the EXACT frames stage 4 resolved.
-
-    Every fill is exactly `[master_start_frame, master_end_frame)` of its hole and never wider
-    (ADDENDUM 9 point 1): real candidate content outside it is kept. Closed holes never reach
-    here (ADDENDUM 3 -- they were removed as continuity). Per hole kind:
-      head      fill [0, boundary) from the master, except a trim (`master_exhausted`, which adds
-                nothing -- the candidate's excess head is simply not read); the first zone starts
-                at the boundary
-      interior  the zone before ends at the fill's start, the zone after starts at its end; an
-                addition or a same-length replacement has an EMPTY fill and the zone after reads
-                the candidate past the content cut
-      tail      fill [boundary + 1, timeline end) from the master, except a trim; the last zone
-                ends at the boundary
-    The timeline end is the master's VIDEO duration -- the reference ADDENDUM 9 point 6 names.
-
-    Each zone carries the offset the audio measured on it (`coarse_offset_ms`, one quantum
-    precise -- the refinement's centre, never the offset applied) and the frame shift the video
-    measured on it (`video_shift_frames`, used only to carry a refined offset across a zone too
-    short to measure; never an audio offset by itself). An edge that absorbed interior holes
-    carries `zone_shift_frames` (`_rebase_edges_on_absorption`): the zone beside it is read at
-    ITS side's shift, not at the edge walk's.
-    """
+    Returns `(zones, fills, None)` or `(None, None, reason)` when the transitions overlap."""
+    import audio_walk
     timeline_ms = _decimal(domain["master_timeline_ms"])
     zones, fills = [], []
     cursor = Decimal(0)
-    pending_offset, pending_shift = default_offset_ms, None
-    for index, hole in enumerate(holes):
-        resolution = hole["resolution"]
-        status = resolution["status"]
-        start_ms = min(_frame_start_ms(resolution["master_start_frame"], domain), timeline_ms)
-        end_ms = min(_frame_start_ms(resolution["master_end_frame"], domain), timeline_ms)
-        if hole["kind"] == "head":
-            if status != EDGE_MASTER_EXHAUSTED and end_ms > 0:
-                fills.append({"master_start_ms": Decimal(0), "master_end_ms": end_ms,
-                              "reason": WHY_TOKEN["head"], "hole": index, "status": status})
-            # A HEAD TRIM (`master_exhausted`) PLACES NO MASTER PIECE, so the first zone starts
-            # at the timeline's start -- exactly as the tail treats a trim. MEASURED, id 294
-            # (Isekai Suicide Squad S01E01): a trim with boundary 1 left [0, 41.708 ms) covered
-            # by nothing and the assembly refused the plan as not contiguous.
-            cursor = Decimal(0) if status == EDGE_MASTER_EXHAUSTED else end_ms
-            pending_offset = _decimal(resolution["audio_offset_after_ms"])
-            pending_shift = resolution.get("zone_shift_frames", resolution["shift_frames"])
+    if head_end_s is not None:
+        cursor = min(Decimal(str(head_end_s)) * 1000, timeline_ms)
+        fills.append({"master_start_ms": Decimal(0), "master_end_ms": cursor,
+                      "reason": WHY_TOKEN["head"], "hole": "head", "status": "audio_edge"})
+    fallback = [walk["levels"][0]["off_ms"]] + [t["b_ms"] for t in transitions]
+    boundaries = []
+    for number, transition in enumerate(transitions):
+        at = Decimal(str(transition["at_s"])) * 1000
+        width = Decimal(str(transition["fill_s"])) * 1000
+        if at < cursor:
+            return None, None, (f"transition {number} at {at} ms lies before the previous "
+                                f"piece's end {cursor} ms")
+        boundaries.append((cursor, at, fallback[number]))
+        if width > 0:
+            fills.append({"master_start_ms": at, "master_end_ms": at + width,
+                          "reason": WHY_TOKEN["interior"], "hole": number,
+                          "status": transition["decision"]})
+        cursor = at + width
+    end = timeline_ms
+    if tail_start_s is not None:
+        end = min(Decimal(str(tail_start_s)) * 1000, timeline_ms)
+        if end < cursor:
+            return None, None, f"the tail edge {end} ms lies before the last piece's end {cursor} ms"
+    boundaries.append((cursor, end, fallback[len(transitions)]))
+    if tail_start_s is not None and end < timeline_ms:
+        fills.append({"master_start_ms": end, "master_end_ms": timeline_ms,
+                      "reason": WHY_TOKEN["tail"], "hole": "tail", "status": "audio_edge"})
+    for start, stop, level in boundaries:
+        if stop <= start:
             continue
-        zone_end = start_ms
-        if hole["kind"] == "tail" and status == EDGE_MASTER_EXHAUSTED:
-            zone_end = timeline_ms
-        before_offset = resolution["audio_offset_before_ms"]
-        zones.append({"master_start_ms": cursor, "master_end_ms": zone_end,
-                      "coarse_offset_ms": (_decimal(before_offset) if before_offset is not None
-                                           else pending_offset),
-                      "video_shift_frames": resolution.get(
-                          "zone_shift_frames", resolution.get("before_shift_frames",
-                                                              resolution.get("shift_frames")))})
-        if hole["kind"] == "tail":
-            if status != EDGE_MASTER_EXHAUSTED and timeline_ms > start_ms:
-                fills.append({"master_start_ms": start_ms, "master_end_ms": timeline_ms,
-                              "reason": WHY_TOKEN["tail"], "hole": index, "status": status})
-            cursor = timeline_ms
-            pending_offset, pending_shift = None, None
+        inside = [row["off"] for row in walk["rows"]
+                  if row["status"] == "ok" and row["t"] * 1000 >= float(start)
+                  and (row["t"] + audio_walk.WALK_WINDOW_S) * 1000 <= float(stop)]
+        offset = (Decimal(str(round(float(statistics.median(inside)), 3))) if inside
+                  else Decimal(str(level)))
+        zones.append({"master_start_ms": start, "master_end_ms": stop, "offset_ms": offset,
+                      "n_windows": len(inside), "zone": len(zones)})
+    fills.sort(key=lambda fill: fill["master_start_ms"])
+    return zones, fills, None
+
+
+def written_edge_seconds(fills, master_audio_end_s):
+    """ADDENDUM 25.6: an edge fill counts (log, the 15 s rule, the record) only for the part the
+    master can WRITE -- a tail fill past the master's own audio end is not written (the
+    container keeps the master video's length). Returns `(head_s, tail_s)`."""
+    end = Decimal(str(master_audio_end_s)) * 1000
+    head = sum((f["master_end_ms"] - f["master_start_ms"]) for f in fills
+               if f["reason"] == WHY_TOKEN["head"])
+    tail = sum(max(Decimal(0), min(f["master_end_ms"], end) - f["master_start_ms"])
+               for f in fills if f["reason"] == WHY_TOKEN["tail"])
+    return float(head) / 1000.0, float(tail) / 1000.0
+
+
+def tag_decision(n_splices, edge_added_s):
+    """ADDENDUM 5, on the audio plan: any interior splice (a fill, an addition's skip or a slip
+    -- every transition is one) tags (bound a); otherwise edge additions actually written at or
+    above the threshold tag (bound b). Returns `(required, reason)`."""
+    if n_splices:
+        return True, (f"{n_splices} interior splice(s) tag regardless of their size "
+                      f"(addendum 5 bound a)")
+    if edge_added_s >= EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS:
+        return True, (f"edge additions written total {edge_added_s:.3f}s, at or above the "
+                      f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold "
+                      f"(addendum 5 bound b)")
+    return False, (f"edge additions written total {edge_added_s:.3f}s, under the "
+                   f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold and no interior "
+                   f"splice -- the original track with a marginal completion, not a chimera")
+
+
+# A zone this short (plus the walk's window) holds no window of its own; its offset is derived.
+ZONE_EDGE_MARGIN_S = 0.5
+
+
+def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale):
+    """EACH TRACK ITS OWN OFFSET, PER ZONE, AT THE MILLISECOND (ADDENDUM 9 points 2 and 14;
+    ADDENDUM 25.2 -- the walk replaces the three-window majority).
+
+      the reference track   the walk's own zone offsets (`plan_geometry`), source `walk_level`
+      a track whose language the master carries: `audio_walk.zone_offset` over each zone
+                            (margins of `ZONE_EDGE_MARGIN_S`) seeded by the zone's reference
+                            offset, against the master track of ITS language; a track that
+                            shows more than one level inside a zone is logged (the dominant
+                            level is used)
+      a zone of such a track too short or too quiet to measure: `derived_by_reference_step` --
+                            the track's nearest measured zone moved by the REFERENCE's own step
+                            between the two zones (a millisecond relation, never a frame count)
+      no master track of that language, or nothing derivable: `inherited` -- the reference's
+                            offset, with both values logged (never another language in silence)
+
+    Returns `(tracks, None)` or `(None, reason)`; `tracks[stream_order]` = {"language",
+    "zones": [readings], "start_ms", "extent_ms", "extent_source", "measured", "reference"}."""
+    import audio_walk
+    import merge_video_chimeric
+    reference_order = int(walk["candidate_stream"])
+    audios = list(merge_video_chimeric.iterate_candidate_audios(candidate_obj))
+    master_cache = {int(walk["master_stream"]): walk["master"]}
+    tracks = {}
+    for track_language, audio in audios:
+        order = int(audio["StreamOrder"])
+        start_ms, extent_ms, extent_source = _track_timing(candidate_obj, audio, scale)
+        entry = {"language": track_language, "start_ms": start_ms, "extent_ms": extent_ms,
+                 "extent_source": extent_source, "zones": [], "measured": False,
+                 "reference": None}
+        tracks[order] = entry
+        if order == reference_order:
+            entry["reference"] = int(walk["master_stream"])
+            entry["zones"] = [{"zone": zone["zone"], "offset_ms": zone["offset_ms"],
+                               "coarse_offset_ms": str(zone["offset_ms"]),
+                               "source": "walk_level", "reason": None,
+                               "windows": zone["n_windows"]} for zone in zones]
+            entry["measured"] = True
             continue
-        if end_ms > start_ms:
-            fills.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
-                          "reason": WHY_TOKEN["interior"], "hole": index, "status": status})
-        cursor = end_ms
-        pending_offset = _decimal(resolution["audio_offset_after_ms"])
-        pending_shift = resolution["after_shift_frames"]
-    if cursor < timeline_ms:
-        zones.append({"master_start_ms": cursor, "master_end_ms": timeline_ms,
-                      "coarse_offset_ms": pending_offset, "video_shift_frames": pending_shift})
-    zones = [zone for zone in zones if zone["master_end_ms"] > zone["master_start_ms"]]
-    for number, zone in enumerate(zones):
-        zone["zone"] = number
-    return zones, fills
+        master_audio = merge_video_chimeric.find_master_audio_for_language(
+            master_obj, track_language,
+            walk["master_stream"] if track_language == language else None)
+        step_launch("track_offset", candidate=candidate_obj.filePath, stream=order,
+                    language=track_language,
+                    master_stream=None if master_audio is None else master_audio.get("StreamOrder"))
+        readings = [{"zone": zone["zone"], "offset_ms": None,
+                     "coarse_offset_ms": str(zone["offset_ms"]), "reason": None, "windows": 0}
+                    for zone in zones]
+        entry["zones"] = readings
+        if master_audio is None:
+            entry["own_reason"] = f"master_carries_no_{track_language}_track"
+            for reading in readings:
+                reading["reason"] = entry["own_reason"]
+            step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
+                        measured=False, reason=entry["own_reason"])
+            continue
+        master_order = int(master_audio["StreamOrder"])
+        entry["reference"] = master_order
+        try:
+            if master_order not in master_cache:
+                master_cache[master_order] = audio_walk.read_on_file_clock(master_obj, master_audio)
+            samples = audio_walk.read_on_file_clock(
+                candidate_obj, audio, _speed_chain(audio, speed_ratio), scale)
+        except Exception as error:                                       # noqa: BLE001
+            entry["own_reason"] = f"track_unreadable({type(error).__name__})"
+            for reading in readings:
+                reading["reason"] = entry["own_reason"]
+            step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
+                        measured=False, reason=entry["own_reason"], evidence=str(error)[:200])
+            continue
+        for zone, reading in zip(zones, readings):
+            low = float(zone["master_start_ms"]) / 1000.0 + ZONE_EDGE_MARGIN_S
+            high = float(zone["master_end_ms"]) / 1000.0 - ZONE_EDGE_MARGIN_S
+            if high - low < audio_walk.WALK_WINDOW_S:
+                reading["reason"] = f"zone_too_short({round(high - low + 2 * ZONE_EDGE_MARGIN_S, 3)}s)"
+                continue
+            measured = audio_walk.zone_offset(master_cache[master_order], samples, low, high,
+                                              float(zone["offset_ms"]))
+            reading["windows"] = measured["n_ok"]
+            if measured["offset_ms"] is None:
+                reading["reason"] = f"no_window_measured({measured['counts']})"
+                continue
+            reading["offset_ms"] = Decimal(str(measured["offset_ms"]))
+            if len(measured["levels"]) > 1:
+                tools.dev_log(f"orchestrator: track {order} ({track_language}) changes inside zone "
+                              f"{zone['zone']}: levels "
+                              f"{[(lv['t_first'], lv['t_last'], lv['off_ms']) for lv in measured['levels']]}"
+                              f" -- the dominant one is applied\n")
+        del samples
+        entry["measured"] = any(reading["offset_ms"] is not None for reading in readings)
+        step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
+                    language=track_language, master_stream=master_order,
+                    measured_zones=sum(1 for r in readings if r["offset_ms"] is not None),
+                    n_zones=len(zones),
+                    offsets_ms=[None if r["offset_ms"] is None else float(r["offset_ms"])
+                                for r in readings],
+                    reasons=[r["reason"] for r in readings])
+    del master_cache
+    if reference_order not in tracks:
+        return None, (f"the comparison track (stream {reference_order}) is not among the "
+                      f"candidate's audio tracks")
+    reference = tracks[reference_order]["zones"]
+    for order, entry in tracks.items():
+        for reading in entry["zones"]:
+            if reading["offset_ms"] is not None:
+                reading.setdefault("source", "measured")
+    for order, entry in tracks.items():
+        if order == reference_order:
+            continue
+        measured = [r for r in entry["zones"] if r.get("source") == "measured"]
+        for reading in entry["zones"]:
+            if reading["offset_ms"] is not None:
+                continue
+            if measured:
+                nearest = min(measured, key=lambda r: abs(r["zone"] - reading["zone"]))
+                reading["offset_ms"] = (nearest["offset_ms"]
+                                        + reference[reading["zone"]]["offset_ms"]
+                                        - reference[nearest["zone"]]["offset_ms"])
+                reading["source"] = f"derived_by_reference_step(zone_{nearest['zone']})"
+            else:
+                reading["offset_ms"] = reference[reading["zone"]]["offset_ms"]
+                reading["source"] = f"inherited(stream_{reference_order})"
+            # ADDENDUM 9 point 14: a substitution is logged with BOTH values -- a DECISION.
+            tools.log_line(
+                f"repair: offset_substitution stream={order} lang={entry['language']} "
+                f"zone={reading['zone']} own=unmeasured({reading['reason']}) "
+                f"reference_ms={reference[reading['zone']]['offset_ms']} "
+                f"applied_ms={reading['offset_ms']} source={reading['source']}\n")
+    return tracks, None
 
 
 def _track_timing(video_obj, audio, scale):
@@ -3467,243 +3660,6 @@ def _track_timing(video_obj, audio, scale):
     if extent_ms is not None:
         extent_ms = extent_ms * scale
     return start_ms, extent_ms, source
-
-
-def _refine_zone(zone, master_samples, master_start_ms, candidate_samples, candidate_start_ms,
-                 search_ms, agreement_ms):
-    """ONE zone of ONE track: the offset the audio carries, refined to the sample by
-    cross-correlation of the candidate's OWN track against the master (ADDENDUM 9 point 2).
-
-    Windows of the gate's length, as many as the zone holds up to `REFINE_WINDOWS_PER_ZONE`,
-    kept `search_ms` inside the zone on the master axis so that no window can straddle the
-    zone's own boundary under the offset's uncertainty. A window is REJECTED -- never averaged
-    in -- when either side is silent (the verifier's own RMS floor) or when its peak sits on the
-    edge of the search (an edge peak is the search running out, not a lag). The accepted lags
-    must AGREE: the largest group within `agreement_ms` (half a master frame -- the refinement
-    exists to beat one frame, so two readings further apart than half of one are not the same
-    reading) decides by its median; a zone whose windows all disagree is unmeasured, by name.
-
-    Returns a dict: `offset_ms` (Decimal) or None, with every window's lag and correlation.
-    """
-    import merge_video_chimeric
-    rate = merge_video_chimeric.verify_probe_rate
-    coarse = zone["coarse_offset_ms"]
-    span_ms = zone["master_end_ms"] - zone["master_start_ms"] - 2 * search_ms
-    window_ms = min(Decimal(merge_video_chimeric.verify_window_seconds) * 1000, span_ms)
-    reading = {"zone": zone["zone"], "coarse_offset_ms": str(coarse), "windows": [],
-               "offset_ms": None, "reason": None}
-    if coarse is None:
-        reading["reason"] = "no_coarse_offset"
-        return reading
-    if window_ms < Decimal(str(REFINE_MIN_WINDOW_SECONDS)) * 1000:
-        reading["reason"] = f"zone_too_short({float(span_ms + 2 * search_ms):.0f}ms)"
-        return reading
-    count = int(max(1, min(REFINE_WINDOWS_PER_ZONE, span_ms // window_ms)))
-    free_ms = span_ms - window_ms
-    starts = [zone["master_start_ms"] + search_ms
-              + (free_ms * index / (count - 1) if count > 1 else free_ms / 2)
-              for index in range(count)]
-    n_samples = int(window_ms * rate / 1000)
-    lags = []
-    for start in starts:
-        m_index = int(round((start - master_start_ms) * rate / 1000))
-        c_index = int(round((start + coarse - candidate_start_ms) * rate / 1000))
-        entry = {"master_ms": str(round(start, 1))}
-        if (m_index < 0 or c_index < 0 or m_index + n_samples > len(master_samples)
-                or c_index + n_samples > len(candidate_samples)):
-            entry["outcome"] = "outside_track"
-            reading["windows"].append(entry)
-            continue
-        reference = master_samples[m_index:m_index + n_samples].astype("float64")
-        produced = candidate_samples[c_index:c_index + n_samples].astype("float64")
-        reference = reference - reference.mean()
-        produced = produced - produced.mean()
-        if min(merge_video_chimeric.get_rms(reference),
-               merge_video_chimeric.get_rms(produced)) < merge_video_chimeric.verify_min_rms:
-            entry["outcome"] = "no_signal"
-            reading["windows"].append(entry)
-            continue
-        lag, correlation = merge_video_chimeric.measure_lag_ms(
-            reference, produced, rate, float(search_ms))
-        entry.update({"lag_ms": round(lag, 3), "r": round(correlation, 4)})
-        if abs(lag) >= float(search_ms) - 1000.0 / rate:
-            entry["outcome"] = "peak_at_search_edge"
-        else:
-            entry["outcome"] = "measured"
-            lags.append(lag)
-        reading["windows"].append(entry)
-    if not lags:
-        reading["reason"] = "no_window_measured"
-        return reading
-    ordered = sorted(lags)
-    best = []
-    for low in range(len(ordered)):
-        group = [lag for lag in ordered[low:] if lag - ordered[low] <= float(agreement_ms)]
-        if len(group) > len(best):
-            best = group
-    if len(best) < 2 and len(lags) > 1:
-        reading["reason"] = f"windows_disagree({[round(lag, 2) for lag in ordered]})"
-        return reading
-    median = best[len(best) // 2] if len(best) % 2 else (best[len(best) // 2 - 1]
-                                                         + best[len(best) // 2]) / 2
-    # candidate_time = master_time + offset; a window read at the coarse offset whose content
-    # arrives `e` ms later returns lag -e (measured on a synthetic shift), so the offset is the
-    # coarse one MINUS the lag.
-    reading["offset_ms"] = coarse - Decimal(str(round(median, 3)))
-    reading["n_agreeing"] = len(best)
-    reading["single_window"] = len(lags) == 1
-    return reading
-
-
-def measure_track_offsets(zones, master_obj, candidate_obj, language, master_stream,
-                          candidate_stream, speed_ratio, scale, quantum_ms, domain):
-    """EACH TRACK ITS OWN OFFSET, PER ZONE, IN SUB-FRAME MILLISECONDS (ADDENDUM 9 points 2, 14).
-
-    Every candidate audio track is correlated against the master's track of ITS OWN language
-    (the comparison language against the very master stream the alignment was measured on). A
-    zone that could not be measured takes, in this order and ALWAYS LOGGED:
-      1. `derived_by_video_step`: the same track's nearest measured zone, moved by the frame
-         step the video measured between the two zones -- a frame count stage 4 pinned exactly,
-         so the carried relation stays sub-frame;
-      2. `inherited`: the comparison track's offset for that zone (the track of the same
-         source), with both values in the log -- never another language's offset in silence.
-    The comparison track itself has nothing to inherit from: with no zone of its own measured,
-    the plan has no audio offset it can apply, and says so.
-
-    Returns `(tracks, None)` or `(None, reason)`; `tracks[stream_order]` = {"language",
-    "zones": [readings], "start_ms", "extent_ms", "extent_source", "measured"}.
-    """
-    import merge_video_chimeric
-    import merge_video_resample
-    rate = merge_video_chimeric.verify_probe_rate
-    search_ms = Decimal(str(REFINE_SEARCH_QUANTA)) * _decimal(quantum_ms)
-    agreement_ms = _decimal(domain["frame_ms"]) / 2
-    frame_ms = _decimal(domain["frame_ms"])
-    audios = list(merge_video_chimeric.iterate_candidate_audios(candidate_obj))
-    audios.sort(key=lambda item: str(item[1].get("StreamOrder")) != str(candidate_stream))
-    master_cache = {}
-    tracks = {}
-    comparison_order = None
-    for track_language, audio in audios:
-        order = int(audio["StreamOrder"])
-        if str(audio.get("StreamOrder")) == str(candidate_stream):
-            comparison_order = order
-        start_ms, extent_ms, extent_source = _track_timing(candidate_obj, audio, scale)
-        entry = {"language": track_language, "start_ms": start_ms, "extent_ms": extent_ms,
-                 "extent_source": extent_source, "zones": [], "measured": False,
-                 "reference": None}
-        tracks[order] = entry
-        master_audio = merge_video_chimeric.find_master_audio_for_language(
-            master_obj, track_language,
-            master_stream if track_language == language else None)
-        step_launch("track_offset", candidate=candidate_obj.filePath, stream=order,
-                    language=track_language,
-                    master_stream=(None if master_audio is None
-                                   else master_audio.get("StreamOrder")))
-        if master_audio is None:
-            entry["own_reason"] = f"master_carries_no_{track_language}_track"
-            entry["zones"] = [{"zone": zone["zone"], "coarse_offset_ms":
-                               str(zone["coarse_offset_ms"]), "offset_ms": None,
-                               "reason": entry["own_reason"], "windows": []}
-                              for zone in zones]
-            step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
-                        measured=False, reason=entry["own_reason"])
-            continue
-        master_order = int(master_audio["StreamOrder"])
-        entry["reference"] = master_order
-        try:
-            if master_order not in master_cache:
-                master_cache[master_order] = (
-                    merge_video_chimeric.read_track_samples(master_obj.filePath, master_order,
-                                                            rate),
-                    merge_video_chimeric.get_stream_start_ms(master_audio))
-            master_samples, master_start_ms = master_cache[master_order]
-            chain = None
-            if speed_ratio is not None:
-                source_rate = (audio.get("ffprobe", {}).get("sample_rate")
-                               or audio.get("SamplingRate"))
-                chain = merge_video_resample.build_speed_filter_chain(
-                    int(float(source_rate)), speed_ratio)[0]
-            candidate_samples = merge_video_chimeric.read_track_samples(
-                candidate_obj.filePath, order, rate, audio_filter=chain)
-        except Exception as error:                                       # noqa: BLE001
-            entry["own_reason"] = f"track_unreadable({type(error).__name__})"
-            entry["zones"] = [{"zone": zone["zone"], "coarse_offset_ms":
-                               str(zone["coarse_offset_ms"]), "offset_ms": None,
-                               "reason": entry["own_reason"], "windows": []}
-                              for zone in zones]
-            step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
-                        measured=False, reason=entry["own_reason"], evidence=str(error)[:200])
-            continue
-        for zone in zones:
-            entry["zones"].append(_refine_zone(zone, master_samples, master_start_ms,
-                                               candidate_samples, start_ms, search_ms,
-                                               agreement_ms))
-        del candidate_samples
-        entry["measured"] = any(reading["offset_ms"] is not None for reading in entry["zones"])
-        step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
-                    language=track_language, master_stream=master_order,
-                    measured_zones=sum(1 for r in entry["zones"] if r["offset_ms"] is not None),
-                    n_zones=len(zones),
-                    offsets_ms=[None if r["offset_ms"] is None else float(r["offset_ms"])
-                                for r in entry["zones"]],
-                    coarse_ms=[r["coarse_offset_ms"] for r in entry["zones"]],
-                    reasons=[r["reason"] for r in entry["zones"]],
-                    windows=[[(w.get("lag_ms"), w.get("r"), w["outcome"])
-                              for w in r["windows"]] for r in entry["zones"]])
-    del master_cache
-
-    if comparison_order is None or not tracks[comparison_order]["measured"]:
-        return None, (f"the comparison track (stream {candidate_stream}) has no zone whose offset "
-                      f"could be measured to the sample: "
-                      + ("it is not among the candidate's audio tracks"
-                         if comparison_order is None else
-                         "; ".join(f"zone {r['zone']}: {r['reason']}"
-                                   for r in tracks[comparison_order]["zones"])))
-
-    def derive(entry, zone_index):
-        zone = zones[zone_index]
-        measured = [r for r in entry["zones"] if r["offset_ms"] is not None
-                    and r.get("source", "measured") == "measured"]
-        if zone["video_shift_frames"] is None or not measured:
-            return None, None
-        nearest = min(measured, key=lambda r: abs(r["zone"] - zone_index))
-        shift = zones[nearest["zone"]]["video_shift_frames"]
-        if shift is None:
-            return None, None
-        return (nearest["offset_ms"] + (zone["video_shift_frames"] - shift) * frame_ms,
-                nearest["zone"])
-
-    comparison = tracks[comparison_order]
-    for order in [comparison_order] + [o for o in tracks if o != comparison_order]:
-        entry = tracks[order]
-        for reading in entry["zones"]:
-            if reading["offset_ms"] is not None:
-                reading["source"] = "measured"
-    for order in [comparison_order] + [o for o in tracks if o != comparison_order]:
-        entry = tracks[order]
-        for reading in entry["zones"]:
-            if reading["offset_ms"] is not None:
-                continue
-            derived, from_zone = derive(entry, reading["zone"])
-            if derived is not None:
-                reading["offset_ms"] = derived
-                reading["source"] = f"derived_by_video_step(zone_{from_zone})"
-            elif order != comparison_order:
-                inherited = comparison["zones"][reading["zone"]]["offset_ms"]
-                reading["offset_ms"] = inherited
-                reading["source"] = f"inherited(stream_{comparison_order})"
-            if reading["offset_ms"] is None:
-                return None, (f"stream {order} zone {reading['zone']}: no offset measured "
-                              f"({reading['reason']}) and none derivable")
-            # ADDENDUM 9 point 14: a substitution is logged with BOTH values -- what this track
-            # could say for itself, and what it was given. A DECISION, so unconditional.
-            tools.log_line(
-                f"repair: offset_substitution stream={order} lang={entry['language']} "
-                f"zone={reading['zone']} own=unmeasured({reading['reason']}) "
-                f"coarse_ms={reading['coarse_offset_ms']} applied_ms={reading['offset_ms']} "
-                f"source={reading['source']}\n")
-    return tracks, None
 
 
 def track_pieces(zones, fills, readings, extent_ms, timeline_ms):
@@ -3780,36 +3736,35 @@ def track_pieces(zones, fills, readings, extent_ms, timeline_ms):
     return merged, adjustments, overlaps
 
 
-def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj, context):
+def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_obj, context):
     """STAGE 5 -- THE PLAN, APPLIED, AND NOTHING ELSE (ADDENDUM 10 d: "LA FONCTION QUI TRAITE LE
     PLAN NE FAIT QUE TRAITER LE PLAN -- aucune decision, aucun test d'opportunite"). Returns
     `(ok, cause, reason)`; `ok` is True only when the temporary chimeric file exists.
 
-    WHAT IT RECEIVES (the stage-4 contract, `resolve_hole`): `holes` = the holes that remain
-    after closures, each with its `resolution` in exact master frames. `context` carries what
-    the orchestrator measured that the plan needs: the comparison language, the REFERENCE
-    couple's streams (the master track every candidate track of that language is correlated
-    against -- the holes themselves are the union of all couples), its quantum, the frame
-    domain, the sweep's gate (a rate pair's evidence) and the ADDENDUM 5 marker decision taken
-    on these very holes.
+    WHAT IT RECEIVES (ADDENDUM 25, the audio plan): `plan_spec` = {"zones", "fills" -- from
+    `plan_geometry`, in master ms, each fill exactly the audio step's width; "walk" -- the
+    reference walk, whose tracks and levels the offsets reuse; "head_written_s",
+    "tail_written_s" -- the edge fills the master can actually write (25.6)}. `context` carries
+    the comparison language, the REFERENCE couple's streams and quantum, the frame domain, the
+    sweep's gate and the ADDENDUM 5 marker decision taken on this plan.
 
     WHAT IT DOES, in order, each step launched and resulted in the dev log:
-      1  the geometry -- `plan_geometry`: zones and fills at the exact frames, fills never wider
-         than the hole (ADDENDUM 9 point 1); every edge addition logged, tagged or not
-         (ADDENDUM 5 clause d);
+      1  the geometry -- logged as received; every edge addition logged (ADDENDUM 5 clause d);
       2  the speed -- at a confirmed factor other than 1 the candidate's tracks are resampled at
          the EXACT rational (asetrate behind the pitch layer's routing, ADDENDUM 8), `resampled:
          <effective factor>` on every such track; at 1 no filter exists (ADDENDUM 6);
-      3  the audio offsets -- `measure_track_offsets`: each track, each zone, to the sample,
-         never rounded to a frame (ADDENDUM 9 points 2 and 14);
+      3  the audio offsets -- `track_offsets`: each track, each zone, at the millisecond from the
+         walk (ADDENDUM 9 points 2 and 14, 25.2), never rounded to a frame;
       4  the pieces -- `track_pieces`, one set per track; the comparison track's set re-times the
          subtitles (pysubs2; the factor on the cue timecodes first on a rate pair, ADDENDUM 8
          point 3; no cue twice at a splice, a cue stopped before the next -- ADDENDUM 10 d);
       5  the chapters -- master editions as they are, candidate editions only re-timed
          (ADDENDUM 9 point 7), every decision logged;
       6  the build -- `merge_video_repair.build_repaired_video_object`: assemble, mux, the
-         delivery gates (`verify_output_file`, `verify_on_master_timeline` at its measured
-         100 ms, the fabricated-delivery gate);
+         delivery gates (`verify_output_file`, `verify_on_master_timeline` at 15 ms -- ADDENDUM
+         25.3 -- and the fabricated-delivery gate); a build that DELIVERS NOTHING (every audio
+         dropped by the gate, no subtitle) is still returned -- `nothing_to_deliver` is logged,
+         the merge runs and the master wins (25.7 as reversed by the owner, 2026-09-25);
       7  DELIVERED_DURATIONS -- ffprobe on the chimeric file itself, right after it exists
          (ADDENDUM 10 b); that is what the forensic verifier compares;
       8  the seam -- the repaired object on `REPAIR_SEAM_ATTRIBUTE`, and the `repaired`
@@ -3830,22 +3785,20 @@ def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj, c
     timeline_ms = _decimal(domain["master_timeline_ms"])
     rate_text = (f"{speed_factor.numerator}/{speed_factor.denominator}"
                  if isinstance(speed_factor, Fraction) else speed_factor)
-    step_launch("apply_plan", candidate=candidate_path, n_holes=len(holes),
+    zones, fills = plan_spec["zones"], plan_spec["fills"]
+    step_launch("apply_plan", candidate=candidate_path, n_zones=len(zones), n_fills=len(fills),
                 speed_factor=rate_text, chimeric_tag=context["tagged"])
 
     # ---- 1. geometry --------------------------------------------------------
-    zones, fills = plan_geometry(holes, domain, context["default_offset_ms"])
-    head_added = sum((fill["master_end_ms"] - fill["master_start_ms"]) for fill in fills
-                     if fill["reason"] == WHY_TOKEN["head"])
-    tail_added = sum((fill["master_end_ms"] - fill["master_start_ms"]) for fill in fills
-                     if fill["reason"] == WHY_TOKEN["tail"])
+    # ADDENDUM 25.6: the edge fills COUNTED are the ones the master can write.
+    head_added = Decimal(str(round(plan_spec["head_written_s"] * 1000.0, 3)))
+    tail_added = Decimal(str(round(plan_spec["tail_written_s"] * 1000.0, 3)))
     interior_filled = sum((fill["master_end_ms"] - fill["master_start_ms"]) for fill in fills
                           if fill["reason"] == WHY_TOKEN["interior"])
     step_result("plan_geometry", candidate=candidate_path,
                 zones=[[float(z["master_start_ms"]), float(z["master_end_ms"])] for z in zones],
-                coarse_offsets_ms=[None if z["coarse_offset_ms"] is None
-                                   else float(z["coarse_offset_ms"]) for z in zones],
-                video_shifts_frames=[z["video_shift_frames"] for z in zones],
+                offsets_ms=[float(z["offset_ms"]) for z in zones],
+                zone_windows=[z["n_windows"] for z in zones],
                 fills=[[float(f["master_start_ms"]), float(f["master_end_ms"]), f["reason"],
                         f["status"]] for f in fills])
     # ADDENDUM 5 clause (d), as ADDENDUM 21.10 re-scoped it: the added durations per edge and the
@@ -3877,9 +3830,8 @@ def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj, c
                       else "ADDENDUM_8_resample_is_restoration"))
 
     # ---- 3. per-track sub-frame offsets --------------------------------------
-    tracks, offset_failure = measure_track_offsets(
-        zones, master_obj, candidate_obj, language, context["master_stream"],
-        context["candidate_stream"], speed_ratio, scale, context["quantum_ms"], domain)
+    tracks, offset_failure = track_offsets(zones, plan_spec["walk"], master_obj, candidate_obj,
+                                           language, speed_ratio, scale)
     if tracks is None:
         step_result("apply_plan", candidate=candidate_path, ok=False,
                     cause="plan_offset_unmeasurable")
@@ -3892,11 +3844,12 @@ def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj, c
         pieces, adjustments, overlaps = track_pieces(zones, fills, entry["zones"],
                                                      entry["extent_ms"], timeline_ms)
         sources = sorted({reading["source"] for reading in entry["zones"]})
+        own = set(sources) <= {"measured", "walk_level"}
         track_plans[order] = {
             "pieces": pieces,
             "extent_ms": entry["extent_ms"], "extent_source": entry["extent_source"],
-            "offset_measured": sources == ["measured"],
-            "borrow_reason": (None if sources == ["measured"]
+            "offset_measured": own,
+            "borrow_reason": (None if own
                               else ",".join(sources) + (f"[{entry['own_reason']}]"
                                                         if entry.get("own_reason") else "")),
             "offset_sources": [{"zone": r["zone"], "offset_ms": str(r["offset_ms"]),
@@ -3986,6 +3939,23 @@ def apply_plan(candidate_path, holes, speed_factor, master_obj, candidate_obj, c
         return False, "plan_application_no_file", (
             f"the build returned but the temporary chimeric file is not on disk ({out_path}) -- "
             f"no file, no repair")
+    # ADDENDUM 25.7 AS REVERSED BY THE OWNER (2026-09-25): "la fusion est faite meme si a la fin
+    # le keep va tout enlever". The delivery gate may drop every rebuilt audio track (same content
+    # as an intact master track) and the candidate may carry no subtitle (errid-232/675, Yozakura-
+    # san S02E09): the repair still returns its file, the merge runs, keep_best_audio decides, and
+    # a product equal to the master CLOSES the error entry -- the candidate brought nothing, which
+    # is not an error. `nothing_to_deliver` is an INFORMATIONAL line, never a refusal.
+    delivered_tracks = [
+        (holder, language_, audio.get("StreamOrder"))
+        for holder in ("audios", "commentary", "audiodesc", "subtitles")
+        for language_, entries in (getattr(repaired_obj, holder, None) or {}).items()
+        for audio in entries if audio.get("keep", True) is not False]
+    if not delivered_tracks:
+        gate = [(d.get("stream_order"), d.get("cause")) if isinstance(d, dict) else d
+                for d in (assembly.get("fabricated_dropped") or [])]
+        tools.log_always(f"repair: nothing_to_deliver informational=1 out_path={out_path} "
+                         f"gate_dropped={gate} -- no rebuilt track passes the delivery gate; the "
+                         f"merge runs and the master wins for {candidate_path}\n")
 
     # ---- 7. DELIVERED_DURATIONS ---------------------------------------------
     delivered = merge_video_chimeric.probe_delivered_durations(out_path)
@@ -4557,10 +4527,12 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     Order: per couple, zones -> holes (a couple that could not be measured, or covers under the
     floor, is screened); the multi-couple cross-check; each couple's holes put on the FILE's
     clock with its own container delays (ADDENDUM 19 b) and UNITED across couples (ADDENDUM
-    21.8 -- `union_holes`, provenance logged per union hole); the frame domain; the absorbed
-    same-offset gaps, logged and, above the resolver's reach, put to the video (ADDENDUM 21.9);
-    hole resolution, edges first and a refuted step's surviving shift carried (ADDENDUM 19 c/d,
-    `resolve_holes`); plan application.
+    21.8 -- `union_holes`, provenance logged per union hole); the frame domain; ADDENDUM 25's
+    audio plan -- the millisecond walk on the reference couple (`reference_walk`), the b2 holes
+    and absorbed gaps logged against it (`log_holes_against_walk`, `log_absorbed_gaps`), every
+    change point placed with the video choosing inside the audio's interval
+    (`audio_transitions`), head and tail placed by the audio (`audio_edges`), the geometry in
+    milliseconds (`plan_geometry`); plan application.
 
     MEASURED BEFORE THIS SHAPE (the reason it is what it is): errid-70, the corpus's real PAL
     pair, blind, returns `all_segments_below_duration_floor` at coverage 0.000; re-primed at the
@@ -4676,13 +4648,11 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                     union_of=hole["union_of"], offset_sources=hole["offset_sources"],
                     members=hole["members"])
     reference = couple_results[0]
-    tagged, tag_reason = chimeric_tag_required(holes)
     step_result("plan_shape", candidate=candidate_path, hole_source="union_of_all_couples",
                 n_couples=len(couple_results), reference_couple=reference["couple"],
                 per_couple_holes={record["couple"]: len(record["holes"])
                                   for record in couple_results},
-                n_holes=len(holes), edge_addition_s=round(edge_addition_seconds(holes), 3),
-                chimeric_tag=tagged, chimeric_tag_reason=tag_reason.replace(" ", "_"))
+                n_holes=len(holes), edge_addition_s=round(edge_addition_seconds(holes), 3))
 
     if any(hole["kind"] == "spans_whole_file" for hole in holes):
         return False, "alignment_no_anchored_runs", (
@@ -4691,13 +4661,16 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
             f"survived long enough to anchor either end, so there is no head, interior or tail "
             f"to resolve"), None
 
-    if len(holes) > MAX_HOLES_PER_COUPLE:
+    # THE BUDGET IS PER COUPLE, as its measurement was (see MAX_HOLES_PER_COUPLE): the union
+    # of several couples may hold more regions than any one couple saw, and that sum is not a
+    # fragmentation of the pair.
+    over = [(record["couple"], len(record["holes"])) for record in couple_results
+            if len(record["holes"]) > MAX_HOLES_PER_COUPLE]
+    if over:
         return False, "hole_count_exceeds_resolver_budget", (
-            f"the union of {len(couple_results)} couple(s) decomposes into {len(holes)} holes "
-            f"above the budget of "
-            f"{MAX_HOLES_PER_COUPLE}; resolving each one launches an unbounded frame-exact "
-            f"search, and a pair that fragments this far is not one this instrument has "
-            f"measured itself able to reconstruct"), None
+            f"couple(s) {over} decompose into more holes than the budget of "
+            f"{MAX_HOLES_PER_COUPLE}; a pair that fragments this far is not one this instrument "
+            f"has measured itself able to reconstruct"), None
 
     # ADDENDUM 5's good news, named: NO hole at all -- completely compatible audios.
     if not holes:
@@ -4744,102 +4717,66 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     if insane is not None:
         return False, insane[0], insane[1], None
 
-    # THE ABSORBED SAME-OFFSET GAPS (ADDENDUM 21.9). Each is logged; the long ones are put to
-    # the video's no-cut test through the ordinary interior resolver (a step-0 hole: one shift
-    # on both sides). `no_cut_confirmed` confirms the absorption; a decline leaves it absorbed
-    # AND SAYS SO (the video could not measure -- not a refutation); any other reading is the
-    # video seeing a difference the offset hid, and the gap BECOMES A HOLE of the plan.
-    refuted_gaps = []
-    for number, gap in enumerate(absorbed_gaps_to_examine(couple_results, holes,
-                                                          candidate_path)):
-        outcome = _resolve_logged(candidate_path, f"absorbed_gap_{number}", gap, domain,
-                                  master_obj, candidate_obj, work_dir)
-        # ONE SHIFT ON BOTH SIDES IS THE OFFSET HOLDING: a picture that differs under the same
-        # shift is a video-only difference with no audio step, and it never creates an audio
-        # fill (MEASURED, Fallout S01E02: 113 frames of differing picture at shift 104/104 would
-        # have filled 4.7 s of the dub from the master). Only a CHANGE of shift refutes.
-        same_shift = (outcome.get("before_shift_frames") is not None
-                      and outcome.get("before_shift_frames") == outcome.get("after_shift_frames"))
-        verdict = ("absorption_confirmed" if outcome["status"] == HOLE_NO_CUT_CONFIRMED
-                   else "absorption_unverified" if outcome["status"] == HOLE_DECLINED
-                   else "absorption_confirmed_picture_only" if same_shift
-                   else "absorption_refuted")
-        step_result("absorbed_gap_video", candidate=candidate_path, gap=number,
-                    master_ms=[round(gap["master_ms"][0], 2), round(gap["master_ms"][1], 2)],
-                    offset_ms=round(gap["offset_before_ms"], 3), status=outcome["status"],
-                    resolver_reason=outcome.get("resolver_reason"), verdict=verdict,
-                    members=gap["members"])
-        if verdict == "absorption_refuted":
-            refuted_gaps.append(gap)
-    if refuted_gaps:
-        holes = sorted(holes + refuted_gaps, key=lambda hole: hole["master_ms"][0])
-        step_result("holes_with_refuted_absorptions", candidate=candidate_path,
-                    n_holes=len(holes), n_refuted_gaps=len(refuted_gaps))
-
-    holes = _clusters_with_islands_tested(holes, couple_results, domain, master_obj,
-                                          candidate_obj, candidate_path)
-
-    outcomes = resolve_holes(holes, domain, master_obj, candidate_obj, work_dir, candidate_path)
-    declined = [(index, hole, outcome)
-                for index, (hole, outcome) in enumerate(zip(holes, outcomes))
-                if outcome["status"] == HOLE_DECLINED]
-    budget = budget_cause(declined, repair_deadline)
-    if budget is not None:
-        log_partial_plan(candidate_path, budget, holes, outcomes)
-        return False, budget, (
-            f"{len(declined)} of {len(holes)} hole(s) stopped on a time bound ("
-            + "; ".join(f"hole {index} ({hole['kind']}) {outcome.get('resolver_reason')}"
-                        for index, hole, outcome in declined)
-            + ") -- the partial plan is logged; the file comes back next wave"), None
-    if declined:
-        return False, "hole_resolution_declined", (
-            f"{len(declined)} of {len(holes)} hole(s) could not be pinned to a frame: "
-            + "; ".join(f"hole {index} ({hole['kind']}) {outcome.get('resolver_reason')}"
-                        for index, hole, outcome in declined)
-            + " -- no boundary was invented for them, and a plan with an unresolved hole is "
-              "not a plan"), None
-
-    # ADDENDUM 3 (and 19 d): a closed hole restores zone continuity, an absorbed one is already
-    # covered by its edge -- neither is a failure, both leave the plan. What remains is the work
-    # to be done, and ADDENDUM 5's marker is decided on THAT, with the edges' COUNTED additions.
-    effective = []
-    for hole, outcome in zip(holes, outcomes):
-        if outcome["status"] in HOLE_STATUSES_LEAVING_THE_PLAN:
-            continue
-        entry = dict(hole, resolution=outcome)
-        if hole["kind"] in ("head", "tail"):
-            entry["resolved_edge_addition_seconds"] = outcome["edge_addition_seconds"]
-        effective.append(entry)
-    tagged, tag_reason = chimeric_tag_required(effective)
+    # ---- ADDENDUM 25: THE AUDIO BOUNDS, THE VIDEO PINS ------------------------
+    # The millisecond walk on the reference couple fixes every offset, every step, every fill
+    # width and every interval a cut may lie in; the video only chooses inside those intervals.
+    speed_ratio = None if factor in (None, 1) else _decimal(Fraction(factor))
+    walk, walk_reason = reference_walk(reference, holes, master_obj, candidate_obj, language,
+                                       speed_ratio, candidate_path)
+    if walk is None:
+        return False, "audio_walk_unavailable", (
+            f"the millisecond walk on the reference couple {reference['couple']} could not "
+            f"measure the pair ({walk_reason}) -- no offset, step or fill can be placed "
+            f"without it"), None
+    if repair_deadline is not None and time.monotonic() > repair_deadline:
+        log_partial_plan(candidate_path, "repair_budget_exceeded",
+                         [("audio_walk", "levels", [lv["off_ms"] for lv in walk["levels"]])])
+        return False, "repair_budget_exceeded", (
+            f"the repair's budget ran out after the audio walk -- the "
+            f"partial plan is logged; the file comes back next wave"), None
+    log_holes_against_walk(holes, walk, candidate_path)
+    log_absorbed_gaps(couple_results, holes, walk, candidate_path)
+    transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
+                                             work_dir, candidate_path)
+    if transitions is None:
+        return False, refusal[0], refusal[1], None
+    head_end_s, tail_start_s, refusal = audio_edges(walk, holes, domain, master_obj,
+                                                    candidate_obj, work_dir, candidate_path)
+    if refusal is not None:
+        return False, refusal[0], refusal[1], None
+    zones, fills, geometry_failure = plan_geometry(transitions, head_end_s, tail_start_s,
+                                                   domain, walk)
+    if zones is None:
+        return False, "audio_transitions_overlap", (
+            f"the audio's transitions do not tile the master timeline: {geometry_failure}"), None
+    if not zones:
+        return False, "plan_reads_no_candidate_content", (
+            "the audio edges leave no candidate content on the master timeline -- a plan that "
+            "reads nothing from the candidate is the master, not a repair"), None
+    if repair_deadline is not None and time.monotonic() > repair_deadline:
+        log_partial_plan(candidate_path, "repair_budget_exceeded",
+                         [(f"change_point_{t['change_point']}", t["decision"], t["at_s"],
+                           t["fill_s"]) for t in transitions]
+                         + [("head", "placed", head_end_s), ("tail", "placed", tail_start_s)])
+        return False, "repair_budget_exceeded", (
+            f"the repair's budget ran out before the plan's application -- "
+            f"the partial plan is logged; the file comes back next wave"), None
+    head_written_s, tail_written_s = written_edge_seconds(fills, walk["master_audio_end_s"])
+    tagged, tag_reason = tag_decision(len(transitions), head_written_s + tail_written_s)
     step_result("plan_shape_resolved", candidate=candidate_path,
-                n_holes=len(holes), n_closed=len(holes) - len(effective),
-                statuses=[outcome["status"] for outcome in outcomes],
-                edge_addition_s=round(edge_addition_seconds(effective), 3),
+                n_transitions=len(transitions),
+                decisions=[t["decision"] for t in transitions],
+                head_end_s=head_end_s, tail_start_s=tail_start_s,
+                head_written_s=round(head_written_s, 3), tail_written_s=round(tail_written_s, 3),
                 chimeric_tag=tagged, chimeric_tag_reason=tag_reason.replace(" ", "_"))
-    if holes and not effective:
-        step_result("holes", candidate=candidate_path, couple="union",
-                    verdict="all_holes_no_cut_confirmed",
-                    rule="ADDENDUM_3_video_disposes_pair_merges_without_splice")
-
-    # THE COARSE OFFSET OF A PAIR WITH NO HOLE LEFT BEFORE ITS FIRST ZONE: the reference
-    # couple's own offset on its longest coalesced zone, on the file's clock. Only the
-    # refinement's CENTRE -- `apply_plan` measures the applied offset itself.
-    coalesced, coalesced_detail = coalesce_same_offset_zones(
-        reference["alignment"].get("zones") or [],
-        reference["alignment"].get("zones_detail") or [])
-    default_offset_ms = None
-    if coalesced_detail:
-        longest = max(coalesced_detail,
-                      key=lambda detail: detail["master_points"][1] - detail["master_points"][0])
-        default_offset_ms = Decimal(str(round(
-            longest["offset_points"] * reference["alignment"]["quantum_ms"]
-            + reference["fold"]["delta_ms"], 6)))
     master_stream, candidate_stream = reference["couple"].split("x")
-    ok, cause, reason = apply_plan(candidate_path, effective, factor, master_obj, candidate_obj, {
+    ok, cause, reason = apply_plan(candidate_path, {
+        "zones": zones, "fills": fills, "walk": walk, "head_written_s": head_written_s,
+        "tail_written_s": tail_written_s}, factor, master_obj, candidate_obj, {
         "language": language, "work_dir": work_dir, "domain": domain,
         "quantum_ms": reference["alignment"]["quantum_ms"],
         "master_stream": master_stream, "candidate_stream": candidate_stream,
-        "default_offset_ms": default_offset_ms, "resample_routing": resample_routing,
+        "resample_routing": resample_routing,
         "sweep_gate": sweep_gate, "tagged": tagged, "tag_reason": tag_reason})
     return ok, cause, reason, None
 
@@ -4869,7 +4806,10 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     candidate_path = candidate_obj.filePath
     # THE REPAIR'S BUDGET (ADDENDUM 26.3), a `time.monotonic()` instant checked between steps and
     # handed to the hole resolver, which never runs a hole past it.
-    repair_deadline = time.monotonic() + REPAIR_BUDGET_S
+    repair_budget_s, budget_video_s = repair_budget_seconds(master_obj)
+    repair_deadline = time.monotonic() + repair_budget_s
+    tools.log_always(f"orchestrator: repair_budget budget_s={repair_budget_s} "
+                     f"master_video_s={budget_video_s} for {candidate_path}\n")
     if master_intertrack_cache is None:
         master_intertrack_cache = {}
     work_dir = work_root or path.join(tools.tmpFolder, "repair", "orchestrator")
@@ -4926,7 +4866,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
     if time.monotonic() > repair_deadline:
-        return _budget_terminal(candidate_path, "prime", REPAIR_BUDGET_S)
+        return _budget_terminal(candidate_path, "prime", repair_budget_s)
 
     step_launch("similarity_gate", candidate=candidate_path, n_couples=len(couples))
     should_sweep, gate_prose, observations = ensemble_similarity_gate(primed, candidate_path)
@@ -5053,7 +4993,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
             _plan_line("none", candidate_path, step="rate_reprime", cause=prime_cause)
             return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
     if time.monotonic() > repair_deadline:
-        return _budget_terminal(candidate_path, "rate_decision", REPAIR_BUDGET_S)
+        return _budget_terminal(candidate_path, "rate_decision", repair_budget_s)
 
     # ---- STEP 3: chimeric ---------------------------------------------------
     step_launch("chimeric", candidate=candidate_path, language=comparison_language,

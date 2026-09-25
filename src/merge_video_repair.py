@@ -66,7 +66,12 @@ import video
 # chacune); un plan faux atterrit a 503 ms (point de changement manque) ou
 # 16146 ms (signe inverse). 100 ms est deux ordres au-dessus du premier et un
 # ordre en dessous du second.
-verify_tolerance_ms = 100
+# ADDENDUM 25.3 (owner, 2026-09-25): 100 -> 15 ms, SUR MESURE. La certification des etages 4+5
+# a mesure les produits propres a <= 10,5 ms (13 produits) et les vraies erreurs de plan a
+# 26-67 ms (trois sauts sous-quantum livres parce qu'ils passaient sous 100 ms). 15 ms separe
+# les deux populations avec de la marge des deux cotes. Au-dela: `delivery_offset_exceeds_
+# tolerance`, avec la mesure -- jamais une livraison.
+verify_tolerance_ms = 15
 
 last_repair_report = []
 
@@ -2392,6 +2397,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 record(candidate_path, "declined", str(error), cause=cause)
             elif isinstance(error, merge_video_chimeric.chimeric_error):
                 cause = chimeric_cause(error)
+                # B5: THE MEASUREMENT CLASS TRAVELS WITH AN ASSEMBLY REFUSAL TOO.
+                repair_orchestrator.log_measurement_class(candidate_path, cause)
                 record(candidate_path, "declined", str(error),
                        decline_detail(error), cause=cause)
             else:

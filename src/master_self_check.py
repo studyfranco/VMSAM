@@ -27,8 +27,8 @@ SCOPE, AND IT IS NARROW BY OWNER CONSTRAINT (ADDENDUM 1)
 ONE LANGUAGE: the comparison language -- the language the pipeline generates
 its delays on (`common_language_use_for_generate_delay`, derived from
 `tools.special_params["original_language"]` at `mergeVideo.py:2141`; the repair
-chain's equivalent is whatever `merge_video_repair.get_delay_language` returned
-for this pair). The owner's rationale, carried here so it cannot be lost in a
+chain receives that very language from `mergeVideo.remove_not_compatible_video`
+since ADDENDUM 20 -- `repair_not_compatible_videos(..., language)`). The owner's rationale, carried here so it cannot be lost in a
 refactor: THE DEFECT MATTERS EXACTLY WHERE THE DELAYS ARE MEASURED. Anything
 else is exploration the pipeline does not need.
 

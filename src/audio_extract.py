@@ -85,7 +85,8 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     condition for the move that created this module is that a locator run stays byte-identical,
     and a parameter that changed the command even when unused would break exactly the comparison
     that proves the move was safe. It carries an ffmpeg `-af` filtergraph, and the only producer
-    today is `repair_orchestrator.comparison_resample`, which builds it through
+    today is `repair_orchestrator.rate_resample_routing` (the re-prime at a confirmed factor,
+    upstream of chimeric since ADDENDUM 21.6), which builds it through
     `merge_video_resample.build_speed_filter_chain` -- the pipeline's single asetrate authority,
     never a chain spelled out at a call site.
 

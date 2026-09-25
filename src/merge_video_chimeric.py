@@ -169,7 +169,8 @@ class chimeric_error(Exception):
     SCOPED INTO THE TOKENED SET"): la regression cote candidat a :1001-1003,
     premiere occurrence de production 2026-09-22 (errid 25, wave table). Un
     QUATRIEME est scope IN par ce cas (CASE_errid12_untokened_5367.md, errid
-    12, wave table pass 8): `delivery_timeline_misalignment` a :5360-5397 --
+    12, wave table pass 8): `delivery_timeline_misalignment` (renamed
+    `delivery_offset_exceeds_tolerance` by ADDENDUM 25.3, tolerance 15 ms) a :5360-5397 --
     la verification post-construction contre le maitre, premiere occurrence
     de production 2026-09-22/23. Un CINQUIEME est scope IN par ce cas
     (CASE_errid50_untokened_1279.md, errids 50 et 58, wave table pass 10):
@@ -2386,17 +2387,27 @@ def compose_marker(base_marker, factor):
     effectifs mesurablement differents) -- ou None quand aucune vitesse n'est
     appliquee (ADDENDUM 6: pas de filtre a 1, donc pas de marqueur).
     ADDENDUM 5 clause (c): le marqueur `resampled` est INDEPENDANT du seuil des
-    15 s, une piste resamplee le porte meme sans splice.'''
+    15 s, une piste resamplee le porte meme sans splice.
+
+    LE FACTEUR ECRIT EST LE RATIONNEL EXACT (ADDENDUM 25.5): `resampled:1001/1000`, jamais
+    `1.001000` ni `1.001001`. Le facteur applique a une piste est quantifie par l'entier
+    d'`asetrate` (1.001001001 pour 1001/1000 a 48 kHz, 1 ppm) et celui des repliques est le
+    Decimal du rapport demande: deux lectures d'un meme facteur donnaient deux marqueurs
+    differents dans un meme produit (certification, O7). Le marqueur nomme le RAPPORT DEMANDE,
+    retrouve exactement depuis sa valeur: le rationnel de denominateur <= 10**6 le plus proche,
+    qui est le rapport lui-meme (tout autre en est a plus de ~1e-9, bien au-dessus de l'ecart de
+    quantification d'`asetrate`, ~7e-7 relatif au plus). Le facteur effectif reste dans le
+    rapport de la piste (`speed_ratio_applied`).'''
     parts = [base_marker] if base_marker else []
     if factor is not None:
-        import merge_video_resample
-        parts.append(f"resampled:{merge_video_resample.format_factor(factor)}")
+        exact = Fraction(str(factor)).limit_denominator(10 ** 6)
+        parts.append(f"resampled:{exact.numerator}/{exact.denominator}")
     return "+".join(parts)
 
 
 def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, reference_pieces,
                                 work_dir, out_path, marker_value, job_start_utc,
-                                timeout=3600, verify=True, verify_tolerance_ms=100,
+                                timeout=3600, verify=True, verify_tolerance_ms=15,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
                                 comparison_language=None, chapters_path=None):
@@ -2537,10 +2548,12 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             report["borrow_reason"] = track_plan.get("borrow_reason")
             report["offset_sources"] = track_plan.get("offset_sources")
             report["offset_fidelity"] = None
+            # THE REQUESTED RATIO, EXACT (ADDENDUM 25.5): the applied one is quantised by the
+            # integer `asetrate` (384000/383616 = 1000/999 for 1001/1000) and would name a
+            # different rational; it stays in `speed_ratio_applied`.
             report["marker"] = compose_marker(
                 marker_value,
-                Decimal(report["speed_ratio_applied"])
-                if report.get("speed_ratio_applied") is not None else None)
+                speed_ratio if report.get("speed_ratio_applied") is not None else None)
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
@@ -3019,9 +3032,12 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
         # Meme regle: le specificateur de flux et la position suffisent a
         # diagnostiquer, le chemin ne sert qu'a identifier le media. Cette
         # phrase devient la RAISON d'un refus, et une raison se cite.
+        # TOKENED (id 134, Mai-HiME 12, 2026-09-25: reached, untokened, when a plan read the
+        # candidate past the master's own audio end -- fixed in the plan, the token stays).
         raise chimeric_error(
             f"read only {len(samples)} samples from {stream_specifier} at "
-            f"{start_ms} ms: the track carries no audio to compare there")
+            f"{start_ms} ms: the track carries no audio to compare there",
+            cause="probe_reads_no_audio")
     return samples - samples.mean()
 
 
@@ -4183,7 +4199,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             f"Tolerance {tolerance_ms} ms. The plan is wrong, not the splice: a "
             f"uniform offset means the base offset carries the wrong sign, and a "
             f"residual that changes at a change point means a step was missed",
-            cause="delivery_timeline_misalignment")
+            cause="delivery_offset_exceeds_tolerance")
         error.verification = results
         error.audios = audio_reports
         raise error

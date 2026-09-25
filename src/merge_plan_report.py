@@ -5452,6 +5452,14 @@ def render_human_summary(job, geometry, merge_log=None):
         said.append("<li><b>→ Aucune piste audio du candidat n'entre dans le "
                     "fichier</b> : toutes ont été écartées par la porte de "
                     "livraison.</li>")
+        # ADDENDUM 25.7 as reversed by the owner (2026-09-25): nothing delivered is not a
+        # refusal -- the merge runs and the master wins; the reader is told so in one sentence.
+        dropped_subs = sum(1 for g in delivery if g["verdict"] == "dropped"
+                           and g.get("holder") == "subtitles")
+        if dropped_subs >= len(subs):
+            said.append("<li><b>Aucune piste ajoutée, le master l'emporte</b> — la "
+                        "fusion a lieu quand même et l'erreur se ferme : le candidat "
+                        "n'apportait rien.</li>")
 
     # 4. the final mux's refusals, from the full log when it was passed
     if merge_log is None:
