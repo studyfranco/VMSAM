@@ -546,9 +546,12 @@ DECLINE_CAUSES = {
     "audio_walk_unavailable": CLASS_COULD_NOT_RUN,
     # A change point whose edges the 20 ms and 100 ms profiles could not read:
     "audio_step_unlocalised": CLASS_COULD_NOT_RUN,
-    # 25.1: the master content the candidate lacks does not fit between the audio edges -- the
-    # audio step and the hole contradict each other, measured:
-    "hole_width_contradicts_audio_step": CLASS_CONCLUSIVE,
+    # 25.1: the master content the candidate lacks does not fit between the audio edges -- two
+    # of the walk's OWN measurements of one transition (the levels' step, the 20 ms edges)
+    # disagree, before the video is asked anything: a statement about the instrument, never a
+    # proof about the pair (CASE_hole_width_contradicts_audio_step_20260925: on ids 152/278/686
+    # the step was exact and the 20 ms edges were wrong):
+    "hole_width_contradicts_audio_step": CLASS_COULD_NOT_RUN,
     # 25.2 c: a sub-quantum step the video could neither place nor rule out:
     "sub_quantum_step_video_ambiguous": CLASS_COULD_NOT_RUN,
     # The audio's transitions or edges do not tile the timeline (a plan defect, not the pair's):

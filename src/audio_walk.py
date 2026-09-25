@@ -324,27 +324,58 @@ def _shifted(c, t0, t1, off_ms):
     return seg[pad:pad + n]
 
 
+# THE GAIN OF A FINE WINDOW IS READ ON ONE SIDE OF IT, never across it: each 20 ms window gets
+# two gains, one fitted over the FINE_GAIN_S ending at the window's end, one over the FINE_GAIN_S
+# starting at its start, and keeps the smaller residual. A gain fitted over a span centred on the
+# window straddles a splice for the FINE_GAIN_S / 2 next to it and is dragged by the other side's
+# content. MEASURED, id 152 (Dragon Ball Daima S01E20, change point -9.062 -> -4304.753 ms): the
+# centred gain held the residual under offset b at 0.26-0.32 over master 986.01-986.09 s (just
+# over FINE_THRESHOLD, read as master-only sound) where a gain read on the steady side gives
+# 0.004-0.06; edge_B moved 80 ms outward and the 4295.691 ms hole "did not fit" a 4380 ms edge
+# gap -- truth by 1 s xcorr on both sides: offsets exact to 0.001 ms up to the edges, edge gap
+# 4300 ms. A window whose own content does not match keeps a residual near 1 or above under ANY
+# scalar gain, so the one-sided fit cannot turn a mismatch into a match.
+FINE_GAIN_S = 0.4
+
+
 def _residuals(m, c, offsets, t0, t1):
     """Per 20 ms window (hop 5 ms): times, master dB, and the gain-fitted residual ratio under
-    each offset of `offsets`."""
+    each offset of `offsets` (the gain read on one side of the window -- FINE_GAIN_S)."""
+    times, mdb, residuals, _scale_free = _fits(m, c, offsets, t0, t1)
+    return times, mdb, residuals
+
+
+def _fits(m, c, offsets, t0, t1):
+    """`_residuals`, plus per offset the SCALE-FREE residual of each window: its gain fitted on
+    the window alone, unclipped (1 - the window's uncentred NCC squared) -- the one reading that
+    follows a fade (see `fine_edges`)."""
     start = int(round(t0 * WALK_RATE))
     x = m[start:start + int(round((t1 - t0) * WALK_RATE))].astype(np.float64)
     w, h = int(FINE_WIN_S * WALK_RATE), int(FINE_HOP_S * WALK_RATE)
-    kernel = np.ones(w)
-    local = np.ones(int(0.4 * WALK_RATE))
+    span = int(FINE_GAIN_S * WALK_RATE)
 
-    def smooth(v):
-        return np.convolve(v, kernel, "valid")[::h]
-    energy = smooth(x * x)
-    residuals = []
+    def cumulative(v):
+        return np.concatenate([[0.0], np.cumsum(v)])
+    starts = np.arange(0, max(len(x) - w + 1, 0), h)
+    ends = starts + w
+    xx = cumulative(x * x)
+    energy = xx[ends] - xx[starts]
+    back_lo, forth_hi = np.maximum(ends - span, 0), np.minimum(starts + span, len(x))
+    residuals, scale_free = [], []
     for off in offsets:
         cs = _shifted(c, t0, t1, off)[:len(x)]
-        gain = np.convolve(x * cs, local, "same") / np.maximum(
-            np.convolve(cs * cs, local, "same"), 1e-12)
-        gain = np.clip(gain, 0.25, 4.0)
-        residuals.append(smooth((x - gain * cs) ** 2) / np.maximum(energy, 1e-12))
+        xc, cc = cumulative(x * cs), cumulative(cs * cs)
+        in_xc, in_cc = xc[ends] - xc[starts], cc[ends] - cc[starts]
+        best = None
+        for lo, hi in ((back_lo, ends), (starts, forth_hi)):
+            gain = np.clip((xc[hi] - xc[lo]) / np.maximum(cc[hi] - cc[lo], 1e-12), 0.25, 4.0)
+            residual = np.maximum(energy - 2 * gain * in_xc + gain * gain * in_cc, 0.0)
+            best = residual if best is None else np.minimum(best, residual)
+        residuals.append(best / np.maximum(energy, 1e-12))
+        scale_free.append(np.clip(1.0 - in_xc * in_xc / np.maximum(energy * in_cc, 1e-30),
+                                  0.0, 1.0))
     mdb = 10 * np.log10(np.maximum(energy / w, 1e-20))
-    return t0 + np.arange(len(energy)) * FINE_HOP_S, mdb, residuals
+    return t0 + starts / WALK_RATE, mdb, residuals, scale_free
 
 
 def _ncc_profile(m, c, offsets, t0, t1, win_s=0.1):
@@ -364,7 +395,7 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
     interval. `status` is `ok` or `edge_unmeasurable`."""
     t0 = min(coarse_a, coarse_b) - margin
     t1 = max(coarse_a, coarse_b) + margin
-    times, mdb, (ra, rb) = _residuals(m, c, (a, b), t0, t1)
+    times, mdb, (ra, rb), (fa, fb) = _fits(m, c, (a, b), t0, t1)
     audible = mdb >= FINE_SILENT_DB
     pre = audible & (times < min(coarse_a, coarse_b) - 0.45)
     post = audible & (times > max(coarse_a, coarse_b) + 0.05)
@@ -376,6 +407,8 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
         is_a = audible & (ra < FINE_THRESHOLD) & (rb > 2 * ra)
         is_b = audible & (rb < FINE_THRESHOLD) & (ra > 2 * rb)
         good_a, good_b = ra < FINE_THRESHOLD, rb < FINE_THRESHOLD
+        follows_a = audible & (fa < FINE_THRESHOLD) & (fb > 2 * fa)
+        follows_b = audible & (fb < FINE_THRESHOLD) & (fa > 2 * fb)
     else:
         method, win = "ncc100ms", 0.1
         times, mdb, (na, nb) = _ncc_profile(m, c, (a, b), t0, t1, win)
@@ -383,6 +416,7 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
         is_a = audible & (na >= 0.8) & (na - nb >= 0.2)
         is_b = audible & (nb >= 0.8) & (nb - na >= 0.2)
         good_a, good_b = na >= 0.8, nb >= 0.8
+        follows_a = follows_b = np.zeros(len(times), bool)       # NCC is already scale-free
     result = {"method": method, "floor_a": round(floor_a, 4), "floor_b": round(floor_b, 4),
               "a_ms": a, "b_ms": b, "step_ms": round(b - a, 3)}
     near = min(coarse_a, coarse_b) - 0.2
@@ -398,7 +432,35 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
     if first_b is None or not len(a_idx):
         result["status"] = "edge_unmeasurable"
         return result
-    edge_a = float(times[a_idx[-1]] + win)
+    # edge_A CLOSES A SUSTAINED RUN, as edge_B opens one: the last window read at `a` whose 8
+    # windows back are read at `a` or silent, at least 4 of them read. MEASURED, id 278 (The 100
+    # S07E06, change point -4839.25 -> -6842.125 ms): offset a holds to the sample up to 1498.62 s
+    # (residual 0.000), then two isolated 20 ms windows of a fading master (-35 dB, residual
+    # 0.09 / 0.21) at 1499.325-1499.33 s put edge_A 0.73 s late and the 2002.875 ms hole "did not
+    # fit" a 1280 ms edge gap; the sustained edge gives 2005 ms (step + 2.1 ms).
+    last_a = a_idx[-1]
+    for i in a_idx[::-1]:
+        window = slice(max(i - 7, 0), i + 1)
+        if (is_a[window] | ~audible[window]).all() and is_a[window].sum() >= 4:
+            last_a = i
+            break
+    # A FADE IS STILL THE SAME SOUND: from each sustained edge, the edge moves outward over the
+    # CONTIGUOUS windows that still read at its own offset once the gain is fitted on the window
+    # alone (`_fits`, scale-free) -- a master fading to or from silence changes its gain faster
+    # than any FINE_GAIN_S fit follows. MEASURED, id 686 (Yozakura-san S02E11, -8025.457 ->
+    # -9026.456 ms): the master fades from -43 dB at 1086.0 s to digital silence at 1086.50 s
+    # and back in from 1087.53 s; its 20 ms windows keep an uncentred NCC of 0.96-1.00 with the
+    # candidate under offset a down to -86 dB, while the fitted residual crossed FINE_THRESHOLD
+    # at -55 dB (1086.22 s): edge_A 0.25 s early, edge_B 0.22 s late, the fade tails read as 1530
+    # ms of "master-only" sound for a 1001 ms step. Only the edges move: the windows BETWEEN them
+    # keep the fitted test, so master-only sound is still found as before (the unclipped
+    # in-window gain alone reads a mismatch as a match on up to 0.75 % of windows -- measured on
+    # wrong offsets of 152/278/686 -- the fitted one-sided law on at most 0.07 %).
+    while last_a + 1 < first_b and follows_a[last_a + 1]:
+        last_a += 1
+    while first_b - 1 > last_a and follows_b[first_b - 1]:
+        first_b -= 1
+    edge_a = float(times[last_a] + win)
     edge_b = float(times[first_b])
     extra = max(0.0, (a - b) / 1000.0)
     between = ((times >= min(edge_a, edge_b)) & (times + win <= max(edge_a, edge_b))
