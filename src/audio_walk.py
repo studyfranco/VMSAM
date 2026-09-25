@@ -160,8 +160,77 @@ def _status(result):
 # THE WALK
 # ---------------------------------------------------------------------------------------------
 
+# A GAP BETWEEN TWO MEASURED OFFSETS IS SEARCHED WHERE ITS CONTENT CAN ONLY BE: after the walk,
+# every run of audible unmeasured windows between two `ok` windows whose offsets differ by at
+# least JUMP_MS -- and before the first / after the last `ok` window -- is searched for common
+# content inside the CANDIDATE span those two windows leave between them (an edit keeps the order
+# of what both files carry). A deletion leaves no candidate span and an addition no master gap, so
+# this searches only where both sides carry something between two levels. The offsets it finds
+# are then walked like seeds over the whole gap (+/-WALK_SEARCH_MS, same NCC and ambiguity rules).
+# MEASURED, id 111 (Aldnoah.Zero S01E23, BD master against a web candidate): the b2 seeds were
+# -91007 and -164374 ms; master 660-664 s reads at -90383.7 ms (NCC 0.65-0.71, 623 ms outside
+# either seed's search), so the walk fused a +623 ms addition (candidate silence at the Part A/B
+# break) and a -73990 ms deletion (master 674.3-748.8 s) into one "-73367 ms step" over a 92 s
+# gap whose edges could not be read. At most GAP_PROBE_WORK_S candidate-seconds are searched per
+# gap (one probe per window while the span is short, fewer on a long one), and a span over
+# GAP_PROBE_MAX_S is not searched (ADDENDUM 26.2: an interior hole over 300 s declines anyway).
+GAP_PROBE_MAX_S = 300.0
+GAP_PROBE_WORK_S = 2400.0
+GAP_PROBE_MIN_PROBES = 8
+
+
+def _gaps(rows, win_s):
+    """(first row, end row, candidate span lo, hi) of every gap the walk left between offsets."""
+    ok = [i for i, row in enumerate(rows) if row["status"] == "ok"]
+    if not ok:
+        return []
+    out = [(0, ok[0], 0.0, rows[ok[0]]["t"] + win_s + rows[ok[0]]["off"] / 1000.0)]
+    for p, q in zip(ok, ok[1:]):
+        if q - p > 1 and abs(rows[q]["off"] - rows[p]["off"]) >= JUMP_MS:
+            out.append((p + 1, q, rows[p]["t"] + rows[p]["off"] / 1000.0,
+                        rows[q]["t"] + win_s + rows[q]["off"] / 1000.0))
+    out.append((ok[-1] + 1, len(rows), rows[ok[-1]]["t"] + rows[ok[-1]]["off"] / 1000.0, None))
+    return out
+
+
+def _probe_gaps(m, c, rows, win_s, search_ms):
+    cand_end = len(c) / WALK_RATE
+    for first, end, lo, hi in _gaps(rows, win_s):
+        hi = cand_end if hi is None else min(hi, cand_end)
+        lo = max(lo, 0.0)
+        todo = [i for i in range(first, end) if rows[i]["status"] != "silent"]
+        if not todo or hi - lo - win_s <= 0 or hi - lo > GAP_PROBE_MAX_S:
+            continue
+        count = min(len(todo), max(GAP_PROBE_MIN_PROBES, int(GAP_PROBE_WORK_S / (hi - lo))))
+        found = []
+        for k in np.unique(np.linspace(0, len(todo) - 1, count).round().astype(int)):
+            t = rows[todo[k]]["t"]
+            low_ms, high_ms = (lo - t) * 1000.0, (hi - win_s - t) * 1000.0
+            result = _search(m, c, t, (low_ms + high_ms) / 2.0, win_s,
+                             (high_ms - low_ms) / 2.0)
+            if result is None or result.get("cand_silent") or _status(result) != "ok":
+                continue
+            if all(abs(result["off"] - seed) >= LEVEL_TOLERANCE_MS for seed in found):
+                found.append(result["off"])
+        for i in todo if found else []:
+            t, best = rows[i]["t"], None
+            for seed in found:
+                result = _search(m, c, t, seed, win_s, search_ms)
+                if result is None or result.get("cand_silent") or _status(result) != "ok":
+                    continue
+                start = t + result["off"] / 1000.0
+                if not lo - search_ms / 1000.0 <= start <= hi - win_s + search_ms / 1000.0:
+                    continue
+                if best is None or result["ncc"] > best["ncc"]:
+                    best = result
+            if best is not None:
+                rows[i].update(off=round(best["off"], 3), ncc=round(best["ncc"], 4),
+                               second=round(best["second"], 4), seed="gap_probe", status="ok")
+    return rows
+
+
 def walk(m, c, seeds, win_s=WALK_WINDOW_S, hop_s=WALK_HOP_S, search_ms=WALK_SEARCH_MS,
-         t0=0.0, t1=None):
+         t0=0.0, t1=None, probe_gaps=True):
     """Every window of the master: its offset (sub-sample), NCC, second peak and status.
 
     CONTINUITY FIRST, THEN THE SEEDS (a deviation from the prototype, measured): each window is
@@ -171,7 +240,9 @@ def walk(m, c, seeds, win_s=WALK_WINDOW_S, hop_s=WALK_HOP_S, search_ms=WALK_SEAR
     to +181889 ms for 88 windows (NCC 0.998, the candidate carries that audio twice) where the
     picture continues under -3097 ms. A real edit makes the current offset STOP matching, so
     continuity costs nothing at a real change point; a sub-quantum step moves the peak inside
-    the continuity search (+/-150 ms) and is read as the new value, never smoothed."""
+    the continuity search (+/-150 ms) and is read as the new value, never smoothed.
+    `probe_gaps`: then search the gaps between offsets where their content can only be
+    (`_probe_gaps`, GAP_PROBE_MAX_S)."""
     end = len(m) / WALK_RATE if t1 is None else min(t1, len(m) / WALK_RATE)
     last = end - win_s
     rows = []
@@ -212,7 +283,7 @@ def walk(m, c, seeds, win_s=WALK_WINDOW_S, hop_s=WALK_HOP_S, search_ms=WALK_SEAR
                 current = best["off"]
         rows.append(row)
         t += hop_s
-    return rows
+    return _probe_gaps(m, c, rows, win_s, search_ms) if probe_gaps else rows
 
 
 def levels(rows):
@@ -589,7 +660,7 @@ def zone_offset(m, c, t0, t1, seed):
     when no window measured), `n_ok`, and the levels -- more than one level means this track
     changes inside a zone the reference track did not, which is logged by the caller."""
     hop = max(WALK_HOP_S, (t1 - t0 - WALK_WINDOW_S) / ZONE_OFFSET_MAX_WINDOWS)
-    rows = walk(m, c, [seed], hop_s=hop, t0=t0, t1=t1)
+    rows = walk(m, c, [seed], hop_s=hop, t0=t0, t1=t1, probe_gaps=False)
     found, _outliers = levels(rows)
     counts = {}
     for row in rows:
@@ -615,8 +686,15 @@ def change_points(m, c, found):
             points.append(point)
             continue
         point["kind"] = "change_point"
-        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"], before["t_last"],
-                              after["t_first"] + WALK_WINDOW_S)
+        # ONE MORE WALK HOP OF EACH LEVEL: a level holds over its measured windows, and a pair
+        # whose common content reads at a 2 s NCC of 0.6-0.7 (a remixed web candidate) may claim
+        # none of the 0.4 s windows inside the two bounding ones. MEASURED, id 111 (-91007.2 ->
+        # -90383.7 ms, +623 ms of candidate silence at the Part A/B break): the first 0.4 s claim
+        # of the after-level is at 661.83 s, 0.23 s past [656, 662]; with one hop more the edges
+        # read 656.945 / 661.325 s around the master's digital silence (658.2-659.2 s).
+        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"],
+                              before["t_last"] - WALK_HOP_S,
+                              after["t_first"] + WALK_WINDOW_S + WALK_HOP_S)
         if coarse is None:
             point["edges"] = {"status": "edge_unmeasurable", "stage": "coarse"}
         else:

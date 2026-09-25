@@ -1,4 +1,5 @@
-'''Tests for the fine edges of a walk change point (`audio_walk.fine_edges`) -- run:
+'''Tests for the fine edges of a walk change point (`audio_walk.fine_edges`), and for the walk
+finding every level they bound (CASE_audio_step_unlocalised_id111_20260925) -- run:
 python3 src/test_audio_walk_edges.py (or pytest).
 
 CASE_hole_width_contradicts_audio_step_20260925: on ids 152/278/686 the levels' step was exact
@@ -110,6 +111,62 @@ def test_clean_splice_edges_match_the_step():
     edges = _edges(master, cand, 0.0, -1200.0, 8.6)
     assert edges["status"] == "ok" and edges["feasible"], edges
     assert abs(_gap_minus_step_ms(edges)) <= TOLERANCE_MS, edges
+
+
+def _walk_points(master, cand, seeds, probe_gaps=True):
+    rows = aw.walk(master, cand, seeds, probe_gaps=probe_gaps)
+    found, _outliers = aw.levels(rows)
+    return found, aw.change_points(master, cand, found)
+
+
+def test_walk_finds_the_level_between_two_seeds():
+    # id 111's shape (CASE_audio_step_unlocalised_id111_20260925): the candidate lacks two master
+    # spans, and the 6 s it carries between them read at an offset no seed searches -- without
+    # the gap probe the walk fuses both deletions into one step the edges cannot read.
+    a, x, b, y, c = (_content(s, 20 + i) for i, s in enumerate((20.0, 8.0, 6.0, 10.0, 20.0)))
+    master = np.concatenate([a, x, b, y, c])
+    cand = np.concatenate([a, b, c])
+    fused, _points = _walk_points(master, cand, [0.0, -18000.0], probe_gaps=False)
+    assert [round(level["off_ms"]) for level in fused] == [0, -18000], fused
+    found, points = _walk_points(master, cand, [0.0, -18000.0])
+    assert [round(level["off_ms"]) for level in found] == [0, -8000, -18000], found
+    assert [round(p["jump_ms"]) for p in points] == [-8000, -10000], points
+    for point, (edge_a, edge_b) in zip(points, ((20.0, 28.0), (34.0, 44.0))):
+        edges = point["edges"]
+        assert edges["status"] == "ok" and edges["feasible"], edges
+        assert abs(edges["edge_A"] - edge_a) <= 0.015 and abs(edges["edge_B"] - edge_b) <= 0.015, \
+            edges
+
+
+def test_gap_probe_invents_no_level_in_unrelated_content():
+    # THE GUARD: 6 s of the candidate's own content stands in for 14 s of the master's -- the
+    # probe searches that span and must find nothing there.
+    a, x, c = (_content(s, 40 + i) for i, s in enumerate((20.0, 14.0, 20.0)))
+    master = np.concatenate([a, x, c])
+    cand = np.concatenate([a, _content(6.0, 99), c])
+    found, points = _walk_points(master, cand, [0.0, -8000.0])
+    assert [round(level["off_ms"]) for level in found] == [0, -8000], found
+    assert len(points) == 1, points
+
+
+def test_coarse_edges_reach_one_hop_into_each_level():
+    # id 111's +623 ms addition: the after-level's first windows match at a 2 s NCC of ~0.65
+    # (a remixed candidate), so no 0.4 s window inside the two bounding walk windows claims it;
+    # one hop further in, the after-level's content is clean.
+    master = _content(44.0, 60)
+    a_i = int(20.0 * R)
+    tail = master[a_i:].copy()
+    noisy = int(2.3 * R)
+    tail[:noisy] += 1.2 * _content(2.3, 61)
+    cand = np.concatenate([master[:a_i], _content(1.0, 62), tail])
+    found, points = _walk_points(master, cand, [0.0, 1000.0])
+    assert [round(level["off_ms"]) for level in found] == [0, 1000], found
+    before, after = found
+    assert aw.coarse_edges(master, cand, 0.0, 1000.0, before["t_last"],
+                           after["t_first"] + aw.WALK_WINDOW_S) is None
+    edges = points[0]["edges"]
+    assert edges["status"] == "ok" and edges["kind"] == "addition", edges
+    assert edges["interval"][0] - 0.015 <= 20.0 <= edges["interval"][1] + 0.015, edges
 
 
 if __name__ == "__main__":
