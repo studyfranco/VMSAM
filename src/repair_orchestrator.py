@@ -553,7 +553,7 @@ DECLINE_CAUSES = {
     # now writes their measurement class through `log_measurement_class`. Measured refusals of
     # the built file are conclusive; a plan the assembly cannot lay is could-not-run.
     "alignment_contradicts_plan": CLASS_CONCLUSIVE,
-    "delivery_offset_exceeds_tolerance": CLASS_CONCLUSIVE,
+    "delivery_offset_exceeds_tolerance": CLASS_COULD_NOT_RUN,  # our product, never the pair (id 126)
     "master_audio_complement_short": CLASS_CONCLUSIVE,
     "master_duration_sources_disagree": CLASS_CONCLUSIVE,
     "candidate_admission_window_exceeded": CLASS_CONCLUSIVE,
