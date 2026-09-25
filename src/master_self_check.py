@@ -544,3 +544,39 @@ def check_master_intertrack(master_video_obj, language,
              f"no verdict -- {measured}/{len(result['pairs'])} pair(s) "
              f"measured, none crossed both thresholds")
     return result
+
+
+# ---------------------------------------------------------------------------------------------
+# CONFORMITY AT MASTER ENTRY (ADDENDUM 31, "coutures à venir"; owner on id 691: « il doit planter
+# par vérification »). The CHEAP families of `file_conformity.check_file` -- container, content
+# extent, inter-track coherence and tag conflicts -- run on the master before anything else; the
+# sampled strict decode is NOT run (its in-pipeline use is an owner decision still pending). Any
+# error-severity finding is `master_nonconformant`, naming each failed check with its numbers:
+# a master that fails its own verification cannot give a candidate a timeline.
+VERDICT_NONCONFORMANT = "master_nonconformant"
+
+
+def check_master_conformity(master_video_obj):
+    """`{verdict, failed: [{name, numbers, sentence}], seconds, warnings}` -- `verdict` is
+    `master_nonconformant` or None. A master the check cannot read at all is also None here (the
+    measurement did not happen; the steps after it will refuse it by their own names)."""
+    import time
+    import file_conformity
+    started = time.monotonic()
+    path = getattr(master_video_obj, "filePath", None)
+    result = {"verdict": None, "failed": [], "seconds": None, "warnings": []}
+    if path is None:
+        return result
+    _log(f"conformity: master={path} -- cheap families (no strict decode)")
+    report = file_conformity.check_file(path, threads=3, integrity=False, extent="gated",
+                                        workdir=getattr(tools, "tmpFolder", None),
+                                        log=lambda message: _log(message))
+    result["seconds"] = round(time.monotonic() - started, 1)
+    result["warnings"] = report.names("warning")
+    result["extent_decoded"] = report.facts.get("extent_decoded")
+    failed = [{"name": c.name, "numbers": c.numbers, "sentence": c.sentence}
+              for c in report.checks if c.severity == "error" and c.name != "unreadable"]
+    result["failed"] = failed
+    if failed:
+        result["verdict"] = VERDICT_NONCONFORMANT
+    return result

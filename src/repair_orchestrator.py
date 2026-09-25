@@ -477,6 +477,9 @@ DECLINE_CAUSES = {
     # ADDENDUM 26.9, right after the prime: the master's content ends >= 300 s before the
     # candidate's and never resumes -- measured on both tracks, a fact about the master.
     "master_cut_short": CLASS_CONCLUSIVE,
+    # ADDENDUM 31, STEP 0: the master fails its own verification (file_conformity's cheap
+    # families, error severity) -- measured on the master, conclusive for it.
+    "master_nonconformant": CLASS_CONCLUSIVE,
     # step 2
     # RECLASSIFIED 2026-09-25 (ADDENDUM 26 report; ids 238/248/261/259/237/110): a similarity
     # FLOOR is not a proven negative -- id 110's 0.15 was a mistagged English track measured
@@ -5272,6 +5275,32 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                   f"master={master_obj.filePath} language={comparison_language} "
                   f"hole_merge_window_s={HOLE_MERGE_WINDOW_SECONDS} "
                   f"({_HOLE_MERGE_SOURCE})\n")
+
+    # ---- STEP 0: does the master pass its own verification? (ADDENDUM 31) ---
+    # Once per master (the caller's per-master cache): the cheap `file_conformity` families.
+    conformity = master_intertrack_cache.get(("conformity", master_obj.filePath))
+    if conformity is None:
+        step_launch("master_conformity", candidate=candidate_path, master=master_obj.filePath)
+        import master_self_check
+        try:
+            conformity = master_self_check.check_master_conformity(master_obj)
+        except Exception as error:                                       # noqa: BLE001
+            tools.log_always(f"repair: master_conformity unmeasured ({type(error).__name__}: "
+                             f"{error}) -- no verdict, never healthy by default, for "
+                             f"{candidate_path}\n")
+            conformity = {"verdict": None, "failed": [], "seconds": None, "warnings": []}
+        master_intertrack_cache[("conformity", master_obj.filePath)] = conformity
+        step_result("master_conformity", candidate=candidate_path, verdict=conformity["verdict"],
+                    failed=[c["name"] for c in conformity["failed"]],
+                    warnings=conformity["warnings"], seconds=conformity["seconds"])
+    if conformity["verdict"] is not None:
+        _plan_line("none", candidate_path, step="master_conformity",
+                   cause=conformity["verdict"])
+        return _terminal(candidate_path, "declined", conformity["verdict"], (
+            "the master fails its own verification (file_conformity, cheap families): "
+            + "; ".join(f"{c['name']} {c['numbers']} -- {c['sentence']}"
+                        for c in conformity["failed"])),
+            detail={"master_conformity": conformity})
 
     # ---- STEP 1: does the master agree with itself? -------------------------
     step_launch("master_self_check", candidate=candidate_path,

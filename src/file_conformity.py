@@ -1114,9 +1114,30 @@ def _check_reference(a, r, rep):
 
 # ---------------------------------------------------------------- entry point
 
+def extent_gate(a, video_end):
+    """Why the content extent must be decoded, from what is already measured -- [] when nothing
+    points at the content: an audio track whose packets end more than EARLY_INFO_S before or
+    AFTER_VIDEO_WARNING_S after the video end, or one silent in every coherence window."""
+    reasons = []
+    for k, s in enumerate(a.audio):
+        end = a.ends.get(s["index"], (None, None))[0]
+        if end is None:
+            end = a.declared_end(s)[0]
+        if end is None or video_end is None:
+            reasons.append(f"{a.label(k)}: end unmeasured")
+        elif end < video_end - EARLY_INFO_S:
+            reasons.append(f"{a.label(k)}: packets end {round(video_end - end, 1)} s early")
+        elif end > video_end + AFTER_VIDEO_WARNING_S:
+            reasons.append(f"{a.label(k)}: packets end {round(end - video_end, 1)} s late")
+        windows = [w[k][1] for w in a.windows.values() if k in w]
+        if windows and all(_rms_db(x) <= SILENCE_DB for x in windows):
+            reasons.append(f"{a.label(k)}: silent in every coherence window")
+    return reasons
+
+
 def check_file(path, *, mode="sampled", reference=None, threads=3, log=None,
                windows=INTEGRITY_WINDOWS, seed=None, jobs=None, workdir=None,
-               integrity_threads=INTEGRITY_THREADS):
+               integrity_threads=INTEGRITY_THREADS, integrity=True, extent="always"):
     """Measure one media file and return a `Report`.
 
     mode       'sampled' (strict decode of `windows` seeded 2-minute windows, run
@@ -1131,6 +1152,15 @@ def check_file(path, *, mode="sampled", reference=None, threads=3, log=None,
     jobs       sampled integrity processes at once; None = all (2 per window).
     log        callable(str) or a logging.Logger; None = silent.
     workdir    parent directory for the temporary fifos / windows (removed).
+    integrity  False skips family (4), the strict decode -- the pipeline's master entry runs
+               the cheap families only (Addendum 31: the sampled probe's in-pipeline use is an
+               owner decision still pending).
+    extent     'always' decodes every audio track's envelope (family 2); 'gated' decodes them
+               only when the container already points at the content -- an audio track whose
+               packets end more than EARLY_INFO_S before or AFTER_VIDEO_WARNING_S after the
+               video, or a track silent in every coherence window (`extent_gate`). The pipeline's
+               master entry is gated: the envelope decode is 70 % of the check's cost (errid-70,
+               9.5 of 13 s) and confirms what the packets already show.
     """
     if mode not in ("sampled", "full"):
         raise ValueError(f"mode must be 'sampled' or 'full', not {mode!r}")
@@ -1151,21 +1181,25 @@ def check_file(path, *, mode="sampled", reference=None, threads=3, log=None,
             return rep
         t = time.time()
         a.measure_ends()
-        a.measure_envelopes()
-        rep.wall_seconds["extent"] = round(time.time() - t, 1)
-        if a.env_rc != 0:
-            rep.add("audio_decode_failed", "warning",
-                    f"Le décodage audio (non strict) s'est terminé avec rc={a.env_rc}.",
-                    rc=a.env_rc)
         vend = a.video_end() or a.fmt_dur
-        t = time.time()
+        t_windows = time.time()
         a.measure_windows(COHERENCE_FRACTIONS, vend)
-        rep.wall_seconds["coherence"] = round(time.time() - t, 1)
+        rep.wall_seconds["coherence"] = round(time.time() - t_windows, 1)
+        reasons = extent_gate(a, vend) if extent == "gated" else ["always"]
+        rep.facts["extent_decoded"] = reasons
+        if reasons:
+            a.measure_envelopes()
+            if a.env_rc != 0:
+                rep.add("audio_decode_failed", "warning",
+                        f"Le décodage audio (non strict) s'est terminé avec rc={a.env_rc}.",
+                        rc=a.env_rc)
+        rep.wall_seconds["extent"] = round(time.time() - t - rep.wall_seconds["coherence"], 1)
         _check_container(a, rep)
         _check_extent(a, rep)
         _check_coherence(a, rep)
-        _check_integrity(a, rep, mode, windows, seed,
-                         threads if mode == "full" else integrity_threads, jobs, logf)
+        if integrity:
+            _check_integrity(a, rep, mode, windows, seed,
+                             threads if mode == "full" else integrity_threads, jobs, logf)
         if reference:
             t = time.time()
             try:
