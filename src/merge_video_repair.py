@@ -385,6 +385,12 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
                 f"than applying an unevidenced transform",
                 cause="speed_transform_not_validated")
 
+    # ADDENDUM 27.8: A VIDEO-ANCHORED PLAN IS NOT ON THE MASTER'S AUDIO BY DESIGN -- the
+    # master's comparison tracks (or the candidate's) contradict each other and every candidate
+    # track follows its own picture. The master-timeline verifier would refuse exactly what the
+    # plan decided; each delivered track is verified against ITS OWN ORIGINAL instead
+    # (`verify_video_anchored`, same 15 ms tolerance), below.
+    video_anchored = plan.get("video_anchored")
     assembly = assemble_or_log_the_decline(
         candidate_obj, plan, Decimal("0"),
         candidate_obj, master_obj, plan["track_plans"], plan["reference_pieces"],
@@ -398,13 +404,28 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # porte pas la langue de la piste (SPEC_ZONE_A.MD s4c).
         comparison_language=plan.get("language"),
         chapters_path=plan.get("chapters_path"),
-        verify=True, verify_tolerance_ms=verify_tolerance_ms,
+        verify=video_anchored is None, verify_tolerance_ms=verify_tolerance_ms,
         # ADDENDUM 26 (report commit): the verifier's time counts against the repair's budget.
         deadline=plan.get("repair_deadline"),
         # ADDENDUM 30.5: the engine the rate arm measured.
         speed_engine=plan.get("speed_engine") or "asetrate")
 
     assembly["unverified_segment_ms"] = Decimal("0")
+    if video_anchored is not None:
+        verification, refusal = verify_video_anchored(
+            assembly["path"], candidate_obj, assembly.get("audios") or [],
+            Decimal(str(video_anchored["offset_ms"])), plan["track_plans"],
+            deadline=plan.get("repair_deadline"))
+        assembly["verification"] = verification
+        if refusal is not None:
+            try:
+                log_assembly(candidate_obj.filePath, assembly, plan)
+            except Exception as error:
+                tools.logs.append(f"repair: could not write the per-track log: {error}\n")
+            error = merge_video_chimeric.chimeric_error(refusal,
+                                                        cause="delivery_offset_exceeds_tolerance")
+            error.verification = verification
+            raise error
     # LE JOURNAL EST ECRIT ICI, avant que l'objet video soit construit: si la
     # relecture du fichier produit echoue, on veut quand meme savoir ce qui a
     # ete fait a chaque piste.
@@ -428,6 +449,72 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
         repaired_obj, master_obj, work_dir=work_dir)
     return repaired_obj, assembly
+
+
+# ADDENDUM 27.8: where a video-anchored track is probed -- the fractions of its candidate piece.
+VIDEO_ANCHORED_PROBE_FRACTIONS = (0.2, 0.5, 0.8)
+
+
+def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, track_plans,
+                          deadline=None):
+    '''EACH DELIVERED TRACK AGAINST ITS OWN ORIGINAL (ADDENDUM 27.8). A video-anchored track
+    is the candidate's track moved by the picture offset: at master time `t` the product must
+    carry what the candidate track carries at file time `t + offset_ms`. Probed at 20/50/80 %
+    of the track's candidate piece, `verify_window_seconds` windows, the chimeric verifier's
+    instrument (`read_mono_samples` + `measure_lag_ms`), tolerance `verify_tolerance_ms`.
+    Returns `(results, refusal)`: results in the master-timeline verifier's shape, refusal the
+    prose of a track off by more than the tolerance, or None.'''
+    import merge_video_chimeric as mvc
+    window_ms = Decimal(str(mvc.verify_window_seconds)) * Decimal("1000")
+    rate = mvc.verify_probe_rate
+    results = []
+    for produced_index, report in enumerate(audio_reports):
+        order = report["stream_order"]
+        pieces = [p for p in (track_plans.get(int(order)) or {}).get("pieces") or []
+                  if p["source"] == "candidate"]
+        entry = {"track": order, "language": report.get("language"),
+                 "produced_index": produced_index, "reference": "candidate_original",
+                 "probes": []}
+        results.append(entry)
+        if not pieces:
+            entry.update(outcome="skipped", reason="no candidate piece on this track")
+            continue
+        piece = max(pieces, key=lambda p: p["master_end_ms"] - p["master_start_ms"])
+        span = piece["master_end_ms"] - piece["master_start_ms"] - window_ms
+        for fraction in VIDEO_ANCHORED_PROBE_FRACTIONS:
+            master_ms = piece["master_start_ms"] + max(Decimal(0), span) * Decimal(str(fraction))
+            original = mvc.read_mono_samples(candidate_obj.filePath, f"0:{int(order)}",
+                                             master_ms + offset_ms, window_ms, rate,
+                                             deadline=deadline)
+            produced = mvc.read_mono_samples(out_path, f"0:a:{produced_index}", master_ms,
+                                             window_ms, rate, deadline=deadline)
+            if min(mvc.get_rms(original), mvc.get_rms(produced)) < mvc.verify_min_rms:
+                entry["probes"].append({"master_position_ms": str(master_ms),
+                                        "outcome": "no_signal"})
+                continue
+            lag, score = mvc.measure_lag_ms(original, produced, rate, 1000)
+            entry["probes"].append({"master_position_ms": str(master_ms), "lag_ms": lag,
+                                    "correlation": score, "outcome": "measured"})
+        measured = [p for p in entry["probes"] if p["outcome"] == "measured"]
+        if not measured:
+            entry.update(outcome="skipped", reason="no probe window carried signal")
+            continue
+        worst = max(abs(p["lag_ms"]) for p in measured)
+        entry.update(outcome="aligned" if worst <= verify_tolerance_ms else "misaligned",
+                     worst_lag_ms=worst,
+                     weakest_correlation=round(min(p["correlation"] for p in measured), 4),
+                     probes_measured=len(measured))
+        tools.log_always(f"repair: video_anchored_verify track={order} "
+                         f"lang={report.get('language')} outcome={entry['outcome']} "
+                         f"lags_ms={[round(p['lag_ms'], 2) for p in measured]} "
+                         f"correlations={[round(p['correlation'], 4) for p in measured]} "
+                         f"tolerance_ms={verify_tolerance_ms} out_path={out_path}\n")
+    off = [r for r in results if r.get("outcome") == "misaligned"]
+    if off:
+        return results, ("a video-anchored track is not its own original moved by the picture "
+                         "offset: " + "; ".join(f"track {r['track']} ({r['language']}) off by "
+                                               f"{r['worst_lag_ms']:.1f} ms" for r in off))
+    return results, None
 
 
 def mark_audio_dicts(repaired_obj, marker):
@@ -1317,6 +1404,9 @@ def log_assembly(candidate_path, assembly, plan):
                       f"{'dropped_segments=' + str(dropped_note) + ' ' if dropped_note else ''}"
                       f"{'dropped_segments=unreported(locator did not report it) ' if plan and 'segments_dropped_unusable' not in plan else ''}"
                       f"language={plan.get('language') if plan else None} "
+                      # ADDENDUM 27.8: the picture offset d (frames; candidate frame k+d shows
+                      # master frame k) of a video-anchored plan, on THE plan line.
+                      f"{'video_anchored=' + format(plan['video_anchored']['offset_frames'], '+d') + ' video_shift_frames=' + format(plan['video_anchored']['shift_frames'], '+d') + ' ' if plan and plan.get('video_anchored') else ''}"
                       # DE COMBIEN LA TRANSFORMATION DE RYTHME L'A EMPORTE.
                       # Absente quand la mesure n'en porte pas -- JAMAIS zero:
                       # une marge nulle serait deux hypotheses a egalite, qui est

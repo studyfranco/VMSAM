@@ -105,6 +105,7 @@ import audio_extract
 import banded_seed_alignment
 import repair_log
 import tools
+import video_offset_plan
 
 MODALITY = "repair_orchestrator"
 
@@ -461,8 +462,18 @@ CLASS_COULD_NOT_RUN = "could_not_run"
 # emitted (`_terminal` refuses it) -- the same "a token must come from a vocabulary you own"
 # discipline `change_point_locator._note_site` already carries.
 DECLINE_CAUSES = {
-    # step 1
-    "master_intertrack_desync": CLASS_CONCLUSIVE,
+    # step 1. `master_intertrack_desync` LEFT THIS TABLE (ADDENDUM 27.8): a master that
+    # contradicts itself is no longer a decline but a ROUTE -- the video arbitrates
+    # (`video_anchored_route`). Its declines are the video's own, below.
+    # ADDENDUM 27.8, the video route. No match between the two files' scene changes is the
+    # proof the ruling names (different files, with the numbers):
+    "video_content_mismatch": CLASS_CONCLUSIVE,
+    # The arbiter could not run or could not conclude -- nothing proven about the pair:
+    "video_fps_mismatch": CLASS_COULD_NOT_RUN,
+    "video_offset_not_constant": CLASS_COULD_NOT_RUN,
+    "video_offset_coverage_incomplete": CLASS_COULD_NOT_RUN,
+    "video_probe_failed": CLASS_COULD_NOT_RUN,
+    "video_decode_failed": CLASS_COULD_NOT_RUN,
     # ADDENDUM 26.9, right after the prime: the master's content ends >= 300 s before the
     # candidate's and never resumes -- measured on both tracks, a fact about the master.
     "master_cut_short": CLASS_CONCLUSIVE,
@@ -5201,6 +5212,24 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
 
 
 # ---------------------------------------------------------------------------
+# ADDENDUM 27.8 -- THE SEAM OF THE VIDEO-ANCHORED ROUTE (`video_offset_plan`: detection, route)
+# ---------------------------------------------------------------------------
+
+def _video_route_terminal(status, cause, reason, candidate_path, trigger):
+    """The repair's boolean for a video-route outcome that is not a fallback. On `repaired` the
+    build's own plan line (`merge_video_repair.log_assembly`, with `video_anchored=<d>`) is this
+    run's one plan line; `_plan_line` only speaks if it is missing."""
+    if status == "repaired":
+        _plan_line(video_offset_plan.VIDEO_ANCHORED_KIND, candidate_path, step="video_anchored",
+                   trigger=trigger)
+        return True
+    _plan_line("none", candidate_path, step="video_anchored", trigger=trigger, cause=cause)
+    return _terminal(candidate_path,
+                     "no_plan" if cause == "repair_budget_exceeded" else "declined",
+                     cause, reason)
+
+
+# ---------------------------------------------------------------------------
 # THE ORCHESTRATOR
 # ---------------------------------------------------------------------------
 
@@ -5213,7 +5242,10 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     Flat, by construction: each step is launched here, returns a result, and this function
     arranges the results. No step calls another.
 
-        1  Is the master desynchronised against ITSELF on the comparison language? Yes -> return.
+        1  Is the master desynchronised against ITSELF on the comparison language? Yes -> the
+           video arbitrates (ADDENDUM 27.8, `video_anchored_route`), and so it does after the
+           prime when the candidate contradicts itself or the pictures sit more than one frame
+           from the audio (`detect_audio_contradiction`).
         2  Is master<->candidate similarity low? Yes -> can a resample raise it? The sweep
            returns a FACTOR or None; None -> return.
         3  Chimeric at that factor (1 by default). A positive return with a plan -> apply it and
@@ -5256,6 +5288,21 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     step_result("master_self_check", candidate=candidate_path,
                 verdict=(verdict or {}).get("verdict") if verdict else None,
                 inert=(verdict or {}).get("inert") if verdict else None)
+    if verdict is not None and verdict.get("verdict") == video_offset_plan.TRIGGER_MASTER_DESYNC:
+        # ADDENDUM 27.8 (i): NO LONGER A DECLINE -- A ROUTE. The master's own tracks disagree,
+        # nobody knows which is right, and the video arbitrates.
+        worst = verdict.get("worst") or {}
+        evidence = {"pairs": [(p.get("stream_a"), p.get("stream_b"), p.get("lag_ms"),
+                               p.get("correlation")) for p in verdict.get("pairs") or []],
+                    "worst_lag_ms": worst.get("lag_ms"), "source": "master_self_check"}
+        tools.log_always(f"repair: master_intertrack_desync route=video_anchored "
+                         f"language={comparison_language} evidence={evidence} "
+                         f"for {candidate_path}\n")
+        status, cause, reason = video_offset_plan.video_anchored_route(
+            video_offset_plan.TRIGGER_MASTER_DESYNC, evidence, master_obj, candidate_obj, comparison_language,
+            [], repair_deadline)
+        return _video_route_terminal(status, cause, reason, candidate_path,
+                                     video_offset_plan.TRIGGER_MASTER_DESYNC)
     if verdict is not None and verdict.get("verdict") is not None:
         _plan_line("none", candidate_path, step="master_self_check",
                    cause=verdict["verdict"])
@@ -5283,6 +5330,24 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     if time.monotonic() > repair_deadline:
         _drop_rate_wav(primed)
         return _budget_terminal(candidate_path, "prime", repair_budget_s)
+
+    # ---- STEP 1b (ADDENDUM 27.8 ii / iii): do the audios tell one story? -------
+    trigger, evidence, delay_rows = video_offset_plan.detect_audio_contradiction(
+        master_obj, candidate_obj, comparison_language, primed, candidate_path)
+    if trigger is not None:
+        status, cause, reason = video_offset_plan.video_anchored_route(
+            trigger, evidence, master_obj, candidate_obj, comparison_language, delay_rows,
+            repair_deadline)
+        if status != "fallback":
+            _drop_rate_wav(primed)
+            return _video_route_terminal(status, cause, reason, candidate_path, trigger)
+        tools.log_always(f"repair: video_route_fallback trigger={trigger} video={cause} -- the "
+                         f"offset is not one constant from head to tail (a drift or an interior "
+                         f"edit): the ordinary audio path continues (ADDENDUM 27.8 point 2) "
+                         f"for {candidate_path}\n")
+        if time.monotonic() > repair_deadline:
+            _drop_rate_wav(primed)
+            return _budget_terminal(candidate_path, "video_anchored", repair_budget_s)
 
     step_launch("similarity_gate", candidate=candidate_path, n_couples=len(couples))
     should_sweep, gate_prose, observations = ensemble_similarity_gate(primed, candidate_path)

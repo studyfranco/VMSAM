@@ -425,3 +425,60 @@ def snap_for_merge(video_obj_1, video_obj_2, best_video_obj, delay):
     except Exception as exc:
         tools.log_always(f"frame_snap declined: {type(exc).__name__}: {exc}; plain rounding\n")
         return delay
+
+
+def probe_disagreement(video_obj_1, video_obj_2, delay_ms, budget_s=BUDGET_S):
+    '''Addendum 27.8 (iii) at the repair seam: do the pictures sit more than one
+    frame from this AUDIO delay? The same instrument as `snap_for_merge` (the
+    same positions, groups, votes and +-2 guard), asked at the delay the repair
+    measured on its own couples -- a pair reaches the repair without having
+    been through `adjust_delay_to_frame`, so `disagreement()` alone would
+    never see it.
+
+    Returns `(signal, reason)`: `signal` is the `audio_video_offset_disagree`
+    dict (recorded for `disagreement()` as well) or None; `reason` names what
+    the pictures said (`frame_snap_chosen`, `frame_snap_no_consensus`, ...) or
+    why nothing was measured. Never raises; never moves any delay.'''
+    try:
+        track_1, track_2 = video_obj_1.video, video_obj_2.video
+        modes = (track_1.get("FrameRate_Mode"), track_2.get("FrameRate_Mode"))
+        if modes != ("CFR", "CFR"):
+            return None, f"not_both_cfr{modes}"
+        (rate_1, _), (rate_2, _) = exact_rate(track_1), exact_rate(track_2)
+        if not same_rate(rate_1, rate_2):
+            return None, f"rates_differ({rate_1},{rate_2})"
+        dur_1, dur_2 = _duration_s(track_1), _duration_s(track_2)
+        if not dur_1 or not dur_2:
+            return None, "duration_unread"
+        delay = Decimal(str(delay_ms))
+        base, rows, notes, elapsed = measure(video_obj_1.filePath, track_1["StreamOrder"],
+                                             video_obj_2.filePath, track_2["StreamOrder"],
+                                             rate_1, delay, dur_1, dur_2, budget_s=budget_s)
+        offset, reason, detail = decide(rows)
+        frame_ms = Decimal(1000) * Decimal(rate_1.denominator) / Decimal(rate_1.numerator)
+        signal = None
+        if reason == "audio_video_offset_disagree":
+            picture_frames = base + detail["picture_offset"]
+            signal = {"signal": "audio_video_offset_disagree", "fps": str(rate_1),
+                      "audio_frames": int(base), "audio_ms": float(delay),
+                      "picture_frames": int(picture_frames),
+                      "picture_ms": float(picture_frames * frame_ms),
+                      "votes": detail["picture_votes"], "valid": detail["valid"],
+                      "positions_s": [round(r["t"], 1) for r in rows],
+                      "picture_winners": detail["picture_winners"], "source": "repair_probe"}
+        with _SIGNALS_LOCK:
+            if signal is None:
+                _SIGNALS.pop((video_obj_1.filePath, video_obj_2.filePath), None)
+            else:
+                _SIGNALS[(video_obj_1.filePath, video_obj_2.filePath)] = signal
+        tools.log_always(
+            f"frame_snap repair_probe {reason}: fps={rate_1} audio_delay_ms={delay} "
+            f"base_frame={base} winners={detail.get('winners')} "
+            f"votes={detail.get('votes')}/{detail.get('valid')} "
+            f"guard(+-2)={ {o: round(v, 3) for o, v in detail.get('guard', {}).items()} } "
+            f"skipped={notes} elapsed_s={elapsed:.1f} files {video_obj_1.filePath} | "
+            f"{video_obj_2.filePath}\n")
+        return signal, reason
+    except Exception as exc:                                             # noqa: BLE001
+        tools.log_always(f"frame_snap repair_probe declined: {type(exc).__name__}: {exc}\n")
+        return None, f"raised({type(exc).__name__})"

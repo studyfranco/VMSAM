@@ -22,7 +22,7 @@ delayed by `candidate_track_delay_ms = (master_video_start - candidate_video_sta
 MEASUREMENT (ADDENDUM 27.3, with ADDENDUM 26.4's "one decode per window, shared"):
   1. precondition -- both videos CFR (r_frame_rate == avg_frame_rate, exact Fraction) at the SAME
      exact rate; otherwise `fps_mismatch`, named, and nothing is decoded;
-  2. each video is decoded ONCE, whole (`-threads 3`), to 128x72 BGR; that single stream feeds
+  2. each video is decoded ONCE, whole (`-threads 2`, ADDENDUM 27.8), to 128x72 BGR; that single stream feeds
      PySceneDetect's ContentDetector frame by frame AND the 64x36 grayscale pHash of every frame
      (memo MS_WALK_EXPERIMENT_20260925: decoding is the cost, so the pHash of the 10 frames either
      side of a change is read from the same decode instead of a second seek-and-decode per
@@ -48,8 +48,10 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
+from decimal import Decimal
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -68,7 +70,8 @@ CACHE_DIRNAME = "video_offset_cache"
 # to first order), and the 64x36 grayscale the pHash reads is its 2x2 area mean.
 DECODE_WIDTH = 128
 DECODE_HEIGHT = 72
-DECODE_THREADS = 3
+# ADDENDUM 27.8: the scene detection runs inside the repair's budget, bounded by `-threads 2`.
+DECODE_THREADS = 2
 BATCH_FRAMES = 512
 CONCURRENT_DECODES = 2
 
@@ -116,6 +119,8 @@ STATUS_UNMATCHED = "video_offset_unmatched"
 STATUS_PROBE_FAILED = "video_probe_failed"
 STATUS_DECODE_FAILED = "video_decode_failed"
 STATUS_DECODER_TIMEOUT = "decoder_timeout"
+# ADDENDUM 27.8 / 26.3: the decode was stopped by the REPAIR's deadline, not by its own bound.
+STATUS_BUDGET = "repair_budget_exceeded"
 
 LOG_PREFIX = "video_offset: "
 
@@ -303,10 +308,16 @@ def _cache_path(work_dir, path):
     return os.path.join(work_dir, CACHE_DIRNAME, f"{digest}.npz")
 
 
-def decode_scenes_and_hashes(path, fps, duration_s, work_dir):
+class BudgetExceeded(Exception):
+    '''The decode was stopped because the repair's deadline (a `time.monotonic()` instant) came
+    first -- a statement about this run's cost, never about the media.'''
+
+
+def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
     '''`(cuts, hashes, from_cache)` for the whole video: `cuts` = ContentDetector scene starts
     (absolute frame indices of the decoded stream), `hashes` = uint64 pHash per decoded frame.
-    Raises `tools.decoder_timeout` past the ADDENDUM 26.3 bound, RuntimeError on a failed decode.
+    Raises `tools.decoder_timeout` past the ADDENDUM 26.3 bound, `BudgetExceeded` when the
+    repair's `deadline` comes first, RuntimeError on a failed decode.
     '''
     cache = _cache_path(work_dir, path) if work_dir else None
     if cache and os.path.exists(cache):
@@ -321,7 +332,15 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir):
            "-vf", f"scale={DECODE_WIDTH}:{DECODE_HEIGHT}:flags=area", "-pix_fmt", "bgr24",
            "-f", "rawvideo", "pipe:1"]
     timeout = tools.decoder_timeout_for(duration_s or 0.0)
-    tools.dev_log(f"{LOG_PREFIX}decode starting file={path} timeout_s={timeout}\n")
+    budget_bound = False
+    if deadline is not None:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            raise BudgetExceeded(f"no budget left before the decode of {path}")
+        if left < timeout:
+            timeout, budget_bound = left, True
+    tools.dev_log(f"{LOG_PREFIX}decode starting file={path} timeout_s={round(timeout, 1)} "
+                  f"bound_by={'repair_budget' if budget_bound else 'decoder_bound'}\n")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     fired = []
 
@@ -364,6 +383,9 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir):
             proc.kill()
             proc.wait()
     drain.join(timeout=5)
+    if fired and budget_bound:
+        raise BudgetExceeded(f"the repair's deadline stopped the scene decode of {path} "
+                             f"after {round(timeout, 1)} s")
     if fired:
         raise tools.decoder_timeout("ffmpeg_scene_decode", timeout, f"file={path}")
     if proc.returncode != 0 or index == 0:
@@ -558,9 +580,11 @@ def _log_line(result, bound):
 
 
 def measure_video_offset(master_path, candidate_path, work_dir, log=None,
-                         audio_delay_hints_ms=None):
+                         audio_delay_hints_ms=None, deadline=None):
     '''The ADDENDUM 27 measurement. Never raises for a media reason: every failure is a named
-    status on the returned `VideoOffsetResult`, and exactly one `log_always` line says it.'''
+    status on the returned `VideoOffsetResult`, and exactly one `log_always` line says it.
+    `deadline` (ADDENDUM 27.8): the repair's `time.monotonic()` instant; a decode it stops
+    returns `STATUS_BUDGET`.'''
     t0 = time.monotonic()
     bound = None
 
@@ -581,21 +605,25 @@ def measure_video_offset(master_path, candidate_path, work_dir, log=None,
 
     common = {"fps": fps, "master_start_s": m_info["start_s"],
               "candidate_start_s": c_info["start_s"]}
-    # The two decodes run side by side (each `-threads 3`): decoding is the whole cost (memo
+    # The two decodes run side by side (each `-threads 2`): decoding is the whole cost (memo
     # MS_WALK_EXPERIMENT_20260925) and the two files are independent -- measured on Ragnarok
     # S02E14 at host load 55-65: 283 s one after the other.
     with ThreadPoolExecutor(max_workers=CONCURRENT_DECODES) as pool:
-        futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir)
+        futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
+                               deadline)
                    for path, info in ((master_path, m_info), (candidate_path, c_info))]
         errors, outcomes = [], []
         for future in futures:
             try:
                 outcomes.append(future.result())
+            except BudgetExceeded as exc:
+                errors.append((STATUS_BUDGET, str(exc)))
             except tools.decoder_timeout as exc:
                 errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
             except (RuntimeError, OSError) as exc:
                 errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
     if errors:
+        errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
         return done(VideoOffsetResult(errors[0][0], reason=errors[0][1], **common))
     (m_cuts, m_hashes, m_cached), (c_cuts, c_hashes, c_cached) = outcomes
 
@@ -690,3 +718,393 @@ def build_candidate_plan(result, master_obj_like, candidate_obj_like, comparison
         "interior": "none",
         "fps": str(result.fps),
     }
+
+
+# --------------------------------------------------------------------------------------------
+# Entry point 3 (ADDENDUM 27.8): the detection and the route, called by `repair_orchestrator`
+# --------------------------------------------------------------------------------------------
+
+class _Orchestrator:
+    """`repair_orchestrator`, imported on first use: it imports this module's route at call
+    time, and this module must stay importable (and testable) without it."""
+
+    def __getattr__(self, name):
+        import repair_orchestrator
+        return getattr(repair_orchestrator, name)
+
+
+orch = _Orchestrator()
+
+# Owner, 2026-09-25 14:1x: "Comme nous ne savons pas qui est le bon, je pense qu'il faut fallback
+# sur la comparaison video." Every audio contradiction leads to ONE fallback, the video:
+#   (i)   the master's comparison-language tracks disagree among themselves
+#         (`master_intertrack_desync`: master_self_check at STEP 1, or two couples sharing one
+#         candidate track more than one frame apart);
+#   (ii)  the candidate's own comparison-language tracks disagree among themselves (two couples
+#         sharing one master track more than one frame apart -- Erai: AAC 0, E-AC-3 -84.4 ms);
+#   (iii) the audio delay and the picture offset differ by more than one frame
+#         (`audio_video_offset_disagree`, frame_snap).
+# Nobody knows which audio is right, so NO audio is elected and disagreeing couples are NEVER
+# averaged: the video says whether these are the same files and whether the delay is constant,
+# and the candidate's tracks all follow its picture (27.4 under the general law -- the master is
+# never modified; each candidate track keeps its own relation to its own picture).
+
+TRIGGER_MASTER_DESYNC = "master_intertrack_desync"          # (i)
+TRIGGER_CANDIDATE_DESYNC = "candidate_intertrack_desync"    # (ii)
+TRIGGER_PICTURE_DISAGREE = "audio_video_offset_disagree"    # (iii)
+VIDEO_ANCHORED_KIND = "orchestrator_video_anchored"
+# The per-couple delay instrument is master_self_check's own (the "same measurement on the
+# candidate side" the ruling asks for): a 30 s 16 kHz mono window, FFT cross-correlation with a
+# parabolic peak, +-1 s around the couple's coarse offset, a couple read only above its
+# correlation floor. ONE instant for every couple (the middle of the master video), so a drift
+# or an edit elsewhere in the file moves every couple alike and cannot open a gap between them.
+COUPLE_DELAY_WINDOW_S = 30.0
+COUPLE_DELAY_SEARCH_S = 1.0
+COUPLE_DELAY_POSITION = 0.5
+
+
+def _video_frame_ms(video_obj):
+    """One frame of this video in ms (the exact rational rate when readable, else the decimal
+    `FrameRate`), or None."""
+    try:
+        import frame_snap
+        rate, _ = frame_snap.exact_rate(video_obj.video)
+        if rate is not None:
+            return Fraction(1000) / Fraction(rate)
+        return Fraction(1000) / Fraction(str(video_obj.video["FrameRate"]))
+    except Exception:                                                    # noqa: BLE001
+        return None
+
+
+def coarse_offsets_from_prime(primed, master_obj, candidate_obj, language, at_s):
+    """Each measured couple's offset ON THE FILE'S CLOCK (container delays folded,
+    `couple_start_delta_ms`) at master instant `at_s`, from the zone of its alignment that holds
+    that instant -- `{couple: ms}`; a couple blind, under the coverage floor, or with no zone at
+    that instant is absent (it is not a reading)."""
+    out = {}
+    for master_stream, candidate_stream in primed["couples"]:
+        name = f"{master_stream}x{candidate_stream}"
+        alignment = primed["alignments"].get(name) or {}
+        if alignment.get("verdict") in orch.ALIGNMENT_COULD_NOT_MEASURE_VERDICTS:
+            continue
+        coverage = alignment.get("master_axis_coverage_fraction")
+        if coverage is None or coverage < orch.MASTER_AXIS_COVERAGE_FLOOR:
+            continue
+        delta_ms, master_start_ms, _ = orch.couple_start_delta_ms(
+            master_obj, candidate_obj, language, master_stream, candidate_stream, 1)
+        track_ms = at_s * 1000.0 - float(master_start_ms)
+        zone = next((z for z in alignment.get("zones_detail") or []
+                     if z["master_ms"][0] <= track_ms < z["master_ms"][1]), None)
+        if zone is not None:
+            out[name] = float(zone["offset_ms"]) + float(delta_ms)
+    return out
+
+
+def couple_fine_delays(master_obj, candidate_obj, couples, coarse_ms, at_s):
+    """EVERY couple's own audio delay, at the millisecond, on the file's clock: candidate file
+    time = master file time + delay. One row per couple, measured or not (`reason` says why
+    not); never a mean."""
+    import master_self_check
+    rows = []
+    for master_stream, candidate_stream in couples:
+        name = f"{master_stream}x{candidate_stream}"
+        coarse = coarse_ms.get(name)
+        row = {"couple": name, "master_stream": master_stream,
+               "candidate_stream": candidate_stream,
+               "coarse_ms": None if coarse is None else round(float(coarse), 3),
+               "delay_ms": None, "correlation": None, "at_s": round(at_s, 3), "reason": None}
+        rows.append(row)
+        if coarse is None:
+            row["reason"] = "no_coarse_offset_at_this_instant"
+            continue
+        master_at = round(at_s, 3)
+        candidate_at = round(at_s + float(coarse) / 1000.0, 3)
+        if candidate_at < 0:
+            row["reason"] = "window_before_candidate_zero"
+            continue
+        candidate_pcm = master_self_check._pcm(candidate_obj.filePath, candidate_stream,
+                                               candidate_at, COUPLE_DELAY_WINDOW_S)
+        master_pcm = master_self_check._pcm(master_obj.filePath, master_stream, master_at,
+                                            COUPLE_DELAY_WINDOW_S)
+        if candidate_pcm is None or master_pcm is None:
+            row["reason"] = "extraction_failed"
+            continue
+        lag, correlation = master_self_check._fft_cross_correlation(
+            candidate_pcm, master_pcm, int(COUPLE_DELAY_SEARCH_S * master_self_check.SR))
+        if lag is None:
+            row["reason"] = "window_without_energy"
+            continue
+        row["correlation"] = round(correlation, 4)
+        if correlation <= master_self_check.MIN_CORRELATION_FOR_VERDICT:
+            row["reason"] = (f"correlation_at_or_below_"
+                             f"{master_self_check.MIN_CORRELATION_FOR_VERDICT}")
+            continue
+        row["delay_ms"] = round((candidate_at - master_at) * 1000.0
+                                + lag * 1000.0 / master_self_check.SR, 3)
+    return rows
+
+
+def _rows_text(rows):
+    return "[" + ",".join(
+        f"{r['couple']}:{r['delay_ms'] if r['delay_ms'] is not None else 'unmeasured'}"
+        f"@{r['correlation']}" + (f"({r['reason']})" if r["reason"] else "")
+        for r in rows) + "]"
+
+
+def contradiction_among_couples(rows, frame_ms):
+    """(ii) and (i)-by-couples, from the rows alone: couples sharing ONE master track more than
+    one frame apart are the CANDIDATE contradicting itself; couples sharing ONE candidate track
+    more than one frame apart are the MASTER contradicting itself. Returns `(trigger, evidence)`
+    or `(None, None)`."""
+    if frame_ms is None:
+        return None, None
+    measured = [r for r in rows if r["delay_ms"] is not None]
+    for trigger, key in ((TRIGGER_CANDIDATE_DESYNC, "master_stream"),
+                         (TRIGGER_MASTER_DESYNC, "candidate_stream")):
+        groups = {}
+        for row in measured:
+            groups.setdefault(row[key], []).append(row)
+        for shared, group in groups.items():
+            values = [r["delay_ms"] for r in group]
+            if len(values) > 1 and max(values) - min(values) > float(frame_ms):
+                return trigger, {"shared_" + key: shared,
+                                 "delays_ms": {r["couple"]: r["delay_ms"] for r in group},
+                                 "spread_ms": round(max(values) - min(values), 3),
+                                 "frame_ms": round(float(frame_ms), 3), "source": "couples"}
+    return None, None
+
+
+def detect_audio_contradiction(master_obj, candidate_obj, language, primed, candidate_path):
+    """After the prime: (ii), (i) by couples, then (iii). Returns `(trigger, evidence, rows)`;
+    `trigger` None means the audios tell one story and the ordinary path continues unchanged."""
+    import frame_snap
+    video_ms = orch._video_duration_ms(master_obj)
+    if video_ms is None:
+        orch.step_result("audio_contradiction", candidate=candidate_path, measured=False,
+                    reason="master_video_duration_unread")
+        return None, None, []
+    at_s = float(video_ms) / 1000.0 * COUPLE_DELAY_POSITION
+    coarse = coarse_offsets_from_prime(primed, master_obj, candidate_obj, language, at_s)
+    if not coarse:
+        orch.step_result("audio_contradiction", candidate=candidate_path, measured=False,
+                    reason="no_couple_holds_the_instant", at_s=round(at_s, 3))
+        return None, None, []
+    orch.step_launch("audio_contradiction", candidate=candidate_path, n_couples=len(coarse))
+    rows = couple_fine_delays(master_obj, candidate_obj, primed["couples"], coarse, at_s)
+    frame_ms = _video_frame_ms(master_obj)
+    trigger, evidence = contradiction_among_couples(rows, frame_ms)
+    if trigger is None:
+        measured = [r for r in rows if r["delay_ms"] is not None]
+        if measured:
+            signal = (frame_snap.disagreement(master_obj.filePath, candidate_obj.filePath)
+                      or frame_snap.disagreement(candidate_obj.filePath, master_obj.filePath))
+            probe_reason = "recorded_by_adjust_delay_to_frame" if signal else None
+            if signal is None:
+                signal, probe_reason = frame_snap.probe_disagreement(
+                    master_obj, candidate_obj, measured[0]["delay_ms"])
+            if signal is not None:
+                trigger, evidence = TRIGGER_PICTURE_DISAGREE, dict(signal, probe=probe_reason)
+            else:
+                evidence = {"picture_probe": probe_reason}
+    tools.log_always(f"repair: audio_contradiction trigger={trigger} language={language} "
+                     f"couples={_rows_text(rows)} frame_ms="
+                     f"{None if frame_ms is None else round(float(frame_ms), 3)} "
+                     f"evidence={evidence} for {candidate_path}\n")
+    orch.step_result("audio_contradiction", candidate=candidate_path, trigger=trigger,
+                n_measured=sum(1 for r in rows if r["delay_ms"] is not None))
+    return trigger, evidence, rows
+
+
+# What the video's statuses become (ADDENDUM 27.8 point 2). `fallback` exists only for a
+# contradiction the audio couples may still carry (ii / iii): an offset that changes along the
+# file is a drift or an interior edit, "voie chimerique ordinaire si les couples audio le
+# permettent" -- for (i) the couples themselves disagree, so the same statuses decline.
+def video_status_cause(status, trigger):
+    vop = sys.modules[__name__]
+    if status in (vop.STATUS_NOT_CONSTANT, vop.STATUS_COVERAGE):
+        return ("declined" if trigger == TRIGGER_MASTER_DESYNC else "fallback"), status
+    return "declined", {
+        vop.STATUS_FPS_MISMATCH: "video_fps_mismatch",
+        vop.STATUS_UNMATCHED: "video_content_mismatch",
+        vop.STATUS_PROBE_FAILED: "video_probe_failed",
+        vop.STATUS_DECODE_FAILED: "video_decode_failed",
+        vop.STATUS_DECODER_TIMEOUT: "decoder_timeout",
+        vop.STATUS_BUDGET: "repair_budget_exceeded",
+    }.get(status, "video_decode_failed")
+
+
+def video_anchored_pieces(offset_ms, extent_ms, timeline_ms):
+    """ONE candidate track on the master timeline at the picture's offset (27.4): one zone
+    `[0, timeline)` read at `master + offset_ms` (file clock), the head filled where the track
+    would read before the candidate's zero, the tail filled past the track's own end -- the
+    only additions. `track_pieces` does exactly that for one zone and no fill."""
+    zone = {"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
+            "offset_ms": offset_ms, "n_windows": 0, "zone": 0}
+    return orch.track_pieces([zone], [], [{"zone": 0, "offset_ms": offset_ms}], extent_ms,
+                        timeline_ms)
+
+
+def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language, rows,
+                         repair_deadline):
+    """THE VIDEO-ANCHORED ROUTE (ADDENDUM 27.8 point 3). Returns `(status, cause, reason)`,
+    status in repaired / declined / fallback. The master is never touched; every candidate
+    track (audio, commentary, audio description, subtitles, chapters) is moved by the picture
+    offset, each keeping its own relation to its own picture; additions at the head and tail
+    only, from the master or silence, with no language requirement."""
+    import merge_video_chimeric
+    import merge_video_repair
+    video_offset_plan = sys.modules[__name__]
+    candidate_path = candidate_obj.filePath
+    started = time.time()
+    orch.step_launch("video_anchored", candidate=candidate_path, trigger=trigger)
+    hints = [r["delay_ms"] for r in rows if r["delay_ms"] is not None] or None
+    cache_root = os.path.join(tools.tmpFolder, "repair")
+    tools.make_dirs(cache_root)
+    result = video_offset_plan.measure_video_offset(
+        master_obj.filePath, candidate_path, cache_root, audio_delay_hints_ms=hints,
+        deadline=repair_deadline)
+    numbers = (f"fps={result.fps} scenes master={result.master_scenes} "
+               f"candidate={result.candidate_scenes} paired={result.paired}/{result.total} "
+               f"matched={result.matched} ambiguous={result.ambiguous} "
+               f"mean_hamming={None if result.mean_hamming is None else round(result.mean_hamming, 2)} "
+               f"covered_frames={result.covered_frames} thirds={result.thirds} "
+               f"regimes={result.regimes} trend_frames="
+               f"{None if result.trend_frames is None else round(result.trend_frames, 3)} "
+               f"best_d={result.extra.get('best_d')} wall_s="
+               f"{None if result.wall_s is None else round(result.wall_s, 1)}")
+    if result.status != video_offset_plan.STATUS_OK:
+        status, cause = video_status_cause(result.status, trigger)
+        reason = (f"the audios contradict each other ({trigger}: {evidence}; per couple "
+                  f"{_rows_text(rows)}) and the video could not arbitrate: {result.status}"
+                  f"({result.reason}) -- {numbers}")
+        tools.log_always(f"repair: video_anchored_route trigger={trigger} status={status} "
+                         f"video={result.status} cause={cause} couples={_rows_text(rows)} "
+                         f"{numbers} for {candidate_path}\n")
+        orch.step_result("video_anchored", candidate=candidate_path, status=status, cause=cause)
+        return status, cause, reason
+
+    frame_ms = result.frame_ms
+    picture_ms = -result.candidate_track_delay_ms           # candidate file = master file + this
+    if not any(r["delay_ms"] is not None for r in rows):
+        # (i) from STEP 1 has no prime: every couple is read here, around the picture's delay.
+        couples = orch.enumerate_couples(master_obj, candidate_obj, language)
+        at_s = float(result.master_frames / result.fps) * COUPLE_DELAY_POSITION
+        rows = couple_fine_delays(master_obj, candidate_obj, couples,
+                                  {f"{m}x{c}": float(picture_ms) for m, c in couples}, at_s)
+    gaps = {r["couple"]: round(r["delay_ms"] - float(picture_ms), 3)
+            for r in rows if r["delay_ms"] is not None}
+    for row in rows:
+        if row["delay_ms"] is not None and abs(gaps[row["couple"]]) > float(frame_ms):
+            # the analysis signal of 27.7/27.8 (iii), wherever it fires -- never a decision here
+            tools.log_always(
+                f"repair: audio_video_offset_disagree couple={row['couple']} "
+                f"audio_ms={row['delay_ms']} audio_frames="
+                f"{round(row['delay_ms'] / float(frame_ms), 2)} "
+                f"picture_frames={result.offset_frames:+d} picture_ms={float(picture_ms):.3f} "
+                f"gap_ms={gaps[row['couple']]} for {candidate_path}\n")
+    shift = -result.offset_frames
+    marker = f"video_anchored:{shift:+d}"
+    tools.log_always(f"repair: video_anchored_route trigger={trigger} status=anchored "
+                     f"couples={_rows_text(rows)} picture_offset_frames={result.offset_frames:+d} "
+                     f"picture_delay_ms={float(picture_ms):.3f} gaps_ms={gaps} "
+                     f"constant=yes same_files=yes marker={marker} {numbers} "
+                     f"for {candidate_path}\n")
+    if repair_deadline is not None and time.monotonic() > repair_deadline:
+        orch.log_partial_plan(candidate_path, "repair_budget_exceeded",
+                         [("video_anchored", "measured", result.offset_frames)])
+        orch.step_result("video_anchored", candidate=candidate_path, status="declined",
+                    cause="repair_budget_exceeded")
+        return "declined", "repair_budget_exceeded", (
+            "the repair's budget ran out after the video measurement -- the partial plan is "
+            "logged; the file comes back next wave")
+
+    # ---- the plan: one zone per track at the picture's offset -----------------
+    work_dir = os.path.join(tools.tmpFolder, "repair", "video_anchored",
+                         merge_video_chimeric.stable_case_key(candidate_path))
+    tools.make_dirs(work_dir)
+    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(master_obj)
+    offset_ms = orch._decimal(picture_ms)
+    track_plans = {}
+    for track_language, audio in merge_video_chimeric.iterate_candidate_audios(candidate_obj):
+        order = int(audio["StreamOrder"])
+        _, extent_ms, extent_source = orch._track_timing(candidate_obj, audio, Decimal(1))
+        pieces, adjustments, _ = video_anchored_pieces(offset_ms, extent_ms, timeline_ms)
+        for adjustment in adjustments:
+            tools.log_line(f"repair: plan_edge_adjustment stream={order} zone=0 "
+                           f"kind={adjustment['kind']} "
+                           f"master_fill_ms={adjustment['master_fill_ms']}\n")
+        track_plans[order] = {
+            "pieces": pieces, "extent_ms": extent_ms, "extent_source": extent_source,
+            "offset_measured": True, "borrow_reason": None,
+            "offset_sources": [{"zone": 0, "offset_ms": str(offset_ms),
+                                "source": "video_anchored"}]}
+        orch.step_result("track_pieces", candidate=candidate_path, stream=order,
+                    language=track_language, n_pieces=len(pieces),
+                    pieces=[(p["source"][0], float(p["master_start_ms"]),
+                             float(p["master_end_ms"]), float(p["source_start_ms"]))
+                            for p in pieces])
+    reference_pieces, _, _ = video_anchored_pieces(offset_ms, None, timeline_ms)
+    chapters_path, chapter_decisions = merge_video_chimeric.build_delivered_chapters(
+        master_obj.filePath, candidate_path, reference_pieces, None, timeline_ms, work_dir)
+    for decision in chapter_decisions:
+        tools.log_line("repair: chapter " + " ".join(
+            f"{key}={str(value).replace(' ', '_')}" for key, value in decision.items()) + "\n")
+    master_tracks = (getattr(master_obj, "audios", None) or {}).get(language) or []
+    reference_stream = master_tracks[0].get("StreamOrder") if master_tracks else None
+    seam = getattr(candidate_obj, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
+    job_start_utc = ((seam or {}).get("job_start_utc")
+                     or "unstamped(no_repair_seam_standalone_run)")
+    plan = {
+        "kind": VIDEO_ANCHORED_KIND, "language": language, "reference_stream": reference_stream,
+        "quantum_ms": None, "master_path": master_obj.filePath,
+        "decided_by": "repair_orchestrator.video_anchored_route",
+        "segments_dropped_unusable": 0, "speed_margin": None, "speed_engine": None,
+        "speed_margin_absent_reason": "no_rate_relation",
+        "segments": [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
+                      "candidate_offset_ms": offset_ms,
+                      "candidate_offset_ms_by_stream": {order: str(offset_ms)
+                                                        for order in track_plans}}],
+        "track_plans": track_plans, "reference_pieces": reference_pieces,
+        "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
+        "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
+        "repair_deadline": repair_deadline,
+        "video_anchored": {"offset_frames": result.offset_frames, "shift_frames": shift,
+                           "offset_ms": offset_ms, "fps": str(result.fps),
+                           "trigger": trigger},
+    }
+    orch.step_launch("build", candidate=candidate_path, marker=marker, n_tracks=len(track_plans))
+    repaired_obj, assembly = merge_video_repair.build_repaired_video_object(
+        candidate_obj, master_obj, plan, os.path.join(tools.tmpFolder, "repair"), job_start_utc)
+    out_path = getattr(repaired_obj, "filePath", None)
+    exists = bool(out_path) and os.path.exists(out_path)
+    orch.step_result("build", candidate=candidate_path, ok=exists, out_path=out_path,
+                marker=assembly.get("marker"),
+                verification=[(v.get("track"), v.get("outcome"), v.get("worst_lag_ms"))
+                              for v in assembly.get("verification") or []])
+    if not exists:
+        return "declined", "plan_application_no_file", (
+            f"the build returned but the video-anchored file is not on disk ({out_path})")
+    delivered = merge_video_chimeric.probe_delivered_durations(out_path)
+    tools.log_line(
+        f"repair: DELIVERED_DURATIONS container_ms={delivered['container_ms']} "
+        f"master_video_ms={timeline_ms} video_ms=absent(the_repaired_file_carries_no_video) "
+        + " ".join(f"{stream['type']}_{stream['index']}_ms={stream['duration_ms']}"
+                   for stream in delivered["streams"])
+        + f" max_cue_end_ms={delivered['max_cue_end_ms']} for {candidate_path}\n")
+    if seam is not None:
+        seam["repaired_obj"] = repaired_obj
+        seam["assembly"] = assembly
+    reason = (f"video-anchored ({trigger}): every candidate track moved by the picture offset "
+              f"{result.offset_frames:+d} frame(s) = {float(picture_ms):.3f} ms on the file "
+              f"clock, marker '{marker}', {len(assembly.get('audios') or [])} audio and "
+              f"{len(assembly.get('subtitles') or [])} subtitle track(s) rebuilt, the master "
+              f"untouched, per-couple audio delays {_rows_text(rows)}, file {out_path}")
+    merge_video_repair.record(candidate_path, "repaired", reason, detail={
+        "out_path": out_path, "video_anchored": plan["video_anchored"],
+        "couples": rows, "gaps_ms": gaps,
+        "markers": {r["stream_order"]: r.get("marker") for r in assembly.get("audios") or []},
+        "delivered_durations": delivered,
+        "fabricated_dropped": assembly.get("fabricated_dropped")})
+    orch.step_result("video_anchored", candidate=candidate_path, status="repaired", out_path=out_path,
+                seconds=round(time.time() - started, 1))
+    return "repaired", None, reason
