@@ -874,7 +874,7 @@ def split_master_fill_shortfall(pieces, fill_source_ms):
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                           out_path, timeout, speed_ratio=None,
                           reference_stream=None, comparison_language=None,
-                          track_bound_ms=None):
+                          track_bound_ms=None, speed_engine="asetrate"):
     '''Produit une piste audio chimerique. Renvoie un dict de compte-rendu.
 
     `track_bound_ms` est l'etendue de CETTE piste -- pas celle du fichier. Le
@@ -1063,8 +1063,10 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     applied_ratio = None
     if speed_ratio != None:
         import merge_video_resample
-        speed_chain, applied_ratio, _, _ = \
-            merge_video_resample.build_speed_filter_chain(sample_rate, speed_ratio)
+        # THE ENGINE THE RATE ARM MEASURED (ADDENDUM 30.5): asetrate (speed and pitch) or
+        # atempo (tempo only, a candidate whose pitch was kept at origin).
+        speed_chain, applied_ratio = merge_video_resample.build_transform_chain(
+            sample_rate, speed_ratio, speed_engine)
     # Le `start_time` du CANDIDAT suit la relation de vitesse: apres
     # reechantillonnage la piste commence `ratio` fois plus tard.
     candidate_start_ms = get_stream_start_ms(audio)
@@ -2406,7 +2408,7 @@ def resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original):
     return parse_positive_rate(frame_rate_original)
 
 
-def compose_marker(base_marker, factor):
+def compose_marker(base_marker, factor, engine="asetrate"):
     '''`chimeric+resampled:<facteur>` DANS CET ORDRE (SPEC_ZONE_A.MD s4), par
     PISTE. `base_marker` porte la decision de l'ADDENDUM 5 (chimerique ou non,
     decidee par l'orchestrateur sur le plan); `factor` est le facteur REELLEMENT
@@ -2429,7 +2431,10 @@ def compose_marker(base_marker, factor):
     parts = [base_marker] if base_marker else []
     if factor is not None:
         exact = Fraction(str(factor)).limit_denominator(10 ** 6)
-        parts.append(f"resampled:{exact.numerator}/{exact.denominator}")
+        # `atempo:<ratio>` for a tempo-only correction (ADDENDUM 30): a reader must not take a
+        # pitch-kept track for an asetrate one -- the two are different restorations.
+        verb = "atempo" if engine == "atempo" else "resampled"
+        parts.append(f"{verb}:{exact.numerator}/{exact.denominator}")
     return "+".join(parts)
 
 
@@ -2439,7 +2444,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
                                 comparison_language=None, chapters_path=None,
-                                deadline=None):
+                                deadline=None, speed_engine="asetrate"):
     '''Point d'entree du module: CONSTRUIT le fichier, il ne MESURE rien.
 
     STAGE 5 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 10 d): "LA
@@ -2567,7 +2572,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             report = build_one_audio_track(
                 candidate_obj, master_obj, audio, language, track_plan["pieces"],
                 track_path, timeout, speed_ratio, reference_stream, comparison_language,
-                track_bound_ms)
+                track_bound_ms, speed_engine)
             report["extraction_bound_ms"] = str(track_bound_ms)
             report["extraction_bound_source"] = track_plan["extent_source"]
             report["extraction_bound_track"] = track_label
@@ -2582,7 +2587,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             # different rational; it stays in `speed_ratio_applied`.
             report["marker"] = compose_marker(
                 marker_value,
-                speed_ratio if report.get("speed_ratio_applied") is not None else None)
+                speed_ratio if report.get("speed_ratio_applied") is not None else None,
+                speed_engine)
             audio_reports.append(report)
         except chimeric_error as error:
             declined.append({"kind": "audio",
@@ -2605,7 +2611,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                 # quantifie par une frequence d'echantillonnage): c'est lui que
                 # porte leur marqueur.
                 report["marker"] = compose_marker(
-                    marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None)
+                    marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
+                    speed_engine)
                 subtitle_reports.append(report)
             except chimeric_error as error:
                 declined.append({"kind": "subtitle",
@@ -2695,7 +2702,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     # (`mark_audio_dicts` en repli): la decision de l'ADDENDUM 5 et le ratio
     # DEMANDE. Chaque piste porte en plus le sien, au facteur qu'ELLE a recu.
     file_marker = compose_marker(
-        marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None)
+        marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
+        speed_engine)
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
                       timeout, job_start_utc, chapters_path=chapters_path)
 
@@ -2746,7 +2754,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
         if verify:
             verification = verify_on_master_timeline(
                 out_path, master_obj, audio_reports, reference_pieces, verify_tolerance_ms,
-                verify_search_ms, reference_stream, deadline=deadline)
+                verify_search_ms, reference_stream, deadline=deadline,
+                envelope=(speed_engine == "atempo" and speed_ratio is not None))
 
         # VERIFY-THE-FILL (Architect's ruling, verification half, 2026-09-16),
         # distinct from the VMSAM_ERA tag elsewhere in this file. UNCONDITIONNEL --
@@ -4025,7 +4034,8 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
 
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                              tolerance_ms, search_ms, reference_stream=None, deadline=None):
+                              tolerance_ms, search_ms, reference_stream=None, deadline=None,
+                              envelope=False):
     """Compare chaque piste reconstruite au maitre et REFUSE si elle n'y est pas.
 
     Ceci est la forme automatique de `SPEC_ZONE_A.MD` §2 point 3 -- produire la
@@ -4045,7 +4055,8 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                   f"out_path={out_path} master={master_obj.filePath}\n")
     started = time.monotonic()
     results = _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                                         tolerance_ms, search_ms, reference_stream, deadline)
+                                         tolerance_ms, search_ms, reference_stream, deadline,
+                                         envelope)
     # ADDENDUM 26 (report): the verifier's own duration, on its own line -- its time counts
     # against the repair's budget (`deadline`), and a reader must be able to see how much.
     tools.log_line(f"chimeric: verify_on_master_timeline done seconds="
@@ -4055,8 +4066,10 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
 
 
 def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tolerance_ms,
-                               search_ms, reference_stream, deadline):
-    """The body of `verify_on_master_timeline` (its docstring holds), timed by it."""
+                               search_ms, reference_stream, deadline, envelope=False):
+    """The body of `verify_on_master_timeline` (its docstring holds), timed by it. `envelope`:
+    an atempo delivery is measured on both windows' speech envelopes (ADDENDUM 30 --
+    `audio_walk.speech_envelope`): its waveform no longer correlates, its speech does."""
     probe_plan = choose_probe_positions(pieces, verify_window_seconds)
     positions = [start for _, start in probe_plan]
     if not len(positions):
@@ -4123,6 +4136,11 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
                                "reference_rms": reference_rms,
                                "produced_rms": produced_rms})
                 continue
+            if envelope:
+                import audio_walk
+                reference = audio_walk.speech_envelope(reference, verify_probe_rate)
+                produced = audio_walk.speech_envelope(produced, verify_probe_rate)
+                reference, produced = reference - reference.mean(), produced - produced.mean()
             lag, score = measure_lag_ms(reference, produced, verify_probe_rate, search_ms)
             probes.append({"master_position_ms": str(start), "piece": piece_index,
                            "lag_ms": lag, "correlation": score, "outcome": "measured",

@@ -11,9 +11,9 @@ landed in the design's own order, and the ones that are not landed yet DECLINE, 
 MEASUREMENT CLASS. Nothing here returns True on work it did not do.
 
     landed   step 1  master self-check                 -- reuses `master_self_check`, as-is
-    landed   step 2  the similarity gate + speed sweep -- reuses `merge_video_repair
-                                                          .run_speed_sweep`, factor-or-None
-                                                          adapted HERE (see `speed_factor`)
+    landed   step 2  the similarity gate + rate arm    -- `rate_arm` (ADDENDUM 30.5): every
+                                                          named ratio in both engines,
+                                                          re-fingerprinted and aligned
     landed   the prime (ADDENDUM 21.1)                 -- EVERY couple of the comparison
                                                           language fingerprinted (x2) and
                                                           aligned (`b2_align`) BEFORE the gate,
@@ -284,8 +284,8 @@ MAX_HOLES_PER_COUPLE = 45
 # library"), one is the PAL pair above, and two are the degraded half of errid-24's four couples.
 #
 # THIS ARM IS TERMINAL, unlike the rate-ladder arm below, and the ruling says why in its own
-# words: step 2 is "similarite faible master<->candidat ? OUI -> run_speed_sweep : le resample
-# peut-il la remonter ? ... None -> return, message dans tools.logs (« similarite moyenne faible,
+# words (its `run_speed_sweep` is the rate arm since ADDENDUM 30.5): step 2 is "similarite faible
+# master<->candidat ? OUI -> run_speed_sweep : le resample peut-il la remonter ? ... None -> return, message dans tools.logs (« similarite moyenne faible,
 # impossible de l'augmenter par resample »)". Low coverage IS low similarity, measured; a sweep
 # that cannot raise it IS the ruling's return. That also closes the wrong-episode hazard
 # independently of stage 4: errid-121 and errid-123 currently decompose into a single `head` hole
@@ -411,18 +411,6 @@ LADDER_MIN_RUNG_FRACTION = 0.80
 # makes a single positive an acceptable basis for it.
 LADDER_MIN_RUNG_MONOTONE_FRACTION = 0.85
 
-# THE CORROBORATION BAND -- how far the ladder's own implied ratio and the sweep's winner may
-# differ in MAGNITUDE before the two stop describing the same relation. See
-# `corroborate_sweep_against_ladder`: sign is the condition that decides, this one is a
-# deliberately wide sanity check. The ladder's implied deviation is a ratio of integer point
-# counts, so its relative precision is about `1/|total_rise|` -- 3 % on the one real positive
-# (errid-27, 30 points of rise). A factor of two is fifteen to thirty times looser than that,
-# which is the intent: refuse a contradiction, never an imprecision. MEASURED: the real positive
-# lands at 1.008 and the forced false fire at 2.19, but the forced case is already rejected on
-# sign alone, so this constant is not carrying the discrimination and must not be read as if it
-# were.
-LADDER_CORROBORATION_BAND = 2.0
-
 # THE MAGNITUDE FLOOR, DERIVED HERE. Half the smallest deviation in the named rate vocabulary:
 # 1001/1000 is the closest named rate to unity, |f - 1| = 1/1001 = 9.99e-4, and half of it is
 # 5e-4 -- the smallest deviation a real rate relation can have, split so that a ladder reading
@@ -485,6 +473,9 @@ DECLINE_CAUSES = {
     # CLASS_CONCLUSIVE stays for proofs (no common language, different content, undecodable).
     "similarity_unrecoverable_by_resample": CLASS_COULD_NOT_RUN,
     "rate_sweep_no_sample_rate": CLASS_COULD_NOT_RUN,
+    # ADDENDUM 30.5: the rate arm could not measure (no comparison WAV from the prime, or the
+    # resample of the candidate could not be built) -- nothing was measured about the rate.
+    "rate_arm_unmeasured": CLASS_COULD_NOT_RUN,
     # step 3, measurement
     "no_stream_for_comparison_language": CLASS_COULD_NOT_RUN,
     "track_duration_unmeasurable": CLASS_COULD_NOT_RUN,
@@ -830,7 +821,7 @@ CHROMAPRINT_HOP_MS = CHROMAPRINT_HOP_SAMPLES * 1000.0 / CHROMAPRINT_SAMPLE_RATE
 
 def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_rate,
                       duration_seconds, audio_filter=None, output_duration_seconds=None,
-                      measures=None):
+                      measures=None, keep_wav=False):
     """One whole-file fingerprint list for ONE track. Returns `(points, quantum_ms)`, or
     `(None, None)` when the track could not be read.
 
@@ -889,13 +880,19 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
                       f"{type(error).__name__}: {error}\n")
         return None, None
     finally:
+        # `keep_wav` (ADDENDUM 30.5): the rate arm resamples THIS extraction instead of decoding
+        # the file again; it owns the file from here and deletes it (`rate_arm`).
+        if keep_wav and measures is not None and path.exists(wav):
+            measures["wav"] = wav
+            wav = None
         # THE CLEANUP IS ONLY CORRECT BECAUSE THE PATH IS UNIQUE. `work_dir` is per-pair and the
         # name carries the side and the stream order, so two tracks of one pair cannot overwrite
         # each other's WAV nor delete each other's file. When hole resolution is parallelised
         # (design stage 7) this naming rule has to be extended, not assumed -- the design names
         # the collision as hazard 1.
         try:
-            remove(wav)
+            if wav is not None:
+                remove(wav)
         except OSError:
             pass
     if not points:
@@ -1122,6 +1119,26 @@ def classify_holes(holes, zones_detail, quantum_ms):
     return classified
 
 
+def merge_quantum_flicker(zones, zones_detail):
+    """QUANTUM FLICKER (ADDENDUM 30, b2 post-rule): a zone one quantum off between two zones at
+    the SAME offset is the true offset falling between two quanta (id 293: ~433 ms between 371
+    and 495), not an edit -- two consecutive +/-1-quantum holes with zero net step. The middle
+    zone takes its neighbours' offset (copies; the aligner's own lists are never touched), so
+    the coalescing below absorbs it. Returns `(zones, detail, merged)`, `merged` one
+    `(master_ms, offset_points_before, offset_points_after)` per flicker."""
+    zones = [[list(zone[0]), list(zone[1])] for zone in zones]
+    detail = [dict(entry) for entry in zones_detail]
+    merged = []
+    for index in range(1, len(detail) - 1):
+        before, middle, after = (detail[index - 1]["offset_points"],
+                                 detail[index]["offset_points"],
+                                 detail[index + 1]["offset_points"])
+        if before == after and abs(middle - before) == 1:
+            merged.append((list(detail[index]["master_ms"]), middle, before))
+            detail[index]["offset_points"] = before
+    return zones, detail, merged
+
+
 def coalesce_same_offset_zones(zones, zones_detail):
     """Adjacent zones at the SAME offset are ONE aligned region with a measurement gap in it.
 
@@ -1150,6 +1167,7 @@ def coalesce_same_offset_zones(zones, zones_detail):
     """
     if not zones:
         return [], []
+    zones, zones_detail, _flicker = merge_quantum_flicker(zones, zones_detail)
     out_zones, out_detail = [], []
     for zone, detail in zip(zones, zones_detail):
         if out_detail and detail["offset_points"] == out_detail[-1]["offset_points"]:
@@ -1216,6 +1234,13 @@ def holes_for_couple(alignment):
     The final drop removes gaps that are empty on both axes AND carry no step: bookkeeping
     artefacts of "there are n+1 gaps around n zones", not places where the two timelines differ.
     """
+    _z, _d, flicker = merge_quantum_flicker(alignment.get("zones") or [],
+                                            alignment.get("zones_detail") or [])
+    for master_ms, offset_before, offset_after in flicker:
+        tools.log_always(f"repair: quantum_flicker_merged master_ms=[{round(master_ms[0], 1)}, "
+                         f"{round(master_ms[1], 1)}] offset_points={offset_before}->{offset_after} "
+                         f"quantum_ms={alignment.get('quantum_ms')} -- two +/-1-quantum holes, zero "
+                         f"net step: one zone (ADDENDUM 30)\n")
     zones, zones_detail = coalesce_same_offset_zones(alignment.get("zones") or [],
                                                       alignment.get("zones_detail") or [])
     if not zones:
@@ -1965,7 +1990,7 @@ def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, s
     return routing
 
 
-def rate_resample_routing(speed_factor, master_obj, candidate_obj, language, work_dir,
+def rate_resample_routing(speed_factor, engine, master_obj, candidate_obj, language, work_dir,
                           sample_rate):
     """THE SPEED-CORRECTED CANDIDATE FOR THE RE-PRIME AT A CONFIRMED FACTOR -- UPSTREAM of
     chimeric, which never resamples (ADDENDUM 21.6: "chimeric NE RESAMPLE PLUS : le sweep rend
@@ -1974,10 +1999,9 @@ def rate_resample_routing(speed_factor, master_obj, candidate_obj, language, wor
     by `repair()` right after the rate decision, and its routing drives `prime_couples`'
     re-fingerprinting of every couple's candidate side.
 
-    INTERIM, AND NAMED AS SUCH. The rate arm's `rate_direction.decide_direction` returns the
-    resampled candidate track of every couple at the winning factor (its `tracks`); when the
-    seam in `speed_factor` is wired (next batch), those files replace this in-extraction filter
-    and this function's only remaining job is the pitch routing it carries.
+    THE ENGINE IS THE RATE ARM'S (ADDENDUM 30.5): `rate_arm` measured which of asetrate and
+    atempo aligns; this builds that engine's chain (`merge_video_resample.build_transform_chain`)
+    for every couple's re-prime and records the pitch layer's reading beside it.
 
     Returns `(routing_or_None, cause_or_None)`. The routing is a DESCRIPTION, not a file: the
     candidate's comparison tracks are speed-corrected inside the SAME ffmpeg invocation that
@@ -2017,14 +2041,24 @@ def rate_resample_routing(speed_factor, master_obj, candidate_obj, language, wor
         import merge_video_resample
         ratio_decimal = (Decimal(speed_factor.numerator) / Decimal(speed_factor.denominator)
                          if isinstance(speed_factor, Fraction) else Decimal(str(speed_factor)))
-        chain, effective, intermediate, target = merge_video_resample.build_speed_filter_chain(
-            source_rate, ratio_decimal)
+        chain, effective = merge_video_resample.build_transform_chain(
+            source_rate, ratio_decimal, engine)
+        intermediate = target = None
+        if engine == "asetrate":
+            _chain, _effective, intermediate, target = (
+                merge_video_resample.build_speed_filter_chain(source_rate, ratio_decimal))
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"orchestrator: build_speed_filter_chain refused "
                       f"({type(error).__name__}: {error})\n")
         return None, "rate_resample_unbuildable"
     routing = pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir,
                             sample_rate)
+    # THE ENGINE IS THE RATE ARM'S MEASUREMENT (ADDENDUM 30.5): the finalist that aligned; the
+    # pitch layer's reading stays on the routing as an observation.
+    routing["route_reason"] = (f"engine {engine} measured by the rate arm (the finalist that "
+                               f"aligned); pitch layer: {routing.get('route_reason')}")
+    routing["filter_name"] = engine
+    routing["inverting_case_detector"] = "rate_arm_engine_comparison"
     routing.update({
         "modality": MODALITY,
         "side": "candidate",
@@ -2047,7 +2081,7 @@ def rate_resample_routing(speed_factor, master_obj, candidate_obj, language, wor
 def _candidate_audio_sample_rate(candidate_obj):
     """The candidate's own audio sampling rate, for the filter's arithmetic.
 
-    Reads the same two places `merge_video_repair._candidate_sample_rate_for_speed_test` reads
+    Reads the same two places the retired sweep's sample-rate reader read
     (ffprobe first, MediaInfo in fallback) rather than importing it: that name is in the module
     the switch will eventually delete, and a stage that is not the switch should not add a new
     dependency on it. Returns None when nothing is readable -- never a default rate, because a
@@ -3247,18 +3281,18 @@ def _budget_terminal(candidate_path, step, budget_s):
                      f"statement about this run's cost; the file comes back next wave")
 
 
-def _speed_chain(audio, speed_ratio):
-    """A candidate track's speed filter at a confirmed ratio (Decimal), built by the assembly's
-    own `build_speed_filter_chain` at the track's own rate -- or None at 1 (ADDENDUM 6)."""
+def _speed_chain(audio, speed_ratio, engine="asetrate"):
+    """A candidate track's speed filter at a confirmed ratio (Decimal) and engine, built by the
+    assembly's own `build_transform_chain` at the track's own rate -- or None at 1 (ADDENDUM 6)."""
     if speed_ratio is None:
         return None
     import merge_video_resample
     rate = (audio.get("ffprobe") or {}).get("sample_rate") or audio.get("SamplingRate")
-    return merge_video_resample.build_speed_filter_chain(int(float(rate)), speed_ratio)[0]
+    return merge_video_resample.build_transform_chain(int(float(rate)), speed_ratio, engine)[0]
 
 
 def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_ratio,
-                   candidate_path, deadline=None):
+                   candidate_path, deadline=None, engine="asetrate"):
     """THE MILLISECOND WALK ON THE REFERENCE COUPLE (ADDENDUM 25.2): the comparison track of
     the master against the candidate's, whole, on the file clock, seeded by every b2 offset
     the reference couple's zones and the union's holes carry. Returns `(walk, None)` or
@@ -3286,10 +3320,13 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
         return None, f"reference couple {reference['couple']} has no {language} audio entry"
     try:
         scale = speed_ratio if speed_ratio is not None else Decimal(1)
-        master = audio_walk.read_on_file_clock(master_obj, master_audio, deadline=deadline)
+        # An atempo pair is walked on both tracks' speech envelopes (ADDENDUM 30).
+        envelope = engine == "atempo" and speed_ratio is not None
+        master = audio_walk.read_on_file_clock(master_obj, master_audio, deadline=deadline,
+                                               envelope=envelope)
         candidate = audio_walk.read_on_file_clock(
-            candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio), scale,
-            deadline=deadline)
+            candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio, engine),
+            scale, deadline=deadline, envelope=envelope)
     except Exception as error:                                           # noqa: BLE001
         if getattr(error, "cause", None) == "repair_budget_exceeded":
             raise
@@ -3679,7 +3716,7 @@ ZONE_EDGE_MARGIN_S = 0.5
 
 
 def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale,
-                  deadline=None):
+                  deadline=None, engine="asetrate"):
     """EACH TRACK ITS OWN OFFSET, PER ZONE, AT THE MILLISECOND (ADDENDUM 9 points 2 and 14;
     ADDENDUM 25.2 -- the walk replaces the three-window majority).
 
@@ -3738,12 +3775,13 @@ def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio,
         master_order = int(master_audio["StreamOrder"])
         entry["reference"] = master_order
         try:
+            envelope = engine == "atempo" and speed_ratio is not None
             if master_order not in master_cache:
                 master_cache[master_order] = audio_walk.read_on_file_clock(
-                    master_obj, master_audio, deadline=deadline)
+                    master_obj, master_audio, deadline=deadline, envelope=envelope)
             samples = audio_walk.read_on_file_clock(
-                candidate_obj, audio, _speed_chain(audio, speed_ratio), scale,
-                deadline=deadline)
+                candidate_obj, audio, _speed_chain(audio, speed_ratio, engine), scale,
+                deadline=deadline, envelope=envelope)
         except Exception as error:                                       # noqa: BLE001
             if getattr(error, "cause", None) == "repair_budget_exceeded":
                 raise
@@ -4004,9 +4042,10 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
                       else "ADDENDUM_8_resample_is_restoration"))
 
     # ---- 3. per-track sub-frame offsets --------------------------------------
+    engine = (context.get("resample_routing") or {}).get("filter_name", "asetrate")
     tracks, offset_failure = track_offsets(zones, plan_spec["walk"], master_obj, candidate_obj,
                                            language, speed_ratio, scale,
-                                           deadline=domain.get("repair_deadline"))
+                                           deadline=domain.get("repair_deadline"), engine=engine)
     if tracks is None:
         step_result("apply_plan", candidate=candidate_path, ok=False,
                     cause="plan_offset_unmeasurable")
@@ -4076,6 +4115,8 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "decided_by": "repair_orchestrator.apply_plan",
         "segments_dropped_unusable": 0,
         "speed_margin": (context.get("sweep_gate") or {}).get("margin"),
+        "speed_engine": (None if speed_ratio is None
+                         else (context.get("resample_routing") or {}).get("filter_name")),
         "speed_margin_absent_reason": ("no_rate_relation" if speed_ratio is None else None),
         "segments": [{"master_start_ms": zone["master_start_ms"],
                       "master_end_ms": zone["master_end_ms"],
@@ -4088,7 +4129,7 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "marker": marker, "chapters_path": chapters_path,
         "speed_ratio": speed_ratio,
         "speed_ratio_exact": (None if speed_ratio is None else rate_text),
-        "rate_source": (None if speed_ratio is None else "rate_sweep"),
+        "rate_source": (None if speed_ratio is None else "rate_arm"),
         "resample_gate": context.get("sweep_gate"),
         # the repair's budget reaches the delivery verifier (ADDENDUM 26, report commit)
         "repair_deadline": domain.get("repair_deadline"),
@@ -4179,157 +4220,159 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
 # STEP 2 -- the similarity gate and the speed sweep
 # ---------------------------------------------------------------------------
 
-def speed_factor(master_obj, candidate_obj, language):
-    """The ruling's step 2 return contract: A FACTOR, OR None -- plus the gate dict beside it.
+RATE_ARM_WAV_NAME = "rate_arm_{name}_{engine}.wav"
 
-    "run_speed_sweep RETOURNE un facteur de vitesse, ou None." The live
-    `merge_video_repair.run_speed_sweep` returns `(gate, cause, prose)` and its single call site
-    unwraps the winner one line later; the design's recommended shape is `(factor_or_None,
-    gate)`, keeping the full measurement for the log. THAT ADAPTER LIVES HERE, ON THE
-    ORCHESTRATOR'S SIDE, rather than as an edit to the live function's signature -- the live
-    chain is still the production chain until the switch commit, and changing a signature it
-    calls is a change to the deployed path, which this stage is not.
 
-    THE TWO Nones MUST NOT COLLAPSE. "The sweep could not be started" (no readable sample rate)
-    and "it ran and nothing cleared the floor" are different facts and the standing invariant
-    says so; both come back as a None factor for the ORCHESTRATOR'S branch, and the CAUSE
-    returned beside it keeps them apart for the log and the ledger.
+def _drop_rate_wav(primed):
+    """The prime's kept comparison WAV (for the rate arm) is deleted on every path that does
+    not run the arm -- the arm deletes it itself."""
+    rate_wav = primed.pop("rate_wav", None)
+    if rate_wav is not None:
+        try:
+            remove(rate_wav["path"])
+        except OSError:
+            pass
 
-    Returns `(factor_or_None, gate_or_None, cause_or_None)`.
-    """
+
+def _finalist_row(ratio, engine, alignment, master_duration_ms, seconds, candidate_path):
+    """One finalist's reading (rate_direction.finalist_reading), its residual-rate test being the
+    pipeline's two ladder readings -- the one-quantum ladder and the fast drift."""
+    import rate_direction
+    _zones, detail = coalesce_same_offset_zones(alignment.get("zones") or [],
+                                                alignment.get("zones_detail") or [])
+    quantum_ms = alignment.get("quantum_ms")
+    ladder = (zone_ladder_signature(alignment)["is_rate_ladder"]
+              or rate_direction.fast_drift_signature(alignment.get("zones_detail") or [],
+                                                     quantum_ms)["fires"])
+    row = {"ratio": ratio, "engine": engine,
+           **rate_direction.finalist_reading(detail, quantum_ms, master_duration_ms, ladder),
+           "point_coverage": alignment.get("master_axis_coverage_fraction"),
+           "seconds": round(seconds, 1)}
+    rate_direction.log_finalist(candidate_path, row)
+    return row
+
+
+def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
+    """THE RATE ARM (ADDENDUM 15/21.4/30/30.5): which named ratio, and which engine, if any.
+
+    The candidate WAV the prime already extracted (the reference couple, `primed["rate_wav"]`)
+    is resampled at each finalist (ratio, engine) through `merge_video_resample.
+    build_transform_chain`, fingerprinted, and aligned against the master's fingerprints by the
+    prime's own `align_fingerprints`; the prime's alignment is the finalist at 1. Round one:
+    `first_ratios` (the declared frame rates and the fast drift -- rate_direction.first_finalists)
+    in both engines; round two, only when round one has no winner: every named ratio in both
+    engines -- "similarity_unrecoverable_by_resample survives only when every named ratio failed
+    with both engines". The winner is `rate_direction.choose_winner`'s.
+
+    Returns `(factor, engine, gate, cause)`: `factor` an exact Fraction or None (1 won, or no
+    finalist qualified -- `cause` says which), `gate` the evidence (every finalist's reading;
+    `verdict` confirmed / declined, `span_coverage`, `margin` over the best other ratio). The WAV
+    is deleted here on every path."""
+    import merge_video_resample
+    import rate_direction
+    wav = primed.get("rate_wav")
+    couple = primed["couples"][0]
+    name = f"{couple[0]}x{couple[1]}"
+    gate = {"instrument": "rate_arm", "verdict": "declined", "ratio": None, "engine": None,
+            "span_coverage": None, "margin": None, "median_fidelity": None, "rows": [],
+            "cause": None, "rounds": 0}
     try:
-        import merge_video_repair
-    except Exception as error:                                           # noqa: BLE001
-        tools.dev_log(f"orchestrator: merge_video_repair unimportable for the speed sweep "
-                      f"({type(error).__name__})\n")
-        return None, None, "rate_sweep_no_sample_rate"
-    gate, cause, _prose = merge_video_repair.run_speed_sweep(
-        master_obj, candidate_obj, language)
-    # ======================================================================================
-    # TODO(RATE_DIRECTION SEAM -- NEXT BATCH; not implemented here by instruction: the rate
-    # arm's module `rate_direction.py` is one-writer-owned by the rate-arm coder until it lands).
-    # Contract (its module docstring, "THE SEAM"):
-    #     factor, evidence, tracks = rate_direction.decide_direction(
-    #         master_obj, candidate_obj, language, gate, work_dir,
-    #         extra_ratios=<fast_drift_signature(...)["named_rate_candidates"] if it fires>)
-    #     rate_direction.fps_contradiction_warning(master_obj, candidate_obj, factor, evidence)
-    # * `factor` (exact Fraction, or None = "1 won, no rate") REPLACES the sweep's winner below.
-    # * `tracks[(master_stream, candidate_stream)]` -- every couple's candidate resampled at
-    #   `factor` -- goes back to `repair()`, whose re-prime (`prime_couples`) then fingerprints
-    #   those WAVs instead of re-extracting through `rate_resample_routing`'s filter; that
-    #   interim producer is removed in the same batch (no dead code), `pitch_routing` stays for
-    #   `rate_direction.inverting_case`.
-    # * this function gains `work_dir` (and the prime's alignments, for the drift reading).
-    # ======================================================================================
-    if gate is None:
-        return None, None, cause
-    winner = gate.get("ratio") if gate.get("verdict") == "confirmed" else None
-    if winner is None:
-        return None, gate, "similarity_unrecoverable_by_resample"
-    return winner, gate, None
+        baseline = primed["alignments"].get(name)
+        fp_master, quantum_master, duration_master = primed["fingerprints"][("master", couple[0])]
+        if wav is None or baseline is None:
+            gate["cause"] = "rate_arm_unmeasured"
+            return None, None, gate, "rate_arm_unmeasured"
+        master_duration_ms = duration_master * 1000.0
+        rows = [_finalist_row(Fraction(1), None, baseline, master_duration_ms, 0.0,
+                              candidate_path)]
+        tried = {Fraction(1)}
 
+        def run_round(ratios):
+            for ratio in ratios:
+                for engine in merge_video_resample.SPEED_ENGINES:
+                    if deadline is not None and time.monotonic() > deadline:
+                        return "repair_budget_exceeded"
+                    started = time.time()
+                    try:
+                        chain, effective = merge_video_resample.build_transform_chain(
+                            wav["rate"], ratio, engine)
+                    except Exception as error:                           # noqa: BLE001
+                        tools.dev_log(f"orchestrator: rate_arm {ratio} {engine} unbuildable "
+                                      f"({type(error).__name__}: {error})\n")
+                        continue
+                    out = path.join(work_dir, RATE_ARM_WAV_NAME.format(
+                        name=f"{ratio.numerator}_{ratio.denominator}", engine=engine))
+                    command = [tools.software["ffmpeg"], "-y", "-v", "error", "-nostdin",
+                               "-i", wav["path"], "-af", chain, "-ac", "1",
+                               "-ar", str(int(wav["rate"])), "-acodec", "pcm_s16le", out]
+                    corrected = wav["duration_s"] * float(effective)
+                    try:
+                        with repair_log.announced("orchestrator", "ffmpeg", wav["path"],
+                                                  media_s=wav["duration_s"]) as call:
+                            done = subprocess.run(command, capture_output=True,
+                                                  timeout=tools.decoder_timeout_for(
+                                                      wav["duration_s"]))
+                            call["exit"] = done.returncode
+                        if done.returncode != 0:
+                            continue
+                        with repair_log.announced("orchestrator", "fpcalc", out) as call:
+                            points = audioCorrelation.calculate_fingerprints(
+                                out, length=corrected)
+                            call["exit"] = 0
+                    except (subprocess.TimeoutExpired, Exception) as error:  # noqa: BLE001
+                        tools.dev_log(f"orchestrator: rate_arm {ratio} {engine} unmeasured "
+                                      f"({type(error).__name__})\n")
+                        continue
+                    finally:
+                        try:
+                            remove(out)
+                        except OSError:
+                            pass
+                    if not points:
+                        continue
+                    alignment = align_fingerprints(fp_master, quantum_master, duration_master,
+                                                   points, CHROMAPRINT_HOP_MS, corrected)
+                    rows.append(_finalist_row(ratio, engine, alignment, master_duration_ms,
+                                              time.time() - started, candidate_path))
+                tried.add(ratio)
+            return None
 
-def corroborate_sweep_against_ladder(winner, ladder_implied_ratio):
-    """TWO INSTRUMENTS OR NONE: a factor the ladder asked for must be one the ladder RECOGNISES.
-
-    WHY THIS EXISTS, AND IT CLOSES A HOLE IN MY OWN SAFETY ARGUMENT. The rate arm was switched
-    on because its refusal is non-terminal: a false fire was supposed to cost one sweep and then
-    continue on the alignment already measured. An independent tester forced the arm to fire on
-    two healthy pairs and measured that the promise fails in the branch that matters -- THE SWEEP
-    DID NOT DECLINE, IT CONFIRMED a near-unity factor on both, so the non-terminal branch never
-    ran. The real cost of a false fire was a DIFFERENT PLAN BUILT ON DELIBERATELY SPEED-ALTERED
-    AUDIO: errid-202 went 6 holes -> 12, and its real, consistent -992.37 ms editorial step
-    (three times over) dissolved into a scatter of -124 / -248 / -1116 ms; errid-100 went 1 hole
-    -> 12 on one couple and 9 -> 15 on the other, coverage 0.9997 -> 0.9552. The premise that
-    licensed n=1 enablement was false, and this is the guard that makes it true.
-
-    THE TEST IS THE TESTER'S OWN DISCRIMINATOR, AND IT NEEDS NO NEW CONSTANT. The ladder already
-    measures an `implied_speed_ratio` from the zone offsets it counted. The sweep independently
-    picks a rational. On the real positive they agree: errid-27's ladder implied 1.0009911 and
-    the sweep returned 1001/1000 = 1.001000 -- 8.9e-6 apart, and the ladder never saw that
-    nominal. On the forced false fire they contradict each other IN SIGN: errid-202's ladder
-    implied 1.0021909 (candidate slower) while the sweep returned 1000/1001 = 0.999001
-    (candidate faster). A relation cannot run in both directions at once.
-
-    TWO CONDITIONS, AND THE FIRST IS THE ONE THAT DECIDES:
-      sign       `implied - 1` and `winner - 1` must share a sign. This is the discriminator the
-                 measurement named, and it alone rejects the forced case.
-      magnitude  the two deviations must agree within a factor of `LADDER_CORROBORATION_BAND`
-                 -- a DELIBERATELY WIDE sanity check, not a precision test. The ladder's implied
-                 deviation is `total_rise / span_points` over integer point counts, so its own
-                 relative precision is about `1/|total_rise|`: errid-27's 30-point rise makes it
-                 good to ~3 %. A factor of two is fifteen to thirty times looser than that, which
-                 is the point -- this condition must refuse a CONTRADICTION and never a
-                 imprecision, because refusing imprecision would throw away a correct factor.
-
-    AN EARLIER DRAFT USED A NEAREST-MEMBER TEST INSTEAD ("the winner must be the vocabulary
-    member closest to what the ladder implied") AND IT WAS WRONG IN A WAY WORTH RECORDING. The
-    vocabulary contains 25/24 = 1.0416667 and 1001/960 = 1.0427083, one tenth of a percent apart,
-    which is FINER than the ladder can measure; a ladder reading of 1.0421 in the PAL band would
-    then have rejected the correct 1001/960 in favour of 25/24. The condition would have been
-    strict exactly where the instrument is coarse. Measured while building it, not discovered
-    afterwards -- and unreachable today only because R2 shows the ladder cannot fire in the PAL
-    band at all, which is not a reason to have shipped it.
-
-    A FAILED CORROBORATION IS NOT A REFUSAL OF THE PAIR. The caller discards the factor and
-    proceeds at 1 on the alignment already in hand -- which is exactly the behaviour that existed
-    before this arm was built, so the worst case of the guard being too strict is the status quo
-    ante. That asymmetry is deliberate: over-strictness costs a rate correction the other arms
-    would usually have caught anyway, while over-permissiveness rebuilds the plan on altered
-    audio, which is what was measured going wrong.
-
-    Returns a dict, always, with `corroborated` and every number it rests on.
-    """
-    detail = {
-        "corroborated": False,
-        "winner": (f"{winner.numerator}/{winner.denominator}"
-                   if isinstance(winner, Fraction) else str(winner)),
-        "winner_value": float(winner),
-        "ladder_implied_ratio": ladder_implied_ratio,
-        "sign_agrees": None,
-        "magnitude_ratio": None,
-        "reason": None,
-    }
-    if ladder_implied_ratio is None:
-        detail["reason"] = ("the ladder armed the sweep but reported no implied speed ratio, so "
-                            "there is nothing for the winner to corroborate against")
-        return detail
-    implied_deviation = ladder_implied_ratio - 1.0
-    winner_deviation = float(winner) - 1.0
-    detail["ladder_deviation"] = round(implied_deviation, 7)
-    detail["winner_deviation"] = round(winner_deviation, 7)
-    detail["sign_agrees"] = (implied_deviation > 0) == (winner_deviation > 0)
-    if not detail["sign_agrees"]:
-        detail["reason"] = (
-            f"the two instruments contradict each other in SIGN: the ladder counted a drift "
-            f"implying {ladder_implied_ratio} (deviation {implied_deviation:+.7f}) while the "
-            f"sweep confirmed {detail['winner']} = {float(winner)} (deviation "
-            f"{winner_deviation:+.7f}). A rate relation does not run in both directions")
-        return detail
-    if winner_deviation == 0 or implied_deviation == 0:
-        # A ZERO DEVIATION IS NOT A RELATION AT ALL. The sweep never returns 1 (the vocabulary
-        # excludes it) and the ladder's magnitude floor already refuses a flat reading, so this
-        # is unreachable by construction -- and it is handled rather than divided by, because an
-        # unreachable branch that raises is still a crash the day something makes it reachable.
-        detail["reason"] = ("one of the two readings is exactly unity, which is not a rate "
-                            "relation either instrument can be describing")
-        return detail
-    spread = abs(implied_deviation) / abs(winner_deviation)
-    detail["magnitude_ratio"] = round(spread, 4)
-    detail["magnitude_band"] = LADDER_CORROBORATION_BAND
-    if spread > LADDER_CORROBORATION_BAND or spread < 1.0 / LADDER_CORROBORATION_BAND:
-        detail["reason"] = (
-            f"the two instruments agree on direction but not on size: the ladder implied a "
-            f"deviation of {implied_deviation:+.7f} and the sweep confirmed {detail['winner']} "
-            f"at {winner_deviation:+.7f}, a factor of {spread:.2f} apart, outside the "
-            f"{LADDER_CORROBORATION_BAND}x band")
-        return detail
-    detail["corroborated"] = True
-    detail["reason"] = (
-        f"the ladder implied {ladder_implied_ratio} and the sweep independently confirmed "
-        f"{detail['winner']} = {float(winner)}: same direction, and their deviations agree to a "
-        f"factor of {spread:.3f}, inside the {LADDER_CORROBORATION_BAND}x band")
-    return detail
+        rounds = [list(first_ratios),
+                  [r for r in merge_video_resample.build_rate_ratio_vocabulary()]]
+        winner = None
+        for number, ratios in enumerate(rounds, 1):
+            ratios = [r for r in ratios if r not in tried]
+            if not ratios and number > 1:
+                break
+            gate["rounds"] = number
+            stopped = run_round(ratios)
+            winner = rate_direction.choose_winner(rows)
+            if stopped:
+                gate["cause"] = stopped
+                break
+            if winner is not None:
+                break
+        gate["rows"] = [{**row, "ratio": f"{row['ratio'].numerator}/{row['ratio'].denominator}"}
+                        for row in rows]
+        if winner is None:
+            gate["cause"] = gate["cause"] or "similarity_unrecoverable_by_resample"
+            return None, None, gate, gate["cause"]
+        others = [r["span_coverage"] for r in rows if r["ratio"] != winner["ratio"]]
+        gate.update({"span_coverage": winner["span_coverage"],
+                     "margin": round(winner["span_coverage"] - max(others), 4) if others else None,
+                     "engine": winner["engine"], "zones": winner["zones"]})
+        if winner["ratio"] == 1:
+            gate["cause"] = "rate_arm_unity_wins"
+            return None, None, gate, "rate_arm_unity_wins"
+        gate.update({"verdict": "confirmed", "ratio": winner["ratio"]})
+        return winner["ratio"], winner["engine"], gate, None
+    finally:
+        if wav is not None:
+            try:
+                remove(wav["path"])
+            except OSError:
+                pass
+        primed.pop("rate_wav", None)
 
 
 def zone_offset_rate_signature(alignment):
@@ -4653,8 +4696,8 @@ def ensemble_similarity_gate(primed, candidate_path):
           -> sweep, on the terminal arms: nothing aligned well enough to proceed without a rate.
              The arm reported is the first couple's, as before, and every couple's is logged.
       some couple is healthy and a healthy couple's zones form a rate ladder
-          -> sweep, on the NON-terminal `rate_relation_signature` arm, corroborated against THAT
-             couple's ladder (the first such couple, in couple order).
+          -> the rate arm, on the NON-terminal `rate_relation_signature` arm (ratio 1 is one
+             of its finalists: a false fire loses to 1 on the same measure).
       otherwise -> no sweep: the healthy couples carry the pair, the low ones are screened.
 
     "Healthy" is `similarity_gate`'s own passing arms (`None` or the ladder arm). With ONE couple
@@ -4904,7 +4947,9 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     try:
         walk, walk_reason = reference_walk(reference, holes, master_obj, candidate_obj,
                                            language, speed_ratio, candidate_path,
-                                           deadline=repair_deadline)
+                                           deadline=repair_deadline,
+                                           engine=(resample_routing or {}).get("filter_name",
+                                                                               "asetrate"))
     except Exception as error:                                           # noqa: BLE001
         if getattr(error, "cause", None) != "repair_budget_exceeded":
             raise
@@ -5059,6 +5104,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
         master_obj, candidate_obj, comparison_language, work_dir, primed)
     step_result("prime", candidate=candidate_path, ok=prime_ok, cause=prime_cause)
     if not prime_ok:
+        _drop_rate_wav(primed)
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
     timeline_ms = _video_duration_ms(master_obj)
@@ -5068,6 +5114,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
         step_result("tail_content", candidate=candidate_path, verdict=tail_verdict,
                     readings=readings, min_one_sided_s=TAIL_ONE_SIDED_MIN_S)
         if tail_verdict == "master_cut_short":
+            _drop_rate_wav(primed)
             _plan_line("none", candidate_path, step="tail_content", cause="master_cut_short")
             return _terminal(candidate_path, "declined", "master_cut_short", (
                 f"the master's {comparison_language} content ends before the candidate's and "
@@ -5084,83 +5131,76 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                              f"before the master's: the master fills the tail, no size cap "
                              f"(ADDENDUM 26.9) for {candidate_path}\n")
     if time.monotonic() > repair_deadline:
+        _drop_rate_wav(primed)
         return _budget_terminal(candidate_path, "prime", repair_budget_s)
 
     step_launch("similarity_gate", candidate=candidate_path, n_couples=len(couples))
     should_sweep, gate_prose, observations = ensemble_similarity_gate(primed, candidate_path)
     step_result("similarity_gate", candidate=candidate_path, should_sweep=should_sweep,
                 **{key: value for key, value in observations.items()})
-    if should_sweep:
-        step_launch("speed_sweep", candidate=candidate_path, language=comparison_language)
-        winner, sweep_gate, sweep_cause = speed_factor(
-            master_obj, candidate_obj, comparison_language)
-        step_result("speed_sweep", candidate=candidate_path,
-                    factor=(f"{winner.numerator}/{winner.denominator}"
-                             if isinstance(winner, Fraction) else winner),
-                    cause=sweep_cause,
-                    median_fidelity=(sweep_gate or {}).get("median_fidelity"),
-                    margin=(sweep_gate or {}).get("margin"),
-                    passing=(sweep_gate or {}).get("passing"))
-        # THE CORROBORATION GUARD -- ONLY ON THE LADDER ARM, AND ONLY WHEN THE SWEEP CONFIRMED.
-        # This is the branch the non-terminal promise forgot. A ladder-armed sweep that DECLINES
-        # is handled below and always was; a ladder-armed sweep that CONFIRMS used to be accepted
-        # unconditionally, and an independent tester measured what that costs on a healthy pair:
-        # the factor gets applied, the candidate gets resampled, and the plan is rebuilt on
-        # deliberately speed-altered audio (errid-202: 6 holes -> 12, its real -992.37 ms step
-        # dissolved into scatter). See `corroborate_sweep_against_ladder`.
-        #
-        # SCOPE, STATED BECAUSE IT IS THE WHOLE POINT: this runs ONLY when the gate fired on
-        # `rate_relation_signature`. The other two arms (`alignment_could_not_measure`,
-        # `master_axis_coverage_below_floor`) are untouched, because on those the aligner
-        # produced no ladder to corroborate against and the sweep is the ONLY instrument in the
-        # room -- errid-70 reaches its 1001/960 through `alignment_could_not_measure` and never
-        # comes near this code.
-        ladder_armed = observations.get("gate_arm") == "rate_relation_signature"
-        corroboration = None
-        if winner is not None and ladder_armed:
-            corroboration = corroborate_sweep_against_ladder(
-                winner, observations.get("ladder_implied_speed_ratio"))
-            step_result("sweep_corroboration", candidate=candidate_path,
-                        **{key: value for key, value in corroboration.items()
-                           if key != "reason"})
-            tools.dev_log(f"orchestrator: sweep corroboration for {candidate_path}: "
-                          f"{corroboration['reason']}\n")
-            if not corroboration["corroborated"]:
-                # DISCARDED, NOT DECLINED. Dropping the winner routes this into the non-terminal
-                # branch below, which is exactly where a ladder-armed suggestion belongs once it
-                # has failed to be corroborated: the pair continues on the alignment already
-                # measured, at factor 1, and no filter ever runs (ADDENDUM 6).
-                winner = None
-        if winner is None and ladder_armed:
-            # THE RATE ARM'S REFUSAL IS NOT TERMINAL, AND THAT ASYMMETRY IS DELIBERATE -- see
-            # `similarity_gate`. This arm fired on an alignment that SUCCEEDED; the sweep was
-            # asked because the zones looked like a rate ladder, and either it answered no or its
-            # answer was not corroborated. Declining here would convert a suggestion into a
-            # refusal and manufacture a new false-decline family every time the ladder reading
-            # misfired on a healthy pair. The honest continuation is the alignment we already
-            # have, at factor 1, with the reason recorded so nobody has to wonder why a sweep ran.
-            step_result("speed_sweep", candidate=candidate_path,
-                        arm="rate_relation_signature", terminal=False,
-                        cause=(sweep_cause if corroboration is None
-                               else "sweep_winner_uncorroborated_by_ladder"),
-                        corroborated=(None if corroboration is None
-                                      else corroboration["corroborated"]),
-                        continuing="at_factor_1_with_the_blind_alignment",
-                        rule="a_suggestion_that_was_refused_is_not_a_refusal_of_the_pair")
-            tools.dev_log(
-                f"orchestrator: the rate-ladder arm asked for a sweep on {candidate_path} and "
-                + (f"the sweep declined ({sweep_cause} / "
-                   f"{(sweep_gate or {}).get('cause')})" if corroboration is None
-                   else f"the sweep's answer was NOT corroborated -- "
-                        f"{corroboration['reason']}")
-                + f"; the pair CONTINUES at speed_factor 1 on the alignment already measured "
-                  f"-- this arm suggests, it does not refuse\n")
-        elif winner is None:
-            _plan_line("none", candidate_path, step="speed_sweep", cause=sweep_cause)
+
+    # ---- STEP 2a: THE RATE ARM (ADDENDUM 15/21.4/30/30.5) --------------------
+    # Armed by the similarity gate (low similarity: every named ratio in both engines is tried
+    # BEFORE any low-similarity conclusion), by a fast drift on any couple (a linear drift must
+    # never reach the hole resolver as 131-143 holes) or by declared frame rates that name a
+    # rate (25 vs 23.976 ...). The drift and the declared rate only NAME the first finalists;
+    # the alignment of each finalist decides.
+    import rate_direction
+    engine = None
+    drift_named = []
+    for couple_name, alignment in primed["alignments"].items():
+        drift = rate_direction.fast_drift_signature(alignment.get("zones_detail") or [],
+                                                    alignment.get("quantum_ms"))
+        step_result("fast_drift", candidate=candidate_path, couple=couple_name,
+                    fires=drift["fires"], implied_ratio=drift["implied_ratio_fit"],
+                    named=[f"{r.numerator}/{r.denominator}"
+                           for r in drift["named_rate_candidates"]], reason=drift["reason"])
+        drift_named += [r for r in drift["named_rate_candidates"] if r not in drift_named]
+    declared = rate_direction.declared_named_ratio(master_obj.filePath, candidate_obj.filePath)
+    armed_by = ("similarity_gate" if should_sweep else "fast_drift" if drift_named
+                else "declared_frame_rate" if declared is not None else None)
+    first_ratios = rate_direction.first_finalists(declared, drift_named)
+    step_result("rate_arm_armed", candidate=candidate_path, armed_by=armed_by,
+                declared=(None if declared is None
+                          else f"{declared.numerator}/{declared.denominator}"),
+                first_finalists=[f"{r.numerator}/{r.denominator}" for r in first_ratios])
+    if armed_by is None:
+        _drop_rate_wav(primed)
+    else:
+        step_launch("rate_arm", candidate=candidate_path, language=comparison_language,
+                    armed_by=armed_by)
+        winner, engine, sweep_gate, sweep_cause = rate_arm(
+            primed, first_ratios, work_dir, candidate_path, deadline=repair_deadline)
+        step_result("rate_arm", candidate=candidate_path, armed_by=armed_by,
+                    factor=(None if winner is None
+                            else f"{winner.numerator}/{winner.denominator}"),
+                    engine=engine, cause=sweep_cause, rounds=sweep_gate.get("rounds"),
+                    span_coverage=sweep_gate.get("span_coverage"),
+                    margin=sweep_gate.get("margin"),
+                    finalists=[(row["ratio"], row["engine"], row["span_coverage"], row["zones"],
+                                row["ladder"]) for row in sweep_gate["rows"]])
+        if sweep_cause == "repair_budget_exceeded":
+            log_partial_plan(candidate_path, "repair_budget_exceeded",
+                             [("rate_arm", "stopped_by_budget", len(sweep_gate["rows"]))])
+            return _budget_terminal(candidate_path, "rate_arm", repair_budget_s)
+        # THE ARM SUGGESTS UNLESS THE SIMILARITY GATE ASKED: a drift, a declared rate or a
+        # rate-ladder reading is a hint; their "no" continues at factor 1 on the alignment
+        # already measured. Only low similarity with every named ratio refused in both engines
+        # is `similarity_unrecoverable_by_resample` -- and 1 winning is never a refusal.
+        terminal = (winner is None and armed_by == "similarity_gate"
+                    and observations.get("gate_arm") != "rate_relation_signature"
+                    and sweep_cause != "rate_arm_unity_wins")
+        if terminal:
+            _plan_line("none", candidate_path, step="rate_arm", cause=sweep_cause)
             return _terminal(
                 candidate_path, "no_plan", sweep_cause,
-                f"mean similarity is low ({gate_prose}) and the rate sweep could not raise it "
-                f"({(sweep_gate or {}).get('cause')})", detail={"resample_gate": sweep_gate})
+                f"mean similarity is low ({gate_prose}) and no named ratio raises it in either "
+                f"engine: {[(r['ratio'], r['engine'], r['span_coverage']) for r in sweep_gate['rows']]}",
+                detail={"resample_gate": sweep_gate})
+        if winner is None:
+            tools.dev_log(f"orchestrator: the rate arm ({armed_by}) found no rate for "
+                          f"{candidate_path} ({sweep_cause}); the pair CONTINUES at speed_factor 1 "
+                          f"on the alignment already measured\n")
         else:
             factor = winner
 
@@ -5173,7 +5213,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                         if isinstance(factor, Fraction) else factor)
         step_launch("rate_reprime", candidate=candidate_path, speed_factor=factor_label)
         resample_routing, reprime_cause = rate_resample_routing(
-            factor, master_obj, candidate_obj, comparison_language, work_dir,
+            factor, engine, master_obj, candidate_obj, comparison_language, work_dir,
             primed["sample_rate"])
         if resample_routing is None:
             step_result("rate_reprime", candidate=candidate_path, ok=False, cause=reprime_cause)
@@ -5233,6 +5273,19 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     _plan_line("none", candidate_path, step="chimeric", cause=cause)
     return _terminal(candidate_path, "no_plan", cause, reason,
                      detail={"cross_verification": detail} if detail else None)
+
+
+def align_fingerprints(fp_master, quantum_master, duration_master, fp_candidate,
+                       quantum_candidate, duration_candidate):
+    """`b2_align` as the prime calls it -- one place, so the rate arm's finalists are aligned
+    exactly like the prime's couples (ADDENDUM 30.5: the winner is read on re-fingerprinting)."""
+    return banded_seed_alignment.b2_align(
+        fp_master, fp_candidate, quantum_master,
+        candidate_quantum_ms=quantum_candidate,
+        duration_diff_ms=abs(duration_master - duration_candidate) * 1000.0,
+        signed_duration_diff_ms=(duration_candidate - duration_master) * 1000.0,
+        shorter_duration_ms=min(duration_master, duration_candidate) * 1000.0,
+        deadline=time.monotonic() + ALIGNMENT_BUDGET_S)
 
 
 def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resample_routing=None):
@@ -5299,11 +5352,13 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                                               if track_filter else None))
             started = time.time()
             measures = {}
+            keep = (resample_routing is None and side == "candidate"
+                    and (master_stream, candidate_stream) == primed["couples"][0])
             try:
                 points, quantum_ms = fingerprint_track(
                     video_obj, language, stream, side, work_dir, sample_rate, duration,
                     audio_filter=track_filter, output_duration_seconds=corrected_duration,
-                    measures=measures)
+                    measures=measures, keep_wav=keep)
             except tools.decoder_timeout as error:
                 return (False, "decoder_timeout",
                         f"the {side} {language} stream {stream} extraction ran past its bound "
@@ -5318,6 +5373,9 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                         f"the {side} {language} stream {stream} could not be extracted or "
                         f"fingerprinted")
             primed["fingerprints"][key] = (points, quantum_ms, corrected_duration)
+            if measures.get("wav"):
+                primed["rate_wav"] = {"path": measures["wav"], "stream": stream,
+                                      "duration_s": corrected_duration, "rate": sample_rate}
             content_end = measures.get("content_end_s")
             full_s = _track_duration_seconds(video_obj, language, stream)
             if side == "master" and full_s is not None and full_s > duration:
@@ -5337,13 +5395,8 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
         step_launch("align", candidate=candidate_path, couple=name, n_master=len(fp_master),
                     n_candidate=len(fp_candidate))
         started = time.time()
-        alignment = banded_seed_alignment.b2_align(
-            fp_master, fp_candidate, quantum_master,
-            candidate_quantum_ms=quantum_candidate,
-            duration_diff_ms=abs(duration_master - duration_candidate) * 1000.0,
-            signed_duration_diff_ms=(duration_candidate - duration_master) * 1000.0,
-            shorter_duration_ms=min(duration_master, duration_candidate) * 1000.0,
-            deadline=time.monotonic() + ALIGNMENT_BUDGET_S)
+        alignment = align_fingerprints(fp_master, quantum_master, duration_master,
+                                       fp_candidate, quantum_candidate, duration_candidate)
         alignment["alignment_seconds"] = time.time() - started
         if alignment["verdict"] == banded_seed_alignment.VERDICT_ALIGNMENT_BUDGET_EXCEEDED:
             step_result("align", candidate=candidate_path, couple=name,

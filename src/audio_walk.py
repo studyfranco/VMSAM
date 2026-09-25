@@ -70,21 +70,60 @@ AUDIBLE_DB = -60.0
 # DECODE
 # ---------------------------------------------------------------------------------------------
 
-def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), deadline=None):
+# THE SPEECH ENVELOPE (ADDENDUM 30): under `atempo` (WSOLA) the waveform is rebuilt from overlapped
+# grains, so waveform NCC loses its grip while the speech envelope survives. MEASURED on id 57 (fr,
+# atempo 1001/960, 13 positions, 8 s windows): envelope 3245.5-3248.9 ms at corr 0.82-0.98;
+# waveform 3242-3258 ms at corr 0.17-0.48 (the walk found 71 matched windows of 1451, the plan
+# landed 21.1 ms off). Band 300-1800 Hz, 5 ms RMS, linearly interpolated back to the reading's
+# rate so every instrument downstream reads it like a waveform (their NCC removes the mean).
+ENVELOPE_BAND_HZ = (300.0, 1800.0)
+ENVELOPE_HOP_S = 0.005
+
+
+class EnvelopeSignal(np.ndarray):
+    """A track read as its speech envelope (`read_on_file_clock(..., envelope=True)`). Its type
+    is how `_search` knows the correlation peak is broad: the second peak is sought outside the
+    whole main lobe, not outside +/-3 ms (a waveform's peak is a fraction of a period wide, an
+    envelope's is tens of ms -- MEASURED id 300: 1382 of 1443 windows read `ambiguous` on the
+    +/-3 ms guard)."""
+
+
+def speech_envelope(samples, rate):
+    """`samples` (mono, at `rate`) -> its speech envelope, same length and rate."""
+    from scipy.signal import butter, sosfiltfilt
+    x = np.asarray(samples, np.float64)
+    hop = max(1, int(round(rate * ENVELOPE_HOP_S)))
+    count = len(x) // hop
+    if count < 2:
+        return np.zeros(len(x), np.float32)
+    sos = butter(4, ENVELOPE_BAND_HZ, btype="band", fs=rate, output="sos")
+    band = sosfiltfilt(sos, x)
+    rms = np.sqrt(np.mean(band[:count * hop].reshape(count, hop) ** 2, axis=1))
+    centres = (np.arange(count) + 0.5) * hop
+    return np.interp(np.arange(len(x)), centres, rms).astype(np.float32)
+
+
+def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), deadline=None,
+                       envelope=False):
     """One track, mono float32 at WALK_RATE, on the FILE clock: `merge_video_chimeric.
     read_track_samples` (bounded, logged, the assembly's own convention) with the stream's
     container start_time -- times `scale` on a rate pair, as the assembly reads it -- prepended
     as zeros (a negative start drops samples). `deadline`: the repair's budget bounds the read
-    (`read_track_samples`)."""
+    (`read_track_samples`). `envelope`: the track's speech envelope instead of its waveform (an
+    atempo pair -- see `speech_envelope`)."""
     import merge_video_chimeric
     samples = merge_video_chimeric.read_track_samples(
         video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter,
         deadline=deadline)
+    if envelope:
+        samples = speech_envelope(samples, WALK_RATE)
     start_ms = merge_video_chimeric.get_stream_start_ms(audio) * Decimal(scale)
     pad = int(round(float(start_ms) * WALK_RATE / 1000.0))
     if pad > 0:
-        return np.concatenate([np.zeros(pad, np.float32), samples])
-    return samples[-pad:] if pad < 0 else samples
+        samples = np.concatenate([np.zeros(pad, np.float32), samples])
+    elif pad < 0:
+        samples = samples[-pad:]
+    return samples.view(EnvelopeSignal) if envelope else samples
 
 
 def rms_db(x):
@@ -143,7 +182,15 @@ def _search(m, c, t, off_ms, win_s, search_ms):
         return None
     kf, value, k = _peak(curve)
     guard = int(0.003 * WALK_RATE)
-    rest = np.concatenate([curve[:max(k - guard, 0)], curve[k + guard + 1:]])
+    low, high = max(k - guard, 0), k + guard + 1
+    if isinstance(m, EnvelopeSignal):
+        # the whole main lobe: out to the first local minimum on each side
+        low, high = k, k + 1
+        while low > 0 and curve[low - 1] <= curve[low]:
+            low -= 1
+        while high < len(curve) and curve[high] <= curve[high - 1]:
+            high += 1
+    rest = np.concatenate([curve[:low], curve[high:]])
     second = float(rest.max()) if len(rest) else 0.0
     return {"off": (lo + kf - i0) * 1000.0 / WALK_RATE, "ncc": value, "second": second}
 

@@ -8,7 +8,7 @@ candidat a `repair_orchestrator.repair()` -- LA chaine depuis la bascule du
 2026-09-24 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 8) -- puis
 raccroche l'objet repare au merge. Il porte aussi les briques que
 l'orchestrateur et l'application du plan reutilisent: `record`,
-`master_intertrack_verdict`, `run_speed_sweep`, `build_repaired_video_object`,
+`master_intertrack_verdict`, `build_repaired_video_object`,
 `gate_fabricated_delivery`, et la retraite des pools ffmpeg (CASE id 6).
 
 TROIS EXIGENCES VERIFIEES CONTRE LE CODE (SPEC_ZONE_A.MD s1), toutes tenues ici:
@@ -92,51 +92,6 @@ def get_speed_margin(plan):
     """
     margin = plan.get("speed_margin")
     return None if margin == None else str(margin)
-
-
-def _candidate_sample_rate_for_speed_test(candidate_obj):
-    '''Meme lecture que `get_marker_value_for` (ce fichier): ffprobe d'abord,
-    MediaInfo en repli.'''
-    for language, audios in candidate_obj.audios.items():
-        for audio in audios:
-            rate = audio.get("ffprobe", {}).get("sample_rate") or audio.get("SamplingRate")
-            if rate != None:
-                return int(float(rate))
-    return None
-
-
-def run_speed_sweep(best_video, candidate_obj, language):
-    '''STEP 2 OF THE OWNER'S DIAGRAM -- the speed test, as a SWEEP over every
-    rate combination. Returns `(gate, cause, prose)`; `gate` is None only when
-    the sweep could not be started at all.
-
-    `merge_video_resample.sweep_rate_ratios` does the measuring; this function
-    is the repair chain's door to it and owns the two reasons the door may not
-    open (no readable sampling rate, no work directory).
-    '''
-    sample_rate = _candidate_sample_rate_for_speed_test(candidate_obj)
-    if sample_rate == None:
-        return None, "rate_sweep_no_sample_rate", (
-            "the rate sweep could not be run: no sampling rate readable on "
-            "the candidate")
-    import merge_video_resample
-    work_dir = path.join(tools.tmpFolder, "repair", "rate_sweep")
-    tools.make_dirs(work_dir)
-    vocabulary = merge_video_resample.build_rate_ratio_vocabulary()
-    tools.dev_log(
-        f"repair: run_speed_sweep on {candidate_obj.filePath} language="
-        f"{language} sample_rate={sample_rate} factors={len(vocabulary)} "
-        f"floor={merge_video_resample.RESAMPLE_FIDELITY_FLOOR} "
-        f"vocabulary={[f'{f.numerator}/{f.denominator}' for f in vocabulary]}\n")
-    gate = merge_video_resample.sweep_rate_ratios(
-        best_video.filePath, candidate_obj.filePath, sample_rate, work_dir,
-        vocabulary=vocabulary)
-    tools.dev_log(
-        f"repair: run_speed_sweep result for {candidate_obj.filePath}: "
-        f"verdict={gate['verdict']} winner={gate.get('ratio')} "
-        f"median={gate.get('median_fidelity')} margin={gate.get('margin')} "
-        f"cause={gate.get('cause')} passing={gate.get('passing')}\n")
-    return gate, None, None
 
 
 def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **kwargs):
@@ -229,7 +184,10 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         raise
 
 
-SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_sweep"})
+SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_arm"})
+# SINCE ADDENDUM 30.5 THE ONLY PRODUCER IS THE RATE ARM (`repair_orchestrator.rate_arm`): its
+# evidence is the winner's re-fingerprinted alignment, not a sweep's window median -- `rate_sweep`
+# left this vocabulary with its producer.
 # THE DECIDING INSTRUMENTS THIS GUARD RECOGNISES, as a closed vocabulary --
 # the same shape as `repair_orchestrator.DECLINE_CAUSES`, and for the same
 # reason: a vocabulary kept next to its only consumer cannot drift from it,
@@ -271,19 +229,19 @@ def speed_plan_evidence(plan, speed_ratio):
          authority on what a winner may be). The discriminator's
          `NAMED_RATE_RATIONALS` is a SUBSET of those sixteen, so nothing that
          was admissible before this change stopped being admissible.
-      2. THE LADDER MEDIAN >= FLOOR -- `resample_gate["verdict"] ==
-         "confirmed"` and a REAL `median_fidelity` at or above
-         `merge_video_resample.RESAMPLE_FIDELITY_FLOOR`. Read as a number,
-         never as the mere presence of a key: `test_speed_ratio_against_master`
-         sets `median_fidelity` to None on every decline BY DESIGN, so a
-         truth-test on the key would read a decline as evidence.
+      2. THE RATE ARM'S WINNER (ADDENDUM 30.5) -- `resample_gate["verdict"] ==
+         "confirmed"`, a REAL `span_coverage` (the re-fingerprinted alignment's
+         share of the master timeline) at or above
+         `rate_direction.RATE_ARM_MIN_SPAN_COVERAGE`, read as a number, never as
+         the presence of a key; and the plan's `speed_engine` is the engine
+         that aligned.
       3. THE DECIDING INSTRUMENT -- `rate_source` names one of
          `SPEED_EVIDENCE_INSTRUMENTS`.
 
     EACH FAILURE HAS ITS OWN TOKEN, because a future correction acts
     differently on each (the Lead's granularity rule R1): a plan with no
     evidence at all is a producer that never ran this route; a plan whose
-    rational is not named is a producer inventing factors; a plan whose median
+    rational is not named is a producer inventing factors; a plan whose span
     sits below the floor is a producer shipping a measured negative as a
     confirmation. The token travels in the refusal PROSE -- the raised
     `cause` stays the stable `speed_transform_not_validated`, because
@@ -340,30 +298,34 @@ def speed_plan_evidence(plan, speed_ratio):
     gate = plan.get("resample_gate")
     if not isinstance(gate, dict):
         return False, "speed_evidence_no_gate", (
-            "the plan names an instrument but carries no resample_gate: the "
-            "fidelity ladder's own result is missing, so the coefficient was "
-            "never validated against the floor")
+            "the plan names an instrument but carries no resample_gate: the rate arm's own "
+            "result is missing, so the coefficient was never validated")
     if gate.get("verdict") != "confirmed":
         return False, "speed_evidence_gate_not_confirmed", (
-            f"resample_gate verdict={gate.get('verdict')!r} "
-            f"cause={gate.get('cause')!r}: the ladder did not confirm")
-    median = gate.get("median_fidelity")
-    if not isinstance(median, (int, float)) or isinstance(median, bool):
-        # BLANK LAW: a gate that confirmed but carries no median has not shown
-        # its measurement, and a missing number is not a passing number.
-        return False, "speed_evidence_median_absent", (
-            f"resample_gate says confirmed but median_fidelity={median!r} is "
-            f"not a measured number")
-    if median < merge_video_resample.RESAMPLE_FIDELITY_FLOOR:
-        return False, "speed_evidence_median_below_floor", (
-            f"ladder median {median} is below the unchanged floor "
-            f"{merge_video_resample.RESAMPLE_FIDELITY_FLOOR}")
+            f"resample_gate verdict={gate.get('verdict')!r} cause={gate.get('cause')!r}: the "
+            f"rate arm did not confirm")
+    # THE ARM'S EVIDENCE (ADDENDUM 30.5): the winner's span coverage at or above the arm's own
+    # floor, measured as a number (a missing number is not a passing number), and the engine
+    # the plan will apply is the engine that aligned.
+    import rate_direction
+    span = gate.get("span_coverage")
+    if not isinstance(span, (int, float)) or isinstance(span, bool):
+        return False, "speed_evidence_span_absent", (
+            f"resample_gate says confirmed but span_coverage={span!r} is not a measured number")
+    if span < rate_direction.RATE_ARM_MIN_SPAN_COVERAGE:
+        return False, "speed_evidence_span_below_floor", (
+            f"the winner's span coverage {span} is below the arm's floor "
+            f"{rate_direction.RATE_ARM_MIN_SPAN_COVERAGE}")
+    engine = plan.get("speed_engine")
+    if engine not in merge_video_resample.SPEED_ENGINES or engine != gate.get("engine"):
+        return False, "speed_evidence_engine_mismatch", (
+            f"the plan would apply engine {engine!r} while the rate arm's winner aligned with "
+            f"{gate.get('engine')!r}")
 
     return True, "speed_evidence_complete", (
-        f"snapped named rational {named} (applied as {speed_ratio}), ladder "
-        f"median {median} >= floor "
-        f"{merge_video_resample.RESAMPLE_FIDELITY_FLOOR}, deciding instrument "
-        f"{instrument}")
+        f"snapped named rational {named} (applied as {speed_ratio}, engine {engine}), winner "
+        f"span coverage {span} >= {rate_direction.RATE_ARM_MIN_SPAN_COVERAGE}, deciding "
+        f"instrument {instrument}")
 
 
 def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_start_utc):
@@ -438,7 +400,9 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         chapters_path=plan.get("chapters_path"),
         verify=True, verify_tolerance_ms=verify_tolerance_ms,
         # ADDENDUM 26 (report commit): the verifier's time counts against the repair's budget.
-        deadline=plan.get("repair_deadline"))
+        deadline=plan.get("repair_deadline"),
+        # ADDENDUM 30.5: the engine the rate arm measured.
+        speed_engine=plan.get("speed_engine") or "asetrate")
 
     assembly["unverified_segment_ms"] = Decimal("0")
     # LE JOURNAL EST ECRIT ICI, avant que l'objet video soit construit: si la
