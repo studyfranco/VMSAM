@@ -135,13 +135,17 @@ def first_finalists(declared, drift_named):
 # (2) READING ONE FINALIST, AND THE WINNER
 # ---------------------------------------------------------------------------
 
-def finalist_reading(detail, quantum_ms, master_duration_ms, ladder):
+def finalist_reading(detail, quantum_ms, shared_ms, ladder):
     """One finalist's alignment as the rule reads it: `detail` the coalesced zones (the prime's
     `coalesce_same_offset_zones`), `ladder` whether the zones form a rate ladder (the
-    orchestrator's `zone_ladder_signature` -- a residual rate: the wrong ratio)."""
+    orchestrator's `zone_ladder_signature` -- a residual rate: the wrong ratio). `shared_ms` is
+    the span both files can share: the shorter of the master and the candidate AT THIS
+    FINALIST'S RATE -- a candidate that ends early is judged on what it carries (MEASURED: id
+    101's candidate cut 6 min short covers 0.75 of the master at its true 1001/960, and was
+    refused every rate against the master's whole length)."""
     span = sum(max(0.0, z["master_ms"][1] - z["master_ms"][0]) for z in detail)
     offsets = [z["offset_points"] * quantum_ms for z in detail]
-    return {"span_coverage": round(span / master_duration_ms, 4) if master_duration_ms else 0.0,
+    return {"span_coverage": round(min(1.0, span / shared_ms), 4) if shared_ms else 0.0,
             "zones": len(detail),
             "offset_spread_ms": round(max(offsets) - min(offsets), 1) if offsets else None,
             "ladder": bool(ladder)}

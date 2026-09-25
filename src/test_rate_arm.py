@@ -51,6 +51,15 @@ def test_tie_prefers_asetrate_then_fewer_zones():
     assert rd.choose_winner(rows)["ratio"] == Fraction(1001, 960)
 
 
+def test_span_is_read_over_what_both_files_share():
+    # id 101's candidate cut 6 min short: its true ratio aligns 1076 s of a 1440 s master, all of
+    # what the corrected candidate carries -- full coverage of the shared span, not 0.75
+    zones = [{"master_ms": [1000.0, 1077000.0], "offset_points": 0}]
+    reading = rd.finalist_reading(zones, 123.8, min(1440000.0, 1077000.0), False)
+    assert reading["span_coverage"] >= 0.99, reading
+    assert rd.finalist_reading(zones, 123.8, 1440000.0, False)["span_coverage"] < 0.9
+
+
 def test_first_finalists_carry_both_directions():
     firsts = rd.first_finalists(Fraction(1001, 960), [Fraction(1001, 960), Fraction(25, 24)])
     assert firsts == [Fraction(1001, 960), Fraction(960, 1001), Fraction(25, 24),

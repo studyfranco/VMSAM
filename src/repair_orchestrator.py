@@ -477,7 +477,6 @@ DECLINE_CAUSES = {
     # resample of the candidate could not be built) -- nothing was measured about the rate.
     "rate_arm_unmeasured": CLASS_COULD_NOT_RUN,
     # step 3, measurement
-    "no_stream_for_comparison_language": CLASS_COULD_NOT_RUN,
     "track_duration_unmeasurable": CLASS_COULD_NOT_RUN,
     "fingerprinting_raised": CLASS_COULD_NOT_RUN,
     "alignment_degenerate_input": CLASS_COULD_NOT_RUN,
@@ -1017,6 +1016,41 @@ def tail_content_verdict(couples, timeline_s):
     if not readings or any(reading[2] is None for reading in readings) or len(verdicts) != 1:
         return None, readings
     return verdicts.pop(), readings
+
+
+def tail_decision(primed, master_obj, language, candidate_path):
+    """ADDENDUM 26.9 read on the FINAL alignment (ADDENDUM 32.2): `primed` as the rate decision
+    left it -- the prime's alignment at factor 1, the re-prime's at a confirmed rate, whose
+    candidate content end was re-measured on the corrected extraction -- never a native-rate
+    reading of a candidate that needs a resample (owner: "on doit voir cela via l'alignement").
+    Called by `chimeric()`, and by `repair()` before a low-similarity terminal (no rate won: the
+    native alignment IS the final one). Returns None, or `("master_cut_short", reason)`; a
+    candidate-short tail is logged and left to the plan's ordinary tail hole."""
+    timeline_ms = _video_duration_ms(master_obj)
+    if timeline_ms is None:
+        return None
+    ends = tail_couples(primed)
+    verdict, readings = tail_content_verdict(ends, float(timeline_ms) / 1000.0)
+    step_result("tail_content", candidate=candidate_path, verdict=verdict, readings=readings,
+                min_one_sided_s=TAIL_ONE_SIDED_MIN_S, primed_at=primed["factor_label"])
+    if verdict == "candidate_short":
+        tools.log_always(f"repair: candidate_short_tail readings={readings} "
+                         f"factor={primed['factor_label']} -- the candidate's content ends "
+                         f">= {TAIL_ONE_SIDED_MIN_S} s before the master's: an ordinary tail "
+                         f"hole, filled from the master, no size cap (ADDENDUM 26.9) for "
+                         f"{candidate_path}\n")
+    if verdict != "master_cut_short":
+        return None
+    return "master_cut_short", (
+        f"the master's {language} content ends before the candidate's and does not resume, "
+        f"read on the alignment at factor {primed['factor_label']}: per couple (couple, verdict, "
+        f"master content after the last common instant s, candidate content after it s) "
+        f"{readings}; measured ends "
+        + "; ".join(f"{c['couple']} master {c['master_content_end_s']} s / candidate "
+                    f"{c['candidate_content_end_s']} s after the last common instant "
+                    f"{c['last_common_master_s']} s" for c in ends)
+        + f" of a {round(float(timeline_ms) / 1000.0, 3)} s master video -- the master cannot "
+          f"give the candidate its end (ADDENDUM 26.9)")
 
 
 def tail_couples(primed):
@@ -4374,7 +4408,7 @@ def _drop_rate_wav(primed):
             pass
 
 
-def _finalist_row(ratio, engine, alignment, master_duration_ms, seconds, candidate_path):
+def _finalist_row(ratio, engine, alignment, shared_ms, seconds, candidate_path):
     """One finalist's reading (rate_direction.finalist_reading), its residual-rate test being the
     pipeline's two ladder readings -- the one-quantum ladder and the fast drift."""
     import rate_direction
@@ -4385,7 +4419,7 @@ def _finalist_row(ratio, engine, alignment, master_duration_ms, seconds, candida
               or rate_direction.fast_drift_signature(alignment.get("zones_detail") or [],
                                                      quantum_ms)["fires"])
     row = {"ratio": ratio, "engine": engine,
-           **rate_direction.finalist_reading(detail, quantum_ms, master_duration_ms, ladder),
+           **rate_direction.finalist_reading(detail, quantum_ms, shared_ms, ladder),
            "point_coverage": alignment.get("master_axis_coverage_fraction"),
            "seconds": round(seconds, 1)}
     rate_direction.log_finalist(candidate_path, row)
@@ -4423,7 +4457,8 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
             gate["cause"] = "rate_arm_unmeasured"
             return None, None, gate, "rate_arm_unmeasured"
         master_duration_ms = duration_master * 1000.0
-        rows = [_finalist_row(Fraction(1), None, baseline, master_duration_ms, 0.0,
+        rows = [_finalist_row(Fraction(1), None, baseline,
+                              min(master_duration_ms, wav["duration_s"] * 1000.0), 0.0,
                               candidate_path)]
         tried = {Fraction(1)}
 
@@ -4472,7 +4507,8 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
                         continue
                     alignment = align_fingerprints(fp_master, quantum_master, duration_master,
                                                    points, CHROMAPRINT_HOP_MS, corrected)
-                    rows.append(_finalist_row(ratio, engine, alignment, master_duration_ms,
+                    rows.append(_finalist_row(ratio, engine, alignment,
+                                              min(master_duration_ms, corrected * 1000.0),
                                               time.time() - started, candidate_path))
                 tried.add(ratio)
             return None
@@ -4911,6 +4947,11 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                 primed_at=primed["factor_label"],
                 rule="ADDENDUM_21_6_chimeric_receives_every_couple_ready_and_never_resamples")
 
+    # ---- THE TAIL THAT ONLY ONE SIDE CARRIES (ADDENDUM 26.9, decided HERE by ADDENDUM 32.2) ---
+    refusal = tail_decision(primed, master_obj, language, candidate_path)
+    if refusal is not None:
+        return False, refusal[0], refusal[1], None
+
     couple_results = []
     for master_stream, candidate_stream in primed["couples"]:
         couple = f"{master_stream}x{candidate_stream}"
@@ -5227,49 +5268,18 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     # (ADDENDUM 21.1): all of them are primed here and handed to step 3 rather than recomputed.
     factor = 1
     sweep_gate = None
-    couples = enumerate_couples(master_obj, candidate_obj, comparison_language)
-    step_result("enumerate_couples", candidate=candidate_path,
-                language=comparison_language, n_couples=len(couples), couples=couples)
-    if not couples:
-        _plan_line("none", candidate_path, step="enumerate_couples",
-                   cause="no_stream_for_comparison_language")
-        return _terminal(candidate_path, "no_plan", "no_stream_for_comparison_language",
-                         f"neither side offers a pair of {comparison_language} audio streams "
-                         f"to compare")
-
-    primed = {"couples": couples, "fingerprints": {}, "alignments": {}, "factor_label": "1",
+    primed = {"couples": None, "fingerprints": {}, "alignments": {}, "factor_label": "1",
               "sample_rate": None}
-    step_launch("prime", candidate=candidate_path, n_couples=len(couples))
+    step_launch("prime", candidate=candidate_path, language=comparison_language)
     prime_ok, prime_cause, prime_reason = prime_couples(
         master_obj, candidate_obj, comparison_language, work_dir, primed)
-    step_result("prime", candidate=candidate_path, ok=prime_ok, cause=prime_cause)
+    couples = primed["couples"]
+    step_result("prime", candidate=candidate_path, ok=prime_ok, cause=prime_cause,
+                couples=couples)
     if not prime_ok:
         _drop_rate_wav(primed)
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
-    timeline_ms = _video_duration_ms(master_obj)
-    if timeline_ms is not None:
-        ends = tail_couples(primed)
-        tail_verdict, readings = tail_content_verdict(ends, float(timeline_ms) / 1000.0)
-        step_result("tail_content", candidate=candidate_path, verdict=tail_verdict,
-                    readings=readings, min_one_sided_s=TAIL_ONE_SIDED_MIN_S)
-        if tail_verdict == "master_cut_short":
-            _drop_rate_wav(primed)
-            _plan_line("none", candidate_path, step="tail_content", cause="master_cut_short")
-            return _terminal(candidate_path, "declined", "master_cut_short", (
-                f"the master's {comparison_language} content ends before the candidate's and "
-                f"does not resume: per couple (couple, verdict, master content after the last "
-                f"common instant s, candidate content after it s) {readings}; measured ends "
-                + "; ".join(f"{c['couple']} master {c['master_content_end_s']} s / candidate "
-                            f"{c['candidate_content_end_s']} s after the last common instant "
-                            f"{c['last_common_master_s']} s" for c in ends)
-                + f" of a {round(float(timeline_ms) / 1000.0, 3)} s master video -- the master "
-                  f"cannot give the candidate its end (ADDENDUM 26.9)"))
-        if tail_verdict == "candidate_short":
-            tools.log_always(f"repair: candidate_short_tail readings={readings} "
-                             f"-- the candidate's content ends >= {TAIL_ONE_SIDED_MIN_S} s "
-                             f"before the master's: the master fills the tail, no size cap "
-                             f"(ADDENDUM 26.9) for {candidate_path}\n")
     if time.monotonic() > repair_deadline:
         _drop_rate_wav(primed)
         return _budget_terminal(candidate_path, "prime", repair_budget_s)
@@ -5331,6 +5341,12 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                     and observations.get("gate_arm") != "rate_relation_signature"
                     and sweep_cause != "rate_arm_unity_wins")
         if terminal:
+            # no rate won: the native alignment is the final one, and a master cut short is a
+            # measured fact the low similarity would otherwise hide (id 349)
+            refusal = tail_decision(primed, master_obj, comparison_language, candidate_path)
+            if refusal is not None:
+                _plan_line("none", candidate_path, step="rate_arm", cause=refusal[0])
+                return _terminal(candidate_path, "declined", refusal[0], refusal[1])
             _plan_line("none", candidate_path, step="rate_arm", cause=sweep_cause)
             return _terminal(
                 candidate_path, "no_plan", sweep_cause,
@@ -5411,7 +5427,9 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                                   if isinstance(factor, Fraction) else factor))
         return True
     _plan_line("none", candidate_path, step="chimeric", cause=cause)
-    return _terminal(candidate_path, "no_plan", cause, reason,
+    # `master_cut_short` is a measured fact about the master: declined, as it always was
+    return _terminal(candidate_path, "declined" if cause == "master_cut_short" else "no_plan",
+                     cause, reason,
                      detail={"cross_verification": detail} if detail else None)
 
 
@@ -5444,6 +5462,13 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
     cost of the step). The filter rides on the candidate side only, and the EFFECTIVE ratio sets
     the corrected length fpcalc must read (see `fingerprint_track`)."""
     candidate_path = candidate_obj.filePath
+    if primed.get("couples") is None:
+        # THE COUPLES ARE THE PRIME'S HELPER, NOT A STAGE (ADDENDUM 32.5): the caller guarantees
+        # the comparison language on both sides, so an empty product is a broken caller.
+        primed["couples"] = enumerate_couples(master_obj, candidate_obj, language)
+        if not primed["couples"]:
+            raise ValueError(f"no {language} couple on {candidate_path}: the caller guarantees "
+                             f"the comparison language on both sides")
     sample_rate = primed.get("sample_rate") or comparison_sample_rate(master_obj, candidate_obj,
                                                                       language)
     primed["sample_rate"] = sample_rate
