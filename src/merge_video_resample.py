@@ -32,6 +32,7 @@ import statistics
 
 import audioCorrelation
 import tools
+import repair_log
 
 # `asetrate` ne prend qu'un entier. Poser la frequence cible directement a
 # 48000/r arrondirait a 0.5 Hz pres, soit 1.1e-5 en relatif -- 15 ms de derive
@@ -255,7 +256,9 @@ def _ffprobe_duration_seconds(source_path):
            source_path]
     tools.dev_log(f"resample: _ffprobe_duration_seconds starting "
                   f"file={source_path}\n")
-    stdout, stderror, exitCode = tools.launch_cmdExt_no_test(cmd)
+    with repair_log.announced("resample", "ffprobe", source_path) as call:
+        stdout, stderror, exitCode = tools.launch_cmdExt_no_test(cmd)
+        call["exit"] = exitCode
     if exitCode != 0:
         raise resample_fidelity_error(
             f"ffprobe could not read a duration: exit {exitCode}: "
@@ -278,7 +281,9 @@ def _extract_wav(source_path, start_seconds, window_seconds, out_path,
     command.append(out_path)
     tools.dev_log(f"resample: _extract_wav starting file={source_path} "
                   f"start_seconds={start_seconds} window_seconds={window_seconds}\n")
-    tools.launch_cmdExt_with_timeout_reload(command, 1, 120)
+    with repair_log.announced("resample", "ffmpeg", source_path) as call:
+        tools.launch_cmdExt_with_timeout_reload(command, 1, 120)
+        call["exit"] = 0
 
 
 def measure_fidelity_ladder(fidelity_at, duration_seconds_value,
@@ -449,8 +454,10 @@ def _probe_fidelity_at_ratio(master_path, candidate_path, start_seconds,
         tools.dev_log(f"resample: _probe_fidelity_at_ratio calling "
                       f"audioCorrelation.correlate tag={tag} ratio={ratio} "
                       f"master_wav={master_wav} candidate_wav={candidate_wav}\n")
-        fidelity, points, delay_ms = audioCorrelation.correlate(
-            master_wav, candidate_wav, window_seconds)
+        with repair_log.announced("resample", "fpcalc", candidate_wav) as call:
+            fidelity, points, delay_ms = audioCorrelation.correlate(
+                master_wav, candidate_wav, window_seconds)
+            call["exit"] = 0
         return fidelity
     except Exception as error:                          # noqa: BLE001
         # ONE PROBE OF ONE HYPOTHESIS, never the sweep. Same rule and same

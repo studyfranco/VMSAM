@@ -67,8 +67,10 @@ from os import path, replace as replace_file
 import re
 import subprocess
 import sys
+import time
 
 import tools
+import repair_log
 import video
 
 # Codecs audio qu'on sait reencoder sans changer de famille. Ne JAMAIS remonter
@@ -618,8 +620,10 @@ def resolve_source_bitrate(audio, source_path, timeout=120):
     tools.dev_log(f"chimeric: resolve_source_bitrate starting "
                   f"file={source_path} stream_order={audio.get('StreamOrder')}\n")
     try:
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-            command, 1, timeout)
+        with repair_log.announced("chimeric", "ffmpeg", source_path) as call:
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                command, 1, timeout)
+            call["exit"] = exit_code
     except Exception as error:
         raise chimeric_error(
             f"the source bitrate of track {audio.get('StreamOrder')} could not "
@@ -1089,7 +1093,9 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                     "-max_muxing_queue_size", "16384", out_path])
     tools.dev_log(f"chimeric: build_one_audio_track ffmpeg build call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
-    tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+    with repair_log.announced("chimeric", "ffmpeg", candidate_obj.filePath) as call:
+        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        call["exit"] = 0
 
     bitrate = None
     if "-b:a" in encoder_arguments:
@@ -1720,7 +1726,9 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
                "-c:s", target, out_path]
     tools.dev_log(f"chimeric: build_one_subtitle_track ffmpeg extract call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
-    tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+    with repair_log.announced("chimeric", "ffmpeg", candidate_obj.filePath) as call:
+        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        call["exit"] = 0
     if not path.getsize(out_path):
         # LA PISTE ETAIT DEJA VIDE A LA SOURCE -- zero paquet dans le fichier
         # d'origine, donc ffmpeg extrait un .srt de zero octet. Aucune replique
@@ -1878,7 +1886,9 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     command.extend(["-max_muxing_queue_size", "16384", out_path])
     tools.dev_log(f"chimeric: mux_repaired_file ffmpeg mux call "
                   f"out_path={out_path}\n")
-    tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+    with repair_log.announced("chimeric", "ffmpeg", out_path) as call:
+        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        call["exit"] = 0
     if chapters_path is not None:
         mux_chapters(out_path, chapters_path, timeout)
 
@@ -1896,7 +1906,9 @@ def mux_chapters(out_path, chapters_path, timeout):
                "--chapters", chapters_path, out_path]
     tools.dev_log(f"chimeric: mux_chapters mkvmerge call out_path={out_path} "
                   f"chapters={chapters_path}\n")
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    with repair_log.announced("chimeric", "mkvmerge", out_path) as call:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        call["exit"] = completed.returncode
     if completed.returncode not in (0, 1) or not path.exists(remuxed):
         raise chimeric_error(
             f"mkvmerge could not set the chapters on the produced file (exit "
@@ -1919,7 +1931,10 @@ def extract_chapters_xml(file_path, out_path, timeout=120):
     tools.dev_log(f"chimeric: extract_chapters_xml mkvextract call file={file_path} "
                   f"out={out_path}\n")
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        with repair_log.announced("chimeric", "mkvextract", file_path) as call:
+            completed = subprocess.run(command, capture_output=True, text=True,
+                                       timeout=timeout)
+            call["exit"] = completed.returncode
     except subprocess.TimeoutExpired:
         return None, "timeout"
     if completed.returncode not in (0, 1):
@@ -2103,7 +2118,9 @@ def probe_delivered_durations(file_path, timeout=300):
                "format=duration:stream=index,codec_type,duration:stream_tags=DURATION",
                "-of", "json", file_path]
     tools.dev_log(f"chimeric: probe_delivered_durations ffprobe call file={file_path}\n")
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    with repair_log.announced("chimeric", "ffprobe", file_path) as call:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        call["exit"] = completed.returncode
     data = _json.loads(completed.stdout or "{}")
     try:
         result["container_ms"] = str(Decimal(str(data["format"]["duration"])) * 1000)
@@ -2128,7 +2145,10 @@ def probe_delivered_durations(file_path, timeout=300):
         command = [tools.software["ffprobe"], "-v", "error", "-select_streams", str(index),
                    "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0",
                    file_path]
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        with repair_log.announced("chimeric", "ffprobe", file_path) as call:
+            completed = subprocess.run(command, capture_output=True, text=True,
+                                       timeout=timeout)
+            call["exit"] = completed.returncode
         last = None
         for line in completed.stdout.splitlines():
             parts = line.split(",")
@@ -2289,8 +2309,10 @@ def measure_track_extent_ms(file_path, stream_order, timeout=300):
     tools.dev_log(f"chimeric: measure_track_extent_ms starting "
                   f"file={file_path} stream_order={stream_order}\n")
     try:
-        result = subprocess.run(command, capture_output=True, text=True,
-                                timeout=timeout)
+        with repair_log.announced("chimeric", "ffprobe", file_path) as call:
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=timeout)
+            call["exit"] = result.returncode
     except subprocess.TimeoutExpired:
         return None, "timeout"
     except Exception as error:
@@ -2410,7 +2432,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                                 timeout=3600, verify=True, verify_tolerance_ms=15,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
-                                comparison_language=None, chapters_path=None):
+                                comparison_language=None, chapters_path=None,
+                                deadline=None):
     '''Point d'entree du module: CONSTRUIT le fichier, il ne MESURE rien.
 
     STAGE 5 (RULING_20260922_ORCHESTRATOR_ARCHITECTURE.MD ADDENDUM 10 d): "LA
@@ -2717,7 +2740,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
         if verify:
             verification = verify_on_master_timeline(
                 out_path, master_obj, audio_reports, reference_pieces, verify_tolerance_ms,
-                verify_search_ms, reference_stream)
+                verify_search_ms, reference_stream, deadline=deadline)
 
         # VERIFY-THE-FILL (Architect's ruling, verification half, 2026-09-16),
         # distinct from the VMSAM_ERA tag elsewhere in this file. UNCONDITIONNEL --
@@ -2732,8 +2755,10 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
         fill_content = []
         try:
             fill_content = verify_fill_content(
-                out_path, master_obj, audio_reports, master_duration_ms)
+                out_path, master_obj, audio_reports, master_duration_ms, deadline=deadline)
         except Exception as error:
+            if getattr(error, "cause", None) == "repair_budget_exceeded":
+                raise
             tools.log_line(
                 f"chimeric: fill_content_verification_failed "
                 f"{type(error).__name__}: {error}\n")
@@ -2964,43 +2989,101 @@ def choose_probe_positions(pieces, window_seconds):
     return sorted(positions, key=lambda x: x[1])
 
 
-def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
+# THE PROBE'S PRE-ROLL (ADDENDUM 26, report commit): an INPUT seek lands this many seconds before
+# the window and an OUTPUT seek cuts the rest, so a probe decodes ~25 s instead of the file from
+# its start. MEASURED against the pure output seek, same command otherwise (scratchpad
+# a26r/seekeq.py): 0 samples of lag at 8 kHz on 9 probes of 7 files (start_time 0, 0.021, 0.048,
+# 0.192, 1.001 s; FLAC, AAC, AC-3, TrueHD 7.1), 0.28-0.72 sample (<= 0.09 ms) on two -- 150x under
+# the 15 ms delivery tolerance, and master and product go through the same reader. Fallout S01E02
+# master stream 0:1 at 3727 s: 155.9 s -> 2.1 s.
+PROBE_PREROLL_S = Decimal("5")
+
+
+def _mono_command(file_path, stream_specifier, input_seek_s, output_seek_s, duration_s, rate):
+    command = [tools.software["ffmpeg"], "-v", "error", "-nostdin"]
+    if input_seek_s > 0:
+        command += ["-ss", f"{input_seek_s:.3f}"]
+    return command + ["-i", file_path, "-map", stream_specifier,
+                      "-ss", f"{output_seek_s:.3f}", "-t", f"{duration_s:.3f}",
+                      "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
+                      "-ar", str(rate), "-"]
+
+
+def _run_bounded(command, media_seconds, deadline, file_path, stream_specifier):
+    """One reader call under the decoder bound and, when given, the repair's deadline (a
+    `time.monotonic()` instant): the verifier's time counts against the repair budget."""
+    timeout = tools.decoder_timeout_for(media_seconds)
+    budget_bound = False
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise chimeric_error(
+                f"the repair's budget ran out before the reader could decode {stream_specifier} "
+                f"of {path.basename(file_path)}", cause="repair_budget_exceeded")
+        if remaining < timeout:
+            timeout, budget_bound = remaining, True
+    try:
+        with repair_log.announced("chimeric", "ffmpeg", file_path) as call:
+            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     timeout=timeout)
+            call["exit"] = process.returncode
+    except subprocess.TimeoutExpired:
+        if budget_bound:
+            raise chimeric_error(
+                f"the repair's budget ran out while the reader decoded {stream_specifier} of "
+                f"{path.basename(file_path)}", cause="repair_budget_exceeded")
+        raise tools.decoder_timeout("read_mono_samples", timeout,
+                                    f"file={file_path} stream={stream_specifier}")
+    return process
+
+
+def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, deadline=None):
     """Seek de SORTIE, pas d'entree: un fichier sans index audio utilisable rend
     0 octet sur un seek d'entree, et une correlation sur du vide se lit comme
     "aucun accord" au lieu de "je n'ai rien lu". Mesure 2026-09-03 sur un
     fixture construit avec `-ss` en entree puis `-c:a copy`.
+
+    SINCE ADDENDUM 26 (report commit) THE OUTPUT SEEK IS PRECEDED BY AN INPUT SEEK to
+    `PROBE_PREROLL_S` before the window: the output seek alone decodes the file from its start
+    (Fallout S01E02, 240-433 s per late probe on the TrueHD 7.1 master, ~40 min of verification).
+    The rule above stands: a hybrid read that comes back SHORT is read again with the output seek
+    alone, and the line says so -- never a correlation on nothing.
     """
     import numpy
-    command = [tools.software["ffmpeg"], "-v", "error", "-nostdin",
-               "-i", file_path, "-map", stream_specifier,
-               "-ss", f"{start_ms / Decimal('1000'):.3f}",
-               "-t", f"{duration_ms / Decimal('1000'):.3f}",
-               "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1",
-               "-ar", str(rate), "-"]
-    # PRE-CALL LOG, NOT POST-CALL (owner's decision, 2026-09-22, on a real
-    # 7-hour hang: this `subprocess.run` carries no `timeout=`, and every
-    # log line this module emits otherwise fires on the way OUT of a call --
-    # which a hang never reaches. A line naming `file_path` immediately
-    # BEFORE the blocking call is the only kind observable while it is
-    # stuck, so it is placed here rather than after. Not fixing the missing
-    # timeout tonight -- this ffmpeg extraction and an ffprobe show_entries
-    # call have no shared legitimate duration, and a bound picked without
-    # measurement is a guess dressed as a fix (Lead's ruling, 2026-09-22).
+    start_s = start_ms / Decimal("1000")
+    duration_s = duration_ms / Decimal("1000")
+    preroll = min(PROBE_PREROLL_S, start_s)
+    # PRE-CALL LOG, NOT POST-CALL (owner's decision, 2026-09-22, on a real 7-hour hang): a line
+    # naming `file_path` immediately BEFORE the blocking call is the only kind observable while
+    # it is stuck.
     tools.dev_log(f"chimeric: read_mono_samples starting file={file_path} "
                   f"stream={stream_specifier} start_ms={start_ms} "
                   f"duration_ms={duration_ms}\n")
-    # BOUNDED SINCE ADDENDUM 26.3 (owner: "un timeout sur CHAQUE appel ffmpeg"), and the bound
-    # counts what this call DECODES, not what it returns: `-ss` sits AFTER `-i` (an output seek,
-    # see the docstring), so ffmpeg decodes from the file's start to the window's end. MEASURED,
-    # Fallout S01E02 (bb6ad55b): a 20 s probe at 3733.8 s of the master's TrueHD 7.1 track ran past
-    # a bound computed on the 20 s window alone (70 s) and declined a pair that repairs.
-    timeout = tools.decoder_timeout_for((float(start_ms) + float(duration_ms)) / 1000.0)
+    hybrid = _mono_command(file_path, stream_specifier, start_s - preroll, preroll, duration_s,
+                           rate)
     try:
-        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise tools.decoder_timeout("read_mono_samples", timeout,
-                                    f"file={file_path} stream={stream_specifier}")
+        process = _run_bounded(hybrid, float(preroll + duration_s), deadline, file_path,
+                               stream_specifier)
+    except tools.decoder_timeout:
+        # ONE RETRY, logged. The bound (60 s + 0.5 s/s, ADDENDUM 26.3) is the ruled one, and the
+        # hybrid read decodes ~25 s where the output seek decoded the file from its start (whose
+        # bound, counted from the start, was ~1,900 s on a late probe). MEASURED at host load ~70:
+        # the same 13 s TrueHD 7.1 read took 5.2 to 30.9 s, and once 66.9 s -- contention, not the
+        # media. A second overrun declines `decoder_timeout` as before.
+        tools.dev_log(f"chimeric: read_mono_samples retry=decoder_timeout file={file_path} "
+                      f"stream={stream_specifier} start_ms={start_ms}\n")
+        process = _run_bounded(hybrid, float(preroll + duration_s), deadline, file_path,
+                               stream_specifier)
+    expected = int(duration_s * rate) - rate // 100
+    if preroll > 0 and (process.returncode != 0 or len(process.stdout) // 4 < expected):
+        tools.dev_log(f"chimeric: read_mono_samples seek=output_fallback file={file_path} "
+                      f"stream={stream_specifier} start_ms={start_ms} hybrid_samples="
+                      f"{len(process.stdout) // 4} expected={expected}\n")
+        # BOUNDED SINCE ADDENDUM 26.3 by what it DECODES: from the file's start to the window's
+        # end (4d6c2c4a).
+        process = _run_bounded(
+            _mono_command(file_path, stream_specifier, Decimal(0), start_s, duration_s, rate),
+            float(start_s + duration_s), deadline, file_path, stream_specifier)
     # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
     #
     # Cette fonction ne lisait NI `returncode` NI `stderr` -- zero occurrence de
@@ -3069,8 +3152,10 @@ def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout
     tools.dev_log(f"chimeric: read_track_samples starting file={file_path} "
                   f"stream_order={stream_order} rate={rate} filter={audio_filter}\n")
     try:
-        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                 timeout=timeout)
+        with repair_log.announced("chimeric", "ffmpeg", file_path) as call:
+            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                     timeout=timeout)
+            call["exit"] = process.returncode
     except subprocess.TimeoutExpired:
         raise chimeric_error(
             f"the whole-track read of stream {stream_order} did not finish in "
@@ -3215,8 +3300,10 @@ def probe_output_streams(file_path):
     # BEFORE the call can be observed if it hangs.
     tools.dev_log(f"chimeric: probe_output_streams starting file={file_path}\n")
     # BOUNDED (ADDENDUM 26.3): an ffprobe reads headers, the base bound covers it.
-    data = _json.loads(subprocess.run(command, check=True, stdout=subprocess.PIPE,
-                                      timeout=tools.DECODER_TIMEOUT_BASE_S).stdout)
+    with repair_log.announced("chimeric", "ffprobe", file_path) as call:
+        data = _json.loads(subprocess.run(command, check=True, stdout=subprocess.PIPE,
+                                          timeout=tools.DECODER_TIMEOUT_BASE_S).stdout)
+        call["exit"] = 0
     ends = None
     streams = []
     for entry in data.get("streams", []):
@@ -3290,8 +3377,10 @@ def last_audio_packet_ms(file_path):
     # PRE-CALL LOG -- same reasoning as the other two sites in this module.
     tools.dev_log(f"chimeric: last_audio_packet_ms starting file={file_path}\n")
     try:
-        output = subprocess.run(command, check=True, stdout=subprocess.PIPE,
-                                timeout=tools.DECODER_TIMEOUT_BASE_S).stdout.decode()
+        with repair_log.announced("chimeric", "ffprobe", file_path) as call:
+            output = subprocess.run(command, check=True, stdout=subprocess.PIPE,
+                                    timeout=tools.DECODER_TIMEOUT_BASE_S).stdout.decode()
+            call["exit"] = 0
     except Exception:
         return {}
     ends = {}
@@ -3912,7 +4001,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
 
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                              tolerance_ms, search_ms, reference_stream=None):
+                              tolerance_ms, search_ms, reference_stream=None, deadline=None):
     """Compare chaque piste reconstruite au maitre et REFUSE si elle n'y est pas.
 
     Ceci est la forme automatique de `SPEC_ZONE_A.MD` §2 point 3 -- produire la
@@ -3930,6 +4019,20 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     """
     tools.dev_log(f"chimeric: verify_on_master_timeline starting "
                   f"out_path={out_path} master={master_obj.filePath}\n")
+    started = time.monotonic()
+    results = _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
+                                         tolerance_ms, search_ms, reference_stream, deadline)
+    # ADDENDUM 26 (report): the verifier's own duration, on its own line -- its time counts
+    # against the repair's budget (`deadline`), and a reader must be able to see how much.
+    tools.log_line(f"chimeric: verify_on_master_timeline done seconds="
+                   f"{round(time.monotonic() - started, 1)} tracks={len(results)} "
+                   f"out_path={out_path}\n")
+    return results
+
+
+def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tolerance_ms,
+                               search_ms, reference_stream, deadline):
+    """The body of `verify_on_master_timeline` (its docstring holds), timed by it."""
     probe_plan = choose_probe_positions(pieces, verify_window_seconds)
     positions = [start for _, start in probe_plan]
     if not len(positions):
@@ -3980,9 +4083,11 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
             start = probe_start
             reference = read_mono_samples(master_obj.filePath,
                                           f"0:{int(master_audio['StreamOrder'])}",
-                                          start, window_ms, verify_probe_rate)
+                                          start, window_ms, verify_probe_rate,
+                                          deadline=deadline)
             produced = read_mono_samples(out_path, f"0:a:{produced_index}",
-                                         start, window_ms, verify_probe_rate)
+                                         start, window_ms, verify_probe_rate,
+                                         deadline=deadline)
             reference_rms = get_rms(reference)
             produced_rms = get_rms(produced)
             if min(reference_rms, produced_rms) < verify_min_rms:
@@ -4285,7 +4390,8 @@ def _fill_control_window_ms(start_ms, span_ms, master_duration_ms):
     return max(Decimal("0"), master_duration_ms - span_ms)
 
 
-def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms):
+def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms,
+                        deadline=None):
     '''Does a shipped master-fill span carry the content it claims to?
 
     RECORDS, NEVER REFUSES (Lead's ruling, 2026-09-16, scope boundary on this
@@ -4347,14 +4453,17 @@ def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms)
                     "fill_source_class": region.get("fill_source_class")}
             try:
                 produced_samples = read_mono_samples(
-                    out_path, f"0:a:{produced_index}", start_ms, span_ms, verify_probe_rate)
+                    out_path, f"0:a:{produced_index}", start_ms, span_ms, verify_probe_rate,
+                    deadline=deadline)
                 reading_samples = read_mono_samples(
                     master_obj.filePath, f"0:{fill_stream_order}", start_ms, span_ms,
-                    verify_probe_rate)
+                    verify_probe_rate, deadline=deadline)
                 control_samples = read_mono_samples(
                     master_obj.filePath, f"0:{fill_stream_order}", control_start_ms, span_ms,
-                    verify_probe_rate)
+                    verify_probe_rate, deadline=deadline)
             except Exception as error:
+                if getattr(error, "cause", None) == "repair_budget_exceeded":
+                    raise
                 entry.update({"outcome": "skipped_unmeasurable",
                              "reason": f"extraction failed: {type(error).__name__}"})
                 regions.append(entry)

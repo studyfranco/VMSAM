@@ -86,6 +86,7 @@ the place to open a second convention.
 import numpy as np
 
 import tools
+import repair_log
 
 SR = 16000
 WINDOW_SECONDS = 30.0
@@ -293,7 +294,9 @@ def _pcm(file_path, stream_order, start_s, dur_s):
     # the only evidence of where the process went.
     _log(f"_pcm extracting stream {stream_order} of {file_path} "
          f"at {start_s:.3f}s for {dur_s:.3f}s")
-    stdout, stderror, exit_code = tools.launch_cmdExt_no_test(cmd)
+    with repair_log.announced("master_self_check", "ffmpeg", file_path) as call:
+        stdout, stderror, exit_code = tools.launch_cmdExt_no_test(cmd)
+        call["exit"] = exit_code
     if exit_code != 0:
         _log(f"_pcm ffmpeg exit {exit_code} on stream {stream_order} of "
              f"{file_path}: {stderror[-400:]}")

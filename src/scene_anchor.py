@@ -60,6 +60,7 @@ import threading
 import time
 
 import tools
+import repair_log
 from frame_compare import FrameComparer, _extract_hashes
 from scenedetect import open_video, SceneManager, ContentDetector
 
@@ -510,9 +511,12 @@ def _media_duration_s(path):
     if path not in _MEDIA_DURATION_S:
         value = None
         try:
-            stdout, _stderr, _code = tools.launch_cmdExt_with_timeout_reload(
-                [tools.software["ffprobe"], "-v", "error", "-show_entries", "format=duration",
-                 "-of", "default=noprint_wrappers=1:nokey=1", path], max_restart=1, timeout=60)
+            with repair_log.announced("scene_anchor", "ffprobe", path) as call:
+                stdout, _stderr, _code = tools.launch_cmdExt_with_timeout_reload(
+                    [tools.software["ffprobe"], "-v", "error", "-show_entries",
+                     "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
+                    max_restart=1, timeout=60)
+                call["exit"] = _code
             value = float(stdout.decode().strip())
         except Exception:                                                # noqa: BLE001
             value = None
@@ -565,8 +569,10 @@ def _probe_frame_rate(path):
     tools.dev_log(f"scene_anchor: _probe_frame_rate calling ffprobe "
                   f"file={path}\n")
     try:
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-            cmd, max_restart=3, timeout=60)
+        with repair_log.announced("scene_anchor", "ffprobe", path) as call:
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                cmd, max_restart=3, timeout=60)
+            call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"
     if exit_code != 0:
@@ -671,7 +677,9 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
                       f"n_frames={n_frames} timeout_s={timeout}\n")
         timer.start()
         try:
-            sm.detect_scenes(video, duration=n_frames)
+            with repair_log.announced("scene_anchor", "pyscenedetect", path) as call:
+                sm.detect_scenes(video, duration=n_frames)
+                call["exit"] = "stopped_by_timer" if fired else 0
         finally:
             timer.cancel()
         if fired:
@@ -1469,6 +1477,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                 master_path, candidate_path, fps_num, fps_den,
                 bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
                 rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
+                cluster_window=cluster_window, scan_cache=scan_cache,
                 content_detector_threshold=rung_cd_threshold, debug=debug,
                 candidate_time_scale=candidate_time_scale,
                 crop_filters=crop_filters, resolve_shift=resolve_shift,
@@ -2168,8 +2177,10 @@ def _probe_video_geometry(path):
     tools.dev_log(f"scene_anchor: _probe_video_geometry calling ffprobe "
                   f"file={path}\n")
     try:
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-            cmd, max_restart=3, timeout=60)
+        with repair_log.announced("scene_anchor", "ffprobe", path) as call:
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                cmd, max_restart=3, timeout=60)
+            call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"
     if exit_code != 0:

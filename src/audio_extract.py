@@ -21,6 +21,7 @@ from os import stat as os_stat
 import subprocess
 
 import tools
+import repair_log
 
 
 class ExtractProducedNothing(Exception):
@@ -131,8 +132,10 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     # launcher above was the unbounded one; the same non-zero-exit refusal is kept.
     timeout = tools.decoder_timeout_for(length_seconds)
     try:
-        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=timeout)
+        with repair_log.announced("audio_extract", "ffmpeg", source_path) as call:
+            done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  timeout=timeout)
+            call["exit"] = done.returncode
     except subprocess.TimeoutExpired:
         raise tools.decoder_timeout("extract_audio_window", timeout,
                                     f"file={source_path} stream_order={stream_order}")

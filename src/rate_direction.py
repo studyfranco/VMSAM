@@ -83,6 +83,7 @@ import audioCorrelation
 import audio_extract
 import merge_video_resample
 import tools
+import repair_log
 import video
 
 
@@ -172,10 +173,12 @@ def _track_entry(video_obj, language, stream_order):
 
 
 def _ffprobe_format_duration(file_path):
-    completed = subprocess.run(
-        [tools.software["ffprobe"], "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=nw=1:nk=1", file_path],
-        capture_output=True, text=True, timeout=120)
+    with repair_log.announced("rate_direction", "ffprobe", file_path) as call:
+        completed = subprocess.run(
+            [tools.software["ffprobe"], "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", file_path],
+            capture_output=True, text=True, timeout=120)
+        call["exit"] = completed.returncode
     return float(completed.stdout.strip())
 
 
@@ -204,7 +207,10 @@ def _comparison_rate(master_obj, candidate_obj, language):
 
 def _ffmpeg(cmd, label):
     tools.dev_log(f"rate_direction: ffmpeg {label}: {' '.join(cmd)}\n")
-    tools.launch_cmdExt_with_timeout_reload(cmd, 1, 3600)
+    source = cmd[cmd.index("-i") + 1] if "-i" in cmd else None
+    with repair_log.announced("rate_direction", "ffmpeg", source) as call:
+        tools.launch_cmdExt_with_timeout_reload(cmd, 1, 3600)
+        call["exit"] = 0
 
 
 def _decode_track(source_path, stream_order, sample_rate, out_path):
@@ -376,8 +382,11 @@ def decide_direction(master_obj, candidate_obj, language, sweep_gate, work_dir,
             fab = _cut_segment(resampled, starts[k], window,
                                path.join(private, f"f{name.replace('/', '_')}.{k}.wav"), pad=True)
             try:
-                return name, k, audioCorrelation.correlate(master_segments[k], fab,
-                                                            length_time * 2)
+                with repair_log.announced("rate_direction", "fpcalc", fab) as call:
+                    measured = audioCorrelation.correlate(master_segments[k], fab,
+                                                          length_time * 2)
+                    call["exit"] = 0
+                return name, k, measured
             finally:
                 try:
                     remove(fab)
@@ -488,10 +497,12 @@ def decide_direction(master_obj, candidate_obj, language, sweep_gate, work_dir,
 # ---------------------------------------------------------------------------
 
 def _declared_rates(file_path):
-    completed = subprocess.run(
-        [tools.software["ffprobe"], "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "json", file_path],
-        capture_output=True, text=True, timeout=120)
+    with repair_log.announced("rate_direction", "ffprobe", file_path) as call:
+        completed = subprocess.run(
+            [tools.software["ffprobe"], "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "json", file_path],
+            capture_output=True, text=True, timeout=120)
+        call["exit"] = completed.returncode
     streams = json.loads(completed.stdout or "{}").get("streams") or [{}]
     rates = {}
     for key in ("r_frame_rate", "avg_frame_rate"):

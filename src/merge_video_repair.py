@@ -435,7 +435,9 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         # porte pas la langue de la piste (SPEC_ZONE_A.MD s4c).
         comparison_language=plan.get("language"),
         chapters_path=plan.get("chapters_path"),
-        verify=True, verify_tolerance_ms=verify_tolerance_ms)
+        verify=True, verify_tolerance_ms=verify_tolerance_ms,
+        # ADDENDUM 26 (report commit): the verifier's time counts against the repair's budget.
+        deadline=plan.get("repair_deadline"))
 
     assembly["unverified_segment_ms"] = Decimal("0")
     # LE JOURNAL EST ECRIT ICI, avant que l'objet video soit construit: si la
@@ -2394,6 +2396,7 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 # ADDENDUM 26.3: a decoder past its bound, anywhere in the build, is a NAMED
                 # decline -- the file comes back next wave; never a failure of the repair.
                 cause = "decoder_timeout"
+                repair_orchestrator.log_measurement_class(candidate_path, cause)
                 record(candidate_path, "declined", str(error), cause=cause)
             elif isinstance(error, merge_video_chimeric.chimeric_error):
                 cause = chimeric_cause(error)

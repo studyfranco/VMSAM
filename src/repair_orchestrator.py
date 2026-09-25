@@ -103,6 +103,7 @@ import time
 import audioCorrelation
 import audio_extract
 import banded_seed_alignment
+import repair_log
 import tools
 
 MODALITY = "repair_orchestrator"
@@ -475,7 +476,11 @@ DECLINE_CAUSES = {
     # step 1
     "master_intertrack_desync": CLASS_CONCLUSIVE,
     # step 2
-    "similarity_unrecoverable_by_resample": CLASS_CONCLUSIVE,
+    # RECLASSIFIED 2026-09-25 (ADDENDUM 26 report; ids 238/248/261/259/237/110): a similarity
+    # FLOOR is not a proven negative -- id 110's 0.15 was a mistagged English track measured
+    # against Japanese, same episode. The pass-runners read this class as Unmergeable_Verified.
+    # CLASS_CONCLUSIVE stays for proofs (no common language, different content, undecodable).
+    "similarity_unrecoverable_by_resample": CLASS_COULD_NOT_RUN,
     "rate_sweep_no_sample_rate": CLASS_COULD_NOT_RUN,
     # step 3, measurement
     "no_stream_for_comparison_language": CLASS_COULD_NOT_RUN,
@@ -619,13 +624,21 @@ def step_launch(step, **fields):
     step that hangs leaves only its launch line behind -- that is the entire reason the owner
     ordered these, on a real seven-hour hang whose last log line named no file.
     """
+    _STEP_STARTED[step] = time.monotonic()
     tools.dev_log(f"orchestrator: launch step={step} "
                   f"{_fields(sorted(fields.items()))}\n")
+
+
+# When each launched step began (ADDENDUM 26.5): its result line carries `elapsed_s`.
+_STEP_STARTED = {}
 
 
 def step_result(step, **fields):
     """The result half. Emitted on EVERY exit of the step, including its refusals -- a step that
     logs only its successes is a step whose failures are invisible."""
+    started = _STEP_STARTED.pop(step, None)
+    if started is not None:
+        fields = dict(fields, elapsed_s=round(time.monotonic() - started, 2))
     tools.dev_log(f"orchestrator: result step={step} "
                   f"{_fields(sorted(fields.items()))}\n")
 
@@ -745,10 +758,12 @@ def _track_duration_seconds(video_obj, language, stream_order):
     tools.dev_log(f"orchestrator: ffprobe duration call file={video_obj.filePath} "
                   f"stream_order={stream_order}\n")
     try:
-        completed = subprocess.run(
-            [tools.software["ffprobe"], "-v", "error", "-show_entries",
-             "format=duration", "-of", "default=nw=1:nk=1", video_obj.filePath],
-            capture_output=True, text=True, timeout=120)
+        with repair_log.announced("orchestrator", "ffprobe", video_obj.filePath) as call:
+            completed = subprocess.run(
+                [tools.software["ffprobe"], "-v", "error", "-show_entries",
+                 "format=duration", "-of", "default=nw=1:nk=1", video_obj.filePath],
+                capture_output=True, text=True, timeout=120)
+            call["exit"] = completed.returncode
         return float(completed.stdout.strip())
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"orchestrator: ffprobe duration unreadable for "
@@ -852,7 +867,9 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
         audio_extract.extract_audio_window(video_obj.filePath, stream_order, 0.0,
                                            duration_seconds, wav, sample_rate,
                                            audio_filter=audio_filter)
-        points = audioCorrelation.calculate_fingerprints(wav, length=output_duration_seconds)
+        with repair_log.announced("orchestrator", "fpcalc", wav) as call:
+            points = audioCorrelation.calculate_fingerprints(wav, length=output_duration_seconds)
+            call["exit"] = 0
     except tools.decoder_timeout:
         raise
     except Exception as error:                                           # noqa: BLE001
@@ -3736,6 +3753,7 @@ def track_pieces(zones, fills, readings, extent_ms, timeline_ms):
     return merged, adjustments, overlaps
 
 
+@repair_log.timed_phase("orchestrator", "apply_plan", lambda candidate_path, *a, **k: candidate_path)
 def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_obj, context):
     """STAGE 5 -- THE PLAN, APPLIED, AND NOTHING ELSE (ADDENDUM 10 d: "LA FONCTION QUI TRAITE LE
     PLAN NE FAIT QUE TRAITER LE PLAN -- aucune decision, aucun test d'opportunite"). Returns
@@ -3915,6 +3933,8 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "speed_ratio_exact": (None if speed_ratio is None else rate_text),
         "rate_source": (None if speed_ratio is None else "rate_sweep"),
         "resample_gate": context.get("sweep_gate"),
+        # the repair's budget reaches the delivery verifier (ADDENDUM 26, report commit)
+        "repair_deadline": domain.get("repair_deadline"),
     }
     step_launch("build", candidate=candidate_path, marker=marker,
                 n_tracks=len(track_plans))
@@ -4510,6 +4530,9 @@ def ensemble_similarity_gate(primed, candidate_path):
 # STEP 3 -- chimeric
 # ---------------------------------------------------------------------------
 
+@repair_log.timed_phase("orchestrator", "chimeric",
+                        lambda factor, language, master_obj, candidate_obj, *a, **k:
+                        candidate_obj.filePath)
 def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
              sweep_gate=None, resample_routing=None, repair_deadline=None):
     """The ruling's `chimeric(speed_factor, language, master_obj, candidate_obj)`, as ADDENDUM 21
@@ -4785,6 +4808,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
 # THE ORCHESTRATOR
 # ---------------------------------------------------------------------------
 
+@repair_log.timed_phase("orchestrator", "repair",
+                        lambda master_obj, candidate_obj, *a, **k: candidate_obj.filePath)
 def repair(master_obj, candidate_obj, comparison_language, work_root=None,
            master_intertrack_cache=None):
     """The owner's `repair(master_obj, candidate_obj, comparison_language, ...)`. Returns a BOOL.
@@ -4862,6 +4887,7 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     step_launch("prime", candidate=candidate_path, n_couples=len(couples))
     prime_ok, prime_cause, prime_reason = prime_couples(
         master_obj, candidate_obj, comparison_language, work_dir, primed)
+    step_result("prime", candidate=candidate_path, ok=prime_ok, cause=prime_cause)
     if not prime_ok:
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)

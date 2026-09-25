@@ -7,6 +7,7 @@ from sys import stderr
 import numpy as np
 from scipy.fft import dct
 import tools
+import repair_log
 
 class FrameComparer:
     """
@@ -177,8 +178,10 @@ class FrameComparer:
         tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
                       f"start_sec={start_sec} dur_sec={dur_sec} timeout_s={timeout}\n")
         try:
-            done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  timeout=timeout)
+            with repair_log.announced("frame_compare", "ffmpeg", path) as call:
+                done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      timeout=timeout)
+                call["exit"] = done.returncode
         except subprocess.TimeoutExpired:
             raise tools.decoder_timeout("ffmpeg_raw_frames", timeout,
                                         f"file={path} start_sec={start_sec} dur_sec={dur_sec}")
@@ -329,8 +332,10 @@ def _native_frame_rate(path):
     tools.dev_log(f"frame_compare: _native_frame_rate calling ffprobe "
                   f"file={path}\n")
     try:
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-            cmd, max_restart=3, timeout=60)
+        with repair_log.announced("frame_compare", "ffprobe", path) as call:
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                cmd, max_restart=3, timeout=60)
+            call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"
     if exit_code != 0:
