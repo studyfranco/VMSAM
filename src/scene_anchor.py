@@ -56,6 +56,8 @@ built with BOTH properties measured, not assumed.
 """
 from fractions import Fraction
 from decimal import Decimal
+import threading
+import time
 
 import tools
 from frame_compare import FrameComparer, _extract_hashes
@@ -499,6 +501,35 @@ def _parse_positive_rate(value):
     return rate if rate > 0 else None
 
 
+_MEDIA_DURATION_S = {}
+
+
+def _media_duration_s(path):
+    """The container's duration in seconds (ffprobe `format=duration`, bounded, memoised per
+    path), or None. Used only to keep scan windows INSIDE the file (ADDENDUM 26.1/26.4)."""
+    if path not in _MEDIA_DURATION_S:
+        value = None
+        try:
+            stdout, _stderr, _code = tools.launch_cmdExt_with_timeout_reload(
+                [tools.software["ffprobe"], "-v", "error", "-show_entries", "format=duration",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path], max_restart=1, timeout=60)
+            value = float(stdout.decode().strip())
+        except Exception:                                                # noqa: BLE001
+            value = None
+        _MEDIA_DURATION_S[path] = value
+    return _MEDIA_DURATION_S[path]
+
+
+def _clamp_to_file(start, end, duration_s, fps_num, fps_den, scale=None):
+    """A [start, end) window of MASTER-grid frame numbers, kept inside a file of `duration_s`
+    seconds (its equivalent length times `scale` on a rate pair). No duration -> unchanged."""
+    start = max(0, start)
+    if duration_s is not None:
+        seconds = Fraction(str(duration_s)) * (Fraction(scale) if scale is not None else 1)
+        end = min(end, int(seconds * Fraction(fps_num, fps_den)))
+    return start, end
+
+
 def _probe_frame_rate(path):
     '''THE FILE'S OWN frame rate, as an EXACT RATIONAL -- `(Fraction, None)`
     on success, `(None, reason)` when it could not be measured.
@@ -616,12 +647,20 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
     '''
     if n_frames <= 0:
         return [], None
+    # BOUNDED (ADDENDUM 26.3: a timeout on EVERY decoder call). PySceneDetect runs in-process, so
+    # the bound is `SceneManager.stop()` fired by a timer -- the detector checks its stop event
+    # between frames -- and a stop by the timer is `tools.decoder_timeout`, never an empty result.
+    # The window's media length is taken at 24 frames/s: the slowest rate of the corpus makes the
+    # bound the most generous.
+    timeout = tools.decoder_timeout_for(n_frames / 24.0)
+    fired = []
     try:
         video = open_video(path)
         if start_frame > 0:
             video.seek(start_frame)
         sm = SceneManager()
         sm.add_detector(ContentDetector(threshold=threshold))
+        timer = threading.Timer(timeout, lambda: (fired.append(True), sm.stop()))
         # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22): an
         # in-process PySceneDetect full decode, no timeout, no thread --
         # reached from the repair path (merge_video_chimeric.py's anchor
@@ -629,16 +668,26 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
         # that would say it was the one running during a hang.
         tools.dev_log(f"scene_anchor: _scene_cut_frames calling "
                       f"detect_scenes file={path} start_frame={start_frame} "
-                      f"n_frames={n_frames}\n")
-        sm.detect_scenes(video, duration=n_frames)
+                      f"n_frames={n_frames} timeout_s={timeout}\n")
+        timer.start()
+        try:
+            sm.detect_scenes(video, duration=n_frames)
+        finally:
+            timer.cancel()
+        if fired:
+            raise tools.decoder_timeout("pyscenedetect", timeout,
+                                        f"file={path} start_frame={start_frame} "
+                                        f"n_frames={n_frames}")
         scene_list = sm.get_scene_list()
         if len(scene_list) < 2:
             return [], None
         return [scene.frame_num for scene, _ in scene_list[1:]], None
+    except tools.decoder_timeout:
+        raise
     except Exception as exc:
         reason = f"scene_detector_failed:{type(exc).__name__}"
         if debug:
-            tools.logs.append(f"scene_anchor: PySceneDetect failed on {path} "
+            tools.log_line(f"scene_anchor: PySceneDetect failed on {path} "
                               f"[{start_frame},{start_frame + n_frames}): "
                               f"{reason}\n")
         return None, reason
@@ -827,7 +876,7 @@ def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
         for n_frames in VALIDATION_FRAME_LADDER:
             if window_admissible is not None and not window_admissible(seed, n_frames):
                 if log_rungs:
-                    tools.logs.append(
+                    tools.log_line(
                         f"scene_anchor: anchor_rung direction={direction} "
                         f"seed={seed} n_frames={n_frames} validated=False "
                         f"distinctive=n/a{log_tag} "
@@ -838,7 +887,7 @@ def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
                                          threshold, n_frames)
             if not validated:
                 if log_rungs:
-                    tools.logs.append(
+                    tools.log_line(
                         f"scene_anchor: anchor_rung direction={direction} "
                         f"seed={seed} n_frames={n_frames} validated=False "
                         f"distinctive=n/a{log_tag}\n")
@@ -847,7 +896,7 @@ def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
                 m_hashes, m_base, c_hashes, c_base, seed, shift_frames,
                 direction, threshold, n_frames)
             if log_rungs:
-                tools.logs.append(
+                tools.log_line(
                     f"scene_anchor: anchor_rung direction={direction} "
                     f"seed={seed} n_frames={n_frames} validated=True "
                     f"distinctive={distinctive}{log_tag}\n")
@@ -1101,7 +1150,7 @@ def _static_shot_anchor_fallback(m_hashes, m_base, c_hashes, c_base,
         cut_seeds, "straddle",
         lambda s, n: _straddle_window_on_common_side(s, n, side, bracket_frame),
         " anchor_window=straddle", True)
-    tools.logs.append(
+    tools.log_line(
         f"scene_anchor: static_shot_fallback anchor_window=straddle side={side} "
         f"bracket_frame={bracket_frame} cut_seeds={len(cut_seeds)} "
         f"nominal_shift={shift} anchor={seed} shift={found_shift if seed is not None else None} "
@@ -1148,7 +1197,7 @@ def _static_shot_anchor_fallback(m_hashes, m_base, c_hashes, c_base,
                          "n_frames": n_frames,
                          "ambiguous_shift_span": [validating[0], validating[-1]],
                          "validating_shifts": validating}
-    tools.logs.append(
+    tools.log_line(
         f"scene_anchor: static_shot_fallback seed_source=frame_scan side={side} "
         f"direction={one_sided} bracket_frame={bracket_frame} "
         f"frames_scanned_max={len(scan)} "
@@ -1254,7 +1303,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          candidate_time_scale=None, normalise_geometry=False,
                          resolve_shift=False,
                          shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
-                         cluster_window=None, scan_cache=None):
+                         cluster_window=None, scan_cache=None, deadline=None):
     '''PUBLIC ENTRY POINT -- unchanged call shape (Lead's ruling,
     2026-09-21), plus three OPT-IN keywords added for the orchestrator's
     hole resolution (stage 4, 2026-09-24). All three default to OFF, and
@@ -1385,7 +1434,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         # framed pictures the same picture.
         geometry, crop_filters, geometry_reason = _resolve_geometry(
             master_path, candidate_path)
-        tools.logs.append(
+        tools.log_line(
             f"scene_anchor: interior_geometry "
             f"master={geometry.get('master')} candidate={geometry.get('candidate')} "
             f"normalised={geometry.get('normalised')} crop={geometry.get('crop')} "
@@ -1397,6 +1446,12 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     result = None
     rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
     for rung in range(WINDOW_LADDER_MAX_RUNGS):
+        # THE HOLE'S TIME BUDGET (ADDENDUM 26.3), checked between rungs: a rung already running is
+        # bounded by the decoders' own timeouts.
+        if deadline is not None and time.monotonic() > deadline:
+            return {"declined": True, "reason": "hole_budget_exceeded",
+                    "evidence": f"rungs_run={rung} last_reason="
+                                f"{(result or {}).get('reason')}"}
         rung_window_sec = (window_sec if window_sec is None
                            else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
         # CO-ESCALATED, NOT A SECOND LOOP (dev-step5-scenedetect, agreed
@@ -1409,19 +1464,23 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
         # constant enforcing it).
         rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
             min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
-        result = _locate_scene_anchors_at_window(
-            master_path, candidate_path, fps_num, fps_den,
-            bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
-            rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
-            cluster_window=cluster_window, scan_cache=scan_cache,
-            content_detector_threshold=rung_cd_threshold, debug=debug,
-            candidate_time_scale=candidate_time_scale,
-            crop_filters=crop_filters, resolve_shift=resolve_shift,
-            shift_search_frames=shift_search_frames)
+        try:
+            result = _locate_scene_anchors_at_window(
+                master_path, candidate_path, fps_num, fps_den,
+                bracket_low_ms, bracket_high_ms, offset_before_ms, offset_after_ms,
+                rung_window_sec, step_ms=step_ms, quantum_ms=quantum_ms,
+                content_detector_threshold=rung_cd_threshold, debug=debug,
+                candidate_time_scale=candidate_time_scale,
+                crop_filters=crop_filters, resolve_shift=resolve_shift,
+                shift_search_frames=shift_search_frames)
+        except tools.decoder_timeout as error:
+            # A DECODER PAST ITS BOUND IS A NAMED REFUSAL (ADDENDUM 26.3), never a hang.
+            return {"declined": True, "reason": "decoder_timeout",
+                    "evidence": f"rung={rung} {error}"}
         if geometry is not None:
             result["geometry"] = geometry
         matched = not result["declined"]
-        tools.logs.append(
+        tools.log_line(
             f"scene_anchor: window_ladder_rung rung={rung} "
             f"dial=window_sec+cd_threshold "
             f"window_sec={rung_window_sec} cd_threshold={rung_cd_threshold} "
@@ -1588,6 +1647,18 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
     c_win_start = max(0, span_first - candidate_margin_frames + low_shift)
     c_win_end = span_last + candidate_margin_frames + high_shift
+    # INSIDE BOTH FILES, ALWAYS (ADDENDUM 26.1): an end never clamped went negative on a hole
+    # whose step exceeded the file (id 691), and a negative length decoded the whole file.
+    m_win_start, m_win_end = _clamp_to_file(m_win_start, m_win_end,
+                                            _media_duration_s(master_path), fps_num, fps_den)
+    c_win_start, c_win_end = _clamp_to_file(c_win_start, c_win_end,
+                                            _media_duration_s(candidate_path), fps_num, fps_den,
+                                            candidate_time_scale)
+    if m_win_end <= m_win_start or c_win_end <= c_win_start:
+        return {"declined": True, "reason": "candidate_window_empty",
+                "evidence": f"master_window=[{m_win_start},{m_win_end}) "
+                            f"candidate_window=[{c_win_start},{c_win_end}) "
+                            f"before_shift={before_shift} after_shift={after_shift}"}
 
     # THE WINDOW IS A SPAN OF TIME; A FRAME COUNT IS ONLY A SPAN OF TIME
     # ONCE YOU SAY WHOSE FRAMES (defect measured 2026-09-22 on errid 5, a
@@ -2418,7 +2489,7 @@ class _ChunkedFrames:
         if want_overlap:
             delta, agreement = self._seam_delta(new_base, new_hashes)
             if delta is None:
-                tools.logs.append(
+                tools.log_line(
                     f"scene_anchor: edge_walk_seam side={self.side} "
                     f"read_start={read_start} re_established=False "
                     f"best_agreement={agreement:.3f} "
@@ -2426,7 +2497,7 @@ class _ChunkedFrames:
                 return None, "unreadable"
             self.seam_deltas.append(delta)
             new_base += delta
-            tools.logs.append(
+            tools.log_line(
                 f"scene_anchor: edge_walk_seam side={self.side} "
                 f"read_start={read_start} re_established=True delta={delta} "
                 f"agreement={agreement:.3f}\n")
@@ -2511,7 +2582,7 @@ def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
             # fallbacks' keywords, same meaning as in `_anchor_search`.
             if window_admissible is not None and not window_admissible(seed, n_frames):
                 if log_rungs:
-                    tools.logs.append(
+                    tools.log_line(
                         f"scene_anchor: edge_anchor_rung direction={direction} "
                         f"seed={seed} n_frames={n_frames} validated=False "
                         f"shift=none distinctive=n/a{log_tag} "
@@ -2531,7 +2602,7 @@ def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
                 scored.append((distance, abs(shift - nominal_shift), shift))
             if not scored:
                 if log_rungs:
-                    tools.logs.append(
+                    tools.log_line(
                         f"scene_anchor: edge_anchor_rung direction={direction} "
                         f"seed={seed} n_frames={n_frames} validated=False "
                         f"shift=none distinctive=n/a{log_tag}\n")
@@ -2542,7 +2613,7 @@ def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
                 m_hashes, m_base, c_hashes, c_base, seed, best_shift,
                 direction, threshold, n_frames)
             if log_rungs:
-                tools.logs.append(
+                tools.log_line(
                     f"scene_anchor: edge_anchor_rung direction={direction} "
                     f"seed={seed} n_frames={n_frames} validated=True "
                     f"shift={best_shift} nominal_shift={nominal_shift} "
@@ -2655,7 +2726,7 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                          known_match_ms=None, step_ms=None, quantum_ms=None,
                          scene_search_window_sec=None, debug=False,
                          candidate_time_scale=None,
-                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES, deadline=None):
     '''PUBLIC ENTRY POINT for an EDGE bracket -- owner's ruling
     RULING_20260922_EDGE_SINGLE_ANCHOR.MD and its ADDENDUM.
 
@@ -2728,7 +2799,7 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
     # THE PRECONDITION, BEFORE ANY ANCHOR OR WALK AND ONCE PER PAIR.
     geometry, crop_filters, geometry_reason = _resolve_geometry(
         master_path, candidate_path)
-    tools.logs.append(
+    tools.log_line(
         f"scene_anchor: edge_geometry edge={edge} "
         f"master={geometry.get('master')} candidate={geometry.get('candidate')} "
         f"normalised={geometry.get('normalised')} crop={geometry.get('crop')} "
@@ -2745,20 +2816,30 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
     rung_window_sec = window_sec
     rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
     for rung in range(WINDOW_LADDER_MAX_RUNGS):
+        # THE HOLE'S TIME BUDGET (ADDENDUM 26.3), checked between rungs.
+        if deadline is not None and time.monotonic() > deadline:
+            return {"declined": True, "reason": "hole_budget_exceeded", "edge": edge,
+                    "geometry": geometry,
+                    "evidence": f"rungs_run={rung} last_reason="
+                                f"{(result or {}).get('reason')}"}
         rung_window_sec = (window_sec if window_sec is None
                            else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
         rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
             min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
-        result = _locate_edge_boundary_at_window(
-            master_path, candidate_path, fps_num, fps_den,
-            bracket_low_ms, bracket_high_ms, offset_ms, edge,
-            master_timeline_ms, candidate_duration_ms, rung_window_sec,
-            crop_filters, geometry,
-            content_detector_threshold=rung_cd_threshold, debug=debug,
-            candidate_time_scale=candidate_time_scale,
-            shift_search_frames=shift_search_frames)
+        try:
+            result = _locate_edge_boundary_at_window(
+                master_path, candidate_path, fps_num, fps_den,
+                bracket_low_ms, bracket_high_ms, offset_ms, edge,
+                master_timeline_ms, candidate_duration_ms, rung_window_sec,
+                crop_filters, geometry,
+                content_detector_threshold=rung_cd_threshold, debug=debug,
+                candidate_time_scale=candidate_time_scale,
+                shift_search_frames=shift_search_frames)
+        except tools.decoder_timeout as error:
+            return {"declined": True, "reason": "decoder_timeout", "edge": edge,
+                    "geometry": geometry, "evidence": f"rung={rung} {error}"}
         matched = not result["declined"]
-        tools.logs.append(
+        tools.log_line(
             f"scene_anchor: edge_window_ladder_rung edge={edge} rung={rung} "
             f"window_sec={rung_window_sec} cd_threshold={rung_cd_threshold} "
             f"master_seed_count={result.get('master_seed_count')} "
@@ -2877,6 +2958,19 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
     c_win_start = max(0, m_win_start - candidate_margin_frames + shift_frames)
     c_win_end = m_win_end + candidate_margin_frames + shift_frames
+    # INSIDE BOTH FILES, ALWAYS (ADDENDUM 26.1, measured on errid-84 and id 691: this END was
+    # never clamped; a negative length reached ffmpeg as `-t 0.0` and decoded the whole file).
+    m_win_start, m_win_end = _clamp_to_file(
+        m_win_start, m_win_end, float(master_timeline_ms) / 1000.0, fps_num, fps_den)
+    c_win_start, c_win_end = _clamp_to_file(
+        c_win_start, c_win_end,
+        None if candidate_duration_ms is None else float(candidate_duration_ms) / 1000.0,
+        fps_num, fps_den)
+    if m_win_end <= m_win_start or c_win_end <= c_win_start:
+        return {"declined": True, "reason": "candidate_window_empty", "edge": edge,
+                "evidence": f"master_window=[{m_win_start},{m_win_end}) "
+                            f"candidate_window=[{c_win_start},{c_win_end}) "
+                            f"shift={shift_frames}"}
 
     master_rate = Fraction(fps_num, fps_den)
     m_win_start_sec = Fraction(m_win_start * fps_den, fps_num)
@@ -3087,7 +3181,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     # boundary emits its verdict with numbers") and spec S5 item 7 (report
     # `termination`, `addition_frames` and `mismatch_run` on EVERY outcome, so
     # the N=3-vs-N=4 question stays measurable rather than re-litigated).
-    tools.logs.append(
+    tools.log_line(
         f"scene_anchor: edge_walk edge={edge} anchor_frame={anchor} "
         f"anchor_n_frames={anchor_n_frames} anchor_side={anchor_side} "
         f"shift_frames={shift_frames} "

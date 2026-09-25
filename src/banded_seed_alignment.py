@@ -95,6 +95,7 @@ width as either the resolution floor or a plausible-only-once-refined margin.
 """
 import math
 import statistics
+import time
 
 # THE COMPLETE VERDICT VOCABULARY, AS CONSTANTS, BECAUSE A CONSUMER HAS TO BRANCH ON IT.
 # Added 2026-09-22 on an independent tester's finding: `repair_orchestrator`'s step-2 gate
@@ -123,6 +124,12 @@ COULD_NOT_MEASURE_VERDICTS = (
     VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR,
 )
 MEASURED_VERDICTS = (VERDICT_SINGLE_SEGMENT_NO_CUT, VERDICT_SEGMENTS_FOUND)
+# THE ALIGNMENT'S TIME BUDGET RAN OUT (ADDENDUM 26.3: 120 s per couple, `alignment_budget_exceeded`).
+# Neither a measurement nor a "could not measure" reading about the pair -- a statement about
+# this run's cost -- so it belongs to neither tuple above; the caller declines on it by name.
+VERDICT_ALIGNMENT_BUDGET_EXCEEDED = "alignment_budget_exceeded"
+# How many seeds are extended between two checks of the deadline (a check is one clock read).
+DEADLINE_CHECK_EVERY_SEEDS = 256
 
 # *** AND A MEASURED VERDICT IS NOT THE SAME AS A USABLE ONE. `VERDICT_SINGLE_SEGMENT_NO_CUT`
 # says "no offset STEP was found"; it says nothing about how much of the master axis any zone
@@ -480,7 +487,7 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
              min_run_points=MIN_RUN_POINTS, local_baseline_min=LOCAL_BASELINE_MIN,
              include_drift_trace=True, duration_diff_ms=None,
              signed_duration_diff_ms=None, shorter_duration_ms=None,
-             candidate_quantum_ms=None):
+             candidate_quantum_ms=None, deadline=None):
     """Full B2 pipeline over WHOLE-FILE fingerprint lists: degeneracy screen -> seed -> extend ->
     mandatory-anchor filter -> local-baseline guard -> merge overlapping runs into segments ->
     report cut zones between segments -> (optionally) the owner's re-centering drift trace.
@@ -653,7 +660,16 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     extended = []
     seen_seed_offsets = set()
     self_evident_points = math.ceil(LOCAL_BASELINE_SELF_EVIDENT_SECONDS * 1000.0 / quantum_ms)
-    for i, j in seeds:
+    for number, (i, j) in enumerate(seeds):
+        # `deadline` (a `time.monotonic()` instant, ADDENDUM 26.3): the seed extension is the
+        # super-linear part (id 691: 1,037 s on a master whose audio carries the programme
+        # twice), so it is where the budget is checked.
+        if (deadline is not None and number % DEADLINE_CHECK_EVERY_SEEDS == 0
+                and time.monotonic() > deadline):
+            result["verdict"] = VERDICT_ALIGNMENT_BUDGET_EXCEEDED
+            result["seeds_extended"] = number
+            result["seeds_total"] = len(seeds)
+            return result
         offset = j - i
         if (i, offset) in seen_seed_offsets:
             continue

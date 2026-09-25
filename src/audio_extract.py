@@ -18,6 +18,8 @@ after". No parser reads that prefix (grep over src/ and VMSAM_HELP_AI/tools, 202
 """
 from os import stat as os_stat
 
+import subprocess
+
 import tools
 
 
@@ -124,7 +126,19 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     tools.dev_log(f"audio_extract: extract_audio_window ffmpeg call file={source_path} "
                   f"stream_order={stream_order} out_path={out_path}"
                   + (f" audio_filter={audio_filter}" if audio_filter else "") + "\n")
-    tools.launch_cmdExt(cmd)
+    # BOUNDED SINCE ADDENDUM 26.3 ("un timeout sur CHAQUE appel ffmpeg", `decoder_timeout`): the
+    # launcher above was the unbounded one; the same non-zero-exit refusal is kept.
+    timeout = tools.decoder_timeout_for(length_seconds)
+    try:
+        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise tools.decoder_timeout("extract_audio_window", timeout,
+                                    f"file={source_path} stream_order={stream_order}")
+    if done.returncode != 0:
+        raise Exception("This cmd is in error: " + " ".join(cmd) + "\n"
+                        + done.stderr.decode("utf-8", "replace") + "\nReturn code: "
+                        + str(done.returncode) + "\n")
     # *** MY FIRST THRESHOLD WAS `size <= 44` ON THE ASSUMPTION OF A CANONICAL WAV HEADER, AND
     # IT DID NOT FIRE: ffmpeg WRITES A LARGER HEADER (LIST/INFO CHUNKS), SO THE HEADER-ONLY FILE
     # WAS 78 BYTES AND SAILED THROUGH. A guard whose threshold is wrong is a guard that runs and

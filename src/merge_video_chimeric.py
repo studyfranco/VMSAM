@@ -1030,7 +1030,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 # trace by construction unless it is named here -- this is
                 # the PLAN-STAGE prediction; `verify_output_file` logs its
                 # own, independent confirmation from the PRODUCED file.
-                tools.logs.append(
+                tools.log_line(
                     f"chimeric: fill_short_tail_exempt "
                     f"stream_order={audio['StreamOrder']} language={language} "
                     f"exempted_ms={fill_short_by_ms_tail_exempt} reason=tail_gap "
@@ -1749,7 +1749,7 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
     # empan -- et ceci tourne que `tools.dev` soit vrai ou faux, ce n'est pas
     # un aide au debogage.
     for decision in decisions:
-        tools.logs.append(
+        tools.log_line(
             f"chimeric: subtitle stream_order={subtitle['StreamOrder']} "
             f"language={language} decision={decision['outcome']} "
             f"cue_count={decision['cue_count']} "
@@ -1812,7 +1812,7 @@ def log_prediction_outcome(predicted, would_refuse):
         verdict = "BROKEN(predicted a refusal, the gate passed it)"
     else:
         verdict = "BROKEN(no refusal predicted, the gate refused)"
-    tools.logs.append(f"repair: prediction predicted={len(predicted)} "
+    tools.log_line(f"repair: prediction predicted={len(predicted)} "
                       f"would_refuse={would_refuse} agreement={verdict}\n")
 
 
@@ -2521,7 +2521,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             track_bound_ms = track_plan["extent_ms"]
             # UNE GARDE QUI N'A JAMAIS TIRE EST INDISCERNABLE D'UNE GARDE QUI
             # MARCHE: la borne de CETTE piste, et sa provenance, a chaque piste.
-            tools.logs.append(
+            tools.log_line(
                 f"chimeric: extraction bound {track_label} "
                 f"bound_ms={track_bound_ms} source={track_plan['extent_source']}\n")
             report = build_one_audio_track(
@@ -2550,7 +2550,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             failed.append({"kind": "audio",
                            "stream_order": int(audio["StreamOrder"]),
                            "language": language, "reason": str(error)})
-            tools.logs.append(f"chimeric: audio track {audio['StreamOrder']} failed: {error}\n")
+            tools.log_line(f"chimeric: audio track {audio['StreamOrder']} failed: {error}\n")
 
     index = 0
     for language, subtitles in candidate_obj.subtitles.items():
@@ -2573,7 +2573,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                 failed.append({"kind": "subtitle",
                                "stream_order": int(subtitle["StreamOrder"]),
                                "language": language, "reason": str(error)})
-                tools.logs.append(f"chimeric: subtitle track {subtitle['StreamOrder']} failed: {error}\n")
+                tools.log_line(f"chimeric: subtitle track {subtitle['StreamOrder']} failed: {error}\n")
             index += 1
 
     # Budget de silence: par defaut AUCUNE limite. Un seuil doit venir d'un ecart
@@ -2643,7 +2643,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
         # Le parseur de dev-4 lit POSITIONNELLEMENT et attend [A-Za-z0-9_]+:
         # un jeton sans espace est la seule forme qu'il peut extraire.
         # Les deux nombres au-dessus portent deja le detail; le jeton porte la CLASSE.
-        tools.logs.append(
+        tools.log_line(
             f"repair: PREDICTED_REFUSAL track={report.get('stream_order')} "
             f"fill_short_by_ms={short} "
             f"tolerance_ms={output_duration_tolerance_ms} "
@@ -2721,7 +2721,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             fill_content = verify_fill_content(
                 out_path, master_obj, audio_reports, master_duration_ms)
         except Exception as error:
-            tools.logs.append(
+            tools.log_line(
                 f"chimeric: fill_content_verification_failed "
                 f"{type(error).__name__}: {error}\n")
         if fill_content:
@@ -2976,7 +2976,16 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     tools.dev_log(f"chimeric: read_mono_samples starting file={file_path} "
                   f"stream={stream_specifier} start_ms={start_ms} "
                   f"duration_ms={duration_ms}\n")
-    process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # BOUNDED SINCE ADDENDUM 26.3 (owner: "un timeout sur CHAQUE appel ffmpeg"): the bound is
+    # `tools.decoder_timeout_for` the window's own length, the measured decode rate with a 3x
+    # margin -- the measurement the note above was waiting for.
+    timeout = tools.decoder_timeout_for(float(duration_ms) / 1000.0)
+    try:
+        process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise tools.decoder_timeout("read_mono_samples", timeout,
+                                    f"file={file_path} stream={stream_specifier}")
     # L'OUTIL A-T-IL ECHOUE, OU LA PISTE EST-ELLE VIDE? CE SONT DEUX CHOSES.
     #
     # Cette fonction ne lisait NI `returncode` NI `stderr` -- zero occurrence de
@@ -3187,8 +3196,9 @@ def probe_output_streams(file_path):
     # `subprocess.run` carries no `timeout=` either, and only a line emitted
     # BEFORE the call can be observed if it hangs.
     tools.dev_log(f"chimeric: probe_output_streams starting file={file_path}\n")
-    data = _json.loads(subprocess.run(command, check=True,
-                                      stdout=subprocess.PIPE).stdout)
+    # BOUNDED (ADDENDUM 26.3): an ffprobe reads headers, the base bound covers it.
+    data = _json.loads(subprocess.run(command, check=True, stdout=subprocess.PIPE,
+                                      timeout=tools.DECODER_TIMEOUT_BASE_S).stdout)
     ends = None
     streams = []
     for entry in data.get("streams", []):
@@ -3262,8 +3272,8 @@ def last_audio_packet_ms(file_path):
     # PRE-CALL LOG -- same reasoning as the other two sites in this module.
     tools.dev_log(f"chimeric: last_audio_packet_ms starting file={file_path}\n")
     try:
-        output = subprocess.run(command, check=True,
-                                stdout=subprocess.PIPE).stdout.decode()
+        output = subprocess.run(command, check=True, stdout=subprocess.PIPE,
+                                timeout=tools.DECODER_TIMEOUT_BASE_S).stdout.decode()
     except Exception:
         return {}
     ends = {}
@@ -3362,7 +3372,7 @@ def mark_output(out_path, marking):
     except OSError as error:
         sys.stderr.write(f"repair: the undelivered artefact could NOT be renamed "
                          f"and is still at its produced name: {error}\n")
-        tools.logs.append("repair: an undelivered artefact kept its produced name\n")
+        tools.log_line("repair: an undelivered artefact kept its produced name\n")
         return None
     sys.stderr.write(f"repair: the artefact was renamed to *.{token}{extension} "
                      f"-- {why} -- so it is inspectable and NOT counted as "
@@ -3652,7 +3662,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                 "index": stream["index"], "language": stream["language"],
                 "delta_ms": str(delta), "exempted_ms": str(deduction_ms),
                 "residual_delta_ms": str(residual_delta)})
-            tools.logs.append(
+            tools.log_line(
                 f"chimeric: output_check_tail_exempt stream={stream['index']} "
                 f"language={stream['language']} delta_ms={delta} "
                 f"exempted_ms={deduction_ms} residual_delta_ms={residual_delta}\n")
@@ -3699,7 +3709,7 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                 f"the master's own container ({container_ms} vs "
                 f"{master_container_ms}), more than the {container_tolerance_ms} ms "
                 f"a last indivisible block can explain ({tolerance_detail})")
-    tools.logs.append(
+    tools.log_line(
         f"chimeric: output_container_check container_ms={container_ms} "
         f"master_container_ms={master_container_ms} "
         f"overshoot_ms={container_overshoot_ms} "

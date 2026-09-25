@@ -2385,7 +2385,12 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
             # l'assemblage (`chimeric_error`, l'etage 5) est un DECLIN avec son
             # jeton pose au site de levee; toute autre levee est une PANNE, avec
             # sa classe dans la prose et un jeton fixe.
-            if isinstance(error, merge_video_chimeric.chimeric_error):
+            if isinstance(error, tools.decoder_timeout):
+                # ADDENDUM 26.3: a decoder past its bound, anywhere in the build, is a NAMED
+                # decline -- the file comes back next wave; never a failure of the repair.
+                cause = "decoder_timeout"
+                record(candidate_path, "declined", str(error), cause=cause)
+            elif isinstance(error, merge_video_chimeric.chimeric_error):
                 cause = chimeric_cause(error)
                 record(candidate_path, "declined", str(error),
                        decline_detail(error), cause=cause)

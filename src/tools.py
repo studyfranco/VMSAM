@@ -423,6 +423,52 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
+# THE STEP LINES CARRY THEIR INSTANT (owner, ADDENDUM 26.5, 2026-09-25): without it the time per
+# step of a job is not computable from its .log (measured on the 401a9f2e wave: two runaway jobs
+# whose chronology had to be inferred from OpenCV's own warnings). Only these three prefixes are
+# stamped -- the `repair:` lines are read by parsers by prefix and stay byte for byte as they are.
+STAMPED_PREFIXES = ("orchestrator: ", "chimeric: ", "scene_anchor: ")
+
+
+def stamp(message):
+    """`<prefix> utc=<ISO-8601 UTC, ms>Z <rest>` for a line of one of `STAMPED_PREFIXES`; any
+    other line is returned unchanged."""
+    import datetime  # the module's import block is outside the tagged zone
+    for prefix in STAMPED_PREFIXES:
+        if message.startswith(prefix):
+            now = datetime.datetime.now(datetime.timezone.utc)
+            return (f"{prefix}utc={now.strftime('%Y-%m-%dT%H:%M:%S')}."
+                    f"{now.microsecond // 1000:03d}Z {message[len(prefix):]}")
+    return message
+
+
+def log_line(message):
+    """`logs.append` for a narration line, stamped when it is a step line (see `stamp`)."""
+    logs.append(stamp(message))
+
+
+class decoder_timeout(Exception):
+    """An external decoder (ffmpeg, PySceneDetect) ran past its bound (ADDENDUM 26.3: a timeout
+    on EVERY decoder call, `decoder_timeout`). A statement about the TOOL on this host, never
+    about the media: the repair declines by that name and the file comes back next wave."""
+
+    def __init__(self, tool, seconds, detail=""):
+        super().__init__(f"{tool} ran past its {round(seconds, 1)} s bound {detail}".strip())
+        self.tool = tool
+        self.seconds = seconds
+
+
+# THE BOUND OF ONE DECODE (memo THROUGHPUT_ANALYSIS_20260925 section 3.4): 60 s of fixed start-up
+# plus 0.5 s per second of media -- 1080p H.264 decodes at 150-215 frames/s on this host under
+# load 80 (measured), i.e. ~0.12-0.16 s per second of 24 fps video, so 0.5 s/s is a 3x margin.
+DECODER_TIMEOUT_BASE_S = 60.0
+DECODER_TIMEOUT_PER_MEDIA_S = 0.5
+
+
+def decoder_timeout_for(media_seconds):
+    return DECODER_TIMEOUT_BASE_S + DECODER_TIMEOUT_PER_MEDIA_S * max(0.0, float(media_seconds))
+
+
 def dev_log(message):
     """Un seul endroit qui pose CETTE classe de ligne, partagee entre
     merge_video_repair.py, merge_video_chimeric.py et merge_video_resample.py
@@ -442,6 +488,7 @@ def dev_log(message):
     elle POSE la ligne aux deux endroits, une fois.
     """
     if dev:
+        message = stamp(message)
         sys.stderr.write(message)
         logs.append(message)
 
@@ -468,6 +515,7 @@ def log_always(message):
     deliberately, so a real wedge investigation can still see back far
     enough.
     """
+    message = stamp(message)
     sys.stderr.write(message)
     logs.append(message)
 

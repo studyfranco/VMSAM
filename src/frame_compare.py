@@ -2,6 +2,7 @@
 # Amélioré: pHash DCT 64‑bits + alignement à bande + repli scène ffmpeg
 
 from fractions import Fraction
+import subprocess
 from sys import stderr
 import numpy as np
 from scipy.fft import dct
@@ -153,6 +154,13 @@ class FrameComparer:
         if scale is not None:
             start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
             dur_sec = float(Fraction(dur_sec).limit_denominator(10**9) / scale)
+        # A WINDOW OF NO LENGTH IS NEVER DECODED (ADDENDUM 26.1, measured): `-t 0.0` is not "zero
+        # seconds" to ffmpeg, it is "no limit" -- a negative candidate window clamped to 0 here
+        # decoded errid-84's WHOLE candidate (31,686 frames, 182 s) and id 691's three times.
+        if dur_sec <= 0:
+            tools.dev_log(f"frame_compare: _ffmpeg_raw_frames window_empty file={path} "
+                          f"start_sec={start_sec} dur_sec={dur_sec} -- not decoded\n")
+            return b""
         cmd = [
             ffmpeg, "-v", "error", "-nostdin",
             "-ss", f"{start_sec}",
@@ -162,12 +170,19 @@ class FrameComparer:
             "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"
         ]
         # Une lecture complète suffit (fenêtres courtes)
-        # IMMEDIATELY-PRE-CALL (owner's order via the Lead, 2026-09-22):
-        # `launch_cmdExt_no_test` is genuinely unbounded, reached from the
-        # repair path (merge_video_chimeric.py's frame-tier calls).
+        # BOUNDED (ADDENDUM 26.3: a timeout on EVERY decoder call): `tools.decoder_timeout_for`
+        # the window's own length; past it the process is killed and `tools.decoder_timeout`
+        # names the refusal -- a job never blocks a container.
+        timeout = tools.decoder_timeout_for(dur_sec)
         tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
-                      f"start_sec={start_sec} dur_sec={dur_sec}\n")
-        stdout, stderr_out, rc = tools.launch_cmdExt_no_test(cmd)
+                      f"start_sec={start_sec} dur_sec={dur_sec} timeout_s={timeout}\n")
+        try:
+            done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise tools.decoder_timeout("ffmpeg_raw_frames", timeout,
+                                        f"file={path} start_sec={start_sec} dur_sec={dur_sec}")
+        stdout, stderr_out, rc = done.stdout, done.stderr, done.returncode
         if rc not in (0,):
             # on tente quand même de parser ce qu’on a reçu
             if self.debug:
@@ -400,7 +415,11 @@ def _on_comparer_grid(comparer, path, values):
 
 def _extract_hashes(comparer, path, start_s, dur_s):
     start_s = max(0.0, start_s)
-    blob = comparer._ffmpeg_raw_frames(path, start_s, max(0.0, dur_s))
+    if dur_s <= 0:
+        # NEVER `max(0.0, dur_s)` INTO ffmpeg (ADDENDUM 26.1): a window of no length is an
+        # empty series, and every caller's own `frames_unextractable` decline takes it.
+        return comparer._frame_index(start_s), []
+    blob = comparer._ffmpeg_raw_frames(path, start_s, dur_s)
     hashes = comparer._phash64_frames(blob)
     base = comparer._frame_index(start_s)
     on_grid, reason = _on_comparer_grid(comparer, path, hashes)
