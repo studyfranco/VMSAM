@@ -156,10 +156,7 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
             exitCode = cmdDownload.returncode
             unpocessed = False
         except TimeoutExpired:
-            try:
-                cmdDownload.kill()
-            except:
-                pass
+            force_kill_subprocess(cmdDownload)
             max_restart -= 1
             if max_restart < 0:
                 raise Exception(f"The process is timeout and will not be restarted:{cmd}\n")
@@ -171,6 +168,16 @@ def launch_cmdExt_with_timeout_reload(cmd,max_restart=1,timeout=120):
     if exitCode != 0:
         raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
     return stdout, stderror, exitCode
+
+def force_kill_subprocess(object_popen,retry=0):
+    try:
+        object_popen.kill()
+        object_popen.wait(timeout=15)
+    except TimeoutExpired:
+        if retry < 10:
+            force_kill_subprocess(object_popen,retry=retry+1)
+    except:
+        pass
 
 def remove_element_without_bug(list_set, element):
     try:
