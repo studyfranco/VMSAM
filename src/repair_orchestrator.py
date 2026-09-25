@@ -475,6 +475,9 @@ CLASS_COULD_NOT_RUN = "could_not_run"
 DECLINE_CAUSES = {
     # step 1
     "master_intertrack_desync": CLASS_CONCLUSIVE,
+    # ADDENDUM 26.9, right after the prime: the master's content ends >= 300 s before the
+    # candidate's and never resumes -- measured on both tracks, a fact about the master.
+    "master_cut_short": CLASS_CONCLUSIVE,
     # step 2
     # RECLASSIFIED 2026-09-25 (ADDENDUM 26 report; ids 238/248/261/259/237/110): a similarity
     # FLOOR is not a proven negative -- id 110's 0.15 was a mistagged English track measured
@@ -823,7 +826,8 @@ CHROMAPRINT_HOP_MS = CHROMAPRINT_HOP_SAMPLES * 1000.0 / CHROMAPRINT_SAMPLE_RATE
 
 
 def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_rate,
-                      duration_seconds, audio_filter=None, output_duration_seconds=None):
+                      duration_seconds, audio_filter=None, output_duration_seconds=None,
+                      measures=None):
     """One whole-file fingerprint list for ONE track. Returns `(points, quantum_ms)`, or
     `(None, None)` when the track could not be read.
 
@@ -870,6 +874,10 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
         with repair_log.announced("orchestrator", "fpcalc", wav) as call:
             points = audioCorrelation.calculate_fingerprints(wav, length=output_duration_seconds)
             call["exit"] = 0
+        if measures is not None:
+            # ADDENDUM 26.9: where this track's CONTENT ends, read on the WAV already extracted
+            # for the fingerprint -- no second decode.
+            measures["content_end_s"] = wav_content_end_s(wav)
     except tools.decoder_timeout:
         raise
     except Exception as error:                                           # noqa: BLE001
@@ -890,6 +898,140 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
     if not points:
         return None, None
     return points, CHROMAPRINT_HOP_MS
+
+
+# ---------------------------------------------------------------------------
+# THE TAIL THAT ONLY ONE SIDE CARRIES -- ADDENDUM 26.9 (owner, 2026-09-25)
+# ---------------------------------------------------------------------------
+# After the last instant of COMMON content (the end of the couple's last b2 zone), the content
+# may continue on ONE side only, uninterrupted to its end (trailing digital silence excluded).
+# At least TAIL_ONE_SIDED_MIN_S of it and:
+#   the CANDIDATE is short  -> not an error: the master fills the tail (a tail fill carries no
+#                              size cap -- the interior-hole bound does not apply), logged
+#                              `repair: candidate_short_tail`;
+#   the MASTER is short     -> `master_cut_short`, both measured end instants in the prose.
+# A content comparison, no duration ratio. A long gap followed by common content again is an
+# interior hole (the zones say so), never this rule. The master's content is read to the end of
+# its OWN track: audio past its video still counts as content reaching the timeline's end -- the
+# shape of id 691 (a corrupt master: audio to 4,007 s, digital silence, content again at the very
+# end of a 12,799 s track over 5,997 s of video), which this rule must not call cut short.
+TAIL_ONE_SIDED_MIN_S = 300.0
+CONTENT_BLOCK_S = 0.1
+CONTENT_READ_CHUNK_S = 60.0
+# How far back from the end of a master track that runs past its video the probe looks for
+# content before calling the overrun silent (5 chunks of CONTENT_READ_CHUNK_S).
+OVERRUN_PROBE_CHUNKS = 5
+
+
+def _audible_block_end(samples, rate, offset_s):
+    """End (s) of the last CONTENT_BLOCK_S block at or above audio_walk.AUDIBLE_DB, or None."""
+    import numpy
+    import audio_walk
+    block = max(1, int(rate * CONTENT_BLOCK_S))
+    count = len(samples) // block
+    if not count:
+        return None
+    rms = numpy.sqrt(numpy.mean(samples[:count * block].reshape(count, block) ** 2, axis=1))
+    loud = numpy.nonzero(20 * numpy.log10(numpy.maximum(rms, 1e-12)) >= audio_walk.AUDIBLE_DB)[0]
+    return None if not len(loud) else offset_s + (int(loud[-1]) + 1) * block / rate
+
+
+def wav_content_end_s(wav_path):
+    """Where a mono 16-bit WAV's content ends, read backwards: the end of its last audible block
+    (trailing digital silence and dither under the walk's audibility floor excluded). None when
+    unreadable or silent throughout."""
+    import numpy
+    import wave
+    try:
+        with wave.open(wav_path, "rb") as reader:
+            if reader.getsampwidth() != 2 or reader.getnchannels() != 1:
+                return None
+            rate, end = reader.getframerate(), reader.getnframes()
+            block = max(1, int(rate * CONTENT_BLOCK_S))
+            chunk = max(block, int(rate * CONTENT_READ_CHUNK_S) // block * block)
+            while end > 0:
+                start = max(0, end - chunk)
+                reader.setpos(start)
+                samples = numpy.frombuffer(reader.readframes(end - start),
+                                           dtype="<i2").astype(numpy.float64) / 32768.0
+                found = _audible_block_end(samples, rate, start / rate)
+                if found is not None:
+                    return found
+                end = start
+    except (OSError, EOFError, ValueError) as error:
+        tools.dev_log(f"orchestrator: content_end unreadable {path.basename(wav_path)}: "
+                      f"{type(error).__name__}\n")
+    return None
+
+
+def overrun_content_end_s(video_obj, stream_order, track_s, timeline_s):
+    """For a master track longer than its video: the end of content found in its last
+    OVERRUN_PROBE_CHUNKS chunks past the video (hybrid-seek reads), or None."""
+    import merge_video_chimeric
+    rate = 8000
+    end = track_s
+    for _ in range(OVERRUN_PROBE_CHUNKS):
+        start = max(timeline_s, end - CONTENT_READ_CHUNK_S)
+        if end - start < 1.0:
+            break
+        try:
+            samples = merge_video_chimeric.read_mono_samples(
+                video_obj.filePath, f"0:{stream_order}", Decimal(str(start * 1000.0)),
+                Decimal(str((end - start) * 1000.0)), rate)
+        except merge_video_chimeric.chimeric_error:
+            samples = None
+        found = None if samples is None else _audible_block_end(samples, rate, start)
+        if found is not None:
+            return found
+        end = start
+    return None
+
+
+def tail_content_verdict(couples, timeline_s):
+    """ADDENDUM 26.9's decision, pure. `couples`: one dict per couple with `couple`,
+    `last_common_master_s`, `last_common_candidate_s` (the end of its last b2 zone, on each
+    track's clock), `master_content_end_s`, `candidate_content_end_s`. The master's content is
+    capped at `timeline_s` -- content past the video reaches the timeline's end. Returns
+    `(verdict, per_couple)`: `master_cut_short`, `candidate_short` or None; every couple must
+    agree, and an unmeasured couple decides nothing."""
+    readings = []
+    for couple in couples:
+        values = [couple.get(key) for key in ("last_common_master_s", "last_common_candidate_s",
+                                             "master_content_end_s", "candidate_content_end_s")]
+        if any(value is None for value in values):
+            readings.append((couple.get("couple"), None, None, None))
+            continue
+        last_m, last_c, end_m, end_c = values
+        master_after = max(0.0, min(end_m, timeline_s) - last_m)
+        candidate_after = max(0.0, end_c - last_c)
+        verdict = ("master_cut_short" if candidate_after - master_after >= TAIL_ONE_SIDED_MIN_S
+                   else "candidate_short" if master_after - candidate_after >= TAIL_ONE_SIDED_MIN_S
+                   else None)
+        readings.append((couple.get("couple"), verdict, round(master_after, 3),
+                         round(candidate_after, 3)))
+    verdicts = {reading[1] for reading in readings}
+    if not readings or any(reading[2] is None for reading in readings) or len(verdicts) != 1:
+        return None, readings
+    return verdicts.pop(), readings
+
+
+def tail_couples(primed):
+    """The per-couple inputs of `tail_content_verdict`, from what the prime measured."""
+    couples = []
+    for master_stream, candidate_stream in primed["couples"]:
+        name = f"{master_stream}x{candidate_stream}"
+        alignment = primed["alignments"].get(name) or {}
+        _zones, detail = coalesce_same_offset_zones(alignment.get("zones") or [],
+                                                    alignment.get("zones_detail") or [])
+        ends = primed.get("content_end") or {}
+        couples.append({
+            "couple": name,
+            "last_common_master_s": (detail[-1]["master_ms"][1] / 1000.0 if detail else None),
+            "last_common_candidate_s": (detail[-1]["candidate_ms"][1] / 1000.0
+                                        if detail else None),
+            "master_content_end_s": ends.get(("master", master_stream)),
+            "candidate_content_end_s": ends.get(("candidate", candidate_stream))})
+    return couples
 
 
 # ---------------------------------------------------------------------------
@@ -4891,6 +5033,28 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     if not prime_ok:
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
+    timeline_ms = _video_duration_ms(master_obj)
+    if timeline_ms is not None:
+        ends = tail_couples(primed)
+        tail_verdict, readings = tail_content_verdict(ends, float(timeline_ms) / 1000.0)
+        step_result("tail_content", candidate=candidate_path, verdict=tail_verdict,
+                    readings=readings, min_one_sided_s=TAIL_ONE_SIDED_MIN_S)
+        if tail_verdict == "master_cut_short":
+            _plan_line("none", candidate_path, step="tail_content", cause="master_cut_short")
+            return _terminal(candidate_path, "declined", "master_cut_short", (
+                f"the master's {comparison_language} content ends before the candidate's and "
+                f"does not resume: per couple (couple, verdict, master content after the last "
+                f"common instant s, candidate content after it s) {readings}; measured ends "
+                + "; ".join(f"{c['couple']} master {c['master_content_end_s']} s / candidate "
+                            f"{c['candidate_content_end_s']} s after the last common instant "
+                            f"{c['last_common_master_s']} s" for c in ends)
+                + f" of a {round(float(timeline_ms) / 1000.0, 3)} s master video -- the master "
+                  f"cannot give the candidate its end (ADDENDUM 26.9)"))
+        if tail_verdict == "candidate_short":
+            tools.log_always(f"repair: candidate_short_tail readings={readings} "
+                             f"-- the candidate's content ends >= {TAIL_ONE_SIDED_MIN_S} s "
+                             f"before the master's: the master fills the tail, no size cap "
+                             f"(ADDENDUM 26.9) for {candidate_path}\n")
     if time.monotonic() > repair_deadline:
         return _budget_terminal(candidate_path, "prime", repair_budget_s)
 
@@ -5106,10 +5270,12 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                         corrected_duration_s=(round(corrected_duration, 3)
                                               if track_filter else None))
             started = time.time()
+            measures = {}
             try:
                 points, quantum_ms = fingerprint_track(
                     video_obj, language, stream, side, work_dir, sample_rate, duration,
-                    audio_filter=track_filter, output_duration_seconds=corrected_duration)
+                    audio_filter=track_filter, output_duration_seconds=corrected_duration,
+                    measures=measures)
             except tools.decoder_timeout as error:
                 return (False, "decoder_timeout",
                         f"the {side} {language} stream {stream} extraction ran past its bound "
@@ -5124,6 +5290,16 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                         f"the {side} {language} stream {stream} could not be extracted or "
                         f"fingerprinted")
             primed["fingerprints"][key] = (points, quantum_ms, corrected_duration)
+            content_end = measures.get("content_end_s")
+            full_s = _track_duration_seconds(video_obj, language, stream)
+            if side == "master" and full_s is not None and full_s > duration:
+                # the track runs past the video (26.2 stopped the WAV there): its own end
+                content_end = (overrun_content_end_s(video_obj, stream, full_s, duration)
+                               or content_end)
+            primed.setdefault("content_end", {})[key] = content_end
+            step_result("content_end", candidate=candidate_path, side=side, stream=stream,
+                        content_end_s=None if content_end is None else round(content_end, 3),
+                        track_s=None if full_s is None else round(full_s, 3))
 
         name = f"{master_stream}x{candidate_stream}"
         fp_master, quantum_master, duration_master = primed["fingerprints"][
