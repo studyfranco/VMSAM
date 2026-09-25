@@ -593,6 +593,106 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
     logs.append(trace_line + "\n")
     return outcome
 
+
+# EVERY EXTERNAL COMMAND ANNOUNCES ITSELF IN DEV MODE (owner, 2026-09-25: "dans ton code, tu ne
+# peux pas rajouter des logs pour le mode dev et voir l'avancement ?"). After a repair, a job
+# spends an hour or more in the legacy phases of mergeVideo.py (delay tests, remux passes,
+# keep_best_audio, final mkvmerge) that only write tools.logs at the end. Those phases launch
+# every external tool through `launch_cmdExt` / `launch_cmdExt_with_timeout_reload`, so both are
+# rebound here, at import time, to a transparent wrapper: one stderr line at the START and one at
+# the END of each call, only when `dev` is true. The frozen bodies are untouched; callers reach the
+# wrapper through the module attribute (`tools.launch_cmdExt`) and through this module's globals.
+# stderr only (never tools.logs): the lines are progress for the container log, and the input is
+# named by BASENAME only, truncated -- a media path never reaches a tracked file.
+import functools as _functools  # the module's import block is outside the tagged zone
+import itertools as _itertools
+import re as _re
+
+_dev_cmd_counter = _itertools.count(1)  # next() on a count is atomic under the GIL
+_dev_phase_name = None
+DEV_CMD_SIGNATURE_MAX = 60
+_RETURN_CODE_RE = _re.compile(r"Return code: (-?\d+)")
+
+
+def _dev_utc():
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return f"{now.strftime('%Y-%m-%dT%H:%M:%S')}.{now.microsecond // 1000:03d}Z"
+
+
+def _dev_cmd_signature(cmd):
+    """Short, path-free name of what a command reads: the basenames of its `-i` inputs when it
+    has any (ffmpeg/ffprobe), else of its path-like arguments (mkvmerge, fpcalc, mediainfo),
+    else its first non-option argument. Truncated to `DEV_CMD_SIGNATURE_MAX` characters."""
+    try:
+        args = [str(a) for a in cmd[1:]]
+        names = [os.path.basename(args[i + 1]) for i, a in enumerate(args[:-1]) if a == "-i"]
+        if not names:
+            names = [os.path.basename(a.rstrip(os.sep)) for a in args
+                     if os.sep in a and not a.startswith("-")]
+        if not names:
+            names = [os.path.basename(a) for a in args if not a.startswith("-")][:1]
+        sig = ",".join(n for n in names if n).replace("\n", " ")
+    except Exception:
+        sig = "?"
+    if len(sig) > DEV_CMD_SIGNATURE_MAX:
+        sig = sig[:DEV_CMD_SIGNATURE_MAX - 3] + "..."
+    return sig or "-"
+
+
+def dev_phase(name):
+    """Hook for callers in OPEN zones: names the phase the following commands belong to (shown
+    as `phase=<name>` on their dev lines) and writes one stamped stderr line. `None` clears it.
+    No effect outside dev mode. Never called from frozen code."""
+    global _dev_phase_name
+    _dev_phase_name = name
+    if dev:
+        sys.stderr.write(f"devcmd: utc={_dev_utc()} phase={name}\n")
+
+
+def _dev_timed(func):
+    """Wrap a `launch_cmdExt*` function: same signature, return value and exceptions; the
+    timeout/reload behaviour is the wrapped function's own. When `dev` is false the only work
+    added is one boolean test."""
+    @_functools.wraps(func)
+    def wrapper(cmd, *args, **kwargs):
+        if not dev:
+            return func(cmd, *args, **kwargs)
+        n = next(_dev_cmd_counter)
+        try:
+            tool = os.path.basename(str(cmd[0]))
+        except Exception:
+            tool = "?"
+        head = f"devcmd: #{n} {tool} [{_dev_cmd_signature(cmd)}]"
+        if _dev_phase_name:
+            head += f" phase={_dev_phase_name}"
+        sys.stderr.write(f"devcmd: utc={_dev_utc()} START{head[len('devcmd:'):]} via={func.__name__}\n")
+        t0 = time.time()
+        try:
+            result = func(cmd, *args, **kwargs)
+        except BaseException as e:
+            m = _RETURN_CODE_RE.search(str(e))
+            code = m.group(1) if m else f"raised:{type(e).__name__}"
+            sys.stderr.write(f"devcmd: utc={_dev_utc()} END{head[len('devcmd:'):]} "
+                             f"seconds={time.time() - t0:.3f} exit={code}\n")
+            raise
+        try:
+            code = result[2]
+        except Exception:
+            code = "?"
+        sys.stderr.write(f"devcmd: utc={_dev_utc()} END{head[len('devcmd:'):]} "
+                         f"seconds={time.time() - t0:.3f} exit={code}\n")
+        return result
+    return wrapper
+
+
+if not getattr(launch_cmdExt, "_dev_timed", False):
+    launch_cmdExt = _dev_timed(launch_cmdExt)
+    launch_cmdExt._dev_timed = True
+if not getattr(launch_cmdExt_with_timeout_reload, "_dev_timed", False):
+    launch_cmdExt_with_timeout_reload = _dev_timed(launch_cmdExt_with_timeout_reload)
+    launch_cmdExt_with_timeout_reload._dev_timed = True
+
 """
 END: AGENT modification
 """
