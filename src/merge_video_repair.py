@@ -58,6 +58,7 @@ import json
 import sys
 
 import tools
+import repair_log
 import video
 
 # Tolerance d'alignement du verificateur, en millisecondes. CONSTANTE et non
@@ -1332,6 +1333,7 @@ def log_assembly(candidate_path, assembly, plan):
 
     dropped_note = plan.get("segments_dropped_unusable") if plan else None
     tools.logs.append(f"repair: plan {plan.get('kind') if plan else 'none'} "
+                      f"build={repair_log.build_sha()} "
                       f"{'language_route=' + str(plan['language_route']).replace(' ', '_') + ' ' if plan and plan.get('language_route') else ''}"
                       # TRUTHINESS: `0` ET `None` SE TAISAIENT TOUS LES DEUX.
                       #

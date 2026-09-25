@@ -673,7 +673,7 @@ def _plan_line(kind, candidate_path, **fields):
         tools.dev_log(f"orchestrator: plan line kind={kind} not repeated for {candidate_path} "
                       f"-- the build's plan line (with its geometry) is this run's one line\n")
         return
-    tools.log_line(f"repair: plan {kind} orchestrator=1 "
+    tools.log_line(f"repair: plan {kind} build={repair_log.build_sha()} orchestrator=1 "
                       f"{_fields(sorted(fields.items()))} for {candidate_path}\n")
 
 

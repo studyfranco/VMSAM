@@ -1863,6 +1863,10 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     command.extend(["-map_chapters", "-1", "-c", "copy"])
 
     era_value = f"git_commit={tools.get_git_commit()} job_start_utc={job_start_utc}"
+    # THE BUILD ON EVERY FABRICATED TRACK (owner, 2026-09-25), its own tag so the value of
+    # VMSAM_FABRICATED -- which readers parse -- is unchanged. Only this file's tracks: the
+    # master's are never re-muxed here.
+    build = repair_log.build_sha()
     # LE MARQUEUR DE CHAQUE PISTE EST LE SIEN (`report["marker"]`, pose par
     # l'assemblage au facteur que CETTE piste a recu); `marker_value` reste le
     # repli d'un compte-rendu qui n'en porterait pas.
@@ -1870,6 +1874,7 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         command.extend([f"-metadata:s:a:{i}",
                         f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
         command.extend([f"-metadata:s:a:{i}", f"VMSAM_ERA={era_value}"])
+        command.extend([f"-metadata:s:a:{i}", f"VMSAM={build}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:a:{i}", f"language={report['language']}"])
         if report["title"] != None:
@@ -1878,6 +1883,7 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         command.extend([f"-metadata:s:s:{i}",
                         f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
         command.extend([f"-metadata:s:s:{i}", f"VMSAM_ERA={era_value}"])
+        command.extend([f"-metadata:s:s:{i}", f"VMSAM={build}"])
         if report["language"] != None and report["language"] != "und":
             command.extend([f"-metadata:s:s:{i}", f"language={report['language']}"])
         if report["title"] != None:

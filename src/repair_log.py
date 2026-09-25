@@ -16,6 +16,24 @@ import time
 import tools
 
 
+# THE BUILD OF VMSAM (owner, 2026-09-25): every track VMSAM fabricates carries `VMSAM=<short
+# sha>` and the plan line `build=<short sha>`. The source is `tools.get_git_commit()` -- the one
+# `/health` reports (VMSAM_GIT_COMMIT, injected at image build; the image ships no .git). An
+# absent commit is `unknown`, and said so once, never silently.
+BUILD_SHA_LENGTH = 8
+_BUILD_LOGGED = []
+
+
+def build_sha():
+    commit = tools.get_git_commit()
+    sha = commit[:BUILD_SHA_LENGTH] if commit and commit not in ("unknown", "IDK") else "unknown"
+    if sha == "unknown" and not _BUILD_LOGGED:
+        _BUILD_LOGGED.append(True)
+        tools.log_always(f"repair: build_commit_unknown VMSAM_GIT_COMMIT={commit!r} -- fabricated "
+                         f"tracks and the plan line carry VMSAM=unknown\n")
+    return sha
+
+
 def _basename(input_path):
     return path.basename(str(input_path)) if input_path else "-"
 
