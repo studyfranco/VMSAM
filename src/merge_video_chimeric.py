@@ -444,7 +444,7 @@ def get_stream_start_ms(audio):
 
 def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
                             sample_rate, layout, speed_chain=None,
-                            candidate_start_ms=None, master_start_ms=None):
+                            candidate_start_ms=None, master_start_ms=None, splices=None):
     '''Une seule commande ffmpeg par piste: pas de WAV intermediaire.
 
     Les morceaux sont tires dans l'ordre par le filtre concat, et chaque source
@@ -549,6 +549,18 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
         elif piece["source"] == "master" and master_stream_order != None:
             start = piece["source_start_ms"] / Decimal("1000")
             end = start + duration
+            # ADDENDUM 23.3: the fill takes FADE_S more on each crossfaded side (the crossfade
+            # consumes it: exact duration) and its gain (flat or ramp) -- the fill only.
+            splice = (splices or {}).get(i) or {}
+            margin = Decimal("0.010")
+            if splice.get("fade_left"):
+                start -= margin
+            if splice.get("fade_right"):
+                end += margin
+            volume = ""
+            if splice.get("gain") is not None:
+                import splice_hygiene
+                volume = splice_hygiene.volume_filter(splice["gain"], float(end - start))
             if len(master_split):
                 entry = f"[{master_split[master_index]}]"
             else:
@@ -556,7 +568,8 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
             master_index += 1
             chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
                           f"asetpts=PTS-STARTPTS"
-                          f"{head_pad(piece['source_start_ms'], master_start_ms, pads)},"
+                          f"{head_pad(piece['source_start_ms'], master_start_ms, pads)}"
+                          f"{volume},"
                           f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
                           f"[{label}]")
         else:
@@ -566,8 +579,26 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
                           f"[{label}]")
         labels.append(label)
 
-    chains.append("".join(f"[{label}]" for label in labels)
-                  + f"concat=n={len(labels)}:v=0:a=1[aout]")
+    fades = set()
+    for i in range(len(labels) - 1):
+        left, right = (splices or {}).get(i) or {}, (splices or {}).get(i + 1) or {}
+        if left.get("fade_right") or right.get("fade_left"):
+            fades.add(i)
+    if not fades:
+        chains.append("".join(f"[{label}]" for label in labels)
+                      + f"concat=n={len(labels)}:v=0:a=1[aout]")
+    else:
+        # ADDENDUM 23.3 (c)/(d): a 10 ms triangular crossfade where both sides sound, a hard
+        # `concat` elsewhere -- folded pairwise, the same stream `concat` would have made.
+        current = labels[0]
+        for i in range(len(labels) - 1):
+            joined = "aout" if i == len(labels) - 2 else f"j{i}"
+            if i in fades:
+                chains.append(f"[{current}][{labels[i + 1]}]"
+                              f"acrossfade=d=0.010:o=1:c1=tri:c2=tri[{joined}]")
+            else:
+                chains.append(f"[{current}][{labels[i + 1]}]concat=n=2:v=0:a=1[{joined}]")
+            current = joined
     return (";".join(chains), sum(pads) if len(pads) else Decimal("0"),
             head_decisions)
 
@@ -1072,9 +1103,14 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     candidate_start_ms = get_stream_start_ms(audio)
     if speed_ratio != None:
         candidate_start_ms = candidate_start_ms * Decimal(str(speed_ratio))
+    # ADDENDUM 23.2 / 23.3: each master fill piece gain-aligned on this track, each splice
+    # crossfaded or hard-cut -- measured before the build, applied in its one ffmpeg graph.
+    splices = (plan_splices(candidate_obj, audio, master_obj, master_audio, pieces,
+                            speed_chain, speed_ratio)
+               if fill == "master" and master_audio != None else {})
     filtergraph, head_pad_ms, head_decisions = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
-        speed_chain, candidate_start_ms, get_stream_start_ms(master_audio))
+        speed_chain, candidate_start_ms, get_stream_start_ms(master_audio), splices)
 
     command = [tools.software["ffmpeg"], "-y", "-nostdin",
                "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -1334,6 +1370,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
             "gap_filled_ms": str(filled),
             "filled_regions": filled_regions, "cut_regions": cut_regions,
+            "splices": {str(k): v for k, v in splices.items()},
             "used_regions": used_regions,
             # Le silence ajoute EN TETE parce que la source ne commence pas a
             # zero. Se dit: c'est du contenu que la piste produite n'a pas, et
@@ -3051,6 +3088,110 @@ def _run_bounded(command, media_seconds, deadline, file_path, stream_specifier):
         raise tools.decoder_timeout("read_mono_samples", timeout,
                                     f"file={file_path} stream={stream_specifier}")
     return process
+
+
+def read_splice_window(file_path, stream_specifier, start_s, duration_s, audio_filter=None,
+                       scale=None):
+    """A mono window at splice_hygiene.MEASURE_RATE for the splice gain (ADDENDUM 23.3), on the
+    track's CORRECTED clock when `audio_filter` / `scale` are given (a speed-corrected candidate:
+    corrected second t is raw second t / scale). Hybrid seek as `read_mono_samples`; None when
+    nothing was read (a splice that cannot be measured is hard-cut, never guessed)."""
+    import numpy
+    import splice_hygiene
+    scale = float(scale) if scale else 1.0
+    start_s, duration_s = max(0.0, float(start_s)), float(duration_s)
+    if duration_s <= 0:
+        return None
+    raw_start = start_s / scale
+    preroll = min(float(PROBE_PREROLL_S), raw_start)
+    command = [tools.software["ffmpeg"], "-v", "error", "-nostdin"]
+    if raw_start - preroll > 0:
+        command += ["-ss", f"{raw_start - preroll:.6f}"]
+    command += ["-i", file_path, "-map", stream_specifier]
+    if audio_filter:
+        command += ["-af", audio_filter]
+    command += ["-ss", f"{preroll * scale:.6f}", "-t", f"{duration_s:.6f}", "-f", "f32le",
+                "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(splice_hygiene.MEASURE_RATE), "-"]
+    try:
+        process = _run_bounded(command, preroll + duration_s, None, file_path, stream_specifier)
+    except tools.decoder_timeout:
+        return None
+    if process.returncode != 0 or not process.stdout:
+        return None
+    return numpy.frombuffer(process.stdout, dtype=numpy.float32).astype(numpy.float64)
+
+
+def plan_splices(candidate_obj, audio, master_obj, master_audio, pieces, speed_chain, speed_ratio):
+    """ADDENDUM 23.2 / 23.3, per master fill piece of this candidate track: its gain (measured at
+    each splice with a candidate neighbour) and the join at each such splice. Returns
+    `{piece_index: {"gain": ..., "fade_left": bool, "fade_right": bool, "edges": [...]}}`;
+    one unconditional line per splice and per piece (`repair: splice`, `repair: fill_gain`)."""
+    import splice_hygiene
+    plan = {}
+    if master_audio is None:
+        return plan
+    candidate_spec = f"0:{int(audio['StreamOrder'])}"
+    master_spec = f"0:{int(master_audio['StreamOrder'])}"
+    scale = float(speed_ratio) if speed_ratio is not None else None
+    window = splice_hygiene.SPLICE_MEASURE_S
+    edge = splice_hygiene.FADE_S
+    for index, piece in enumerate(pieces):
+        if piece["source"] != "master":
+            continue
+        start_s = float(piece["master_start_ms"]) / 1000.0
+        end_s = float(piece["master_end_ms"]) / 1000.0
+        offset_s = float(piece["source_start_ms"]) / 1000.0 - start_s     # master source clock
+        entry = {"gain": None, "fade_left": False, "fade_right": False, "edges": []}
+        readings = {}
+        for side, neighbour_index in (("A", index - 1), ("B", index + 1)):
+            if not 0 <= neighbour_index < len(pieces) or \
+                    pieces[neighbour_index]["source"] != "candidate":
+                continue
+            neighbour = pieces[neighbour_index]
+            n_start = float(neighbour["master_start_ms"]) / 1000.0
+            n_end = float(neighbour["master_end_ms"]) / 1000.0
+            n_offset = float(neighbour["source_start_ms"]) / 1000.0 - n_start
+            at = start_s if side == "A" else end_s
+            lo, hi = ((max(n_start, at - window), at) if side == "A"
+                      else (at, min(n_end, at + window)))
+            receiving = read_splice_window(candidate_obj.filePath, candidate_spec,
+                                           lo + n_offset, hi - lo, speed_chain, scale)
+            source = read_splice_window(master_obj.filePath, master_spec, lo + offset_s, hi - lo)
+            d, blocks = (splice_hygiene.edge_gain(receiving, source)
+                         if receiving is not None and source is not None else (None, 0))
+            source_edge = read_splice_window(master_obj.filePath, master_spec,
+                                             at + offset_s - edge, 2 * edge)
+            rate = splice_hygiene.MEASURE_RATE
+            receiving_edge = (None if receiving is None else
+                              receiving[-int(edge * rate):] if side == "A"
+                              else receiving[:int(edge * rate)])
+            join = splice_hygiene.splice_join(receiving_edge, source_edge)
+            margin_ok = (at + offset_s - edge >= 0) if side == "A" else True
+            if join == "crossfade" and not margin_ok:
+                join = "hard_cut"
+            readings[side] = d
+            entry["fade_left" if side == "A" else "fade_right"] = join == "crossfade"
+            entry["edges"].append({"side": side, "master_s": round(at, 3), "gain_db": d,
+                                   "coherent_blocks": blocks, "join": join,
+                                   "measure_s": [round(lo, 3), round(hi, 3)]})
+            tools.log_always(
+                f"repair: splice track={audio['StreamOrder']} fill_piece={index} side={side} "
+                f"master_s={round(at, 3)} join={join}"
+                f"{' fade_ms=' + str(round(edge * 1000, 1)) if join == 'crossfade' else ''} "
+                f"edge_gain_db={None if d is None else round(d, 3)} coherent_blocks={blocks} "
+                f"measure_s=[{round(lo, 3)}, {round(hi, 3)}] for {candidate_obj.filePath}\n")
+        if not entry["edges"]:
+            continue
+        gain = splice_hygiene.fill_gain(readings.get("A"), readings.get("B"))
+        entry["gain"] = gain
+        tools.log_always(
+            f"repair: fill_gain track={audio['StreamOrder']} fill_piece={index} "
+            f"master_s=[{round(start_s, 3)}, {round(end_s, 3)}] mode={gain['mode']} "
+            f"gain_a_db={gain['gain_a_db']} gain_b_db={gain['gain_b_db']}"
+            f"{' fill_gain_unmeasurable' if gain['unmeasurable'] else ''} "
+            f"for {candidate_obj.filePath}\n")
+        plan[index] = entry
+    return plan
 
 
 def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, deadline=None):
