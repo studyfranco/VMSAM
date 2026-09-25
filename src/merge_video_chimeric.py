@@ -2596,10 +2596,42 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     declined = []
     failed = []
 
+    # THE TRACK BUILD IS INSIDE THE REPAIR BUDGET (ADDENDUM 26.3 / 26.8, measured: Ragnarok
+    # E14/E15, 82 master tracks, 47 and 62 min against 20). Before each track the deadline is
+    # checked; each build's ffmpeg is bounded like a decode (max(120 s, 1 s per second of the
+    # timeline)) and by the budget left; a build the budget stops declines the repair
+    # `repair_budget_exceeded` with the tracks built so far -- never a mux of a half-built set.
+    import time as _time
+    timeline_s = float(master_duration_ms) / 1000.0
+    built = []
+
+    def build_bound():
+        bound = min(float(timeout), tools.decoder_timeout_for(timeline_s))
+        if deadline is not None:
+            left = deadline - _time.monotonic()
+            if left <= 0:
+                tools.log_always(
+                    f"repair: partial_plan cause=repair_budget_exceeded placed={built} "
+                    f"-- the repair's budget ran out during the track build, nothing is muxed "
+                    f"for {candidate_obj.filePath}\n")
+                raise chimeric_error(
+                    f"the repair's budget ran out during the track build after {len(built)} "
+                    f"track(s) {built} -- nothing is muxed; the file comes back next wave",
+                    cause="repair_budget_exceeded")
+            bound = min(bound, left)
+        return bound
+
+    def budget_stopped(error):
+        """A build that failed because the budget's bound cut it is the budget's refusal."""
+        if deadline is not None and _time.monotonic() >= deadline:
+            build_bound()                    # raises repair_budget_exceeded with the partial plan
+        return error
+
     index = 0
     for language, audio in iterate_candidate_audios(candidate_obj):
         track_path = path.join(work_dir, f"audio_{index}.mka")
         index += 1
+        bound = build_bound()
         try:
             stream_order = int(audio["StreamOrder"])
             track_plan = track_plans.get(stream_order)
@@ -2614,10 +2646,14 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             tools.log_line(
                 f"chimeric: extraction bound {track_label} "
                 f"bound_ms={track_bound_ms} source={track_plan['extent_source']}\n")
-            report = build_one_audio_track(
-                candidate_obj, master_obj, audio, language, track_plan["pieces"],
-                track_path, timeout, speed_ratio, reference_stream, comparison_language,
-                track_bound_ms, speed_engine)
+            with repair_log.announced("chimeric", f"track_build:audio:{stream_order}",
+                                      candidate_obj.filePath, media_s=timeline_s) as call:
+                report = build_one_audio_track(
+                    candidate_obj, master_obj, audio, language, track_plan["pieces"],
+                    track_path, bound, speed_ratio, reference_stream, comparison_language,
+                    track_bound_ms, speed_engine)
+                call["exit"] = 0
+            built.append(f"audio:{stream_order}")
             report["extraction_bound_ms"] = str(track_bound_ms)
             report["extraction_bound_source"] = track_plan["extent_source"]
             report["extraction_bound_track"] = track_label
@@ -2636,10 +2672,12 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                 speed_engine)
             audio_reports.append(report)
         except chimeric_error as error:
+            budget_stopped(error)
             declined.append({"kind": "audio",
                              "stream_order": int(audio["StreamOrder"]),
                              "language": language, "reason": str(error)})
         except Exception as error:
+            budget_stopped(error)
             failed.append({"kind": "audio",
                            "stream_order": int(audio["StreamOrder"]),
                            "language": language, "reason": str(error)})
@@ -2648,10 +2686,16 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     index = 0
     for language, subtitles in candidate_obj.subtitles.items():
         for subtitle in subtitles:
+            bound = build_bound()
             try:
-                report = build_one_subtitle_track(
-                    candidate_obj, subtitle, language, reference_pieces, work_dir, index,
-                    timeout, speed_ratio)
+                with repair_log.announced(
+                        "chimeric", f"track_build:subtitle:{subtitle['StreamOrder']}",
+                        candidate_obj.filePath) as call:
+                    report = build_one_subtitle_track(
+                        candidate_obj, subtitle, language, reference_pieces, work_dir, index,
+                        bound, speed_ratio)
+                    call["exit"] = 0
+                built.append(f"subtitle:{subtitle['StreamOrder']}")
                 # LES REPLIQUES SUBISSENT LE RATIO DEMANDE, EXACT (pas un facteur
                 # quantifie par une frequence d'echantillonnage): c'est lui que
                 # porte leur marqueur.
@@ -2660,10 +2704,12 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                     speed_engine)
                 subtitle_reports.append(report)
             except chimeric_error as error:
+                budget_stopped(error)
                 declined.append({"kind": "subtitle",
                                  "stream_order": int(subtitle["StreamOrder"]),
                                  "language": language, "reason": str(error)})
             except Exception as error:
+                budget_stopped(error)
                 failed.append({"kind": "subtitle",
                                "stream_order": int(subtitle["StreamOrder"]),
                                "language": language, "reason": str(error)})
@@ -2749,8 +2795,10 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     file_marker = compose_marker(
         marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
         speed_engine)
+    # the deadline once more before the mux: a budget that ran out on the last build stops here
+    mux_bound = build_bound()
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout, job_start_utc, chapters_path=chapters_path)
+                      mux_bound, job_start_utc, chapters_path=chapters_path)
 
     # L'ACCEPTATION PORTE SUR LE FICHIER ET ELLE PASSE AVANT L'ALIGNEMENT.
     # `SPEC_ZONE_A.MD` s4d. Verifier l'alignement d'une piste tronquee sonde des

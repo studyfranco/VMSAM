@@ -56,6 +56,7 @@ from os import path
 import hashlib
 import json
 import sys
+import time
 
 import tools
 import repair_log
@@ -447,7 +448,7 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # le seul point ouvert qui voit TOUTES les pistes construites. `keep=False`
     # pose ici est lu par `generate_new_file_audio_config`.
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
-        repaired_obj, master_obj, work_dir=work_dir)
+        repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"))
     return repaired_obj, assembly
 
 
@@ -646,7 +647,7 @@ def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir
 
 
 def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
-                             content_probe=None):
+                             content_probe=None, deadline=None):
     """Aucune piste fabriquee n'atteint la livraison sans avoir ete jugee.
 
     Sur CHAQUE piste audio du fichier repare (audios, commentaires,
@@ -678,6 +679,10 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
        reparation).
 
     `content_probe`: injectable pour les tests; par defaut `measure_same_content`.
+    `deadline` (ADDENDUM 26.3 / 26.8: the repair's budget covers the WHOLE repair, the gate
+    included -- MEASURED Ragnarok S02E14, 14 rebuilt audio tracks raced against the master's for
+    longer than the 20-min budget): checked before each track is judged; past it the repair
+    declines `repair_budget_exceeded` with the tracks judged so far.
     Renvoie la liste des retraits; journalise chaque decision
     INCONDITIONNELLEMENT (decision de livraison, pas du diagnostic).
     """
@@ -724,6 +729,17 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         f"reason=the master carries no intact {language} track "
                         f"to race it against")
                     continue
+                if deadline is not None and time.monotonic() > deadline:
+                    import merge_video_chimeric
+                    judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
+                    tools.log_always(
+                        f"repair: partial_plan cause=repair_budget_exceeded stage=delivery_gate "
+                        f"dropped_so_far={judged} next={where} -- the repair's budget ran out "
+                        f"while the rebuilt tracks were raced against the master's\n")
+                    raise merge_video_chimeric.chimeric_error(
+                        f"the repair's budget ran out in the delivery gate, before {where} "
+                        f"(dropped so far {judged}) -- the file comes back next wave",
+                        cause="repair_budget_exceeded")
                 lost_to = None
                 measures = []
                 for intact in opponents:
