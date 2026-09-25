@@ -58,8 +58,11 @@ FAST_DRIFT_MIN_FACTOR_DEVIATION = 5e-4
 # span of its one zone 0.97 of the master), so the fraction of the master TIMELINE the aligned
 # zones cover is the reading. 0.9 is the sweep's own floor, carried to the measure that decides.
 RATE_ARM_MIN_SPAN_COVERAGE = 0.9
-# Two finalists this close in span are tied: fewer zones, then asetrate (AUDIO_SPEED_POLICY's
-# default, 23/23 PAL and 6/6 NTSC), then the ratio nearer 1 decide.
+# Two finalists this close in span are tied: asetrate first (AUDIO_SPEED_POLICY's default, 23/23
+# PAL and 6/6 NTSC -- at an NTSC ratio the two engines' 0.1 % pitch difference does not move a
+# fingerprint, so a tie there is no evidence for atempo: MEASURED Fallout S01E03, asetrate 0.9972
+# over 6 zones against atempo 0.9965 over 4, and an atempo winner the verifier then refused),
+# then fewer zones, then the ratio nearer 1.
 RATE_ARM_SPAN_TIE = 0.01
 # A declared frame-rate ratio names a rate when it lies this close (relative) to a named one.
 DECLARED_RATE_TOLERANCE = 1e-4
@@ -148,7 +151,7 @@ def choose_winner(rows):
     """`rows`: one dict per finalist -- `ratio` (Fraction, 1 for the prime itself), `engine`
     (None at 1) and `finalist_reading`'s keys. The winner is the highest span coverage among the
     finalists that are not a ladder and reach RATE_ARM_MIN_SPAN_COVERAGE; within
-    RATE_ARM_SPAN_TIE of it, fewer zones, then asetrate, then the ratio nearer 1. None when no
+    RATE_ARM_SPAN_TIE of it, asetrate, then fewer zones, then the ratio nearer 1. None when no
     finalist qualifies."""
     admissible = [r for r in rows if not r["ladder"]
                   and r["span_coverage"] >= RATE_ARM_MIN_SPAN_COVERAGE]
@@ -156,7 +159,7 @@ def choose_winner(rows):
         return None
     best = max(r["span_coverage"] for r in admissible)
     tied = [r for r in admissible if best - r["span_coverage"] <= RATE_ARM_SPAN_TIE]
-    return min(tied, key=lambda r: (r["zones"], 0 if r["engine"] in (None, "asetrate") else 1,
+    return min(tied, key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1, r["zones"],
                                     abs(float(r["ratio"]) - 1.0)))
 
 

@@ -550,8 +550,12 @@ DECLINE_CAUSES = {
     # THE ASSEMBLY'S OWN REFUSALS (B5 of the certification: a stage-5 refusal left the
     # vocabulary and the ledger could not class it). They are raised by `merge_video_chimeric` /
     # `merge_video_repair` with the token set at the raise site and recorded by the entry, which
-    # now writes their measurement class through `log_measurement_class`. Measured refusals of
-    # the built file are conclusive; a plan the assembly cannot lay is could-not-run.
+    # now writes their measurement class through `log_measurement_class`. A refusal of the BUILT
+    # FILE is could-not-run: it measures the product VMSAM made, never the pair (05b6a1cc, id 126);
+    # a plan the assembly cannot lay is could-not-run too. Conclusive stays for what is proven ON
+    # THE PAIR -- different content, no shared language, `master_cut_short`. The tokens below
+    # still classed conclusive (`alignment_contradicts_plan` and the four duration/admission
+    # gates) are pending that same reading, by ruling, not by this comment.
     "alignment_contradicts_plan": CLASS_CONCLUSIVE,
     "delivery_offset_exceeds_tolerance": CLASS_COULD_NOT_RUN,  # our product, never the pair (id 126)
     "master_audio_complement_short": CLASS_CONCLUSIVE,
@@ -3463,6 +3467,26 @@ def _cp_hole(point, reference, index):
                          "step_ms": round(b - a, 3), "change_point": index}]}
 
 
+def video_pin(video_s, interval, edges, extra_s, frame_s):
+    """ADDENDUM 25, "the audio bounds, the video pins": `(at_s, decision)` when the video's cut
+    frame pins the transition, else `(None, None)` (the audio instant stands: a blind video, or
+    a frame the audio excludes). Pinned when the frame lies, within one frame, inside the walk's
+    interval -- or inside the audio STEP's own bounds: a cut at or after the step's first edge
+    that leaves room for the whole fill (`extra_s`) before its last. The second clause holds the
+    pin when the interval reads narrower than the step: MEASURED uu171 on the pre-ff14b603 fine
+    edges, interval [211.014, 211.019] inside edges [209.88, 212.02] for a 1.001 s fill, the frame
+    210.961 s lost its pin by 53 ms."""
+    if video_s is None:
+        return None, None
+    lo, hi = interval
+    if lo - frame_s <= video_s <= hi + frame_s:
+        return min(max(video_s, lo), hi), "video_frame_inside_audio_interval"
+    first, last = min(edges), max(edges) - max(0.0, extra_s)
+    if first - frame_s <= video_s <= last + frame_s:
+        return min(max(video_s, first), max(first, last)), "video_frame_inside_audio_bounds"
+    return None, None
+
+
 def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
                       candidate_path):
     """EVERY WALK CHANGE POINT, PLACED (ADDENDUM 25.1-25.2). Returns `(transitions, None)` or
@@ -3550,8 +3574,10 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                               f"{round(extra * 1000.0, 3)} ms")
                 video_s = None
         fill = extra
-        if video_s is not None and lo - frame <= video_s <= hi + frame:
-            at, decision = min(max(video_s, lo), hi), "video_frame_inside_audio_interval"
+        pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
+                                     extra, frame)
+        if pinned is not None:
+            at = pinned
         elif status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
             at = audio_walk.quietest_instant(walk["master"], lo, hi)
             fill, decision = 0.0, "slip_applied"

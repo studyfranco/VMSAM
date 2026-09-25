@@ -41,11 +41,14 @@ def test_unity_wins_and_nothing_qualifies():
     assert rd.choose_winner([_row(1, None, 0.2, 3), _row("25/24", "atempo", 0.4, 9)]) is None
 
 
-def test_tie_prefers_fewer_zones_then_asetrate():
+def test_tie_prefers_asetrate_then_fewer_zones():
     rows = [_row("1001/1000", "asetrate", 0.995, 2), _row("1001/1000", "atempo", 0.996, 2)]
     assert rd.choose_winner(rows)["engine"] == "asetrate"
-    rows = [_row("1001/1000", "asetrate", 0.995, 5), _row("1001/1000", "atempo", 0.996, 2)]
-    assert rd.choose_winner(rows)["engine"] == "atempo"
+    # Fallout S01E03, measured: the engines tie at NTSC -- asetrate, whatever the zone count
+    rows = [_row("1001/1000", "asetrate", 0.9972, 6), _row("1001/1000", "atempo", 0.9965, 4)]
+    assert rd.choose_winner(rows)["engine"] == "asetrate"
+    rows = [_row("25/24", "asetrate", 0.95, 9), _row("1001/960", "asetrate", 0.955, 1)]
+    assert rd.choose_winner(rows)["ratio"] == Fraction(1001, 960)
 
 
 def test_first_finalists_carry_both_directions():
