@@ -3715,6 +3715,50 @@ def tag_decision(n_splices, edge_added_s):
 ZONE_EDGE_MARGIN_S = 0.5
 
 
+def remeasure_at_other_levels(zones, readings, measure, searched_ms):
+    """A ZONE THE REFERENCE'S OFFSET DID NOT EXPLAIN IS SEARCHED AGAIN AT THE TRACK'S OWN LEVELS,
+    then at the reference's other levels, before any offset is derived for it. `measure(low,
+    high, seed)` is `audio_walk.zone_offset` over the zone's margins; a seed within `searched_ms`
+    of the zone's reference offset was already searched and is skipped. The reading that measured
+    the most windows is kept, with its `seed_ms`; the retries are returned for the log.
+
+    Without it a track that does not take the reference's steps is given them: MEASURED, id 126
+    (Undead Unluck S01E01, NF candidate), the jpn E-AC-3 reads +538/-464/-1464/-2465 ms against
+    the master over four zones while the en/es/pt AAC dubs read -501 ms end to end; each dub was
+    measured in the one zone whose reference level lay within 150 ms of -501, and the other three
+    were `derived_by_reference_step` to +501/-1501/-2502 ms, delivering them 1002/1000/2001 ms
+    off (verifier: 2004.4-2006.0 ms)."""
+    import audio_walk
+    own = [float(r["offset_ms"]) for r in readings if r["offset_ms"] is not None]
+    other = [float(zone["offset_ms"]) for zone in zones]
+    retries = []
+    for zone, reading in zip(zones, readings):
+        if reading["offset_ms"] is not None or not own:
+            continue
+        low = float(zone["master_start_ms"]) / 1000.0 + ZONE_EDGE_MARGIN_S
+        high = float(zone["master_end_ms"]) / 1000.0 - ZONE_EDGE_MARGIN_S
+        if high - low < audio_walk.WALK_WINDOW_S:
+            continue
+        reference_ms = float(zone["offset_ms"])
+        tried, best = [], None
+        for seed in own + other:
+            if abs(seed - reference_ms) <= searched_ms or any(abs(seed - s) < 1.0 for s in tried):
+                continue
+            tried.append(seed)
+            measured = measure(low, high, seed)
+            if measured["offset_ms"] is not None and (best is None
+                                                      or measured["n_ok"] > best[1]["n_ok"]):
+                best = (seed, measured)
+        if best is None:
+            continue
+        seed, measured = best
+        reading.update(offset_ms=Decimal(str(measured["offset_ms"])), windows=measured["n_ok"],
+                       seed_ms=seed, reason=None)
+        retries.append({"zone": zone["zone"], "reference_ms": reference_ms, "seed_ms": seed,
+                        "offset_ms": measured["offset_ms"], "windows": measured["n_ok"]})
+    return retries
+
+
 def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale,
                   deadline=None, engine="asetrate"):
     """EACH TRACK ITS OWN OFFSET, PER ZONE, AT THE MILLISECOND (ADDENDUM 9 points 2 and 14;
@@ -3725,7 +3769,9 @@ def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio,
                             (margins of `ZONE_EDGE_MARGIN_S`) seeded by the zone's reference
                             offset, against the master track of ITS language; a track that
                             shows more than one level inside a zone is logged (the dominant
-                            level is used)
+                            level is used); a zone that seed does not explain is searched again
+                            at the track's own measured levels, then the reference's other ones
+                            (`remeasure_at_other_levels`, logged `offset_remeasured`)
       a zone of such a track too short or too quiet to measure: `derived_by_reference_step` --
                             the track's nearest measured zone moved by the REFERENCE's own step
                             between the two zones (a millisecond relation, never a frame count)
@@ -3809,6 +3855,15 @@ def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio,
                               f"{zone['zone']}: levels "
                               f"{[(lv['t_first'], lv['t_last'], lv['off_ms']) for lv in measured['levels']]}"
                               f" -- the dominant one is applied\n")
+        for retry in remeasure_at_other_levels(
+                zones, readings,
+                lambda low, high, seed: audio_walk.zone_offset(
+                    master_cache[master_order], samples, low, high, seed),
+                audio_walk.WALK_SEARCH_MS):
+            tools.log_line(f"repair: offset_remeasured stream={order} lang={track_language} "
+                           f"zone={retry['zone']} reference_ms={retry['reference_ms']} "
+                           f"seed_ms={retry['seed_ms']} measured_ms={retry['offset_ms']} "
+                           f"windows={retry['windows']}\n")
         del samples
         entry["measured"] = any(reading["offset_ms"] is not None for reading in readings)
         step_result("track_offset", candidate=candidate_obj.filePath, stream=order,
