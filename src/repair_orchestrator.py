@@ -3467,6 +3467,37 @@ def _cp_hole(point, reference, index):
                          "step_ms": round(b - a, 3), "change_point": index}]}
 
 
+# THE REPLACEMENT HOLE (ADDENDUM 25.9.1): an excess of the master-only span over the audio step
+# under this bound is the candidate's own material at the join (a crossfade dip, a silence) that
+# the plan cuts. MEASURED id 111: step 73.990 s, video cuts 674.841 / 748.957 s (74.116 s), excess
+# 126 ms -- the candidate's 0.4-0.5 s crossfade dip at 583.9-584.4 s.
+REPLACEMENT_MAX_EXCESS_S = 1.0
+
+
+def replacement_hole(outcome, domain, edges, slack_s):
+    """`{start_s, end_s, fill_s, cut_ms}` when the video pins BOTH edges of an infeasible deletion
+    (a resolved hole: paired hard cuts) INSIDE the audio's edges, `slack_s` allowed outside them,
+    and its cut span exceeds the audio fill by less than REPLACEMENT_MAX_EXCESS_S; else None (the
+    decline stands). The fill is the video's span, the master-only material; the candidate loses
+    exactly the excess. `slack_s` is the width tolerance this module already allows between the
+    video and the audio (one quantum + two frames). MEASURED id 111: audio edges 673.52 / 748.865 s
+    (edge_A early on a weak level), video cuts 674.841 / 748.957 s -- the end cut 92 ms past
+    edge_B, inside the slack."""
+    if outcome.get("status") != HOLE_RESOLVED:
+        return None
+    start_s = _frame_s(outcome["master_start_frame"], domain)
+    end_s = _frame_s(outcome["master_end_frame"], domain)
+    fill_s = end_s - start_s
+    excess = fill_s - edges["extra_s"]
+    first, last = min(edges["edge_A"], edges["edge_B"]), max(edges["edge_A"], edges["edge_B"])
+    if not (first - slack_s <= start_s and end_s <= last + slack_s):
+        return None
+    if not (0.0 <= excess < REPLACEMENT_MAX_EXCESS_S):
+        return None
+    return {"start_s": start_s, "end_s": end_s, "fill_s": fill_s,
+            "cut_ms": round(excess * 1000.0, 3)}
+
+
 def video_pin(video_s, interval, edges, extra_s, frame_s):
     """ADDENDUM 25, "the audio bounds, the video pins": `(at_s, decision)` when the video's cut
     frame pins the transition, else `(None, None)` (the audio instant stands: a blind video, or
@@ -3519,12 +3550,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"{point['a_ms']} and {point['b_ms']} ms (t {point['level_before']['t_last']}"
                           f" -> {point['level_after']['t_first']} s) but its edges could not be "
                           f"read at 20 ms or 100 ms")
-        if not edges["feasible"]:
-            return None, ("hole_width_contradicts_audio_step",
-                          f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
-                          f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not fit "
-                          f"between the audio edges around its audible master-only sound "
-                          f"(interval {edges['interval']})")
+        # AN INFEASIBLE DELETION IS ASKED TO THE VIDEO (ADDENDUM 25.9.1): a replacement hole
+        # when the pictures pin both edges; declined below otherwise.
         holes.append(_cp_hole(point, reference, index))
     # CLUSTERS (owner 2026-09-24): nearby change points share one scene pass; each keeps its
     # bounds; the ISLAND between two of them is a walk level, confirmed by the walk's own
@@ -3564,6 +3591,31 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                                   f"a time bound ({outcome.get('evidence')}) -- the partial plan "
                                   f"is logged; the file comes back next wave")
         status = outcome["status"]
+        if not edges["feasible"]:
+            replacement = replacement_hole(outcome, domain, edges,
+                                           hole["quantum_ms"] / 1000.0 + 2 * frame)
+            if replacement is None:
+                return None, ("hole_width_contradicts_audio_step",
+                              f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
+                              f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not "
+                              f"fit between the audio edges around its audible master-only sound "
+                              f"(interval {edges['interval']}), and the video does not pin a "
+                              f"replacement (status {status}, "
+                              f"{outcome.get('resolver_reason') or 'frames outside the edges or an excess of 1 s or more'})")
+            transitions.append({"at_s": replacement["start_s"], "fill_s": replacement["fill_s"],
+                                "a_ms": point["a_ms"], "b_ms": point["b_ms"],
+                                "decision": "replacement_hole", "interval": [lo, hi],
+                                "edges": [edges["edge_A"], edges["edge_B"]],
+                                "video_status": status, "video_s": replacement["start_s"],
+                                "change_point": index, "cut_ms": replacement["cut_ms"]})
+            tools.log_always(
+                f"repair: replacement_hole change_point={index} a_ms={point['a_ms']} "
+                f"b_ms={point['b_ms']} step_ms={round(jump, 3)} audio_edges_s=[{edges['edge_A']}, "
+                f"{edges['edge_B']}] video_edges_s=[{replacement['start_s']}, "
+                f"{replacement['end_s']}] fill_ms={round(replacement['fill_s'] * 1000, 3)} "
+                f"cut_ms={replacement['cut_ms']} -- the candidate's own excess is cut, the "
+                f"master-only span is filled from the master (ADDENDUM 25.9) for {candidate_path}\n")
+            continue
         video_s, width_note = None, None
         if status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
             video_s = _frame_s(outcome["master_start_frame"], domain)
@@ -3684,7 +3736,8 @@ def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
         if width > 0:
             fills.append({"master_start_ms": at, "master_end_ms": at + width,
                           "reason": WHY_TOKEN["interior"], "hole": number,
-                          "status": transition["decision"]})
+                          "status": transition["decision"],
+                          "cut_ms": transition.get("cut_ms")})
         cursor = at + width
     end = timeline_ms
     if tail_start_s is not None:
@@ -4188,6 +4241,12 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         tools.dev_log(f"orchestrator: no {merge_video_repair.REPAIR_SEAM_ATTRIBUTE} on "
                       f"{candidate_path}: standalone run, the era tag carries no job start\n")
     marker = "chimeric" if context["tagged"] else ""
+    # ADDENDUM 25.9.1: a replacement hole names what it cut from the candidate and filled
+    for fill in fills:
+        if fill.get("status") == "replacement_hole":
+            marker = "+".join(part for part in (
+                marker, f"replacement_hole:{fill['cut_ms']}/"
+                        f"{round(float(fill['master_end_ms'] - fill['master_start_ms']), 3)}") if part)
     comparison_offsets = tracks[int(context["candidate_stream"])]["zones"]
     plan = {
         "kind": "orchestrator_chimeric",

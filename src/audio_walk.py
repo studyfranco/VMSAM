@@ -370,12 +370,16 @@ def levels(rows):
         out.append({"t_first": level["ts"][0], "t_last": level["ts"][-1], "n": len(offs),
                     "off_ms": round(median, 3),
                     "mad_ms": round(float(np.median(np.abs(offs - median))), 3),
-                    "ncc_med": round(float(np.median(level["nccs"])), 4)})
+                    "ncc_med": round(float(np.median(level["nccs"])), 4),
+                    # THE LOCAL OFFSET AT EACH END (ADDENDUM 25.9.2): where the edge probes read
+                    "off_first_ms": round(float(np.median(offs[:EDGE_LOCAL_WINDOWS])), 3),
+                    "off_last_ms": round(float(np.median(offs[-EDGE_LOCAL_WINDOWS:])), 3)})
     merged = []
     for level in out:
         if merged and abs(level["off_ms"] - merged[-1]["off_ms"]) < LEVEL_TOLERANCE_MS:
             merged[-1]["t_last"] = level["t_last"]
             merged[-1]["n"] += level["n"]
+            merged[-1]["off_last_ms"] = level["off_last_ms"]
         else:
             merged.append(level)
     return merged, outliers
@@ -397,7 +401,22 @@ def _fixed_ncc(m, c, t, off_ms, win_s, micro_ms=1.0):
     return (None if curve is None else float(curve.max())), rms_db(seg)
 
 
-def coarse_edges(m, c, a, b, t_lo, t_hi):
+# THE EDGE PROBES FALL BACK TO THE LOCAL OFFSET (ADDENDUM 25.9.2): inside a level the offset
+# wanders a few ms (within LEVEL_TOLERANCE_MS), so a fixed-lag probe at the level MEDIAN can miss an
+# edge the local offset reads. The local offset is the median of the EDGE_LOCAL_WINDOWS windows
+# nearest the edge, searched +/- EDGE_LOCAL_SEARCH_MS by the coarse probe; the level median stays
+# the step and the fill that are delivered. MEDIAN FIRST, LOCAL ONLY WHEN THE MEDIAN CANNOT READ
+# THE EDGE -- MEASURED, id 111: CP3 (-90383.7 -> -164374.192 ms, local -164371.3 at the after-
+# level's start) is unmeasurable at the median (0.4 s NCC -0.2...0.07) and reads 673.52 / 748.865 s
+# at the local offsets; but CP2 (+623 ms) reads 656.945 / 661.325 s at the median and is
+# unmeasurable at its before-level's local offset (-91009.2, 2 ms off); and on errid-222 a local
+# offset 0.001 ms from the median moved an edge by 15 ms (a threshold flip). The median path is
+# unchanged wherever it reads.
+EDGE_LOCAL_WINDOWS = 5
+EDGE_LOCAL_SEARCH_MS = 5.0
+
+
+def coarse_edges(m, c, a, b, t_lo, t_hi, micro_ms=1.0):
     """Edges of an a -> b change inside master [t_lo, t_hi] from 0.4 s fixed-lag windows:
     (edge_A, edge_B) or None. Only a SEED for `fine_edges`, never an edge by itself (memo 4.1:
     coarse edges are biased inward by 0.1-0.3 s)."""
@@ -406,8 +425,8 @@ def coarse_edges(m, c, a, b, t_lo, t_hi):
     while t + SHORT_WIN_S <= t_hi:
         i0 = int(round(t * WALK_RATE))
         mdb = rms_db(m[i0:i0 + int(SHORT_WIN_S * WALK_RATE)])
-        na, _ = _fixed_ncc(m, c, t, a, SHORT_WIN_S)
-        nb, _ = _fixed_ncc(m, c, t, b, SHORT_WIN_S)
+        na, _ = _fixed_ncc(m, c, t, a, SHORT_WIN_S, micro_ms)
+        nb, _ = _fixed_ncc(m, c, t, b, SHORT_WIN_S, micro_ms)
         profile.append((t, mdb, na, nb))
         t += SHORT_HOP_S
 
@@ -505,15 +524,19 @@ def _ncc_profile(m, c, offsets, t0, t1, win_s=0.1):
     return times, mdb, nccs
 
 
-def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
+def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b=None):
     """The sharp edges of an a -> b change (memo 1.4): edge_A = the last master instant read at
     a, edge_B = the first read at b; `extra_s` = max(0, a - b) of master content the candidate
     lacks; for a deletion the feasible fill-start interval (fill [F, F + extra] with F >= A,
     F + extra <= B, covering the audible master-only sound), for an addition the cut-instant
-    interval. `status` is `ok` or `edge_unmeasurable`."""
+    interval. `status` is `ok` or `edge_unmeasurable`. `probe_a` / `probe_b`: the offsets the
+    probes read at (the levels' local offsets at this edge, ADDENDUM 25.9.2); `a` / `b` stay the
+    levels' medians, which set the step and the fill."""
+    probe_a = a if probe_a is None else probe_a
+    probe_b = b if probe_b is None else probe_b
     t0 = min(coarse_a, coarse_b) - margin
     t1 = max(coarse_a, coarse_b) + margin
-    times, mdb, (ra, rb), (fa, fb) = _fits(m, c, (a, b), t0, t1)
+    times, mdb, (ra, rb), (fa, fb) = _fits(m, c, (probe_a, probe_b), t0, t1)
     audible = mdb >= FINE_SILENT_DB
     pre = audible & (times < min(coarse_a, coarse_b) - 0.45)
     post = audible & (times > max(coarse_a, coarse_b) + 0.05)
@@ -529,7 +552,7 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
         follows_b = audible & (fb < FINE_THRESHOLD) & (fa > 2 * fb)
     else:
         method, win = "ncc100ms", 0.1
-        times, mdb, (na, nb) = _ncc_profile(m, c, (a, b), t0, t1, win)
+        times, mdb, (na, nb) = _ncc_profile(m, c, (probe_a, probe_b), t0, t1, win)
         audible = mdb >= FINE_SILENT_DB
         is_a = audible & (na >= 0.8) & (na - nb >= 0.2)
         is_b = audible & (nb >= 0.8) & (nb - na >= 0.2)
@@ -758,13 +781,23 @@ def change_points(m, c, found):
         # -90383.7 ms, +623 ms of candidate silence at the Part A/B break): the first 0.4 s claim
         # of the after-level is at 661.83 s, 0.23 s past [656, 662]; with one hop more the edges
         # read 656.945 / 661.325 s around the master's digital silence (658.2-659.2 s).
-        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"],
-                              before["t_last"] - WALK_HOP_S,
-                              after["t_first"] + WALK_WINDOW_S + WALK_HOP_S)
-        if coarse is None:
-            point["edges"] = {"status": "edge_unmeasurable", "stage": "coarse"}
-        else:
-            point["edges"] = fine_edges(m, c, before["off_ms"], after["off_ms"], *coarse)
+        t_lo = before["t_last"] - WALK_HOP_S
+        t_hi = after["t_first"] + WALK_WINDOW_S + WALK_HOP_S
+        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"], t_lo, t_hi)
+        edges = (fine_edges(m, c, before["off_ms"], after["off_ms"], *coarse)
+                 if coarse is not None else None)
+        if edges is None or edges["status"] != "ok":
+            probe_a = before.get("off_last_ms", before["off_ms"])
+            probe_b = after.get("off_first_ms", after["off_ms"])
+            local = coarse_edges(m, c, probe_a, probe_b, t_lo, t_hi,
+                                 micro_ms=EDGE_LOCAL_SEARCH_MS)
+            if local is not None:
+                retried = fine_edges(m, c, before["off_ms"], after["off_ms"], *local,
+                                     probe_a=probe_a, probe_b=probe_b)
+                if retried["status"] == "ok" or edges is None:
+                    edges = dict(retried, probe_ms=[probe_a, probe_b])
+        point["edges"] = (edges if edges is not None
+                          else {"status": "edge_unmeasurable", "stage": "coarse"})
         points.append(point)
     return points
 
