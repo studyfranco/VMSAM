@@ -4079,10 +4079,16 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
     window_ms = Decimal(str(verify_window_seconds)) * Decimal("1000")
     results = []
     produced_index = 0
+    # A piece whose probes disagree is decided AFTER every track is measured: the disagreement
+    # may be the master's own (`master_intertrack_explains`), which only a track verified
+    # aligned on the same probes can show, and that track may come later in the loop.
+    deferred = []
+    master_tracks = {}
     for report in audio_reports:
         language = report["language"]
         master_audio = find_master_audio_for_language(master_obj, language,
                                                      reference_stream)
+        master_tracks[produced_index] = master_audio
         if master_audio == None:
             results.append({"track": report["stream_order"], "language": language,
                         "produced_index": produced_index,
@@ -4297,7 +4303,12 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
             # defaut sont absents de tout echantillon collecte pendant que le
             # defaut agissait.
             error.audios = audio_reports
-            raise error
+            deferred.append({"error": error, "index": len(results),
+                             "master_audio": master_audio, "measured": measured,
+                             "entry": error.verification[-1]})
+            results.append(error.verification[-1])
+            produced_index += 1
+            continue
         outcome = "aligned" if worst <= tolerance_ms else "misaligned"
         results.append({"track": report["stream_order"], "language": language,
                         "produced_index": produced_index,
@@ -4312,6 +4323,16 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
                         "rms_floor": verify_min_rms,
                         "probes": probes})
         produced_index += 1
+
+    for pending in deferred:
+        resolved = master_intertrack_explains(master_obj, pending, results, master_tracks,
+                                              reference_stream, window_ms, search_ms,
+                                              tolerance_ms, deadline, envelope)
+        if resolved is None:
+            error = pending["error"]
+            error.verification = results
+            raise error
+        results[pending["index"]] = resolved
 
     misaligned = [r for r in results if r["outcome"] == "misaligned"]
     if len(misaligned):
@@ -4430,6 +4451,102 @@ def _fill_control_window_ms(start_ms, span_ms, master_duration_ms):
     if start_ms > (master_duration_ms - (start_ms + span_ms)):
         return Decimal("0")
     return max(Decimal("0"), master_duration_ms - span_ms)
+
+
+def master_intertrack_explains(master_obj, pending, results, master_tracks, reference_stream,
+                               window_ms, search_ms, tolerance_ms, deadline, envelope=False):
+    """A piece's probes disagree on one track: is the disagreement THE MASTER'S OWN?
+
+    The master is never modified (general law) and its tracks may contradict each other
+    (ADDENDUM 27.8): measured on Fallout S01E01, the master's French track steps by 42.2 ms --
+    one frame -- at master 4187.8 s, while the master's English track, its video (scene cuts
+    mapped at -2.9 / -3.4 ms either side) and all three candidate tracks hold one offset. The
+    delivered French track, built on that one offset, then reads 2.1 ms at the head probe and
+    40.1 ms at the tail probe against the master's French: a spread the plan did not make.
+
+    The test: a track verified ALIGNED on the same probe positions (the plan's reference
+    first) gives, in each window, the master's own relation between that track and this
+    one (`relation_ms`, master against master). A probe's lag re-read at the relation the
+    master holds at the anchor probe (the probe closest to zero) is
+    `lag + (relation - relation_anchor)`. When every re-read lag is within `tolerance_ms`,
+    the product holds one alignment and the master's track moved: the track is `aligned`
+    and the entry says so (`master_intertrack_step`). Anything else -- no aligned sibling,
+    a probe the sibling did not measure, a silent window, a re-read lag beyond tolerance
+    -- returns None and the refusal stands.
+    """
+    own = pending["master_audio"]
+    entry = pending["entry"]
+    siblings = [r for r in results
+                if r.get("outcome") == "aligned"
+                and master_tracks.get(r.get("produced_index")) != None
+                and str(master_tracks[r["produced_index"]].get("StreamOrder"))
+                != str(own.get("StreamOrder"))]
+    if reference_stream != None:
+        siblings.sort(key=lambda r: str(master_tracks[r["produced_index"]].get("StreamOrder"))
+                      != str(reference_stream))
+    if not len(siblings):
+        tools.log_line(f"chimeric: verify track {entry['track']} ({entry['language']}) "
+                       f"master_intertrack_step not_testable reason=no_aligned_sibling\n")
+        return None
+    sibling = siblings[0]
+    sibling_audio = master_tracks[sibling["produced_index"]]
+    sibling_probes = {p["master_position_ms"]: p for p in sibling.get("probes", [])
+                      if p.get("outcome") == "measured"}
+    rows = []
+    for probe in pending["measured"]:
+        if probe["master_position_ms"] not in sibling_probes:
+            tools.log_line(f"chimeric: verify track {entry['track']} ({entry['language']}) "
+                           f"master_intertrack_step not_testable reason=sibling_probe_missing "
+                           f"at={probe['master_position_ms']}\n")
+            return None
+        start = Decimal(probe["master_position_ms"])
+        theirs = read_mono_samples(master_obj.filePath, f"0:{int(sibling_audio['StreamOrder'])}",
+                                   start, window_ms, verify_probe_rate, deadline=deadline)
+        ours = read_mono_samples(master_obj.filePath, f"0:{int(own['StreamOrder'])}",
+                                 start, window_ms, verify_probe_rate, deadline=deadline)
+        if min(get_rms(theirs), get_rms(ours)) < verify_min_rms:
+            tools.log_line(f"chimeric: verify track {entry['track']} ({entry['language']}) "
+                           f"master_intertrack_step not_testable reason=no_signal "
+                           f"at={probe['master_position_ms']}\n")
+            return None
+        if envelope:
+            import audio_walk
+            theirs = audio_walk.speech_envelope(theirs, verify_probe_rate)
+            ours = audio_walk.speech_envelope(ours, verify_probe_rate)
+            theirs, ours = theirs - theirs.mean(), ours - ours.mean()
+        relation, score = measure_lag_ms(theirs, ours, verify_probe_rate, search_ms)
+        rows.append((probe, relation, score))
+    anchor = min(rows, key=lambda row: abs(row[0]["lag_ms"]))
+    reread = [row[0]["lag_ms"] + (row[1] - anchor[1]) for row in rows]
+    worst = max(abs(value) for value in reread)
+    step = {"sibling_track": sibling["track"], "sibling_language": sibling["language"],
+            "master_sibling_stream": int(sibling_audio["StreamOrder"]),
+            "master_stream": int(own["StreamOrder"]),
+            "anchor_position_ms": anchor[0]["master_position_ms"],
+            "positions_ms": [row[0]["master_position_ms"] for row in rows],
+            "lags_ms": [row[0]["lag_ms"] for row in rows],
+            "relation_ms": [row[1] for row in rows],
+            "relation_correlations": [round(row[2], 4) for row in rows],
+            "reread_lags_ms": [round(value, 3) for value in reread]}
+    verdict = "explained" if worst <= tolerance_ms else "not_explained"
+    tools.log_always(f"chimeric: verify track {entry['track']} ({entry['language']}) "
+                     f"master_intertrack_step {verdict} sibling={sibling['track']} "
+                     f"({sibling['language']}) positions_ms={step['positions_ms']} "
+                     f"lags_ms={step['lags_ms']} master_relation_ms={step['relation_ms']} "
+                     f"r={step['relation_correlations']} reread_lags_ms={step['reread_lags_ms']} "
+                     f"tolerance_ms={tolerance_ms}\n")
+    if verdict != "explained":
+        return None
+    measured = pending["measured"]
+    return {"track": entry["track"], "language": entry["language"],
+            "produced_index": entry["produced_index"],
+            "outcome": "aligned", "worst_lag_ms": worst,
+            "weakest_correlation": round(float(min(p["correlation"] for p in measured)), 4),
+            "probes_measured": len(measured),
+            "probes_without_signal": len(entry["probes"]) - len(measured),
+            "master_intertrack_step": step,
+            "inconsistent_against_master_track": entry["inconsistent"],
+            "probes": entry["probes"]}
 
 
 def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms,
