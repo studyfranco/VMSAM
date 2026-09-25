@@ -590,6 +590,25 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6):
                                         round(float(only.max() + win), 3)] if len(only) else None))
     if extra > 0:
         lo, hi = edge_a, edge_b - extra
+        if edge_b - edge_a < extra:
+            # BOTH OFFSETS EXPLAIN THE SPAN: the edges are closer than the step when the master
+            # around the cut repeats itself at the step's lag (silence, a hum, a decay tail), so
+            # it reads at a up to edge_A AND at b from edge_B. Any fill start F with a holding
+            # up to F and b from F + extra is then the same splice: F in [edge_B - extra,
+            # edge_A], cut back to where each offset really holds over it (a window that reads
+            # at neither offset and is audible ends the span -- a stray late edge_A cannot open
+            # it). MEASURED, id 104 (Lazarus S01E02, -20.0 -> -186.83 ms): master 809.96-810.23 s
+            # at -87 to -98 dB reads at a (residual 0.000) and at b (0.078) at once, edge_A
+            # 810.25 > edge_B 810.235, and the 166.83 ms hole "did not fit" a -15 ms edge gap.
+            lo, hi = edge_b - extra, edge_a
+            holds_a = good_a | (mdb < AUDIBLE_DB)
+            holds_b = good_b | (mdb < AUDIBLE_DB)
+            broken_a = (times >= lo) & (times + win <= hi) & ~holds_a
+            if broken_a.any():
+                hi = min(hi, float(times[broken_a].min()))
+            broken_b = (times >= lo + extra) & (times + win <= hi + extra) & ~holds_b
+            if broken_b.any():
+                lo = max(lo, float(times[broken_b].max() + win) - extra)
         if len(only):
             lo = max(lo, float(only.max() + win) - extra)
             hi = min(hi, float(only.min()))

@@ -169,6 +169,36 @@ def test_coarse_edges_reach_one_hop_into_each_level():
     assert edges["interval"][0] - 0.015 <= 20.0 <= edges["interval"][1] + 0.015, edges
 
 
+def test_master_repeating_itself_at_the_step_is_one_hole():
+    # ids 104/141's shape: the master carries 150 ms twice (P Q Q R), the candidate once
+    # (P Q R). Offset a holds to the end of the first Q, offset b from the start of the second:
+    # the edges meet (gap ~0 for a 150 ms step) and every fill start in [8.0, 8.15] s is the
+    # same splice -- the interval must be that span, not an inverted one.
+    content = _content(16.0, 11)
+    a_i, q = int(8.0 * R), int(0.15 * R)
+    master = np.concatenate([content[:a_i + q], content[a_i:a_i + q], content[a_i + q:]])
+    edges = _edges(master, content.copy(), 0.0, -150.0, 8.1)
+    assert edges["status"] == "ok" and edges["feasible"], edges
+    assert edges["edge_B"] - edges["edge_A"] < edges["extra_s"], edges
+    lo, hi = edges["interval"]
+    assert 8.0 - 0.015 <= lo <= hi + aw.FINE_WIN_S and hi <= 8.15 + 0.015, edges
+
+
+def test_repeat_with_audible_mismatch_inside_is_cut_back():
+    # THE GUARD of the narrow case: in the same P Q Q R master, 30 ms inside the first Q
+    # carry sound of the master's own -- offset a does not hold across them, so no fill may
+    # start after them (it would play the candidate's Q over the master's own sound).
+    content = _content(16.0, 11)
+    a_i, q = int(8.0 * R), int(0.15 * R)
+    master = np.concatenate([content[:a_i + q], content[a_i:a_i + q], content[a_i + q:]])
+    at = a_i + int(0.06 * R)
+    master[at:at + int(0.03 * R)] = _content(0.03, 999)
+    edges = _edges(master, content.copy(), 0.0, -150.0, 8.1)
+    assert edges["status"] == "ok", edges
+    if edges["feasible"]:
+        assert edges["interval"][1] <= 8.06 + 0.005, edges
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_") and callable(test):
