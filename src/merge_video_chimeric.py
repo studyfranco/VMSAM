@@ -2976,10 +2976,12 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     tools.dev_log(f"chimeric: read_mono_samples starting file={file_path} "
                   f"stream={stream_specifier} start_ms={start_ms} "
                   f"duration_ms={duration_ms}\n")
-    # BOUNDED SINCE ADDENDUM 26.3 (owner: "un timeout sur CHAQUE appel ffmpeg"): the bound is
-    # `tools.decoder_timeout_for` the window's own length, the measured decode rate with a 3x
-    # margin -- the measurement the note above was waiting for.
-    timeout = tools.decoder_timeout_for(float(duration_ms) / 1000.0)
+    # BOUNDED SINCE ADDENDUM 26.3 (owner: "un timeout sur CHAQUE appel ffmpeg"), and the bound
+    # counts what this call DECODES, not what it returns: `-ss` sits AFTER `-i` (an output seek,
+    # see the docstring), so ffmpeg decodes from the file's start to the window's end. MEASURED,
+    # Fallout S01E02 (bb6ad55b): a 20 s probe at 3733.8 s of the master's TrueHD 7.1 track ran past
+    # a bound computed on the 20 s window alone (70 s) and declined a pair that repairs.
+    timeout = tools.decoder_timeout_for((float(start_ms) + float(duration_ms)) / 1000.0)
     try:
         process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                  timeout=timeout)
