@@ -178,7 +178,7 @@ class FrameComparer:
         tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
                       f"start_sec={start_sec} dur_sec={dur_sec} timeout_s={timeout}\n")
         try:
-            with repair_log.announced("frame_compare", "ffmpeg", path) as call:
+            with repair_log.announced("frame_compare", "ffmpeg", path, media_s=dur_sec) as call:
                 done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                       timeout=timeout)
                 call["exit"] = done.returncode

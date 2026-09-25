@@ -132,7 +132,8 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     # launcher above was the unbounded one; the same non-zero-exit refusal is kept.
     timeout = tools.decoder_timeout_for(length_seconds)
     try:
-        with repair_log.announced("audio_extract", "ffmpeg", source_path) as call:
+        with repair_log.announced("audio_extract", "ffmpeg", source_path,
+                                  media_s=length_seconds) as call:
             done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   timeout=timeout)
             call["exit"] = done.returncode

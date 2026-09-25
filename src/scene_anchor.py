@@ -677,7 +677,8 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
                       f"n_frames={n_frames} timeout_s={timeout}\n")
         timer.start()
         try:
-            with repair_log.announced("scene_anchor", "pyscenedetect", path) as call:
+            with repair_log.announced("scene_anchor", "pyscenedetect", path,
+                                      media_s=n_frames / 24.0) as call:
                 sm.detect_scenes(video, duration=n_frames)
                 call["exit"] = "stopped_by_timer" if fired else 0
         finally:

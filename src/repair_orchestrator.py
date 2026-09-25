@@ -3255,11 +3255,14 @@ def _speed_chain(audio, speed_ratio):
 
 
 def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_ratio,
-                   candidate_path):
+                   candidate_path, deadline=None):
     """THE MILLISECOND WALK ON THE REFERENCE COUPLE (ADDENDUM 25.2): the comparison track of
     the master against the candidate's, whole, on the file clock, seeded by every b2 offset
     the reference couple's zones and the union's holes carry. Returns `(walk, None)` or
-    `(None, reason)`; the walk keeps the two decoded tracks for the edges and the plan."""
+    `(None, reason)`; the walk keeps the two decoded tracks for the edges and the plan. Its
+    whole-track reads are bounded by the repair's budget (`deadline`); a read the budget stops
+    is re-raised (`chimeric_error`, cause `repair_budget_exceeded`) for the caller to decline
+    by that name."""
     import audio_walk
     master_stream, candidate_stream = reference["couple"].split("x")
     master_audio = _audio_entry(master_obj, language, master_stream)
@@ -3280,10 +3283,13 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
         return None, f"reference couple {reference['couple']} has no {language} audio entry"
     try:
         scale = speed_ratio if speed_ratio is not None else Decimal(1)
-        master = audio_walk.read_on_file_clock(master_obj, master_audio)
+        master = audio_walk.read_on_file_clock(master_obj, master_audio, deadline=deadline)
         candidate = audio_walk.read_on_file_clock(
-            candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio), scale)
+            candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio), scale,
+            deadline=deadline)
     except Exception as error:                                           # noqa: BLE001
+        if getattr(error, "cause", None) == "repair_budget_exceeded":
+            raise
         return None, f"the comparison tracks could not be read ({type(error).__name__}: {error})"
     rows = audio_walk.walk(master, candidate, seeds)
     found, outliers = audio_walk.levels(rows)
@@ -3669,7 +3675,8 @@ def tag_decision(n_splices, edge_added_s):
 ZONE_EDGE_MARGIN_S = 0.5
 
 
-def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale):
+def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale,
+                  deadline=None):
     """EACH TRACK ITS OWN OFFSET, PER ZONE, AT THE MILLISECOND (ADDENDUM 9 points 2 and 14;
     ADDENDUM 25.2 -- the walk replaces the three-window majority).
 
@@ -3729,10 +3736,14 @@ def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio,
         entry["reference"] = master_order
         try:
             if master_order not in master_cache:
-                master_cache[master_order] = audio_walk.read_on_file_clock(master_obj, master_audio)
+                master_cache[master_order] = audio_walk.read_on_file_clock(
+                    master_obj, master_audio, deadline=deadline)
             samples = audio_walk.read_on_file_clock(
-                candidate_obj, audio, _speed_chain(audio, speed_ratio), scale)
+                candidate_obj, audio, _speed_chain(audio, speed_ratio), scale,
+                deadline=deadline)
         except Exception as error:                                       # noqa: BLE001
+            if getattr(error, "cause", None) == "repair_budget_exceeded":
+                raise
             entry["own_reason"] = f"track_unreadable({type(error).__name__})"
             for reading in readings:
                 reading["reason"] = entry["own_reason"]
@@ -3991,7 +4002,8 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
 
     # ---- 3. per-track sub-frame offsets --------------------------------------
     tracks, offset_failure = track_offsets(zones, plan_spec["walk"], master_obj, candidate_obj,
-                                           language, speed_ratio, scale)
+                                           language, speed_ratio, scale,
+                                           deadline=domain.get("repair_deadline"))
     if tracks is None:
         step_result("apply_plan", candidate=candidate_path, ok=False,
                     cause="plan_offset_unmeasurable")
@@ -4886,8 +4898,21 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     # The millisecond walk on the reference couple fixes every offset, every step, every fill
     # width and every interval a cut may lie in; the video only chooses inside those intervals.
     speed_ratio = None if factor in (None, 1) else _decimal(Fraction(factor))
-    walk, walk_reason = reference_walk(reference, holes, master_obj, candidate_obj, language,
-                                       speed_ratio, candidate_path)
+    try:
+        walk, walk_reason = reference_walk(reference, holes, master_obj, candidate_obj,
+                                           language, speed_ratio, candidate_path,
+                                           deadline=repair_deadline)
+    except Exception as error:                                           # noqa: BLE001
+        if getattr(error, "cause", None) != "repair_budget_exceeded":
+            raise
+        # ADDENDUM 26 RULING (2026-09-25): THE WALK IS INSIDE THE BUDGET -- a walk the budget
+        # stops declines the repair by that name, with what was placed before it.
+        log_partial_plan(candidate_path, "repair_budget_exceeded",
+                         [("holes", "b2", [(h["kind"], h["master_ms"]) for h in holes]),
+                          ("audio_walk", "stopped_by_budget", str(error)[:200])])
+        return False, "repair_budget_exceeded", (
+            f"the repair's budget ran out during the audio walk ({error}) -- the partial plan "
+            f"is logged; the file comes back next wave"), None
     if walk is None:
         return False, "audio_walk_unavailable", (
             f"the millisecond walk on the reference couple {reference['couple']} could not "

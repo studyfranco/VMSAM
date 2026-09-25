@@ -70,14 +70,16 @@ AUDIBLE_DB = -60.0
 # DECODE
 # ---------------------------------------------------------------------------------------------
 
-def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1)):
+def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), deadline=None):
     """One track, mono float32 at WALK_RATE, on the FILE clock: `merge_video_chimeric.
     read_track_samples` (bounded, logged, the assembly's own convention) with the stream's
     container start_time -- times `scale` on a rate pair, as the assembly reads it -- prepended
-    as zeros (a negative start drops samples)."""
+    as zeros (a negative start drops samples). `deadline`: the repair's budget bounds the read
+    (`read_track_samples`)."""
     import merge_video_chimeric
     samples = merge_video_chimeric.read_track_samples(
-        video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter)
+        video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter,
+        deadline=deadline)
     start_ms = merge_video_chimeric.get_stream_start_ms(audio) * Decimal(scale)
     pad = int(round(float(start_ms) * WALK_RATE / 1000.0))
     if pad > 0:

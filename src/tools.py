@@ -458,15 +458,17 @@ class decoder_timeout(Exception):
         self.seconds = seconds
 
 
-# THE BOUND OF ONE DECODE (memo THROUGHPUT_ANALYSIS_20260925 section 3.4): 60 s of fixed start-up
-# plus 0.5 s per second of media -- 1080p H.264 decodes at 150-215 frames/s on this host under
-# load 80 (measured), i.e. ~0.12-0.16 s per second of 24 fps video, so 0.5 s/s is a 3x margin.
-DECODER_TIMEOUT_BASE_S = 60.0
-DECODER_TIMEOUT_PER_MEDIA_S = 0.5
+# THE BOUND OF ONE DECODE (ADDENDUM 26, coordinator's ruling 2026-09-25 on the report commit's
+# finding): max(120 s, 1.0 s per second of window) -- a healthy pair must not decline
+# `decoder_timeout` because the host is loaded. MEASURED at load 50-90: a 7 s window ran past the
+# former 60 s + 0.5 s/s, and one 13 s TrueHD 7.1 read took 5.2 to 30.9 s. The measured decode
+# speed is on every `command END` line (`media_per_wall=`), so the load is readable.
+DECODER_TIMEOUT_BASE_S = 120.0
+DECODER_TIMEOUT_PER_MEDIA_S = 1.0
 
 
 def decoder_timeout_for(media_seconds):
-    return DECODER_TIMEOUT_BASE_S + DECODER_TIMEOUT_PER_MEDIA_S * max(0.0, float(media_seconds))
+    return max(DECODER_TIMEOUT_BASE_S, DECODER_TIMEOUT_PER_MEDIA_S * max(0.0, float(media_seconds)))
 
 
 def dev_log(message):

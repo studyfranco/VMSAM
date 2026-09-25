@@ -3023,7 +3023,8 @@ def _run_bounded(command, media_seconds, deadline, file_path, stream_specifier):
         if remaining < timeout:
             timeout, budget_bound = remaining, True
     try:
-        with repair_log.announced("chimeric", "ffmpeg", file_path) as call:
+        with repair_log.announced("chimeric", "ffmpeg", file_path,
+                                  media_s=media_seconds) as call:
             process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                      timeout=timeout)
             call["exit"] = process.returncode
@@ -3124,7 +3125,8 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, 
     return samples - samples.mean()
 
 
-def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout=900):
+def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout=900,
+                       deadline=None):
     """UNE piste ENTIERE, decodee une fois, mono, a `rate` Hz, en float32 --
     pour la mesure sous-frame des decalages de l'application du plan
     (ADDENDUM 9 point 2), ou chaque zone de chaque piste est sondee plusieurs
@@ -3141,8 +3143,19 @@ def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout
 
     BORNE (`timeout`) et journalisee AVANT l'appel: un decodage entier qui
     bloquerait laisserait sinon un journal muet. Leve `chimeric_error` sur un
-    echec d'outil -- une affirmation sur l'OUTIL, jamais sur le media."""
+    echec d'outil -- une affirmation sur l'OUTIL, jamais sur le media.
+
+    WITH `deadline` (the repair's, a `time.monotonic()` instant -- ADDENDUM 26 ruling,
+    2026-09-25: "the walk is inside the budget") the read is bounded by the budget REMAINING, not
+    by the flat `timeout`, and a read the budget stops raises `chimeric_error` with cause
+    `repair_budget_exceeded`: the repair ran out of time, the track was not unreadable."""
     import numpy
+    if deadline is not None:
+        timeout = deadline - time.monotonic()
+        if timeout <= 0:
+            raise chimeric_error(
+                f"the repair's budget ran out before the whole-track read of stream "
+                f"{stream_order} of {path.basename(file_path)}", cause="repair_budget_exceeded")
     command = [tools.software["ffmpeg"], "-v", "error", "-nostdin",
                "-i", file_path, "-map", f"0:{int(stream_order)}", "-vn", "-sn", "-dn"]
     if audio_filter:
@@ -3157,6 +3170,11 @@ def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout
                                      timeout=timeout)
             call["exit"] = process.returncode
     except subprocess.TimeoutExpired:
+        if deadline is not None:
+            raise chimeric_error(
+                f"the repair's budget ran out during the whole-track read of stream "
+                f"{stream_order} of {path.basename(file_path)} ({round(timeout, 1)} s were left)",
+                cause="repair_budget_exceeded")
         raise chimeric_error(
             f"the whole-track read of stream {stream_order} did not finish in "
             f"{timeout} s: a statement about the tool, not about the media")

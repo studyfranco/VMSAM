@@ -21,10 +21,12 @@ def _basename(input_path):
 
 
 @contextmanager
-def announced(prefix, tool, input_path):
+def announced(prefix, tool, input_path, media_s=None):
     """START before the command, END after it -- also when it raises (`exit=raised:<class>`),
     because a command that hangs or throws is exactly the one a reader needs located. The caller
-    sets `call["exit"]` to the exit code it read."""
+    sets `call["exit"]` to the exit code it read. With `media_s` (the seconds of media the
+    command decodes), the END line carries `media_per_wall=` -- the host's decode speed, so a
+    loaded host is readable from the log (ADDENDUM 26 ruling, 2026-09-25)."""
     call = {"exit": None}
     name = _basename(input_path)
     tools.dev_log(f"{prefix}: command START tool={tool} input={name}\n")
@@ -35,8 +37,12 @@ def announced(prefix, tool, input_path):
         call["exit"] = f"raised:{type(error).__name__}"
         raise
     finally:
+        wall = time.monotonic() - started
+        speed = (f" media_s={round(float(media_s), 2)} media_per_wall="
+                 f"{round(float(media_s) / wall, 2) if wall > 0 else None}"
+                 if media_s is not None else "")
         tools.dev_log(f"{prefix}: command END tool={tool} input={name} "
-                      f"seconds={round(time.monotonic() - started, 2)} exit={call['exit']}\n")
+                      f"seconds={round(wall, 2)} exit={call['exit']}{speed}\n")
 
 
 def _outcome(value):
