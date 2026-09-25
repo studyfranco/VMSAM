@@ -6,7 +6,7 @@ when the audio delay sits near a half frame the rounding can land one frame off,
 and nothing looked at the pictures to say so (owner request, 2026-09-25).
 
 This module only ever moves the rounded frame by -1, 0 or +1, and only when both
-videos are constant-frame-rate at the SAME exact rational rate. It looks at the
+videos are constant-frame-rate at the same rate (within RATE_TOLERANCE). It looks at the
 pictures at K positions spread over the span both files cover: a group of G
 consecutive frames of the first video at `t`, and G + 4 frames of the second
 around `t + delay`, both decoded once (one ffmpeg call per file per position),
@@ -38,6 +38,7 @@ from decimal import Decimal, getcontext
 from fractions import Fraction
 import subprocess
 import re
+import threading
 import time
 
 import numpy as np
@@ -69,7 +70,28 @@ UNMATCHED_HAMMING = 12.0
 # Required relative margin of the winner's total over the runner-up's.
 MARGIN_MIN = 0.10
 MIN_VALID_POSITIONS = 5
+# Two rates are "the same" when |a/b - 1| <= this. 18965/791 (a container that
+# stores ms timestamps, ToonsHub) against 24000/1001 is 1.8e-6 apart: the same
+# 23.976 stream. 1001/1000 rate pairs (25 vs 25000/1001, 24 vs 24000/1001) are
+# 1e-3 apart and stay different; that is the rate arm's case, not this one.
+RATE_TOLERANCE = Fraction(1, 10000)
 BUDGET_S = 20.0          # wall-clock budget for one pair
+
+# Addendum 27.7: the last `audio_video_offset_disagree` signal per pair of
+# files, {(first_path, second_path): dict}. Written by `snap_for_merge`, read
+# by the repair seam through `disagreement(first_path, second_path)`.
+_SIGNALS = {}
+_SIGNALS_LOCK = threading.Lock()
+
+
+def disagreement(first_path, second_path):
+    '''The `audio_video_offset_disagree` signal recorded for this pair (as a
+    dict: audio_frames/audio_ms, picture_frames/picture_ms, votes, valid,
+    positions, fps), or None when the last snap on it found no such
+    disagreement.'''
+    with _SIGNALS_LOCK:
+        return _SIGNALS.get((first_path, second_path))
+
 
 _PTS_RE = re.compile(r"pts_time:\s*(-?[0-9.]+)")
 
@@ -108,6 +130,11 @@ def exact_rate(video_track):
     if rate is not None:
         return rate, "ffprobe"
     return None, "no_exact_rate"
+
+
+def same_rate(rate_1, rate_2):
+    return (rate_1 is not None and rate_2 is not None
+            and abs(Fraction(rate_1) / Fraction(rate_2) - 1) <= RATE_TOLERANCE)
 
 
 def _duration_s(video_track):
@@ -261,11 +288,16 @@ def decide(per_position):
     if votes * 2 <= len(rows) or margin <= MARGIN_MIN:
         return None, "frame_snap_no_consensus", detail
     best_mean = totals[best] / len(rows)
-    if any(g < best_mean for o, g in guard.items() if sum(1 for s in rows if o in s)):
-        # The picture says the audio delay is two frames or more away: this
-        # module never reaches that far, and a neighbour chosen here would be
-        # a wrong answer with a reason attached.
-        return None, "frame_snap_guard_wins", detail
+    beaten = [o for o, g in guard.items() if sum(1 for s in rows if o in s) and g < best_mean]
+    if beaten:
+        # The picture says the audio delay is two frames or more away (Addendum
+        # 27.7). This module never moves that far -- the rounding stays -- but
+        # the disagreement is a finding about the pair, not noise: it is
+        # returned as a structured signal for the repair seam to route.
+        picture = min(beaten, key=lambda o: guard[o])
+        full = [min((o for o in VOTE_OFFSETS + GUARD_OFFSETS if o in s), key=lambda o: s[o]) for s in rows]
+        detail.update(picture_offset=picture, picture_votes=full.count(picture), picture_winners=full)
+        return None, "audio_video_offset_disagree", detail
     return best, "frame_snap_chosen", detail
 
 
@@ -340,7 +372,7 @@ def snap_for_merge(video_obj_1, video_obj_2, best_video_obj, delay):
             tools.log_always(f"frame_snap declined: not both CFR (modes={modes}); plain rounding\n")
             return delay
         (rate_1, src_1), (rate_2, src_2) = exact_rate(track_1), exact_rate(track_2)
-        if rate_1 is None or rate_2 is None or rate_1 != rate_2:
+        if not same_rate(rate_1, rate_2):
             tools.log_always(f"frame_snap declined: frame rates differ or unreadable "
                              f"({rate_1} from {src_1} vs {rate_2} from {src_2}); plain rounding\n")
             return delay
@@ -360,9 +392,29 @@ def snap_for_merge(video_obj_1, video_obj_2, best_video_obj, delay):
             # FrameRate) disagree: the offsets were measured from another frame.
             offset, reason = None, f"frame_snap_base_mismatch(scan {base})"
         chosen = offset if offset is not None else 0
+        signal = None
+        if reason == "audio_video_offset_disagree":
+            picture_frames = rounded + detail["picture_offset"]
+            signal = {"signal": "audio_video_offset_disagree", "fps": str(rate_1),
+                      "audio_frames": int(rounded), "audio_ms": float(delay),
+                      "picture_frames": int(picture_frames),
+                      "picture_ms": float(picture_frames * frame_ms),
+                      "votes": detail["picture_votes"], "valid": detail["valid"],
+                      "positions_s": [round(r["t"], 1) for r in rows],
+                      "picture_winners": detail["picture_winners"]}
+            tools.log_always(f"frame_snap audio_video_offset_disagree: audio {signal['audio_frames']} frames "
+                             f"({signal['audio_ms']:.2f} ms) vs picture {signal['picture_frames']} frames "
+                             f"({signal['picture_ms']:.2f} ms), picture wins {signal['votes']}/{signal['valid']} "
+                             f"positions at {signal['positions_s']} s; files {video_obj_1.filePath} | "
+                             f"{video_obj_2.filePath}; rounding kept (audio)\n")
+        with _SIGNALS_LOCK:
+            if signal is None:
+                _SIGNALS.pop((video_obj_1.filePath, video_obj_2.filePath), None)
+            else:
+                _SIGNALS[(video_obj_1.filePath, video_obj_2.filePath)] = signal
         final = Decimal((rounded + chosen) * frame_ms) if chosen else delay
         tools.log_always(
-            f"frame_snap {reason}: fps={rate_1} audio_delay_ms={delay} rounded_frame={rounded} "
+            f"frame_snap {reason}: fps={rate_1} ({src_1}) vs {rate_2} ({src_2}) audio_delay_ms={delay} rounded_frame={rounded} "
             f"winners={detail.get('winners')} votes={detail.get('votes')}/{detail.get('valid')} "
             f"totals={ {o: round(v, 3) for o, v in detail.get('totals', {}).items()} } "
             f"margin={round(detail.get('margin', 0.0), 3)} "

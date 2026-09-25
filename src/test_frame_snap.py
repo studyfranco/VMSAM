@@ -105,7 +105,37 @@ def test_guard_never_selected():
         row = {-2: 1.0, -1: 5.0, 0: 9.0, 1: 12.0, 2: 14.0, "t": i}
         rows.append(row)
     offset, reason, _ = fs.decide(rows)
-    assert offset is None and reason == "frame_snap_guard_wins"
+    assert offset is None and reason == "audio_video_offset_disagree"
+
+
+def test_two_frame_audio_picture_disagreement_is_signalled():
+    '''Addendum 27.7: the audio says 10 frames, the pictures 12. The rounding
+    is kept, and the disagreement is logged and returned to the caller.'''
+    clip = _clip(400, 4)
+    rows = []
+    for i, start in enumerate(range(20, 340, 40)):
+        scores = _position(clip, start, true_shift=12, base=10, noise_seed=300 + i)
+        scores["t"] = start * FRAME_S
+        rows.append(scores)
+    offset, reason, detail = fs.decide(rows)
+    assert (offset, reason) == (None, "audio_video_offset_disagree"), (offset, reason, detail)
+    assert detail["picture_offset"] == 2 and detail["picture_votes"] == 8
+
+    frame_ms = Decimal('1000.0') / Decimal("23.976")
+    audio_delay = Decimal(10) * frame_ms + Decimal("3.0")
+    real_measure, lines = fs.measure, []
+    real_log = fs.tools.log_always
+    fs.measure = lambda *a, **k: (10, rows, [], 1.0)
+    fs.tools.log_always = lines.append
+    try:
+        v1, v2 = _Video("a.mkv"), _Video("b.mkv")
+        out = fs.snap_for_merge(v1, v2, v1, audio_delay)
+    finally:
+        fs.measure, fs.tools.log_always = real_measure, real_log
+    assert out == audio_delay                                   # default behaviour: audio rounding
+    signal = fs.disagreement("a.mkv", "b.mkv")
+    assert signal["audio_frames"] == 10 and signal["picture_frames"] == 12 and signal["votes"] == 8, signal
+    assert any(l.startswith("frame_snap audio_video_offset_disagree:") for l in lines), lines
 
 
 def test_exact_rate_reads_rationals_never_the_decimal():
@@ -153,6 +183,13 @@ def test_call_site_is_pinned_in_adjust_delay_to_frame():
         fs.snap_for_merge = real
     assert len(seen) == 1 and seen[0][0] is obj.video_obj_1 and seen[0][1] is obj.video_obj_2
     assert round(out / (Decimal('1000.0') / Decimal("23.976"))) == 2, out
+
+
+def test_same_family_rates_match_and_1001_ratios_do_not():
+    assert fs.same_rate(Fraction(18965, 791), RATE)          # ToonsHub vs 24000/1001: 1.8e-6
+    assert not fs.same_rate(Fraction(24, 1), RATE)           # 1001/1000 apart
+    assert not fs.same_rate(Fraction(25, 1), Fraction(25000, 1001))
+    assert not fs.same_rate(None, RATE)
 
 
 def test_different_rates_and_vfr_decline_untouched():
