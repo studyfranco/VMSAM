@@ -536,6 +536,11 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
         if piece["source"] == "candidate":
             start = piece["source_start_ms"] / Decimal("1000")
             end = start + duration
+            # ADDENDUM 23.3 (d) at a candidate-to-candidate join (`plan_candidate_joins`): the
+            # left piece reads FADE_S more of its own material, which the crossfade consumes.
+            if ((splices or {}).get(i) or {}).get("fade_right") and \
+                    i + 1 < len(pieces) and pieces[i + 1]["source"] == "candidate":
+                end += Decimal("0.010")
             if len(candidate_split):
                 entry = f"[{candidate_split[candidate_index]}]"
             else:
@@ -1108,6 +1113,9 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     splices = (plan_splices(candidate_obj, audio, master_obj, master_audio, pieces,
                             speed_chain, speed_ratio)
                if fill == "master" and master_audio != None else {})
+    for index, join in plan_candidate_joins(candidate_obj, audio, pieces, speed_chain,
+                                            speed_ratio).items():
+        splices.setdefault(index, {}).update(join)
     filtergraph, head_pad_ms, head_decisions = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
         speed_chain, candidate_start_ms, get_stream_start_ms(master_audio), splices)
@@ -3192,6 +3200,44 @@ def plan_splices(candidate_obj, audio, master_obj, master_audio, pieces, speed_c
             f"for {candidate_obj.filePath}\n")
         plan[index] = entry
     return plan
+
+
+def plan_candidate_joins(candidate_obj, audio, pieces, speed_chain, speed_ratio):
+    """ADDENDUM 23.3 (d) at a join of TWO CANDIDATE PIECES (an addition's skip, a slip): the
+    splice was a hard `concat` whatever sounded on either side. Where both sides carry sound over
+    +/- FADE_S, the join is the same 10 ms triangular crossfade as a fill's, the piece on the left
+    reading FADE_S more of its own material (the crossfade consumes it: exact duration); a side
+    in digital silence stays a hard cut. The transition's instant is chosen upstream away from
+    the candidate's own speech when a silent boundary exists (errid 695); this is the join when
+    none does. Returns `{piece_index: {"fade_right": True}}`, one line per join."""
+    import splice_hygiene
+    joins = {}
+    spec = f"0:{int(audio['StreamOrder'])}"
+    scale = float(speed_ratio) if speed_ratio is not None else None
+    edge = splice_hygiene.FADE_S
+    for index in range(len(pieces) - 1):
+        left, right = pieces[index], pieces[index + 1]
+        if left["source"] != "candidate" or right["source"] != "candidate":
+            continue
+        at = float(left["master_end_ms"]) / 1000.0
+        left_source = float(left["source_start_ms"]) / 1000.0 + at \
+            - float(left["master_start_ms"]) / 1000.0
+        right_source = float(right["source_start_ms"]) / 1000.0
+        if abs(left_source - right_source) < 0.0005:
+            continue                                    # the same material continues: no join
+        left_edge = read_splice_window(candidate_obj.filePath, spec, left_source - edge, edge,
+                                       speed_chain, scale)
+        right_edge = read_splice_window(candidate_obj.filePath, spec, right_source, edge,
+                                        speed_chain, scale)
+        join = splice_hygiene.splice_join(left_edge, right_edge)
+        if join == "crossfade":
+            joins[index] = {"fade_right": True}
+        tools.log_always(
+            f"repair: splice track={audio['StreamOrder']} candidate_join={index} "
+            f"master_s={round(at, 3)} join={join}"
+            f"{' fade_ms=' + str(round(edge * 1000, 1)) if join == 'crossfade' else ''} "
+            f"for {candidate_obj.filePath}\n")
+    return joins
 
 
 def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, deadline=None):

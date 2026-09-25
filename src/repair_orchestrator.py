@@ -3674,12 +3674,38 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                               f"{round(extra * 1000.0, 3)} ms")
                 video_s = None
         fill = extra
-        pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
-                                     extra, frame)
+        # THE CANDIDATE'S OWN SOUND NARROWS THE AUDIO BOUNDS (audio_walk.LEAK_GUARD_S, errid
+        # 695): F is kept where neither offset plays the candidate's own audible material past
+        # its edge. A silent boundary inside [lo, hi] -> the video pins and the quietest instant
+        # are both sought inside it; none -> the video pins inside [lo, hi] as before, and a
+        # blind video cuts at the instant playing the least leaked sound (joined by the 10 ms
+        # crossfade of an audible candidate join, merge_video_chimeric.plan_candidate_joins).
+        leak = audio_walk.leak_bounds(walk["master"], walk["candidate"], point["a_ms"],
+                                      point["b_ms"], edges["edge_A"], edges["edge_B"], lo, hi,
+                                      extra)
+        if leak["narrowed"]:
+            clo, chi = leak["interval"]
+            pinned, decision = video_pin(video_s, (clo, chi), (clo, chi + extra), extra, frame)
+            lo_q, hi_q = clo, chi
+        else:
+            pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
+                                         extra, frame)
+            lo_q, hi_q = lo, hi
+        tools.log_always(
+            f"repair: splice_bounds change_point={index} audio_interval_s=[{lo}, {hi}] "
+            f"leak_a_s={leak['leak_a_s']} leak_b_s={leak['leak_b_s']} clean={leak['clean']} "
+            f"narrowed={leak['narrowed']} interval_s={leak['interval']} "
+            f"min_leak_s={leak['min_leak_s']} for {candidate_path}\n")
         if pinned is not None:
             at = pinned
+        elif not leak["clean"] and not (status == HOLE_DECLINED and sub_quantum):
+            at = leak["min_leak_s"]
+            if status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
+                fill, decision = 0.0, "slip_applied"
+            else:
+                decision = "audio_least_leak_no_silent_boundary"
         elif status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
-            at = audio_walk.quietest_instant(walk["master"], lo, hi)
+            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q)
             fill, decision = 0.0, "slip_applied"
         elif status == HOLE_DECLINED and sub_quantum:
             return None, ("sub_quantum_step_video_ambiguous",
@@ -3687,7 +3713,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"[{lo}, {hi}] s and the video could neither place a cut nor confirm "
                           f"there is none ({outcome.get('resolver_reason')})")
         else:
-            at = audio_walk.quietest_instant(walk["master"], lo, hi, extra)
+            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q, extra)
             decision = ("audio_instant_video_width_contradicts" if width_note
                         else "audio_instant_video_no_cut" if status == HOLE_NO_CUT_CONFIRMED
                         else "audio_instant_video_declined" if status == HOLE_DECLINED

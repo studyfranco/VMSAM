@@ -735,6 +735,84 @@ def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
     return round(best, 4)
 
 
+# THE CANDIDATE'S OWN SOUND BETWEEN THE EDGES (errid 695, CASE_id695_splice_in_dialogue_20260925).
+# A transition at F plays the candidate under offset a over [edge_A, F) and under offset b over
+# [F + extra, edge_B): past its own edge each offset reads the candidate's OWN material, which
+# the master does not carry. Where that material is silent any F is the same splice; where it is
+# speech, F decides how much unsynced speech the product plays. The master is no judge of it:
+# MEASURED id 695 (Bleach TYBW S17E41, change point +10005.456 -> +22142.581 ms), the master is
+# digital silence (-116 to -118 dB) over the whole interval [168.515, 169.585] s, so its
+# "quietest instant" was dither and fell at 169.275 s, 380 ms into candidate speech under a
+# (candidate 178.9-179.6 s at -33 dB) -- cut mid-sentence. A 20 ms window is a LEAK when the
+# candidate under its offset is audible (AUDIBLE_DB, the fill rule's own floor) and does not
+# read as the master there (gain-fitted residual >= FINE_THRESHOLD).
+# The guard keeps the cut one fine window away from the leak's first/last window, so the 10 ms
+# crossfade or a millisecond of rounding never lets its attack through.
+LEAK_GUARD_S = FINE_WIN_S
+
+
+def _candidate_db(c, times, t0, t1, off_ms, win):
+    """Candidate level (dB) of each fine window at `times`, read under `off_ms`."""
+    cs = _shifted(c, t0, t1, off_ms).astype(np.float64)
+    cc = np.concatenate([[0.0], np.cumsum(cs * cs)])
+    w = int(round(win * WALK_RATE))
+    starts = np.clip(np.round((times - t0) * WALK_RATE).astype(int), 0, max(len(cs) - w, 0))
+    energy = (cc[np.minimum(starts + w, len(cs))] - cc[starts]) / max(w, 1)
+    return 10 * np.log10(np.maximum(energy, 1e-20))
+
+
+def leak_bounds(m, c, a_ms, b_ms, edge_a, edge_b, lo_s, hi_s, extra_s=0.0):
+    """Where a transition a -> b may sit without playing the candidate's own audible material
+    (see LEAK_GUARD_S). `lo_s`/`hi_s` bound F (the fill start of a deletion, the cut instant of
+    an addition). Returns a dict:
+      interval    [lo', hi'] inside [lo, hi]: every F there plays no leak window
+      clean       True when that interval is not empty ("a silent boundary exists")
+      narrowed    True when it is strictly narrower than [lo, hi]
+      leak_a_s    first leak window start under a past edge_A (None: none)
+      leak_b_s    last leak window end under b before edge_B (None: none)
+      min_leak_s  the F in [lo, hi] playing the least leaked energy (for `clean` False)
+    Measures, never decides."""
+    win = FINE_WIN_S
+    t0 = min(edge_a, lo_s) - win
+    t1 = max(edge_b, hi_s + extra_s) + win
+    # A speech ENVELOPE (an atempo pair) has no level in dB to hold against AUDIBLE_DB: the
+    # bounds stand as the walk gave them.
+    if t1 - t0 < 2 * win or isinstance(m, EnvelopeSignal) or isinstance(c, EnvelopeSignal):
+        return {"interval": [lo_s, hi_s], "clean": True, "narrowed": False, "leak_a_s": None,
+                "leak_b_s": None, "min_leak_s": lo_s}
+    times, _mdb, (ra, rb), _sf = _fits(m, c, (a_ms, b_ms), t0, t1)
+    cdb_a = _candidate_db(c, times, t0, t1, a_ms, win)
+    cdb_b = _candidate_db(c, times, t0, t1, b_ms, win)
+    # Only the windows a transition inside [lo, hi] can play: under a [edge_A, hi), under b
+    # (lo + extra, edge_B].
+    leak_a = ((cdb_a >= AUDIBLE_DB) & (ra >= FINE_THRESHOLD) & (times >= edge_a - 1e-9)
+              & (times < hi_s))
+    leak_b = ((cdb_b >= AUDIBLE_DB) & (rb >= FINE_THRESHOLD) & (times + win <= edge_b + 1e-9)
+              & (times + win > lo_s + extra_s))
+    leak_a_s = float(times[leak_a].min()) if leak_a.any() else None
+    leak_b_s = float(times[leak_b].max() + win) if leak_b.any() else None
+    clo = lo_s if leak_b_s is None else max(lo_s, leak_b_s + LEAK_GUARD_S - extra_s)
+    chi = hi_s if leak_a_s is None else min(hi_s, leak_a_s - LEAK_GUARD_S)
+    clean = clo <= chi + 1e-9
+    # THE LEAST LEAK when no F is clean: leaked energy under a over [edge_A, F) plus under b
+    # over [F + extra, edge_B), on the 5 ms grid.
+    ea = np.where(leak_a, 10 ** (cdb_a / 10), 0.0)
+    eb = np.where(leak_b, 10 ** (cdb_b / 10), 0.0)
+    best, best_cost = lo_s, None
+    f = lo_s
+    while f <= hi_s + 1e-9:
+        cost = float(ea[times < f].sum()) + float(eb[times + win > f + extra_s].sum())
+        if best_cost is None or cost < best_cost:
+            best, best_cost = f, cost
+        f += FINE_HOP_S
+    return {"interval": [round(clo, 4), round(chi, 4)] if clean else [lo_s, hi_s],
+            "clean": bool(clean),
+            "narrowed": bool(clean and (clo > lo_s + 1e-9 or chi < hi_s - 1e-9)),
+            "leak_a_s": None if leak_a_s is None else round(leak_a_s, 4),
+            "leak_b_s": None if leak_b_s is None else round(leak_b_s, 4),
+            "min_leak_s": round(best, 4)}
+
+
 # A NON-REFERENCE TRACK'S ZONE OFFSET IS A MEDIAN, NOT A PLAN: at most this many windows per zone
 # (the hop widens on a long zone). The reference track, which fixes the plan, keeps the full walk;
 # a median over 120 windows of a level whose MAD is <= 0.15 ms (memo section 3) is far below one
