@@ -5001,11 +5001,34 @@ def _dec(value):
         return None
 
 
+def delivery_drops(records):
+    """{language: number of rebuilt audio tracks the delivery gate dropped}, read off
+    the `fabricated_dropped` lines the rows carry (UNPARSED, first 120 characters --
+    `lang=` sits within them). A dropped track is not in the delivered file."""
+    drops = {}
+    for kind, fields in records:
+        if kind != "UNPARSED":
+            continue
+        line = plain(fields.get("line")) or ""
+        if line.startswith("fabricated_dropped "):
+            language = split_fields(line[len("fabricated_dropped "):]).get("lang")
+            if language:
+                drops[language] = drops.get(language, 0) + 1
+    return drops
+
+
 def plan_geometry(records):
     """The ONE geometry the schematic and the table draw, read off the rows.
 
-    Lead track = the first audio track that is measured (not BORROWED) and has
-    regions, as in `render_svg`. A CUT is every region that is not candidate
+    Lead track = the first audio track that is DELIVERED, measured (not
+    BORROWED) and has regions, as in `render_svg`. A track the delivery gate
+    dropped is not in the file: a language whose every rebuilt track was
+    dropped (`fabricated_dropped`) cannot lead. When no track with regions is
+    delivered the plan is `{"undelivered": True, ...}` -- "aucune piste livrée":
+    the file carries the master's own audio, and the report says so instead of
+    drawing the geometry of a track nobody receives (id 54: the product's video,
+    eng and jpn md5-identical to the master, its eng track dropped by
+    intact_same_language_wins, drawn as three cuts). A CUT is every region that is not candidate
     material (a fill from the master, or silence), plus every seam where two
     candidate pieces meet with nothing inserted (a "coupe franche"). LOST rows
     (candidate material dropped) are attached to the cut where they happen,
@@ -5028,11 +5051,23 @@ def plan_geometry(records):
             lost.setdefault(fields["track"], []).append(fields)
         elif kind == "REFUSED":
             refused.append(fields)
-    measured = [t for t in tracks if regions.get(t["track"])
+    drops = delivery_drops(records)
+    per_language = {}
+    for t in tracks:
+        per_language[t.get("lang")] = per_language.get(t.get("lang"), 0) + 1
+    # every rebuilt track of the language dropped: none of them is delivered. Fewer
+    # drops than tracks cannot say which one went, so those stay candidates.
+    gone = {language for language, count in drops.items()
+            if count >= per_language.get(language, 0) > 0}
+    delivered = [t for t in tracks if t.get("lang") not in gone]
+    measured = [t for t in delivered if regions.get(t["track"])
                 and not (plain(t.get("offset")) or "").startswith("BORROWED")]
-    with_regions = [t for t in tracks if regions.get(t["track"])]
+    with_regions = [t for t in delivered if regions.get(t["track"])]
     lead = (measured or with_regions or [None])[0]
     if lead is None:
+        if any(regions.get(t["track"]) for t in tracks):
+            return {"undelivered": True, "plan": plan, "span": span,
+                    "dropped": sorted(gone), "tracks": tracks}
         return None
     number = lead["track"]
     regs = sorted(regions[number], key=lambda r: Decimal(r["master_start_ms"]))
@@ -5131,6 +5166,11 @@ def render_plan_schematic(geometry):
         return ('<p class="note">Pas de géométrie de plan dans cet artefact : '
                 'rien à dessiner. Le détail pour l\'IA porte tout ce que le '
                 'journal a émis.</p>')
+    if geometry.get("undelivered"):
+        return ('<p class="note">Aucune piste livrée : la porte de livraison a '
+                'écarté toutes les pistes reconstruites ('
+                + _escape(", ".join(geometry["dropped"])) + ') ; le fichier porte '
+                'l\'audio du maître, sans coupe. Rien à dessiner.</p>')
     span = geometry["span"]
     width, left, right = 1100, 60, 60
     plot = width - left - right
@@ -5375,6 +5415,11 @@ def render_human_summary(job, geometry, merge_log=None):
     table = ""
     if geometry is None:
         said.append("<li><b>Coupes :</b> pas de géométrie de plan dans ce journal.</li>")
+    elif geometry.get("undelivered"):
+        said.append("<li><b>Coupes : aucune piste livrée</b> — la porte de livraison a "
+                    "écarté toutes les pistes reconstruites ("
+                    + _escape(", ".join(geometry["dropped"])) + ") : le fichier "
+                    "livré porte l'audio intact du maître, aucune coupe.</li>")
     else:
         cuts = geometry["cuts"]
         pieces = len(geometry["candidates"])
