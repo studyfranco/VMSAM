@@ -19,6 +19,7 @@ import re
 import shutil
 import threading
 import traceback
+import signal
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
@@ -383,6 +384,8 @@ def run_fusion_job(database_url, error_file_path):
         if not tools.dev:
             mergeVideo.show_not_compatible_error = False
 
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        signal.signal(signal.SIGINT, signal.SIG_DFL)
         video.ffmpeg_pool_audio_convert = Pool(processes=max(1, int(tools.core_to_use/1.6)))
         video.ffmpeg_pool_big_job = Pool(processes=1)
         merged_file_path = None
