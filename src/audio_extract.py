@@ -151,8 +151,13 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
            "-ss", f"{start_seconds:.6f}", "-t", f"{length_seconds:.6f}",
            "-i", source_path, "-map", f"0:{stream_order}",
            "-vn", "-ac", "1", "-ar", str(sample_rate)]
-    if audio_filter:
-        cmd.extend(["-af", audio_filter])
+    # THE MUXER'S TIMESTAMPS ARE THE SAMPLE COUNT (`asetpts=N/SR/TB`, last in the chain): under
+    # `-xerror` a muxer complaint is fatal, and a TrueHD track resampled to 44.1 kHz hands the WAV
+    # muxer a DTS one tick backwards (MEASURED 2026-09-28, Fallout S01E03 BD master stream 1:
+    # « Non-monotonic DTS; previous: 933339, current: 933338 », rc 234 at 21 s, a sound track
+    # condemned `comparison_track_corrupt`). A muxer line is never the decoder's (26.9.12);
+    # the WAV is byte-identical to the plain extraction's (md5 on 60 s of that track).
+    cmd.extend(["-af", (audio_filter + "," if audio_filter else "") + "asetpts=N/SR/TB"])
     cmd.extend(["-acodec", "pcm_s16le", out_path])
     # *** THE EXIT CODE IS CHECKED AND THE OUTPUT IS NOT, AND THE FAILURE MODE IS ONE THAT
     # EXITS ZERO. `launch_cmdExt` raises on a non-zero return, so that half is covered --
