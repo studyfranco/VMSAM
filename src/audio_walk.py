@@ -726,6 +726,48 @@ def single_edge(m, c, off, anchor_s, limit_s, side):
                                                     else float(times[last_good]))), 4)}
 
 
+# THE CANDIDATE'S CONTENT BEGINS AT ITS FIRST SOUND, NOT AT ITS FILE START (the head twin of
+# de2683a8's tail rule): a sample under the digital-silence floor of the matching test
+# (FINE_SILENT_DB) is no content; the master's first sound is its first sample at AUDIBLE_DB, the
+# level a fill must cover (memo 1.4).
+DIGITAL_SILENCE_AMPLITUDE = 10.0 ** (FINE_SILENT_DB / 20.0)
+AUDIBLE_AMPLITUDE = 10.0 ** (AUDIBLE_DB / 20.0)
+
+
+def head_lead_in(m, c, off, limit_s):
+    """The master content a candidate's DIGITAL lead-in leaves uncovered at the head, under the
+    head level's offset `off` (candidate time = master time + off): `{content_edge_s,
+    master_first_sound_s, uncovered_s, master_db}` in master time when the candidate's first
+    sample above digital silence maps at least one fine window (FINE_WIN_S) after the master's
+    first audible sample and the master's span between them is audible (RMS at or above
+    AUDIBLE_DB), else None. Searched up to
+    `limit_s` (master time: the head level's first measured window's end). None on an envelope
+    pair (no waveform). MEASURED id 296 (Isekai Suicide Squad S01E02, eng, off 648.32 ms): the
+    candidate is bit-exact zero to 0.700 s, the master audible from 0.02 s (peaks -10 to -22
+    dBFS) -- 51.7 ms of master content no candidate sample covers."""
+    if isinstance(c, EnvelopeSignal) or isinstance(m, EnvelopeSignal):
+        return None
+    shift = off / 1000.0
+    head = np.flatnonzero(np.abs(c[:max(0, int(round((limit_s + shift) * WALK_RATE)))])
+                          >= DIGITAL_SILENCE_AMPLITUDE)
+    if not len(head):
+        return None
+    content_s = head[0] / WALK_RATE - shift
+    if content_s <= 0.0:
+        return None
+    span = m[:int(np.ceil(content_s * WALK_RATE))]
+    loud = np.flatnonzero(np.abs(span) >= AUDIBLE_AMPLITUDE)
+    if not len(loud):
+        return None
+    level = rms_db(span[loud[0]:])
+    if level < AUDIBLE_DB or content_s - loud[0] / WALK_RATE < FINE_WIN_S:
+        return None
+    return {"content_edge_s": round(float(content_s), 4),
+            "master_first_sound_s": round(float(loud[0]) / WALK_RATE, 4),
+            "uncovered_s": round(float(content_s - loud[0] / WALK_RATE), 4),
+            "master_db": round(float(level), 1)}
+
+
 def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
     """The instant F in [lo, hi] where the master is quietest at the splice points F and
     F + extra (20 ms windows, 5 ms steps) -- ADDENDUM 25.1: "sinon le raccord se pose au point de

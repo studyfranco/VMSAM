@@ -246,6 +246,65 @@ def test_quiet_tail_running_to_the_file_end_reaches_it():
     assert abs(edge["edge_s"] - cand_end_m) <= aw.FINE_WIN_S, (edge, cand_end_m)
 
 
+def _digital_lead_in_couple(lead_in_s=0.7, master_sound_s=0.02, off_ms=648.32, seed=31):
+    """id 296's head (Isekai Suicide Squad S01E02, CASE_plan_mismatch_id296_head_20260928): the
+    master is loud from `master_sound_s`; the candidate reads at `off_ms` (candidate time =
+    master time + off) and its first `lead_in_s` seconds are digital zeros."""
+    master = np.zeros(int(12.0 * R), np.float32)
+    start = int(master_sound_s * R)
+    master[start:] = _content(12.0, seed)[:len(master) - start]
+    shift = off_ms / 1000.0
+    tc = np.arange(int(round((12.0 + shift) * R))) / R - shift
+    cand = np.interp(tc, np.arange(len(master)) / R, master, left=0.0, right=0.0)
+    cand[:int(round(lead_in_s * R))] = 0.0
+    return master, cand.astype(np.float32), off_ms
+
+
+def _head_fill(master, cand, off, video_s=None):
+    """audio_edges' head decision on a synthetic couple: the audio edge, the video pin within
+    one frame, then `repair_orchestrator.head_content_edge`. Returns (fill_ms, removed_ms)."""
+    import repair_orchestrator as ro
+    frame = 1001 / 24000
+    found, _points = _walk_points(master, cand, [off])
+    first = found[0]
+    edge = aw.single_edge(master, cand, first["off_ms"], first["t_first"] + aw.WALK_WINDOW_S,
+                          0.0, "head")
+    placed = edge["edge_s"]
+    if video_s is not None and abs(video_s - placed) <= frame:
+        placed = video_s
+    lead = aw.head_lead_in(master, cand, first["off_ms"], first["t_first"] + aw.WALK_WINDOW_S)
+    end, _decision = ro.head_content_edge(placed, "audio_edge", frame, lead)
+    fill = 0.0 if end is None else end
+    return fill * 1000.0, fill * 1000.0 + first["off_ms"], lead
+
+
+def test_head_edge_is_the_candidates_first_sound_and_the_master_fills_its_lead_in():
+    # MEASURED id 296 on the originals: candidate bit-exact zero to 0.700 s, master loud from
+    # 0.02 s, offset 648.32 ms -- the master must fill [0, 51.7 ms) and the candidate lose 700 ms.
+    # e756ff76 pinned the audio edge to the video's head boundary (frame 1, 41.7 ms), then
+    # dropped the fill as "within one frame of the start": 51.7 ms of silence over the master.
+    master, cand, off = _digital_lead_in_couple()
+    lead = aw.head_lead_in(master, cand, off, aw.WALK_WINDOW_S)
+    assert lead is not None and abs(lead["content_edge_s"] - 0.0517) <= 0.002, lead
+    assert abs(lead["master_first_sound_s"] - 0.02) <= 0.002, lead
+    for video_s in (None, 1001 / 24000):
+        fill_ms, removed_ms, _lead = _head_fill(master, cand, off, video_s)
+        assert abs(fill_ms - 51.7) <= TOLERANCE_MS, (video_s, fill_ms)
+        assert abs(removed_ms - 700.0) <= TOLERANCE_MS, (video_s, removed_ms)
+        assert fill_ms >= lead["content_edge_s"] * 1000.0, (video_s, fill_ms, lead)
+
+
+def test_head_lead_in_over_a_silent_master_adds_no_fill():
+    # THE CONTROL: the same candidate lead-in where the master is silent until it too sounds
+    # (master sound from 51.7 ms, candidate content from its 700 ms): nothing is uncovered, and
+    # the one-frame rule stands -- a video pin at frame 1 carries no fill.
+    master, cand, off = _digital_lead_in_couple(master_sound_s=0.0517)
+    assert aw.head_lead_in(master, cand, off, aw.WALK_WINDOW_S) is None
+    import repair_orchestrator as ro
+    frame = 1001 / 24000
+    assert ro.head_content_edge(frame, "audio_edge", frame, None) == (None, "audio_edge")
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_") and callable(test):

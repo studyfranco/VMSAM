@@ -3468,6 +3468,27 @@ def _frame_s(frame, domain):
     return float(Fraction(frame) / domain["master_rate"])
 
 
+def head_content_edge(placed_s, decision, frame_s, lead):
+    """THE HEAD EDGE NEVER PUTS THE CANDIDATE'S DIGITAL LEAD-IN OVER AUDIBLE MASTER CONTENT
+    (ADDENDUM 25, the head twin of the tail's last-sound rule): `(head_end_s or None, decision)`.
+    `lead` is `audio_walk.head_lead_in` -- the candidate's first sound mapped to master time when
+    the master is audible before it. A placement (the audio edge, or the video frame that pinned
+    it) earlier than that first sound is raised to it: the master fills [0, first sound) and the
+    candidate loses its whole lead-in. A head edge within one frame of the file's start carries no
+    fill -- unless that span is master content the candidate's lead-in leaves uncovered. MEASURED
+    id 296 (e756ff76): audio edge 0.065 s, the video's head boundary frame 1 (0.0417 s,
+    master_exhausted) pinned it within one frame, and the one-frame rule then dropped the fill --
+    the product played 51.7 ms of the candidate's digital zeros over the master's -10 dBFS
+    opening."""
+    if placed_s is None:
+        return None, decision
+    if lead is not None and placed_s < lead["content_edge_s"]:
+        placed_s, decision = lead["content_edge_s"], f"{decision}_raised_to_candidate_first_sound"
+    if placed_s <= frame_s and lead is None:
+        return None, decision
+    return placed_s, decision
+
+
 def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
     """HEAD AND TAIL, PLACED BY THE AUDIO (ADDENDUM 25: "l'audio borne, la video epingle").
 
@@ -3480,8 +3501,9 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     boundary sits at 1403.9 s, the candidate's audio keeps matching the master to ~1426 s.
 
     Returns `(head_end_s or None, tail_start_s or None, refusal or None)`; None = no fill on that edge (the edge
-    is within one frame of the file's own start / the master timeline's end). An edge the
-    20 ms / 100 ms profiles cannot read falls back to the level's measured window."""
+    is within one frame of the file's own start / the master timeline's end). The head edge is
+    never earlier than the candidate's first sound over audible master (`head_content_edge`).
+    An edge the 20 ms / 100 ms profiles cannot read falls back to the level's measured window."""
     import audio_walk
     master, candidate = walk["master"], walk["candidate"]
     first, last = walk["levels"][0], walk["levels"][-1]
@@ -3500,6 +3522,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     # proven extent of common content -- the head starts no later than the first window, the
     # tail ends no earlier than the last one's end. MEASURED, Fallout S01E02 (1001/1000): no
     # fine edge at either end, level measured over [1.0, 3747.0] s.
+    lead = audio_walk.head_lead_in(master, candidate, first["off_ms"], first["t_first"] + window)
     head_s = first["t_first"] if head is None else head["edge_s"]
     tail_s = (last["t_last"] + window) if tail is None else tail["edge_s"]
     edge_source = {"head": "walk_window_edge" if head is None else "audio_edge",
@@ -3532,6 +3555,8 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
             placed, decision = video_s, "video_frame_at_audio_edge"
         elif video_s is not None:
             decision = f"{edge_source[kind]}_video_boundary_elsewhere"
+        if kind == "head":
+            placed, decision = head_content_edge(placed, decision, frame, lead)
         decisions[kind] = placed
         summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
         tools.dev_log(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
@@ -3539,10 +3564,13 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                          f"{None if video_s is None else round(video_s, 4)} placed_s={placed} "
                          f"decision={decision} for {candidate_path}\n")
     # ONE UNCONDITIONAL LINE for both edges (ADDENDUM 32.10 g); the per-edge lines are dev.
+    if lead is not None:
+        summary.append(f"head_candidate_first_sound_s={lead['content_edge_s']} "
+                       f"head_master_first_sound_s={lead['master_first_sound_s']} "
+                       f"head_uncovered_master_ms={round(lead['uncovered_s'] * 1000.0, 1)} "
+                       f"head_uncovered_master_db={lead['master_db']}")
     tools.log_always(f"repair: audio_edges {' '.join(summary)} for {candidate_path}\n")
     head_end = decisions["head"]
-    if head_end is not None and head_end <= frame:
-        head_end = None
     # THE TAIL FILL EXISTS WHENEVER THE AUDIO EDGE IS SHORT OF THE MASTER'S TIMELINE, even when
     # it coincides with the end of the master's own AUDIO: past the edge nothing proves the
     # candidate's content is common, so it is never read there -- the master fill writes what
