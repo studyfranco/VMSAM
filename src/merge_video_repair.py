@@ -673,12 +673,14 @@ def mark_audio_dicts(repaired_obj, marker):
     # de fichier n'est que le repli d'une piste relue sans son tag.
     # PAS LES COMMENTAIRES: les marquer ici changerait le holder par lequel
     # `gate_fabricated_delivery` les reconnait -- ils y sont traites a part.
+    import merge_video_chimeric
     for holder in (repaired_obj.audios, repaired_obj.audiodesc):
         for language, audios in holder.items():
             for audio in audios:
-                own = fabricated_marker_of(audio)
-                if own or len(marker):
-                    audio["fabricated"] = own or marker
+                # EVERY TRACK OF THE REPAIRED FILE IS REBUILT (errid 319): never left unmarked,
+                # whatever the file marker says.
+                audio["fabricated"] = (fabricated_marker_of(audio) or marker
+                                       or merge_video_chimeric.REBUILT_MARKER)
 
 
 # Les trois porteurs d'audio d'un objet video. Les commentaires y sont: c'est
@@ -835,6 +837,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     INCONDITIONNELLEMENT (decision de livraison, pas du diagnostic).
     """
     import mergeVideo
+    import merge_video_chimeric
     probe = content_probe or measure_same_content
     dropped = []
     master_intact = {}
@@ -854,9 +857,19 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     for holder in AUDIO_HOLDERS:
         for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
             for audio in audios:
-                marker = fabricated_marker_of(audio)
-                if not marker or not audio.get("keep", True):
+                if not audio.get("keep", True):
                     continue
+                marker = fabricated_marker_of(audio)
+                if not marker:
+                    # AN UNMARKED TRACK OF THE REPAIRED FILE IS STILL A REBUILT ONE (errid 319):
+                    # skipping it let a re-encoded candidate track replace the master's intact
+                    # track of its language with no race. It is raced like any rebuilt track.
+                    marker = f"{merge_video_chimeric.REBUILT_MARKER}(unmarked)"
+                    audio["fabricated"] = marker
+                    say(f"repair: unmarked_rebuilt_track lang={language} holder={holder} "
+                        f"stream={audio.get('StreamOrder')} format={audio.get('Format')} "
+                        f"marker={marker} reason=a track of the repaired file carried no "
+                        f"VMSAM_FABRICATED; raced as rebuilt", to_stderr=True)
                 where = (f"lang={language} holder={holder} "
                          f"stream={audio.get('StreamOrder')} "
                          f"format={audio.get('Format')} marker={marker}")

@@ -1917,9 +1917,11 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     # LE MARQUEUR DE CHAQUE PISTE EST LE SIEN (`report["marker"]`, pose par
     # l'assemblage au facteur que CETTE piste a recu); `marker_value` reste le
     # repli d'un compte-rendu qui n'en porterait pas.
+    # NEVER AN EMPTY VMSAM_FABRICATED (errid 319): ffmpeg drops an empty tag, and a rebuilt track
+    # without it is re-probed as intact.
     for i, report in enumerate(audio_reports):
         command.extend([f"-metadata:s:a:{i}",
-                        f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
+                        f"VMSAM_FABRICATED={report.get('marker') or marker_value or REBUILT_MARKER}"])
         command.extend([f"-metadata:s:a:{i}", f"VMSAM_ERA={era_value}"])
         command.extend([f"-metadata:s:a:{i}", f"VMSAM={build}"])
         if report["language"] != None and report["language"] != "und":
@@ -1928,7 +1930,7 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
             command.extend([f"-metadata:s:a:{i}", f"title={report['title']}"])
     for i, report in enumerate(subtitle_reports):
         command.extend([f"-metadata:s:s:{i}",
-                        f"VMSAM_FABRICATED={report.get('marker', marker_value)}"])
+                        f"VMSAM_FABRICATED={report.get('marker') or marker_value or REBUILT_MARKER}"])
         command.extend([f"-metadata:s:s:{i}", f"VMSAM_ERA={era_value}"])
         command.extend([f"-metadata:s:s:{i}", f"VMSAM={build}"])
         if report["language"] != None and report["language"] != "und":
@@ -2459,6 +2461,22 @@ def resolve_master_grid(frame_rate_mode, frame_rate, frame_rate_original):
     return parse_positive_rate(frame_rate_original)
 
 
+# EVERY TRACK THE REPAIR BUILDS CARRIES A MARKER (errid 319, 2026-09-28). The ADDENDUM 5 decision
+# ("not chimeric": an edge completion under 15 s, no splice) left `compose_marker` empty, the mux
+# wrote an empty VMSAM_FABRICATED (ffmpeg drops an empty tag), the re-probed track looked intact
+# and `gate_fabricated_delivery` skipped it: MEASURED id 319 (0-saiji S01E04), the candidate's
+# 48 kHz jpn, re-encoded (ENCODER=Lavc63.1.102 aac) and trimmed, replaced the master's intact
+# 44.1 kHz jpn with no race. A rebuilt track is never the original bytes (it is re-encoded), so
+# under the general law (the master is never modified) it may not pass for an intact one: the
+# value `rebuilt` names a track that is neither chimeric nor resampled.
+REBUILT_MARKER = "rebuilt"
+
+
+def delivered_marker(base_marker, factor, engine="asetrate"):
+    """The marker a rebuilt track is muxed with: `compose_marker`'s, never empty."""
+    return compose_marker(base_marker, factor, engine) or REBUILT_MARKER
+
+
 def compose_marker(base_marker, factor, engine="asetrate"):
     '''`chimeric+resampled:<facteur>` DANS CET ORDRE (SPEC_ZONE_A.MD s4), par
     PISTE. `base_marker` porte la decision de l'ADDENDUM 5 (chimerique ou non,
@@ -2672,7 +2690,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             # THE REQUESTED RATIO, EXACT (ADDENDUM 25.5): the applied one is quantised by the
             # integer `asetrate` (384000/383616 = 1000/999 for 1001/1000) and would name a
             # different rational; it stays in `speed_ratio_applied`.
-            report["marker"] = compose_marker(
+            report["marker"] = delivered_marker(
                 marker_value,
                 speed_ratio if report.get("speed_ratio_applied") is not None else None,
                 speed_engine)
@@ -2705,7 +2723,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                 # LES REPLIQUES SUBISSENT LE RATIO DEMANDE, EXACT (pas un facteur
                 # quantifie par une frequence d'echantillonnage): c'est lui que
                 # porte leur marqueur.
-                report["marker"] = compose_marker(
+                report["marker"] = delivered_marker(
                     marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
                     speed_engine)
                 subtitle_reports.append(report)
@@ -2798,7 +2816,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     # LE MARQUEUR DE FICHIER, pour les lecteurs qui n'en lisent qu'un
     # (`mark_audio_dicts` en repli): la decision de l'ADDENDUM 5 et le ratio
     # DEMANDE. Chaque piste porte en plus le sien, au facteur qu'ELLE a recu.
-    file_marker = compose_marker(
+    file_marker = delivered_marker(
         marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
         speed_engine)
     # the deadline once more before the mux: a budget that ran out on the last build stops here
