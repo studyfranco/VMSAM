@@ -110,7 +110,19 @@ def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), de
     container start_time -- times `scale` on a rate pair, as the assembly reads it -- prepended
     as zeros (a negative start drops samples). `deadline`: the repair's budget bounds the read
     (`read_track_samples`). `envelope`: the track's speech envelope instead of its waveform (an
-    atempo pair -- see `speech_envelope`)."""
+    atempo pair -- see `speech_envelope`).
+
+    READ ONCE PER REPAIR (`merge_video_decode_once.file_clock`): the walk and the track-level
+    remeasure read the same comparison tracks; the second read is a cache hit, shared read-only."""
+    import merge_video_decode_once
+    return merge_video_decode_once.file_clock(
+        video_obj, audio, lambda: _read_on_file_clock(video_obj, audio, audio_filter, scale,
+                                                      deadline, envelope),
+        audio_filter=audio_filter, scale=scale, envelope=envelope)
+
+
+def _read_on_file_clock(video_obj, audio, audio_filter, scale, deadline, envelope):
+    """`read_on_file_clock`'s decode (its docstring holds)."""
     import merge_video_chimeric
     samples = merge_video_chimeric.read_track_samples(
         video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter,

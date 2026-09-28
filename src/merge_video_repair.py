@@ -731,69 +731,136 @@ def same_content_verdict(delay_fidelity_values):
     return False, fidelity, delays
 
 
-def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir):
+def same_content_windows(duration):
+    """The frozen grouping's windows over `duration` seconds, as (start_s, length_s): the starts
+    of `video.generate_cut_with_begin_length` and the length `length_time * 2` its callers
+    extract (`video.generate_begin_and_length_by_segment`)."""
+    begin, length_time = video.generate_begin_and_length_by_segment(duration)
+    return [(float(begin) + i * length_time, float(length_time * 2))
+            for i in range(video.number_cut)]
+
+
+def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir,
+                         deadline=None):
     """La piste fabriquee est-elle LA MEME VERSION que la piste intacte du maitre?
 
-    MEMES INSTRUMENTS que le regroupement gele: fenetres de
-    `video.generate_begin_and_length_by_segment`/`generate_cut_with_begin_length`
-    sur la plus courte des deux durees, extraction pcm_s16le stereo (mono si
-    l'une est mono, comme `prepare_get_delay_sub`), normalisation
-    `video.generate_normalised_file`, `audioCorrelation.correlate` avec
-    `length_time*2`. MAIS dans un repertoire PRIVE et sans passer par
-    `extract_audio_in_part`: cette methode ecrit `tmpFiles` et
-    `audio_pos_file` sur l'objet maitre du pipeline et nomme ses fichiers
-    d'apres `fileBaseName` -- l'appeler ici effacerait ou ecraserait les
-    extraits dont la fusion a encore besoin.
+    THE FROZEN GROUPING'S WINDOWS AND VERDICT, READ ON WHOLE-TRACK FINGERPRINTS (decode once,
+    coordinator 2026-09-28). The windows are still `video.generate_begin_and_length_by_segment`
+    / `generate_cut_with_begin_length` over the shorter duration (ten windows of
+    `length_time * 2`), the verdict still `same_content_verdict` (mean fidelity >=
+    SAME_CONTENT_MEAN_FIDELITY, one or two delays under SAME_CONTENT_MAX_DELAY_MS). What changed
+    is where each window's fingerprint comes from: the SLICE of the track's whole fingerprint
+    (`merge_video_decode_once.fingerprints`, mono at the pair's comparison rate, one ffmpeg pass
+    per file, the prime's master fingerprint reused) instead of an output-seek extraction
+    decoded from the file's start plus two loudness passes per window -- and the correlation is
+    `merge_video_decode_once.correlate_points`, the same arithmetic vectorised. A loudness gain
+    does not move a chromaprint (its chroma bands are normalised per frame), so the
+    normalisation pass is not replaced by anything.
+
+    MEASURED on Ragnarok S02E14 (id 23) before this change: ~1.6 min per rebuilt track, the
+    master's window extractions repeated for each of the 14.
 
     Renvoie (verdict_bool_ou_None, detail). None = PAS MESURE: l'appelant ne
     doit pas le lire comme "different"."""
-    import shutil
-    import tempfile
-    from time import strftime, gmtime
-    from audioCorrelation import correlate
-    private = tempfile.mkdtemp(prefix="fab_gate_", dir=work_dir or tools.tmpFolder)
+    import merge_video_decode_once as once
     try:
         duration = min(float(master_audio["Duration"]), float(audio["Duration"]))
-        begin, length_time = video.generate_begin_and_length_by_segment(duration)
-        cuts = video.generate_cut_with_begin_length(
-            begin, length_time, strftime('%H:%M:%S', gmtime(length_time * 2)))
-        channels = "1" if "1" in (str(master_audio.get("Channels")),
-                                  str(audio.get("Channels"))) else "2"
-        codec_param = ["-c:a", "pcm_s16le", "-ac", channels]
-
-        # EN PARALLELE, comme le pool `ffmpeg_pool_audio_convert` du chemin gele:
-        # chaque fenetre est un ffmpeg independant (sortie `-ss` apres `-i`, donc
-        # decodee depuis le debut) et en serie la mesure coutait des minutes.
-        jobs = []
-
-        def extract(file_path, stream_order, tag):
-            out = []
-            for number, cut in enumerate(cuts):
-                final = path.join(private, f"{tag}.{number}.wav")
-                tmp = path.join(private, f"{tag}_tmp.{number}.wav")
-                cmd = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M",
-                       "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
-                       file_path, "-copyts", "-vn", "-dn", "-sn"] + codec_param + [
-                       "-map", f"0:{stream_order}", "-ss", cut[0], "-t", cut[1], tmp]
-                jobs.append(pool.submit(video.generate_normalised_file, cmd,
-                                        codec_param.copy(), final, tmp))
-                out.append(final)
-            return out
-
-        from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=max(1, int(tools.core_to_use or 1))) as pool:
-            master_cuts = extract(master_obj.filePath, master_audio["StreamOrder"], "m")
-            fab_cuts = extract(repaired_obj.filePath, audio["StreamOrder"], "f")
-            for job in jobs:
-                job.result()
-            values = list(pool.map(lambda pair: correlate(pair[0], pair[1], length_time * 2),
-                                    zip(master_cuts, fab_cuts)))
+        windows = same_content_windows(duration)
+        need = max(start + length for start, length in windows)
+        hop_s = SAME_CONTENT_HOP_S
+        m_order, f_order = int(master_audio["StreamOrder"]), int(audio["StreamOrder"])
+        master = once.fingerprints(master_obj.filePath, [m_order], {m_order: need}, work_dir,
+                                   deadline=deadline,
+                                   pads_ms={m_order: _start_ms(master_audio)})[m_order]
+        fab = once.fingerprints(repaired_obj.filePath, [f_order], {f_order: need}, work_dir,
+                                deadline=deadline, pads_ms={f_order: _start_ms(audio)})[f_order]
+        if master is None or fab is None:
+            return None, (f"unmeasured=fingerprint_unreadable "
+                          f"master={master is not None} fabricated={fab is not None}")
+        values = []
+        for start, length in windows:
+            first = int(round(start / hop_s))
+            # THE WINDOW'S OWN POINT COUNT, as fpcalc returned it on the extracted window: it
+            # sets the correlation's span and the ms per point of the delays (the verdict's
+            # 128 ms reads one point as 129 ms there, and must read it the same here).
+            count = int(length / hop_s) - SAME_CONTENT_FPCALC_TAIL_POINTS
+            source = master["points"][first:first + count]
+            target = fab["points"][first:first + count]
+            if min(len(source), len(target)) <= 2 * SAME_CONTENT_MIN_OVERLAP:
+                return None, (f"unmeasured=window_past_the_fingerprint start_s={start} "
+                              f"points={len(source)}/{len(target)}")
+            values.append(once.correlate_points(source, target, length))
         verdict, fidelity, delays = same_content_verdict(values)
-        return verdict, f"mean_fidelity={fidelity:.4f} delays_ms={sorted(delays)} windows={len(values)}"
-    except Exception as error:
+        return verdict, (f"mean_fidelity={fidelity:.4f} delays_ms={sorted(delays)} "
+                         f"windows={len(values)} instrument=fingerprint_slices")
+    except Exception as error:                                           # noqa: BLE001
         return None, f"unmeasured={type(error).__name__}: {error}"
-    finally:
-        shutil.rmtree(private, ignore_errors=True)
+
+
+def _start_ms(audio):
+    """The stream's container start_time in ms (`merge_video_chimeric.get_stream_start_ms`): the
+    frozen instrument read both files at the same PTS (`-copyts`, output seek); the fingerprints
+    are put on the same file clock by it."""
+    import merge_video_chimeric
+    return float(merge_video_chimeric.get_stream_start_ms(audio))
+
+
+# The chromaprint hop (4096 samples at 11025 Hz / 3 -- `repair_orchestrator.CHROMAPRINT_HOP_MS`,
+# restated here so this module imports nothing from the orchestrator) and the correlation's own
+# minimum overlap (`audioCorrelation.min_overlap`).
+SAME_CONTENT_HOP_S = (4096 // 3) / 11025.0
+SAME_CONTENT_MIN_OVERLAP = 32
+# fpcalc drops the last points of what it reads: MEASURED on a 22.05 kHz tone sequence, 56 / 255 /
+# 400 s give 431 / 2038 / 3209 points = floor(seconds / hop) - 21 each time.
+SAME_CONTENT_FPCALC_TAIL_POINTS = 21
+# Fingerprints computed ahead of the gate's loop, two tracks at a time (`-threads 2` each).
+SAME_CONTENT_PREFETCH_JOBS = 2
+
+
+def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, deadline, say):
+    """The fingerprints `gate_fabricated_delivery`'s loop will read, decoded before it: for each
+    file, the streams it compares, each to the window end the shorter duration of its pairs asks
+    for. The two files are decoded at the same time (SAME_CONTENT_PREFETCH_JOBS); a failure here
+    decides nothing -- the loop's own request is then a miss and decodes that one track."""
+    import merge_video_decode_once as once
+    from concurrent.futures import ThreadPoolExecutor
+    need = {"master": {}, "product": {}}
+    pads = {"master": {}, "product": {}}
+    for holder in AUDIO_HOLDERS:
+        if holder == "commentary":
+            continue
+        for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
+            for audio in audios:
+                # every delivered track is raced, marked or not (54cf1d01): all are fetched
+                if not audio.get("keep", True):
+                    continue
+                for intact in master_intact.get(language, []):
+                    try:
+                        duration = min(float(intact["Duration"]), float(audio["Duration"]))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    end = max(a + b for a, b in same_content_windows(duration))
+                    m, f = int(intact["StreamOrder"]), int(audio["StreamOrder"])
+                    need["master"][m] = max(need["master"].get(m, 0.0), end)
+                    need["product"][f] = max(need["product"].get(f, 0.0), end)
+                    pads["master"][m] = _start_ms(intact)
+                    pads["product"][f] = _start_ms(audio)
+    jobs = [(master_obj.filePath, need["master"], pads["master"]),
+            (repaired_obj.filePath, need["product"], pads["product"])]
+    jobs = [job for job in jobs if job[1]]
+    if not jobs:
+        return
+    started = time.monotonic()
+    try:
+        with ThreadPoolExecutor(max_workers=SAME_CONTENT_PREFETCH_JOBS) as pool:
+            list(pool.map(lambda job: once.fingerprints(job[0], sorted(job[1]), job[1], work_dir,
+                                                        deadline=deadline, pads_ms=job[2]),
+                          jobs))
+    except Exception as error:                                           # noqa: BLE001
+        say(f"repair: gate_prefetch failed={type(error).__name__}: {str(error)[:200]}")
+    say(f"repair: gate_prefetch master_streams={sorted(need['master'])} "
+        f"product_streams={sorted(need['product'])} "
+        f"seconds={round(time.monotonic() - started, 2)}")
 
 
 def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
@@ -854,6 +921,13 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
         if to_stderr:
             sys.stderr.write(line + "\n")
 
+    # DECODE ONCE, AHEAD OF THE LOOP (coordinator 2026-09-28): every fingerprint the loop will
+    # ask for, one ffmpeg pass per file -- the product's rebuilt tracks and the master's intact
+    # ones (the prime already holds the master's comparison track) -- the two files at once.
+    # Only with the default instrument; an injected probe reads nothing from here.
+    if content_probe is None:
+        _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, deadline, say)
+
     for holder in AUDIO_HOLDERS:
         for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
             for audio in audios:
@@ -903,6 +977,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         cause="repair_budget_exceeded")
                 lost_to = None
                 measures = []
+                track_started = time.monotonic()
                 for intact in opponents:
                     same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
                     measures.append(f"vs_master_stream={intact.get('StreamOrder')}"
@@ -915,6 +990,8 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     if not audio["keep"]:
                         lost_to = (intact, same)
                         break
+                say(f"repair: gate_cost {where} opponents={len(opponents)} "
+                    f"seconds={round(time.monotonic() - track_started, 2)}")
                 if lost_to is None:
                     say(f"repair: fabricated_kept cause=different_version {where} "
                         f"{' '.join(measures)} reason=its fingerprint matches no "

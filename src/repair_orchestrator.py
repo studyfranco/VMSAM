@@ -901,6 +901,15 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
         with repair_log.announced("orchestrator", "fpcalc", wav) as call:
             points = audioCorrelation.calculate_fingerprints(wav, length=output_duration_seconds)
             call["exit"] = 0
+        if audio_filter is None and points:
+            # DECODE ONCE: the delivery gate compares this very track (the master's comparison
+            # track) against every rebuilt one of its language -- it reads these points.
+            import merge_video_decode_once
+            merge_video_decode_once.note("comparison_rate", int(sample_rate))
+            merge_video_decode_once.put(
+                "fingerprint", video_obj.filePath, int(stream_order),
+                merge_video_decode_once.fingerprint_params(sample_rate),
+                {"points": list(points), "duration_s": float(output_duration_seconds)})
         if measures is not None:
             # ADDENDUM 26.9: where this track's CONTENT ends, read on the WAV already extracted
             # for the fingerprint -- no second decode.
@@ -5485,6 +5494,23 @@ ROUTING_SIGNALS = {
                         lambda master_obj, candidate_obj, *a, **k: candidate_obj.filePath)
 def repair(master_obj, candidate_obj, comparison_language, work_root=None,
            master_intertrack_cache=None, _carried_deadline=None, _carried_prime=None):
+    """`_repair` (its docstring holds) inside ONE decode-once scope (`merge_video_decode_once`):
+    a track decoded by one step of this repair is not decoded again by another, and the scope's
+    totals are logged when it closes. A re-entry (the re-tagged language, `_carried_prime`)
+    joins the scope already open."""
+    import merge_video_decode_once
+    merge_video_decode_once.begin(work_root or path.join(tools.tmpFolder, "repair",
+                                                         "orchestrator"),
+                                  label=path.basename(candidate_obj.filePath))
+    try:
+        return _repair(master_obj, candidate_obj, comparison_language, work_root,
+                       master_intertrack_cache, _carried_deadline, _carried_prime)
+    finally:
+        merge_video_decode_once.end()
+
+
+def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
+            master_intertrack_cache=None, _carried_deadline=None, _carried_prime=None):
     """The owner's `repair(master_obj, candidate_obj, comparison_language, ...)`. Returns a BOOL.
 
     Flat, by construction: each step is launched here, returns a result, and this function
