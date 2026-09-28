@@ -664,3 +664,7 @@ body {
         align-items: stretch;
     }
 }
+
+.rule-info {
+    margin-bottom: 0.75rem;
+}

@@ -1150,7 +1150,12 @@ async function loadSpecialList() {
             const left = el('div');
             left.appendChild(el('div', 'font-mono text-accent', s.file_name));
             left.appendChild(el('div', 'text-muted text-sm font-mono', `→ ${s.new_file_name}`));
-            row.appendChild(left);
+            const edit = el('button', 'btn btn-sm btn-secondary', 'Edit');
+            edit.onclick = () => {
+                if (!specialTab.folder) { showToast('Select the folder of the show first', 'error'); return; }
+                addSpecialCard(s.file_name, s.new_file_name);
+            };
+            row.append(left, edit);
             content.appendChild(row);
         });
     } catch (e) {
@@ -1162,50 +1167,55 @@ function openSpecialFileModal() {
     openFileModal((names) => names.forEach(addSpecialCard));
 }
 
-function addSpecialCard(fileName) {
+function addSpecialCard(fileName, initialNewName) {
     const container = document.getElementById('special-cards');
     const empty = container.querySelector('.empty-board');
     if (empty) empty.remove();
-    const cardState = { fileName, newName: fileName, episodeIndex: null, regexManual: null, renameManual: null, weight: 1 };
+    const cardState = { fileName, newName: initialNewName || fileName, episodeIndex: null, regexManual: null, renameManual: null, weight: 1, existingRule: null };
     const card = el('div', 'card group-card');
 
     const header = el('div', 'group-header');
     const title = el('div');
     title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Special'));
+    const savedBadge = el('span', 'badge badge-success hidden', 'special saved ✓');
+    title.appendChild(savedBadge);
     const remove = el('button', 'btn-icon', '🗑️');
     remove.onclick = () => card.remove();
     header.append(title, remove);
     card.appendChild(header);
 
     card.appendChild(el('label', 'label', 'Incoming file name (exact match)'));
-    const original = el('div', 'font-mono text-accent original-name', fileName);
-    card.appendChild(original);
+    card.appendChild(el('div', 'font-mono text-accent original-name', fileName));
 
-    card.appendChild(el('label', 'label mt-4', 'New file name — what the folder rule below must recognise'));
+    card.appendChild(el('label', 'label mt-4', 'New file name — what a rule of the selected folder must recognise'));
     const newNameInput = document.createElement('input');
     newNameInput.type = 'text';
     newNameInput.className = 'input font-mono';
-    newNameInput.value = fileName;
+    newNameInput.value = cardState.newName;
     card.appendChild(newNameInput);
     const newNameMsg = el('div', 'mt-2 text-xs validation-msg');
     card.appendChild(newNameMsg);
 
+    const specialFooter = el('div', 'group-footer');
+    const saveSpecial = el('button', 'btn btn-primary btn-sm', 'Save Special');
+    specialFooter.appendChild(saveSpecial);
+    card.appendChild(specialFooter);
+
+    // The rule part: the proposal until VMSAM says an existing rule already
+    // catches the new name, then that rule, editable.
     const ruleBox = el('div', 'special-rule');
     card.appendChild(ruleBox);
-
-    const footer = el('div', 'group-footer');
-    const save = el('button', 'btn btn-primary btn-sm', 'Save Special + Rule');
-    footer.appendChild(save);
-    card.appendChild(footer);
-
-    let regexInput, renameInput, weightInput;
+    const ruleInfo = el('div', 'rule-info text-sm text-muted');
+    let regexInput, renameInput, weightInput, saveRule;
 
     function renderRule() {
         const names = [cardState.newName];
         const proposal = analyzeGroup(names, cardState.episodeIndex);
-        const regex = cardState.regexManual !== null ? cardState.regexManual : proposal.regex;
-        const rename = cardState.renameManual !== null ? cardState.renameManual : proposal.rename;
+        const existing = cardState.existingRule;
+        const regex = cardState.regexManual !== null ? cardState.regexManual : (existing ? existing.regex_pattern : proposal.regex);
+        const rename = cardState.renameManual !== null ? cardState.renameManual : (existing ? (existing.rename_pattern || '') : proposal.rename);
         ruleBox.innerHTML = '';
+        ruleBox.appendChild(ruleInfo);
 
         const example = el('div', 'group-example');
         example.appendChild(el('span', 'text-muted text-xs', 'Episode number in the new name — click a digit run to change: '));
@@ -1214,7 +1224,7 @@ function addSpecialCard(fileName) {
         proposal.template.slots.forEach((slot, i) => {
             if (numbers.has(i)) {
                 const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
-                chip.onclick = () => { cardState.episodeIndex = i; cardState.regexManual = null; cardState.renameManual = null; renderRule(); };
+                chip.onclick = () => { cardState.episodeIndex = i; cardState.regexManual = null; cardState.renameManual = null; cardState.existingRule = null; renderRule(); };
                 line.appendChild(chip);
             } else {
                 line.appendChild(el('span', null, slot.v));
@@ -1254,12 +1264,18 @@ function addSpecialCard(fileName) {
         weightInput.type = 'number';
         weightInput.min = 1;
         weightInput.className = 'input text-center small-number';
-        weightInput.value = cardState.weight;
+        weightInput.value = existing ? existing.weight : cardState.weight;
         weightInput.oninput = () => { cardState.weight = parseInt(weightInput.value, 10) || 1; };
         weightBox.appendChild(weightInput);
         const summary = el('div', 'extraction-box');
         row.append(weightBox, summary);
         ruleBox.appendChild(row);
+
+        const ruleFooter = el('div', 'group-footer');
+        saveRule = el('button', 'btn btn-primary btn-sm', existing ? 'Update Rule' : 'Save Rule');
+        saveRule.onclick = submitRule;
+        ruleFooter.appendChild(saveRule);
+        ruleBox.appendChild(ruleFooter);
 
         function refreshCheck() {
             const result = testPattern(regexInput.value, [cardState.newName]);
@@ -1288,11 +1304,19 @@ function addSpecialCard(fileName) {
         refreshCheck();
     }
 
+    function setRuleInfo(text, tone) {
+        ruleInfo.textContent = text;
+        ruleInfo.className = `rule-info text-sm ${tone || 'text-muted'}`;
+    }
+
     newNameInput.oninput = () => {
         cardState.newName = newNameInput.value;
         cardState.episodeIndex = null;
         cardState.regexManual = null;
         cardState.renameManual = null;
+        cardState.existingRule = null;
+        savedBadge.classList.add('hidden');
+        card.classList.remove('saved');
         if (cardState.newName === cardState.fileName) {
             newNameMsg.textContent = '⚠ The new name must differ from the incoming name';
             newNameMsg.className = 'mt-2 text-xs text-warning validation-msg';
@@ -1302,41 +1326,64 @@ function addSpecialCard(fileName) {
         } else {
             newNameMsg.textContent = '';
         }
+        setRuleInfo('Save the special first: VMSAM answers whether a rule of this folder already catches the new name.');
         renderRule();
     };
 
-    save.onclick = async () => {
+    saveSpecial.onclick = async () => {
         if (!specialTab.folder) { showToast('Select a folder first', 'error'); return; }
         const newName = cardState.newName.trim();
         if (!newName || newName === cardState.fileName) { showToast('Give the special a new name first', 'error'); return; }
+        saveSpecial.disabled = true;
+        try {
+            const special = await api.createSpecial({ file_name: cardState.fileName, new_file_name: newName, destination_path: specialTab.folder.destination_path });
+            showToast(special.message, 'success');
+            savedBadge.classList.remove('hidden');
+            card.classList.add('saved');
+            if (special.incrementaller_conflict) {
+                showToast(`Warning: an increment rule also matches the new name: ${special.incrementaller_conflict}`, 'error', 8000);
+            }
+            cardState.regexManual = null;
+            cardState.renameManual = null;
+            if (special.matching_regex) {
+                cardState.existingRule = special.matching_regex;
+                setRuleInfo(`An existing rule of this folder already catches the new name (episode ${special.matching_regex.extracted_episode}). It is shown below; edit it only if needed.`, 'text-success');
+            } else {
+                cardState.existingRule = null;
+                setRuleInfo('No rule catches the new name yet: save the rule below so the renamed file is integrated.', 'text-warning');
+            }
+            renderRule();
+            loadSpecialList();
+        } catch (e) {
+            // A 400 is VMSAM's control: wrong folder, path in a name, same name. Nothing was stored.
+            showToast('Special not saved: ' + e.message, 'error', 8000);
+        } finally {
+            saveSpecial.disabled = false;
+        }
+    };
+
+    async function submitRule() {
+        if (!specialTab.folder) { showToast('Select a folder first', 'error'); return; }
+        const newName = cardState.newName.trim();
         const regex = regexInput.value;
         const rename = renameInput.value;
         const check = testPattern(regex, [newName]);
         if (!check.allValid) { showToast('The regex must extract a valid episode number from the new name', 'error'); return; }
         if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
-        save.disabled = true;
+        saveRule.disabled = true;
         try {
-            const special = await api.createSpecial({ file_name: cardState.fileName, new_file_name: newName });
-            showToast(special.message, 'success');
-            if (special.incrementaller_conflict) {
-                showToast(`Warning: an increment rule also matches the new name: ${special.incrementaller_conflict}`, 'error', 8000);
-            }
-            try {
-                const rule = await api.createRegex({ regex_pattern: regex, rename_pattern: rename, weight: cardState.weight, example_filename: newName, destination_path: specialTab.folder.destination_path });
-                showToast(rule.message, 'success');
-            } catch (e) {
-                // "Conflict with existing regex" means the new name is already covered: the special still works.
-                showToast('Rule not saved: ' + e.message, /Conflict with existing regex/i.test(e.message) ? 'info' : 'error', 8000);
-            }
-            card.classList.add('saved');
-            loadSpecialList();
+            const rule = await api.createRegex({ regex_pattern: regex, rename_pattern: rename, weight: parseInt(weightInput.value, 10) || 1, example_filename: newName, destination_path: specialTab.folder.destination_path });
+            showToast(rule.message, 'success');
+            cardState.existingRule = { regex_pattern: regex, rename_pattern: rename, weight: parseInt(weightInput.value, 10) || 1 };
+            setRuleInfo('Rule saved: the renamed file will be integrated into this folder.', 'text-success');
+            renderRule();
             loadExistingRulesInto('special-existing-content', () => loadFolderRules(specialTab.folder.id), 'No existing rules for this folder.');
         } catch (e) {
-            showToast('Error saving special: ' + e.message, 'error', 6000);
+            showToast('Rule not saved: ' + e.message, 'error', 8000);
         } finally {
-            save.disabled = false;
+            saveRule.disabled = false;
         }
-    };
+    }
 
     newNameInput.oninput();
     container.appendChild(card);

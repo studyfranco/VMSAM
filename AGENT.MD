@@ -16,7 +16,7 @@ port 8080 with no UI. This branch is the UI:
 | Folder Creation | browses `CREATE_ROOT`, creates a library folder | `POST /folders/` |
 | Bulk Regex | one rule per downloaded file, files draggable into groups | `POST /regex/`, `GET /regex_folder/` |
 | Index Folder | registers files a library folder already holds: proposes a rule per group, then renames and indexes | `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
-| Specials | exact-name rename of a special, plus the rule that catches the new name | `POST /special/`, `GET /special_list/`, `POST /regex/` |
+| Specials | exact-name rename of a special (`destination_path` is a control: a new name an existing rule already catches must belong to that folder, and the answer carries that rule for editing), plus the rule that catches the new name | `POST /special/`, `GET /special_list/`, `POST /regex/` |
 | Incrementaller | rules that shift an episode number before the folder rules run | `POST /incrementaller/`, `GET /incrementaller_list/` |
 
 ## 🗺️ Files
