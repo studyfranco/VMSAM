@@ -5002,38 +5002,59 @@ def _dec(value):
 
 
 def delivery_drops(records):
-    """{language: number of rebuilt audio tracks the delivery gate dropped}, read off
-    the `fabricated_dropped` lines the rows carry (UNPARSED, first 120 characters --
-    `lang=` sits within them). A dropped track is not in the delivered file."""
+    """({language: number of rebuilt audio tracks the delivery gate dropped}, {the exact
+    TRACK numbers it dropped}), read off the `fabricated_dropped` lines the rows carry
+    (UNPARSED -- `lang=` and `stream=` sit within them). `stream=` (the dropped audio's
+    `StreamOrder`) IS `track=` on the TRACK row: both are `int(audio["StreamOrder"])`,
+    logged from the same report dict (merge_video_chimeric.py:1342's `stream_order`,
+    read back at merge_video_repair.py:1636/931). So a drop line names the ONE physical
+    track that is not in the delivered file -- a same-language sibling the line never
+    named (a different `stream=`) stays delivered, id 718: `en` stream=2 kept, `ja`
+    stream=1 dropped, the lead moves to the delivered `en` track instead of staying on
+    the dropped `ja` one."""
     drops = {}
+    dropped_tracks = set()
     for kind, fields in records:
         if kind != "UNPARSED":
             continue
         line = plain(fields.get("line")) or ""
         if line.startswith("fabricated_dropped "):
-            language = split_fields(line[len("fabricated_dropped "):]).get("lang")
+            rest = split_fields(line[len("fabricated_dropped "):])
+            language = rest.get("lang")
             if language:
                 drops[language] = drops.get(language, 0) + 1
-    return drops
+            stream = rest.get("stream")
+            if stream:
+                dropped_tracks.add(stream)
+    return drops, dropped_tracks
 
 
 def plan_geometry(records):
     """The ONE geometry the schematic and the table draw, read off the rows.
 
     Lead track = the first audio track that is DELIVERED, measured (not
-    BORROWED) and has regions, as in `render_svg`. A track the delivery gate
-    dropped is not in the file: a language whose every rebuilt track was
-    dropped (`fabricated_dropped`) cannot lead. When no track with regions is
-    delivered the plan is `{"undelivered": True, ...}` -- "aucune piste livrée":
-    the file carries the master's own audio, and the report says so instead of
-    drawing the geometry of a track nobody receives (id 54: the product's video,
-    eng and jpn md5-identical to the master, its eng track dropped by
-    intact_same_language_wins, drawn as three cuts). A CUT is every region that is not candidate
-    material (a fill from the master, or silence), plus every seam where two
-    candidate pieces meet with nothing inserted (a "coupe franche"). LOST rows
-    (candidate material dropped) are attached to the cut where they happen,
-    by construction `candidate = master + offset_ms`; when an offset is not
-    emitted, leftovers are paired by order and marked derived (`~`).
+    BORROWED) and has regions, as in `render_svg`, in TRACK order (stream
+    order): the master's own lead track if it is the one delivered, else
+    whichever delivered rebuilt track comes first. A track the delivery gate
+    dropped is not in the file, and it is named EXACTLY: a `fabricated_dropped`
+    line's `stream=` is the dropped audio's `StreamOrder`, the same identifier
+    as the TRACK row's `track=` (delivery_drops), so only the track that line
+    names is excluded -- a same-language sibling it never named stays a
+    candidate to lead (id 718: `ja` stream=1 dropped, `en` stream=2 kept, the
+    lead is `en`; the earlier count-only rule could not tell the two `ja`
+    streams apart and left the dropped one leading). When every track of a
+    language is gone the language itself is reported gone. When no track with
+    regions is delivered the plan is `{"undelivered": True, ...}` -- "aucune
+    piste livrée": the file carries the master's own audio, and the report
+    says so instead of drawing the geometry of a track nobody receives (id 54:
+    the product's video, eng and jpn md5-identical to the master, its eng
+    track dropped by intact_same_language_wins, drawn as three cuts). A CUT is
+    every region that is not candidate material (a fill from the master, or
+    silence), plus every seam where two candidate pieces meet with nothing
+    inserted (a "coupe franche"). LOST rows (candidate material dropped) are
+    attached to the cut where they happen, by construction
+    `candidate = master + offset_ms`; when an offset is not emitted, leftovers
+    are paired by order and marked derived (`~`).
     """
     plan = next((f for k, f in records if k == "PLAN"), None)
     if not plan or not plan.get("master_end_ms"):
@@ -5051,15 +5072,14 @@ def plan_geometry(records):
             lost.setdefault(fields["track"], []).append(fields)
         elif kind == "REFUSED":
             refused.append(fields)
-    drops = delivery_drops(records)
-    per_language = {}
-    for t in tracks:
-        per_language[t.get("lang")] = per_language.get(t.get("lang"), 0) + 1
-    # every rebuilt track of the language dropped: none of them is delivered. Fewer
-    # drops than tracks cannot say which one went, so those stay candidates.
-    gone = {language for language, count in drops.items()
-            if count >= per_language.get(language, 0) > 0}
-    delivered = [t for t in tracks if t.get("lang") not in gone]
+    _drop_counts, dropped_tracks = delivery_drops(records)
+    # exact TRACK numbers the delivery gate named (delivery_drops): only THOSE are
+    # gone. A same-language sibling a drop line never named is still delivered.
+    delivered = [t for t in tracks if t.get("track") not in dropped_tracks]
+    # a language is gone only once EVERY track it had is gone (id 54: its one
+    # track; a language with a surviving sibling stays reportable).
+    gone = ({t.get("lang") for t in tracks} -
+            {t.get("lang") for t in delivered})
     measured = [t for t in delivered if regions.get(t["track"])
                 and not (plain(t.get("offset")) or "").startswith("BORROWED")]
     with_regions = [t for t in delivered if regions.get(t["track"])]
