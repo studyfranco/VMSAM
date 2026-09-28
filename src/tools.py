@@ -604,7 +604,7 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
 
 
 # FONCTION JUMELLE (owner, Addendum 32.11) de `launch_cmdExt_with_timeout_reload`
-# (tools.py:150-170 a 95dbade5, hors zone donc gele): copie fidele, deux ecarts.
+# (tools.py:150-170 a 95dbade5, hors zone donc gele): copie fidele, ecarts:
 #   1. La ligne 166 de l'original (`cmdDownload = Popen(cmd, ...)` dans le
 #      `except TimeoutExpired`) n'existe plus: la relance est le `Popen` du haut
 #      de la boucle. L'original lancait la commande DEUX fois par timeout, et le
@@ -613,18 +613,161 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
 #      3 ms d'ecart).
 #   2. Apres `force_kill_subprocess` (celle du proprietaire, kill + wait), les
 #      pipes du process tue sont fermes, au lieu d'attendre le ramasse-miettes.
-# Le proprietaire remplace le corps de l'original par celui-ci; rien d'autre ne
-# change (meme signature, memes exceptions, meme ligne de relance en dev).
+#   3. VERBEUX (owner, 2026-09-28: « il faut voir pourquoi ça plante, essayer
+#      d'avoir l'erreur, mettre les apps en mode verbose »): ffmpeg/ffprobe
+#      recoivent `-loglevel verbose` (un `-v`/`-loglevel` existant voit sa
+#      valeur remplacee, jamais doublee) et `-hide_banner`; mkvmerge `-v`,
+#      mkvextract/mkvpropedit `--verbose`. mkvmerge en identification (`-i`,
+#      `-J`, `--identify`) n'est PAS touche: sa sortie JSON est sur stdout.
+#      `verbose_external_tools = False` rend la commande intacte.
+#   4. AU TIMEOUT, AVANT le kill: ce que l'enfant a deja ecrit (stderr et
+#      stdout, lu sans bloquer), argv complet, temps ecoule, etat et wchan de
+#      /proc/<pid>, 40 dernieres lignes de stderr, taille et mtime des fichiers
+#      qu'elles nomment -- par `log_always`. Puis kill, puis la fin de stderr
+#      APRES le kill, puis seulement la relance.
+#   5. SORTIE NON NULLE: la meme queue avec le code retour est journalisee;
+#      l'exception de l'original (stderr entier) est gardee telle quelle.
+# Le proprietaire remplace le corps de l'original par celui-ci (meme signature,
+# memes exceptions, meme ligne de relance en dev).
+verbose_external_tools = True
+CHILD_TAIL_LINES = 40
+
+
+def verbose_cmd_shadow(cmd):
+    """La commande avec le drapeau verbeux de son outil; les autres telles quelles."""
+    if not verbose_external_tools or not len(cmd):
+        return list(cmd)
+    tool = os.path.basename(str(cmd[0]))
+    cmd = list(cmd)
+    if tool in ("ffmpeg", "ffprobe"):
+        rest = []
+        i = 1
+        while i < len(cmd):
+            if cmd[i] in ("-v", "-loglevel") and i + 1 < len(cmd):
+                i += 2  # remplace, ne double pas
+                continue
+            rest.append(cmd[i])
+            i += 1
+        head = [cmd[0], "-loglevel", "verbose"]
+        if "-hide_banner" not in rest:
+            head.append("-hide_banner")
+        return head + rest
+    if tool == "mkvmerge":
+        if any(a in ("-i", "-J", "--identify", "-v", "--verbose") for a in cmd[1:]):
+            return cmd
+        return [cmd[0], "-v"] + cmd[1:]
+    if tool in ("mkvextract", "mkvpropedit"):
+        if "--verbose" in cmd[1:] or "-v" in cmd[1:]:
+            return cmd
+        return [cmd[0], "--verbose"] + cmd[1:]
+    return cmd
+
+
+def read_available_shadow(stream):
+    """Ce qui attend dans un pipe, sans jamais bloquer (un petit-enfant qui garde
+    le pipe ouvert ne doit pas figer la lecture)."""
+    if stream == None:
+        return b""
+    chunks = []
+    try:
+        fd = stream.fileno()
+        os.set_blocking(fd, False)
+        while True:
+            try:
+                chunk = os.read(fd, 65536)
+            except BlockingIOError:
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+    except (OSError, ValueError):
+        pass
+    return b"".join(chunks)
+
+
+def child_proc_state_shadow(pid):
+    """(etat, wchan) lus dans /proc; `gone` si le process n'existe plus."""
+    try:
+        with open(f"/proc/{pid}/stat") as stat:
+            state = stat.read().rsplit(")", 1)[1].split()[0]
+    except OSError:
+        return "gone", "gone"
+    try:
+        with open(f"/proc/{pid}/wchan") as wchan:
+            channel = wchan.read().strip() or "0"
+    except OSError:
+        channel = "unreadable"
+    return state, channel
+
+
+def files_named_shadow(lines, cmd):
+    """Taille et mtime des fichiers existants nommes par la queue ou par argv."""
+    import re
+    import datetime
+    candidates = []
+    for line in lines:
+        candidates += re.findall(r"'([^']+)'", line) + re.findall(r'"([^"]+)"', line)
+        candidates += re.findall(r"(/[^\s'\":,]+)", line)
+    candidates += [str(a) for a in cmd[1:]]
+    described = []
+    for path in candidates:
+        if path in [d[0] for d in described] or not os.path.isfile(path):
+            continue
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        mtime = datetime.datetime.fromtimestamp(info.st_mtime, datetime.timezone.utc)
+        described.append((path, info.st_size, mtime.strftime("%Y-%m-%dT%H:%M:%S.%fZ")))
+        if len(described) >= 10:
+            break
+    return described
+
+
+def log_child_tail_shadow(event, cmd, pid, elapsed, stderror, stdout, returncode=None):
+    """Une entree `log_always` qui dit ce que l'enfant faisait et disait. Ne leve
+    jamais: un diagnostic qui echoue ne doit pas changer l'issue de la commande."""
+    try:
+        log_child_tail_shadow_unguarded(event, cmd, pid, elapsed, stderror, stdout, returncode)
+    except Exception as error:
+        log_always(f"tools: child {event} pid={pid} diagnostic failed {type(error).__name__}: {error}\n")
+
+
+def log_child_tail_shadow_unguarded(event, cmd, pid, elapsed, stderror, stdout, returncode):
+    state, channel = child_proc_state_shadow(pid)
+    lines = stderror.decode("utf-8", errors="replace").splitlines()
+    tail = lines[-CHILD_TAIL_LINES:]
+    out = [f"tools: child {event} pid={pid} elapsed_s={round(elapsed, 3)} state={state} "
+           f"wchan={channel}" + ("" if returncode == None else f" returncode={returncode}")
+           + f" stderr_bytes={len(stderror)} stdout_bytes={len(stdout)}",
+           f"tools: child argv={cmd!r}"]
+    out += [f"tools: child stderr[{len(lines) - len(tail) + n}] {line}" for n, line in enumerate(tail)]
+    for path, size, mtime in files_named_shadow(tail, cmd):
+        out.append(f"tools: child file {path!r} size={size} mtime={mtime}")
+    log_always("\n".join(out) + "\n")
+
+
 def launch_cmdExt_with_timeout_reload_shadow(cmd,max_restart=1,timeout=120):
+    cmd = verbose_cmd_shadow(cmd)
     unpocessed = True
     while unpocessed:
         cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        began = time.monotonic()
         try:
             stdout, stderror = cmdDownload.communicate(timeout=timeout)
             exitCode = cmdDownload.returncode
             unpocessed = False
-        except TimeoutExpired:
+        except TimeoutExpired as expired:
+            partial_err = (expired.stderr or b"") + read_available_shadow(cmdDownload.stderr)
+            partial_out = (expired.stdout or b"") + read_available_shadow(cmdDownload.stdout)
+            log_child_tail_shadow("timeout_before_kill", cmd, cmdDownload.pid,
+                                  time.monotonic() - began, partial_err, partial_out)
             force_kill_subprocess(cmdDownload)
+            partial_err += read_available_shadow(cmdDownload.stderr)
+            partial_out += read_available_shadow(cmdDownload.stdout)
+            log_child_tail_shadow("timeout_after_kill", cmd, cmdDownload.pid,
+                                  time.monotonic() - began, partial_err, partial_out,
+                                  cmdDownload.returncode)
             close_subprocess_pipes_shadow(cmdDownload)
             max_restart -= 1
             if max_restart < 0:
@@ -634,6 +777,8 @@ def launch_cmdExt_with_timeout_reload_shadow(cmd,max_restart=1,timeout=120):
                     sys.stderr.write(f"The process is timeout and will be restarted:{cmd}\n")
 
     if exitCode != 0:
+        log_child_tail_shadow("nonzero_exit", cmd, cmdDownload.pid, time.monotonic() - began,
+                              stderror, stdout, exitCode)
         raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
     return stdout, stderror, exitCode
 
