@@ -7,7 +7,7 @@ from threading import Thread
 from sys import stderr,stdout
 from time import sleep,time
 import tools
-from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
+from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data, get_all_special_rename
 from gestionar_show.api import episode_pattern_insert
 import re
 import mergeVideo
@@ -366,6 +366,41 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
+def special_renamer(folder_files,database_url):
+    """Renomme les speciaux declares par leur nom exact, avant l'incrementaller.
+
+    Un special n'a pas de numero exploitable dans le nom recu: le nom final est
+    declare une fois (table special_renames) et c'est la regex ordinaire du
+    dossier qui integre ensuite le fichier renomme. Rien n'est deplace hors du
+    dossier surveille.
+    """
+    fichiers = [
+            {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
+            for fichier in os.listdir(folder_files)
+            if os.path.isfile(os.path.join(folder_files, fichier))
+        ]
+
+    if not fichiers:
+        return
+
+    with setup_database(database_url) as session:
+        stderr.write("Start Special Renamer !\n")
+        special_by_name = {special.file_name: special.new_file_name for special in get_all_special_rename(session)}
+
+    if not special_by_name:
+        return
+
+    for fichier in fichiers:
+        if fichier['nom'] in special_by_name:
+            new_file_path = os.path.join(folder_files, special_by_name[fichier['nom']])
+            try:
+                if os.path.exists(new_file_path):
+                    raise Exception(f"{os.path.basename(new_file_path)} already exists")
+                shutil.move(fichier['chemin'], new_file_path)
+                stderr.write(f'\tSpecial {fichier['nom']} rename in {os.path.basename(new_file_path)}\n')
+            except Exception as e:
+                stderr.write(f"Error processing special {fichier['nom']}: {e}\n")
+
 def write_api_env_file(env_path, database_url, with_merge_runtime=False):
     """Écrit le .env lu par uvicorn au démarrage d'une instance.
 
@@ -476,6 +511,7 @@ if __name__ == '__main__':
         while True:
             begin = time()
             try:
+                special_renamer(args.folder,database_url_param["database_url"])
                 incrementaller(args.folder,database_url_param["database_url"])
                 process_files_in_folder(args.folder,database_url_param["database_url"])
             except Exception as e:

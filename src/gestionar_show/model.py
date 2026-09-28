@@ -87,6 +87,20 @@ class incrementaller(Base):
     rename_pattern: Mapped[str]
     episode_incremental: Mapped[int]
 
+class special_rename(Base):
+    """Exact-name rename applied by the daemon before any regex runs.
+
+    A special (OVA, recap, S00Exx) rarely carries a usable episode number in
+    the name it arrives with, so the owner declares the final name once. The
+    daemon renames the file in place in the watch folder; the ordinary
+    per-folder regex then catches the new name and integrates it like any
+    other episode. Keyed on the exact incoming file name, not on a pattern.
+    """
+    __tablename__ = 'special_renames'
+
+    file_name: Mapped[str] = mapped_column(primary_key=True)
+    new_file_name: Mapped[str]
+
 def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
 
@@ -211,6 +225,18 @@ def get_episode_data(folder_id, episode_number, session):
         episode.episode_number == episode_number
     ).first()
 
+def get_episode_by_path(file_path, session):
+    return session.query(episode).filter(
+        episode.file_path == file_path
+    ).first()
+
+def get_episodes_by_folder_id(folder_id, session):
+    return session.query(episode).filter(
+        episode.folder_id == folder_id
+    ).order_by(
+        episode.episode_number.asc()
+    ).all()
+
 def insert_episode(folder_id, episode_number, file_path, file_weight, session):
     new_episode = episode(
         folder_id=folder_id,
@@ -292,3 +318,39 @@ def update_incrementaller(incremental_data, rename_pattern, episode_incremental,
     incremental_data.episode_incremental = episode_incremental
     session.commit()
     return incremental_data
+
+def get_special_rename_data(file_name, session):
+    return session.query(special_rename).filter(
+        special_rename.file_name == file_name
+    ).first()
+
+def get_all_special_rename(session):
+    return session.query(special_rename).order_by(
+        special_rename.file_name.asc()
+    ).all()
+
+def insert_special_rename(file_name, new_file_name, session):
+    if file_name == None or len(file_name) == 0:
+        raise ValueError("file_name cannot be empty")
+    if new_file_name == None or len(new_file_name) == 0:
+        raise ValueError("new_file_name cannot be empty")
+    if file_name == new_file_name:
+        raise ValueError("new_file_name must differ from file_name")
+
+    new_special = special_rename(
+        file_name=file_name,
+        new_file_name=new_file_name
+    )
+    session.add(new_special)
+    session.commit()
+    return new_special
+
+def update_special_rename(special_data, new_file_name, session):
+    if new_file_name == None or len(new_file_name) == 0:
+        raise ValueError("new_file_name cannot be empty")
+    if special_data.file_name == new_file_name:
+        raise ValueError("new_file_name must differ from file_name")
+
+    special_data.new_file_name = new_file_name
+    session.commit()
+    return special_data
