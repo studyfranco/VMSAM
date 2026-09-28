@@ -1466,6 +1466,17 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
     Cette question-la est ouverte et tranchee ailleurs; celle-ci ne l'est pas:
     aucune lecture ne rend defendable un bloc apres la fin du fichier.
 
+    REMPLACE LE 2026-09-28 (ordre du proprietaire, CASE id 714): une replique
+    n'est plus admise par son seul DEBUT. Elle est projetee par CHAQUE piece
+    candidate qu'elle chevauche et ne garde que ses parties gardees, recalees
+    par le plan (`clipped_to_kept_span`, `gap_ms` = la duree source retiree).
+    Des parties qui se touchent sur la timeline maitre (une coupe) font UNE
+    replique; separees par un morceau maitre, DEUX (`split_across_master_span`)
+    -- la ligne n'appartient pas au contenu que seul le maitre porte. Seule une
+    replique qui ne chevauche AUCUNE piece candidate est supprimee (causes
+    ci-dessus). Le recadrage sur la fin de timeline reste, desormais atteint
+    seulement par une piece qui la depasserait.
+
     Renvoie (gardees, supprimees, decalages_appliques, decisions).
     `decisions` porte une entree PAR SUPPRESSION OU PAR RECADRAGE, groupee par
     empan contigu de meme nature (jamais par correspondance candidate
@@ -1569,34 +1580,42 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
                 "gap_ms": (str(master_piece["master_end_ms"] - master_piece["master_start_ms"])
                           if master_piece else None)}
 
-    for event in subtitles.events:
-        original_start, original_end = event.start, event.end
-        shift = None
-        # LA PIECE EST CAPTUREE, PAS LAISSEE A LA VARIABLE DE BOUCLE. `piece`
-        # survit au `for` en Python et vaut la DERNIERE piece essayee quand
-        # aucune ne correspond -- la lire apres coup nommerait une piece qui
-        # n'a rien decide. Le recadrage ci-dessous doit citer la piece qui a
-        # reellement emis le decalage, donc elle est nommee ici.
-        matched_piece = None
+    def kept_spans(start, end):
+        '''Les parties GARDEES d'une replique source [start, end): une entree par piece
+        candidate qu'elle chevauche, `(piece, debut_maitre, fin_maitre, decalage)`, dans
+        l'ordre source. Une replique de duree nulle ou negative garde l'ancien test (son
+        debut dans la piece) et tombe ensuite dans la garde de degenerescence.'''
+        spans = []
         for piece in candidate_pieces:
             source_start = piece["source_start_ms"]
             source_end = source_start + (piece["master_end_ms"] - piece["master_start_ms"])
-            if Decimal(str(event.start)) >= source_start and Decimal(str(event.start)) < source_end:
-                shift = piece["master_start_ms"] - source_start
-                matched_piece = piece
-                break
-        if shift == None:
-            gap_piece = find_gap_piece(Decimal(str(event.start)))
-            if gap_piece is not None:
-                dropped_master_filled_span += 1
-                record("dropped_master_filled_span", original_start, original_end, None, gap_piece)
+            piece_shift = piece["master_start_ms"] - source_start
+            if end <= start:
+                if source_start <= start < source_end:
+                    spans.append((piece, start + piece_shift, end + piece_shift, piece_shift))
+                continue
+            lo, hi = max(start, source_start), min(end, source_end)
+            if hi > lo:
+                spans.append((piece, lo + piece_shift, hi + piece_shift, piece_shift))
+        return sorted(spans, key=lambda span: span[1] - span[3])
+
+    def master_groups(spans):
+        '''Les parties gardees qui se touchent sur la timeline MAITRE (a une milliseconde
+        pres -- une coupe: contenu candidat retire, rien d'insere) forment UNE replique;
+        un morceau maitre entre deux pieces la separe en deux.'''
+        groups = []
+        for span in spans:
+            if groups and abs(span[1] - groups[-1][2]) <= 1:
+                groups[-1] = (groups[-1][0], groups[-1][1], max(groups[-1][2], span[2]),
+                              groups[-1][3])
             else:
-                dropped_no_offset_evidence += 1
-                record("dropped_no_offset_evidence", original_start, original_end, None, None)
-            continue
-        applied[str(shift)] = applied.get(str(shift), 0) + 1
-        event.start = int(event.start + shift)
-        event.end = int(event.end + shift)
+                groups.append(span)
+        return groups
+
+    def keep_event(event, piece, original_start, original_end, shift):
+        '''Une replique deja recalee: recadree sur la fin de timeline, supprimee si
+        degeneree, sinon gardee avec sa piece (pour `splice_cue_hygiene`).'''
+        nonlocal dropped_degenerate_duration
         if Decimal(str(event.end)) > timeline_end_ms:
             # LE BLOC NE PEUT PAS FINIR APRES LE FICHIER. La Segment Duration
             # de Matroska est le maximum des fins de bloc sur TOUTES les
@@ -1624,16 +1643,77 @@ def retime_subtitle_file(subtitle_path, pieces, speed_ratio=None):
                 "source_start_ms": str(original_start),
                 "source_end_ms": str(original_end),
                 "shift_ms": str(shift),
-                "piece_reason": matched_piece.get("reason"),
+                "piece_reason": piece.get("reason"),
                 "gap_ms": str(overhang_ms)})
             event.end = int(timeline_end_ms)
         if event.end <= event.start:
             dropped_degenerate_duration += 1
             record("dropped_degenerate_duration", original_start, original_end, shift, None)
-            continue
+            return
         flush_span()  # correspondance candidate ordinaire: attendue, non nommee, mais ne fusionne pas a travers elle
         kept_events.append(event)
-        kept_meta[id(event)] = (matched_piece, original_start, original_end, shift)
+        kept_meta[id(event)] = (piece, original_start, original_end, shift)
+
+    for event in subtitles.events:
+        original_start, original_end = event.start, event.end
+        shift = None
+        # LA PIECE EST CAPTUREE, PAS LAISSEE A LA VARIABLE DE BOUCLE. `piece`
+        # survit au `for` en Python et vaut la DERNIERE piece essayee quand
+        # aucune ne correspond -- la lire apres coup nommerait une piece qui
+        # n'a rien decide. Le recadrage ci-dessous doit citer la piece qui a
+        # reellement emis le decalage, donc elle est nommee ici.
+        matched_piece = None
+        # UNE REPLIQUE QUI CHEVAUCHE UNE COUPE N'EST PAS SUPPRIMEE: elle est
+        # projetee par CHAQUE piece candidate qu'elle chevauche, et ne garde
+        # que la partie gardee, recalee par le plan (ordre du proprietaire,
+        # 2026-09-28). Seul le DEBUT etait teste contre les pieces: MESURE id
+        # 714 (DSNP ger/eng/spa/fre/por), le panneau << SEVERAL DAYS LATER >>
+        # (candidat 1080454-1082707 ms) commence 10 ms dans l'empan candidat
+        # retire [1079463.12, 1080464.125) et ses 2.24 s restantes tombent
+        # dans la piece 4 -- il etait supprime sur les cinq pistes. Il est
+        # maintenant cale au debut de la piece: maitre 1076460-1078702 ms.
+        spans = kept_spans(Decimal(str(event.start)), Decimal(str(event.end)))
+        if spans:
+            matched_piece, shift = spans[0][0], spans[0][3]
+        if shift == None:
+            gap_piece = find_gap_piece(Decimal(str(event.start)))
+            if gap_piece is not None:
+                dropped_master_filled_span += 1
+                record("dropped_master_filled_span", original_start, original_end, None, gap_piece)
+            else:
+                dropped_no_offset_evidence += 1
+                record("dropped_no_offset_evidence", original_start, original_end, None, None)
+            continue
+        applied[str(shift)] = applied.get(str(shift), 0) + 1
+        groups = master_groups(spans)
+        clipped_ms = (Decimal(str(original_end)) - Decimal(str(original_start))
+                      - sum(span[2] - span[1] for span in spans))
+        if clipped_ms > 0 or len(groups) > 1:
+            flush_span()
+        if clipped_ms > 0:
+            # LA PARTIE RETIREE EST NOMMEE: elle est tombee dans un empan
+            # candidat que le plan ne livre pas.
+            decisions.append({
+                "outcome": "clipped_to_kept_span", "cue_count": 1,
+                "source_start_ms": str(original_start), "source_end_ms": str(original_end),
+                "shift_ms": str(shift), "piece_reason": matched_piece.get("reason"),
+                "gap_ms": str(clipped_ms)})
+        if len(groups) > 1:
+            # DEUX MORCEAUX, PAS UNE REPLIQUE ETIREE: entre les pieces, le maitre
+            # joue un contenu que le candidat n'a pas -- la ligne n'y appartient
+            # pas. `gap_ms` = la duree maitre enjambee.
+            decisions.append({
+                "outcome": "split_across_master_span", "cue_count": len(groups),
+                "source_start_ms": str(original_start), "source_end_ms": str(original_end),
+                "shift_ms": str(shift), "piece_reason": matched_piece.get("reason"),
+                "gap_ms": str(sum(groups[k + 1][1] - groups[k][2]
+                                  for k in range(len(groups) - 1)))})
+        for rank, (group_piece, master_start, master_end, group_shift) in enumerate(groups):
+            if rank:
+                event = event.copy()
+            event.start = int(master_start)
+            event.end = int(master_end)
+            keep_event(event, group_piece, original_start, original_end, group_shift)
     flush_span()
     # LA SEULE INTELLIGENCE DE L'APPLICATION DU PLAN (ADDENDUM 10 d): aux
     # raccords, jamais deux fois la meme replique, et une replique s'arrete
