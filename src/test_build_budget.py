@@ -66,6 +66,163 @@ def test_track_build_declines_by_the_budget_within_one_build():
     assert any("partial_plan cause=repair_budget_exceeded" in m and "audio:1" in m for m in logs), logs
 
 
+
+# ---- OWNER 2026-09-28: the plan on EVERY non-video candidate track, the ordinary selection after ----
+
+def _track(order, language, rate="48000", **extra):
+    track = {"StreamOrder": str(order), "keep": True, "Format": "AAC", "Channels": "2",
+             "SamplingRate": rate, "BitRate": "128000", "Language": language}
+    track.update(extra)
+    return track
+
+
+class _Candidate:
+    def __init__(self):
+        self.filePath = "/synthetic/candidate.mkv"
+        ja = [_track(1, "ja")]
+        self.audios = {"ja": ja, "en": [_track(2, "en")], "und": [_track(3, "und")]}
+        self.audios["fr"] = self.audios["und"]        # video.py's 'und' alias: one dict, two keys
+        self.audiodesc, self.commentary = {}, {}
+        self.subtitles = {"en": [_track(4, "en", Format="ASS")],
+                          "ja": [_track(5, "ja", Format="PGS")]}
+
+
+class _Master:
+    def __init__(self):
+        self.filePath = "/synthetic/master.mkv"
+        self.audios = {"ja": [_track(1, "ja", "44100")], "en": [_track(2, "en", "44100")],
+                       "fr": [_track(3, "fr", "44100")]}
+        self.audiodesc, self.commentary, self.subtitles = {}, {}, {}
+
+
+class _Repaired:
+    """The temporary file as `video.video` re-probes it: the rebuilt audios, then the subtitle."""
+    def __init__(self, *args):
+        self.filePath = "/synthetic/repair/key_repaired.mkv"
+        marked = {"VMSAM_FABRICATED": "chimeric"}
+        self.audios = {"ja": [_track(0, "ja", extra=marked)], "en": [_track(1, "en", extra=marked)],
+                       "fr": [_track(2, "fr", extra=marked)]}
+        self.audiodesc, self.commentary = {}, {}
+        self.subtitles = {"en": [_track(3, "en", Format="ASS")]}
+
+    def get_mediadata(self):
+        pass
+
+
+def _plan():
+    return {"track_plans": {1: {"offset_measured": True}, 2: {"offset_measured": True},
+                            3: {"offset_measured": False,
+                                "borrow_reason": "inherited(stream_1)"}},
+            "reference_pieces": [], "marker": "chimeric", "reference_stream": "1",
+            "language": "ja"}
+
+
+def _assembly():
+    return {"path": "/synthetic/repair/key_repaired.mkv", "marker": "chimeric",
+            "audios": [{"stream_order": 1, "language": "ja"}, {"stream_order": 2, "language": "en"},
+                       {"stream_order": 3, "language": "fr"}],
+            "subtitles": [{"stream_order": 4, "language": "en", "kept_cues": 300,
+                           "dropped_cues": 2}],
+            "declined": [{"kind": "subtitle", "stream_order": 5, "language": "ja",
+                          "reason": "codec hdmv_pgs_subtitle is a bitmap subtitle: its "
+                                    "timestamps live inside binary segments"}],
+            "failed": []}
+
+
+def _build(assemble):
+    import merge_video_repair as mvr
+    logs = []
+    saved = (mvr.drop_corrupt_candidate_tracks, mvr.assemble_or_log_the_decline,
+             mvr.log_assembly, mvr.video.video, mvr._prefetch_same_content,
+             mvr.measure_same_content, mvr.gate_delivered_silences, tools.logs, tools.dev,
+             sys.stderr)
+    built = []
+    mvr.drop_corrupt_candidate_tracks = lambda *a, **k: []
+
+    def fake_assemble(logged, plan, unverified, candidate_obj, *args, **kwargs):
+        # what the real build loop is handed: `iterate_candidate_audios`, then every subtitle
+        import merge_video_chimeric as mvc_
+        built.extend(str(a["StreamOrder"]) for _, a in mvc_.iterate_candidate_audios(candidate_obj))
+        built.extend(str(t["StreamOrder"]) for ts in candidate_obj.subtitles.values() for t in ts)
+        return assemble()
+    mvr.assemble_or_log_the_decline = fake_assemble
+    mvr.log_assembly = lambda *a, **k: None
+    mvr.video.video = _Repaired
+    mvr._prefetch_same_content = lambda *a, **k: None
+    mvr.measure_same_content = lambda *a, **k: (True, "synthetic_same_content")
+    mvr.gate_delivered_silences = lambda *a, **k: []
+    tools.logs, tools.dev = logs, True
+    sys.stderr = open(os.devnull, "w")
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            try:
+                repaired, assembly = mvr.build_repaired_video_object(
+                    _Candidate(), _Master(), _plan(), work, "test")
+                return repaired, assembly, logs, built, None
+            except Exception as error:                               # noqa: BLE001
+                return None, None, logs, built, error
+    finally:
+        sys.stderr.close()
+        (mvr.drop_corrupt_candidate_tracks, mvr.assemble_or_log_the_decline,
+         mvr.log_assembly, mvr.video.video, mvr._prefetch_same_content,
+         mvr.measure_same_content, mvr.gate_delivered_silences, tools.logs, tools.dev,
+         sys.stderr) = saved
+
+
+def _keep_lines(logs):
+    return [line for line in logs if line.startswith("repair: chimeric_keep ")
+            or " repair: chimeric_keep " in line]
+
+
+def test_every_track_built_the_gate_drops_every_audio_the_product_is_master_plus_added():
+    repaired, assembly, logs, built, error = _build(_assembly)
+    assert error is None, error
+    assert set(built) == {"1", "2", "3", "4", "5"}, built           # every non-video track
+    # the gate dropped every rebuilt audio: the master's intact tracks stay the product's audio
+    assert [d["cause"] for d in assembly["fabricated_dropped"]] == ["intact_same_language_wins"] * 3
+    delivered = [(holder, t["StreamOrder"]) for holder in ("audios", "subtitles")
+                 for ts in getattr(repaired, holder).values() for t in ts
+                 if t.get("keep", True) is not False]
+    assert delivered == [("subtitles", "3")], delivered            # only the added stream
+    lines = _keep_lines(logs)
+    body = [line.split("repair: chimeric_keep ", 1)[1] for line in lines]
+    assert len(body) == 5, lines                                    # the 'und' alias once
+    assert body[0].startswith("track=1 lang=ja kept=no reason=intact_same_language_wins"
+                              "(master_stream=1) kind=audio"), body[0]
+    assert body[1].startswith("track=2 lang=en kept=no reason=intact_same_language_wins"
+                              "(master_stream=2)"), body[1]
+    assert body[2].startswith("track=3 lang=und kept=no reason=intact_same_language_wins"
+                              "(master_stream=3)"), body[2]
+    assert "plan=borrowed_offset(inherited(stream_1))" in body[2], body[2]
+    assert body[3].startswith("track=4 lang=en kept=yes reason=retimed(cues_kept=300,"
+                              "cues_dropped=2) kind=subtitle"), body[3]
+    assert body[4].startswith("track=5 lang=ja kept=no reason=bitmap_subtitle_not_retimable"), body[4]
+    assert any("repair: chimeric_keep_summary tracks=5 kept=1 dropped=4" in l for l in logs), logs
+
+
+def test_a_refused_build_names_every_track_not_kept():
+    import merge_video_chimeric as mvc_
+
+    def refuse():
+        raise mvc_.chimeric_error("synthetic", cause="repair_budget_exceeded")
+    _, _, logs, built, error = _build(refuse)
+    assert getattr(error, "cause", None) == "repair_budget_exceeded", error
+    body = [line.split("repair: chimeric_keep ", 1)[1] for line in _keep_lines(logs)]
+    assert len(body) == 5 and all("kept=no reason=repair_refused(repair_budget_exceeded)" in b
+                                  for b in body), body
+
+
+def test_the_keep_lines_are_dev_only():
+    import merge_video_repair as mvr
+    saved, tools.dev = tools.dev, False
+    real_logs, tools.logs = tools.logs, []
+    try:
+        assert mvr.log_chimeric_keep(_Candidate(), _plan(), _assembly(), _Repaired()) == []
+        assert tools.logs == []
+    finally:
+        tools.dev, tools.logs = saved, real_logs
+
+
 if __name__ == "__main__":
     tools.dev = False
     for name, fn in list(globals().items()):

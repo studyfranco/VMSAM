@@ -392,6 +392,27 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # plan decided; each delivered track is verified against ITS OWN ORIGINAL instead
     # (`verify_video_anchored`, same 15 ms tolerance), below.
     video_anchored = plan.get("video_anchored")
+    # OWNER 2026-09-28: the plan is applied to EVERY non-video candidate track and the temporary
+    # file goes through the ordinary selection, which may keep none of it; in dev mode each
+    # track's fate is one `repair: chimeric_keep` line -- on a refused build too.
+    try:
+        repaired_obj, assembly = _build_and_gate(candidate_obj, master_obj, plan, work_dir,
+                                                 out_path, job_start_utc, speed_ratio,
+                                                 video_anchored)
+    except Exception as error:
+        log_chimeric_keep(candidate_obj, plan,
+                          refused=getattr(error, "cause", None) or type(error).__name__)
+        raise
+    log_chimeric_keep(candidate_obj, plan, assembly, repaired_obj)
+    return repaired_obj, assembly
+
+
+def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_start_utc,
+                    speed_ratio, video_anchored):
+    """`build_repaired_video_object`'s body past the speed guard: the corrupt-track gate, the
+    assembly, the video-anchored verification, the per-track log, the repaired object and the
+    two delivery gates. Returns (repaired object, assembly)."""
+    import merge_video_chimeric
     # OWNER POLICY 2026-09-25 23:4x: a rebuilt track whose SOURCE fails its strict decode is
     # dropped from the future file, one `repair: track_dropped_corrupt` line each.
     dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan,
@@ -452,8 +473,10 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # LA PORTE DE LIVRAISON DES PISTES FABRIQUEES (CASE_wakeup20260924, defaut A):
     # le seul point ouvert qui voit TOUTES les pistes construites. `keep=False`
     # pose ici est lu par `generate_new_file_audio_config`.
+    assembly["gate_kept"] = []
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
-        repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"))
+        repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"),
+        kept=assembly["gate_kept"])
     # OWNER 2026-09-28 (Addendum 32.9 adds the tail tolerance the same day): a delivered track's
     # silence the master's comparison track does not have drops it when it lies inside the
     # master video's bounds ('interior_silence'); one entirely before its first or after its
@@ -869,7 +892,7 @@ def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, de
 
 
 def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
-                             content_probe=None, deadline=None):
+                             content_probe=None, deadline=None, kept=None):
     """Aucune piste fabriquee n'atteint la livraison sans avoir ete jugee.
 
     Sur CHAQUE piste audio du fichier repare (audios, commentaires,
@@ -901,6 +924,8 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
        reparation).
 
     `content_probe`: injectable pour les tests; par defaut `measure_same_content`.
+    `kept`: a list the gate appends each KEPT track's decision to ({"stream_order", "language",
+    "holder", "cause"}) -- read by `log_chimeric_keep`; the return value is unchanged.
     `deadline` (ADDENDUM 26.3 / 26.8: the repair's budget covers the WHOLE repair, the gate
     included -- MEASURED Ragnarok S02E14, 14 rebuilt audio tracks raced against the master's for
     longer than the 20-min budget): checked before each track is judged; past it the repair
@@ -962,12 +987,14 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         f"tagged_by={'+'.join(carrier) or 'unknown'} "
                         f"reason=a commentary is never raced against a main "
                         f"track; delivered with --commentary-flag")
+                    _note_kept(kept, audio, language, holder, "commentary_tagged")
                     continue
                 opponents = master_intact.get(language, [])
                 if not len(opponents):
                     say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
                         f"reason=the master carries no intact {language} track "
                         f"to race it against")
+                    _note_kept(kept, audio, language, holder, "no_intact_master_track")
                     continue
                 if deadline is not None and time.monotonic() > deadline:
                     import merge_video_chimeric
@@ -1002,6 +1029,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         f"{' '.join(measures)} reason=its fingerprint matches no "
                         f"intact {language} master track: another version, "
                         f"delivered tagged VMSAM_FABRICATED")
+                    _note_kept(kept, audio, language, holder, "different_version")
                     continue
                 intact, same = lost_to
                 dropped.append({"kind": "audio", "holder": holder, "language": language,
@@ -1016,6 +1044,164 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     f"reason=same content (or unmeasured), raced by keep_best_audio, "
                     f"intact wins", to_stderr=True)
     return dropped
+
+
+def _note_kept(kept, audio, language, holder, cause):
+    if kept is not None:
+        kept.append({"stream_order": audio.get("StreamOrder"), "language": language,
+                     "holder": holder, "cause": cause})
+
+
+def _subtitle_decline_token(reason):
+    """The class of a subtitle build's refusal, as a token (its raise sites are prose)."""
+    text = str(reason)
+    if "bitmap subtitle" in text:
+        return "bitmap_subtitle_not_retimable"
+    if "carries no cue at all" in text:
+        return "source_carries_no_cue"
+    if "every cue fell outside" in text:
+        return "no_cue_on_master_timeline"
+    return "build_declined"
+
+
+def candidate_non_video_tracks(candidate_obj):
+    """Every non-video track of the candidate, ONCE each, in holder order: the audio holders
+    (`audios`, `audiodesc`, `commentary`) then the subtitles. `video.py` aliases the 'und' audio
+    list under the default language when that language is absent -- one dict under two keys --
+    so a track is identified by its StreamOrder and listed under the first key it appears in."""
+    seen, tracks = set(), []
+    for kind, holders in (("audio", ("audios", "audiodesc", "commentary")),
+                          ("subtitle", ("subtitles",))):
+        for holder in holders:
+            for language, entries in (getattr(candidate_obj, holder, None) or {}).items():
+                for entry in entries:
+                    order = str(entry.get("StreamOrder"))
+                    if order in seen:
+                        continue
+                    seen.add(order)
+                    tracks.append((kind, holder, language, entry))
+    return tracks
+
+
+def chimeric_keep_decisions(candidate_obj, plan, assembly=None, repaired_obj=None,
+                            refused=None):
+    """WHAT THE CHIMERIC BUILD KEEPS, ONE ROW PER CANDIDATE NON-VIDEO TRACK (owner, 2026-09-28:
+    "l'objectif est d'appliquer le plan a toutes les pistes (hors video) du candidat, ce fichier
+    temporaire passerait donc dans le process de choix general. Et si rien n'est garde ce n'est
+    pas grave" -- and, in dev mode, a log of what is kept of the chimeric file).
+
+    Each row: {"track" (the candidate's StreamOrder), "lang", "kind", "holder", "kept" (bool),
+    "reason" (a token), "product_stream" (its StreamOrder in the temporary file, or None),
+    "plan" (how the plan reached it)}. Read from what the build and the gates already decided --
+    nothing is measured or decided here:
+      source_corrupt                 the strict decode dropped the source before the build
+      build_declined / build_failed  the assembly refused / failed this track (a subtitle's
+                                     refusal carries its class: bitmap_subtitle_not_retimable,
+                                     source_carries_no_cue, no_cue_on_master_timeline)
+      repair_refused(<cause>)        the whole build was refused -- nothing of it is delivered
+      intact_same_language_wins(master_stream=N) / interior_silence   dropped by the delivery gate
+      no_intact_master_track / different_version / commentary_tagged  kept by the delivery gate
+      retimed(cues_kept=N,cues_dropped=M)  a subtitle rebuilt on the master timeline, handed to
+                                     the merge's ordinary selection
+    """
+    track_plans = (plan or {}).get("track_plans") or {}
+    assembly = assembly or {}
+    audio_reports = assembly.get("audios") or []
+    subtitle_reports = assembly.get("subtitles") or []
+    produced = {}
+    for index, report in enumerate(audio_reports):
+        produced[("audio", str(report.get("stream_order")))] = (index, report)
+    for index, report in enumerate(subtitle_reports):
+        produced[("subtitle", str(report.get("stream_order")))] = (len(audio_reports) + index,
+                                                                   report)
+    refusals = {(entry.get("kind"), str(entry.get("stream_order"))): (verdict, entry)
+                for verdict, entries in (("build_declined", assembly.get("declined") or []),
+                                         ("build_failed", assembly.get("failed") or []))
+                for entry in entries}
+    gate_dropped = {str(entry.get("stream_order")): f"{entry.get('cause')}(master_stream="
+                                                     f"{entry.get('kept_master_stream')})"
+                    for entry in assembly.get("fabricated_dropped") or []
+                    if isinstance(entry, dict)}
+    for entry in assembly.get("silence_dropped") or []:
+        gate_dropped.setdefault(str(entry.get("stream_order")), "interior_silence")
+    gate_kept = {str(entry.get("stream_order")): entry.get("cause")
+                 for entry in assembly.get("gate_kept") or []}
+    product_tracks = {}
+    if repaired_obj is not None:
+        for holder in AUDIO_HOLDERS + ("subtitles",):
+            for entries in (getattr(repaired_obj, holder, None) or {}).values():
+                for entry in entries:
+                    product_tracks[str(entry.get("StreamOrder"))] = entry
+    rows = []
+    for kind, holder, language, entry in candidate_non_video_tracks(candidate_obj):
+        order = str(entry.get("StreamOrder"))
+        if kind == "audio":
+            track_plan = track_plans.get(int(order)) if order.isdigit() else None
+            how = ("no_track_plan" if track_plan is None
+                   else "own_offset" if track_plan.get("offset_measured")
+                   else f"borrowed_offset({str(track_plan.get('borrow_reason')).replace(' ', '_')})")
+        else:
+            how = "reference_pieces"
+        row = {"track": order, "lang": language, "kind": kind, "holder": holder, "kept": False,
+               "reason": None, "product_stream": None, "plan": how}
+        rows.append(row)
+        made = produced.get((kind, order))
+        if made is not None:
+            row["product_stream"] = str(made[0])
+        if refused is not None:
+            row["reason"] = f"repair_refused({refused})"
+            continue
+        if kind == "audio" and entry.get("dropped_corrupt"):
+            row["reason"] = "source_corrupt"
+            continue
+        if (kind, order) in refusals:
+            verdict, refusal = refusals[(kind, order)]
+            row["reason"] = (_subtitle_decline_token(refusal.get("reason"))
+                             if kind == "subtitle" and verdict == "build_declined" else verdict)
+            continue
+        if made is None:
+            row["reason"] = "not_built"
+            continue
+        product = product_tracks.get(row["product_stream"])
+        if kind == "subtitle":
+            report = made[1]
+            row["kept"] = product is None or product.get("keep", True) is not False
+            row["reason"] = (f"retimed(cues_kept={report.get('kept_cues')},"
+                             f"cues_dropped={report.get('dropped_cues')})")
+            continue
+        if row["product_stream"] in gate_dropped:
+            row["reason"] = gate_dropped[row["product_stream"]]
+            continue
+        if product is not None and product.get("keep", True) is False:
+            row["reason"] = "keep_false"
+            continue
+        row["kept"] = True
+        row["reason"] = gate_kept.get(row["product_stream"]) or "unjudged"
+    return rows
+
+
+def log_chimeric_keep(candidate_obj, plan, assembly=None, repaired_obj=None, refused=None):
+    """The dev line per candidate non-video track, `repair: chimeric_keep track=... lang=...
+    kept=yes|no reason=...`, then one summary line. Dev only (owner, 2026-09-28): the
+    decisions it restates are already logged unconditionally where they are taken."""
+    if not tools.dev:
+        return []
+    try:
+        rows = chimeric_keep_decisions(candidate_obj, plan, assembly, repaired_obj, refused)
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: chimeric_keep unavailable {type(error).__name__}: {error}\n")
+        return []
+    for row in rows:
+        tools.dev_log(f"repair: chimeric_keep track={row['track']} lang={row['lang']} "
+                      f"kept={'yes' if row['kept'] else 'no'} reason={row['reason']} "
+                      f"kind={row['kind']} holder={row['holder']} "
+                      f"product_stream={row['product_stream']} plan={row['plan']} "
+                      f"for {candidate_obj.filePath}\n")
+    tools.dev_log(f"repair: chimeric_keep_summary tracks={len(rows)} "
+                  f"kept={sum(1 for row in rows if row['kept'])} "
+                  f"dropped={sum(1 for row in rows if not row['kept'])} "
+                  f"for {candidate_obj.filePath}\n")
+    return rows
 
 
 def quanta(value_ms, quantum_ms):
