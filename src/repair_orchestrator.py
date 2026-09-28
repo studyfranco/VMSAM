@@ -587,6 +587,15 @@ DECLINE_CAUSES = {
     # gates) are pending that same reading, by ruling, not by this comment.
     "alignment_contradicts_plan": CLASS_CONCLUSIVE,
     "delivery_offset_exceeds_tolerance": CLASS_COULD_NOT_RUN,  # our product, never the pair (id 126)
+    # `merge_video_chimeric.verify_output_file`: the PRODUCED file, read back, does not match
+    # what was built (a track short of the master, a track count off, a container running past
+    # the master's by more than its last frame and declared codec delay). It measures our
+    # product, never the pair -- could-not-run, like the delivery gate above (ids 44/161/709/714).
+    # En clair: le fichier produit, relu, ne correspond pas a ce qui a ete construit (piste trop
+    # courte, compte de pistes different, ou conteneur plus long que celui du maitre au-dela de
+    # sa derniere trame et du retard de codec declare) -- un defaut de NOTRE fichier, pas du
+    # couple.
+    "output_check_mismatch": CLASS_COULD_NOT_RUN,
     "master_audio_complement_short": CLASS_CONCLUSIVE,
     "master_duration_sources_disagree": CLASS_CONCLUSIVE,
     "candidate_admission_window_exceeded": CLASS_CONCLUSIVE,

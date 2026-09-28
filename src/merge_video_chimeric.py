@@ -3594,7 +3594,7 @@ def probe_output_streams(file_path):
     # pourrait decrire un autre fichier.
     command = [tools.software["ffprobe"], "-v", "error",
                "-show_entries", "stream=index,codec_type,codec_name,"
-                                "sample_rate,r_frame_rate:"
+                                "sample_rate,r_frame_rate,initial_padding:"
                                 "stream_tags=language,DURATION:format=duration",
                "-of", "json", file_path]
     # PRE-CALL LOG -- same reasoning as `read_mono_samples` above: this
@@ -3635,6 +3635,11 @@ def probe_output_streams(file_path):
                         "codec_name": entry.get("codec_name"),
                         "sample_rate": entry.get("sample_rate"),
                         "frame_rate": entry.get("r_frame_rate"),
+                        # THE CODEC DELAY THE CONTAINER DECLARES (Matroska
+                        # CodecDelay, ffprobe `initial_padding`, in samples):
+                        # `container_grid_tolerance_ms` adds it to the track's
+                        # own frame, because the DURATION tag counts it.
+                        "initial_padding": entry.get("initial_padding"),
                         "language": tags.get("language"),
                         "duration_ms": duration_ms,
                         "duration_source": source})
@@ -3851,6 +3856,12 @@ def container_grid_tolerance_ms(streams):
     bloc porte la fin du Segment, et additionner deux quantites dont une
     seule s'applique ferait une tolerance que rien ne mesure.
 
+    PLUS LE RETARD DE CODEC QUE LE CONTENEUR DECLARE POUR CETTE PISTE
+    (`initial_padding`, le CodecDelay Matroska): l'etiquette DURATION d'une
+    piste compte les echantillons d'amorce de l'encodeur, poses avant zero.
+    Mesure sur id 714 (AAC 48 kHz): 23.328 ms de depassement = 21.333 d'amorce
+    declaree + 1.995 de derniere trame. Un retard non declare ne compte pas.
+
     LA CADENCE EST LUE SUR LE FICHIER PRODUIT, COMME UN RATIONNEL EXACT.
     `r_frame_rate` d'`ffprobe` rend `24000/1001`; le `FrameRate` de mediainfo
     rend la decimale `23.976`, qui est un ARRONDI D'AFFICHAGE de ce
@@ -3866,6 +3877,7 @@ def container_grid_tolerance_ms(streams):
     une vraie mesure.
     '''
     video_frame_ms, audio_frame_ms = None, None
+    audio_delay_ms = Decimal(0)
     audio_from = None
     for stream in streams:
         if stream.get("codec_type") == "video" and video_frame_ms is None:
@@ -3882,16 +3894,41 @@ def container_grid_tolerance_ms(streams):
             # le dernier bloc du fichier, donc la borne doit couvrir la plus
             # grossiere d'entre elles.
             frame_ms = Decimal(1000 * samples * rate.denominator) / Decimal(rate.numerator)
-            if audio_frame_ms is None or frame_ms > audio_frame_ms:
-                audio_frame_ms, audio_from = frame_ms, stream.get("codec_name")
-    measured = [value for value in (video_frame_ms, audio_frame_ms) if value is not None]
+            # THE DECLARED CODEC DELAY IS PART OF THE TRACK'S DURATION TAG. An
+            # encoder's priming samples (ffmpeg `aac`: 1024, `ac3`/`eac3`: 256)
+            # are stored as a first packet at a NEGATIVE timestamp with the
+            # container's CodecDelay, and the Matroska DURATION runs from that
+            # packet: the tag reads content + delay + the padding of the last
+            # frame. MEASURED 2026-09-28 on id 714 (Futsutsuka S01E11, one `ja`
+            # track rebuilt in AAC 48 kHz): the produced container read
+            # 1429995.328 ms against the master's 1429972.000 -- 23.328 ms, of
+            # which 21.333 are the 1024 declared samples and 1.995 the last
+            # frame; decoded, the track holds 68638720 samples (1429973.333 ms:
+            # the master's video plus the 64-sample padding of its last frame),
+            # and a synthetic 1429.972 s AAC encode through the same
+            # ffmpeg-then-mkvmerge path reads 22.328. The track's content is
+            # not longer than the master's; its container states the priming.
+            # So each track's bound is its frame PLUS the delay the container
+            # itself declares for it -- read, never assumed per codec: a track
+            # declaring none gets none.
+            delay_ms = Decimal(0)
+            padding = str(stream.get("initial_padding") or "0")
+            if padding.isdigit() and int(padding) > 0:
+                delay_ms = (Decimal(1000 * int(padding) * rate.denominator)
+                            / Decimal(rate.numerator))
+            if audio_frame_ms is None or frame_ms + delay_ms > audio_frame_ms + audio_delay_ms:
+                audio_frame_ms, audio_delay_ms, audio_from = (
+                    frame_ms, delay_ms, stream.get("codec_name"))
+    audio_bound_ms = (audio_frame_ms + audio_delay_ms) if audio_frame_ms is not None else None
+    measured = [value for value in (video_frame_ms, audio_bound_ms) if value is not None]
     # LES TROIS CHAMPS SONT DES JETONS `cle=valeur` SANS ESPACE dans la
     # valeur: la ligne de journal qui les porte est lue POSITIONNELLEMENT par
     # le recensement de dev-4, et une prose dans un champ `cle=` est
     # exactement le defaut corrige a `:3364`.
     detail = (f"video_frame_ms={video_frame_ms} "
               f"audio_frame_ms={audio_frame_ms} "
-              f"audio_codec={audio_from or 'none_with_codec_fixed_frame_size'}")
+              f"audio_codec={audio_from or 'none_with_codec_fixed_frame_size'} "
+              f"audio_codec_delay_ms={audio_delay_ms}")
     return (max(measured) if measured else None), detail
 
 
@@ -4107,7 +4144,8 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     # ligne le dit et la porte ne conclut pas -- on ne substitue rien.
     container_overshoot_ms, container_tolerance_ms = None, None
     container_refused = False
-    tolerance_detail = "video_frame_ms=None audio_frame_ms=None audio_codec=not_reached"
+    tolerance_detail = ("video_frame_ms=None audio_frame_ms=None audio_codec=not_reached "
+                        "audio_codec_delay_ms=None")
     if container_ms != None and master_container_ms != None:
         container_tolerance_ms, tolerance_detail = container_grid_tolerance_ms(streams)
         container_overshoot_ms = container_ms - Decimal(str(master_container_ms))
@@ -4117,7 +4155,8 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
                 f"the produced container runs {container_overshoot_ms} ms past "
                 f"the master's own container ({container_ms} vs "
                 f"{master_container_ms}), more than the {container_tolerance_ms} ms "
-                f"a last indivisible block can explain ({tolerance_detail})")
+                f"a last indivisible block and its declared codec delay can explain "
+                f"({tolerance_detail})")
     tools.log_line(
         f"chimeric: output_container_check container_ms={container_ms} "
         f"master_container_ms={master_container_ms} "
