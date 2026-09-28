@@ -546,12 +546,24 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b
     levels' medians, which set the step and the fill."""
     probe_a = a if probe_a is None else probe_a
     probe_b = b if probe_b is None else probe_b
+    # THE b LEVEL'S FLOOR IS READ WHERE THE STEP LETS IT HOLD: a deletion's b level cannot start
+    # before coarse_A + the step, so its floor windows start past that instant, not past a
+    # coarse_B the 0.4 s profile placed inside the master-only span. MEASURED, id 281 (The 100
+    # S07E09, change point -2921.919 -> -3965.331 ms): coarse 1579.24 / 1579.91 s, 56 of the 107
+    # floor windows (1579.96-1580.49 s) inside the master-only span, floor_b 0.98, the 100 ms
+    # NCC fallback read edge_B 1580.18 s (the 20 ms edge is 1580.24 s), the fill-start interval
+    # widened to [1579.1366, 1579.205] s and its quietest instant, its low end, placed the cut
+    # 66 ms before the picture cut (1579.2026 s) with the master fill ending 60 ms before the
+    # master's post-cut sound.
+    b_from = max(coarse_a, coarse_b)
+    if a > b:
+        b_from = max(b_from, coarse_a + (a - b) / 1000.0)
     t0 = min(coarse_a, coarse_b) - margin
-    t1 = max(coarse_a, coarse_b) + margin
+    t1 = b_from + margin
     times, mdb, (ra, rb), (fa, fb) = _fits(m, c, (probe_a, probe_b), t0, t1)
     audible = mdb >= FINE_SILENT_DB
     pre = audible & (times < min(coarse_a, coarse_b) - 0.45)
-    post = audible & (times > max(coarse_a, coarse_b) + 0.05)
+    post = audible & (times > b_from + 0.05)
     floor_a = float(np.median(ra[pre])) if pre.any() else 1.0
     floor_b = float(np.median(rb[post])) if post.any() else 1.0
     method = "residual20ms"

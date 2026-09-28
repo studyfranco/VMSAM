@@ -113,6 +113,35 @@ def test_clean_splice_edges_match_the_step():
     assert abs(_gap_minus_step_ms(edges)) <= TOLERANCE_MS, edges
 
 
+def _early_coarse_b_deletion():
+    '''id 281's shape (The 100 S07E09, change point -2921.919 -> -3965.331 ms): a 1043.412 ms
+    deletion whose master-only span ends in a quiet fade-in (-57 dB) under the post-cut content
+    (-37 dB), and a coarse edge_B 0.33 s inside the hole (coarse 1579.24 / 1579.91 s for fine
+    edges 1579.205 / 1580.24 s).'''
+    content = _content(16.0, 11)
+    hole = int(round(1.043412 * R))
+    x = _content(hole / R, 211)
+    x[-int(0.3 * R):] *= 0.05
+    a_i = int(8.0 * R)
+    master = np.concatenate([content[:a_i], x, content[a_i:]])
+    return master, content.copy(), a_i / R, (a_i + hole) / R, -1000.0 * hole / R
+
+
+def test_b_floor_is_read_past_the_step_not_inside_the_master_only_span():
+    # On the originals the floor of level b was the median over (coarse_B + 0.05, coarse_B +
+    # 0.6): 56 of its 107 windows lay inside the master-only span (residual ~1), floor_b 0.98,
+    # the 100 ms NCC fallback put edge_B 60 ms early (1580.18 s), the edge gap read under the
+    # step and the fill start interval widened to [1579.1366, 1579.205] s, whose quietest
+    # instant was its low end: cut 4 of the delivered plan 66 ms before the picture cut and the
+    # master fill ended 60 ms before the master's post-cut sound. A deletion's b level cannot
+    # hold before coarse_A + the step, so its floor is read from there.
+    master, cand, edge_a, edge_b, b_ms = _early_coarse_b_deletion()
+    edges = aw.fine_edges(master, cand, 0.0, b_ms, edge_a + 0.035, edge_a + 0.705)
+    assert edges["status"] == "ok" and edges["method"] == "residual20ms", edges
+    assert abs(edges["edge_B"] - edge_b) <= TOLERANCE_MS / 1000.0, edges
+    assert abs(edges["interval"][0] - edge_a) <= TOLERANCE_MS / 1000.0, edges
+
+
 def _walk_points(master, cand, seeds, probe_gaps=True):
     rows = aw.walk(master, cand, seeds, probe_gaps=probe_gaps)
     found, _outliers = aw.levels(rows)
