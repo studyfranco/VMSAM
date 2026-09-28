@@ -5,7 +5,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from typing import Optional
 from time import sleep
-from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data
+from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data, get_folder_data, get_episodes_by_folder_id, insert_episode, get_special_rename_data, get_all_special_rename, insert_special_rename, update_special_rename
 import tools
 import urllib.error
 from . import internal_client
@@ -69,6 +69,14 @@ class Incrementaller(BaseModel):
 
 class FusionRequest(BaseModel):
 	error_file_path: str
+
+class SpecialRename(BaseModel):
+    file_name: str
+    new_file_name: str
+    destination_path: str
+
+class IndexFolderRequest(BaseModel):
+    folder_id: int
 
 app = FastAPI(
     title="Gestionar Show API",
@@ -399,4 +407,225 @@ def get_health():
         "fusion_enabled": fusion_enabled,
         "queue_length": queue_length,
         "internal_status": internal_status
+    }
+
+def extract_episode_number(file_name, regex_pattern):
+    """Same contract as the daemon's extraire_episode: the `episode` named group,
+    else the first group. Returns the raw string, or None when nothing matched."""
+    import re
+    match = re.search(regex_pattern, file_name)
+    if match:
+        if 'episode' in match.groupdict():
+            return match.group('episode')
+        elif match.groups():
+            return match.group(1)
+    return None
+
+def test_bare_file_name(value, field_name):
+    """A special rename is a name inside the watch folder, never a path."""
+    import os
+    if value == None or len(value.strip()) == 0:
+        raise HTTPException(status_code=400, detail=f"{field_name} cannot be empty")
+    if os.sep in value or (os.altsep != None and os.altsep in value) or value in ('.', '..'):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be a file name, not a path")
+
+@app.post("/special/")
+def create_special_rename(special_data: SpecialRename, session: Session = Depends(get_session)):
+    """Declare (or edit) the final name of a special. The daemon renames the
+    exact incoming name in place, then the ordinary folder regex picks the new
+    name up.
+
+    The table knows no folder; the endpoint does, as a control against a wrong
+    destination and against cross-matches: a new name caught by a regex of any
+    other folder, or by an increment rule, is refused. The heaviest regex of
+    the given folder that catches the new name is returned so the caller can
+    show and edit it instead of creating a second one. An existing special
+    (same incoming name) is updated under the same control.
+    """
+    import re
+    test_bare_file_name(special_data.file_name, "file_name")
+    test_bare_file_name(special_data.new_file_name, "new_file_name")
+    if special_data.file_name == special_data.new_file_name:
+        raise HTTPException(status_code=400, detail="new_file_name must differ from file_name")
+
+    folder = get_test_folder(special_data, session)
+
+    # Every regex that would extract an episode number from the new name,
+    # heaviest first like the daemon. The heaviest one integrates the file; any
+    # other folder among them is a cross-match: the name is ambiguous between
+    # shows, and a later weight change would silently move the special.
+    matching_regex = []
+    for regex in get_all_regex(session):
+        episode_number = extract_episode_number(special_data.new_file_name, regex.regex_pattern)
+        if episode_number != None and episode_number.isdigit() and int(episode_number) > 0:
+            matching_regex.append((regex, int(episode_number)))
+
+    foreign = [regex for regex, episode_number in matching_regex if regex.folder_id != folder.id]
+    if foreign:
+        raise HTTPException(status_code=400, detail="The new name is caught by a regex of another folder: " + "; ".join(
+            f"`{regex.regex_pattern}` of folder {regex.folder_id} ({regex.folder.destination_path})" for regex in foreign
+        ) + f". Choose a name only folder {folder.id} recognises")
+
+    # The incrementaller runs after the special renamer in the daemon loop: a
+    # new name it matches would be renamed a second time, with a shifted number.
+    for incremental in get_all_incrementaller(session):
+        if re.search(incremental.regex_pattern, special_data.new_file_name) != None:
+            raise HTTPException(status_code=400, detail=f"The new name is caught by the increment rule `{incremental.regex_pattern}`: the daemon would rename it again. Choose a name no increment rule recognises")
+
+    special = get_special_rename_data(special_data.file_name, session)
+    try:
+        if special == None:
+            insert_special_rename(special_data.file_name, special_data.new_file_name, session)
+            message = "Special rename added"
+        else:
+            update_special_rename(special, special_data.new_file_name, session)
+            message = "Special rename updated"
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error during insertion of the special rename: {e}")
+
+    return {
+        "message": message,
+        "file_name": special_data.file_name,
+        "new_file_name": special_data.new_file_name,
+        "folder_id": folder.id,
+        # None: no regex catches the new name yet, the caller should create one.
+        # Otherwise the heaviest regex of this folder, the one that will
+        # integrate the file, so the caller can show and edit it.
+        "matching_regex": None if not matching_regex else {
+            "regex_pattern": matching_regex[0][0].regex_pattern,
+            "rename_pattern": matching_regex[0][0].rename_pattern,
+            "weight": matching_regex[0][0].weight,
+            "folder_id": matching_regex[0][0].folder_id,
+            "extracted_episode": matching_regex[0][1]
+        }
+    }
+
+@app.get("/special_list/")
+def get_special_rename_list(session: Session = Depends(get_session)):
+    """Liste les renommages de speciaux declares"""
+    return {
+        "special_renames": [
+            {"file_name": special.file_name, "new_file_name": special.new_file_name}
+            for special in get_all_special_rename(session)
+        ]
+    }
+
+@app.get("/incrementaller_list/")
+def get_incrementaller_list(session: Session = Depends(get_session)):
+    """Liste les regex d'incrementation declarees"""
+    return {
+        "incrementaller": [
+            {
+                "regex_pattern": incremental.regex_pattern,
+                "rename_pattern": incremental.rename_pattern,
+                "episode_incremental": incremental.episode_incremental
+            }
+            for incremental in get_all_incrementaller(session)
+        ]
+    }
+
+@app.post("/index_folder/")
+def index_folder(index_request: IndexFolderRequest, session: Session = Depends(get_session)):
+    """Rename and register the files already present in a folder.
+
+    For every regular file of the folder that the database does not know yet,
+    the folder's own regex (heaviest first) extract the episode number; the file
+    is renamed with the regex rename pattern and inserted as an episode carrying
+    the regex weight. Nothing is merged, nothing is deleted, nothing outside the
+    folder is touched. Runs without the episode lock: the public instance has no
+    merge runtime, and a file the database does not know cannot be held by the
+    integration loop or the fusion worker.
+    """
+    import os
+    current_folder = get_folder_data(index_request.folder_id, session)
+    if current_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {index_request.folder_id} not found")
+    if not os.path.isdir(current_folder.destination_path):
+        raise HTTPException(status_code=400, detail=f"Folder path is not a directory on this instance")
+
+    regex_list = get_regex_by_folder_id(index_request.folder_id, session)
+    if not regex_list:
+        raise HTTPException(status_code=404, detail="No regex found for this folder")
+    regex_list = sorted(regex_list, key=lambda regex: regex.weight, reverse=True)
+
+    known_paths = set(episode.file_path for episode in get_episodes_by_folder_id(index_request.folder_id, session))
+
+    file_names = sorted(
+        file_name for file_name in os.listdir(current_folder.destination_path)
+        if os.path.isfile(os.path.join(current_folder.destination_path, file_name)) and not file_name.startswith('.')
+    )
+
+    indexed = []
+    skipped = []
+    unmatched = []
+    already_indexed = 0
+    for file_name in file_names:
+        file_path = os.path.join(current_folder.destination_path, file_name)
+        if file_path in known_paths:
+            already_indexed += 1
+            continue
+
+        matched_regex = None
+        episode_number = None
+        for regex in regex_list:
+            episode_number = extract_episode_number(file_name, regex.regex_pattern)
+            if episode_number != None:
+                matched_regex = regex
+                break
+        if matched_regex == None:
+            unmatched.append(file_name)
+            continue
+
+        if (not episode_number.isdigit()) or int(episode_number) < 1:
+            skipped.append({"file_name": file_name, "reason": "invalid_episode_number", "regex_pattern": matched_regex.regex_pattern, "extracted": episode_number})
+            continue
+        episode_number = int(episode_number)
+        if episode_number > current_folder.max_episode_number:
+            skipped.append({"file_name": file_name, "reason": "above_max_episode_number", "episode_number": episode_number})
+            continue
+
+        # The daemon merges a newcomer into the registered episode; indexing does
+        # not merge anything, so a file whose episode is already registered is
+        # left exactly where it is, untouched and unregistered. The registered
+        # file keeps being the master of that episode.
+        if get_episode_data(index_request.folder_id, episode_number, session) != None:
+            skipped.append({"file_name": file_name, "reason": "episode_already_registered", "episode_number": episode_number})
+            continue
+
+        if matched_regex.rename_pattern != None:
+            new_file_name = matched_regex.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}")
+        else:
+            new_file_name = file_name
+        new_file_path = os.path.join(current_folder.destination_path, new_file_name)
+
+        if new_file_path != file_path:
+            if os.path.exists(new_file_path):
+                skipped.append({"file_name": file_name, "reason": "target_exists", "new_file_name": new_file_name, "episode_number": episode_number})
+                continue
+            try:
+                os.rename(file_path, new_file_path)
+            except OSError as e:
+                skipped.append({"file_name": file_name, "reason": "rename_failed", "new_file_name": new_file_name, "error": str(e)})
+                continue
+
+        try:
+            insert_episode(index_request.folder_id, episode_number, new_file_path, matched_regex.weight, session)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"File {new_file_name} renamed but not registered: {e}")
+        indexed.append({
+            "file_name": file_name,
+            "new_file_name": new_file_name,
+            "episode_number": episode_number,
+            "file_weight": matched_regex.weight,
+            "regex_pattern": matched_regex.regex_pattern
+        })
+
+    return {
+        "message": f"{len(indexed)} file(s) indexed",
+        "folder_id": current_folder.id,
+        "destination_path": current_folder.destination_path,
+        "indexed": indexed,
+        "skipped": skipped,
+        "unmatched": unmatched,
+        "already_indexed": already_indexed
     }
