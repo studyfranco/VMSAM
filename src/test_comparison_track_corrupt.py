@@ -274,18 +274,21 @@ def test_corrupt_track_gate_respects_the_repair_deadline():
 
 
 def test_silence_gate_keeps_the_legitimate_and_drops_the_rest():
-    # owner 2026-09-26 01:3x (e352 / Netflix credits) -- the measurement is stubbed here; the
-    # real one is `integrity.delivered_silence_report` (test_integrity.py, synthetic + e352)
+    # owner 2026-09-26 01:3x (e352 / Netflix credits), tail tolerance Addendum 32.9 (2026-09-28)
+    # -- the measurement is stubbed here; the real one is `integrity.delivered_silence_report`
+    # (test_integrity.py, synthetic + e352)
     repaired = Obj("/r.mkv", {"ja": [{"StreamOrder": "1"}], "fr": [{"StreamOrder": "2"}],
                               "en": [{"StreamOrder": "3"}], "de": [{"StreamOrder": "4",
                                                                     "keep": False}],
-                              "it": [{"StreamOrder": "5"}]})
+                              "it": [{"StreamOrder": "5"}], "es": [{"StreamOrder": "6"}]})
     master = Obj("/m.mkv", {"ja": [{"StreamOrder": "1"}]})
     silence = {"start_s": 1419.22, "end_s": 1451.12}
     verdicts = {"1": ("agree", []),
                 "2": ("kept", [dict(silence, start_s=1452.0, end_s=1460.0,
                                     rule="outside_video_bounds")]),
-                "3": ("dropped", [dict(silence, rule="interior_silence")])}
+                "3": ("dropped", [dict(silence, rule="interior_silence")]),
+                # a 20 s trailing silence, within TAIL_SILENCE_TOLERANCE_S: kept
+                "6": ("kept", [dict(silence, start_s=1431.0, rule="trailing_silence_tolerated")])}
     calls = []
 
     def report(ref, ref_stream, obj, order, delay, video_bounds_s_=None):
@@ -302,13 +305,16 @@ def test_silence_gate_keeps_the_legitimate_and_drops_the_rest():
     assert [d["stream_order"] for d in dropped] == [3], dropped
     assert repaired.audios["en"][0]["keep"] is False
     assert repaired.audios["fr"][0].get("keep", True) is True
-    assert [c[1] for c in calls] == ["1", "2", "3", "5"]          # 4 already dropped: not judged
+    assert repaired.audios["es"][0].get("keep", True) is True
+    assert [c[1] for c in calls] == ["1", "2", "3", "5", "6"]     # 4 already dropped: not judged
     assert calls[0] == ("1", "1", 0, (0.0, 1451.117))
     logs = tools.logs[since:]
     assert any(l.startswith("repair: track_kept_silence stream=2 language=fr") and
                "outside_video_bounds" in l for l in logs), logs
     assert any(l.startswith("repair: track_dropped_silence stream=3 language=en") and
                "interior_silence" in l for l in logs), logs
+    assert any(l.startswith("repair: track_kept_silence stream=6 language=es") and
+               "trailing_silence_tolerated" in l for l in logs), logs
     assert any(l.startswith("repair: track_silence unmeasured stream=5") for l in logs)
     # no reference stream: nothing measured, nothing dropped, said once
     assert merge_video_repair.gate_delivered_silences(repaired, master, None, report=report) == []

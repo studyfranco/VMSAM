@@ -22,10 +22,15 @@ THE FUNCTIONS THE OWNER CALLS
   delivered_track_keeps_its_place(reference_video, reference_stream,
                                   delivered_video, stream, delay_ms=0)
       -> (bool, 'agree' | 'kept' | 'dropped')
-      The owner's rule on a DELIVERED track (2026-09-28): a silence the
-      reference lacks INSIDE the master video's bounds drops the track
-      ('interior_silence'); one entirely outside them keeps it
-      ('outside_video_bounds'). Both logged.
+      The owner's rule on a DELIVERED track (2026-09-28, tail tolerance added the
+      same day, Addendum 32.9): a silence the reference lacks INSIDE the master
+      video's bounds drops the track ('interior_silence'); one entirely outside
+      them keeps it ('outside_video_bounds'); a TRAILING one (reaches the
+      delivered track's own end) of at most TAIL_SILENCE_TOLERANCE_S (30 s) also
+      keeps it ('trailing_silence_tolerated'), whether or not the analogous
+      track has sound there -- past 30 s it is 'interior_silence' again (that
+      analogous/sync track is then guaranteed to carry sound over the span, or
+      the silence would never have reached this rule at all). All logged.
       Its numbers: `delivered_silence_report(...) -> dict`.
   video_is_sound(video_obj) -> bool          (numbers: `video_check`)
       For the hook at video-object creation -> the owner's tag
@@ -179,6 +184,18 @@ CLICK_S = fc.CLICK_S                          # 3 s
 CLICK_GAP_S = fc.ISLAND_GAP_S                 # 60 s
 CONTENT_DB = -50.0                            # "plays sound": 10 dB above the silence line
 BAD_SILENCE_S = 5.0
+# OWNER, 2026-09-28 (Addendum 32.9, clarifying commit 12659c9e): « Un silence de queue n'est
+# problematique que s'il est trop long. On peut donner une tolerance de 30 secondes. Dans le cas
+# ou il y a du son dans une piste analogue ou sinon piste de sync. » A TRAILING silence of a
+# delivered track (one that reaches the track's own end -- `delivered_silence_report` below) is
+# a defect only past this many seconds; at or under it, it is fine regardless of the analogous
+# track. Past it, it stays a defect only when the analogous track (same language on the master,
+# else the comparison/sync track already used as `reference_video`) carries sound over that span
+# -- which `_unmatched`'s BAD_SILENCE_S already guarantees for every entry that reaches
+# `silence_report`'s b_only in the first place, so no extra check is needed for that half of the
+# rule. An INTERIOR silence (the delivered track plays again afterwards) keeps the unconditional
+# rule unchanged.
+TAIL_SILENCE_TOLERANCE_S = 30.0
 
 CONVERSION_DURATION_TOL_S = 0.5
 FIDELITY_MIN = 0.98
@@ -634,7 +651,8 @@ def silence_report(video_1, stream_a, video_2, stream_b, delay_ms=0, *, kind="st
     def summary(m, v):
         return dict(path=m["path"], stream_index=m["stream_index"], codec=m["codec"],
                     lang=m["lang"], start_s=m["start_s"], length_s=round(m["length_s"], 2),
-                    content_first_s=m["content_first_s"], content_last_s=m["content_last_s"],
+                    end_s=m["end_s"], content_first_s=m["content_first_s"],
+                    content_last_s=m["content_last_s"],
                     silences_ge_5s=[x for x in _play_silences(m, v)
                                     if x[1] - x[0] >= BAD_SILENCE_S][:30],
                     clicks=m["clicks"][:10], video_end_s=v, map_cost_s=m["cost_s"])
@@ -658,12 +676,25 @@ def silences_agree(video_1, stream_a, video_2, stream_b, delay_ms=0, **kw):
     return (r["agree"], r["result"])
 
 
-# A DELIVERED TRACK'S SILENCES (owner, 2026-09-28 clarification, replacing the 2026-09-26 reading):
+# A DELIVERED TRACK'S SILENCES (owner, 2026-09-28 clarification, replacing the 2026-09-26 reading;
+# Addendum 32.9 adds the tail tolerance the same day):
 # « après alignement des deux pistes, si l'une a un silence que l'autre n'a pas : au MILIEU du
 # fichier, dans les bornes de la VIDÉO du master -> la piste silencieuse a un défaut, retirée ;
 # au début ou à la fin, HORS des bornes de la vidéo (entièrement avant la première image ou après
-# la dernière image du master) -> la piste est bonne, gardée ». Both logged. No tail tolerance,
-# no « présent dans tous les flux ».
+# la dernière image du master) -> la piste est bonne, gardée ». Both logged. No « présent dans
+# tous les flux ».
+# ADDENDUM 32.9 -- THE TAIL TOLERANCE: « Un silence de queue n'est problématique que s'il est trop
+# long. On peut donner une tolérance de 30 secondes. Dans le cas où il y a du son dans une piste
+# analogue ou sinon piste de sync. » A silence inside the video's bounds that is also TRAILING --
+# it reaches the delivered track's own end, `content_last_s` to `end_s` (no more content plays
+# afterwards) -- is not 'interior_silence' any more: it is 'trailing_silence_tolerated' (kept)
+# when its own encoded length is <= TAIL_SILENCE_TOLERANCE_S, whatever the analogous track does;
+# past that it stays 'interior_silence' (dropped) -- and the analogous/sync track is guaranteed
+# to carry sound there already, since that is exactly what put the span in `b_only`
+# (`_unmatched`'s BAD_SILENCE_S run). A silence the analogous track is ALSO silent through never
+# reaches `b_only` in the first place, so it is already 'agree' (kept), tail or not -- no extra
+# code needed for that half of the owner's sentence. A NON-trailing (interior, B plays again)
+# silence keeps the unconditional rule.
 
 
 def video_bounds_s(video_obj):
@@ -685,23 +716,38 @@ def delivered_silence_report(reference_video, reference_stream, delivered_video,
     track, `delay_ms` as there) and, for each silence of the delivered track the reference
     does not have (`b_only`), the owner's rule: 'outside_video_bounds' when it lies ENTIRELY
     before the master video's first instant or after its last (the bounds carried onto the
-    delivered timeline by the delay) -- kept; 'interior_silence' otherwise -- the track is
-    dropped. `video_bounds_s_`: (first, last) of the master video, default read from
-    `reference_video`. -> dict(keep, verdict ('agree' | 'kept' | 'dropped'), silences (b_only,
-    each with its `rule`), reference_only (a_only, logged, never a reason to drop),
-    video_bounds_s, report)."""
+    delivered timeline by the delay) -- kept; a TRAILING one (it reaches B's own end -- no more
+    of B plays afterwards) of at most `TAIL_SILENCE_TOLERANCE_S` -- 'trailing_silence_tolerated'
+    -- kept; otherwise 'interior_silence' -- the track is dropped. `video_bounds_s_`: (first,
+    last) of the master video, default read from `reference_video`. -> dict(keep, verdict
+    ('agree' | 'kept' | 'dropped'), silences (b_only, each with its `rule`), reference_only
+    (a_only, logged, never a reason to drop), video_bounds_s, report)."""
     rep = silence_report(reference_video, reference_stream, delivered_video, stream, delay_ms,
                          kind=kind, threads=threads)
     d = float(delay_ms) / 1000.0
     first, last = (video_bounds_s_ if video_bounds_s_ is not None
                    else video_bounds_s(reference_video))
+    b_end_s, b_content_last_s = rep["b"]["end_s"], rep["b"]["content_last_s"]
     judged = []
     for s in rep["b_only"]:
         outside = (first is not None and last is not None
                    and (s["end_s"] <= first + d or s["start_s"] >= last + d))
-        judged.append(dict(s, rule="outside_video_bounds" if outside else "interior_silence"))
+        if outside:
+            rule = "outside_video_bounds"
+        elif (b_content_last_s is not None
+              and s["end_s"] >= b_content_last_s - SILENCE_BLOCK_S):
+            # TRAILING: nothing of B plays again after this span starts -- its own encoded
+            # length (not padded past B's real end by `_play_silences`) is what the 30 s
+            # tolerance measures.
+            encoded_len = max(0.0, min(s["end_s"], b_end_s) - s["start_s"])
+            rule = ("trailing_silence_tolerated" if encoded_len <= TAIL_SILENCE_TOLERANCE_S
+                    else "interior_silence")
+        else:
+            rule = "interior_silence"
+        judged.append(dict(s, rule=rule))
     verdict = ("agree" if not judged else
-               "kept" if all(j["rule"] == "outside_video_bounds" for j in judged) else "dropped")
+               "kept" if all(j["rule"] in ("outside_video_bounds", "trailing_silence_tolerated")
+                             for j in judged) else "dropped")
     out = dict(keep=verdict != "dropped", verdict=verdict, silences=judged,
                reference_only=rep["a_only"], video_bounds_s=(first, last), report=rep)
     if judged:
@@ -716,8 +762,9 @@ def delivered_silence_report(reference_video, reference_stream, delivered_video,
 def delivered_track_keeps_its_place(reference_video, reference_stream, delivered_video, stream,
                                     delay_ms=0, **kw):
     """(keep, verdict) -- `delivered_silence_report` in two values: (True, 'agree'),
-    (True, 'kept') when every silence the reference lacks lies outside the master video's
-    bounds, (False, 'dropped') when one lies inside them."""
+    (True, 'kept') when every silence the reference lacks either lies outside the master video's
+    bounds or is a trailing one of at most TAIL_SILENCE_TOLERANCE_S, (False, 'dropped') when one
+    lies inside them and is not a tolerated trailing silence."""
     r = delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
                                  delay_ms, **kw)
     return r["keep"], r["verdict"]

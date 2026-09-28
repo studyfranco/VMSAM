@@ -454,9 +454,12 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # pose ici est lu par `generate_new_file_audio_config`.
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
         repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"))
-    # OWNER 2026-09-28: a delivered track's silence the master's comparison track does not
-    # have drops it when it lies inside the master video's bounds ('interior_silence'); one
-    # entirely before its first or after its last instant keeps it ('outside_video_bounds').
+    # OWNER 2026-09-28 (Addendum 32.9 adds the tail tolerance the same day): a delivered track's
+    # silence the master's comparison track does not have drops it when it lies inside the
+    # master video's bounds ('interior_silence'); one entirely before its first or after its
+    # last instant keeps it ('outside_video_bounds'); a TRAILING one (reaches the delivered
+    # track's own end) of at most integrity.TAIL_SILENCE_TOLERANCE_S (30 s) also keeps it
+    # ('trailing_silence_tolerated').
     assembly["silence_dropped"] = gate_delivered_silences(
         repaired_obj, master_obj, plan.get("reference_stream"),
         deadline=plan.get("repair_deadline"))
@@ -538,9 +541,11 @@ def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline
     master's timeline (delay 0), against the master's comparison track (`reference_stream`):
     `integrity.delivered_silence_report`. A silence of the track the master's track does not
     have keeps it when it lies entirely outside the master video's bounds -- `repair:
-    track_kept_silence` rule=outside_video_bounds; one inside them sets `keep=False` (read by
+    track_kept_silence` rule=outside_video_bounds; a trailing one (reaches the delivered track's
+    own end) of at most `integrity.TAIL_SILENCE_TOLERANCE_S` (30 s) also keeps it -- `repair:
+    track_kept_silence` rule=trailing_silence_tolerated; otherwise it sets `keep=False` (read by
     `generate_new_file_audio_config`) -- `repair: track_dropped_silence` rule=interior_silence
-    (owner, 2026-09-28). A measurement that
+    (owner, 2026-09-28, tail tolerance Addendum 32.9). A measurement that
     fails or runs past its bound decides nothing: `track_silence unmeasured`, the track stays.
     `deadline`: as the delivery gate -- past it the repair declines `repair_budget_exceeded`.
     `report`: injectable for the tests. Returns the dropped tracks."""

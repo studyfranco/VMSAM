@@ -80,8 +80,11 @@ HEALTHY = [
 
 # the healthy masters' measured same-file silence differences (label -> {(a, b, result)})
 KNOWN_SILENCE_DIFFERENCES = {"e352": {(1, 2, "B")}}
-# the owner's delivered-track rule (2026-09-28) on those masters: the drops it decides
-KNOWN_RULE_DROPS = {"e352": [(2, ["interior_silence"])]}
+# the owner's delivered-track rule (2026-09-28, tail tolerance Addendum 32.9) on those masters:
+# the drops it decides. e352's fre#2 (measured: content stops at 1 419.221 s, its own packets
+# end at 1 440.042 s -- an encoded trailing silence of 20.8 s, <= TAIL_SILENCE_TOLERANCE_S) is no
+# longer among them: `trailing_silence_tolerated`, kept, not a drop.
+KNOWN_RULE_DROPS = {}
 
 MODE = "all"
 RESULTS = []            # (case, expected, got, cost_s) printed at the end
@@ -256,6 +259,42 @@ class Synthetic(unittest.TestCase):
         self.assertEqual(got, expected)
         self.assertEqual(I.video_bounds_s(ref), (0.0, 600.0))
         self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 3, 0, kind="audio_pos"),
+                         (False, "dropped"))
+
+    def test_tail_silence_tolerance(self):
+        # owner 2026-09-28, Addendum 32.9: a TRAILING silence (reaches the delivered track's own
+        # end) of at most TAIL_SILENCE_TOLERANCE_S (30 s) is kept regardless of the analogous
+        # track; past it, it is kept only when the analogous track is ALSO silent there (which
+        # never even reaches b_only -- `_unmatched`'s BAD_SILENCE_S run -- so it shows as
+        # 'agree'). An INTERIOR silence (content plays again afterwards) is unaffected.
+        self.assertEqual(I.TAIL_SILENCE_TOLERANCE_S, 30.0)
+        ref = _mux(self.tmp, "tt_ref", [_signal([(600, "c")], seed=8)], video_s=600)
+        d = _mux(self.tmp, "tt_d", [_signal([(580, "c"), (20, "s")], seed=8),   # trailing 20 s
+                                    _signal([(555, "c"), (45, "s")], seed=8),   # trailing 45 s
+                                    _signal([(200, "c"), (10, "s"), (390, "c")], seed=8)],
+                 video_s=600)
+        # the analogous track silent over the SAME trailing 45 s (same content up to 555 s,
+        # same seed): the delivered track's silence there is not a difference at all
+        ref_silent_tail = _mux(self.tmp, "tt_ref_silent_tail",
+                               [_signal([(555, "c"), (45, "s")], seed=8)], video_s=600)
+        got, t = [], time.time()
+        cases = [("trailing 20 s, analogous has sound", ref, d, 0),
+                 ("trailing 45 s, analogous has sound", ref, d, 1),
+                 ("trailing 45 s, analogous silent too", ref_silent_tail, d, 1),
+                 ("interior 10 s, analogous has sound", ref, d, 2)]
+        for _, reference, delivered, n in cases:
+            r = I.delivered_silence_report(reference, 0, delivered, n, 0, kind="audio_pos")
+            got.append((r["verdict"], [x["rule"] for x in r["silences"]]))
+        expected = [("kept", ["trailing_silence_tolerated"]),
+                    ("dropped", ["interior_silence"]),
+                    ("agree", []),
+                    ("dropped", ["interior_silence"])]
+        note("tail silence tolerance: 20 s kept / 45 s dropped / 45 s analogous-silent agree / "
+             "interior 10 s dropped (unchanged)", expected, got, time.time() - t)
+        self.assertEqual(got, expected)
+        self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 0, 0, kind="audio_pos"),
+                         (True, "kept"))
+        self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 1, 0, kind="audio_pos"),
                          (False, "dropped"))
 
     def test_resolve_stream_kinds(self):
@@ -533,10 +572,13 @@ class RealNegatives(unittest.TestCase):
                 if not rep["agree"]:
                     disagree.append((audio[0], idx, rep["result"],
                                      (rep["a_only"] or rep["b_only"])[:1]))
-            # the owner's delivered-track rule (2026-09-28) on the same pairs: a silence the first
-            # track lacks inside the video's bounds drops the track. MEASURED: e352's fre#2
-            # silence starts at 1 419.2 s, before its video's last instant (1 451.117 s): it is
-            # interior by this rule and the track is dropped -- the only drop on the 19 masters
+            # the owner's delivered-track rule (2026-09-28, tail tolerance Addendum 32.9) on the
+            # same pairs: a silence the first track lacks inside the video's bounds drops the
+            # track UNLESS it is trailing (reaches the track's own end) and at most
+            # TAIL_SILENCE_TOLERANCE_S. MEASURED: e352's fre#2 content stops at 1 419.221 s, its
+            # own packets end at 1 440.042 s (encoded trailing silence 20.8 s, <= 30 s) before its
+            # video's last instant (1 451.117 s) -- trailing_silence_tolerated, kept, no drop on
+            # the 19 masters
             drops, kept = [], []
             for idx in audio[1:]:
                 r = I.delivered_silence_report(path, audio[0], path, idx, 0)
@@ -548,14 +590,19 @@ class RealNegatives(unittest.TestCase):
                 print(f"      owner's rule: kept={kept} dropped={drops}")
             expected_drops = KNOWN_RULE_DROPS.get(label, [])
             if label == "e352":
-                note("e352 fre#2 silence 1 419.2-1 451.1 s vs eng#1: interior, dropped",
-                     expected_drops, drops, 0.0)
+                note("e352 fre#2 encoded trailing silence 20.8 s (1 419.2-1 440.0 s) vs eng#1: "
+                     "<= 30 s tolerance, kept", expected_drops, drops, 0.0)
+                assert any(idx == 2 and "trailing_silence_tolerated" in rules
+                           for idx, rules in kept), kept
             unexpected_drops = [x for x in drops if x not in expected_drops]
             cost_s = time.time() - t
             v = I.video_check(path)
             # MEASURED 2026-09-26: e352's fre AAC (#2) is digital silence over its last 31.9 s
             # (1 419.2 -> 1 451.1 s) where the eng FLAC (#1) plays credits music -- a real
             # difference that the plain comparison (owner 23:5x, no tail exception) reports.
+            # Of that span, 20.8 s (to fre's own packet end) is the encoded trailing silence the
+            # tail-tolerance rule measures; the rest is `_play_silences` padding past fre's own
+            # end to the video's end, not encoded silence.
             known = KNOWN_SILENCE_DIFFERENCES.get(label, set())
             disagree = [d for d in disagree if (d[0], d[1], d[2]) not in known]
             ok = not bad_tracks and not disagree and not unexpected_drops and v["sound"]
