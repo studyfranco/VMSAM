@@ -854,23 +854,31 @@ def _rows_text(rows):
 def contradiction_among_couples(rows, frame_ms):
     """(ii) and (i)-by-couples, from the rows alone: couples sharing ONE master track more than
     one frame apart are the CANDIDATE contradicting itself; couples sharing ONE candidate track
-    more than one frame apart are the MASTER contradicting itself. Returns `(trigger, evidence)`
+    more than `master_self_check.MIN_LAG_MS_FOR_DESYNC` apart are the MASTER contradicting
+    itself -- the ruled floor of that one fact (90 ms, RULING_20260922_MASTER_INTERTRACK_ADMISSION
+    addendum 3), the floor STEP 1 applies to the same two master tracks; one frame would call
+    a desync what STEP 1 has just measured as agreement (errid-232: the master's two jpn tracks
+    83.4 ms apart at step 1 "agree", 82.7 ms apart by couples). Returns `(trigger, evidence)`
     or `(None, None)`."""
+    import master_self_check
     if frame_ms is None:
         return None, None
     measured = [r for r in rows if r["delay_ms"] is not None]
-    for trigger, key in ((TRIGGER_CANDIDATE_DESYNC, "master_stream"),
-                         (TRIGGER_MASTER_DESYNC, "candidate_stream")):
+    for trigger, key, floor_ms in (
+            (TRIGGER_CANDIDATE_DESYNC, "master_stream", float(frame_ms)),
+            (TRIGGER_MASTER_DESYNC, "candidate_stream",
+             float(master_self_check.MIN_LAG_MS_FOR_DESYNC))):
         groups = {}
         for row in measured:
             groups.setdefault(row[key], []).append(row)
         for shared, group in groups.items():
             values = [r["delay_ms"] for r in group]
-            if len(values) > 1 and max(values) - min(values) > float(frame_ms):
+            if len(values) > 1 and max(values) - min(values) > floor_ms:
                 return trigger, {"shared_" + key: shared,
                                  "delays_ms": {r["couple"]: r["delay_ms"] for r in group},
                                  "spread_ms": round(max(values) - min(values), 3),
-                                 "frame_ms": round(float(frame_ms), 3), "source": "couples"}
+                                 "frame_ms": round(float(frame_ms), 3),
+                                 "floor_ms": round(floor_ms, 3), "source": "couples"}
     return None, None
 
 

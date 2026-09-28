@@ -90,6 +90,20 @@ def test_trigger_i_by_couples_master_tracks_disagree():
     assert trigger == vop.TRIGGER_MASTER_DESYNC, trigger
 
 
+def test_master_tracks_under_the_step1_floor_are_no_trigger_i():
+    # errid-232: the master's two jpn tracks 82.7 ms apart through one candidate track -- two
+    # frames, but under the 90 ms floor STEP 1 applies to the same pair ("these tracks agree").
+    rows = [_row(13, 1, -3127.268), _row(14, 1, -3044.563)]
+    assert vop.contradiction_among_couples(rows, Fraction(1001, 24)) == (None, None)
+    trigger, evidence = vop.contradiction_among_couples(
+        [_row(13, 1, -3127.268), _row(14, 1, -3036.0)], Fraction(1001, 24))
+    assert trigger == vop.TRIGGER_MASTER_DESYNC and evidence["floor_ms"] == 90.0, evidence
+    # the candidate side keeps its one-frame floor (Erai: -84.4 ms is trigger ii)
+    trigger, evidence = vop.contradiction_among_couples(
+        [_row(1, 1, 0.0), _row(1, 2, -50.0)], Fraction(1001, 24))
+    assert trigger == vop.TRIGGER_CANDIDATE_DESYNC and evidence["floor_ms"] == 41.708, evidence
+
+
 def test_couples_within_one_frame_are_one_story():
     rows = [_row(1, 1, -84.4), _row(1, 2, -80.6), _row(2, 1, -84.0, corr=0.5)]
     assert vop.contradiction_among_couples(rows, Fraction(1001, 24)) == (None, None)
