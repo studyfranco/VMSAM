@@ -599,8 +599,12 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
         for i in range(len(labels) - 1):
             joined = "aout" if i == len(labels) - 2 else f"j{i}"
             if i in fades:
+                # `asetpts=N/SR/TB`: acrossfade's output timestamps drift from its sample count
+                # (MEASURED 2026-09-28, Fallout S01E03 through 1001/1000 asetrate: -1 ms at 30 s,
+                # +24 ms at 3222 s, 8 ppm, against -1.1 ms flat with `concat`) -- the samples are
+                # right, their clock is re-stated from them, as `concat` states it.
                 chains.append(f"[{current}][{labels[i + 1]}]"
-                              f"acrossfade=d=0.010:o=1:c1=tri:c2=tri[{joined}]")
+                              f"acrossfade=d=0.010:o=1:c1=tri:c2=tri,asetpts=N/SR/TB[{joined}]")
             else:
                 chains.append(f"[{current}][{labels[i + 1]}]concat=n=2:v=0:a=1[{joined}]")
             current = joined
