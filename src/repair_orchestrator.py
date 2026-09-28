@@ -3608,6 +3608,36 @@ def video_pin(video_s, interval, edges, extra_s, frame_s):
     return None, None
 
 
+def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
+    """The instant the video offers for a change point: `(video_s, width_note)`.
+
+    A resolved hole whose width agrees with the audio fill (one quantum + two frames) offers its
+    first cut frame, as before. When the widths disagree the first cut is not offered (as
+    before); on a DELETION the last cut still is, minus the audio fill, when that instant lies
+    inside the walk's interval: the fill then ends on the video's own cut and starts where the
+    audio allows. Otherwise `(None, width_note)`, the audio instant stands. Additions and the
+    first cut are left as they were: MEASURED on errid 695's three additions, offering the
+    first cut would move a cut by up to 222 ms, and on id 126's cut 2 (interval [1220.76,
+    1220.749], last cut minus fill 1220.7195) the instant stays outside and nothing changes.
+    MEASURED errid 130 (Tougen Anki S01E03, step -5005.001 ms, interval [819.985, 820.125] s):
+    the resolver's frames 19538-19781 (814.897-825.0325 s) read a 10135 ms fill, the first cut
+    5 s early; the last cut minus 5.005 s is 820.0275 s, cut_check's video-pinned 820.028 s. The
+    quietest instant it replaced was 820.095 s, 67 ms late."""
+    if outcome.get("status") not in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
+        return None, None
+    frame_ms = float(domain["frame_ms"])
+    start_s = _frame_s(outcome["master_start_frame"], domain)
+    video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
+    if abs(video_fill_ms - extra_s * 1000.0) <= quantum_ms + 2 * frame_ms:
+        return start_s, None
+    note = f"video fill {round(video_fill_ms, 3)} ms vs audio {round(extra_s * 1000.0, 3)} ms"
+    if extra_s > 0:
+        instant = _frame_s(outcome["master_end_frame"], domain) - extra_s
+        if min(interval) <= instant <= max(interval):
+            return instant, f"{note}, its last cut minus the audio fill inside the audio interval pins"
+    return None, note
+
+
 def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
                       candidate_path):
     """EVERY WALK CHANGE POINT, PLACED (ADDENDUM 25.1-25.2). Returns `(transitions, None)` or
@@ -3706,15 +3736,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                 f"cut_ms={replacement['cut_ms']} -- the candidate's own excess is cut, the "
                 f"master-only span is filled from the master (ADDENDUM 25.9) for {candidate_path}\n")
             continue
-        video_s, width_note = None, None
-        if status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
-            video_s = _frame_s(outcome["master_start_frame"], domain)
-            video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) \
-                * float(domain["frame_ms"])
-            if abs(video_fill_ms - extra * 1000.0) > hole["quantum_ms"] + 2 * float(domain["frame_ms"]):
-                width_note = (f"video fill {round(video_fill_ms, 3)} ms vs audio "
-                              f"{round(extra * 1000.0, 3)} ms")
-                video_s = None
+        video_s, width_note = video_cut_instant(outcome, domain, extra, (lo, hi),
+                                                hole["quantum_ms"])
         fill = extra
         # THE CANDIDATE'S OWN SOUND NARROWS THE AUDIO BOUNDS (audio_walk.LEAK_GUARD_S, errid
         # 695): F is kept where neither offset plays the candidate's own audible material past
@@ -3740,6 +3763,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"min_leak_s={leak['min_leak_s']} for {candidate_path}\n")
         if pinned is not None:
             at = pinned
+            if width_note:
+                decision = "video_cut_edge_pins_" + decision
         elif not leak["clean"] and not (status == HOLE_DECLINED and sub_quantum):
             at = leak["min_leak_s"]
             if status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
