@@ -2253,12 +2253,31 @@ def iterate_candidate_audios(candidate_obj):
     UNE PISTE DONT LA SOURCE ECHOUE AU DECODAGE STRICT N'A PLUS CE DROIT (owner,
     2026-09-25 23:4x): `merge_video_repair.drop_corrupt_candidate_tracks` pose
     `dropped_corrupt` sur son dict et la nomme (`repair: track_dropped_corrupt`).
+
+    DEDUPED BY STREAMORDER (CASE_plan_all_tracks_20260928.md, coder pass 2026-09-28):
+    the frozen `video.py` (line ~163) aliases the 'und' audio list under the default
+    language when that language is itself absent -- ONE dict under TWO keys of
+    `candidate_obj.audios`. Left unguarded, this loop (and everything downstream of
+    it: the delivery gate's input) would build and deliver that same track TWICE,
+    once per language key. A track is yielded ONCE, under the FIRST language it is
+    found under; the plan/offset applied to it is keyed by StreamOrder, never by
+    language, so which key it is built under changes nothing of what is built. Every
+    later key naming the same StreamOrder is skipped, one `repair: track_dedup` line
+    each in dev mode.
     """
+    seen = {}
     for holder in (candidate_obj.audios, candidate_obj.audiodesc, candidate_obj.commentary):
         for language, audios in holder.items():
             for audio in audios:
                 if audio.get("dropped_corrupt"):
                     continue
+                order = str(audio.get("StreamOrder"))
+                first_language = seen.get(order)
+                if first_language is not None:
+                    tools.dev_log(f"repair: track_dedup stream={order} "
+                                  f"langs={first_language},{language}\n")
+                    continue
+                seen[order] = language
                 yield language, audio
 
 

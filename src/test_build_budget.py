@@ -212,6 +212,26 @@ def test_a_refused_build_names_every_track_not_kept():
                                   for b in body), body
 
 
+def test_track_dedup_builds_the_aliased_track_once():
+    """OWNER 2026-09-28 (CASE_plan_all_tracks_20260928.md, "Found, not fixed"): the frozen
+    `video.py` (line ~163) aliases the 'und' audio list under the default language when that
+    language is itself absent -- ONE dict under TWO keys. `_Candidate` already carries this
+    shape (`self.audios["fr"] = self.audios["und"]`, stream 3). Before the dedup, `built` (a
+    LIST, unlike the set the older assertion collapses duplicates into) held stream 3 twice --
+    the build loop built, and delivered, the same track under two language keys. Deduped by
+    StreamOrder it is built once, under the FIRST language it is listed under ('und'), with one
+    `repair: track_dedup` line naming both languages."""
+    import merge_video_chimeric as mvc_
+    pairs = [(lang, a["StreamOrder"]) for lang, a in mvc_.iterate_candidate_audios(_Candidate())]
+    assert pairs == [("ja", "1"), ("en", "2"), ("und", "3")], pairs   # stream 3 once, under 'und'
+
+    repaired, assembly, logs, built, error = _build(_assembly)
+    assert error is None, error
+    # one build per candidate StreamOrder (3 audio + 2 subtitle) -- not six
+    assert built == ["1", "2", "3", "4", "5"], built
+    assert any("repair: track_dedup stream=3 langs=und,fr" in line for line in logs), logs
+
+
 def test_the_keep_lines_are_dev_only():
     import merge_video_repair as mvr
     saved, tools.dev = tools.dev, False
