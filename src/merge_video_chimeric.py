@@ -1340,6 +1340,9 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     total = pieces[-1]["master_end_ms"] - pieces[0]["master_start_ms"]
     silence_ms = filled if fill == "silence" else Decimal("0")
     return {"stream_order": int(audio["StreamOrder"]), "language": language,
+            # ADDENDUM 28: a track whose language tag lied travels under its CONTENT language
+            # (the holder key it was moved to) and says so on the product
+            "tag_corrected": audio.get("VMSAM_tag_corrected"),
             # QUAND MEDIAINFO ET FFPROBE NE DISENT PAS LA MEME CHOSE, LE RAPPORT
             # LE PORTE. Liste vide quand ils s'accordent -- pas `None`, qui se
             # lirait comme "on n'a pas regarde".
@@ -1928,6 +1931,9 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
             command.extend([f"-metadata:s:a:{i}", f"language={report['language']}"])
         if report["title"] != None:
             command.extend([f"-metadata:s:a:{i}", f"title={report['title']}"])
+        if report.get("tag_corrected"):
+            command.extend([f"-metadata:s:a:{i}",
+                            f"VMSAM_tag_corrected={report['tag_corrected']}"])
     for i, report in enumerate(subtitle_reports):
         command.extend([f"-metadata:s:s:{i}",
                         f"VMSAM_FABRICATED={report.get('marker') or marker_value or REBUILT_MARKER}"])

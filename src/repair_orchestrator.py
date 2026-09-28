@@ -480,6 +480,10 @@ DECLINE_CAUSES = {
     # video (27.8) when both pictures are sound; when one is not (`video_unreliable`), the pair
     # is refused with the decoder's line -- measured on the pair, conclusive.
     "comparison_track_corrupt": CLASS_CONCLUSIVE,
+    # ADDENDUM 28: no candidate track carries the master's comparison-language content --
+    # measured by fingerprint on every track, conclusive (`audio_tag_conflict` is a ROUTING, not
+    # a terminal: see ROUTING_SIGNALS).
+    "no_common_language_after_tag_check": CLASS_CONCLUSIVE,
     # The arbiter could not run or could not conclude -- nothing proven about the pair:
     "video_fps_mismatch": CLASS_COULD_NOT_RUN,
     "video_offset_not_constant": CLASS_COULD_NOT_RUN,
@@ -5409,13 +5413,78 @@ def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, 
 
 
 # ---------------------------------------------------------------------------
+# THE LANGUAGE TAG IS NOT PROOF, THE CONTENT IS -- ADDENDUM 28 (language_content_check)
+# ---------------------------------------------------------------------------
+def _language_content_route(master_obj, candidate_obj, language, primed, work_dir, work_root,
+                            repair_deadline, master_intertrack_cache, repair_budget_s):
+    """None when the content check has nothing to say (the pair ends as before); else the
+    repair's result: `no_common_language_after_tag_check` (conclusive), the budget terminal, or
+    -- `audio_tag_conflict`, a routing -- the repair run again, once, on the re-tagged
+    candidate inside the same deadline."""
+    import language_content_check as lcc
+    candidate_path = candidate_obj.filePath
+    if getattr(candidate_obj, "tag_checked", False):
+        return None
+    step_launch("content_check", candidate=candidate_path, language=language)
+    check = lcc.content_check(master_obj, candidate_obj, language, primed, work_dir,
+                              deadline=repair_deadline)
+    best = check.get("best") or {}
+    step_result("content_check", candidate=candidate_path, verdict=check["verdict"],
+                best_similarity=best.get("similarity"), best_candidate=best.get("candidate"),
+                best_candidate_tag=best.get("candidate_tag"), cost_s=check.get("cost_s"))
+    if check["verdict"] == "repair_budget_exceeded":
+        return _budget_terminal(candidate_path, "content_check", repair_budget_s)
+    if check["verdict"] == lcc.NO_COMMON_LANGUAGE:
+        _drop_rate_wav(primed)
+        _plan_line("none", candidate_path, step="content_check", cause=lcc.NO_COMMON_LANGUAGE)
+        return _terminal(candidate_path, "declined", lcc.NO_COMMON_LANGUAGE, check["reason"],
+                         detail={"best": best, "references": check["references"]})
+    if check["verdict"] != lcc.AUDIO_TAG_CONFLICT:
+        return None
+    tools.log_always(f"repair: {lcc.AUDIO_TAG_CONFLICT} route=retag_and_rerun "
+                     f"track={check['track']} tag={check['tag']} matched_language={language} "
+                     f"master_stream={check['master_stream']} "
+                     f"similarity={check['similarity']:.4f} moves={check['moves']} for "
+                     f"{candidate_path}\n")
+    _drop_rate_wav(primed)
+    lcc.apply_correction(candidate_obj, check)
+    return repair(master_obj, candidate_obj, language, work_root=work_root,
+                  master_intertrack_cache=master_intertrack_cache,
+                  _carried_deadline=repair_deadline,
+                  _carried_prime={"fingerprints": primed.get("fingerprints"),
+                                  "content_end": primed.get("content_end"),
+                                  "sample_rate": primed.get("sample_rate"),
+                                  "rate_wav": primed.pop("tag_check_wav", None)})
+
+
+# ---------------------------------------------------------------------------
 # THE ORCHESTRATOR
 # ---------------------------------------------------------------------------
+
+class VmsamDecline(Exception):
+    """A refusal that carries its cause token (`.cause`, from DECLINE_CAUSES), so a caller that
+    only catches `Exception` -- fusion.py's job handler -- can still write `cause=<token>`
+    instead of a bare traceback (CASE_id684_untokened_raise_20260928: mergeVideo.py:2148 raises
+    « No common language between ... » with no token). Raised by the owner's frozen code when
+    he adopts INTEGRITY_HOOKS_PROPOSAL_20260925 section 7; nothing here raises it."""
+
+    def __init__(self, message, cause):
+        super().__init__(message)
+        self.cause = cause
+
+
+# SIGNALS THAT ROUTE A PAIR RATHER THAN END IT -- never a terminal cause, logged by name.
+ROUTING_SIGNALS = {
+    # ADDENDUM 28: a candidate track tagged another language carries the master's
+    # comparison-language content; it becomes the comparison couple, re-tagged.
+    "audio_tag_conflict": "routing",
+}
+
 
 @repair_log.timed_phase("orchestrator", "repair",
                         lambda master_obj, candidate_obj, *a, **k: candidate_obj.filePath)
 def repair(master_obj, candidate_obj, comparison_language, work_root=None,
-           master_intertrack_cache=None):
+           master_intertrack_cache=None, _carried_deadline=None, _carried_prime=None):
     """The owner's `repair(master_obj, candidate_obj, comparison_language, ...)`. Returns a BOOL.
 
     Flat, by construction: each step is launched here, returns a result, and this function
@@ -5440,6 +5509,9 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     # handed to the hole resolver, which never runs a hole past it.
     repair_budget_s, budget_video_s = repair_budget_seconds(master_obj)
     repair_deadline = time.monotonic() + repair_budget_s
+    if _carried_deadline is not None:
+        # the ADDENDUM 28 re-run after a tag correction stays inside the first run's budget
+        repair_deadline = _carried_deadline
     tools.log_always(f"orchestrator: repair_budget budget_s={repair_budget_s} "
                      f"per_slice_s={REPAIR_BUDGET_PER_SLICE_S} slice_s={REPAIR_BUDGET_SLICE_S} "
                      f"cap_s={REPAIR_BUDGET_CAP_S} master_video_s={budget_video_s} "
@@ -5524,6 +5596,31 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     sweep_gate = None
     primed = {"couples": None, "fingerprints": {}, "alignments": {}, "factor_label": "1",
               "sample_rate": None}
+    if (_carried_prime is not None and _carried_prime.get("sample_rate")
+            == comparison_sample_rate(master_obj, candidate_obj, comparison_language)):
+        # ADDENDUM 28 re-run: every track was fingerprinted once, at native rate, by the same
+        # instrument and sample rate -- never decoded twice
+        primed["fingerprints"] = dict(_carried_prime.get("fingerprints") or {})
+        primed["content_end"] = dict(_carried_prime.get("content_end") or {})
+        primed["sample_rate"] = _carried_prime["sample_rate"]
+        if _carried_prime.get("rate_wav"):
+            primed["rate_wav"] = _carried_prime["rate_wav"]
+    elif _carried_prime is not None and _carried_prime.get("rate_wav"):
+        _drop_rate_wav({"rate_wav": _carried_prime["rate_wav"]})
+    if not enumerate_couples(master_obj, candidate_obj, comparison_language):
+        # ADDENDUM 28 BEFORE THE PRIME (CASE_id684): the candidate carries no track TAGGED the
+        # comparison language -- the tags are asked of the content before anything concludes
+        # (the legacy path's bare « No common language » raise, mergeVideo.py:2148, stays
+        # the legacy path's; a pair that reaches the repair is decided here, by name)
+        primed["sample_rate"] = primed.get("sample_rate") or comparison_sample_rate(
+            master_obj, candidate_obj, comparison_language)
+        primed["couples"] = []
+        routed = _language_content_route(master_obj, candidate_obj, comparison_language,
+                                         primed, work_dir, work_root, repair_deadline,
+                                         master_intertrack_cache, repair_budget_s)
+        if routed is not None:
+            return routed
+        primed["couples"] = None
     step_launch("prime", candidate=candidate_path, language=comparison_language)
     prime_ok, prime_cause, prime_reason = prime_couples(
         master_obj, candidate_obj, comparison_language, work_dir, primed)
@@ -5624,6 +5721,13 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
             if refusal is not None:
                 _plan_line("none", candidate_path, step="rate_arm", cause=refusal[0])
                 return _terminal(candidate_path, "declined", refusal[0], refusal[1])
+            # ADDENDUM 28: before concluding on low similarity, the CONTENT is asked -- the
+            # rate has had its say (30.5, rate first); a lying language tag must be seen
+            routed = _language_content_route(master_obj, candidate_obj, comparison_language,
+                                             primed, work_dir, work_root, repair_deadline,
+                                             master_intertrack_cache, repair_budget_s)
+            if routed is not None:
+                return routed
             _plan_line("none", candidate_path, step="rate_arm", cause=sweep_cause)
             return _terminal(
                 candidate_path, "no_plan", sweep_cause,
