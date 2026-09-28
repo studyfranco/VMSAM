@@ -199,6 +199,53 @@ def test_repeat_with_audible_mismatch_inside_is_cut_back():
         assert edges["interval"][1] <= 8.06 + 0.005, edges
 
 
+def _quiet_tail_couple(zeroed_s, off_ms=1779.715, seed=21):
+    """id 719's tail (Zetman S01E01, CASE_plan_mismatch_id719_20260928): speech, then a low
+    fade (-44 to -54 dB, the master's -55 dB windows at 1419.0 s) running to master 1419.4 s, then near-silence to the master's end
+    1421.42 s. The candidate reads at `off_ms` (candidate time = master time + off) and its file
+    ends at master 1419.39 s; its last `zeroed_s` seconds are digital zeros."""
+    end_m, fade_end_m, cand_end_m = 1421.42, 1419.4, 1419.39
+    t0 = 1400.0
+    body = _content(fade_end_m - t0, seed).astype(np.float64)
+    fade_i = int((fade_end_m - t0 - 3.0) * R)
+    body[fade_i:] *= np.geomspace(0.06, 0.02, len(body) - fade_i)     # ~ -44 -> -54 dB
+    master = np.zeros(int(end_m * R), np.float64)
+    master[int(t0 * R):int(t0 * R) + len(body)] = body
+    master[int(fade_end_m * R):] += 1e-5 * np.random.default_rng(seed + 1).standard_normal(
+        len(master) - int(fade_end_m * R))                             # dither, ~ -100 dB
+    # candidate[t + off] = master[t], with a fractional delay (the walk's own reading)
+    shift = off_ms / 1000.0
+    cand_len = int(round((cand_end_m + shift) * R))
+    tc = np.arange(cand_len) / R - shift
+    cand = np.interp(tc, np.arange(len(master)) / R, master, left=0.0, right=0.0)
+    if zeroed_s:
+        cand[cand_len - int(round(zeroed_s * R)):] = 0.0
+    return master.astype(np.float32), cand.astype(np.float32), off_ms, cand_end_m
+
+
+def test_tail_edge_is_the_candidates_last_sound_not_its_file_end():
+    # MEASURED id 719 on the originals (jpn 2x2, off 1779.715 ms): the candidate's last
+    # nonzero sample reads at master 1418.99004 s and its last 400.2 ms are digital zeros on
+    # BOTH its tracks, while the master carries its fade there (-62 dB mean, windows -55 dB).
+    # single_edge's 1418.99 is the true content end: the 400 ms before the candidate's file end
+    # is not candidate content, and the master's audible fade over it must be filled.
+    master, cand, off, cand_end_m = _quiet_tail_couple(0.4)
+    last_sound_m = (np.nonzero(cand)[0][-1] + 1) / R - off / 1000.0
+    edge = aw.single_edge(master, cand, off, 1417.0, 1421.42, "tail")
+    assert edge is not None, edge
+    assert abs(edge["edge_s"] - last_sound_m) <= aw.FINE_WIN_S, (edge, last_sound_m)
+    assert edge["edge_s"] < cand_end_m - 0.3, (edge, cand_end_m)
+
+
+def test_quiet_tail_running_to_the_file_end_reaches_it():
+    # THE CONTROL: the same couple with the candidate's fade kept to its file end -- the edge
+    # lands on that end within one 20 ms step, never stopped early by the low level.
+    master, cand, off, cand_end_m = _quiet_tail_couple(0.0)
+    edge = aw.single_edge(master, cand, off, 1417.0, 1421.42, "tail")
+    assert edge is not None, edge
+    assert abs(edge["edge_s"] - cand_end_m) <= aw.FINE_WIN_S, (edge, cand_end_m)
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_") and callable(test):
