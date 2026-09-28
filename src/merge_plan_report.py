@@ -5002,18 +5002,43 @@ def _dec(value):
 
 
 def delivery_drops(records):
-    """({language: number of rebuilt audio tracks the delivery gate dropped}, {the exact
-    TRACK numbers it dropped}), read off the `fabricated_dropped` lines the rows carry
-    (UNPARSED -- `lang=` and `stream=` sit within them). `stream=` (the dropped audio's
-    `StreamOrder`) IS `track=` on the TRACK row: both are `int(audio["StreamOrder"])`,
-    logged from the same report dict (merge_video_chimeric.py:1342's `stream_order`,
-    read back at merge_video_repair.py:1636/931). So a drop line names the ONE physical
-    track that is not in the delivered file -- a same-language sibling the line never
-    named (a different `stream=`) stays delivered, id 718: `en` stream=2 kept, `ja`
-    stream=1 dropped, the lead moves to the delivered `en` track instead of staying on
-    the dropped `ja` one."""
+    """({language: number of rebuilt audio tracks the delivery gate dropped}, {the 0-based
+    RANKS it dropped, among the rebuilt audio tracks in build order}), read off the
+    `fabricated_dropped` lines the rows carry (UNPARSED -- `lang=` and `stream=` sit
+    within them).
+
+    `stream=` is NOT `track=` (proven wrong on id 718 by the plan-mismatch watch after
+    adb47eeb -- matching them directly excluded the delivered `en` track, track=1, and
+    left the dropped `ja`, track=2, leading). They are two DIFFERENT counters, read off
+    two DIFFERENT files:
+
+    * `track=` is `report["stream_order"]`, logged at merge_video_repair.py:1636 off
+      `assembly["audios"]`. That list IS `audio_reports` from
+      `merge_video_chimeric.assemble_on_master_timeline`, and each report's
+      `stream_order` (build_one_audio_track, merge_video_chimeric.py:~1342) is
+      `int(audio["StreamOrder"])` read off the CANDIDATE's own probed track --
+      the whole container's stream index, video included, so a candidate's first
+      audio commonly reads `track=1` (id 718: video at the candidate's stream 0).
+
+    * `stream=` is `audio.get("StreamOrder")` read off `repaired_obj`
+      (merge_video_repair.py:869-871, inside `gate_fabricated_delivery`), and
+      `repaired_obj = video.video(...)` (merge_video_repair.py:443) probes the file
+      `mux_repaired_file` (merge_video_chimeric.py:1878) JUST BUILT out of ONLY
+      `audio_reports` and `subtitle_reports` -- NO VIDEO INPUT AT ALL
+      (merge_video_chimeric.py:1903-1910). Its audio tracks are mapped in exactly
+      `audio_reports`' list order, 0-based, one `-metadata:s:a:{i}` per `i` in
+      `enumerate(audio_reports)` (merge_video_chimeric.py:1925) -- the SAME list
+      `assembly["audios"]` iterates to write the TRACK rows.
+
+    So `stream=` names the 0-based RANK of a track among the rebuilt audio tracks in
+    build order, the same order the TRACK rows were written in -- not the number that
+    ends up in `track=`. Ranked ascending by `track=` (plan_geometry does the ranking:
+    the report always writes TRACK rows in that order already), rank 0 is `track=1`,
+    rank 1 is `track=2`, and so on for however many precede it in the candidate file.
+    Proven on id 718 (2 tracks, one holder): `en` is rank 0 (`track=1`) -> kept
+    `stream=0`; `ja` is rank 1 (`track=2`) -> dropped `stream=1`."""
     drops = {}
-    dropped_tracks = set()
+    dropped_ranks = set()
     for kind, fields in records:
         if kind != "UNPARSED":
             continue
@@ -5024,9 +5049,12 @@ def delivery_drops(records):
             if language:
                 drops[language] = drops.get(language, 0) + 1
             stream = rest.get("stream")
-            if stream:
-                dropped_tracks.add(stream)
-    return drops, dropped_tracks
+            if stream is not None:
+                try:
+                    dropped_ranks.add(int(stream))
+                except (TypeError, ValueError):
+                    pass
+    return drops, dropped_ranks
 
 
 def plan_geometry(records):
@@ -5036,14 +5064,17 @@ def plan_geometry(records):
     BORROWED) and has regions, as in `render_svg`, in TRACK order (stream
     order): the master's own lead track if it is the one delivered, else
     whichever delivered rebuilt track comes first. A track the delivery gate
-    dropped is not in the file, and it is named EXACTLY: a `fabricated_dropped`
-    line's `stream=` is the dropped audio's `StreamOrder`, the same identifier
-    as the TRACK row's `track=` (delivery_drops), so only the track that line
-    names is excluded -- a same-language sibling it never named stays a
-    candidate to lead (id 718: `ja` stream=1 dropped, `en` stream=2 kept, the
-    lead is `en`; the earlier count-only rule could not tell the two `ja`
-    streams apart and left the dropped one leading). When every track of a
-    language is gone the language itself is reported gone. When no track with
+    dropped is not in the file, and it is named by its RANK among the rebuilt
+    audio tracks in build order, not by `track=` -- a `fabricated_dropped`
+    line's `stream=` is a DIFFERENT counter, read off a different, audio-only
+    file (delivery_drops has the proof); ranking the TRACK rows by `track=`
+    and reading `stream=` as that rank's 0-based position excludes only the
+    ONE track a line names -- a same-language sibling it never named stays a
+    candidate to lead (id 718: `ja` (rank 1, track=2) dropped, `en` (rank 0,
+    track=1) kept, the lead is `en`; matching `stream=` against `track=`
+    directly -- adb47eeb's mistake -- excluded the delivered `en` instead and
+    left the dropped `ja` leading). When every track of a language is gone
+    the language itself is reported gone. When no track with
     regions is delivered the plan is `{"undelivered": True, ...}` -- "aucune
     piste livrée": the file carries the master's own audio, and the report
     says so instead of drawing the geometry of a track nobody receives (id 54:
@@ -5072,10 +5103,17 @@ def plan_geometry(records):
             lost.setdefault(fields["track"], []).append(fields)
         elif kind == "REFUSED":
             refused.append(fields)
-    _drop_counts, dropped_tracks = delivery_drops(records)
-    # exact TRACK numbers the delivery gate named (delivery_drops): only THOSE are
-    # gone. A same-language sibling a drop line never named is still delivered.
-    delivered = [t for t in tracks if t.get("track") not in dropped_tracks]
+    _drop_counts, dropped_ranks = delivery_drops(records)
+    # `stream=` on a drop line is a RANK among the rebuilt audio tracks in build
+    # order, not a `track=` number (delivery_drops has the proof, id 718): rank the
+    # TRACK rows by `track=` ascending -- the order the report always writes them in
+    # -- and read a drop's `stream=` as that rank's 0-based position. Only the ONE
+    # track a line names that way is gone; a same-language sibling it never named
+    # stays delivered.
+    ranked = sorted(tracks, key=lambda t: int(t["track"]))
+    dropped_track_numbers = {ranked[rank]["track"] for rank in dropped_ranks
+                             if 0 <= rank < len(ranked)}
+    delivered = [t for t in tracks if t.get("track") not in dropped_track_numbers]
     # a language is gone only once EVERY track it had is gone (id 54: its one
     # track; a language with a surviving sibling stays reportable).
     gone = ({t.get("lang") for t in tracks} -
