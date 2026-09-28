@@ -715,14 +715,23 @@ def single_edge(m, c, off, anchor_s, limit_s, side):
         return None
     # ACROSS THE MASTER'S OWN SILENCE: past the last matching window, master windows under
     # AUDIBLE_DB carry nothing a fill must cover (the memo's own fill rule: only master sound at
-    # or above it must be covered), and the candidate can supply that span itself -- so the edge
-    # moves over them, up to the candidate's own extent. MEASURED, errid-202: the master sits at
+    # or above it must be covered), and the candidate can supply that span itself when it is
+    # quiet there as well -- so the edge moves over them, up to the candidate's own extent. MEASURED, errid-202: the master sits at
     # -101 +/- 1 dB (dither) over [0.1, 3.4] s; stopping at the first sound put the head edge at
     # 3.42 s where the candidate's own start (1.018 s) and the video (1.001 s) agree -- a 2.4 s
     # master fill of silence counted as an edge addition. (-100 dB, the digital-silence floor of
     # the MATCHING test, is crossed by single 20 ms windows of that dither, so it cannot bound
     # this extension.)
-    quiet = mdb < AUDIBLE_DB
+    # THE CANDIDATE SUPPLIES THAT SPAN ONLY WHERE IT IS QUIET TOO: a window where the master is
+    # under AUDIBLE_DB but the candidate, under the same offset, is at or above it carries the
+    # candidate's OWN sound -- content the master does not have, excess to cut, never common
+    # content the edge may walk over. MEASURED id 156 (Bleach S17E25, jpn, off 33492.875 ms): the
+    # last matching window ends at ~1428.75 s, the master then fades under -60 dB and is -121 to
+    # -200 dB from 1430.0 s to its end (1432.014 s) while the candidate plays a DSNP end card at
+    # -31 dB from master 1430.0 s; the extension walked 3.26 s over it to 1432.01 s, the tail
+    # fill fell within one frame of the timeline's end and was dropped, and 2.0 s of end-card
+    # audio was delivered over the master's black picture on every dub.
+    quiet = (mdb < AUDIBLE_DB) & (_candidate_db(c, times, t0, t1, off, win) < AUDIBLE_DB)
     cand_end = len(c) / WALK_RATE
     step = 1 if side == "tail" else -1
     i = last_good

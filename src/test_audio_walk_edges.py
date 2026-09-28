@@ -275,6 +275,48 @@ def test_quiet_tail_running_to_the_file_end_reaches_it():
     assert abs(edge["edge_s"] - cand_end_m) <= aw.FINE_WIN_S, (edge, cand_end_m)
 
 
+def _end_card_couple(card_db=-31.0, off_ms=3492.875, seed=41):
+    """id 156's tail (Bleach S17E25, CASE_tail_endcard_leak_id156_20260928): the master's sound
+    ends at 20.0 s, then digital zeros to its video end 24.0 s. The candidate reads at `off_ms`
+    (candidate time = master time + off), carries the same programme, stays silent to master
+    22.0 s, then plays its own end card (a 52 Hz tone at `card_db` dBFS RMS) past the master's
+    video end to master 30.0 s. `card_db=None`: no end card, the candidate stays silent."""
+    end_m, sound_end_m, card_m, cand_end_m = 24.0, 20.0, 22.0, 30.0
+    master = np.zeros(int(end_m * R), np.float32)
+    master[:int(sound_end_m * R)] = _content(sound_end_m, seed)
+    shift = off_ms / 1000.0
+    tc = np.arange(int(round((cand_end_m + shift) * R))) / R - shift
+    cand = np.interp(tc, np.arange(len(master)) / R, master, left=0.0, right=0.0)
+    if card_db is not None:
+        at = tc >= card_m
+        cand[at] = (10 ** (card_db / 20.0) * np.sqrt(2.0)) * np.sin(2 * np.pi * 52.0 * tc[at])
+    return master, cand.astype(np.float32), off_ms, end_m, card_m
+
+
+def test_tail_edge_stops_before_the_candidates_end_card_over_master_silence():
+    # MEASURED id 156 on the originals (jpn, off 33492.875 ms): the last matching window ends at
+    # ~1428.75 s; the master is under -60 dB after it and digital silence from 1430.0 s to its
+    # video end 1432.014 s; the candidate's DSNP end card sounds at -31 dB from master 1430.05 s.
+    # The silence extension walked over it to 1432.01 s (within one frame of the timeline's end,
+    # so no tail fill) and 2.0 s of end card leaked into every dub. Now the edge stops where the
+    # candidate becomes audible (1430.065 s on the originals) and the master fills the rest.
+    master, cand, off, end_m, card_m = _end_card_couple()
+    edge = aw.single_edge(master, cand, off, 17.0, end_m, "tail")
+    assert edge is not None, edge
+    assert 20.0 - aw.FINE_WIN_S <= edge["edge_s"] <= card_m + aw.FINE_WIN_S, edge
+    frame = 1001 / 24000
+    assert edge["edge_s"] < end_m - frame, edge          # the tail fill exists: no leak
+
+
+def test_tail_edge_crosses_master_silence_where_the_candidate_is_silent_too():
+    # THE CONTROL (errid-202's rule, kept): with no end card the candidate supplies the master's
+    # silence itself, and the edge walks to the master's end -- no fill is invented.
+    master, cand, off, end_m, _card = _end_card_couple(card_db=None)
+    edge = aw.single_edge(master, cand, off, 17.0, end_m, "tail")
+    assert edge is not None, edge
+    assert edge["edge_s"] >= end_m - 1001 / 24000, edge
+
+
 def _digital_lead_in_couple(lead_in_s=0.7, master_sound_s=0.02, off_ms=648.32, seed=31):
     """id 296's head (Isekai Suicide Squad S01E02, CASE_plan_mismatch_id296_head_20260928): the
     master is loud from `master_sound_s`; the candidate reads at `off_ms` (candidate time =
