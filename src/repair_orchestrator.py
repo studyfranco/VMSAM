@@ -3635,28 +3635,42 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
 
     A resolved hole whose width agrees with the audio fill (one quantum + two frames) offers its
     first cut frame, as before. When the widths disagree the first cut is not offered (as
-    before); on a DELETION the last cut still is, minus the audio fill, when that instant lies
-    inside the walk's interval: the fill then ends on the video's own cut and starts where the
-    audio allows. Otherwise `(None, width_note)`, the audio instant stands. Additions and the
-    first cut are left as they were: MEASURED on errid 695's three additions, offering the
-    first cut would move a cut by up to 222 ms, and on id 126's cut 2 (interval [1220.76,
-    1220.749], last cut minus fill 1220.7195) the instant stays outside and nothing changes.
-    MEASURED errid 130 (Tougen Anki S01E03, step -5005.001 ms, interval [819.985, 820.125] s):
-    the resolver's frames 19538-19781 (814.897-825.0325 s) read a 10135 ms fill, the first cut
-    5 s early; the last cut minus 5.005 s is 820.0275 s, cut_check's video-pinned 820.028 s. The
-    quietest instant it replaced was 820.095 s, 67 ms late."""
+    before). The last cut, minus the audio fill, is offered only in errid 130's shape, all of:
+      - a DELETION (additions: the last cut says nothing about where the excess starts);
+      - the video span reads TWO audio fills (same tolerance): the first cut is exactly one
+        fill early, so the span is the real hole plus one fill-wide lookalike before it and
+        the last cut is the real one;
+      - the audio interval is wider than one frame (in a narrower one the audio already
+        places the cut finer than any frame);
+      - that instant lies inside the walk's interval.
+    Otherwise `(None, width_note)`, the audio instant stands. MEASURED errid 130 (Tougen Anki
+    S01E03, step -5005.001 ms, interval [819.985, 820.125] s): the resolver's frames 19538-19781
+    (814.897-825.0325 s) read a 10135 ms fill (2 x 5005 + 125 ms), the first cut 5 s early; the
+    last cut minus 5.005 s is 820.0275 s, cut_check's video-pinned 820.028 s; the quietest
+    instant it replaced was 820.095 s, 67 ms late. MEASURED b563ffb6 (which offered the last
+    cut on ANY contradicted width): uu171 cp2 (4963 ms span for a 1001 ms fill, interval
+    [993.52, 999.784]) moved 996.37 -> 997.33 s, worst product lag 1.837 -> 2.837 s; Tougen E07
+    (8758.75 ms span for 5005 ms, interval [949.72, 950.105]) moved 950.03 -> 949.991 s, ja
+    lag 3.188 -> 3.688 s; e285 cp2/cp3 (2002 ms for 960 ms, 5 ms intervals) moved 1-4 ms. None
+    of those spans is two fills or those intervals are under a frame: all return to the audio
+    instant. errid 695's three additions and id 126's cut 2 (instant outside its interval) are
+    unchanged."""
     if outcome.get("status") not in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
         return None, None
     frame_ms = float(domain["frame_ms"])
+    tolerance_ms = quantum_ms + 2 * frame_ms
     start_s = _frame_s(outcome["master_start_frame"], domain)
     video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
-    if abs(video_fill_ms - extra_s * 1000.0) <= quantum_ms + 2 * frame_ms:
+    if abs(video_fill_ms - extra_s * 1000.0) <= tolerance_ms:
         return start_s, None
     note = f"video fill {round(video_fill_ms, 3)} ms vs audio {round(extra_s * 1000.0, 3)} ms"
-    if extra_s > 0:
+    two_fills = abs(video_fill_ms - 2.0 * extra_s * 1000.0) <= tolerance_ms
+    wider_than_frame = (max(interval) - min(interval)) * 1000.0 > frame_ms
+    if extra_s > 0 and two_fills and wider_than_frame:
         instant = _frame_s(outcome["master_end_frame"], domain) - extra_s
         if min(interval) <= instant <= max(interval):
-            return instant, f"{note}, its last cut minus the audio fill inside the audio interval pins"
+            return instant, (f"{note}, two fills: its last cut minus the audio fill inside the "
+                             f"audio interval pins")
     return None, note
 
 

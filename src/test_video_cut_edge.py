@@ -67,6 +67,44 @@ def test_an_addition_never_pins_on_the_last_cut():
     assert at is None and note is not None, (at, note)
 
 
+def test_the_uu171_shape_keeps_the_audio_instant():
+    # MEASURED uu171 (Undead Unluck S01E09) cp2 under b563ffb6: frames 23817-23936 (a 4963 ms
+    # span, five fills) for a 1001 ms fill; last cut minus fill 997.3297 s inside the 6.3 s
+    # interval pinned 0.96 s after the audio instant 996.37 s, worst lag 1.837 -> 2.837 s
+    interval = (993.52, 999.784)
+    at, note = ro.video_cut_instant(_outcome(23817, 23936), DOMAIN, 1.001, interval, QUANTUM_MS)
+    assert at is None and note.startswith("video fill 4963.29"), (at, note)
+    assert ro.video_pin(at, interval, (993.52, 1000.785), 1.001,
+                        DOMAIN["frame_ms"] / 1000.0) == (None, None)
+
+
+def test_the_tougen_e07_shape_keeps_the_audio_instant():
+    # MEASURED Tougen Anki S01E07 under b563ffb6: frames 22687-22897 (8758.75 ms, 1.75 fills)
+    # for a 5004.999 ms fill; last cut minus fill 949.9907 s inside [949.72, 950.105] pinned
+    # 39 ms before the audio instant 950.03 s, ja lag 3.188 -> 3.688 s
+    at, note = ro.video_cut_instant(_outcome(22687, 22897), DOMAIN, 5.004999, (949.72, 950.105),
+                                    QUANTUM_MS)
+    assert at is None and note.startswith("video fill 8758.75"), (at, note)
+
+
+def test_two_fills_in_a_sub_frame_interval_keep_the_audio_instant():
+    # MEASURED e285 (The 100 S07E14) cp2/cp3 under b563ffb6: 48-frame spans (2002 ms, two
+    # fills) for 960 / 959.543 ms fills, but 5 ms intervals: the audio already places the cut
+    # finer than a frame; b563ffb6 moved them by 3.6 and 1.1 ms
+    for first, last, extra, interval in ((39118, 39166, 0.96, (1632.585, 1632.59)),
+                                         (48339, 48387, 0.959543, (2017.1805, 2017.185))):
+        at, note = ro.video_cut_instant(_outcome(first, last), DOMAIN, extra, interval, QUANTUM_MS)
+        assert at is None and note.startswith("video fill 2002"), (at, note)
+
+
+def test_the_130_span_in_a_wide_interval_still_pins_when_two_fills():
+    # control: the same two-fill span pins wherever its last cut minus the fill is inside a
+    # wider-than-a-frame interval
+    at, note = ro.video_cut_instant(_outcome(19538, 19781), DOMAIN, EXTRA_S, (817.0, 823.0),
+                                    QUANTUM_MS)
+    assert at is not None and abs(at - 820.0275) < 0.001 and "two fills" in note, (at, note)
+
+
 def test_an_unresolved_video_offers_nothing():
     for status in (ro.HOLE_NO_CUT_CONFIRMED, ro.HOLE_DECLINED):
         assert ro.video_cut_instant(_outcome(19538, 19781, status), DOMAIN, EXTRA_S, INTERVAL,
