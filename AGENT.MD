@@ -90,6 +90,15 @@ card**; **Index Folder groups by the first five characters** of the name. Drag a
 onto another card to merge, `−` to give it back its own card. A manual edit of the
 regex or rename sticks until "Re-propose".
 
+**The control around specials lives in VMSAM, and the UI surfaces it as-is.**
+`POST /special/` takes the folder and refuses a new name that a regex of *another*
+folder catches (wrong destination, or a cross-match between shows), and one that an
+increment rule catches (the daemon would rename it again). It answers with the
+heaviest regex of the folder that catches the new name, so the Specials tab edits
+that rule instead of creating a second one. Every refusal is a 400 with the reason:
+show it, never retry silently. `POST /regex/` has no such control, deliberately: a
+rule may be moved to another folder.
+
 Every rule the UI sends must extract a valid episode number from every file of its
 group and its rename pattern must contain `{<episode>}`: VMSAM refuses anything else
 with a 400, and the UI refuses first.

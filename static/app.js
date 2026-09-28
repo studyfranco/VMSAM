@@ -1340,9 +1340,6 @@ function addSpecialCard(fileName, initialNewName) {
             showToast(special.message, 'success');
             savedBadge.classList.remove('hidden');
             card.classList.add('saved');
-            if (special.incrementaller_conflict) {
-                showToast(`Warning: an increment rule also matches the new name: ${special.incrementaller_conflict}`, 'error', 8000);
-            }
             cardState.regexManual = null;
             cardState.renameManual = null;
             if (special.matching_regex) {
