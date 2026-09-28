@@ -394,7 +394,8 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     video_anchored = plan.get("video_anchored")
     # OWNER POLICY 2026-09-25 23:4x: a rebuilt track whose SOURCE fails its strict decode is
     # dropped from the future file, one `repair: track_dropped_corrupt` line each.
-    dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan)
+    dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan,
+                                                    deadline=plan.get("repair_deadline"))
     assembly = assemble_or_log_the_decline(
         candidate_obj, plan, Decimal("0"),
         candidate_obj, master_obj, plan["track_plans"], plan["reference_pieces"],
@@ -465,13 +466,17 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
 DROP_CORRUPT_JOBS = 3
 
 
-def drop_corrupt_candidate_tracks(candidate_obj, plan):
+def drop_corrupt_candidate_tracks(candidate_obj, plan, deadline=None):
     """Every candidate audio track the plan rebuilds, strictly decoded whole
     (`integrity.track_check`, 3 at a time, -threads 2 each); a track whose decode fails is
     marked `dropped_corrupt` on its dict -- `merge_video_chimeric.iterate_candidate_audios`
     no longer yields it -- and named on the unconditional channel. A track the prime already
     decoded strictly (`plan["strictly_decoded_streams"]`) is not decoded again. A decode that
     ran past its bound decides nothing: the track stays, `track_integrity unmeasured`.
+    `deadline` (ADDENDUM 26.3 / 26.8, as the build and the delivery gate, 345a28b0): checked
+    before each batch of DROP_CORRUPT_JOBS tracks; past it the repair declines
+    `repair_budget_exceeded` naming the tracks checked so far. A batch already launched runs
+    to its end: the overrun is at most one decode bound.
     Returns the dropped tracks."""
     import concurrent.futures
     import integrity
@@ -487,26 +492,43 @@ def drop_corrupt_candidate_tracks(candidate_obj, plan):
             return item, integrity.track_check(candidate_obj, item[1]["StreamOrder"]), None
         except Exception as error:                                       # noqa: BLE001
             return item, None, error
-    dropped = []
+    dropped, checked = [], []
     with concurrent.futures.ThreadPoolExecutor(max_workers=DROP_CORRUPT_JOBS) as pool:
-        for (language, audio), result, error in pool.map(check, todo):
-            order = audio["StreamOrder"]
-            if result is None or result["verdict"] == "decoder_timeout":
-                tools.log_always(f"repair: track_integrity unmeasured stream={order} "
-                                 f"language={language} cause="
-                                 f"{'decoder_timeout' if result else type(error).__name__} -- "
-                                 f"no verdict, the track stays, for {candidate_obj.filePath}\n")
-                continue
-            if result["verdict"] != "corrupt":
-                continue
-            first = (result["error_lines"] or ["?"])[0][:200]
-            audio["dropped_corrupt"] = first
-            dropped.append({"stream_order": int(order), "language": language,
-                            "rc": result["rc"], "first": first,
-                            "cost_s": result["cost_s"]})
-            tools.log_always(f"repair: track_dropped_corrupt stream={order} language={language} "
-                             f"codec={result['codec']} rc={result['rc']} first=«{first}» "
-                             f"cost_s={result['cost_s']} for {candidate_obj.filePath}\n")
+        for start in range(0, len(todo), DROP_CORRUPT_JOBS):
+            batch = todo[start:start + DROP_CORRUPT_JOBS]
+            if deadline is not None and time.monotonic() > deadline:
+                nxt = [f"{language}:{audio['StreamOrder']}" for language, audio in batch]
+                judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
+                tools.log_always(
+                    f"repair: partial_plan cause=repair_budget_exceeded stage=corrupt_track_gate "
+                    f"checked_so_far={checked} dropped_so_far={judged} next={nxt} -- the "
+                    f"repair's budget ran out while the rebuilt tracks were "
+                    f"strictly decoded\n")
+                raise merge_video_chimeric.chimeric_error(
+                    f"the repair's budget ran out in the corrupt-track gate, before {nxt} "
+                    f"(checked so far {checked}, dropped {judged}) -- the file comes back "
+                    f"next wave",
+                    cause="repair_budget_exceeded")
+            for (language, audio), result, error in pool.map(check, batch):
+                order = audio["StreamOrder"]
+                checked.append(f"{language}:{order}")
+                if result is None or result["verdict"] == "decoder_timeout":
+                    tools.log_always(f"repair: track_integrity unmeasured stream={order} "
+                                     f"language={language} cause="
+                                     f"{'decoder_timeout' if result else type(error).__name__} -- "
+                                     f"no verdict, the track stays, for {candidate_obj.filePath}\n")
+                    continue
+                if result["verdict"] != "corrupt":
+                    continue
+                first = (result["error_lines"] or ["?"])[0][:200]
+                audio["dropped_corrupt"] = first
+                dropped.append({"stream_order": int(order), "language": language,
+                                "rc": result["rc"], "first": first,
+                                "cost_s": result["cost_s"]})
+                tools.log_always(f"repair: track_dropped_corrupt stream={order} "
+                                 f"language={language} codec={result['codec']} rc={result['rc']} "
+                                 f"first=«{first}» cost_s={result['cost_s']} for "
+                                 f"{candidate_obj.filePath}\n")
     return dropped
 
 

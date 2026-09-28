@@ -234,6 +234,45 @@ def test_build_drops_a_rebuilt_track_whose_source_is_corrupt():
     assert any(l.startswith("repair: track_integrity unmeasured stream=3") for l in logs)
 
 
+def test_corrupt_track_gate_respects_the_repair_deadline():
+    # 345a28b0's shape: the deadline is read before each batch of DROP_CORRUPT_JOBS tracks;
+    # past it the repair declines repair_budget_exceeded naming the tracks checked so far
+    import time
+    streams = [str(i) for i in range(1, 8)]
+    candidate = Obj("/c.mkv", {f"l{i}": [{"StreamOrder": i}] for i in streams})
+    plan = {"track_plans": {int(i): {} for i in streams}, "strictly_decoded_streams": []}
+    clock = {"now": 100.0}
+    seen = []
+
+    def check(obj, stream, *a, **k):
+        seen.append(str(stream))
+        clock["now"] += 10.0                                 # each decode costs 10 s
+        return {"verdict": "corrupt" if str(stream) == "2" else "sound", "rc": 183,
+                "error_lines": ["[eac3 @ 0x1] frame CRC mismatch"], "codec": "eac3",
+                "cost_s": 10.0}
+    since = len(tools.logs)
+    with Patch((integrity, "track_check", check), (time, "monotonic", lambda: clock["now"])):
+        try:
+            merge_video_repair.drop_corrupt_candidate_tracks(candidate, plan, deadline=125.0)
+        except merge_video_chimeric.chimeric_error as error:
+            assert getattr(error, "cause", None) == "repair_budget_exceeded", error
+            assert "l1:1" in str(error) and "l4:4" in str(error), error
+        else:
+            raise AssertionError("the gate ran past the repair's deadline without declining")
+    assert sorted(seen) == ["1", "2", "3"], seen          # the second batch never started
+    logs = tools.logs[since:]
+    assert any("repair: partial_plan cause=repair_budget_exceeded stage=corrupt_track_gate" in l
+               and "checked_so_far=['l1:1', 'l2:2', 'l3:3']" in l
+               and "dropped_so_far=['l2:2']" in l for l in logs), logs[-2:]
+    # within the budget, or without a deadline, every track is checked
+    for i in streams:
+        candidate.audios[f"l{i}"][0].pop("dropped_corrupt", None)
+    seen.clear()
+    with Patch((integrity, "track_check", check), (time, "monotonic", lambda: clock["now"])):
+        merge_video_repair.drop_corrupt_candidate_tracks(candidate, plan, deadline=None)
+    assert sorted(seen) == streams
+
+
 def test_silence_gate_keeps_the_legitimate_and_drops_the_rest():
     # owner 2026-09-26 01:3x (e352 / Netflix credits) -- the measurement is stubbed here; the
     # real one is `integrity.delivered_silence_report` (test_integrity.py, synthetic + e352)
