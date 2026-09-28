@@ -1,6 +1,18 @@
-// --- Utilities ---
+// VMSAM web interface — vanilla JS, no external dependency.
+//
+// Sections:
+//   1. utilities (toast, toggles)
+//   2. API client
+//   3. filename analysis engine (pure functions, no DOM)
+//   4. tabs
+//   5. folder creation
+//   6. shared widgets: folder picker, existing-rules panel, file modal
+//   7. group board (regex / index / incrementaller cards, drag & drop)
+//   8. tabs: bulk regex, index folder, specials, incrementaller
 
-function showToast(message, type = 'info') {
+// --- 1. Utilities ---
+
+function showToast(message, type = 'info', duration = 3000) {
     const toast = document.createElement('div');
     toast.className = `toast ${type === 'error' ? 'toast-error' :
         type === 'success' ? 'toast-success' :
@@ -17,7 +29,7 @@ function showToast(message, type = 'info') {
     setTimeout(() => {
         toast.classList.remove('visible');
         setTimeout(() => toast.remove(), 300);
-    }, 3000);
+    }, duration);
 }
 
 function copyPattern(pattern) {
@@ -25,16 +37,21 @@ function copyPattern(pattern) {
     showToast('Pattern copied to clipboard!', 'success');
 }
 
-function toggleHelp() {
-    const content = document.getElementById('help-content');
-    const icon = document.getElementById('help-icon');
+function toggleCollapsible(contentId, iconId) {
+    const content = document.getElementById(contentId);
+    const icon = document.getElementById(iconId);
+    if (!content) return;
     if (content.classList.contains('hidden')) {
         content.classList.remove('hidden');
-        icon.textContent = '▲';
+        if (icon) icon.textContent = '▲';
     } else {
         content.classList.add('hidden');
-        icon.textContent = '▼';
+        if (icon) icon.textContent = '▼';
     }
+}
+
+function toggleHelp() {
+    toggleCollapsible('help-content', 'help-icon');
 }
 
 function toggleAdvanced() {
@@ -49,81 +66,320 @@ function toggleAdvanced() {
     }
 }
 
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+}
+
+const VIDEO_EXTS = ['mkv', 'mp4', 'avi', 'm4v', 'mov', 'ts', 'webm', 'wmv'];
+
+function isVideoName(name) {
+    const lower = name.toLowerCase();
+    return VIDEO_EXTS.some(ext => lower.endsWith('.' + ext));
+}
+
 // State
 let state = {
     currentBaseDir: null,
     selectedFolderId: null,
     selectedFolderPath: null,
-    regexCards: [], // { id, filename, regex, rename, weight, valid }
+    regexCards: [], // legacy, kept for compatibility
     files: []
 };
 
-// --- API Client ---
+// --- 2. API Client ---
+
+// Every proxied VMSAM call relays the upstream JSON body unchanged, so the
+// `detail` of a 4xx is the message worth showing, not "request failed".
+async function apiFetch(url, options) {
+    const res = await fetch(url, options);
+    let payload = null;
+    const text = await res.text();
+    try { payload = text ? JSON.parse(text) : null; } catch (e) { payload = null; }
+    if (!res.ok) {
+        const detail = payload && payload.detail ? payload.detail : (text || `HTTP ${res.status}`);
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    }
+    return payload;
+}
+
+function postJson(url, payload) {
+    return apiFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+}
 
 const api = {
     async listFiles(path, rootType = 'files') {
         const p = path ? `?path=${encodeURIComponent(path)}&root_type=${rootType}` : `?root_type=${rootType}`;
-        const res = await fetch(`/api/fs/list${p}`);
-        if (!res.ok) throw new Error('Failed to list files');
-        return res.json();
+        return apiFetch(`/api/fs/list${p}`);
     },
-    async getFolders() {
-        const res = await fetch('/api/vmsam/folders_list');
-        if (!res.ok) throw new Error('Failed to fetch folders');
-        return res.json();
-    },
-    async createFolder(payload) {
-        const res = await fetch('/api/vmsam/folders', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to create folder');
-        return res.json();
-    },
-    async createRegex(payload) {
-        const res = await fetch('/api/vmsam/regex', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!res.ok) throw new Error('Failed to create regex');
-        return res.json();
-    },
-    async getRegexes(folderId) {
-        // We assume the backend proxy /api/vmsam/regex_list returns all or filters.
-        // If the upstream api supports filtering by folder, we would pass it here.
-        // Update: Upstream expects folder_id
-        const res = await fetch(`/api/vmsam/regex_list?folder_id=${folderId}`);
-        if (!res.ok) throw new Error('Failed to fetch regexes');
-        return res.json();
-    }
+    getConfig() { return apiFetch('/api/config'); },
+    getFolders() { return apiFetch('/api/vmsam/folders_list'); },
+    createFolder(payload) { return postJson('/api/vmsam/folders', payload); },
+    createRegex(payload) { return postJson('/api/vmsam/regex', payload); },
+    getRegexes(folderId) { return apiFetch(`/api/vmsam/regex_list?folder_id=${folderId}`); },
+    indexFolder(folderId) { return postJson('/api/vmsam/index_folder', { folder_id: folderId }); },
+    createSpecial(payload) { return postJson('/api/vmsam/special', payload); },
+    getSpecials() { return apiFetch('/api/vmsam/special_list'); },
+    createIncrementaller(payload) { return postJson('/api/vmsam/incrementaller', payload); },
+    getIncrementallers() { return apiFetch('/api/vmsam/incrementaller_list'); }
 };
 
-// --- UI Logic: Tabs ---
+// --- 3. Filename analysis engine ---
+//
+// A file name is cut into tokens: a run of digits, a run of letters, or one
+// other character. A group of names is aligned on the first one (the
+// reference): tokens every name shares stay literal, a digit run that only
+// changes value becomes \d+, anything else that differs becomes .+. One digit
+// run is then chosen as the episode number, by the user (click) or by score.
+
+const EPISODE_PLACEHOLDER = '{<episode>}';
+const RESOLUTION_VALUES = new Set(['480', '576', '720', '1080', '1440', '2160', '4320']);
+const CODEC_VALUES = new Set(['264', '265']);
+
+function escapeRegex(text) {
+    return text.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&');
+}
+
+function tokenizeName(name) {
+    const re = /\d+|[A-Za-zÀ-ɏ]+|[\s\S]/g;
+    const tokens = [];
+    let m;
+    while ((m = re.exec(name)) !== null) {
+        tokens.push({ v: m[0], d: /^\d+$/.test(m[0]), start: m.index });
+    }
+    return tokens;
+}
+
+function sameToken(a, b) {
+    return a.v === b.v && a.d === b.d;
+}
+
+// Longest common subsequence of two token arrays, as matched index pairs.
+function lcsPairs(a, b) {
+    const n = a.length, m = b.length;
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            dp[i][j] = sameToken(a[i], b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    const pairs = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+        if (sameToken(a[i], b[j])) { pairs.push([i, j]); i++; j++; }
+        else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+        else j++;
+    }
+    return pairs;
+}
+
+// Template = reference tokens annotated with what the other names taught us.
+//   varying: the token differs in at least one other name
+//   wild:    the difference is not "one digit run for another" -> becomes .+
+//   extraBefore: another name carries tokens here that the reference lacks
+function buildTemplate(names) {
+    const ref = tokenizeName(names[0]);
+    const slots = ref.map(t => ({ v: t.v, d: t.d, start: t.start, end: t.start + t.v.length, varying: false, wild: false, extraBefore: false }));
+    let extraAfterEnd = false;
+
+    for (const name of names.slice(1)) {
+        const other = tokenizeName(name);
+        const pairs = lcsPairs(ref, other);
+        let prev = [-1, -1];
+        for (const pair of [...pairs, [ref.length, other.length]]) {
+            const [i2, j2] = pair;
+            const [i1, j1] = prev;
+            const refGap = i2 - i1 - 1;
+            const otherGap = j2 - j1 - 1;
+            if (refGap > 0 || otherGap > 0) {
+                const otherTokens = other.slice(j1 + 1, j2);
+                const otherAllDigits = otherTokens.length > 0 && otherTokens.every(t => t.d);
+                if (refGap === 0) {
+                    if (i2 < slots.length) slots[i2].extraBefore = true;
+                    else extraAfterEnd = true;
+                } else {
+                    for (let k = i1 + 1; k < i2; k++) {
+                        slots[k].varying = true;
+                        if (!(refGap === 1 && otherGap === 1 && slots[k].d && otherAllDigits)) slots[k].wild = true;
+                    }
+                }
+            }
+            prev = pair;
+        }
+    }
+    return { name: names[0], slots, extraAfterEnd, count: names.length };
+}
+
+// Digit runs that can carry the episode number: every non-wild digit slot.
+function numberSlots(template) {
+    return template.slots.map((s, i) => ({ s, i })).filter(x => x.s.d && !x.s.wild).map(x => x.i);
+}
+
+// Why a digit run is (not) the episode number. Positive is good.
+function scoreEpisodeSlot(template, index) {
+    const slot = template.slots[index];
+    const before = template.name.slice(0, slot.start);
+    const after = template.name.slice(slot.end);
+    const value = slot.v;
+    let score = 0;
+    const reasons = [];
+    const add = (points, why) => { score += points; reasons.push(`${points > 0 ? '+' : ''}${points} ${why}`); };
+
+    const extensionStart = template.name.lastIndexOf('.');
+    if (extensionStart > 0 && slot.start > extensionStart && !/[\s._\-\[\]()]/.test(after)) add(-200, 'inside the file extension');
+
+    if (/S\d{1,3}[ ._-]?E$/i.test(before)) add(100, 'SxxEyy');
+    else if (/(^|[\s._\-\[(])(ep|episode|épisode|e)[\s._\-]*$/i.test(before)) add(50, 'episode word');
+    else if (/[\s._]-[\s._]$/.test(before)) add(30, 'after dash');
+    else if (/[\s._\-\])]$/.test(before)) add(10, 'after separator');
+    else if (/[A-Za-z]$/.test(before)) add(-5, 'glued to a word');
+
+    if (/^(p|i)([\s._\-\]\)]|$)/i.test(after) || /^(bit|fps|kbps|hz|khz)/i.test(after)) add(-100, 'resolution/rate unit');
+    if (/(x|h\.?|hevc|av)$/i.test(before) && CODEC_VALUES.has(value)) add(-100, 'codec');
+    if (RESOLUTION_VALUES.has(value)) add(-60, 'resolution value');
+    if (CODEC_VALUES.has(value)) add(-60, 'codec value');
+    if (/v$/i.test(before)) add(-80, 'version tag');
+    if (/(^|[\s._\-\[(])S$/i.test(before)) add(-60, 'season number');
+    if (/^(19|20)\d\d$/.test(value)) add(-80, 'year');
+    if (value.length > 4) add(-40, 'too long');
+    if (value.length === 8) add(-30, 'looks like a CRC');
+    if (/^0\d$/.test(value)) add(15, 'zero padded');
+    else if (value.length <= 3) add(5, 'short');
+    const opens = (before.match(/[\[(]/g) || []).length;
+    const closes = (before.match(/[\])]/g) || []).length;
+    if (opens > closes) add(-20, 'inside brackets');
+
+    if (template.count > 1) {
+        if (slot.varying) add(40, 'changes between files');
+        else add(-25, 'same in every file');
+    }
+    return { score, reasons };
+}
+
+function pickEpisodeSlot(template) {
+    const candidates = numberSlots(template).map(i => ({ index: i, value: template.slots[i].v, ...scoreEpisodeSlot(template, i) }));
+    candidates.sort((a, b) => b.score - a.score || b.index - a.index);
+    // Below -100 every digit run was ruled out (extension, resolution, codec):
+    // better no guess than a wrong one, the user picks a chip.
+    const best = candidates.length && candidates[0].score > -100 ? candidates[0].index : null;
+    return { best, candidates };
+}
+
+function buildRegex(template, episodeIndex) {
+    let out = '^';
+    let pendingWild = false;
+    const flush = () => { if (pendingWild) { out += '.+'; pendingWild = false; } };
+    template.slots.forEach((slot, i) => {
+        if (slot.extraBefore) pendingWild = true;
+        if (slot.wild) { pendingWild = true; return; }
+        flush();
+        if (i === episodeIndex) out += '(?P<episode>\\d+)';
+        else if (slot.d && slot.varying) out += '\\d+';
+        else out += escapeRegex(slot.v);
+    });
+    if (template.extraAfterEnd) pendingWild = true;
+    flush();
+    return out + '$';
+}
+
+function buildRename(template, episodeIndex) {
+    if (episodeIndex === null || episodeIndex === undefined) return template.name;
+    const slot = template.slots[episodeIndex];
+    return template.name.slice(0, slot.start) + EPISODE_PLACEHOLDER + template.name.slice(slot.end);
+}
+
+// Python named groups -> JS named groups, so the browser can test the pattern.
+function toJsRegex(pythonPattern) {
+    return new RegExp(pythonPattern.replace(/\(\?P</g, '(?<'));
+}
+
+function extractEpisode(pythonPattern, name) {
+    try {
+        const match = name.match(toJsRegex(pythonPattern));
+        if (match && match.groups && match.groups.episode !== undefined) return match.groups.episode;
+        if (match && match.length > 1 && match[1] !== undefined) return match[1];
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function testPattern(pythonPattern, names) {
+    let syntaxError = null;
+    try { toJsRegex(pythonPattern); } catch (e) { syntaxError = e.message; }
+    const perFile = names.map(name => {
+        const episode = syntaxError ? null : extractEpisode(pythonPattern, name);
+        const valid = episode !== null && /^\d+$/.test(episode) && parseInt(episode, 10) > 0;
+        return { name, episode, valid };
+    });
+    return { syntaxError, perFile, allValid: !syntaxError && perFile.every(f => f.valid) };
+}
+
+// The whole proposal for one group.
+function analyzeGroup(names, forcedEpisodeIndex) {
+    const template = buildTemplate(names);
+    const pick = pickEpisodeSlot(template);
+    let episodeIndex = pick.best;
+    if (forcedEpisodeIndex !== null && forcedEpisodeIndex !== undefined && numberSlots(template).includes(forcedEpisodeIndex)) {
+        episodeIndex = forcedEpisodeIndex;
+    }
+    const regex = buildRegex(template, episodeIndex);
+    return {
+        template,
+        episodeIndex,
+        candidates: pick.candidates,
+        regex,
+        rename: buildRename(template, episodeIndex),
+        check: testPattern(regex, names)
+    };
+}
+
+// Default grouping for a folder being indexed: same first five characters.
+function groupByPrefix(names, length = 5) {
+    const groups = new Map();
+    for (const name of names) {
+        const key = name.slice(0, length);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(name);
+    }
+    return Array.from(groups.values());
+}
+
+function padEpisode(number) {
+    return String(number).padStart(2, '0');
+}
+
+// --- 4. Tabs ---
+
+const TAB_INIT = {
+    'folder-tab': () => {
+        const container = document.getElementById('dir-browser');
+        if (!container.children.length || container.textContent.includes('Loading')) loadDirBrowser();
+    },
+    'regex-tab': () => initRegexTab(),
+    'index-tab': () => initIndexTab(),
+    'special-tab': () => initSpecialTab(),
+    'incr-tab': () => initIncrementallerTab()
+};
 
 function switchTab(tabId) {
     document.querySelectorAll('main > section').forEach(el => el.classList.add('hidden'));
     document.getElementById(tabId).classList.remove('hidden');
-
-    // Lazy load logic
-    if (tabId === 'folder-tab') {
-        const container = document.getElementById('dir-browser');
-        // Always try to load if empty or stuck loading, or just force reload for freshness
-        if (!container.children.length || container.textContent.includes('Loading')) {
-            console.log('Switching to folder-tab: Loading directories...');
-            loadDirBrowser();
-        }
-    } else if (tabId === 'regex-tab') {
-        console.log('Switching to regex-tab: Initializing...');
-        initRegexTab();
-    }
+    document.querySelectorAll('.nav-group button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+    });
+    if (TAB_INIT[tabId]) TAB_INIT[tabId]();
 }
 
-// --- UI Logic: Folder Creation ---
+// --- 5. Folder Creation ---
 
 async function loadDirBrowser(path = '') {
-    console.log('loadDirBrowser called with path:', path);
     const container = document.getElementById('dir-browser');
     container.innerHTML = '<div class="loading-message" style="padding:1rem; text-align:center;">Loading...</div>';
 
@@ -131,54 +387,45 @@ async function loadDirBrowser(path = '') {
         const items = await api.listFiles(path, 'create');
         container.innerHTML = '';
 
-        // Back button: navigate UP one level
         if (path) {
-            // Path is now relative, e.g. "subdir/nested"
-            // Split by separator
             const parts = path.split('/');
             const parentPath = parts.slice(0, -1).join('/');
-
-            const backBtn = document.createElement('div');
-            backBtn.className = 'dir-item text-blue';
-            backBtn.innerHTML = '<span>📁 ..</span>';
+            const backBtn = el('div', 'dir-item text-blue');
+            backBtn.appendChild(el('span', null, '📁 ..'));
             backBtn.onclick = () => loadDirBrowser(parentPath);
             container.appendChild(backBtn);
         }
 
-        if (items.length === 0) {
-            container.innerHTML += '<div class="text-muted text-center p-2">No folders found</div>';
+        const dirs = items.filter(i => i.is_dir);
+        if (dirs.length === 0) {
+            container.appendChild(el('div', 'text-muted text-center p-2', 'No folders found'));
         }
 
-        // Render directories
-        items.filter(i => i.is_dir).forEach(item => {
-            const el = document.createElement('div');
-            // Base classes
-            const isSelected = state.currentBaseDir === item.path;
-            el.className = `dir-item ${isSelected ? 'selected' : ''}`;
+        dirs.forEach(item => {
+            const row = el('div', `dir-item ${state.currentBaseDir === item.path ? 'selected' : ''}`);
+            row.onclick = (e) => selectDir(item.path, e);
+            row.ondblclick = () => loadDirBrowser(item.path);
 
-            // Row click creates selection
-            el.onclick = (e) => selectDir(item.path, e);
-            // Double click opens the directory
-            el.ondblclick = () => loadDirBrowser(item.path);
-
-            el.innerHTML = `
-                <div class="dir-name flex-1">
-                    <span>📁 ${item.name}</span>
-                </div>
-                <div class="dir-actions" style="opacity: 0.8;">
-                    <button class="btn btn-sm btn-secondary" onclick="selectDir('${item.path}', event)">Select</button>
-                    <button class="btn btn-sm btn-secondary" onclick="event.stopPropagation(); loadDirBrowser('${item.path}')">Open →</button>
-                </div>
-            `;
-            container.appendChild(el);
+            const name = el('div', 'dir-name flex-1');
+            name.appendChild(el('span', null, `📁 ${item.name}`));
+            const actions = el('div', 'dir-actions');
+            const selectBtn = el('button', 'btn btn-sm btn-secondary', 'Select');
+            selectBtn.onclick = (e) => selectDir(item.path, e);
+            const openBtn = el('button', 'btn btn-sm btn-secondary', 'Open →');
+            openBtn.onclick = (e) => { e.stopPropagation(); loadDirBrowser(item.path); };
+            actions.append(selectBtn, openBtn);
+            row.append(name, actions);
+            container.appendChild(row);
         });
     } catch (e) {
         console.error('Directory loading error:', e);
-        container.innerHTML = `
-            <div class="text-accent text-sm p-4 text-center">
-                Error: ${e.message} <br>
-                <button class="btn btn-sm btn-primary mt-2" onclick="loadDirBrowser('${path}')">Retry</button>
-            </div>`;
+        container.innerHTML = '';
+        const err = el('div', 'text-accent text-sm p-4 text-center', `Error: ${e.message}`);
+        const retry = el('button', 'btn btn-sm btn-primary mt-2', 'Retry');
+        retry.onclick = () => loadDirBrowser(path);
+        err.appendChild(document.createElement('br'));
+        err.appendChild(retry);
+        container.appendChild(err);
     }
 }
 
@@ -187,16 +434,10 @@ function selectDir(path, event) {
     state.currentBaseDir = path;
     updatePreview();
 
-    // Visual feedback
     const container = document.getElementById('dir-browser');
-    Array.from(container.children).forEach(child => {
-        child.classList.remove('selected');
-    });
-
-    // Find the row that contains the button or is the row
+    Array.from(container.children).forEach(child => child.classList.remove('selected'));
     const row = event.target.closest('.dir-item');
     if (row) row.classList.add('selected');
-
 }
 
 function updatePreview() {
@@ -219,11 +460,8 @@ async function submitFolder() {
         return;
     }
 
-    // Construct destination_path logic
-    // Format: {baseDir}/tv-shows/{SeriesName} {tvdb-{TVDB_ID}}/{Subfolder}
     const destinationPath = `${state.currentBaseDir}/${seriesName} {tvdb-${tvdbId}} [tvdb-${tvdbId}] [tvdbid-${tvdbId}]/${subfolder}`;
 
-    // Helper safely get int/float
     const parseIntSafe = (id, def) => {
         const v = parseInt(document.getElementById(id).value, 10);
         return isNaN(v) ? def : v;
@@ -242,234 +480,168 @@ async function submitFolder() {
     };
 
     try {
-        await api.createFolder(payload);
-        showToast('Folder created successfully!', 'success');
+        const result = await api.createFolder(payload);
+        showToast(result && result.message ? result.message : 'Folder created successfully!', 'success');
+        folderCache = null; // the pickers must see the new folder
     } catch (e) {
         console.error('Create folder error:', e);
         showToast('Error creating folder: ' + e.message, 'error');
     }
 }
 
-// Listeners
 document.getElementById('series-name').addEventListener('input', updatePreview);
 document.getElementById('tvdb-id').addEventListener('input', updatePreview);
 document.getElementById('subfolder').addEventListener('input', updatePreview);
 
+// --- 6. Shared widgets ---
 
-// --- UI Logic: Regex ---
+// Folders known to VMSAM, fetched once and shared by every picker.
+let folderCache = null;
 
-async function initRegexTab() {
-    const input = document.getElementById('folder-search');
-    const list = document.getElementById('folder-list');
-
-    input.addEventListener('focus', () => list.classList.remove('hidden'));
-    // Close when clicking outside - handled by body click? simpler for now
-
+async function fetchFolders() {
+    if (folderCache) return folderCache;
+    const response = await api.getFolders();
     let folders = [];
-    try {
-        console.log('Fetching folders for Regex tab...');
-        const response = await api.getFolders();
-        // Check if response is array or object with folders property
-        if (Array.isArray(response)) {
-            folders = response;
-        } else if (response.folders && Array.isArray(response.folders)) {
-            folders = response.folders;
-        } else {
-            console.warn('Unexpected folder response structure:', response);
-            showToast('Received unexpected data format for folders', 'error');
-        }
+    if (Array.isArray(response)) folders = response;
+    else if (response && Array.isArray(response.folders)) folders = response.folders;
+    folderCache = folders;
+    return folders;
+}
 
-        if (!folders || folders.length === 0) {
-            console.log('No folders returned from API');
-            showToast('No folders found to manage', 'info');
-        }
-    } catch (e) {
-        console.error('Error fetching folders:', e);
-        showToast('Failed to load folders: ' + e.message, 'error');
-    }
+// A search box + dropdown over the VMSAM folders. Ids: <prefix>-folder-search,
+// <prefix>-folder-list, <prefix>-selected-folder (with a <span> inside).
+function createFolderPicker(prefix, onSelect, onClear) {
+    const input = document.getElementById(`${prefix}-folder-search`);
+    const list = document.getElementById(`${prefix}-folder-list`);
+    const display = document.getElementById(`${prefix}-selected-folder`);
+    const picker = { selected: null };
 
-    const renderFolders = (query) => {
+    const render = (query, folders) => {
         list.innerHTML = '';
         const filtered = folders.filter(f => f.destination_path.toLowerCase().includes(query.toLowerCase()));
+        if (!filtered.length) list.appendChild(el('div', 'text-muted text-sm', 'No folder matches'));
         filtered.forEach(f => {
-            const item = document.createElement('div');
-            item.className = 'dir-item text-muted';
-            item.textContent = f.destination_path;
+            const item = el('div', 'dir-item text-muted', f.destination_path);
             item.onclick = () => {
-                state.selectedFolderId = f.id;
-                state.selectedFolderPath = f.destination_path;
-                document.querySelector('#selected-folder-display span').textContent = f.destination_path;
-                document.getElementById('selected-folder-display').classList.remove('hidden');
-                document.getElementById('regex-work-area').style.opacity = '1';
-                document.getElementById('regex-work-area').style.pointerEvents = 'auto';
+                picker.selected = f;
+                display.querySelector('span').textContent = f.destination_path;
+                display.classList.remove('hidden');
                 list.classList.add('hidden');
                 input.value = '';
-
-                // Load existing rules
-                loadExistingRules(f.destination_path, f.id);
+                onSelect(f);
             };
             list.appendChild(item);
         });
     };
 
-    input.addEventListener('input', (e) => renderFolders(e.target.value));
-    renderFolders('');
+    picker.clear = () => {
+        picker.selected = null;
+        display.classList.add('hidden');
+        if (onClear) onClear();
+    };
+
+    picker.load = async () => {
+        try {
+            const folders = await fetchFolders();
+            if (!folders.length) showToast('No folders found to manage', 'info');
+            render(input.value, folders);
+            input.oninput = (e) => render(e.target.value, folders);
+        } catch (e) {
+            showToast('Failed to load folders: ' + e.message, 'error');
+        }
+    };
+
+    input.addEventListener('focus', () => list.classList.remove('hidden'));
+    document.addEventListener('click', (e) => {
+        if (!list.contains(e.target) && e.target !== input) list.classList.add('hidden');
+    });
+    return picker;
 }
 
-async function loadExistingRules(folderPath, folderId) {
-    const container = document.getElementById('existing-rules-container');
-    if (!container) {
-        // Inject container if not exists
-        const workArea = document.getElementById('regex-work-area');
-        const newContainer = document.createElement('div');
-        newContainer.id = 'existing-rules-container';
-        newContainer.className = 'mb-6 p-4 rounded border border-border bg-surface';
-        newContainer.innerHTML = `
-            <div onclick="toggleExistingRules()" class="flex justify-between items-center cursor-pointer select-none">
-                <h3 class="font-bold text-lg text-main">Existing Rules</h3>
-                <span id="existing-rules-icon">▼</span>
-            </div>
-            <div id="existing-rules-content" class="hidden mt-4 grid gap-4">
-                <div class="text-sm text-muted">Loading...</div>
-            </div>
-        `;
-        // Insert before the "Add New Rule" area/cards or at top
-        workArea.insertBefore(newContainer, workArea.firstChild);
+function renderRuleRow(rule) {
+    const row = el('div', 'rule-row');
+    const left = el('div');
+    left.appendChild(el('div', 'font-mono text-accent mb-1', rule.regex_pattern));
+    left.appendChild(el('div', 'text-muted text-sm', `→ ${rule.rename_pattern || '(no rename)'}`));
+    const right = el('div', 'badge', rule.weight !== undefined ? `W: ${rule.weight}` : `+${rule.episode_incremental}`);
+    row.append(left, right);
+    return row;
+}
+
+// Collapsible "Existing rules" panel. Returns the rules so the caller can
+// test files against them.
+async function loadExistingRulesInto(contentId, loader, emptyText) {
+    const content = document.getElementById(contentId);
+    content.innerHTML = '';
+    content.appendChild(el('div', 'text-sm text-muted', 'Loading...'));
+    try {
+        const rules = await loader();
+        content.innerHTML = '';
+        if (!rules.length) {
+            content.appendChild(el('div', 'text-sm text-muted', emptyText));
+        } else {
+            rules.forEach(rule => content.appendChild(renderRuleRow(rule)));
+        }
+        return rules;
+    } catch (e) {
+        content.innerHTML = '';
+        content.appendChild(el('div', 'text-danger text-sm', `Failed to load: ${e.message}`));
+        return [];
     }
+}
 
-    const content = document.getElementById('existing-rules-content');
-    content.innerHTML = '<div class="text-sm text-muted">Loading...</div>';
-
-    // Ensure it's closed by default/reset state if desired, or keep user preference
-    // User requested "closed by default"
-    content.classList.add('hidden');
-    document.getElementById('existing-rules-icon').textContent = '▼';
-
+async function loadFolderRules(folderId) {
     try {
         const response = await api.getRegexes(folderId);
-        // Correctly extract array from response object
-        const rules = response.regex_patterns || [];
-
-        // Remove client-side filtering as API already filters by folderId
-        // and rules do not contain destination_path
-        const folderRules = rules;
-
-        if (folderRules.length === 0) {
-            content.innerHTML = '<div class="text-sm text-muted italic">No existing rules for this folder.</div>';
-        } else {
-            content.innerHTML = '';
-
-            // Sort
-            folderRules.sort((a, b) => a.regex_pattern.localeCompare(b.regex_pattern));
-
-            folderRules.forEach(rule => {
-                const el = document.createElement('div');
-                el.className = 'p-3 rounded bg-base border border-border/50 text-sm flex justify-between items-center mb-2';
-
-                const left = document.createElement('div');
-                const reg = document.createElement('div');
-                reg.className = 'font-mono text-accent mb-1';
-                reg.textContent = rule.regex_pattern; // Safe display
-                const ren = document.createElement('div');
-                ren.className = 'text-muted';
-                ren.textContent = `→ ${rule.rename_pattern}`; // Safe display
-                left.append(reg, ren);
-
-                const right = document.createElement('div');
-                right.className = 'badge badge-secondary text-xs'; // Adjust class as needed
-                right.textContent = `W: ${rule.weight}`;
-
-                el.append(left, right);
-                content.appendChild(el);
-            });
-        }
+        return response.regex_patterns || [];
     } catch (e) {
-        console.error('Error loading rules:', e);
-        content.innerHTML = `<div class="text-danger text-sm">Failed to load rules: ${e.message}</div>`;
+        // VMSAM answers 404 when a folder has no rule yet
+        if (/No regex found/i.test(e.message)) return [];
+        throw e;
     }
 }
 
-function toggleExistingRules() {
-    const content = document.getElementById('existing-rules-content');
-    const icon = document.getElementById('existing-rules-icon');
-    if (content.classList.contains('hidden')) {
-        content.classList.remove('hidden');
-        icon.textContent = '▲';
-    } else {
-        content.classList.add('hidden');
-        icon.textContent = '▼';
-    }
-}
+// File modal, shared: the caller says what to do with the ticked names.
+let fileModalCallback = null;
 
-function clearFolderSelection() {
-    state.selectedFolderId = null;
-    state.selectedFolderPath = null;
-    document.getElementById('selected-folder-display').classList.add('hidden');
-    document.getElementById('regex-work-area').style.opacity = '0.5';
-    document.getElementById('regex-work-area').style.pointerEvents = 'none';
-
-    // Clear rules
-    const container = document.getElementById('existing-rules-container');
-    if (container) container.remove();
-}
-
-// File Modal
-async function openFileModal() {
+async function openFileModal(onAdd) {
+    fileModalCallback = onAdd;
     const modal = document.getElementById('file-modal');
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 
     const list = document.getElementById('file-list');
-    list.innerHTML = '<div class="text-slate-500 p-4">Loading files...</div>';
+    list.innerHTML = '';
+    list.appendChild(el('div', 'text-muted p-4', 'Loading files...'));
 
     try {
-        const files = await api.listFiles('', 'files'); // Root of FILES_ROOT
-        // Filter by VIDEO_EXTS (TODO: get from config or hardcode common)
-        const vidExts = ['mkv', 'mp4', 'avi', 'm4v', 'mov', 'ts'];
-        const vidFiles = files.filter(f => !f.is_dir && vidExts.some(ext => f.name.toLowerCase().endsWith(ext)));
-
+        const files = await api.listFiles('', 'files');
+        const vidFiles = files.filter(f => !f.is_dir && isVideoName(f.name));
         list.innerHTML = '';
+        if (!vidFiles.length) list.appendChild(el('div', 'text-muted p-4', 'No video file in the download root'));
         vidFiles.forEach(f => {
-            const row = document.createElement('div');
-            row.className = 'file-row';
-            row.innerHTML = `
-                <input type="checkbox" value="${f.name}" class="input-checkbox">
-                <span class="text-main">${f.name}</span>
-            `;
+            const row = el('div', 'file-row');
+            const check = document.createElement('input');
+            check.type = 'checkbox';
+            check.value = f.name;
+            check.className = 'input-checkbox';
+            row.append(check, el('span', 'text-main', f.name));
             list.appendChild(row);
         });
-        // Search Filter
+        document.getElementById('file-search').value = '';
         document.getElementById('file-search').oninput = (e) => {
             const val = e.target.value;
             let regex = null;
-            try {
-                // Try to create regex from input (case insensitive)
-                regex = new RegExp(val, 'i');
-            } catch (e) {
-                // Invalid regex, regex stays null
-            }
-
-            const rows = document.querySelectorAll('.file-row');
-            rows.forEach(row => {
+            try { regex = val ? new RegExp(val, 'i') : null; } catch (err) { regex = null; }
+            document.querySelectorAll('#file-list .file-row').forEach(row => {
                 const text = row.querySelector('span').textContent;
-                let match = false;
-                if (regex) {
-                    match = regex.test(text);
-                } else {
-                    // Fallback to simple includes if regex is empty (matches all) or we decide to treat invalid regex as text search?
-                    // User requested "interpret text as Regex". If invalid, maybe don't match, or match nothing?
-                    // Let's fallback to includes if basic text, but if it looks like regex but fails?
-                    // Safest: if val is empty, match all. If val is invalid regex, maybe just text search?
-                    // Actually, "interpret text as Regular Expression" implies if I type ".*mkv", it should work.
-                    // If I type "[", it crashes new RegExp.
-                    // Let's do: if invalid regex, search as literal text.
-                    match = text.toLowerCase().includes(val.toLowerCase());
-                }
+                const match = regex ? regex.test(text) : text.toLowerCase().includes(val.toLowerCase());
                 row.style.display = match ? 'flex' : 'none';
             });
         };
     } catch (e) {
-        list.innerHTML = `<div class="text-accent p-4">${e.message}</div>`;
+        list.innerHTML = '';
+        list.appendChild(el('div', 'text-accent p-4', e.message));
     }
 }
 
@@ -479,181 +651,720 @@ function closeFileModal() {
 }
 
 function addSelectedFiles() {
-    const checks = document.querySelectorAll('#file-list input:checked');
-    checks.forEach(c => {
-        const filename = c.value;
-        addRegexCard(filename);
-    });
+    const names = Array.from(document.querySelectorAll('#file-list input:checked')).map(c => c.value);
     closeFileModal();
+    if (fileModalCallback) fileModalCallback(names);
 }
 
-function addRegexCard(filename) {
-    const id = Date.now() + Math.random().toString(36).substr(2, 9);
-    const container = document.getElementById('regex-cards');
+// --- 7. Group board ---
+//
+// One board per tab. A group is a set of file names that one regex must
+// cover; its card shows the proposal, the per-file check, and lets the user
+// drag a file to another group, eject it (−), or click the digit run that is
+// the episode number.
 
-    // Pre-fill logic
-    // Escape all regex special characters: \ ^ $ * + ? . ( ) | { } [ ]
-    // Using a robust escape function
-    const escapeRegex = (string) => {
-        return string.replace(/[\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\$&');
+function createGroupBoard(options) {
+    const container = document.getElementById(options.containerId);
+    const board = {
+        mode: options.mode, // 'regex' | 'incrementaller'
+        groups: [],
+        nextId: 1,
+        getFolderPath: options.getFolderPath || (() => null)
     };
 
-    const escapedName = escapeRegex(filename);
-    // Regex Pattern: Pre-fill with filename (escaped)
-    const regexPattern = escapedName;
-    // Rename Pattern: Pre-fill with filename (original)
-    const renamePattern = filename;
+    board.clear = () => { board.groups = []; board.render(); };
 
-    const card = document.createElement('div');
-    card.id = `card-${id}`;
-    card.className = 'card mt-4';
-    card.innerHTML = `
-        <div style="display:flex; justify-content:space-between; margin-bottom: 1rem;">
-             <span class="text-muted text-xs uppercase font-bold">Target File</span>
-             <button onclick="removeCard('${id}')" class="btn-icon">🗑️</button>
-        </div>
-        <div class="font-mono text-sm text-accent p-2 mb-4" style="background:var(--bg-surface); border-radius:4px; word-break: break-all;" title="${filename}">${filename}</div>
-        
-        <div class="grid-2">
-            <div>
-                <label class="label">Regex Pattern</label>
-                <input type="text" value="${regexPattern}" oninput="validateCard('${id}')" class="regex-input input font-mono" placeholder="e.g. S\\d{2}E(?P<episode>\\d+)">
-                <div class="mt-2 text-xs text-muted validation-msg"></div>
-            </div>
-            <div>
-                <label class="label">Rename Pattern</label>
-                <input type="text" value="${renamePattern}" oninput="validateCard('${id}')" class="rename-input input font-mono" placeholder="e.g. MyShow - {<episode>} - Title">
-                <div class="mt-2 text-xs text-muted rename-msg"></div>
-            </div>
-        </div>
-        <div class="mt-4 flex items-center gap-4">
-             <div>
-                <label class="label">Weight</label>
-                <input type="number" value="1" class="weight-input input text-center" style="width: 5rem;">
-            </div>
-            
-            <!-- Extraction Display -->
-            <div class="flex-1 flex flex-col items-center justify-center p-4 rounded border border-accent/30" style="background:var(--bg-surface);">
-                <span class="text-xs text-muted uppercase tracking-wider mb-1">Extracted Episode</span>
-                <span class="text-3xl font-bold text-success extracted-ep">-</span>
-            </div>
-        </div>
+    board.addGroups = (nameLists) => {
+        nameLists.forEach(names => {
+            if (!names.length) return;
+            board.groups.push({ id: board.nextId++, files: [...names], episodeIndex: null, regexManual: null, renameManual: null, weight: 1, increment: 12, saved: false });
+        });
+        board.render();
+    };
 
-        <!-- Card Footer -->
-        <div class="mt-4 pt-4 border-t border-border flex justify-end gap-2">
-            <button onclick="submitSingleRule('${id}', true)" class="btn btn-secondary btn-sm">Save & Close</button>
-            <button onclick="submitSingleRule('${id}', false)" class="btn btn-primary btn-sm">Save Rule</button>
-        </div>
-    `;
+    board.addFiles = (names, grouped) => {
+        const known = new Set(board.groups.flatMap(g => g.files));
+        const fresh = names.filter(n => !known.has(n));
+        if (!fresh.length) return;
+        board.addGroups(grouped ? groupByPrefix(fresh) : fresh.map(n => [n]));
+    };
 
-    container.appendChild(card);
-    state.regexCards.push({ id, filename, el: card });
-    // Run validation initially since we pre-filled
-    setTimeout(() => validateCard(id), 0);
-}
+    board.findGroup = (id) => board.groups.find(g => g.id === id);
 
-function removeCard(id) {
-    const card = document.getElementById(`card-${id}`);
-    card.remove();
-    state.regexCards = state.regexCards.filter(c => c.id !== id);
-}
-
-function validateCard(id) {
-    const item = state.regexCards.find(c => c.id === id);
-    if (!item) return;
-    const filename = item.filename;
-    const card = document.getElementById(`card-${id}`);
-    const input = card.querySelector('.regex-input').value;
-    const msg = card.querySelector('.validation-msg');
-    const epDisplay = card.querySelector('.extracted-ep');
-
-    const renameInput = card.querySelector('.rename-input').value;
-    const renameMsg = card.querySelector('.rename-msg');
-
-    // Regex Validation
-    let regexValid = false;
-    try {
-        // Rust Regex to JS Regex conversion basics
-        // Rust: (?P<name>...) -> JS: (?<name>...)
-        let jsRegexStr = input.replace(/\?P<([\w]+)>/g, '?<$1>');
-        const re = new RegExp(jsRegexStr);
-        const match = filename.match(re);
-
-        if (match && match.groups && match.groups.episode) {
-            msg.textContent = "✓ Valid Pattern";
-            msg.className = "mt-2 text-xs text-success validation-msg";
-            epDisplay.textContent = match.groups.episode;
-            regexValid = true;
+    board.moveFile = (name, fromId, toId) => {
+        const from = board.findGroup(fromId);
+        if (!from) return;
+        if (fromId === toId) return;
+        from.files = from.files.filter(f => f !== name);
+        from.saved = false;
+        if (toId === null) {
+            board.groups.push({ id: board.nextId++, files: [name], episodeIndex: null, regexManual: null, renameManual: null, weight: from.weight, increment: from.increment, saved: false });
         } else {
-            msg.textContent = "⚠ No 'episode' group match";
-            msg.className = "mt-2 text-xs text-warning validation-msg";
-            epDisplay.textContent = "-";
+            const to = board.findGroup(toId);
+            if (!to) return;
+            to.files.push(name);
+            to.saved = false;
         }
-    } catch (e) {
-        msg.textContent = "⚠ Invalid Regex Syntax";
-        msg.className = "mt-2 text-xs text-danger validation-msg";
-    }
+        board.groups = board.groups.filter(g => g.files.length);
+        board.render();
+    };
 
-    // Rename Pattern Validation
-    if (renameInput && !renameInput.includes('{<episode>}')) {
-        renameMsg.textContent = "⚠ Must contain {<episode>}";
-        renameMsg.className = "mt-2 text-xs text-warning rename-msg";
+    board.removeGroup = (id) => {
+        board.groups = board.groups.filter(g => g.id !== id);
+        board.render();
+    };
+
+    board.proposal = (group) => analyzeGroup(group.files, group.episodeIndex);
+
+    board.values = (group) => {
+        const proposal = board.proposal(group);
+        return {
+            regex: group.regexManual !== null ? group.regexManual : proposal.regex,
+            rename: group.renameManual !== null ? group.renameManual : proposal.rename,
+            proposal
+        };
+    };
+
+    board.render = () => {
+        container.innerHTML = '';
+        if (!board.groups.length) {
+            container.appendChild(el('div', 'text-muted text-sm empty-board', options.emptyText || 'No file yet.'));
+            return;
+        }
+        board.groups.forEach(group => container.appendChild(renderGroupCard(board, group)));
+        const zone = el('div', 'drop-zone', 'Drop a file here to start a new group');
+        wireDropTarget(zone, board, null);
+        container.appendChild(zone);
+    };
+
+    return board;
+}
+
+function wireDropTarget(node, board, groupId) {
+    node.addEventListener('dragover', (e) => { e.preventDefault(); node.classList.add('drag-over'); });
+    node.addEventListener('dragleave', () => node.classList.remove('drag-over'));
+    node.addEventListener('drop', (e) => {
+        e.preventDefault();
+        node.classList.remove('drag-over');
+        try {
+            const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            board.moveFile(data.name, data.groupId, groupId);
+        } catch (err) { /* not one of ours */ }
+    });
+}
+
+function renderGroupCard(board, group) {
+    const { regex, rename, proposal } = board.values(group);
+    const check = testPattern(regex, group.files);
+    const card = el('div', `card group-card${group.saved ? ' saved' : ''}`);
+    wireDropTarget(card, board, group.id);
+
+    // Header
+    const header = el('div', 'group-header');
+    const title = el('div');
+    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', board.mode === 'incrementaller' ? 'Increment rule' : 'Rule'));
+    title.appendChild(el('span', 'badge', `${group.files.length} file${group.files.length > 1 ? 's' : ''}`));
+    if (group.saved) title.appendChild(el('span', 'badge badge-success', 'saved ✓'));
+    const remove = el('button', 'btn-icon', '🗑️');
+    remove.title = 'Remove this group';
+    remove.onclick = () => board.removeGroup(group.id);
+    header.append(title, remove);
+    card.appendChild(header);
+
+    // Files
+    const list = el('div', 'group-files');
+    group.files.forEach(name => {
+        const row = el('div', 'group-file');
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain', JSON.stringify({ name, groupId: group.id }));
+            e.dataTransfer.effectAllowed = 'move';
+            row.classList.add('dragging');
+        });
+        row.addEventListener('dragend', () => row.classList.remove('dragging'));
+        row.appendChild(el('span', 'drag-handle', '⠿'));
+        const label = el('span', 'group-file-name font-mono', name);
+        label.title = name;
+        row.appendChild(label);
+        const result = check.perFile.find(f => f.name === name);
+        const badge = el('span', `badge ${result && result.valid ? 'badge-success' : 'badge-danger'}`, result && result.valid ? `ep ${result.episode}` : 'no match');
+        row.appendChild(badge);
+        if (group.files.length > 1) {
+            const eject = el('button', 'btn-icon eject', '−');
+            eject.title = 'Move this file to its own group';
+            eject.onclick = () => board.moveFile(name, group.id, null);
+            row.appendChild(eject);
+        }
+        list.appendChild(row);
+    });
+    card.appendChild(list);
+
+    // Reference name with clickable digit runs
+    const example = el('div', 'group-example');
+    example.appendChild(el('span', 'text-muted text-xs', 'Episode number — click a digit run to change: '));
+    const line = el('div', 'font-mono example-line');
+    const slots = proposal.template.slots;
+    const numbers = new Set(numberSlots(proposal.template));
+    slots.forEach((slot, i) => {
+        if (numbers.has(i)) {
+            const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
+            const candidate = proposal.candidates.find(c => c.index === i);
+            chip.title = candidate ? `score ${candidate.score}: ${candidate.reasons.join(', ')}` : '';
+            chip.onclick = () => { group.episodeIndex = i; group.regexManual = null; group.renameManual = null; group.saved = false; board.render(); };
+            line.appendChild(chip);
+        } else {
+            line.appendChild(el('span', slot.wild ? 'wild-part' : (slot.varying ? 'varying-part' : null), slot.v));
+        }
+    });
+    example.appendChild(line);
+    card.appendChild(example);
+
+    // Inputs
+    const grid = el('div', 'grid-2');
+    const regexBox = el('div');
+    regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
+    const regexInput = document.createElement('input');
+    regexInput.type = 'text';
+    regexInput.className = 'input font-mono';
+    regexInput.value = regex;
+    regexInput.oninput = () => { group.regexManual = regexInput.value; group.saved = false; refreshCheck(); };
+    regexBox.appendChild(regexInput);
+    const regexMsg = el('div', 'mt-2 text-xs validation-msg');
+    regexBox.appendChild(regexMsg);
+
+    const renameBox = el('div');
+    renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
+    const renameInput = document.createElement('input');
+    renameInput.type = 'text';
+    renameInput.className = 'input font-mono';
+    renameInput.value = rename;
+    renameInput.oninput = () => { group.renameManual = renameInput.value; group.saved = false; refreshCheck(); };
+    renameBox.appendChild(renameInput);
+    const renameMsg = el('div', 'mt-2 text-xs validation-msg');
+    renameBox.appendChild(renameMsg);
+    grid.append(regexBox, renameBox);
+    card.appendChild(grid);
+
+    // Weight / increment + summary
+    const row = el('div', 'group-footer-row');
+    const numberBox = el('div');
+    const numberInput = document.createElement('input');
+    numberInput.type = 'number';
+    numberInput.className = 'input text-center small-number';
+    if (board.mode === 'incrementaller') {
+        numberBox.appendChild(el('label', 'label', 'Episode increment'));
+        numberInput.value = group.increment;
+        numberInput.oninput = () => { group.increment = parseInt(numberInput.value, 10) || 0; group.saved = false; refreshCheck(); };
     } else {
-        renameMsg.textContent = "";
-        renameMsg.className = "mt-2 text-xs text-muted rename-msg";
+        numberBox.appendChild(el('label', 'label', 'Weight'));
+        numberInput.min = 1;
+        numberInput.value = group.weight;
+        numberInput.oninput = () => { group.weight = parseInt(numberInput.value, 10) || 1; group.saved = false; };
+    }
+    numberBox.appendChild(numberInput);
+    const summary = el('div', 'extraction-box');
+    row.append(numberBox, summary);
+    card.appendChild(row);
+
+    // Footer
+    const footer = el('div', 'group-footer');
+    const repropose = el('button', 'btn btn-secondary btn-sm', 'Re-propose');
+    repropose.onclick = () => { group.regexManual = null; group.renameManual = null; group.saved = false; board.render(); };
+    const save = el('button', 'btn btn-primary btn-sm', board.mode === 'incrementaller' ? 'Save Increment Rule' : 'Save Rule');
+    save.onclick = () => saveGroup(board, group, save);
+    footer.append(repropose, save);
+    card.appendChild(footer);
+
+    function refreshCheck() {
+        const currentRegex = regexInput.value;
+        const currentRename = renameInput.value;
+        const result = testPattern(currentRegex, group.files);
+        if (result.syntaxError) {
+            regexMsg.textContent = '⚠ Invalid regex syntax';
+            regexMsg.className = 'mt-2 text-xs text-danger validation-msg';
+        } else if (result.allValid) {
+            regexMsg.textContent = '✓ Every file yields an episode number';
+            regexMsg.className = 'mt-2 text-xs text-success validation-msg';
+        } else {
+            const failing = result.perFile.filter(f => !f.valid).length;
+            regexMsg.textContent = `⚠ ${failing} file${failing > 1 ? 's' : ''} without a valid 'episode' group`;
+            regexMsg.className = 'mt-2 text-xs text-warning validation-msg';
+        }
+        if (!currentRename.includes(EPISODE_PLACEHOLDER)) {
+            renameMsg.textContent = `⚠ Must contain ${EPISODE_PLACEHOLDER}`;
+            renameMsg.className = 'mt-2 text-xs text-warning validation-msg';
+        } else {
+            renameMsg.textContent = '';
+            renameMsg.className = 'mt-2 text-xs text-muted validation-msg';
+        }
+        // Summary: what the reference file becomes
+        summary.innerHTML = '';
+        const first = result.perFile[0];
+        if (first && first.valid) {
+            const episode = parseInt(first.episode, 10) + (board.mode === 'incrementaller' ? group.increment : 0);
+            summary.appendChild(el('span', 'text-xs text-muted uppercase', board.mode === 'incrementaller' ? 'First file becomes' : 'Extracted episode'));
+            if (board.mode === 'incrementaller') {
+                summary.appendChild(el('span', 'font-mono text-success preview-name', currentRename.replace(EPISODE_PLACEHOLDER, padEpisode(episode))));
+            } else {
+                summary.appendChild(el('span', 'text-3xl font-bold text-success', first.episode));
+            }
+        } else {
+            summary.appendChild(el('span', 'text-xs text-muted uppercase', 'Extracted episode'));
+            summary.appendChild(el('span', 'text-3xl font-bold text-muted', '-'));
+        }
+        // Per-file badges follow the edited regex too
+        list.querySelectorAll('.group-file').forEach((rowNode, idx) => {
+            const perFile = result.perFile[idx];
+            const badge = rowNode.querySelector('.badge');
+            badge.textContent = perFile.valid ? `ep ${perFile.episode}` : 'no match';
+            badge.className = `badge ${perFile.valid ? 'badge-success' : 'badge-danger'}`;
+        });
+    }
+    refreshCheck();
+    return card;
+}
+
+async function saveGroup(board, group, button) {
+    const { regex, rename } = board.values(group);
+    if (!regex) { showToast('Regex pattern is required', 'error'); return; }
+    if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
+    const check = testPattern(regex, group.files);
+    if (!check.allValid) { showToast('Every file of the group must yield a valid episode number', 'error'); return; }
+
+    let payload;
+    if (board.mode === 'incrementaller') {
+        payload = { regex_pattern: regex, rename_pattern: rename, episode_incremental: group.increment, example_filename: group.files[0] };
+    } else {
+        const folderPath = board.getFolderPath();
+        if (!folderPath) { showToast('Select a folder first', 'error'); return; }
+        payload = { regex_pattern: regex, rename_pattern: rename, weight: group.weight, example_filename: group.files[0], destination_path: folderPath };
+    }
+
+    button.disabled = true;
+    try {
+        const result = board.mode === 'incrementaller' ? await api.createIncrementaller(payload) : await api.createRegex(payload);
+        group.saved = true;
+        const extra = result && result.new_file_name ? ` → ${result.new_file_name}` : '';
+        showToast((result && result.message ? result.message : 'Rule saved') + extra, 'success');
+        board.render();
+        if (board.onSaved) board.onSaved(group, result);
+    } catch (e) {
+        showToast('Error saving rule: ' + e.message, 'error', 6000);
+    } finally {
+        button.disabled = false;
     }
 }
 
-async function submitSingleRule(id, closeOnSuccess = false) {
-    const item = state.regexCards.find(c => c.id === id);
-    if (!item) return;
-    const card = item.el;
+// --- 8a. Bulk Regex tab ---
 
-    const regexVal = card.querySelector('.regex-input').value;
-    const renameVal = card.querySelector('.rename-input').value;
-    const weight = parseInt(card.querySelector('.weight-input').value, 10);
+let regexTab = null;
 
-    // Validate again just in case
-    if (!regexVal) {
-        showToast('Regex pattern is required', 'error');
-        return;
+function initRegexTab() {
+    if (regexTab) { regexTab.picker.load(); return; }
+    const board = createGroupBoard({
+        containerId: 'regex-cards', mode: 'regex',
+        getFolderPath: () => state.selectedFolderPath,
+        emptyText: 'Add files: one rule per file by default, drag a file onto another rule to group them.'
+    });
+    const picker = createFolderPicker('regex', (f) => {
+        state.selectedFolderId = f.id;
+        state.selectedFolderPath = f.destination_path;
+        document.getElementById('regex-work-area').classList.remove('disabled-area');
+        document.getElementById('regex-existing').classList.remove('hidden');
+        loadExistingRulesInto('regex-existing-content', () => loadFolderRules(f.id), 'No existing rules for this folder.');
+    }, () => {
+        state.selectedFolderId = null;
+        state.selectedFolderPath = null;
+        document.getElementById('regex-work-area').classList.add('disabled-area');
+        document.getElementById('regex-existing').classList.add('hidden');
+        board.clear();
+    });
+    board.onSaved = () => loadExistingRulesInto('regex-existing-content', () => loadFolderRules(state.selectedFolderId), 'No existing rules for this folder.');
+    regexTab = { board, picker };
+    picker.load();
+    board.render();
+}
+
+function clearFolderSelection() {
+    if (regexTab) regexTab.picker.clear();
+}
+
+function openRegexFileModal() {
+    openFileModal((names) => regexTab.board.addFiles(names, false));
+}
+
+// --- 8b. Index Folder tab ---
+
+let indexTab = null;
+
+function initIndexTab() {
+    if (indexTab) { indexTab.picker.load(); return; }
+    const board = createGroupBoard({
+        containerId: 'index-cards', mode: 'regex',
+        getFolderPath: () => indexTab.folder ? indexTab.folder.destination_path : null,
+        emptyText: 'Every file of the folder is already covered by an existing rule.'
+    });
+    const picker = createFolderPicker('index', (f) => {
+        indexTab.folder = f;
+        document.getElementById('index-work-area').classList.remove('disabled-area');
+        document.getElementById('index-report').classList.add('hidden');
+        loadIndexFolderFiles();
+    }, () => {
+        indexTab.folder = null;
+        document.getElementById('index-work-area').classList.add('disabled-area');
+        board.clear();
+    });
+    // A save refreshes the rule and covered lists only: rebuilding the board
+    // would throw away the edits made on the other groups.
+    board.onSaved = () => loadIndexFolderFiles(false);
+    indexTab = { board, picker, folder: null, rules: [] };
+    picker.load();
+    board.render();
+}
+
+async function loadIndexFolderFiles(rebuildBoard = true) {
+    const folder = indexTab.folder;
+    if (!folder) return;
+    const covered = document.getElementById('index-covered-content');
+    covered.innerHTML = '';
+    covered.appendChild(el('div', 'text-sm text-muted', 'Loading...'));
+    document.getElementById('index-existing').classList.remove('hidden');
+
+    const [rules, entries] = await Promise.all([
+        loadExistingRulesInto('index-existing-content', () => loadFolderRules(folder.id), 'No rule yet for this folder: create them below, then index.'),
+        api.listFiles(folder.destination_path, 'create').catch(e => { showToast('Cannot list the folder: ' + e.message, 'error'); return []; })
+    ]);
+    indexTab.rules = rules;
+    const names = entries.filter(e => !e.is_dir && isVideoName(e.name)).map(e => e.name).sort();
+
+    // A file an existing rule already covers needs no new rule.
+    const coveredFiles = [];
+    const uncovered = [];
+    names.forEach(name => {
+        const hit = rules.map(r => ({ rule: r, episode: extractEpisode(r.regex_pattern, name) })).find(x => x.episode !== null && /^\d+$/.test(x.episode));
+        if (hit) coveredFiles.push({ name, ...hit }); else uncovered.push(name);
+    });
+
+    covered.innerHTML = '';
+    document.getElementById('index-covered-count').textContent = `${coveredFiles.length}`;
+    if (!coveredFiles.length) covered.appendChild(el('div', 'text-sm text-muted', 'No file is covered by an existing rule yet.'));
+    coveredFiles.forEach(f => {
+        const row = el('div', 'group-file');
+        row.appendChild(el('span', 'group-file-name font-mono', f.name));
+        row.appendChild(el('span', 'badge badge-success', `ep ${f.episode}`));
+        covered.appendChild(row);
+    });
+
+    document.getElementById('index-file-count').textContent = `${names.length} video file${names.length > 1 ? 's' : ''}, ${uncovered.length} without rule`;
+    if (rebuildBoard) {
+        indexTab.board.clear();
+        indexTab.board.addGroups(groupByPrefix(uncovered));
+    }
+}
+
+async function runIndexFolder() {
+    if (!indexTab || !indexTab.folder) { showToast('Select a folder first', 'error'); return; }
+    const button = document.getElementById('index-run-btn');
+    button.disabled = true;
+    const report = document.getElementById('index-report');
+    const body = document.getElementById('index-report-content');
+    try {
+        const result = await api.indexFolder(indexTab.folder.id);
+        body.innerHTML = '';
+        report.classList.remove('hidden');
+        body.appendChild(el('div', 'text-success font-bold mb-4', `${result.message} — ${result.already_indexed} already in the database`));
+
+        const table = (title, rows, columns) => {
+            const box = el('div', 'mb-4');
+            box.appendChild(el('h4', 'text-accent', `${title} (${rows.length})`));
+            if (!rows.length) { box.appendChild(el('div', 'text-muted text-sm', 'none')); return box; }
+            const t = el('table', 'report-table');
+            const head = el('tr');
+            columns.forEach(c => head.appendChild(el('th', null, c.label)));
+            t.appendChild(head);
+            rows.forEach(r => {
+                const tr = el('tr');
+                columns.forEach(c => tr.appendChild(el('td', c.mono ? 'font-mono' : null, c.get(r))));
+                t.appendChild(tr);
+            });
+            box.appendChild(t);
+            return box;
+        };
+        body.appendChild(table('Renamed and indexed', result.indexed, [
+            { label: 'File', get: r => r.file_name, mono: true },
+            { label: 'New name', get: r => r.new_file_name, mono: true },
+            { label: 'Episode', get: r => String(r.episode_number) },
+            { label: 'Weight', get: r => String(r.file_weight) }
+        ]));
+        body.appendChild(table('Skipped', result.skipped, [
+            { label: 'File', get: r => r.file_name, mono: true },
+            { label: 'Reason', get: r => r.reason.replace(/_/g, ' ') },
+            { label: 'Episode', get: r => r.episode_number !== undefined ? String(r.episode_number) : (r.extracted || '') }
+        ]));
+        body.appendChild(table('No rule matches', result.unmatched.map(n => ({ file_name: n })), [
+            { label: 'File', get: r => r.file_name, mono: true }
+        ]));
+        showToast(result.message, 'success');
+        loadIndexFolderFiles();
+    } catch (e) {
+        showToast('Indexing failed: ' + e.message, 'error', 6000);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// --- 8c. Specials tab ---
+//
+// A special is renamed by its exact name (special_renames table), then the
+// folder regex catches the new name. One card = one file: new name, and the
+// rule that will pick that new name up.
+
+let specialTab = null;
+
+function initSpecialTab() {
+    if (specialTab) { specialTab.picker.load(); loadSpecialList(); return; }
+    const picker = createFolderPicker('special', (f) => {
+        specialTab.folder = f;
+        document.getElementById('special-work-area').classList.remove('disabled-area');
+        document.getElementById('special-existing').classList.remove('hidden');
+        loadExistingRulesInto('special-existing-content', () => loadFolderRules(f.id), 'No existing rules for this folder.');
+    }, () => {
+        specialTab.folder = null;
+        document.getElementById('special-work-area').classList.add('disabled-area');
+        document.getElementById('special-existing').classList.add('hidden');
+    });
+    specialTab = { picker, folder: null, cards: [] };
+    picker.load();
+    loadSpecialList();
+}
+
+async function loadSpecialList() {
+    const content = document.getElementById('special-list-content');
+    content.innerHTML = '';
+    try {
+        const response = await api.getSpecials();
+        const specials = response.special_renames || [];
+        if (!specials.length) content.appendChild(el('div', 'text-sm text-muted', 'No special declared yet.'));
+        specials.forEach(s => {
+            const row = el('div', 'rule-row');
+            const left = el('div');
+            left.appendChild(el('div', 'font-mono text-accent', s.file_name));
+            left.appendChild(el('div', 'text-muted text-sm font-mono', `→ ${s.new_file_name}`));
+            row.appendChild(left);
+            content.appendChild(row);
+        });
+    } catch (e) {
+        content.appendChild(el('div', 'text-danger text-sm', `Failed to load: ${e.message}`));
+    }
+}
+
+function openSpecialFileModal() {
+    openFileModal((names) => names.forEach(addSpecialCard));
+}
+
+function addSpecialCard(fileName) {
+    const container = document.getElementById('special-cards');
+    const empty = container.querySelector('.empty-board');
+    if (empty) empty.remove();
+    const cardState = { fileName, newName: fileName, episodeIndex: null, regexManual: null, renameManual: null, weight: 1 };
+    const card = el('div', 'card group-card');
+
+    const header = el('div', 'group-header');
+    const title = el('div');
+    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Special'));
+    const remove = el('button', 'btn-icon', '🗑️');
+    remove.onclick = () => card.remove();
+    header.append(title, remove);
+    card.appendChild(header);
+
+    card.appendChild(el('label', 'label', 'Incoming file name (exact match)'));
+    const original = el('div', 'font-mono text-accent original-name', fileName);
+    card.appendChild(original);
+
+    card.appendChild(el('label', 'label mt-4', 'New file name — what the folder rule below must recognise'));
+    const newNameInput = document.createElement('input');
+    newNameInput.type = 'text';
+    newNameInput.className = 'input font-mono';
+    newNameInput.value = fileName;
+    card.appendChild(newNameInput);
+    const newNameMsg = el('div', 'mt-2 text-xs validation-msg');
+    card.appendChild(newNameMsg);
+
+    const ruleBox = el('div', 'special-rule');
+    card.appendChild(ruleBox);
+
+    const footer = el('div', 'group-footer');
+    const save = el('button', 'btn btn-primary btn-sm', 'Save Special + Rule');
+    footer.appendChild(save);
+    card.appendChild(footer);
+
+    let regexInput, renameInput, weightInput;
+
+    function renderRule() {
+        const names = [cardState.newName];
+        const proposal = analyzeGroup(names, cardState.episodeIndex);
+        const regex = cardState.regexManual !== null ? cardState.regexManual : proposal.regex;
+        const rename = cardState.renameManual !== null ? cardState.renameManual : proposal.rename;
+        ruleBox.innerHTML = '';
+
+        const example = el('div', 'group-example');
+        example.appendChild(el('span', 'text-muted text-xs', 'Episode number in the new name — click a digit run to change: '));
+        const line = el('div', 'font-mono example-line');
+        const numbers = new Set(numberSlots(proposal.template));
+        proposal.template.slots.forEach((slot, i) => {
+            if (numbers.has(i)) {
+                const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
+                chip.onclick = () => { cardState.episodeIndex = i; cardState.regexManual = null; cardState.renameManual = null; renderRule(); };
+                line.appendChild(chip);
+            } else {
+                line.appendChild(el('span', null, slot.v));
+            }
+        });
+        example.appendChild(line);
+        ruleBox.appendChild(example);
+
+        const grid = el('div', 'grid-2');
+        const regexBox = el('div');
+        regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
+        regexInput = document.createElement('input');
+        regexInput.type = 'text';
+        regexInput.className = 'input font-mono';
+        regexInput.value = regex;
+        regexInput.oninput = () => { cardState.regexManual = regexInput.value; refreshCheck(); };
+        regexBox.appendChild(regexInput);
+        const regexMsg = el('div', 'mt-2 text-xs validation-msg');
+        regexBox.appendChild(regexMsg);
+        const renameBox = el('div');
+        renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
+        renameInput = document.createElement('input');
+        renameInput.type = 'text';
+        renameInput.className = 'input font-mono';
+        renameInput.value = rename;
+        renameInput.oninput = () => { cardState.renameManual = renameInput.value; refreshCheck(); };
+        renameBox.appendChild(renameInput);
+        const renameMsg = el('div', 'mt-2 text-xs validation-msg');
+        renameBox.appendChild(renameMsg);
+        grid.append(regexBox, renameBox);
+        ruleBox.appendChild(grid);
+
+        const row = el('div', 'group-footer-row');
+        const weightBox = el('div');
+        weightBox.appendChild(el('label', 'label', 'Weight'));
+        weightInput = document.createElement('input');
+        weightInput.type = 'number';
+        weightInput.min = 1;
+        weightInput.className = 'input text-center small-number';
+        weightInput.value = cardState.weight;
+        weightInput.oninput = () => { cardState.weight = parseInt(weightInput.value, 10) || 1; };
+        weightBox.appendChild(weightInput);
+        const summary = el('div', 'extraction-box');
+        row.append(weightBox, summary);
+        ruleBox.appendChild(row);
+
+        function refreshCheck() {
+            const result = testPattern(regexInput.value, [cardState.newName]);
+            const first = result.perFile[0];
+            if (result.syntaxError) {
+                regexMsg.textContent = '⚠ Invalid regex syntax';
+                regexMsg.className = 'mt-2 text-xs text-danger validation-msg';
+            } else if (first.valid) {
+                regexMsg.textContent = '✓ The new name yields an episode number';
+                regexMsg.className = 'mt-2 text-xs text-success validation-msg';
+            } else {
+                regexMsg.textContent = "⚠ No valid 'episode' group on the new name";
+                regexMsg.className = 'mt-2 text-xs text-warning validation-msg';
+            }
+            if (!renameInput.value.includes(EPISODE_PLACEHOLDER)) {
+                renameMsg.textContent = `⚠ Must contain ${EPISODE_PLACEHOLDER}`;
+                renameMsg.className = 'mt-2 text-xs text-warning validation-msg';
+            } else {
+                renameMsg.textContent = '';
+                renameMsg.className = 'mt-2 text-xs text-muted validation-msg';
+            }
+            summary.innerHTML = '';
+            summary.appendChild(el('span', 'text-xs text-muted uppercase', 'Extracted episode'));
+            summary.appendChild(el('span', `text-3xl font-bold ${first.valid ? 'text-success' : 'text-muted'}`, first.valid ? first.episode : '-'));
+        }
+        refreshCheck();
     }
 
-    const payload = {
-        regex_pattern: regexVal,
-        rename_pattern: renameVal,
-        weight: weight,
-        example_filename: item.filename,
-        destination_path: state.selectedFolderPath
+    newNameInput.oninput = () => {
+        cardState.newName = newNameInput.value;
+        cardState.episodeIndex = null;
+        cardState.regexManual = null;
+        cardState.renameManual = null;
+        if (cardState.newName === cardState.fileName) {
+            newNameMsg.textContent = '⚠ The new name must differ from the incoming name';
+            newNameMsg.className = 'mt-2 text-xs text-warning validation-msg';
+        } else if (/[\/\\]/.test(cardState.newName)) {
+            newNameMsg.textContent = '⚠ A file name, not a path';
+            newNameMsg.className = 'mt-2 text-xs text-danger validation-msg';
+        } else {
+            newNameMsg.textContent = '';
+        }
+        renderRule();
     };
 
-    try {
-        await api.createRegex(payload);
-        showToast('Rule saved successfully!', 'success');
-
-        if (closeOnSuccess) {
-            removeCard(id);
-        } else {
-            // Optional: Visual feedback like disabling button or changing text
-            const btn = card.querySelector('button.btn-primary');
-            if (btn) {
-                btn.textContent = 'Saved ✓';
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-secondary'); // or checkmark style
-                setTimeout(() => {
-                    btn.textContent = 'Save Rule';
-                    btn.classList.add('btn-primary');
-                    btn.classList.remove('btn-secondary');
-                }, 3000);
+    save.onclick = async () => {
+        if (!specialTab.folder) { showToast('Select a folder first', 'error'); return; }
+        const newName = cardState.newName.trim();
+        if (!newName || newName === cardState.fileName) { showToast('Give the special a new name first', 'error'); return; }
+        const regex = regexInput.value;
+        const rename = renameInput.value;
+        const check = testPattern(regex, [newName]);
+        if (!check.allValid) { showToast('The regex must extract a valid episode number from the new name', 'error'); return; }
+        if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
+        save.disabled = true;
+        try {
+            const special = await api.createSpecial({ file_name: cardState.fileName, new_file_name: newName });
+            showToast(special.message, 'success');
+            if (special.incrementaller_conflict) {
+                showToast(`Warning: an increment rule also matches the new name: ${special.incrementaller_conflict}`, 'error', 8000);
             }
+            try {
+                const rule = await api.createRegex({ regex_pattern: regex, rename_pattern: rename, weight: cardState.weight, example_filename: newName, destination_path: specialTab.folder.destination_path });
+                showToast(rule.message, 'success');
+            } catch (e) {
+                // "Conflict with existing regex" means the new name is already covered: the special still works.
+                showToast('Rule not saved: ' + e.message, /Conflict with existing regex/i.test(e.message) ? 'info' : 'error', 8000);
+            }
+            card.classList.add('saved');
+            loadSpecialList();
+            loadExistingRulesInto('special-existing-content', () => loadFolderRules(specialTab.folder.id), 'No existing rules for this folder.');
+        } catch (e) {
+            showToast('Error saving special: ' + e.message, 'error', 6000);
+        } finally {
+            save.disabled = false;
         }
+    };
 
-    } catch (e) {
-        showToast('Error saving rule: ' + e.message, 'error');
-    }
+    newNameInput.oninput();
+    container.appendChild(card);
 }
 
-// submitAllRegex removed in favor of single rule submission
+// --- 8d. Incrementaller tab ---
 
-// Init
-// initRegexTab(); // Removed auto-init, handled by switchTab
+let incrementallerTab = null;
+
+function initIncrementallerTab() {
+    if (incrementallerTab) { loadIncrementallerList(); return; }
+    const board = createGroupBoard({
+        containerId: 'incr-cards', mode: 'incrementaller',
+        emptyText: 'Add files: one rule per file by default, drag a file onto another rule to group them.'
+    });
+    board.onSaved = () => loadIncrementallerList();
+    incrementallerTab = { board };
+    board.render();
+    loadIncrementallerList();
+}
+
+function loadIncrementallerList() {
+    return loadExistingRulesInto('incr-existing-content', async () => (await api.getIncrementallers()).incrementaller || [], 'No increment rule declared yet.');
+}
+
+function openIncrementallerFileModal() {
+    openFileModal((names) => incrementallerTab.board.addFiles(names, false));
+}
+
+// Exposed for the engine self-test page (no module system, plain script).
+window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, extractEpisode, buildRegex };

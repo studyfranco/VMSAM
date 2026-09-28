@@ -6,8 +6,13 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - VMSAM_API_HOST=http://vmsam-api:8000
+      # VMSAM's public API (main_gestionar_show.py binds it on 0.0.0.0:8080)
+      - VMSAM_API_HOST=http://vmsam-api:8080
+      # Library root. Must be the SAME path VMSAM uses: folder creation stores
+      # CREATE_ROOT/<relative path> as the folder's destination_path, and
+      # Index Folder lists a registered folder by stripping CREATE_ROOT again.
       - CREATE_ROOT=/srv/media
+      # The folder VMSAM watches for incoming files
       - FILES_ROOT=/srv/downloads
       - RUST_LOG=poem=debug
     volumes:

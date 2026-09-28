@@ -1,5 +1,6 @@
 use poem::{
-    endpoint::StaticFilesEndpoint, listener::TcpListener, middleware::Cors, EndpointExt, Route, Server,
+    endpoint::StaticFilesEndpoint, listener::TcpListener, middleware::Cors, EndpointExt, Route,
+    Server,
 };
 use std::env;
 
@@ -24,7 +25,5 @@ async fn main() -> Result<(), std::io::Error> {
     let addr = format!("0.0.0.0:{}", port);
     println!("Server running at http://{}", addr);
 
-    Server::new(TcpListener::bind(addr))
-        .run(app)
-        .await
+    Server::new(TcpListener::bind(addr)).run(app).await
 }

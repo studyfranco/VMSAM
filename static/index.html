@@ -14,9 +14,12 @@
         <header class="header-bar">
             <h1 class="title">VMSAM Interface</h1>
             <nav class="nav-group">
-                <button onclick="switchTab('home-tab')" class="btn btn-secondary">Home</button>
-                <button onclick="switchTab('folder-tab')" class="btn btn-secondary">Folder Creation</button>
-                <button onclick="switchTab('regex-tab')" class="btn btn-secondary">Bulk Regex</button>
+                <button data-tab="home-tab" onclick="switchTab('home-tab')" class="btn btn-secondary">Home</button>
+                <button data-tab="folder-tab" onclick="switchTab('folder-tab')" class="btn btn-secondary">Folder Creation</button>
+                <button data-tab="regex-tab" onclick="switchTab('regex-tab')" class="btn btn-secondary">Bulk Regex</button>
+                <button data-tab="index-tab" onclick="switchTab('index-tab')" class="btn btn-secondary">Index Folder</button>
+                <button data-tab="special-tab" onclick="switchTab('special-tab')" class="btn btn-secondary">Specials</button>
+                <button data-tab="incr-tab" onclick="switchTab('incr-tab')" class="btn btn-secondary">Incrementaller</button>
             </nav>
         </header>
 
@@ -28,7 +31,7 @@
                     <h2 class="title">Welcome to VMSAM</h2>
                     <p class="text-muted">Select a tool to get started</p>
                 </div>
-                <div class="grid-2">
+                <div class="grid-3 home-grid">
                     <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('folder-tab')">
                         <div class="text-large icon-green-filter">📁</div>
                         <h3>Create Folder</h3>
@@ -40,6 +43,27 @@
                         <div class="text-large icon-green-filter">⚡</div>
                         <h3>Bulk Regex</h3>
                         <p class="text-muted">Manage regex patterns for file renaming.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('index-tab')">
+                        <div class="text-large icon-green-filter">🗂️</div>
+                        <h3>Index Folder</h3>
+                        <p class="text-muted">Register the files a folder already holds.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('special-tab')">
+                        <div class="text-large icon-green-filter">🎬</div>
+                        <h3>Specials</h3>
+                        <p class="text-muted">Give a special its final name before integration.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('incr-tab')">
+                        <div class="text-large icon-green-filter">➕</div>
+                        <h3>Incrementaller</h3>
+                        <p class="text-muted">Shift episode numbers of a release before the rules run.</p>
                         <button class="btn btn-primary mt-4">Get Started →</button>
                     </div>
                 </div>
@@ -62,7 +86,7 @@
                     <div class="grid-2">
                         <div class="form-group">
                             <label class="label">Series Name</label>
-                            <input type="text" id="series-name" class="input" placeholder="e.g. Breaking Bad">
+                            <input type="text" id="series-name" class="input" placeholder="e.g. My Show">
                         </div>
                         <div class="form-group">
                             <label class="label">TVDB ID</label>
@@ -76,8 +100,7 @@
 
                     <!-- Advanced Options -->
                     <div class="card" style="margin-top: 1rem; background-color: var(--bg-surface);">
-                        <button onclick="toggleAdvanced()" class="btn btn-sm btn-secondary"
-                            style="margin-bottom: 1rem;">
+                        <button onclick="toggleAdvanced()" class="btn btn-sm btn-secondary" style="margin-bottom: 1rem;">
                             <span id="adv-icon">▶</span> Advanced Options
                         </button>
                         <div id="advanced-options" class="grid-3 hidden">
@@ -102,11 +125,9 @@
                     </div>
 
                     <!-- Preview -->
-                    <div class="card mt-4"
-                        style="background-color: rgba(61, 174, 233, 0.1); border-color: var(--highlight);">
+                    <div class="card mt-4" style="background-color: rgba(61, 174, 233, 0.1); border-color: var(--highlight);">
                         <div class="label" style="color: var(--highlight);">Preview Path</div>
-                        <code id="path-preview" class="font-mono text-main"
-                            style="word-break: break-all;">Select a directory...</code>
+                        <code id="path-preview" class="font-mono text-main" style="word-break: break-all;">Select a directory...</code>
                     </div>
 
                     <div class="mt-4 text-center" style="display: flex; justify-content: flex-end;">
@@ -127,8 +148,7 @@
                         <div class="grid-2">
                             <div>
                                 <h4 class="text-accent">✅ Valid Examples</h4>
-                                <ul class="help-list"
-                                    style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+                                <ul class="help-list" style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
                                     <li class="mb-2">
                                         <strong>Simple digit capture:</strong><br>
                                         <code class="text-accent">(?P&lt;episode&gt;\d+)</code>
@@ -145,18 +165,21 @@
                             </div>
                             <div>
                                 <h4 class="text-accent" style="color: var(--danger);">❌ Invalid Examples</h4>
-                                <ul class="help-list"
-                                    style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
-                                    <li class="mb-2"><code>(\d+)</code> - <span class="text-muted">Missing named
-                                            group</span></li>
+                                <ul class="help-list" style="padding-left: 1.2rem; margin-top: 0.5rem; color: var(--text-muted);">
+                                    <li class="mb-2"><code>(\d+)</code> - <span class="text-muted">Missing named group</span></li>
                                     <li><code>(.*)</code> - <span class="text-muted">Too greedy/vague</span></li>
                                 </ul>
-                                <div class="mt-4 p-2 text-sm"
-                                    style="background: var(--bg-surface); border: 1px solid var(--accent); border-radius: 4px;">
-                                    <strong>Note:</strong> Rename pattern must strictly use <code
-                                        class="text-accent">{&lt;episode&gt;}</code> placeholder.
+                                <div class="mt-4 p-2 text-sm" style="background: var(--bg-surface); border: 1px solid var(--accent); border-radius: 4px;">
+                                    <strong>Note:</strong> Rename pattern must strictly use <code class="text-accent">{&lt;episode&gt;}</code> placeholder.
                                 </div>
                             </div>
+                        </div>
+                        <div class="mt-4 text-sm text-muted">
+                            <strong>Grouping:</strong> each added file starts as its own rule. Drag a file onto another rule to
+                            cover both with one regex: what differs between the names becomes <code class="text-accent">.+</code>,
+                            a number that only changes value becomes <code class="text-accent">\d+</code>, and the digit run
+                            chosen as the episode becomes <code class="text-accent">(?P&lt;episode&gt;\d+)</code>. Click another
+                            digit run in the example line if the guess is wrong; <strong>−</strong> moves a file back to its own rule.
                         </div>
                     </div>
                 </div>
@@ -164,29 +187,155 @@
                 <div class="card">
                     <h2 class="section-title">1. Select Target Folder</h2>
                     <div class="form-group">
-                        <input type="text" id="folder-search" class="input" placeholder="Search folders...">
+                        <input type="text" id="regex-folder-search" class="input" placeholder="Search folders...">
                     </div>
-                    <!-- Folder List Dropdown -->
-                    <div id="folder-list" class="dir-browser-container hidden"></div>
+                    <div id="regex-folder-list" class="dir-browser-container hidden"></div>
 
-                    <div id="selected-folder-display" class="hidden flex flex-between items-center mt-2 p-2"
-                        style="background: var(--bg-surface); border-radius: 4px;">
+                    <div id="regex-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
                         <span class="font-mono text-accent"></span>
                         <button onclick="clearFolderSelection()" class="btn btn-sm btn-secondary">Change</button>
                     </div>
                 </div>
 
-                <div id="regex-work-area" class="mt-4" style="opacity: 0.5; pointer-events: none;">
+                <div id="regex-existing" class="card mt-4 hidden">
+                    <div onclick="toggleCollapsible('regex-existing-content', 'regex-existing-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Existing Rules</h3>
+                        <span id="regex-existing-icon">▼</span>
+                    </div>
+                    <div id="regex-existing-content" class="hidden mt-4"></div>
+                </div>
+
+                <div id="regex-work-area" class="mt-4 disabled-area">
                     <div class="flex flex-between items-center mb-4">
                         <h2 class="section-title" style="margin:0;">2. Define Rules</h2>
-                        <button onclick="openFileModal()" class="btn btn-primary btn-sm">+ Add Files</button>
+                        <button onclick="openRegexFileModal()" class="btn btn-primary btn-sm">+ Add Files</button>
                     </div>
+                    <div id="regex-cards" class="board"></div>
+                </div>
+            </section>
 
-                    <div id="regex-cards"></div>
-
-                    <div class="mt-4 text-center" style="display: flex; justify-content: flex-end;">
-                        <!-- Global submit removed in favor of per-card save -->
+            <!-- Index Folder Tab -->
+            <section id="index-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select the folder to index</h2>
+                    <p class="text-muted text-sm">A folder that already holds files. Files an existing rule covers are listed
+                        apart; the others are grouped by their first five characters, one proposed rule per group. Save the
+                        rules you want, then index: VMSAM renames each matching file with its rule and registers it with the
+                        rule's weight. A file whose episode is already registered is left untouched.</p>
+                    <div class="form-group">
+                        <input type="text" id="index-folder-search" class="input" placeholder="Search folders...">
                     </div>
+                    <div id="index-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="index-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                        <span class="font-mono text-accent"></span>
+                        <button onclick="indexTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                    </div>
+                </div>
+
+                <div id="index-existing" class="card mt-4 hidden">
+                    <div onclick="toggleCollapsible('index-existing-content', 'index-existing-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Existing Rules</h3>
+                        <span id="index-existing-icon">▼</span>
+                    </div>
+                    <div id="index-existing-content" class="hidden mt-4"></div>
+                    <div onclick="toggleCollapsible('index-covered-content', 'index-covered-icon')" class="flex flex-between items-center mt-4" style="cursor: pointer;">
+                        <h3 style="margin:0;">Files already covered by a rule (<span id="index-covered-count">0</span>)</h3>
+                        <span id="index-covered-icon">▼</span>
+                    </div>
+                    <div id="index-covered-content" class="hidden mt-4 group-files"></div>
+                </div>
+
+                <div id="index-work-area" class="mt-4 disabled-area">
+                    <div class="flex flex-between items-center mb-4">
+                        <div>
+                            <h2 class="section-title" style="margin:0;">2. Rules for the files without one</h2>
+                            <span id="index-file-count" class="text-muted text-sm"></span>
+                        </div>
+                        <button onclick="loadIndexFolderFiles()" class="btn btn-secondary btn-sm">↻ Reload files</button>
+                    </div>
+                    <div id="index-cards" class="board"></div>
+
+                    <div class="card mt-4 index-run">
+                        <div>
+                            <h2 class="section-title" style="margin:0;">3. Rename and register</h2>
+                            <span class="text-muted text-sm">Applies every saved rule of this folder to its files.</span>
+                        </div>
+                        <button id="index-run-btn" onclick="runIndexFolder()" class="btn btn-primary">Index folder now</button>
+                    </div>
+                    <div id="index-report" class="card mt-4 hidden">
+                        <h3 style="margin-top:0;">Indexing report</h3>
+                        <div id="index-report-content"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Specials Tab -->
+            <section id="special-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select the folder of the show</h2>
+                    <p class="text-muted text-sm">A special is matched by its exact incoming name and renamed in the watch
+                        folder before any rule runs. The rule you save with it recognises the new name and integrates the file
+                        into this folder like any other episode.</p>
+                    <div class="form-group">
+                        <input type="text" id="special-folder-search" class="input" placeholder="Search folders...">
+                    </div>
+                    <div id="special-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="special-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                        <span class="font-mono text-accent"></span>
+                        <button onclick="specialTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div onclick="toggleCollapsible('special-list-content', 'special-list-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Declared specials</h3>
+                        <span id="special-list-icon">▼</span>
+                    </div>
+                    <div id="special-list-content" class="hidden mt-4"></div>
+                </div>
+
+                <div id="special-existing" class="card mt-4 hidden">
+                    <div onclick="toggleCollapsible('special-existing-content', 'special-existing-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Existing Rules of this folder</h3>
+                        <span id="special-existing-icon">▼</span>
+                    </div>
+                    <div id="special-existing-content" class="hidden mt-4"></div>
+                </div>
+
+                <div id="special-work-area" class="mt-4 disabled-area">
+                    <div class="flex flex-between items-center mb-4">
+                        <h2 class="section-title" style="margin:0;">2. Name the specials</h2>
+                        <button onclick="openSpecialFileModal()" class="btn btn-primary btn-sm">+ Add Files</button>
+                    </div>
+                    <div id="special-cards" class="board">
+                        <div class="text-muted text-sm empty-board">Add the special files waiting in the download root.</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Incrementaller Tab -->
+            <section id="incr-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">Increment rules</h2>
+                    <p class="text-muted text-sm">The incrementaller renames a file in the watch folder before the folder rules
+                        run: the episode number it extracts is shifted by the increment and written into the rename pattern.
+                        Typical use: a release numbered from 1 for a season whose folder rules expect the absolute number.</p>
+                </div>
+
+                <div class="card mt-4">
+                    <div onclick="toggleCollapsible('incr-existing-content', 'incr-existing-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Existing increment rules</h3>
+                        <span id="incr-existing-icon">▼</span>
+                    </div>
+                    <div id="incr-existing-content" class="hidden mt-4"></div>
+                </div>
+
+                <div id="incr-work-area" class="mt-4">
+                    <div class="flex flex-between items-center mb-4">
+                        <h2 class="section-title" style="margin:0;">Define rules</h2>
+                        <button onclick="openIncrementallerFileModal()" class="btn btn-primary btn-sm">+ Add Files</button>
+                    </div>
+                    <div id="incr-cards" class="board"></div>
                 </div>
             </section>
         </main>
@@ -200,7 +349,7 @@
                 <button onclick="closeFileModal()" class="btn-icon">✕</button>
             </div>
             <div class="form-group">
-                <input type="text" id="file-search" class="input" placeholder="Filter files...">
+                <input type="text" id="file-search" class="input" placeholder="Filter files (regex)...">
             </div>
             <div id="file-list" class="modal-body dir-browser-container"></div>
             <div style="display: flex; justify-content: flex-end; gap: 1rem;">
