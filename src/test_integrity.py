@@ -80,6 +80,8 @@ HEALTHY = [
 
 # the healthy masters' measured same-file silence differences (label -> {(a, b, result)})
 KNOWN_SILENCE_DIFFERENCES = {"e352": {(1, 2, "B")}}
+# the owner's delivered-track rule (2026-09-28) on those masters: the drops it decides
+KNOWN_RULE_DROPS = {"e352": [(2, ["interior_silence"])]}
 
 MODE = "all"
 RESULTS = []            # (case, expected, got, cost_s) printed at the end
@@ -226,30 +228,35 @@ class Synthetic(unittest.TestCase):
              m["cost_s"])
 
     def test_delivered_silence_rule(self):
-        # owner 2026-09-26 01:3x: a delivered track's silence the reference lacks drops it,
-        # unless it runs to the master's end or every other delivered stream shares it
-        ref = _mux(self.tmp, "ds_ref", [_signal([(600, "c")], seed=5)], video_s=600)
-        d = _mux(self.tmp, "ds_d", [_signal([(600, "c")], seed=5),
-                                    _signal([(570, "c"), (30, "s")], seed=5),
-                                    _signal([(200, "c"), (30, "s"), (370, "c")], seed=5)],
-                 video_s=600)
-        e = _mux(self.tmp, "ds_e", [_signal([(200, "c"), (30, "s"), (370, "c")], seed=5),
-                                    _signal([(200, "c"), (30, "s"), (370, "c")], seed=5)],
+        # owner 2026-09-28: a delivered track's silence the reference lacks INSIDE the master
+        # video's bounds drops it ('interior_silence'); ENTIRELY outside them keeps it
+        # ('outside_video_bounds'). The reference track plays 660 s over a 600 s video.
+        ref = _mux(self.tmp, "ds_ref", [_signal([(660, "c")], seed=5)], video_s=600)
+        d = _mux(self.tmp, "ds_d", [_signal([(660, "c")], seed=5),
+                                    _signal([(620, "c"), (40, "s")], seed=5),
+                                    _signal([(580, "c"), (80, "s")], seed=5),
+                                    _signal([(200, "c"), (30, "s"), (430, "c")], seed=5),
+                                    _signal([(30, "s"), (630, "c")], seed=5)],
                  video_s=600)
         got, t = [], time.time()
-        for f, n, others in ((d, 0, [0, 1, 2]), (d, 1, [0, 1, 2]), (d, 2, [0, 1, 2]),
-                             (e, 0, [0, 1]), (e, 1, [0, 1]), (e, 0, [])):
-            r = I.delivered_silence_report(ref, 0, f, n, 0, other_streams=others,
+        for n, bounds in ((0, None), (1, None), (2, None), (3, None), (4, (50.0, 600.0)),
+                          (4, None)):
+            r = I.delivered_silence_report(ref, 0, d, n, 0, video_bounds_s_=bounds,
                                            kind="audio_pos")
             got.append((r["verdict"], [x["rule"] for x in r["silences"]]))
-        expected = [("agree", []), ("kept", ["outside_master_length"]), ("dropped", [None]),
-                    ("kept", ["present_in_all_streams"]), ("kept", ["present_in_all_streams"]),
-                    ("dropped", [None])]
-        note("delivered silence rule: agree / tail kept / mid dropped / all streams kept / "
-             "alone dropped", expected, got, time.time() - t)
+        expected = [("agree", []),
+                    ("kept", ["outside_video_bounds"]),        # 620-660 s, after the video
+                    ("dropped", ["interior_silence"]),         # 580-660 s, starts inside it
+                    ("dropped", ["interior_silence"]),         # 200-230 s, the middle
+                    ("kept", ["outside_video_bounds"]),        # 0-30 s, before a video at 50 s
+                    ("dropped", ["interior_silence"])]         # 0-30 s, the video starts at 0
+        note("delivered silence rule: agree / after the video kept / across the end dropped / "
+             "middle dropped / before the video kept / inside from 0 dropped", expected, got,
+             time.time() - t)
         self.assertEqual(got, expected)
-        self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 2, 0, other_streams=[0, 1, 2],
-                                                           kind="audio_pos"), (False, "dropped"))
+        self.assertEqual(I.video_bounds_s(ref), (0.0, 600.0))
+        self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 3, 0, kind="audio_pos"),
+                         (False, "dropped"))
 
     def test_resolve_stream_kinds(self):
         v = _mux(self.tmp, "rs", [_signal([(30, "c")], seed=1), _signal([(30, "c")], seed=2)],
@@ -526,22 +533,24 @@ class RealNegatives(unittest.TestCase):
                 if not rep["agree"]:
                     disagree.append((audio[0], idx, rep["result"],
                                      (rep["a_only"] or rep["b_only"])[:1]))
-            # the owner's delivered-track rule (2026-09-26 01:3x) on the same pairs: every
-            # silence the first track lacks must be legitimate -- 0 false drops on a healthy
-            # master; e352's fre#2 credits silence is KEPT by 'outside_master_length'
+            # the owner's delivered-track rule (2026-09-28) on the same pairs: a silence the first
+            # track lacks inside the video's bounds drops the track. MEASURED: e352's fre#2
+            # silence starts at 1 419.2 s, before its video's last instant (1 451.117 s): it is
+            # interior by this rule and the track is dropped -- the only drop on the 19 masters
             drops, kept = [], []
             for idx in audio[1:]:
-                r = I.delivered_silence_report(path, audio[0], path, idx, 0, other_streams=audio)
+                r = I.delivered_silence_report(path, audio[0], path, idx, 0)
                 if r["verdict"] == "dropped":
-                    drops.append((idx, r["silences"][:1]))
+                    drops.append((idx, [x["rule"] for x in r["silences"]]))
                 elif r["verdict"] == "kept":
                     kept.append((idx, [x["rule"] for x in r["silences"]]))
-            if kept:
-                print(f"      kept by the owner's rule: {kept}")
+            if kept or drops:
+                print(f"      owner's rule: kept={kept} dropped={drops}")
+            expected_drops = KNOWN_RULE_DROPS.get(label, [])
             if label == "e352":
-                note("e352 fre#2 credits silence vs eng#1: kept by the owner's rule",
-                     [(2, ["outside_master_length"])], kept, 0.0)
-                self.assertEqual(kept, [(2, ["outside_master_length"])])
+                note("e352 fre#2 silence 1 419.2-1 451.1 s vs eng#1: interior, dropped",
+                     expected_drops, drops, 0.0)
+            unexpected_drops = [x for x in drops if x not in expected_drops]
             cost_s = time.time() - t
             v = I.video_check(path)
             # MEASURED 2026-09-26: e352's fre AAC (#2) is digital silence over its last 31.9 s
@@ -549,7 +558,7 @@ class RealNegatives(unittest.TestCase):
             # difference that the plain comparison (owner 23:5x, no tail exception) reports.
             known = KNOWN_SILENCE_DIFFERENCES.get(label, set())
             disagree = [d for d in disagree if (d[0], d[1], d[2]) not in known]
-            ok = not bad_tracks and not disagree and not drops and v["sound"]
+            ok = not bad_tracks and not disagree and not unexpected_drops and v["sound"]
             note(f"healthy {label}: {len(audio)} audio strict / {len(audio) - 1} silence pairs / video",
                  "all sound", "all sound" if ok else
                  f"tracks={bad_tracks} pairs={disagree} drops={drops} "

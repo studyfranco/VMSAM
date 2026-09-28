@@ -20,12 +20,12 @@ THE FUNCTIONS THE OWNER CALLS
       silences pas bons » -- 'AB' when each track has silences the other does
       not have (owner 23:5x). Its numbers: `silence_report(...) -> dict`.
   delivered_track_keeps_its_place(reference_video, reference_stream,
-                                  delivered_video, stream, delay_ms=0,
-                                  master_end_s=None, other_streams=None)
+                                  delivered_video, stream, delay_ms=0)
       -> (bool, 'agree' | 'kept' | 'dropped')
-      The owner's rule on a DELIVERED track (2026-09-26 01:3x, e352 / Netflix
-      credits): a silence the reference lacks drops the track unless it runs
-      to the master's end or every other stream shares it (kept, logged).
+      The owner's rule on a DELIVERED track (2026-09-28): a silence the
+      reference lacks INSIDE the master video's bounds drops the track
+      ('interior_silence'); one entirely outside them keeps it
+      ('outside_video_bounds'). Both logged.
       Its numbers: `delivered_silence_report(...) -> dict`.
   video_is_sound(video_obj) -> bool          (numbers: `video_check`)
       For the hook at video-object creation -> the owner's tag
@@ -658,80 +658,66 @@ def silences_agree(video_1, stream_a, video_2, stream_b, delay_ms=0, **kw):
     return (r["agree"], r["result"])
 
 
-# A DELIVERED TRACK'S SILENCES (owner 2026-09-26 01:3x, e352 / Netflix credits): « dans NOTRE
-# réparation, une piste dont le silence est hors de la taille du master ou présent dans tous
-# les flux est GARDÉE (loggée), sinon retirée ». READ HERE AS (inferred from the wording and
-# from the one measured case, e352 fre#2: digital silence 1 419.2 -> 1 451.1 s, the master's
-# video ends at 1 451.117 s, the eng FLAC plays credits music there):
-#   "outside the master's length" -- the silence runs to the master's end (its end within
-#   TAIL_REACH_S of the master's video end): what follows it is past the master, nothing of
-#   the master's length is left for the track to play;
-#   "present in all streams" -- every OTHER audio stream of the delivered file is silent over
-#   it too (no run of >= BAD_SILENCE_S louder than CONTENT_DB), at least one such stream.
-TAIL_REACH_S = 1.0
+# A DELIVERED TRACK'S SILENCES (owner, 2026-09-28 clarification, replacing the 2026-09-26 reading):
+# « après alignement des deux pistes, si l'une a un silence que l'autre n'a pas : au MILIEU du
+# fichier, dans les bornes de la VIDÉO du master -> la piste silencieuse a un défaut, retirée ;
+# au début ou à la fin, HORS des bornes de la vidéo (entièrement avant la première image ou après
+# la dernière image du master) -> la piste est bonne, gardée ». Both logged. No tail tolerance,
+# no « présent dans tous les flux ».
 
 
-def _silent_over(m, a, e, play_end):
-    """True when map `m` plays no run of >= BAD_SILENCE_S louder than CONTENT_DB in [a, e) of
-    its own timeline; no packet (up to play_end) is silence, as in `_unmatched`."""
-    b = m["block_s"]
-    t = np.arange(a + b / 2, e, b)
-    if not t.size:
-        return True
-    lv = np.nan_to_num(_levels_at(m, t), nan=-200.0)
-    need = int(math.ceil(BAD_SILENCE_S / b - 1e-9))
-    return not any(i1 - i0 >= need for i0, i1 in _runs(lv > CONTENT_DB))
+def video_bounds_s(video_obj):
+    """(first, last): the master video's first and last instants -- the video stream's
+    start_time (0 when absent) and `video_end_s`. (None, None) without video."""
+    end = video_end_s(video_obj)
+    if end is None:
+        return None, None
+    vs = _video_stream(_probe(_path_of(video_obj)))
+    start = fc._num((vs or {}).get("start_time")) or 0.0
+    return float(start), float(end)
 
 
 def delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
-                             delay_ms=0, *, master_end_s=None, other_streams=None,
-                             kind="stream_order", threads=THREADS):
+                             delay_ms=0, *, video_bounds_s_=None, kind="stream_order",
+                             threads=THREADS):
     """Does a DELIVERED track keep its place given its silences? The silence comparison
     (`silence_report`, A = the reference = the master's comparison track, B = the delivered
     track, `delay_ms` as there) and, for each silence of the delivered track the reference
-    does not have (`b_only`), the owner's rule that makes it legitimate: 'outside_master_length'
-    (it runs to within TAIL_REACH_S of `master_end_s`, default the reference file's video end,
-    carried onto the delivered timeline by the delay) or 'present_in_all_streams' (every stream
-    of `other_streams`, audio streams of `delivered_video`, is silent over it; an empty list
-    never qualifies). -> dict(keep, verdict ('agree' | 'kept' | 'dropped'), silences (b_only,
-    each with its `rule` or None), reference_only (a_only, logged, never a reason to drop),
-    master_end_s, report)."""
+    does not have (`b_only`), the owner's rule: 'outside_video_bounds' when it lies ENTIRELY
+    before the master video's first instant or after its last (the bounds carried onto the
+    delivered timeline by the delay) -- kept; 'interior_silence' otherwise -- the track is
+    dropped. `video_bounds_s_`: (first, last) of the master video, default read from
+    `reference_video`. -> dict(keep, verdict ('agree' | 'kept' | 'dropped'), silences (b_only,
+    each with its `rule`), reference_only (a_only, logged, never a reason to drop),
+    video_bounds_s, report)."""
     rep = silence_report(reference_video, reference_stream, delivered_video, stream, delay_ms,
                          kind=kind, threads=threads)
     d = float(delay_ms) / 1000.0
-    master_end = master_end_s if master_end_s is not None else video_end_s(reference_video)
-    others = [o for o in (other_streams or [])
-              if str(resolve_stream(delivered_video, o, kind)[1]["index"])
-              != str(rep["b"]["stream_index"])]
-    play_end = video_end_s(delivered_video)
+    first, last = (video_bounds_s_ if video_bounds_s_ is not None
+                   else video_bounds_s(reference_video))
     judged = []
     for s in rep["b_only"]:
-        rule = None
-        if master_end is not None and s["end_s"] >= master_end + d - TAIL_REACH_S:
-            rule = "outside_master_length"
-        elif others and all(
-                _silent_over(silence_map(delivered_video, o, kind=kind, threads=threads),
-                             s["start_s"], s["end_s"], play_end) for o in others):
-            rule = "present_in_all_streams"
-        judged.append(dict(s, rule=rule))
+        outside = (first is not None and last is not None
+                   and (s["end_s"] <= first + d or s["start_s"] >= last + d))
+        judged.append(dict(s, rule="outside_video_bounds" if outside else "interior_silence"))
     verdict = ("agree" if not judged else
-               "kept" if all(j["rule"] for j in judged) else "dropped")
+               "kept" if all(j["rule"] == "outside_video_bounds" for j in judged) else "dropped")
     out = dict(keep=verdict != "dropped", verdict=verdict, silences=judged,
-               reference_only=rep["a_only"], master_end_s=master_end, report=rep)
+               reference_only=rep["a_only"], video_bounds_s=(first, last), report=rep)
     if judged:
-        first = next((j for j in judged if not j["rule"]), judged[0])
-        _log(f"delivered_silence verdict={verdict} reference={rep['a']['path']}#"
-             f"{rep['a']['stream_index']} delivered={rep['b']['path']}#{rep['b']['stream_index']} "
-             f"silences={len(judged)} first={first['start_s']}-{first['end_s']}s "
-             f"rule={first['rule']} master_end_s={master_end}", always=True)
+        worst = next((j for j in judged if j["rule"] == "interior_silence"), judged[0])
+        _log(f"delivered_silence verdict={verdict} rule={worst['rule']} reference="
+             f"{rep['a']['path']}#{rep['a']['stream_index']} delivered={rep['b']['path']}#"
+             f"{rep['b']['stream_index']} silences={len(judged)} span={worst['start_s']}-"
+             f"{worst['end_s']}s video_bounds_s=({first}, {last})", always=True)
     return out
 
 
 def delivered_track_keeps_its_place(reference_video, reference_stream, delivered_video, stream,
                                     delay_ms=0, **kw):
     """(keep, verdict) -- `delivered_silence_report` in two values: (True, 'agree'),
-    (True, 'kept') when every silence the reference lacks is legitimate by the owner's rule,
-    (False, 'dropped') otherwise."""
+    (True, 'kept') when every silence the reference lacks lies outside the master video's
+    bounds, (False, 'dropped') when one lies inside them."""
     r = delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
                                  delay_ms, **kw)
     return r["keep"], r["verdict"]
