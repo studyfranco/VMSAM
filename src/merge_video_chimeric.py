@@ -2237,10 +2237,16 @@ def iterate_candidate_audios(candidate_obj):
     n'est PAS ce sur quoi le proprietaire a statue: "Raise it rather than
     extend this by analogy." Cela paraitra incoherent dans le code et c'est
     correct tant que la question n'est pas tranchee.
+
+    UNE PISTE DONT LA SOURCE ECHOUE AU DECODAGE STRICT N'A PLUS CE DROIT (owner,
+    2026-09-25 23:4x): `merge_video_repair.drop_corrupt_candidate_tracks` pose
+    `dropped_corrupt` sur son dict et la nomme (`repair: track_dropped_corrupt`).
     """
     for holder in (candidate_obj.audios, candidate_obj.audiodesc, candidate_obj.commentary):
         for language, audios in holder.items():
             for audio in audios:
+                if audio.get("dropped_corrupt"):
+                    continue
                 yield language, audio
 
 

@@ -23,6 +23,48 @@ import subprocess
 import tools
 import repair_log
 
+# `-reinit_filter 0` (owner 2026-09-26 01:3x, « avec -xerror -reinit_filter 0 »): an INPUT option,
+# so it stands before the `-i` below -- a change of audio parameters mid-stream fails the filter
+# graph instead of rebuilding it (MEASURED on the Chainsaw cut: rc 234 alone, « Changing audio
+# frame properties on the fly is not supported »).
+STRICT_DECODE_FLAGS = ["-xerror", "-reinit_filter", "0",
+                       "-err_detect", "crccheck+bitstream+buffer+explode"]
+
+
+def strict_decode_verdict(returncode, stderr_text):
+    """None when the extraction's decode is sound; else the lines that condemn the source:
+    rc != 0 WITH a decoder error line (`integrity.decode_error_lines`: every `-v error` line
+    but the muxer's and the seek's), or rc 0 with a fatal pattern
+    (`integrity.conversion_stderr_is_clean`). An rc != 0 without a decoder line is not a
+    verdict on the media and keeps its old refusal below."""
+    import integrity
+    lines = integrity.decode_error_lines(stderr_text)
+    if returncode != 0 and lines:
+        return lines
+    clean, fatal = integrity.conversion_stderr_is_clean(stderr_text)
+    return None if clean else fatal
+
+
+class StrictDecodeFailed(Exception):
+    """The extraction's own decode says the SOURCE TRACK is corrupt (owner 2026-09-25 23:4x,
+    « strict decode gratuit »: the WAV the prime extracts for fpcalc is decoded with
+    `-xerror -err_detect crccheck+bitstream+buffer+explode`, so that decode IS the strict
+    decode of `integrity.track_check` over the extracted span). Raised when ffmpeg exits
+    non-zero with a decoder error line, or exits 0 with one of
+    `integrity.FATAL_CONVERSION_PATTERNS` on its stderr. `lines` are the offending lines
+    (first 20), `rc` ffmpeg's exit status. A subclass of Exception like the refusal below, so a
+    caller that catches everything still refuses as before; the orchestrator's prime catches it
+    BY NAME (`comparison_track_corrupt`, the owner's policy)."""
+
+    def __init__(self, source_path, stream_order, rc, lines):
+        first = lines[0][:200] if lines else "?"
+        super().__init__(f"strict decode of {source_path} stream {stream_order} failed: rc={rc} "
+                         f"first=«{first}»")
+        self.source_path = source_path
+        self.stream_order = stream_order
+        self.rc = rc
+        self.lines = list(lines)[:20]
+
 
 class ExtractProducedNothing(Exception):
     """ffmpeg exited 0 and produced no audio. A type I own, so the site tally can name it.
@@ -98,7 +140,14 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     caller computes the corrected length from the EFFECTIVE ratio and passes that on. Said here
     because this function cannot check it: it never sees fpcalc.
     """
-    cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin",
+    # THE STRICT DECODE RIDES ON THE EXTRACTION (owner 2026-09-25 23:4x): `-xerror`,
+    # `-reinit_filter 0` and the `-err_detect` flags make this decode the integrity check of
+    # the span it reads, for free.
+    # MEASURED on the Chainsaw VARYG AMZN cut: the corrupt E-AC-3 frame at 4 007.968 s fails
+    # it (« frame CRC mismatch », rc 183); a clean cut, and 4 windows of a TrueHD stream, pass.
+    # The command is therefore no longer byte-identical to the locator's (the acceptance
+    # condition of the 2026-09-22 move, above): deliberately, by that order.
+    cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin"] + STRICT_DECODE_FLAGS + [
            "-ss", f"{start_seconds:.6f}", "-t", f"{length_seconds:.6f}",
            "-i", source_path, "-map", f"0:{stream_order}",
            "-vn", "-ac", "1", "-ar", str(sample_rate)]
@@ -140,6 +189,13 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     except subprocess.TimeoutExpired:
         raise tools.decoder_timeout("extract_audio_window", timeout,
                                     f"file={source_path} stream_order={stream_order}")
+    stderr_text = done.stderr.decode("utf-8", "replace")
+    corrupt = strict_decode_verdict(done.returncode, stderr_text)
+    if corrupt is not None:
+        tools.log_always(f"audio_extract: strict_decode_failed file={source_path} "
+                         f"stream_order={stream_order} rc={done.returncode} "
+                         f"lines={len(corrupt)} first=«{corrupt[0][:200]}»\n")
+        raise StrictDecodeFailed(source_path, stream_order, done.returncode, corrupt)
     if done.returncode != 0:
         raise Exception("This cmd is in error: " + " ".join(cmd) + "\n"
                         + done.stderr.decode("utf-8", "replace") + "\nReturn code: "

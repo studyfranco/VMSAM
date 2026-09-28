@@ -392,6 +392,9 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # plan decided; each delivered track is verified against ITS OWN ORIGINAL instead
     # (`verify_video_anchored`, same 15 ms tolerance), below.
     video_anchored = plan.get("video_anchored")
+    # OWNER POLICY 2026-09-25 23:4x: a rebuilt track whose SOURCE fails its strict decode is
+    # dropped from the future file, one `repair: track_dropped_corrupt` line each.
+    dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan)
     assembly = assemble_or_log_the_decline(
         candidate_obj, plan, Decimal("0"),
         candidate_obj, master_obj, plan["track_plans"], plan["reference_pieces"],
@@ -412,6 +415,7 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
         speed_engine=plan.get("speed_engine") or "asetrate")
 
     assembly["unverified_segment_ms"] = Decimal("0")
+    assembly["dropped_corrupt"] = dropped_corrupt
     if video_anchored is not None:
         verification, refusal = verify_video_anchored(
             assembly["path"], candidate_obj, assembly.get("audios") or [],
@@ -449,7 +453,129 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
     # pose ici est lu par `generate_new_file_audio_config`.
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
         repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"))
+    # OWNER 2026-09-26 01:3x (e352 / Netflix credits): a delivered track's silences the
+    # master's comparison track does not have drop it, unless they run past the master's
+    # length or every other delivered stream shares them (kept, logged).
+    assembly["silence_dropped"] = gate_delivered_silences(
+        repaired_obj, master_obj, plan.get("reference_stream"),
+        deadline=plan.get("repair_deadline"))
     return repaired_obj, assembly
+
+
+DROP_CORRUPT_JOBS = 3
+
+
+def drop_corrupt_candidate_tracks(candidate_obj, plan):
+    """Every candidate audio track the plan rebuilds, strictly decoded whole
+    (`integrity.track_check`, 3 at a time, -threads 2 each); a track whose decode fails is
+    marked `dropped_corrupt` on its dict -- `merge_video_chimeric.iterate_candidate_audios`
+    no longer yields it -- and named on the unconditional channel. A track the prime already
+    decoded strictly (`plan["strictly_decoded_streams"]`) is not decoded again. A decode that
+    ran past its bound decides nothing: the track stays, `track_integrity unmeasured`.
+    Returns the dropped tracks."""
+    import concurrent.futures
+    import integrity
+    import merge_video_chimeric
+    skip = {int(s) for s in plan.get("strictly_decoded_streams") or []}
+    todo = [(language, audio) for language, audio in
+            merge_video_chimeric.iterate_candidate_audios(candidate_obj)
+            if int(audio["StreamOrder"]) in (plan.get("track_plans") or {})
+            and int(audio["StreamOrder"]) not in skip]
+
+    def check(item):
+        try:
+            return item, integrity.track_check(candidate_obj, item[1]["StreamOrder"]), None
+        except Exception as error:                                       # noqa: BLE001
+            return item, None, error
+    dropped = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=DROP_CORRUPT_JOBS) as pool:
+        for (language, audio), result, error in pool.map(check, todo):
+            order = audio["StreamOrder"]
+            if result is None or result["verdict"] == "decoder_timeout":
+                tools.log_always(f"repair: track_integrity unmeasured stream={order} "
+                                 f"language={language} cause="
+                                 f"{'decoder_timeout' if result else type(error).__name__} -- "
+                                 f"no verdict, the track stays, for {candidate_obj.filePath}\n")
+                continue
+            if result["verdict"] != "corrupt":
+                continue
+            first = (result["error_lines"] or ["?"])[0][:200]
+            audio["dropped_corrupt"] = first
+            dropped.append({"stream_order": int(order), "language": language,
+                            "rc": result["rc"], "first": first,
+                            "cost_s": result["cost_s"]})
+            tools.log_always(f"repair: track_dropped_corrupt stream={order} language={language} "
+                             f"codec={result['codec']} rc={result['rc']} first=«{first}» "
+                             f"cost_s={result['cost_s']} for {candidate_obj.filePath}\n")
+    return dropped
+
+
+def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline=None,
+                            report=None):
+    """Every audio track still delivered (`keep` not False) of the repaired file, on the
+    master's timeline (delay 0), against the master's comparison track (`reference_stream`):
+    `integrity.delivered_silence_report`. A silence of the track the master's track does not
+    have is legitimate when it runs to the master's end or when every other delivered stream
+    shares it -- `repair: track_kept_silence`, kept; otherwise `keep=False` (read by
+    `generate_new_file_audio_config`) and `repair: track_dropped_silence`. A measurement that
+    fails or runs past its bound decides nothing: `track_silence unmeasured`, the track stays.
+    `deadline`: as the delivery gate -- past it the repair declines `repair_budget_exceeded`.
+    `report`: injectable for the tests. Returns the dropped tracks."""
+    import integrity
+    measure = report or integrity.delivered_silence_report
+    tracks = [(holder, language, audio) for holder in AUDIO_HOLDERS
+              for language, audios in (getattr(repaired_obj, holder, None) or {}).items()
+              for audio in audios if audio.get("keep", True)]
+    if reference_stream is None:
+        tools.log_always(f"repair: track_silence unmeasured cause=no_reference_stream "
+                         f"tracks={len(tracks)} for {repaired_obj.filePath}\n")
+        return []
+    orders = [a["StreamOrder"] for _, _, a in tracks]
+    master_end = integrity.video_end_s(master_obj)
+    dropped = []
+    for holder, language, audio in tracks:
+        order = audio["StreamOrder"]
+        where = f"stream={order} language={language} holder={holder}"
+        if deadline is not None and time.monotonic() > deadline:
+            import merge_video_chimeric
+            judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
+            tools.log_always(
+                f"repair: partial_plan cause=repair_budget_exceeded stage=silence_gate "
+                f"dropped_so_far={judged} next={where} -- the repair's budget ran out while "
+                f"the delivered tracks' silences were compared with the master's\n")
+            raise merge_video_chimeric.chimeric_error(
+                f"the repair's budget ran out in the silence gate, before {where} "
+                f"(dropped so far {judged}) -- the file comes back next wave",
+                cause="repair_budget_exceeded")
+        try:
+            r = measure(master_obj, reference_stream, repaired_obj, order, 0,
+                        master_end_s=master_end, other_streams=orders)
+        except Exception as error:                                       # noqa: BLE001
+            tools.log_always(f"repair: track_silence unmeasured {where} "
+                             f"cause={type(error).__name__}: {str(error)[:200]} -- no verdict, "
+                             f"the track stays, for {repaired_obj.filePath}\n")
+            continue
+        spans = " ".join(f"{s['start_s']}-{s['end_s']}s[{s['rule'] or 'none'}]"
+                         for s in r["silences"][:6])
+        if r["reference_only"]:
+            tools.log_always(f"repair: track_silence reference_only {where} "
+                             f"master_stream={reference_stream} n={len(r['reference_only'])} "
+                             f"first={r['reference_only'][0]['start_s']}-"
+                             f"{r['reference_only'][0]['end_s']}s -- the master's track is "
+                             f"silent where this one plays; not a reason to drop, for "
+                             f"{repaired_obj.filePath}\n")
+        if r["verdict"] == "kept":
+            tools.log_always(f"repair: track_kept_silence {where} master_stream="
+                             f"{reference_stream} master_end_s={r['master_end_s']} "
+                             f"silences={spans} for {repaired_obj.filePath}\n")
+        elif r["verdict"] == "dropped":
+            audio["keep"] = False
+            dropped.append({"stream_order": int(order), "language": language,
+                            "holder": holder, "silences": r["silences"]})
+            tools.log_always(f"repair: track_dropped_silence {where} master_stream="
+                             f"{reference_stream} master_end_s={r['master_end_s']} "
+                             f"silences={spans} for {repaired_obj.filePath}\n")
+    return dropped
 
 
 # ADDENDUM 27.8: where a video-anchored track is probed -- the fractions of its candidate piece.

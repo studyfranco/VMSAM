@@ -19,6 +19,14 @@ THE FUNCTIONS THE OWNER CALLS
       « elle renvoie (true, None) ou (false, 'A' ou 'B') sur la piste qui a des
       silences pas bons » -- 'AB' when each track has silences the other does
       not have (owner 23:5x). Its numbers: `silence_report(...) -> dict`.
+  delivered_track_keeps_its_place(reference_video, reference_stream,
+                                  delivered_video, stream, delay_ms=0,
+                                  master_end_s=None, other_streams=None)
+      -> (bool, 'agree' | 'kept' | 'dropped')
+      The owner's rule on a DELIVERED track (2026-09-26 01:3x, e352 / Netflix
+      credits): a silence the reference lacks drops the track unless it runs
+      to the master's end or every other stream shares it (kept, logged).
+      Its numbers: `delivered_silence_report(...) -> dict`.
   video_is_sound(video_obj) -> bool          (numbers: `video_check`)
       For the hook at video-object creation -> the owner's tag
       `video_unreliable`.
@@ -648,6 +656,85 @@ def silences_agree(video_1, stream_a, video_2, stream_b, delay_ms=0, **kw):
     (False, 'AB') when each has. Keywords and numbers: `silence_report`."""
     r = silence_report(video_1, stream_a, video_2, stream_b, delay_ms, **kw)
     return (r["agree"], r["result"])
+
+
+# A DELIVERED TRACK'S SILENCES (owner 2026-09-26 01:3x, e352 / Netflix credits): « dans NOTRE
+# réparation, une piste dont le silence est hors de la taille du master ou présent dans tous
+# les flux est GARDÉE (loggée), sinon retirée ». READ HERE AS (inferred from the wording and
+# from the one measured case, e352 fre#2: digital silence 1 419.2 -> 1 451.1 s, the master's
+# video ends at 1 451.117 s, the eng FLAC plays credits music there):
+#   "outside the master's length" -- the silence runs to the master's end (its end within
+#   TAIL_REACH_S of the master's video end): what follows it is past the master, nothing of
+#   the master's length is left for the track to play;
+#   "present in all streams" -- every OTHER audio stream of the delivered file is silent over
+#   it too (no run of >= BAD_SILENCE_S louder than CONTENT_DB), at least one such stream.
+TAIL_REACH_S = 1.0
+
+
+def _silent_over(m, a, e, play_end):
+    """True when map `m` plays no run of >= BAD_SILENCE_S louder than CONTENT_DB in [a, e) of
+    its own timeline; no packet (up to play_end) is silence, as in `_unmatched`."""
+    b = m["block_s"]
+    t = np.arange(a + b / 2, e, b)
+    if not t.size:
+        return True
+    lv = np.nan_to_num(_levels_at(m, t), nan=-200.0)
+    need = int(math.ceil(BAD_SILENCE_S / b - 1e-9))
+    return not any(i1 - i0 >= need for i0, i1 in _runs(lv > CONTENT_DB))
+
+
+def delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
+                             delay_ms=0, *, master_end_s=None, other_streams=None,
+                             kind="stream_order", threads=THREADS):
+    """Does a DELIVERED track keep its place given its silences? The silence comparison
+    (`silence_report`, A = the reference = the master's comparison track, B = the delivered
+    track, `delay_ms` as there) and, for each silence of the delivered track the reference
+    does not have (`b_only`), the owner's rule that makes it legitimate: 'outside_master_length'
+    (it runs to within TAIL_REACH_S of `master_end_s`, default the reference file's video end,
+    carried onto the delivered timeline by the delay) or 'present_in_all_streams' (every stream
+    of `other_streams`, audio streams of `delivered_video`, is silent over it; an empty list
+    never qualifies). -> dict(keep, verdict ('agree' | 'kept' | 'dropped'), silences (b_only,
+    each with its `rule` or None), reference_only (a_only, logged, never a reason to drop),
+    master_end_s, report)."""
+    rep = silence_report(reference_video, reference_stream, delivered_video, stream, delay_ms,
+                         kind=kind, threads=threads)
+    d = float(delay_ms) / 1000.0
+    master_end = master_end_s if master_end_s is not None else video_end_s(reference_video)
+    others = [o for o in (other_streams or [])
+              if str(resolve_stream(delivered_video, o, kind)[1]["index"])
+              != str(rep["b"]["stream_index"])]
+    play_end = video_end_s(delivered_video)
+    judged = []
+    for s in rep["b_only"]:
+        rule = None
+        if master_end is not None and s["end_s"] >= master_end + d - TAIL_REACH_S:
+            rule = "outside_master_length"
+        elif others and all(
+                _silent_over(silence_map(delivered_video, o, kind=kind, threads=threads),
+                             s["start_s"], s["end_s"], play_end) for o in others):
+            rule = "present_in_all_streams"
+        judged.append(dict(s, rule=rule))
+    verdict = ("agree" if not judged else
+               "kept" if all(j["rule"] for j in judged) else "dropped")
+    out = dict(keep=verdict != "dropped", verdict=verdict, silences=judged,
+               reference_only=rep["a_only"], master_end_s=master_end, report=rep)
+    if judged:
+        first = next((j for j in judged if not j["rule"]), judged[0])
+        _log(f"delivered_silence verdict={verdict} reference={rep['a']['path']}#"
+             f"{rep['a']['stream_index']} delivered={rep['b']['path']}#{rep['b']['stream_index']} "
+             f"silences={len(judged)} first={first['start_s']}-{first['end_s']}s "
+             f"rule={first['rule']} master_end_s={master_end}", always=True)
+    return out
+
+
+def delivered_track_keeps_its_place(reference_video, reference_stream, delivered_video, stream,
+                                    delay_ms=0, **kw):
+    """(keep, verdict) -- `delivered_silence_report` in two values: (True, 'agree'),
+    (True, 'kept') when every silence the reference lacks is legitimate by the owner's rule,
+    (False, 'dropped') otherwise."""
+    r = delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
+                                 delay_ms, **kw)
+    return r["keep"], r["verdict"]
 
 
 # ---------------------------------------------------------------- (C) the video

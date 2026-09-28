@@ -225,6 +225,32 @@ class Synthetic(unittest.TestCase):
         note("clicks in a 600 s silence ignored", "content_last=300", f"content_last={m['content_last_s']:.0f}",
              m["cost_s"])
 
+    def test_delivered_silence_rule(self):
+        # owner 2026-09-26 01:3x: a delivered track's silence the reference lacks drops it,
+        # unless it runs to the master's end or every other delivered stream shares it
+        ref = _mux(self.tmp, "ds_ref", [_signal([(600, "c")], seed=5)], video_s=600)
+        d = _mux(self.tmp, "ds_d", [_signal([(600, "c")], seed=5),
+                                    _signal([(570, "c"), (30, "s")], seed=5),
+                                    _signal([(200, "c"), (30, "s"), (370, "c")], seed=5)],
+                 video_s=600)
+        e = _mux(self.tmp, "ds_e", [_signal([(200, "c"), (30, "s"), (370, "c")], seed=5),
+                                    _signal([(200, "c"), (30, "s"), (370, "c")], seed=5)],
+                 video_s=600)
+        got, t = [], time.time()
+        for f, n, others in ((d, 0, [0, 1, 2]), (d, 1, [0, 1, 2]), (d, 2, [0, 1, 2]),
+                             (e, 0, [0, 1]), (e, 1, [0, 1]), (e, 0, [])):
+            r = I.delivered_silence_report(ref, 0, f, n, 0, other_streams=others,
+                                           kind="audio_pos")
+            got.append((r["verdict"], [x["rule"] for x in r["silences"]]))
+        expected = [("agree", []), ("kept", ["outside_master_length"]), ("dropped", [None]),
+                    ("kept", ["present_in_all_streams"]), ("kept", ["present_in_all_streams"]),
+                    ("dropped", [None])]
+        note("delivered silence rule: agree / tail kept / mid dropped / all streams kept / "
+             "alone dropped", expected, got, time.time() - t)
+        self.assertEqual(got, expected)
+        self.assertEqual(I.delivered_track_keeps_its_place(ref, 0, d, 2, 0, other_streams=[0, 1, 2],
+                                                           kind="audio_pos"), (False, "dropped"))
+
     def test_resolve_stream_kinds(self):
         v = _mux(self.tmp, "rs", [_signal([(30, "c")], seed=1), _signal([(30, "c")], seed=2)],
                  video_s=30)
@@ -500,6 +526,22 @@ class RealNegatives(unittest.TestCase):
                 if not rep["agree"]:
                     disagree.append((audio[0], idx, rep["result"],
                                      (rep["a_only"] or rep["b_only"])[:1]))
+            # the owner's delivered-track rule (2026-09-26 01:3x) on the same pairs: every
+            # silence the first track lacks must be legitimate -- 0 false drops on a healthy
+            # master; e352's fre#2 credits silence is KEPT by 'outside_master_length'
+            drops, kept = [], []
+            for idx in audio[1:]:
+                r = I.delivered_silence_report(path, audio[0], path, idx, 0, other_streams=audio)
+                if r["verdict"] == "dropped":
+                    drops.append((idx, r["silences"][:1]))
+                elif r["verdict"] == "kept":
+                    kept.append((idx, [x["rule"] for x in r["silences"]]))
+            if kept:
+                print(f"      kept by the owner's rule: {kept}")
+            if label == "e352":
+                note("e352 fre#2 credits silence vs eng#1: kept by the owner's rule",
+                     [(2, ["outside_master_length"])], kept, 0.0)
+                self.assertEqual(kept, [(2, ["outside_master_length"])])
             cost_s = time.time() - t
             v = I.video_check(path)
             # MEASURED 2026-09-26: e352's fre AAC (#2) is digital silence over its last 31.9 s
@@ -507,10 +549,11 @@ class RealNegatives(unittest.TestCase):
             # difference that the plain comparison (owner 23:5x, no tail exception) reports.
             known = KNOWN_SILENCE_DIFFERENCES.get(label, set())
             disagree = [d for d in disagree if (d[0], d[1], d[2]) not in known]
-            ok = not bad_tracks and not disagree and v["sound"]
+            ok = not bad_tracks and not disagree and not drops and v["sound"]
             note(f"healthy {label}: {len(audio)} audio strict / {len(audio) - 1} silence pairs / video",
                  "all sound", "all sound" if ok else
-                 f"tracks={bad_tracks} pairs={disagree} video={v['verdict']}:{v['reasons'][:1]}",
+                 f"tracks={bad_tracks} pairs={disagree} drops={drops} "
+                 f"video={v['verdict']}:{v['reasons'][:1]}",
                  cost_a + cost_s + v["cost_s"])
             print(f"      cost: audio strict {cost_a:.1f} s, silences {cost_s:.1f} s, "
                   f"video {v['cost_s']:.1f} s")

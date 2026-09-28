@@ -468,6 +468,10 @@ DECLINE_CAUSES = {
     # ADDENDUM 27.8, the video route. No match between the two files' scene changes is the
     # proof the ruling names (different files, with the numbers):
     "video_content_mismatch": CLASS_CONCLUSIVE,
+    # owner policy 2026-09-25 23:4x: a COMPARISON track whose strict decode fails routes to the
+    # video (27.8) when both pictures are sound; when one is not (`video_unreliable`), the pair
+    # is refused with the decoder's line -- measured on the pair, conclusive.
+    "comparison_track_corrupt": CLASS_CONCLUSIVE,
     # The arbiter could not run or could not conclude -- nothing proven about the pair:
     "video_fps_mismatch": CLASS_COULD_NOT_RUN,
     "video_offset_not_constant": CLASS_COULD_NOT_RUN,
@@ -889,7 +893,8 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
             # ADDENDUM 26.9: where this track's CONTENT ends, read on the WAV already extracted
             # for the fingerprint -- no second decode.
             measures["content_end_s"] = wav_content_end_s(wav)
-    except tools.decoder_timeout:
+    except (tools.decoder_timeout, audio_extract.StrictDecodeFailed):
+        # a corrupt source is the policy's, never a generic "could not fingerprint"
         raise
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"orchestrator: fingerprint_track raised on "
@@ -4340,6 +4345,9 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
                           for order, entry in tracks.items()}}
                      for zone in zones],
         "track_plans": track_plans, "reference_pieces": reference_pieces,
+        # the comparison track's whole-track extraction at the prime WAS its strict decode
+        # (audio_extract), so the build's corrupt-track gate does not decode it again
+        "strictly_decoded_streams": [int(context["candidate_stream"])],
         "marker": marker, "chapters_path": chapters_path,
         "speed_ratio": speed_ratio,
         "speed_ratio_exact": (None if speed_ratio is None else rate_text),
@@ -5259,6 +5267,68 @@ def _video_route_terminal(status, cause, reason, candidate_path, trigger):
 
 
 # ---------------------------------------------------------------------------
+# A CORRUPT COMPARISON TRACK -- owner policy 2026-09-25 23:4x (ADDENDUM 32.8 b)
+# ---------------------------------------------------------------------------
+COMPARISON_TRACK_CORRUPT = "comparison_track_corrupt"
+
+
+def _video_unreliable(video_obj):
+    """(unreliable, source): the owner's tag `video_unreliable` when the object carries one
+    (his hook at object creation, INTEGRITY_HOOKS_PROPOSAL_20260925 section 1), else measured
+    here by `integrity.video_is_sound` (sampled strict probe + consistency). (None,
+    'decoder_timeout') when the probe ran past its bound: no verdict."""
+    tag = getattr(video_obj, "video_unreliable", None)
+    if tag is not None:
+        return bool(tag), "tag"
+    import integrity
+    try:
+        return (not integrity.video_is_sound(video_obj)), "video_is_sound"
+    except tools.decoder_timeout:
+        return None, "decoder_timeout"
+
+
+def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, prime_reason,
+                                   candidate_path, repair_deadline):
+    """The comparison track's strict decode failed at the prime. Both pictures sound -> the
+    video arbitrates (ADDENDUM 27.8 route: every candidate track follows its picture, the build
+    drops any rebuilt track whose own source fails its strict decode --
+    `merge_video_repair.drop_corrupt_candidate_tracks`); a picture that is not ->
+    `comparison_track_corrupt`, conclusive, with the decoder's line."""
+    corrupt = primed.get("corrupt_track") or {}
+    first = (corrupt.get("lines") or ["?"])[0][:200]
+    evidence = {"side": corrupt.get("side"), "stream": corrupt.get("stream"),
+                "rc": corrupt.get("rc"), "first": first, "source": "prime_strict_decode"}
+    step_launch("comparison_track_corrupt", candidate=candidate_path, **evidence)
+    videos = {side: _video_unreliable(obj)
+              for side, obj in (("master", master_obj), ("candidate", candidate_obj))}
+    step_result("comparison_track_corrupt", candidate=candidate_path,
+                master_video_unreliable=videos["master"][0], master_source=videos["master"][1],
+                candidate_video_unreliable=videos["candidate"][0],
+                candidate_source=videos["candidate"][1])
+    if any(unreliable is None for unreliable, _ in videos.values()):
+        _plan_line("none", candidate_path, step="comparison_track_corrupt", cause="decoder_timeout")
+        return _terminal(candidate_path, "no_plan", "decoder_timeout", (
+            f"{prime_reason}; the video probe that decides the route ran past its bound "
+            f"({videos}) -- a statement about the tool on this host"))
+    bad = [side for side, (unreliable, _) in videos.items() if unreliable]
+    if bad:
+        _plan_line("none", candidate_path, step="comparison_track_corrupt",
+                   cause=COMPARISON_TRACK_CORRUPT)
+        return _terminal(candidate_path, "declined", COMPARISON_TRACK_CORRUPT, (
+            f"{prime_reason} (the {evidence['side']} stream {evidence['stream']}, decoder: "
+            f"«{first}»); the video cannot arbitrate: the {' and '.join(bad)} picture is "
+            f"unreliable ({videos})"), detail={"corrupt_track": corrupt, "videos": videos})
+    tools.log_always(f"repair: comparison_track_corrupt route=video_anchored "
+                     f"language={language} evidence={evidence} for {candidate_path}\n")
+    status, cause, reason = video_offset_plan.video_anchored_route(
+        COMPARISON_TRACK_CORRUPT, evidence, master_obj, candidate_obj, language, [],
+        repair_deadline)
+    # no audio path to fall back on: the comparison track is the corrupt one
+    return _video_route_terminal("declined" if status == "fallback" else status, cause, reason,
+                                 candidate_path, COMPARISON_TRACK_CORRUPT)
+
+
+# ---------------------------------------------------------------------------
 # THE ORCHESTRATOR
 # ---------------------------------------------------------------------------
 
@@ -5378,6 +5448,11 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     couples = primed["couples"]
     step_result("prime", candidate=candidate_path, ok=prime_ok, cause=prime_cause,
                 couples=couples)
+    if not prime_ok and prime_cause == COMPARISON_TRACK_CORRUPT:
+        _drop_rate_wav(primed)
+        return comparison_track_corrupt_route(master_obj, candidate_obj, comparison_language,
+                                              primed, prime_reason, candidate_path,
+                                              repair_deadline)
     if not prime_ok:
         _drop_rate_wav(primed)
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
@@ -5648,6 +5723,18 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                 return (False, "decoder_timeout",
                         f"the {side} {language} stream {stream} extraction ran past its bound "
                         f"({error}) -- a statement about the tool on this host")
+            except audio_extract.StrictDecodeFailed as error:
+                # THE FREE STRICT DECODE (owner 2026-09-25 23:4x): the whole-track extraction for
+                # fpcalc is decoded with -xerror -err_detect ...explode; it failed on this track.
+                primed["corrupt_track"] = {"side": side, "stream": stream, "rc": error.rc,
+                                           "lines": error.lines}
+                step_result("fingerprint", candidate=candidate_path, side=side, stream=stream,
+                            strict_decode="failed", rc=error.rc,
+                            first=(error.lines[0][:160] if error.lines else None),
+                            seconds=round(time.time() - started, 2))
+                return (False, COMPARISON_TRACK_CORRUPT,
+                        f"the {side} {language} comparison stream {stream} fails its strict "
+                        f"decode: rc={error.rc}, «{error.lines[0][:200] if error.lines else '?'}»")
             step_result("fingerprint", candidate=candidate_path, side=side, stream=stream,
                         n_points=len(points) if points else 0,
                         quantum_ms=round(quantum_ms, 4) if quantum_ms else None,
