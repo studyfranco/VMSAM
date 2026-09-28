@@ -602,6 +602,52 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
     logs.append(trace_line + "\n")
     return outcome
 
+
+# FONCTION JUMELLE (owner, Addendum 32.11) de `launch_cmdExt_with_timeout_reload`
+# (tools.py:150-170 a 95dbade5, hors zone donc gele): copie fidele, deux ecarts.
+#   1. La ligne 166 de l'original (`cmdDownload = Popen(cmd, ...)` dans le
+#      `except TimeoutExpired`) n'existe plus: la relance est le `Popen` du haut
+#      de la boucle. L'original lancait la commande DEUX fois par timeout, et le
+#      premier des deux etait ecrase sans kill ni wait -- orphelin tant qu'il
+#      tourne, zombie ensuite (LAB_id108 §4, mesure: deux ffmpeg identiques a
+#      3 ms d'ecart).
+#   2. Apres `force_kill_subprocess` (celle du proprietaire, kill + wait), les
+#      pipes du process tue sont fermes, au lieu d'attendre le ramasse-miettes.
+# Le proprietaire remplace le corps de l'original par celui-ci; rien d'autre ne
+# change (meme signature, memes exceptions, meme ligne de relance en dev).
+def launch_cmdExt_with_timeout_reload_shadow(cmd,max_restart=1,timeout=120):
+    unpocessed = True
+    while unpocessed:
+        cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
+        try:
+            stdout, stderror = cmdDownload.communicate(timeout=timeout)
+            exitCode = cmdDownload.returncode
+            unpocessed = False
+        except TimeoutExpired:
+            force_kill_subprocess(cmdDownload)
+            close_subprocess_pipes_shadow(cmdDownload)
+            max_restart -= 1
+            if max_restart < 0:
+                raise Exception(f"The process is timeout and will not be restarted:{cmd}\n")
+            else:
+                if dev:
+                    sys.stderr.write(f"The process is timeout and will be restarted:{cmd}\n")
+
+    if exitCode != 0:
+        raise Exception("This cmd is in error: "+" ".join(cmd)+"\n"+str(stderror.decode("utf-8"))+"\n"+str(stdout.decode("utf-8"))+"\nReturn code: "+str(exitCode)+"\n")
+    return stdout, stderror, exitCode
+
+
+def close_subprocess_pipes_shadow(object_popen):
+    """Ferme stdout/stderr d'un Popen tue: ses descripteurs ne vivent plus
+    jusqu'au passage du ramasse-miettes."""
+    for stream in (object_popen.stdout, object_popen.stderr):
+        try:
+            if stream != None:
+                stream.close()
+        except OSError:
+            pass
+
 """
 END: AGENT modification
 """
