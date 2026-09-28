@@ -15,9 +15,9 @@ import rate_direction as rd  # noqa: E402
 import repair_orchestrator as ro  # noqa: E402
 
 
-def _row(ratio, engine, span, zones, ladder=False):
+def _row(ratio, engine, span, zones, ladder=False, fidelity=0.9):
     return {"ratio": Fraction(ratio), "engine": engine, "span_coverage": span, "zones": zones,
-            "offset_spread_ms": 0.0, "ladder": ladder}
+            "offset_spread_ms": 0.0, "ladder": ladder, "fidelity": fidelity}
 
 
 def test_id_101_asetrate_wins():
@@ -41,14 +41,40 @@ def test_unity_wins_and_nothing_qualifies():
     assert rd.choose_winner([_row(1, None, 0.2, 3), _row("25/24", "atempo", 0.4, 9)]) is None
 
 
-def test_tie_prefers_asetrate_then_fewer_zones():
-    rows = [_row("1001/1000", "asetrate", 0.995, 2), _row("1001/1000", "atempo", 0.996, 2)]
-    assert rd.choose_winner(rows)["engine"] == "asetrate"
-    # Fallout S01E03, measured: the engines tie at NTSC -- asetrate, whatever the zone count
+def test_fidelity_tie_prefers_asetrate_then_fewer_zones():
+    # equal fidelity: asetrate, whatever the span or the zone count (Fallout S01E03's numbers)
     rows = [_row("1001/1000", "asetrate", 0.9972, 6), _row("1001/1000", "atempo", 0.9965, 4)]
     assert rd.choose_winner(rows)["engine"] == "asetrate"
     rows = [_row("25/24", "asetrate", 0.95, 9), _row("1001/960", "asetrate", 0.955, 1)]
     assert rd.choose_winner(rows)["ratio"] == Fraction(1001, 960)
+    # within RATE_ARM_FIDELITY_TIE (0.005): still asetrate, even at the lower fidelity
+    rows = [_row("1001/1000", "asetrate", 0.99, 2, fidelity=0.900),
+            _row("1001/1000", "atempo", 0.99, 2, fidelity=0.904)]
+    assert rd.choose_winner(rows)["engine"] == "asetrate"
+
+
+def test_fidelity_decides_among_the_finalists_that_pass_the_gate():
+    # ADDENDUM 32.10 b: coverage is the gate, fidelity the decision -- a wider span loses to a
+    # more faithful one, and asetrate's preference stops past the 0.005 tie
+    rows = [_row("1001/1000", "asetrate", 0.999, 2, fidelity=0.800),
+            _row("1001/1000", "atempo", 0.92, 5, fidelity=0.906)]
+    assert rd.choose_winner(rows)["engine"] == "atempo"
+    rows = [_row("25/24", "asetrate", 0.97, 3, fidelity=0.70),
+            _row("1001/960", "asetrate", 0.91, 8, fidelity=0.85)]
+    assert rd.choose_winner(rows)["ratio"] == Fraction(1001, 960)
+    # the gate is not negotiable: a perfect fidelity under 0.9 span, or on a ladder, never wins
+    rows = [_row("1001/960", "asetrate", 0.89, 1, fidelity=0.99),
+            _row("25/24", "atempo", 0.99, 1, ladder=True, fidelity=0.99),
+            _row("1001/1000", "asetrate", 0.9, 4, fidelity=0.6)]
+    assert rd.choose_winner(rows)["ratio"] == Fraction(1001, 1000)
+
+
+def test_fidelity_is_the_length_weighted_mean_of_the_zones():
+    zones = [{"master_points": [0, 99], "mean_match_quality": 0.9},
+             {"master_points": [100, 399], "mean_match_quality": 0.7},
+             {"master_points": [400, 410], "mean_match_quality": None}]
+    assert rd.fidelity(zones) == round((100 * 0.9 + 300 * 0.7) / 400, 4) == 0.75
+    assert rd.fidelity([]) == 0.0 and rd.fidelity(None) == 0.0
 
 
 def test_span_is_read_over_what_both_files_share():

@@ -207,11 +207,14 @@ INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 ALIGNMENT_BUDGET_S = 120.0          # one couple's b2_align (`alignment_budget_exceeded`)
 HOLE_BUDGET_S = 300.0               # one hole's frame-exact search (`hole_budget_exceeded`)
 # One candidate's whole repair (`repair_budget_exceeded`), PROPORTIONAL to the master's video
-# (ADDENDUM 26.8): 20 min per started 30-min slice, floor 20 min (60 min -> 40 min, 2 h -> 80 min).
-# A budget that declines a file for its length alone is a defect, not a cap (Fallout S01E02, a
-# 60-min master, legitimately approaches 20 min).
-REPAIR_BUDGET_PER_SLICE_S = 1200.0
+# (ADDENDUM 26.8, re-set by ADDENDUM 32.10 a): 40 min per STARTED 30-min slice, floor one slice,
+# CAPPED at 4 h (60 min -> 80 min, 2 h -> 160 min, 3 h and more -> 240 min). 20 min per slice
+# declined files on a congested server (Ragnarok id 23: 1248.6 s against 1200 in the delivery
+# gate); the cap bounds how long one file may hold a worker. A budget that declines a file for its
+# length alone is a defect, not a cap.
+REPAIR_BUDGET_PER_SLICE_S = 2400.0
 REPAIR_BUDGET_SLICE_S = 1800.0
+REPAIR_BUDGET_CAP_S = 14400.0
 # THE HOLE SANITY BOUND (ADDENDUM 26.2): an interior hole wider than this is not searched. Measured:
 # resolved holes <= 2 s, absorbed <= 7.7 s, edge additions <= 27 s on the corpus; id 691 carried an
 # interior "hole" of 6,803 s past the end of its master's video.
@@ -258,7 +261,12 @@ EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS = 15.0
 # resolver budget, not about the media. errid-99 is, by the corpus's own classification, one of
 # its CLEANEST edit pairs (two constant-offset plateaus, NCC 0.98-0.99), and one more hole would
 # have had it recorded as a conclusive refusal. It is now `could_not_run`.
+#
+# PROPORTIONAL SINCE ADDENDUM 32.10 f: the 45 is a count per 30-min slice of the master's video
+# (the corpus above is episodes of <= 60 min whose maximum is 21) -- 45 per STARTED slice, so a
+# 2-h film may carry four times the holes of a 25-min episode before this declines it.
 MAX_HOLES_PER_COUPLE = 45
+HOLE_BUDGET_SLICE_S = 1800.0
 
 # THE COVERAGE FLOOR -- the step-2 gate's second arm, and the fix for a BREAKING finding.
 #
@@ -1782,7 +1790,18 @@ def log_cross_verification(candidate_path, report):
     tools.dev=false": the disagreement no longer needs a second unconditional channel, because
     the terminal `record()` of the refusal carries `cause=intercouple_disagreement` AND the
     whole report as its detail (`repair()` passes it), which is what the ledger reads.
+
+    ONE UNCONDITIONAL SUMMARY LINE for the stage (ADDENDUM 32.10 g): `repair: cross_verify_summary`
+    with the counts and, per cluster, `index:verdict:master_position_s:spread_ms` -- the
+    per-cluster and per-member lines stay dev.
     """
+    tools.log_always(
+        f"repair: cross_verify_summary agree={report['agree']} n_couples={report['n_couples']} "
+        f"n_events={report['n_events']} n_clusters={len(report['clusters'])} "
+        f"n_disagreements={len(report['disagreements'])} clusters="
+        + ",".join(f"{c['cluster_index']}:{c['verdict']}:{c['master_position_seconds']}:"
+                   f"{c['spread_ms']}" for c in report["clusters"])
+        + f" for {candidate_path}\n")
     if report["agree"]:
         step_result("cross_verify", candidate=candidate_path, agree=True,
                     n_couples=report["n_couples"], n_events=report["n_events"],
@@ -3320,14 +3339,29 @@ def log_partial_plan(candidate_path, cause, placed):
     tools.log_always(f"repair: partial_plan cause={cause} placed={placed} for {candidate_path}\n")
 
 
+def started_slices(video_s, slice_s):
+    """How many STARTED `slice_s` slices `video_s` seconds of video begin, never fewer than one
+    (an unreadable duration, None, counts one)."""
+    return max(1, math.ceil((video_s or 0.0) / slice_s))
+
+
 def repair_budget_seconds(master_obj):
-    """The repair's budget for this master (ADDENDUM 26.8) and the video duration that set it:
-    REPAIR_BUDGET_PER_SLICE_S per STARTED REPAIR_BUDGET_SLICE_S of the master's video, never
-    below one slice's worth. An unreadable duration (None) gets the floor."""
+    """The repair's budget for this master (ADDENDUM 26.8, 32.10 a) and the video duration that
+    set it: REPAIR_BUDGET_PER_SLICE_S per STARTED REPAIR_BUDGET_SLICE_S of the master's video,
+    never below one slice's worth, never above REPAIR_BUDGET_CAP_S. An unreadable duration (None)
+    gets the floor."""
     video_ms = _video_duration_ms(master_obj)
     video_s = None if video_ms is None else float(video_ms) / 1000.0
-    slices = max(1, math.ceil((video_s or 0.0) / REPAIR_BUDGET_SLICE_S))
-    return slices * REPAIR_BUDGET_PER_SLICE_S, video_s
+    slices = started_slices(video_s, REPAIR_BUDGET_SLICE_S)
+    return min(slices * REPAIR_BUDGET_PER_SLICE_S, REPAIR_BUDGET_CAP_S), video_s
+
+
+def max_holes_per_couple(master_obj):
+    """The hole budget per couple for this master (ADDENDUM 32.10 f): MAX_HOLES_PER_COUPLE per
+    STARTED HOLE_BUDGET_SLICE_S of the master's video, one slice's worth when unreadable."""
+    video_ms = _video_duration_ms(master_obj)
+    video_s = None if video_ms is None else float(video_ms) / 1000.0
+    return started_slices(video_s, HOLE_BUDGET_SLICE_S) * MAX_HOLES_PER_COUPLE
 
 
 def _budget_terminal(candidate_path, step, budget_s):
@@ -3450,7 +3484,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                    "tail": "walk_window_edge" if tail is None else "audio_edge"}
     by_kind = {hole["kind"]: (index, hole) for index, hole in enumerate(holes)
                if hole["kind"] in ("head", "tail")}
-    decisions = {}
+    decisions, summary = {}, []
     for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
         video_s = None
         if kind in by_kind:
@@ -3477,10 +3511,13 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
         elif video_s is not None:
             decision = f"{edge_source[kind]}_video_boundary_elsewhere"
         decisions[kind] = placed
-        tools.log_always(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
+        summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
+        tools.dev_log(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
                          f"audio_edge_s={audio_s} video_boundary_s="
                          f"{None if video_s is None else round(video_s, 4)} placed_s={placed} "
                          f"decision={decision} for {candidate_path}\n")
+    # ONE UNCONDITIONAL LINE for both edges (ADDENDUM 32.10 g); the per-edge lines are dev.
+    tools.log_always(f"repair: audio_edges {' '.join(summary)} for {candidate_path}\n")
     head_end = decisions["head"]
     if head_end is not None and head_end <= frame:
         head_end = None
@@ -3661,7 +3698,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                                 "edges": [edges["edge_A"], edges["edge_B"]],
                                 "video_status": status, "video_s": replacement["start_s"],
                                 "change_point": index, "cut_ms": replacement["cut_ms"]})
-            tools.log_always(
+            tools.dev_log(
                 f"repair: replacement_hole change_point={index} a_ms={point['a_ms']} "
                 f"b_ms={point['b_ms']} step_ms={round(jump, 3)} audio_edges_s=[{edges['edge_A']}, "
                 f"{edges['edge_B']}] video_edges_s=[{replacement['start_s']}, "
@@ -3696,7 +3733,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
                                          extra, frame)
             lo_q, hi_q = lo, hi
-        tools.log_always(
+        tools.dev_log(
             f"repair: splice_bounds change_point={index} audio_interval_s=[{lo}, {hi}] "
             f"leak_a_s={leak['leak_a_s']} leak_b_s={leak['leak_b_s']} clean={leak['clean']} "
             f"narrowed={leak['narrowed']} interval_s={leak['interval']} "
@@ -3727,7 +3764,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                             "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
                             "edges": [edges["edge_A"], edges["edge_B"]],
                             "video_status": status, "video_s": video_s, "change_point": index})
-        tools.log_always(
+        tools.dev_log(
             f"repair: {'slip_applied' if decision == 'slip_applied' else 'audio_transition'} "
             f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
             f"step_ms={round(jump, 3)} at_s={at} fill_ms={round(fill * 1000.0, 3)} "
@@ -3735,7 +3772,21 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"video_status={status} video_s={None if video_s is None else round(video_s, 4)} "
             f"decision={decision}{' ' + width_note.replace(' ', '_') if width_note else ''} "
             f"for {candidate_path}\n")
+    log_transitions_summary(transitions, candidate_path)
     return transitions, None
+
+
+def log_transitions_summary(transitions, candidate_path):
+    """THE STAGE'S ONE UNCONDITIONAL LINE (ADDENDUM 32.10 g): the per-change-point lines
+    (`repair: audio_transition` / `slip_applied` / `replacement_hole` / `splice_bounds`) are dev
+    only; this one carries, per transition, `change_point:decision:at_s:fill_ms:step_ms`
+    (comma-separated, no spaces) so a log reader rebuilds the plan without dev mode."""
+    tools.log_always(
+        f"repair: audio_transitions n={len(transitions)} transitions="
+        + ",".join(f"{t['change_point']}:{t['decision']}:{t['at_s']}:"
+                   f"{round(t['fill_s'] * 1000.0, 3)}:{round(t['b_ms'] - t['a_ms'], 3)}"
+                   for t in transitions)
+        + f" for {candidate_path}\n")
 
 
 def log_holes_against_walk(holes, walk, candidate_path):
@@ -4468,6 +4519,7 @@ def _finalist_row(ratio, engine, alignment, shared_ms, seconds, candidate_path):
                                                      quantum_ms)["fires"])
     row = {"ratio": ratio, "engine": engine,
            **rate_direction.finalist_reading(detail, quantum_ms, shared_ms, ladder),
+           "fidelity": rate_direction.fidelity(alignment.get("zones_detail")),
            "point_coverage": alignment.get("master_axis_coverage_fraction"),
            "seconds": round(seconds, 1)}
     rate_direction.log_finalist(candidate_path, row)
@@ -4583,6 +4635,7 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
             return None, None, gate, gate["cause"]
         others = [r["span_coverage"] for r in rows if r["ratio"] != winner["ratio"]]
         gate.update({"span_coverage": winner["span_coverage"],
+                     "fidelity": winner.get("fidelity"),
                      "margin": round(winner["span_coverage"] - max(others), 4) if others else None,
                      "engine": winner["engine"], "zones": winner["zones"]})
         if winner["ratio"] == 1:
@@ -5116,12 +5169,14 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     # THE BUDGET IS PER COUPLE, as its measurement was (see MAX_HOLES_PER_COUPLE): the union
     # of several couples may hold more regions than any one couple saw, and that sum is not a
     # fragmentation of the pair.
+    hole_budget = max_holes_per_couple(master_obj)
     over = [(record["couple"], len(record["holes"])) for record in couple_results
-            if len(record["holes"]) > MAX_HOLES_PER_COUPLE]
+            if len(record["holes"]) > hole_budget]
     if over:
         return False, "hole_count_exceeds_resolver_budget", (
             f"couple(s) {over} decompose into more holes than the budget of "
-            f"{MAX_HOLES_PER_COUPLE}; a pair that fragments this far is not one this instrument "
+            f"{hole_budget} ({MAX_HOLES_PER_COUPLE} per started {HOLE_BUDGET_SLICE_S:g} s of "
+            f"master video); a pair that fragments this far is not one this instrument "
             f"has measured itself able to reconstruct"), None
 
     # ADDENDUM 5's good news, named: NO hole at all -- completely compatible audios.
@@ -5361,7 +5416,9 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
     repair_budget_s, budget_video_s = repair_budget_seconds(master_obj)
     repair_deadline = time.monotonic() + repair_budget_s
     tools.log_always(f"orchestrator: repair_budget budget_s={repair_budget_s} "
-                     f"master_video_s={budget_video_s} for {candidate_path}\n")
+                     f"per_slice_s={REPAIR_BUDGET_PER_SLICE_S} slice_s={REPAIR_BUDGET_SLICE_S} "
+                     f"cap_s={REPAIR_BUDGET_CAP_S} master_video_s={budget_video_s} "
+                     f"for {candidate_path}\n")
     if master_intertrack_cache is None:
         master_intertrack_cache = {}
     work_dir = work_root or path.join(tools.tmpFolder, "repair", "orchestrator")

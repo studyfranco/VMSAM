@@ -64,6 +64,13 @@ RATE_ARM_MIN_SPAN_COVERAGE = 0.9
 # over 6 zones against atempo 0.9965 over 4, and an atempo winner the verifier then refused),
 # then fewer zones, then the ratio nearer 1.
 RATE_ARM_SPAN_TIE = 0.01
+# THE WINNER IS THE MOST FAITHFUL (owner, ADDENDUM 32.10 b): span coverage >= 0.9 is only the
+# GATE; among the finalists that pass it, the FIDELITY -- the mean similarity of the aligned
+# zones, each zone's `mean_match_quality` weighted by its length in points -- decides, since with
+# many small cuts two rates can cover the same span while only one matches it well. Two
+# fidelities this close are a tie, and only then does asetrate win (then fewer zones, then the
+# ratio nearer 1). RATE_ARM_SPAN_TIE above is no longer read by the winner.
+RATE_ARM_FIDELITY_TIE = 0.005
 # A declared frame-rate ratio names a rate when it lies this close (relative) to a named one.
 DECLARED_RATE_TOLERANCE = 1e-4
 
@@ -151,25 +158,43 @@ def finalist_reading(detail, quantum_ms, shared_ms, ladder):
             "ladder": bool(ladder)}
 
 
+def fidelity(zones_detail):
+    """The mean similarity of the aligned zones (ADDENDUM 32.10 b): each zone's
+    `mean_match_quality` (b2_align's mean per-point fingerprint similarity) weighted by its
+    length in master points, over the aligner's OWN zones (before any coalescing, which keeps
+    only the first member's quality). 0.0 when no zone carries a quality."""
+    total, weight = 0.0, 0
+    for zone in zones_detail or ():
+        quality = zone.get("mean_match_quality")
+        if quality is None:
+            continue
+        points = zone["master_points"][1] - zone["master_points"][0] + 1
+        total += float(quality) * points
+        weight += points
+    return round(total / weight, 4) if weight else 0.0
+
+
 def choose_winner(rows):
     """`rows`: one dict per finalist -- `ratio` (Fraction, 1 for the prime itself), `engine`
-    (None at 1) and `finalist_reading`'s keys. The winner is the highest span coverage among the
-    finalists that are not a ladder and reach RATE_ARM_MIN_SPAN_COVERAGE; within
-    RATE_ARM_SPAN_TIE of it, asetrate, then fewer zones, then the ratio nearer 1. None when no
-    finalist qualifies."""
+    (None at 1), `fidelity` and `finalist_reading`'s keys. The GATE: not a ladder, span coverage
+    >= RATE_ARM_MIN_SPAN_COVERAGE. Among those, the highest fidelity wins; within
+    RATE_ARM_FIDELITY_TIE of it, asetrate, then the higher fidelity, then fewer zones, then the
+    ratio nearer 1. None when no finalist passes the gate."""
     admissible = [r for r in rows if not r["ladder"]
                   and r["span_coverage"] >= RATE_ARM_MIN_SPAN_COVERAGE]
     if not admissible:
         return None
-    best = max(r["span_coverage"] for r in admissible)
-    tied = [r for r in admissible if best - r["span_coverage"] <= RATE_ARM_SPAN_TIE]
-    return min(tied, key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1, r["zones"],
+    best = max(r.get("fidelity", 0.0) for r in admissible)
+    tied = [r for r in admissible if best - r.get("fidelity", 0.0) <= RATE_ARM_FIDELITY_TIE]
+    return min(tied, key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1,
+                                    -r.get("fidelity", 0.0), r["zones"],
                                     abs(float(r["ratio"]) - 1.0)))
 
 
 def log_finalist(candidate_path, row):
     tools.log_line(f"rate_direction: finalist ratio={_name(row['ratio'])} engine={row['engine']} "
-                   f"span_coverage={row['span_coverage']} zones={row['zones']} "
+                   f"span_coverage={row['span_coverage']} fidelity={row.get('fidelity')} "
+                   f"zones={row['zones']} "
                    f"offset_spread_ms={row['offset_spread_ms']} ladder={row['ladder']} "
                    f"point_coverage={row.get('point_coverage')} seconds={row.get('seconds')} "
                    f"for {candidate_path}\n")
