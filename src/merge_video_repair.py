@@ -320,8 +320,8 @@ def drop_corrupt_candidate_tracks(candidate_obj, plan, deadline=None):
                     f"strictly decoded\n")
                 raise merge_video_chimeric.chimeric_error(
                     f"the repair's budget ran out in the corrupt-track gate, before {nxt} "
-                    f"(checked so far {checked}, dropped {judged}) -- the file comes back "
-                    f"next wave",
+                    f"(checked so far {checked}, dropped {judged}) -- declined, retried at "
+                    f"the next run",
                     cause="repair_budget_exceeded")
             for (language, audio), result, error in pool.map(check, batch):
                 order = audio["StreamOrder"]
@@ -379,7 +379,7 @@ def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline
                 f"the delivered tracks' silences were compared with the master's\n")
             raise merge_video_chimeric.chimeric_error(
                 f"the repair's budget ran out in the silence gate, before {where} "
-                f"(dropped so far {judged}) -- the file comes back next wave",
+                f"(dropped so far {judged}) -- declined, retried at the next run",
                 cause="repair_budget_exceeded")
         try:
             r = measure(master_obj, reference_stream, repaired_obj, order, 0,
@@ -730,7 +730,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         f"while the rebuilt tracks were raced against the master's\n")
                     raise merge_video_chimeric.chimeric_error(
                         f"the repair's budget ran out in the delivery gate, before {where} "
-                        f"(dropped so far {judged}) -- the file comes back next wave",
+                        f"(dropped so far {judged}) -- declined, retried at the next run",
                         cause="repair_budget_exceeded")
                 lost_to = None
                 measures = []

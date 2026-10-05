@@ -1676,7 +1676,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                     f"for {candidate_obj.filePath}\n")
                 raise chimeric_error(
                     f"the repair's budget ran out during the track build after {len(built)} "
-                    f"track(s) {built} -- nothing is muxed; the file comes back next wave",
+                    f"track(s) {built} -- nothing is muxed; declined, retried at the next run",
                     cause="repair_budget_exceeded")
             bound = min(bound, left)
         return bound

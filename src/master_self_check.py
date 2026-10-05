@@ -260,10 +260,8 @@ def check_master_intertrack(master_video_obj, language,
                      f"NO VERDICT THIS ITERATION: correlation {correlation:.4f} "
                      f"is at or below the {min_correlation} floor, so these two "
                      f"tracks are not the same content and their lag has no "
-                     f"referent. A discordant-content master token is a second "
-                     f"iteration, once that family is measured properly "
-                     f"(RULING_20260922_MASTER_INTERTRACK_ADMISSION.MD point 4). "
-                     f"Logged, not verdicted.")
+                     f"referent. A discordant-content master token needs that "
+                     f"family measured properly first. Logged, not verdicted.")
                 continue
 
             if abs(lag_ms) > min_lag_ms:

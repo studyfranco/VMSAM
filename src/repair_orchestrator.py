@@ -588,7 +588,7 @@ def tail_decision(primed, master_obj, language, candidate_path):
         tools.log_always(f"repair: candidate_short_tail readings={readings} "
                          f"factor={primed['factor_label']} -- the candidate's content ends "
                          f">= {TAIL_ONE_SIDED_MIN_S} s before the master's: an ordinary tail "
-                         f"hole, filled from the master, no size cap (ADDENDUM 26.9) for "
+                         f"hole, filled from the master, no size cap, for "
                          f"{candidate_path}\n")
     if verdict != "master_cut_short":
         return None
@@ -601,7 +601,7 @@ def tail_decision(primed, master_obj, language, candidate_path):
                     f"{c['candidate_content_end_s']} s after the last common instant "
                     f"{c['last_common_master_s']} s" for c in ends)
         + f" of a {round(float(timeline_ms) / 1000.0, 3)} s master video -- the master cannot "
-          f"give the candidate its end (ADDENDUM 26.9)")
+          f"give the candidate its end")
 
 
 def tail_couples(primed):
@@ -792,7 +792,7 @@ def holes_for_couple(alignment):
         tools.log_always(f"repair: quantum_flicker_merged master_ms=[{round(master_ms[0], 1)}, "
                          f"{round(master_ms[1], 1)}] offset_points={offset_before}->{offset_after} "
                          f"quantum_ms={alignment.get('quantum_ms')} -- two +/-1-quantum holes, zero "
-                         f"net step: one zone (ADDENDUM 30)\n")
+                         f"net step: one zone\n")
     zones, zones_detail = coalesce_same_offset_zones(alignment.get("zones") or [],
                                                       alignment.get("zones_detail") or [])
     if not zones:
@@ -1372,7 +1372,7 @@ def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, s
             f"applied {applied:.7f}, peak {reading.get('peak')}; its +/-{band_half_width:.6f} "
             f"tolerance band excludes unity at this ratio, so agreement is informative): this "
             f"is the naive-speedup family, and asetrate is its exact inverse -- it undoes speed "
-            f"AND pitch together (ruling body, step 2)")
+            f"AND pitch together")
     elif reading.get("refusal") is None:
         routing["route_reason"] = (
             f"the pitch layer did not refuse (measured {measured}, applied {applied:.7f}, peak "
@@ -1386,8 +1386,8 @@ def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, s
         routing["route_reason"] = (
             f"the pitch layer returned {reading.get('refusal')} ({reading.get('reason')}). That "
             f"is NOT the inverting case and must not be read as one -- the inverting-case "
-            f"detector is unimplemented in this tree (merge_video_repair:229-233) and ADDENDUM 2 "
-            f"binds it to atempo only WHEN it is implemented. The existing routing stands: "
+            f"detector is unimplemented in this tree (merge_video_repair:229-233), so routing "
+            f"to atempo stays disabled until it is. The existing routing stands: "
             f"asetrate, on AUDIO_SPEED_POLICY's 23/23 PAL and 6/6 NTSC")
     return routing
 
@@ -2428,7 +2428,7 @@ def _budget_terminal(candidate_path, step, budget_s):
     _plan_line("none", candidate_path, step=step, cause="repair_budget_exceeded")
     return _terminal(candidate_path, "no_plan", "repair_budget_exceeded",
                      f"the repair's {budget_s} s budget ran out after the {step} step -- a "
-                     f"statement about this run's cost; the file comes back next wave")
+                     f"statement about this run's cost; declined, retried at the next run")
 
 
 def _speed_chain(audio, speed_ratio, engine="asetrate"):
@@ -2569,7 +2569,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                                  + [(kind, "stopped", audio_s)])
                 return None, None, (budget, f"the video on the {kind} edge stopped on a time "
                                             f"bound ({outcome.get('evidence')}) -- the partial "
-                                            f"plan is logged; the file comes back next wave")
+                                            f"plan is logged; declined, retried at the next run")
             if outcome["status"] in EDGE_TERMINATIONS:
                 video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
                                    else outcome["master_start_frame"], domain)
@@ -2854,7 +2854,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                              + [(f"change_point_{index}", "stopped", lo, hi)])
             return None, (budget, f"the video on change point {index} ({lo}-{hi} s) stopped on "
                                   f"a time bound ({outcome.get('evidence')}) -- the partial plan "
-                                  f"is logged; the file comes back next wave")
+                                  f"is logged; declined, retried at the next run")
         status = outcome["status"]
         replaced = addition_replacement(point, union, walk)
         if replaced is not None:
@@ -2896,7 +2896,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                 f"{edges['edge_B']}] video_edges_s=[{replacement['start_s']}, "
                 f"{replacement['end_s']}] fill_ms={round(replacement['fill_s'] * 1000, 3)} "
                 f"cut_ms={replacement['cut_ms']} -- the candidate's own excess is cut, the "
-                f"master-only span is filled from the master (ADDENDUM 25.9) for {candidate_path}\n")
+                f"master-only span is filled from the master for {candidate_path}\n")
             continue
         video_s, width_note = video_cut_instant(outcome, domain, extra, (lo, hi),
                                                 hole["quantum_ms"])
@@ -3088,12 +3088,10 @@ def tag_decision(n_splices, edge_added_s):
         (required, reason)
     """
     if n_splices:
-        return True, (f"{n_splices} interior splice(s) tag regardless of their size "
-                      f"(addendum 5 bound a)")
+        return True, (f"{n_splices} interior splice(s) tag regardless of their size")
     if edge_added_s >= EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS:
         return True, (f"edge additions written total {edge_added_s:.3f}s, at or above the "
-                      f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold "
-                      f"(addendum 5 bound b)")
+                      f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold")
     return False, (f"edge additions written total {edge_added_s:.3f}s, under the "
                    f"{EDGE_ADDITION_CHIMERIC_TAG_THRESHOLD_SECONDS}s threshold and no interior "
                    f"splice -- the original track with a marginal completion, not a chimera")
@@ -3961,7 +3959,7 @@ def similarity_gate(alignment):
     observations["gate_arm"] = None
     return False, (f"the aligner anchored runs ({alignment.get('verdict')}) and its zones are "
                    f"not a rate ladder ({ladder['reason']}), so similarity is not low in the "
-                   f"ruling's sense"), observations
+                   f"rate-ladder sense"), observations
 
 
 def ensemble_similarity_gate(primed, candidate_path):
@@ -4199,7 +4197,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                           ("audio_walk", "stopped_by_budget", str(error)[:200])])
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out during the audio walk ({error}) -- the partial plan "
-            f"is logged; the file comes back next wave"), None
+            f"is logged; declined, retried at the next run"), None
     if walk is None:
         return False, "audio_walk_unavailable", (
             f"the millisecond walk on the reference couple {reference['couple']} could not "
@@ -4210,7 +4208,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                          [("audio_walk", "levels", [lv["off_ms"] for lv in walk["levels"]])])
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out after the audio walk -- the "
-            f"partial plan is logged; the file comes back next wave"), None
+            f"partial plan is logged; declined, retried at the next run"), None
     log_holes_against_walk(holes, walk, candidate_path)
     log_absorbed_gaps(couple_results, holes, walk, candidate_path)
     transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
@@ -4237,9 +4235,9 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                          + [("head", "placed", head_end_s), ("tail", "placed", tail_start_s)])
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
-            f"the partial plan is logged; the file comes back next wave"), None
+            f"the partial plan is logged; declined, retried at the next run"), None
     # Report-only: logs a picture shift inside an otherwise audio-continuous zone, never
-    # touches `zones` (ADDENDUM 25.2, LAB 20260928(h)).
+    # touches `zones`.
     import picture_only_shift
     picture_only_shift.scan_zones(zones, domain, master_obj, candidate_obj, candidate_path,
                                   work_dir, repair_deadline)
@@ -4586,7 +4584,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
             return _video_route_terminal(status, cause, reason, candidate_path, trigger)
         tools.log_always(f"repair: video_route_fallback trigger={trigger} video={cause} -- the "
                          f"offset is not one constant from head to tail (a drift or an interior "
-                         f"edit): the ordinary audio path continues (ADDENDUM 27.8 point 2) "
+                         f"edit): the ordinary audio path continues "
                          f"for {candidate_path}\n")
         if time.monotonic() > repair_deadline:
             _drop_rate_wav(primed)
@@ -4884,7 +4882,7 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                     f"couple {name} did not align within {ALIGNMENT_BUDGET_S} s: "
                     f"{alignment.get('seeds_extended')} of {alignment.get('seeds_total')} seeds "
                     f"extended ({len(fp_master)} x {len(fp_candidate)} points) -- a statement "
-                    f"about this run's cost, the file comes back next wave")
+                    f"about this run's cost; declined, retried at the next run")
         primed["alignments"][name] = alignment
         step_result("align", candidate=candidate_path, couple=name,
                     verdict=alignment["verdict"], n_zones=len(alignment.get("zones") or []),

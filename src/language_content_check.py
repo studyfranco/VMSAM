@@ -184,7 +184,7 @@ def content_check(master_obj, candidate_obj, language, primed, work_dir, deadlin
         drop_kept_wav(primed)
         return {"verdict": "repair_budget_exceeded",
                 "reason": "the repair's budget ran out while every audio track was fingerprinted "
-                          "for the content check (ADDENDUM 28)"}
+                          "for the content check"}
     master_tracks = tracks_of(master_obj)
     cand_tracks = tracks_of(candidate_obj)
     references = [str(m) for m, _ in (primed.get("couples") or [])]

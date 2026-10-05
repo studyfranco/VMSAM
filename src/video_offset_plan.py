@@ -1051,7 +1051,7 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
                     cause="repair_budget_exceeded")
         return "declined", "repair_budget_exceeded", (
             "the repair's budget ran out after the video measurement -- the partial plan is "
-            "logged; the file comes back next wave")
+            "logged; declined, retried at the next run")
 
     # ---- the plan: one zone per track at the picture's offset -----------------
     work_dir = os.path.join(tools.tmpFolder, "repair", "video_anchored",

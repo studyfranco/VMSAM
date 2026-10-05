@@ -321,7 +321,7 @@ def measure_corpus(log_paths, read=None):
                "and be counted as a refusal by anyone reading the two named "
                "classes as the whole split. `vmsam-ci` measures that class in "
                "its own corpus, where it is not zero: RELAYED, its figure, "
-               "about its container substrate, 2026-09-05."
+               "about its container substrate."
                if not rejected_kind["other"] else
                "THIS BUCKET IS NON-EMPTY: a decline class exists that neither "
                "named pattern describes, and it may be a NON-OBSERVATION "
@@ -554,7 +554,7 @@ def parse_job_log(text):
         "delivery": [],
         "segments": [],
         "output_durations": None,
-        # `picture_only_shift` runs: logged, never acted on (ADDENDUM 25.2).
+        # `picture_only_shift` runs: logged, never acted on.
         "picture_only_shifts": [],
     }
 
@@ -1756,8 +1756,8 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                                     "that line and this cell becomes "
                                     "measurable at render time",
                              # Context not read from the log; carries its source.
-                             count_source="vmsam-lead, message layer only: ZERO "
-                                          "occurrences in MEASURING.MD, "
+                             count_source="this report's own prose, message layer "
+                                          "only: ZERO occurrences in MEASURING.MD, "
                                           "WRITE_ZONES.MD or AGENT.MD (checked). "
                                           "This report is currently its most "
                                           "durable carrier and there is no "
@@ -2116,10 +2116,9 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                      could_have_fired=(
                          redactor.examined if redactor.examined else
                          "ZERO. REDACT_MEDIA_NAMES is False on this build -- "
-                         "media names are permitted in this report by the "
-                         "owner's ruling -- so this control DID NOT RUN. The "
-                         "zero above is the instrument being off, not a clean "
-                         "result"),
+                         "media names are permitted in this report, so this "
+                         "control DID NOT RUN. The zero above is the "
+                         "instrument being off, not a clean result"),
                      checks="absolute paths, catalogue ids and media filenames "
                             "in emitted values, replaced by a stable opaque token",
                      limit="pattern-based, and a pattern cannot survive text it "
@@ -2266,14 +2265,11 @@ def blank_cells(job, corpus=None):
         "quantity": "plateau_tolerance_ms",
         "state": NO_PRODUCER,
         "address": "change_point_locator.locate_change_points",
-        "detail": "CORRECTED 2026-09-16 (dev-subcue, emission audit), as of "
-                  "a3ee9dbf: PLATEAU_TOLERANCE_MS=5.0, not 50.0 "
+        "detail": "PLATEAU_TOLERANCE_MS=5.0 "
                   "(`grep 'PLATEAU_TOLERANCE_MS =' src/change_point_locator.py`"
-                  " -> :230), and it IS returned in the plan dict, not 'never "
-                  "returned' "
+                  " -> :230), and it IS returned in the plan dict "
                   "(`grep '\"plateau_tolerance_ms\"' src/change_point_locator.py`"
-                  " -> :2588). Cannot date when either drifted; only that the "
-                  "current tree disagrees with both numbers this cell stated. "
+                  " -> :2588). "
                   "It is the gate that shifts the plateau mean, reaches the "
                   "plan and, like step_floor_ms below, is never printed to a "
                   "log line. NOT tolerance_ms=500, which is the "
@@ -2282,8 +2278,7 @@ def blank_cells(job, corpus=None):
         "quantity": "step_floor_ms",
         "state": NO_PRODUCER,
         "address": "merge_video_repair.log_assembly",
-        "detail": "CORRECTED 2026-09-16 (dev-subcue, emission audit), as of "
-                  "a3ee9dbf: MIN_STEP_MS=5.0, not 60.0 "
+        "detail": "MIN_STEP_MS=5.0 "
                   "(`grep 'MIN_STEP_MS =' src/change_point_locator.py` -> "
                   ":231). MIN_STEP_MS=5.0 IS returned by the locator "
                   "(`grep '\"step_floor_ms\"' src/change_point_locator.py` -> "
@@ -2300,9 +2295,7 @@ def blank_cells(job, corpus=None):
                    "names -- `grep -c 'speed_margin\\|fidelity_margin\\|"
                    "decided_by' src/change_point_locator.py`, the same form "
                    "of check as merge_video_repair.py:1023-1027, with its own "
-                   "firing control on `quantum_ms`). CORRECTED 2026-09-16: "
-                   "this line previously said 'across src/', which was not "
-                   "measured and is false for `decided_by` -- "
+                   "firing control on `quantum_ms`). "
                    "merge_video_chimeric.py assigns and emits `decided_by` for "
                    "an unrelated extraction-bound decision (`decided_by=declared`"
                    "/`decided_by=packets`, `:2313,2331,2336` -- `grep -c "
@@ -3728,7 +3721,7 @@ def render_human_summary(job, geometry, merge_log=None):
                         + ", ".join(_fr_duration(i.get("dropped_ms"))
                                     for i in geometry["unplaced"]) + ".</li>")
 
-    # 2.5. picture-only shifts: logged, nothing changed (ADDENDUM 25.2)
+    # 2.5. picture-only shifts: logged, nothing changed
     shifts = job.get("picture_only_shifts") or []
     for entry in shifts:
         span = re.match(r"\[\s*([\d.-]+)\s*,\s*([\d.-]+)\s*\]", entry.get("master_s") or "")

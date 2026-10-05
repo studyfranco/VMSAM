@@ -4,7 +4,7 @@ A zone is one audio offset holding over a span of the master timeline. Inside su
 the picture can still sit at a different frame offset for a while (the candidate's own
 edit, not an audio event). This module pairs every scene cut of the master, inside a zone,
 with its candidate counterpart and reads the residual between their frame offset and the
-zone's own audio offset; it never changes the plan (ADDENDUM 25.2, LAB 20260928(h)).
+zone's own audio offset; it never changes the plan.
 
 Reuse, not new code: `video_offset_plan.decode_scenes_and_hashes` (whole-file scene cuts and
 hashes, disk-cached -- a decode already on disk for this pair is read, not repeated) and
