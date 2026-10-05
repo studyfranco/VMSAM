@@ -15,7 +15,7 @@ port 8080 with no UI. This branch is the UI:
 | :--- | :--- | :--- |
 | Folder Creation | browses `CREATE_ROOT`, creates a library folder | `POST /folders/` |
 | Bulk Regex | one rule per downloaded file, files draggable into groups | `POST /regex/`, `GET /regex_folder/` |
-| Index Folder | registers files a library folder already holds: proposes a rule per group, then renames and indexes | `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
+| Index Folder | registers an existing library directory, moves/renames a folder, hides files already indexed, proposes a rule per group, then renames and indexes | `POST /folders/`, `POST /folders/move/`, `GET /episodes_folder/`, `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
 | Specials | exact-name rename of a special (`destination_path` is a control: a new name an existing rule already catches must belong to that folder, and the answer carries that rule for editing), plus the rule that catches the new name | `POST /special/`, `GET /special_list/`, `POST /regex/` |
 | Incrementaller | rules that shift an episode number before the folder rules run | `POST /incrementaller/`, `GET /incrementaller_list/` |
 
@@ -72,18 +72,26 @@ The part worth understanding before touching any tab. Pure functions, exposed as
 `window.vmsamEngine` for tests.
 
 1. `tokenizeName` cuts a name into digit runs, letter runs and single other characters.
-2. `buildTemplate` aligns every name of a group on the first one (LCS on tokens).
-   A token every name shares stays literal; a digit run that only changes value is
-   `varying`; anything else that differs is `wild`.
-3. `pickEpisodeSlot` scores every non-wild digit run: `SxxE` before it, an `ep`
-   word, a dash, zero padding and changing between files score up; resolution
-   (`1080p`), codec (`x264`), version (`v2`), season (`S2`), year, CRC, being inside
-   brackets or inside the extension score down. Below −100 nothing is chosen and the
-   user clicks a chip.
-4. `buildRegex` emits a **Python** pattern, anchored: literals escaped, varying digits
-   `\d+`, wild spans `.+`, the episode `(?P<episode>\d+)`. `toJsRegex` converts
-   `(?P<` to `(?<` so the browser can check it on every file of the group.
-5. `buildRename` is the first name with the episode digits replaced by `{<episode>}`.
+2. `buildTemplate` aligns every name of a group on the first one with a **weighted**
+   LCS (`lcsPairs`): identical tokens weigh most, two digit runs of different values
+   still align (so an episode number stays aligned when the title next to it
+   changes), and among equal alignments the one with fewest holes wins. A shared
+   token stays literal; an aligned digit run whose value changes is `varying`;
+   anything else that differs is `wild` (`optional` when empty in some name).
+   `absorbBetweenWilds` merges a short literal run caught between two wild spans
+   (shared title words) and a checksum glued to a wild word.
+3. `findEpisodeMarker`: when **every** name carries an `S<n>E<n>` marker, the digits
+   after `E` are the episode, unconditionally (+1000). Otherwise `scoreEpisodeSlot`
+   scores each digit run: an `ep` word, a dash, zero padding and changing between
+   files score up; resolution (`1080p`), codec (`x264`), version (`v2`), season
+   (`S2`), year, CRC, brackets and the extension score down. Below −100 nothing is
+   chosen and the user clicks a chip. A chip click always overrides.
+4. `buildRegex` emits an anchored **Python** pattern: literals escaped, varying digits
+   `\d+`, wild spans `.+` (`.*` when optional, lazy `.+?` right before the episode),
+   the episode `(?P<episode>\d+)`. `toJsRegex` converts `(?P<` to `(?<` so the
+   browser can check it on every file of the group.
+5. `buildRename` is the first name with the episode replaced by `{<episode>}` and
+   every wild span (per-episode titles, tags) dropped, separators merged.
 
 Default grouping: **Bulk Regex, Specials and Incrementaller start with one file per
 card**; **Index Folder groups by the first five characters** of the name. Drag a file

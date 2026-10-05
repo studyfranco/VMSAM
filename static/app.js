@@ -127,7 +127,10 @@ const api = {
     createSpecial(payload) { return postJson('/api/vmsam/special', payload); },
     getSpecials() { return apiFetch('/api/vmsam/special_list'); },
     createIncrementaller(payload) { return postJson('/api/vmsam/incrementaller', payload); },
-    getIncrementallers() { return apiFetch('/api/vmsam/incrementaller_list'); }
+    getIncrementallers() { return apiFetch('/api/vmsam/incrementaller_list'); },
+    getFolderEpisodes(folderId) { return apiFetch(`/api/vmsam/episodes_folder?folder_id=${folderId}`); },
+    // newPath is relative to CREATE_ROOT: the relay prefixes the root
+    moveFolder(folderId, newPath) { return postJson('/api/vmsam/folders_move', { folder_id: folderId, new_destination_path: newPath }); }
 };
 
 // --- 3. Filename analysis engine ---
@@ -135,8 +138,12 @@ const api = {
 // A file name is cut into tokens: a run of digits, a run of letters, or one
 // other character. A group of names is aligned on the first one (the
 // reference): tokens every name shares stay literal, a digit run that only
-// changes value becomes \d+, anything else that differs becomes .+. One digit
-// run is then chosen as the episode number, by the user (click) or by score.
+// changes value becomes \d+ (two digit runs pair up whatever their values, so
+// an episode number stays aligned next to a changing title), anything else
+// that differs becomes .+ (.* when some name has nothing there). One digit run
+// is then chosen as the episode number: the user's click, else the E digits
+// of an SxxE marker every name carries, else the best score. The proposed
+// rename drops the wild spans, which belong to the reference file only.
 
 const EPISODE_PLACEHOLDER = '{<episode>}';
 const RESOLUTION_VALUES = new Set(['480', '576', '720', '1080', '1440', '2160', '4320']);
@@ -160,41 +167,132 @@ function sameToken(a, b) {
     return a.v === b.v && a.d === b.d;
 }
 
-// Longest common subsequence of two token arrays, as matched index pairs.
+// Alignment weight of two tokens: identical tokens weigh far more than two
+// digit runs of different values, so a number only pairs with another number
+// when that costs no identical match (episode numbers stay aligned even when
+// the title next to them changes, and 1080 still pairs with 1080).
+const MATCH_WEIGHT_SAME = 100;
+const MATCH_WEIGHT_DIGITS = 25;
+// Each run of unmatched tokens costs a little, far less than any match: among
+// alignments of equal weight, the one with the fewest holes wins, so the dots
+// around a changing title stay with the words they separate.
+const GAP_OPEN_COST = 1;
+
+function matchWeight(a, b) {
+    if (sameToken(a, b)) return MATCH_WEIGHT_SAME;
+    if (a.d && b.d) return MATCH_WEIGHT_DIGITS;
+    return 0;
+}
+
+// Weighted longest common subsequence of two token arrays, as matched index
+// pairs. A pair may join two digit runs of different values. Two tables:
+// afterMatch[i][j] is the best score of a[i..], b[j..] right after a match (a
+// skip opens a hole), inGap[i][j] the same inside a hole (a skip is free).
 function lcsPairs(a, b) {
     const n = a.length, m = b.length;
-    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-    for (let i = n - 1; i >= 0; i--) {
-        for (let j = m - 1; j >= 0; j--) {
-            dp[i][j] = sameToken(a[i], b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    const afterMatch = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    const inGap = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
+    for (let i = n; i >= 0; i--) {
+        for (let j = m; j >= 0; j--) {
+            if (i === n || j === m) {
+                afterMatch[i][j] = (i === n && j === m) ? 0 : -GAP_OPEN_COST;
+                inGap[i][j] = 0;
+                continue;
+            }
+            const w = matchWeight(a[i], b[j]);
+            const take = w > 0 ? w + afterMatch[i + 1][j + 1] : -Infinity;
+            const skip = Math.max(inGap[i + 1][j], inGap[i][j + 1]);
+            afterMatch[i][j] = Math.max(take, skip - GAP_OPEN_COST);
+            inGap[i][j] = Math.max(take, skip);
         }
     }
     const pairs = [];
-    let i = 0, j = 0;
+    let i = 0, j = 0, gap = false;
     while (i < n && j < m) {
-        if (sameToken(a[i], b[j])) { pairs.push([i, j]); i++; j++; }
-        else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+        const w = matchWeight(a[i], b[j]);
+        const here = gap ? inGap[i][j] : afterMatch[i][j];
+        // On a tie, a separator is left for later: the hole then sits before
+        // the dot, and the dot stays with the word that follows the hole.
+        const skipValue = Math.max(inGap[i + 1][j], inGap[i][j + 1]) - (gap ? 0 : GAP_OPEN_COST);
+        const separatorTie = !/[0-9A-Za-zÀ-ɏ]/.test(a[i].v) && skipValue === here;
+        if (w > 0 && here === w + afterMatch[i + 1][j + 1] && !separatorTie) { pairs.push([i, j]); i++; j++; gap = false; continue; }
+        gap = true;
+        if (inGap[i + 1][j] >= inGap[i][j + 1]) i++;
         else j++;
     }
     return pairs;
 }
 
+// Index of the episode digit run of an S<season>E<episode> marker, or -1.
+// `S` must be its own letter run (`.S01E03.`, `s02e05`, ` S1E3 `), or the
+// capital end of a camel-cased word (`TitleS01E03`); `E` must stand alone.
+function findEpisodeMarker(tokens) {
+    for (let k = 0; k + 3 < tokens.length; k++) {
+        const s = tokens[k].v;
+        const isMarkerS = /^s$/i.test(s) || /[a-zà-ÿ]S$/.test(s);
+        if (isMarkerS && tokens[k + 1].d && /^e$/i.test(tokens[k + 2].v) && tokens[k + 3].d) return k + 3;
+    }
+    return -1;
+}
+
+// A short literal run (at most three tokens) squeezed between two wild spans
+// is a coincidence of the titles (`.Is.` in two different titles): make it
+// wild too, so the regex holds one `.+` and the rename drops it. A changing
+// digit run glued after a wild word is the end of that word (`ABCD1234`, a
+// CRC): wild too, unless that word is an episode prefix (`E`, `Ep`). The SxxE
+// marker is never absorbed.
+function absorbBetweenWilds(slots, protectedFrom, protectedTo) {
+    const isProtected = k => k >= protectedFrom && k <= protectedTo;
+    for (let i = 1; i < slots.length; i++) {
+        const left = slots[i - 1];
+        const wildWord = left.wild && /^[A-Za-zÀ-ɏ]{2,}$/.test(left.v) && !/(^|[^a-z])(ep|episode)$/i.test(left.v);
+        if (slots[i].d && slots[i].varying && !slots[i].wild && wildWord && !isProtected(i)) {
+            slots[i].wild = true;
+        }
+    }
+    let lastWild = -1;
+    for (let i = 0; i < slots.length; i++) {
+        if (!slots[i].wild) continue;
+        const gap = i - lastWild - 1;
+        if (lastWild >= 0 && gap > 0 && gap <= 3) {
+            let ok = true;
+            for (let k = lastWild + 1; k < i; k++) {
+                if (isProtected(k)) ok = false;
+                if (slots[k].d && !slots[k].varying) ok = false;
+            }
+            if (ok) for (let k = lastWild + 1; k < i; k++) { slots[k].wild = true; slots[k].varying = true; }
+        }
+        lastWild = i;
+    }
+}
+
 // Template = reference tokens annotated with what the other names taught us.
 //   varying: the token differs in at least one other name
 //   wild:    the difference is not "one digit run for another" -> becomes .+
+//   optional: wild, and absent from at least one other name -> .*
 //   extraBefore: another name carries tokens here that the reference lacks
+//                (empty in the reference, so always .*)
+//   markerIndex: the episode digits of an SxxE marker every name carries,
+//                aligned in every name (null otherwise)
 function buildTemplate(names) {
     const ref = tokenizeName(names[0]);
-    const slots = ref.map(t => ({ v: t.v, d: t.d, start: t.start, end: t.start + t.v.length, varying: false, wild: false, extraBefore: false }));
+    const slots = ref.map(t => ({ v: t.v, d: t.d, start: t.start, end: t.start + t.v.length, varying: false, wild: false, optional: false, extraBefore: false }));
     let extraAfterEnd = false;
+    const refMarker = findEpisodeMarker(ref);
+    let markerAligned = refMarker >= 0;
 
     for (const name of names.slice(1)) {
         const other = tokenizeName(name);
         const pairs = lcsPairs(ref, other);
+        if (markerAligned) {
+            const otherMarker = findEpisodeMarker(other);
+            markerAligned = otherMarker >= 0 && pairs.some(p => p[0] === refMarker && p[1] === otherMarker);
+        }
         let prev = [-1, -1];
         for (const pair of [...pairs, [ref.length, other.length]]) {
             const [i2, j2] = pair;
             const [i1, j1] = prev;
+            if (i2 < ref.length && j2 < other.length && !sameToken(ref[i2], other[j2])) slots[i2].varying = true;
             const refGap = i2 - i1 - 1;
             const otherGap = j2 - j1 - 1;
             if (refGap > 0 || otherGap > 0) {
@@ -207,13 +305,17 @@ function buildTemplate(names) {
                     for (let k = i1 + 1; k < i2; k++) {
                         slots[k].varying = true;
                         if (!(refGap === 1 && otherGap === 1 && slots[k].d && otherAllDigits)) slots[k].wild = true;
+                        // Nothing in the other name here: the span may be empty.
+                        if (otherGap === 0) slots[k].optional = true;
                     }
                 }
             }
             prev = pair;
         }
     }
-    return { name: names[0], slots, extraAfterEnd, count: names.length };
+    const markerIndex = markerAligned && !slots[refMarker].wild ? refMarker : null;
+    absorbBetweenWilds(slots, markerIndex === null ? -1 : markerIndex - 3, markerIndex === null ? -1 : markerIndex);
+    return { name: names[0], slots, extraAfterEnd, count: names.length, markerIndex };
 }
 
 // Digit runs that can carry the episode number: every non-wild digit slot.
@@ -234,7 +336,9 @@ function scoreEpisodeSlot(template, index) {
     const extensionStart = template.name.lastIndexOf('.');
     if (extensionStart > 0 && slot.start > extensionStart && !/[\s._\-\[\]()]/.test(after)) add(-200, 'inside the file extension');
 
-    if (/S\d{1,3}[ ._-]?E$/i.test(before)) add(100, 'SxxEyy');
+    // An SxxE marker in every name of the group wins outright.
+    if (template.markerIndex === index) add(1000, 'SxxEyy in every name');
+    else if (/S\d{1,3}[ ._-]?E$/i.test(before)) add(100, 'SxxEyy');
     else if (/(^|[\s._\-\[(])(ep|episode|épisode|e)[\s._\-]*$/i.test(before)) add(50, 'episode word');
     else if (/[\s._]-[\s._]$/.test(before)) add(30, 'after dash');
     else if (/[\s._\-\])]$/.test(before)) add(10, 'after separator');
@@ -274,24 +378,54 @@ function pickEpisodeSlot(template) {
 function buildRegex(template, episodeIndex) {
     let out = '^';
     let pendingWild = false;
-    const flush = () => { if (pendingWild) { out += '.+'; pendingWild = false; } };
+    let pendingOptional = false;
+    // A wild span right before the episode is lazy, or it would eat the
+    // leading digits of the episode number.
+    const flush = (beforeEpisode) => {
+        if (pendingWild) out += (pendingOptional ? '.*' : '.+') + (beforeEpisode ? '?' : '');
+        pendingWild = false;
+        pendingOptional = false;
+    };
     template.slots.forEach((slot, i) => {
-        if (slot.extraBefore) pendingWild = true;
-        if (slot.wild) { pendingWild = true; return; }
-        flush();
+        if (slot.extraBefore) { pendingWild = true; pendingOptional = true; }
+        if (slot.wild) { pendingWild = true; if (slot.optional) pendingOptional = true; return; }
+        flush(i === episodeIndex);
         if (i === episodeIndex) out += '(?P<episode>\\d+)';
         else if (slot.d && slot.varying) out += '\\d+';
         else out += escapeRegex(slot.v);
     });
-    if (template.extraAfterEnd) pendingWild = true;
+    if (template.extraAfterEnd) { pendingWild = true; pendingOptional = true; }
     flush();
     return out + '$';
 }
 
+// The reference name with the episode digits replaced by the placeholder.
+// Wild spans (a per-episode title, a changing tag) belong to the reference
+// file only: they are dropped, and the separators left on both sides of the
+// hole collapse into one (the left one, or the dot of the extension).
 function buildRename(template, episodeIndex) {
     if (episodeIndex === null || episodeIndex === undefined) return template.name;
-    const slot = template.slots[episodeIndex];
-    return template.name.slice(0, slot.start) + EPISODE_PLACEHOLDER + template.name.slice(slot.end);
+    const GAP = '\u0000';
+    let out = '';
+    template.slots.forEach((slot, i) => {
+        if (slot.wild) { if (!out.endsWith(GAP)) out += GAP; return; }
+        out += i === episodeIndex ? EPISODE_PLACEHOLDER : slot.v;
+    });
+    if (!out.includes(GAP)) return out;
+    // A bracket pair that only held a dropped span goes with it.
+    let previous;
+    do {
+        previous = out;
+        out = out.replace(/[\[(][\s._\-]*\u0000[\s._\-]*[\])]/g, GAP).replace(/\u0000+/g, GAP);
+    } while (out !== previous);
+    out = out.replace(/([\s._\-]*)\u0000([\s._\-]*)/g, (match, left, right, offset, whole) => {
+        const before = whole.slice(0, offset);
+        const after = whole.slice(offset + match.length);
+        if (!before || !after) return '';
+        if (right.endsWith('.') && /^[A-Za-z0-9]{1,5}$/.test(after)) return '.';
+        return left || right;
+    });
+    return out;
 }
 
 // Python named groups -> JS named groups, so the browser can test the pattern.
@@ -500,12 +634,41 @@ let folderCache = null;
 
 async function fetchFolders() {
     if (folderCache) return folderCache;
-    const response = await api.getFolders();
+    let response = null;
+    try {
+        response = await api.getFolders();
+    } catch (e) {
+        // VMSAM answers 404 while no folder is registered at all
+        if (!/No folders found/i.test(e.message)) throw e;
+    }
     let folders = [];
     if (Array.isArray(response)) folders = response;
     else if (response && Array.isArray(response.folders)) folders = response.folders;
     folderCache = folders;
     return folders;
+}
+
+// Server roots (CREATE_ROOT, FILES_ROOT), fetched once.
+let uiConfigCache = null;
+
+async function fetchUiConfig() {
+    if (!uiConfigCache) uiConfigCache = await api.getConfig();
+    return uiConfigCache;
+}
+
+// "/a//b/" -> "/a/b": paths are compared after this, never raw.
+function normalizePath(path) {
+    const collapsed = String(path || '').replace(/\/+/g, '/');
+    return collapsed.length > 1 ? collapsed.replace(/\/$/, '') : collapsed;
+}
+
+// Absolute path under CREATE_ROOT -> path relative to it; null when outside.
+function relativeToRoot(root, absolute) {
+    const r = normalizePath(root);
+    const a = normalizePath(absolute);
+    if (a === r) return '';
+    const prefix = r === '/' ? '/' : r + '/';
+    return a.startsWith(prefix) ? a.slice(prefix.length) : null;
 }
 
 // A search box + dropdown over the VMSAM folders. Ids: <prefix>-folder-search,
@@ -522,16 +685,19 @@ function createFolderPicker(prefix, onSelect, onClear) {
         if (!filtered.length) list.appendChild(el('div', 'text-muted text-sm', 'No folder matches'));
         filtered.forEach(f => {
             const item = el('div', 'dir-item text-muted', f.destination_path);
-            item.onclick = () => {
-                picker.selected = f;
-                display.querySelector('span').textContent = f.destination_path;
-                display.classList.remove('hidden');
-                list.classList.add('hidden');
-                input.value = '';
-                onSelect(f);
-            };
+            item.onclick = () => picker.select(f);
             list.appendChild(item);
         });
+    };
+
+    // Also called by code, e.g. to pick a folder that was just registered.
+    picker.select = (f) => {
+        picker.selected = f;
+        display.querySelector('span').textContent = f.destination_path;
+        display.classList.remove('hidden');
+        list.classList.add('hidden');
+        input.value = '';
+        onSelect(f);
     };
 
     picker.clear = () => {
@@ -1002,24 +1168,196 @@ function initIndexTab() {
     const board = createGroupBoard({
         containerId: 'index-cards', mode: 'regex',
         getFolderPath: () => indexTab.folder ? indexTab.folder.destination_path : null,
-        emptyText: 'Every file of the folder is already covered by an existing rule.'
+        emptyText: 'Every file of the folder is already indexed or covered by an existing rule.'
     });
     const picker = createFolderPicker('index', (f) => {
         indexTab.folder = f;
         document.getElementById('index-work-area').classList.remove('disabled-area');
         document.getElementById('index-report').classList.add('hidden');
+        showIndexMovePanel(f);
         loadIndexFolderFiles();
     }, () => {
         indexTab.folder = null;
         document.getElementById('index-work-area').classList.add('disabled-area');
+        document.getElementById('index-move').classList.add('hidden');
         board.clear();
     });
     // A save refreshes the rule and covered lists only: rebuilding the board
     // would throw away the edits made on the other groups.
     board.onSaved = () => loadIndexFolderFiles(false);
-    indexTab = { board, picker, folder: null, rules: [] };
+    indexTab = { board, picker, folder: null, rules: [], registerPath: null, registerDir: '' };
     picker.load();
     board.render();
+}
+
+// After the folder cache was dropped: reload the picker and pick folder `id`
+// as if the user had clicked it (its files load).
+async function selectIndexFolderById(id) {
+    folderCache = null;
+    let folders = [];
+    try {
+        folders = await fetchFolders();
+    } catch (e) {
+        showToast('Failed to load folders: ' + e.message, 'error');
+        return;
+    }
+    await indexTab.picker.load();
+    const folder = folders.find(f => f.id === id);
+    if (folder) indexTab.picker.select(folder);
+    else showToast(`Folder ${id} is not in the folder list`, 'error');
+}
+
+// --- Register an existing folder (a directory of CREATE_ROOT VMSAM does not know) ---
+
+function toggleIndexRegister() {
+    const content = document.getElementById('index-register-content');
+    const opening = content.classList.contains('hidden');
+    toggleCollapsible('index-register-content', 'index-register-icon');
+    if (opening) loadIndexRegisterBrowser(indexTab ? indexTab.registerDir : '');
+}
+
+async function loadIndexRegisterBrowser(path = '') {
+    const container = document.getElementById('index-register-browser');
+    container.innerHTML = '';
+    container.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
+    indexTab.registerDir = path;
+    try {
+        const [items, config, folders] = await Promise.all([
+            api.listFiles(path, 'create'),
+            fetchUiConfig(),
+            fetchFolders()
+        ]);
+        const registered = new Set(folders.map(f => normalizePath(f.destination_path)));
+        container.innerHTML = '';
+
+        const where = el('div', 'dir-item register-where');
+        where.appendChild(el('span', 'font-mono text-muted', path ? `/${path}` : '/ (library root)'));
+        container.appendChild(where);
+        if (path) {
+            const back = el('div', 'dir-item text-blue');
+            back.appendChild(el('span', null, '📁 ..'));
+            back.onclick = () => loadIndexRegisterBrowser(path.split('/').slice(0, -1).join('/'));
+            container.appendChild(back);
+        }
+
+        const dirs = items.filter(i => i.is_dir);
+        if (!dirs.length) container.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
+        dirs.forEach(item => {
+            const isRegistered = registered.has(normalizePath(`${config.create_root}/${item.path}`));
+            const row = el('div', 'dir-item' + (indexTab.registerPath === item.path ? ' selected' : '') + (isRegistered ? ' dir-registered' : ''));
+            row.dataset.path = item.path;
+            row.onclick = () => selectIndexRegisterPath(item.path);
+            row.ondblclick = () => loadIndexRegisterBrowser(item.path);
+
+            const name = el('div', 'dir-name flex-1');
+            name.appendChild(el('span', null, `📁 ${item.name}`));
+            if (isRegistered) name.appendChild(el('span', 'badge badge-success register-badge', 'registered'));
+            const open = el('button', 'btn btn-sm btn-secondary', 'Open →');
+            open.onclick = (e) => { e.stopPropagation(); loadIndexRegisterBrowser(item.path); };
+            const actions = el('div', 'dir-actions');
+            actions.appendChild(open);
+            row.append(name, actions);
+            container.appendChild(row);
+        });
+    } catch (e) {
+        container.innerHTML = '';
+        const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
+        if (path) { // e.g. the browsed directory was just moved away
+            const root = el('button', 'btn btn-sm btn-secondary mt-2', 'Back to the library root');
+            root.onclick = () => loadIndexRegisterBrowser('');
+            err.appendChild(document.createElement('br'));
+            err.appendChild(root);
+        }
+        container.appendChild(err);
+    }
+}
+
+function selectIndexRegisterPath(path) {
+    indexTab.registerPath = path;
+    document.getElementById('index-register-path').textContent = path;
+    document.getElementById('index-register-btn').disabled = false;
+    document.querySelectorAll('#index-register-browser .dir-item').forEach(row => {
+        row.classList.toggle('selected', row.dataset.path === path);
+    });
+}
+
+async function registerIndexFolder() {
+    const path = indexTab && indexTab.registerPath;
+    if (!path) { showToast('Click a folder in the browser first', 'error'); return; }
+    const number = (id, def, parse) => {
+        const v = parse(document.getElementById(id).value);
+        return isNaN(v) ? def : v;
+    };
+    const payload = {
+        destination_path: path,
+        original_language: document.getElementById('index-reg-lang').value.trim() || 'en',
+        number_cut: number('index-reg-cut', 10, v => parseInt(v, 10)),
+        cut_file_to_get_delay_second_method: number('index-reg-delay', 2.0, parseFloat),
+        max_episode_number: number('index-reg-max', 12, v => parseInt(v, 10))
+    };
+    const button = document.getElementById('index-register-btn');
+    button.disabled = true;
+    try {
+        const result = await api.createFolder(payload);
+        showToast(result && result.message ? result.message : 'Folder registered', 'success');
+        await selectIndexFolderById(result.folder_id);
+        loadIndexRegisterBrowser(indexTab.registerDir); // refresh the "registered" marks
+    } catch (e) {
+        showToast('Cannot register the folder: ' + e.message, 'error', 6000);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+// --- Move / rename the selected folder ---
+
+async function showIndexMovePanel(folder) {
+    const panel = document.getElementById('index-move');
+    const input = document.getElementById('index-move-path');
+    const note = document.getElementById('index-move-note');
+    panel.classList.remove('hidden');
+    note.textContent = '';
+    input.value = '';
+    try {
+        const config = await fetchUiConfig();
+        if (indexTab.folder !== folder) return;
+        const relative = relativeToRoot(config.create_root, folder.destination_path);
+        if (relative === null) {
+            note.textContent = `This folder is outside the library root (${config.create_root}): the new path below is taken relative to that root.`;
+            input.value = '';
+        } else {
+            note.textContent = `Relative to ${config.create_root}. Moves the directory on disk and rewrites the paths of its episodes.`;
+            input.value = relative;
+        }
+    } catch (e) {
+        note.textContent = 'Cannot read the library root: ' + e.message;
+    }
+}
+
+async function moveIndexFolder() {
+    const folder = indexTab && indexTab.folder;
+    if (!folder) { showToast('Select a folder first', 'error'); return; }
+    const newPath = document.getElementById('index-move-path').value.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!newPath) { showToast('Enter the new path, relative to the library root', 'error'); return; }
+    let config;
+    try { config = await fetchUiConfig(); } catch (e) { showToast('Cannot read the library root: ' + e.message, 'error'); return; }
+    const target = normalizePath(`${config.create_root}/${newPath}`);
+    if (!confirm(`Move this folder on disk?\n\n${folder.destination_path}\n→ ${target}`)) return;
+
+    const button = document.getElementById('index-move-btn');
+    button.disabled = true;
+    try {
+        const result = await api.moveFolder(folder.id, newPath);
+        showToast(`${result.message}: ${result.episodes_updated} episode path${result.episodes_updated === 1 ? '' : 's'} updated`, 'success', 5000);
+        await selectIndexFolderById(folder.id);
+        if (!document.getElementById('index-register-content').classList.contains('hidden')) {
+            loadIndexRegisterBrowser(indexTab.registerDir);
+        }
+    } catch (e) {
+        showToast(e.message, 'error', 8000);
+    } finally {
+        button.disabled = false;
+    }
 }
 
 async function loadIndexFolderFiles(rebuildBoard = true) {
@@ -1030,19 +1368,39 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
     covered.appendChild(el('div', 'text-sm text-muted', 'Loading...'));
     document.getElementById('index-existing').classList.remove('hidden');
 
-    const [rules, entries] = await Promise.all([
+    const [rules, entries, episodes] = await Promise.all([
         loadExistingRulesInto('index-existing-content', () => loadFolderRules(folder.id), 'No rule yet for this folder: create them below, then index.'),
-        api.listFiles(folder.destination_path, 'create').catch(e => { showToast('Cannot list the folder: ' + e.message, 'error'); return []; })
+        api.listFiles(folder.destination_path, 'create').catch(e => { showToast('Cannot list the folder: ' + e.message, 'error'); return []; }),
+        api.getFolderEpisodes(folder.id).then(r => (r && r.episodes) || []).catch(e => { showToast('Cannot read the indexed episodes: ' + e.message, 'error'); return []; })
     ]);
+    if (indexTab.folder !== folder) return; // another folder was picked meanwhile
     indexTab.rules = rules;
     const names = entries.filter(e => !e.is_dir && isVideoName(e.name)).map(e => e.name).sort();
 
-    // A file an existing rule already covers needs no new rule.
+    // A file VMSAM already registered is done: its new name rarely matches the
+    // rule that renamed it, so it must not come back as a file without rule.
+    const episodeByPath = new Map(episodes.map(ep => [normalizePath(ep.file_path), ep]));
+    const base = normalizePath(folder.destination_path);
+    const indexedFiles = [];
     const coveredFiles = [];
     const uncovered = [];
     names.forEach(name => {
+        const episode = episodeByPath.get(normalizePath(`${base}/${name}`));
+        if (episode) { indexedFiles.push({ name, episode: episode.episode_number }); return; }
+        // A file an existing rule already covers needs no new rule.
         const hit = rules.map(r => ({ rule: r, episode: extractEpisode(r.regex_pattern, name) })).find(x => x.episode !== null && /^\d+$/.test(x.episode));
         if (hit) coveredFiles.push({ name, ...hit }); else uncovered.push(name);
+    });
+
+    const indexedBox = document.getElementById('index-indexed-content');
+    indexedBox.innerHTML = '';
+    document.getElementById('index-indexed-count').textContent = `${indexedFiles.length}`;
+    if (!indexedFiles.length) indexedBox.appendChild(el('div', 'text-sm text-muted', 'No file of this folder is indexed yet.'));
+    indexedFiles.sort((a, b) => a.episode - b.episode).forEach(f => {
+        const row = el('div', 'group-file');
+        row.appendChild(el('span', 'group-file-name font-mono', f.name));
+        row.appendChild(el('span', 'badge', `ep ${String(f.episode).padStart(2, '0')}`));
+        indexedBox.appendChild(row);
     });
 
     covered.innerHTML = '';
@@ -1055,7 +1413,9 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
         covered.appendChild(row);
     });
 
-    document.getElementById('index-file-count').textContent = `${names.length} video file${names.length > 1 ? 's' : ''}, ${uncovered.length} without rule`;
+    document.getElementById('index-file-count').textContent =
+        `${names.length} video file${names.length > 1 ? 's' : ''}: ${indexedFiles.length} indexed, ` +
+        `${coveredFiles.length} covered by a rule, ${uncovered.length} without rule`;
     if (rebuildBoard) {
         indexTab.board.clear();
         indexTab.board.addGroups(groupByPrefix(uncovered));

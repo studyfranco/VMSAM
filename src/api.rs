@@ -170,26 +170,55 @@ async fn get_config() -> impl IntoResponse {
     }
 }
 
-// Proxy for creating folder with absolute path enforcement
-#[handler]
-async fn proxy_create_folder(body: String) -> impl IntoResponse {
-    // Intercept and fix path
-    let mut new_body = body.clone();
-    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&body) {
-        if let Some(dest) = json.get("destination_path").and_then(|v| v.as_str()) {
-            let root = get_create_root();
-            // Ensure it's treated as relative
+// Rewrite one path field of a JSON body as CREATE_ROOT/<relative path>.
+// The browser only ever handles paths relative to the library root; VMSAM
+// stores absolute ones. A body that is not JSON is relayed unchanged and
+// VMSAM answers 422 itself.
+fn absolutise_field(body: &str, field: &str) -> String {
+    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(body) {
+        if let Some(dest) = json.get(field).and_then(|v| v.as_str()) {
             let relative_dest = dest.trim_start_matches('/');
-            let absolute_path = root.join(relative_dest);
-
-            json["destination_path"] =
-                serde_json::Value::String(absolute_path.to_string_lossy().to_string());
+            let absolute_path = get_create_root().join(relative_dest);
+            json[field] = serde_json::Value::String(absolute_path.to_string_lossy().to_string());
             if let Ok(s) = serde_json::to_string(&json) {
-                new_body = s;
+                return s;
             }
         }
     }
-    proxy_post("/folders/", new_body).await
+    body.to_string()
+}
+
+fn has_parent_component(body: &str, field: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|json| {
+            json.get(field)
+                .and_then(|v| v.as_str())
+                .map(|p| p.split('/').any(|part| part == ".."))
+        })
+        .unwrap_or(false)
+}
+
+// Proxy for creating folder with absolute path enforcement
+#[handler]
+async fn proxy_create_folder(body: String) -> impl IntoResponse {
+    if has_parent_component(&body, "destination_path") {
+        return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
+    }
+    proxy_post("/folders/", absolutise_field(&body, "destination_path")).await
+}
+
+// Proxy for moving/renaming a folder: same root enforcement on the target
+#[handler]
+async fn proxy_move_folder(body: String) -> impl IntoResponse {
+    if has_parent_component(&body, "new_destination_path") {
+        return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
+    }
+    proxy_post(
+        "/folders/move/",
+        absolutise_field(&body, "new_destination_path"),
+    )
+    .await
 }
 
 // Upstream routes with a fixed path: /api/vmsam/<name> -> VMSAM /<path>.
@@ -199,6 +228,7 @@ const GET_ROUTES: &[(&str, &str)] = &[
     ("regex_list", "/regex_folder/"),
     ("special_list", "/special_list/"),
     ("incrementaller_list", "/incrementaller_list/"),
+    ("episodes_folder", "/episodes_folder/"),
     ("errors", "/errors"),
     ("health", "/health"),
 ];
@@ -258,6 +288,7 @@ pub fn routes() -> Route {
         .at("/fs/list", poem::get(list_files))
         .at("/config", poem::get(get_config))
         .at("/vmsam/folders", poem::post(proxy_create_folder))
+        .at("/vmsam/folders_move", poem::post(proxy_move_folder))
         .at(
             "/vmsam/:name",
             poem::get(proxy_get_route).post(proxy_post_route),

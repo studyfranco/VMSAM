@@ -218,8 +218,8 @@
             <section id="index-tab" class="hidden">
                 <div class="card">
                     <h2 class="section-title">1. Select the folder to index</h2>
-                    <p class="text-muted text-sm">A folder that already holds files. Files an existing rule covers are listed
-                        apart; the others are grouped by their first five characters, one proposed rule per group. Save the
+                    <p class="text-muted text-sm">A folder that already holds files. Files already indexed and files an
+                        existing rule covers are listed apart; the others are grouped by their first five characters, one proposed rule per group. Save the
                         rules you want, then index: VMSAM renames each matching file with its rule and registers it with the
                         rule's weight. A file whose episode is already registered is left untouched.</p>
                     <div class="form-group">
@@ -230,6 +230,48 @@
                         <span class="font-mono text-accent"></span>
                         <button onclick="indexTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
                     </div>
+
+                    <div id="index-move" class="hidden mt-4 move-panel">
+                        <label class="label" for="index-move-path">Move / rename this folder</label>
+                        <div class="flex items-center move-row">
+                            <input type="text" id="index-move-path" class="input" placeholder="e.g. Show A/Season 1">
+                            <button id="index-move-btn" onclick="moveIndexFolder()" class="btn btn-secondary">Move</button>
+                        </div>
+                        <div id="index-move-note" class="text-muted text-xs mt-1"></div>
+                    </div>
+
+                    <div class="card mt-4 register-card">
+                        <div onclick="toggleIndexRegister()" class="flex flex-between items-center" style="cursor: pointer;">
+                            <h3 style="margin:0;">Register an existing folder</h3>
+                            <span id="index-register-icon">▼</span>
+                        </div>
+                        <div id="index-register-content" class="hidden mt-4">
+                            <p class="text-muted text-sm">A directory of the library that VMSAM does not know yet. Open
+                                directories with "Open →" (or a double click), click one to select it. Directories marked
+                                "registered" are already known: registering one again only updates its options.</p>
+                            <div id="index-register-browser" class="dir-browser-container"></div>
+                            <div class="text-sm mt-2">Selected: <span id="index-register-path" class="font-mono text-accent">none</span></div>
+                            <div class="grid-4 mt-2">
+                                <div class="form-group">
+                                    <label class="label" for="index-reg-lang">Original Language</label>
+                                    <input type="text" id="index-reg-lang" value="en" class="input">
+                                </div>
+                                <div class="form-group">
+                                    <label class="label" for="index-reg-cut">Number Cut</label>
+                                    <input type="number" id="index-reg-cut" value="10" class="input">
+                                </div>
+                                <div class="form-group">
+                                    <label class="label" for="index-reg-max">Max Episode</label>
+                                    <input type="number" id="index-reg-max" value="12" class="input">
+                                </div>
+                                <div class="form-group">
+                                    <label class="label" for="index-reg-delay">Cut Ratio (1/N)</label>
+                                    <input type="number" id="index-reg-delay" value="2.0" step="0.1" class="input">
+                                </div>
+                            </div>
+                            <button id="index-register-btn" onclick="registerIndexFolder()" class="btn btn-primary" disabled>Register folder</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="index-existing" class="card mt-4 hidden">
@@ -238,6 +280,11 @@
                         <span id="index-existing-icon">▼</span>
                     </div>
                     <div id="index-existing-content" class="hidden mt-4"></div>
+                    <div onclick="toggleCollapsible('index-indexed-content', 'index-indexed-icon')" class="flex flex-between items-center mt-4" style="cursor: pointer;">
+                        <h3 style="margin:0;">Already indexed (<span id="index-indexed-count">0</span>)</h3>
+                        <span id="index-indexed-icon">▼</span>
+                    </div>
+                    <div id="index-indexed-content" class="hidden mt-4 group-files"></div>
                     <div onclick="toggleCollapsible('index-covered-content', 'index-covered-icon')" class="flex flex-between items-center mt-4" style="cursor: pointer;">
                         <h3 style="margin:0;">Files already covered by a rule (<span id="index-covered-count">0</span>)</h3>
                         <span id="index-covered-icon">▼</span>

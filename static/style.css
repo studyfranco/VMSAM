@@ -668,3 +668,44 @@ body {
 .rule-info {
     margin-bottom: 0.75rem;
 }
+
+/* --- Index Folder: register an existing folder, move a folder --- */
+.flex-1 {
+    flex: 1;
+    min-width: 0;
+}
+
+.grid-4 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+}
+
+.register-card {
+    background-color: var(--bg-surface);
+}
+
+.register-where {
+    cursor: default;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    margin-bottom: 0.25rem;
+}
+
+.register-where:hover {
+    background-color: transparent;
+}
+
+.dir-item.dir-registered .dir-name {
+    color: var(--text-muted);
+}
+
+.move-row {
+    gap: 0.5rem;
+}
+
+.move-row .input {
+    flex: 1;
+    min-width: 0;
+    font-family: monospace;
+}
