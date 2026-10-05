@@ -610,9 +610,10 @@ def single_edge(m, c, off, anchor_s, limit_s, side):
 
     Walks 20 ms windows from `anchor_s` (the level's outermost measured window) toward `limit_s`
     while they match or are silent, stopping after `EDGE_SUSTAINED_MISMATCH_S` of audible
-    mismatch, then extends over master silence where the candidate is quiet too. Returns
-    {edge_s, method, floor, silence_extended_s} or None. Falls back to 100 ms NCC windows on a
-    rate pair."""
+    mismatch, then extends over master silence where the candidate is quiet too, and at the
+    tail over the candidate's run-on past the master's last sample (`tail_run_on`). Returns
+    {edge_s, method, floor, silence_extended_s, run_on_s} or None. Falls back to 100 ms NCC
+    windows on a rate pair."""
     t0, t1 = min(anchor_s, limit_s), max(anchor_s, limit_s)
     times, mdb, (res,) = _residuals(m, c, (off,), t0, t1)
     audible = mdb >= FINE_SILENT_DB
@@ -654,10 +655,57 @@ def single_edge(m, c, off, anchor_s, limit_s, side):
             break
         i += step
     edge = float(times[i] + win) if side == "tail" else float(times[i])
-    return {"edge_s": round(edge, 4), "method": method, "floor": round(floor, 4),
-            "silence_extended_s": round(abs(edge - (float(times[last_good] + win)
-                                                    if side == "tail"
-                                                    else float(times[last_good]))), 4)}
+    extended = round(abs(edge - (float(times[last_good] + win) if side == "tail"
+                                 else float(times[last_good]))), 4)
+    run_on = tail_run_on(m, c, off, edge) if side == "tail" else None
+    return {"edge_s": round(edge if run_on is None else run_on, 4), "method": method,
+            "floor": round(floor, 4), "silence_extended_s": extended,
+            "run_on_s": None if run_on is None else round(run_on - edge, 4)}
+
+
+# Where the master's track ends mid-sound, the candidate's same sound runs on past it. It is
+# common content up to its last sample above digital silence when it decays (never louder than
+# the candidate over the last RUN_ON_REFERENCE_S under the master) and falls silent for a fine
+# window within EDGE_SUSTAINED_MISMATCH_S; anything longer or louder is the candidate's own.
+RUN_ON_REFERENCE_S = 0.1
+
+
+def tail_run_on(m, c, off, edge_s):
+    """Extend a tail edge that reached the end of the master's samples over the candidate's run-on.
+
+    Returns the master-time instant just after the candidate's last sample above digital
+    silence, or None when the edge stops before the master's end, the candidate runs on louder
+    or longer than the rule allows, or on an envelope pair."""
+    if isinstance(c, EnvelopeSignal) or isinstance(m, EnvelopeSignal):
+        return None
+    master_end = len(m) / WALK_RATE
+    if edge_s < master_end - FINE_WIN_S:
+        return None
+    shift = off / 1000.0
+    start = int(round((master_end + shift) * WALK_RATE))
+    w = int(round(FINE_WIN_S * WALK_RATE))
+    if start - w < 0 or start >= len(c):
+        return None
+    budget = int(round(EDGE_SUSTAINED_MISMATCH_S * WALK_RATE))
+    seg = np.asarray(c[start:start + budget + w], np.float64)
+    if start + len(seg) >= len(c):
+        # The candidate's own end counts as silence.
+        seg = np.concatenate([seg, np.zeros(w)])
+    sound = np.concatenate([[0], np.cumsum(np.abs(seg) >= DIGITAL_SILENCE_AMPLITUDE)])
+    silent = np.flatnonzero(sound[w:] - sound[:-w] == 0)
+    silent = silent[silent <= budget]
+    if not len(silent) or silent[0] == 0:
+        return None
+    heard = np.flatnonzero(np.abs(seg[:silent[0]]) >= DIGITAL_SILENCE_AMPLITUDE)
+    end = int(heard[-1]) + 1
+    hop = int(round(FINE_HOP_S * WALK_RATE))
+
+    def loudest(x):
+        return max(rms_db(x[k:k + w]) for k in range(0, max(len(x) - w, 0) + 1, hop))
+    reference = c[max(0, start - int(round(RUN_ON_REFERENCE_S * WALK_RATE))):start]
+    if loudest(seg[:end]) > loudest(reference):
+        return None
+    return max(edge_s, (start + end) / WALK_RATE - shift)
 
 
 # The candidate's content begins at its first sound, not at its file start: a sample under the

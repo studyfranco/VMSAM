@@ -2592,6 +2592,8 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                        f"head_master_first_sound_s={lead['master_first_sound_s']} "
                        f"head_uncovered_master_ms={round(lead['uncovered_s'] * 1000.0, 1)} "
                        f"head_uncovered_master_db={lead['master_db']}")
+    if tail is not None and tail.get("run_on_s") is not None:
+        summary.append(f"tail_candidate_run_on_ms={round(tail['run_on_s'] * 1000.0, 1)}")
     tools.log_always(f"repair: audio_edges {' '.join(summary)} for {candidate_path}\n")
     head_end = decisions["head"]
     # Past the tail edge nothing proves the candidate's content is common, so the master fills
