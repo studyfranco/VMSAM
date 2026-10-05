@@ -1,82 +1,144 @@
-# frame_compare.py
-# Amélioré: pHash DCT 64‑bits + alignement à bande + repli scène ffmpeg
+"""Frame comparison by 64-bit DCT pHash of low-resolution frames."""
 
-from threading import Thread
+from fractions import Fraction
+import subprocess
 from sys import stderr
-import math
-import io
-import struct
 import numpy as np
 from scipy.fft import dct
 import tools
+import repair_log
 
 class FrameComparer:
-    """
-    Compare des cadres entre deux vidéos dans une fenêtre temporelle pour localiser une zone de rupture.
-    1) Extrait des cadres basses résolutions 32x32 gris via ffmpeg
-    2) Calcule un pHash DCT 64‑bits par cadre
-    3) Aligne dans une bande et agrège un coût de dissimilarité pour trouver la pire zone (supposée rupture)
-    Repli: détection de scène ffmpeg dans la même fenêtre.
+    """Compare frames of two videos inside a time window.
+
+    Frames are decoded as 32x32 grey at the native rate and hashed with a
+    64-bit DCT pHash. The frame rate must be an exact rational
+    (`fps_num`/`fps_den`); every frame index is on that grid.
+
+    Args:
+        ref_path, tgt_path: the two files.
+        start_sec, end_sec: the time window.
+        fps_num, fps_den: exact frame rate of the comparison grid.
+        crop_filters: optional {path: "crop=w:h:x:y"} applied before scaling.
+        time_scales: optional {path: Fraction r}, r = speed relative to the reference.
+
+    Raises:
+        ValueError: on a non-positive rate or time scale.
     """
 
     def __init__(self, ref_path, tgt_path, start_sec, end_sec,
-                 fps=10, band_width=20, max_search_frames=50, debug=False,
-                 scene_threshold=0.30):
+                 fps_num, fps_den,
+                 band_width_sec=2.0, max_search_sec=5.0, debug=False,
+                 scene_threshold=0.30, crop_filters=None, time_scales=None):
         self.ref_path = ref_path
         self.tgt_path = tgt_path
         self.start_sec = float(start_sec)
         self.end_sec = float(end_sec)
-        self.fps = int(max(1, fps))
-        self.band_width = int(max(1, band_width))
-        self.max_search_frames = int(max(8, max_search_frames))
+
+        fps_num = int(fps_num)
+        fps_den = int(fps_den)
+        if fps_num <= 0 or fps_den <= 0:
+            # No default rate: a non-positive rate means it was not measured.
+            raise ValueError(
+                f"FrameComparer requires an exact positive frame-rate rational, "
+                f"got fps_num={fps_num} fps_den={fps_den}")
+        self.fps_num = fps_num
+        self.fps_den = fps_den
+        self.fps_frac = Fraction(fps_num, fps_den)
+        # Float only for ffmpeg arguments and display.
+        self.fps = float(self.fps_frac)
+
+        self.band_width = max(1, self._round_frac(Fraction(band_width_sec).limit_denominator(10**6) * self.fps_frac))
+        self.max_search_frames = max(8, self._round_frac(Fraction(max_search_sec).limit_denominator(10**6) * self.fps_frac))
         self.side = 32
         self.debug = debug
         self.scene_threshold = float(scene_threshold)
+        self.crop_filters = dict(crop_filters) if crop_filters else {}
+        # Seconds given for a scaled path are reference-equivalent: seek and
+        # duration are divided by `r`.
+        self.time_scales = {}
+        for scaled_path, scale in (time_scales or {}).items():
+            if scale is None:
+                continue
+            scale = Fraction(scale)
+            if scale <= 0:
+                raise ValueError(f"FrameComparer time scale must be positive, "
+                                 f"got {scale} for {scaled_path}")
+            if scale != 1:
+                self.time_scales[scaled_path] = scale
 
     @staticmethod
     def _popcount64(x: int) -> int:
         return int(x).bit_count()
 
+    @staticmethod
+    def _round_frac(frac: Fraction) -> int:
+        """Round half up on the exact rational (`int()` would truncate)."""
+        return int(frac + Fraction(1, 2))
+
+    def _frame_index(self, seconds: float) -> int:
+        """Absolute frame index at `seconds` on this object's exact grid."""
+        return self._round_frac(Fraction(seconds).limit_denominator(10**9) * self.fps_frac)
+
     def _ffmpeg_raw_frames(self, path, start_sec, dur_sec):
-        # ffmpeg: scale 32x32 gray, fps=N, rawvideo
+        """Decode a window as raw 32x32 grey frames at the native rate (bytes)."""
+        # No `fps=` filter: it would duplicate or drop frames.
         ffmpeg = tools.software["ffmpeg"]
         w = h = self.side
+        # Crop before scaling so black bars do not contaminate the hash.
+        crop = self.crop_filters.get(path)
+        vf = f"scale={w}:{h},format=gray" if not crop else f"{crop},scale={w}:{h},format=gray"
+        scale = self.time_scales.get(path)
+        if scale is not None:
+            start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
+            dur_sec = float(Fraction(dur_sec).limit_denominator(10**9) / scale)
+        # A window of no length is never decoded: `-t 0.0` means "no limit" to
+        # ffmpeg, so a clamped negative window would decode the whole file.
+        if dur_sec <= 0:
+            tools.dev_log(f"frame_compare: _ffmpeg_raw_frames window_empty file={path} "
+                          f"start_sec={start_sec} dur_sec={dur_sec} -- not decoded\n")
+            return b""
         cmd = [
             ffmpeg, "-v", "error", "-nostdin",
             "-ss", f"{start_sec}",
             "-t", f"{dur_sec}",
             "-i", path,
-            "-vf", f"scale={w}:{h},fps={self.fps},format=gray",
+            "-vf", vf,
             "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"
         ]
-        # Une lecture complète suffit (fenêtres courtes)
-        stdout, stderr_out, rc = tools.launch_cmdExt_no_test(cmd)
+        timeout = tools.decoder_timeout_for(dur_sec)
+        tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
+                      f"start_sec={start_sec} dur_sec={dur_sec} timeout_s={timeout}\n")
+        try:
+            with repair_log.announced("frame_compare", "ffmpeg", path, media_s=dur_sec) as call:
+                done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      timeout=timeout)
+                call["exit"] = done.returncode
+        except subprocess.TimeoutExpired:
+            raise tools.decoder_timeout("ffmpeg_raw_frames", timeout,
+                                        f"file={path} start_sec={start_sec} dur_sec={dur_sec}")
+        stdout, stderr_out, rc = done.stdout, done.stderr, done.returncode
         if rc not in (0,):
-            # on tente quand même de parser ce qu’on a reçu
             if self.debug:
                 stderr.write(f"[frame_compare] ffmpeg returned {rc}, partial data used\n")
         return stdout
 
     def _phash64_frames(self, blob_bytes):
-        # Chaque frame = side*side octets
+        """64-bit DCT pHash of each 32x32 frame in a raw grey buffer."""
         s = self.side
         frame_size = s * s
         n_frames = len(blob_bytes) // frame_size
         hashes = []
         if n_frames == 0:
             return hashes
-        # base DCT 2D: DCT-II ligne puis colonne
-        # Pour performance, on évite de realouer trop
         for i in range(n_frames):
             block = blob_bytes[i*frame_size : (i+1)*frame_size]
             arr = np.frombuffer(block, dtype=np.uint8).astype(np.float32)
             arr = arr.reshape((s, s))
-            # DCT 2D
             dct_rows = dct(arr, norm='ortho', axis=0)
             dct_2d = dct(dct_rows, norm='ortho', axis=1)
-            # Top-left 8x8
             d8 = dct_2d[:8, :8].copy()
-            # Option: ignorer DC [0,0] dans le seuillage médian
+            # the DC coefficient [0,0] is left out of the median
             flat = d8.flatten()
             median = np.median(flat[1:]) if flat.size >= 2 else np.median(flat)
             h = 0
@@ -92,130 +154,121 @@ class FrameComparer:
             stderr.write(f"[frame_compare] pHash frames: {len(hashes)}\n")
         return hashes
 
-    def _align_and_find_gap(self, ref_hashes, tgt_hashes):
-        """
-        Agrège un coût minimal par indice cible dans une bande autour de la diagonale.
-        Lisse le coût et extrait la zone max (supposée rupture).
-        Retourne (start_idx, end_idx) en indices de la séquence cible ou None.
-        """
-        n = min(len(ref_hashes), self.max_search_frames)
-        m = min(len(tgt_hashes), self.max_search_frames)
-        if n == 0 or m == 0:
-            return None
-        ref = ref_hashes[:n]
-        tgt = tgt_hashes[:m]
 
-        band = self.band_width
-        costs =  * m
-        hits =  * m
+def _nominal_shift_frames(offset_ms, fps_num, fps_den):
+    frame_ms = 1000.0 * fps_den / fps_num
+    return int(round(offset_ms / frame_ms))
 
-        # Pour chaque i (ref), chercher le j (tgt) dans la bande [i-band, i+band] minimisant la distance
-        for i in range(n):
-            j0 = max(0, i - band)
-            j1 = min(m - 1, i + band)
-            best_j = None
-            best_d = 1_000_000
-            r = ref[i]
-            for j in range(j0, j1 + 1):
-                d = self._popcount64(r ^ tgt[j])
-                if d < best_d:
-                    best_d = d
-                    best_j = j
-            if best_j is not None:
-                costs[best_j] += best_d
-                hits[best_j] += 1
 
-        # lisser par fenêtre glissante (~0.33 s)
-        window = max(3, self.fps // 3)
-        smoothed =  * m
-        run = 0
-        for j in range(m):
-            run += costs[j]
-            if j >= window:
-                run -= costs[j - window]
-            smoothed[j] = run
+# Native decode rate vs label grid: `_ffmpeg_raw_frames` decodes at the file's
+# own rate, but indices are on the comparer's grid. When the rates differ, each
+# decoded series is re-indexed onto the grid (`_on_comparer_grid`) so element
+# `k` is the frame playing `k` grid frames into the window.
 
-        if m == 0:
-            return None
+# Native rate per path; only successes are cached, so a transient ffprobe
+# failure is retried.
+_NATIVE_RATE_CACHE = {}
 
-        center = max(range(m), key=lambda j: smoothed[j])
-        half = max(2, window // 2)
-        start = max(0, center - half)
-        end = min(m - 1, center + half)
 
-        if self.debug:
-            stderr.write(f"[frame_compare] gap tgt frames: {start}..{end} (center={center}, window={window})\n")
-        return (start, end)
+def parse_positive_rate(value):
+    '''Parse a frame rate to an exact positive Fraction, or None.
 
-    def _scene_gap_fallback(self, start_sec, end_sec):
-        """
-        Recherche des timestamps de rupture par ffmpeg scene detection dans la fenêtre,
-        renvoie une petite fenêtre autour de la valeur médiane détectée si dispo.
-        """
-        ffmpeg = tools.software["ffmpeg"]
-        dur = max(0.5, end_sec - start_sec)
-        cmd = [
-            ffmpeg, "-hide_banner", "-nostdin",
-            "-ss", f"{start_sec}",
-            "-t", f"{dur}",
-            "-i", self.tgt_path,
-            "-vf", f"select='gt(scene,{self.scene_threshold})',showinfo",
-            "-f", "null", "-"
-        ]
-        # showinfo écrit sur stderr
-        out, err, rc = tools.launch_cmdExt_no_test(cmd)
-        text = err.decode("utf-8", errors="ignore")
-        import re
-        times = []
-        # showinfo… pts_time:123.456
-        for m in re.finditer(r"pts_time:([0-9]+\.[0-9]+)", text):
-            ts = float(m.group(1))
-            # convertir vers temps global (cmd déjà -ss)
-            times.append(ts + start_sec)
-        if not times:
-            return None
-        c = times[len(times) // 2]
-        band = max(0.2, min(2.0, dur * 0.2))
-        return (max(start_sec, c - band), min(end_sec, c + band))
+    Shared rate normaliser (also used by `scene_anchor` and
+    `merge_video_chimeric`). Blank, non-positive, non-finite or unparseable
+    values return None.
+    '''
+    if value is None:
+        return None
+    try:
+        rate = Fraction(value)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        return None
+    return rate if rate > 0 else None
 
-    def find_scene_gap_requirements(self, before_common=2, after_common=3):
-        """
-        Entrée principale:
-          - extrait les pHash des cadres sur [start_sec,end_sec]
-          - aligne ref/tgt dans une bande
-          - renvoie frames/temps en coordonnées cible
-        """
-        dur = max(0.5, self.end_sec - self.start_sec)
-        # léger pad pour stabilité
-        pad = min(4.0, dur / 2.0)
-        start = max(0.0, self.start_sec - pad)
-        dur2 = dur + 2 * pad
 
-        ref_blob = self._ffmpeg_raw_frames(self.ref_path, start, dur2)
-        tgt_blob = self._ffmpeg_raw_frames(self.tgt_path, start, dur2)
-        ref_hashes = self._phash64_frames(ref_blob)
-        tgt_hashes = self._phash64_frames(tgt_blob)
+def _native_frame_rate(path):
+    '''Native decode rate of the file from ffprobe `r_frame_rate`.
 
-        gap = self._align_and_find_gap(ref_hashes, tgt_hashes)
-        if not gap:
-            # Repli: scène ffmpeg
-            fb = self._scene_gap_fallback(start, start + dur2)
-            if not fb:
-                return None
-            s_time, e_time = fb
-            s_idx = int(round((s_time - start) * self.fps))
-            e_idx = int(round((e_time - start) * self.fps))
-        else:
-            s_idx, e_idx = gap
+    Returns `(Fraction, None)` on success, `(None, reason)` otherwise.
+    '''
+    cached = _NATIVE_RATE_CACHE.get(path)
+    if cached is not None:
+        return cached, None
+    try:
+        cmd = [tools.software["ffprobe"], "-v", "error",
+               "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+               "-of", "default=noprint_wrappers=1:nokey=1", path]
+    except KeyError:
+        return None, "ffprobe_not_configured"
+    tools.dev_log(f"frame_compare: _native_frame_rate calling ffprobe "
+                  f"file={path}\n")
+    try:
+        with repair_log.announced("frame_compare", "ffprobe", path) as call:
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                cmd, max_restart=3, timeout=60)
+            call["exit"] = exit_code
+    except Exception as exc:
+        return None, f"ffprobe_raised:{type(exc).__name__}"
+    if exit_code != 0:
+        return None, f"ffprobe_exit:{exit_code}"
+    lines = stdout.decode("utf-8", "replace").strip().splitlines()
+    raw = lines[0].strip() if lines else ""
+    rate = parse_positive_rate(raw)
+    if rate is None:
+        return None, f"unparseable_r_frame_rate:{raw!r}"
+    _NATIVE_RATE_CACHE[path] = rate
+    return rate, None
 
-        start_time = start + (s_idx / float(self.fps))
-        end_time = start + (e_idx / float(self.fps))
-        start_frame = int(round(start_time * self.fps))
-        end_frame = int(round(end_time * self.fps))
 
-        return {
-            "start_frame": start_frame,
-            "end_frame": end_frame,
-            "start_time": start_time,
-            "end_time": end_time
-        }
+def _on_comparer_grid(comparer, path, values):
+    '''Re-index a natively decoded per-frame series onto the comparer's grid.
+
+    Element `k` is taken from native element `round(k * native_rate / grid_rate)`
+    on window-relative indices (an instant-based form would add `base`'s own
+    rounding residue). Returns `(values_on_grid, None)`, or `(None, reason)`
+    when the file's rate cannot be measured.
+    '''
+    if not values:
+        return values, None
+    native_rate, reason = _native_frame_rate(path)
+    if native_rate is None:
+        return None, reason
+    grid_rate = comparer.fps_frac
+    # A speed-changed path uses its corrected grid `grid_rate * r`.
+    scale = getattr(comparer, "time_scales", {}).get(path)
+    if scale is not None:
+        grid_rate = grid_rate * scale
+    if native_rate == grid_rate:
+        return values, None
+    ratio = native_rate / grid_rate
+    n_native = len(values)
+    out = []
+    k = 0
+    while True:
+        j = FrameComparer._round_frac(Fraction(k) * ratio)
+        if j >= n_native:
+            break
+        out.append(values[j])
+        k += 1
+    return out, None
+
+
+def _extract_hashes(comparer, path, start_s, dur_s):
+    """Return (base frame index, pHashes on the comparer's grid) for a window.
+
+    The list is empty when the window is empty or the file's rate is unknown.
+    """
+    start_s = max(0.0, start_s)
+    if dur_s <= 0:
+        return comparer._frame_index(start_s), []
+    blob = comparer._ffmpeg_raw_frames(path, start_s, dur_s)
+    hashes = comparer._phash64_frames(blob)
+    base = comparer._frame_index(start_s)
+    on_grid, reason = _on_comparer_grid(comparer, path, hashes)
+    if on_grid is None:
+        # Never guess the grid: an empty series makes every caller decline.
+        tools.dev_log(f"frame_compare: _extract_hashes declining "
+                      f"file={path} reason=native_rate_unmeasured:{reason} "
+                      f"start_sec={start_s} decoded_frames={len(hashes)}\n")
+        return base, []
+    return base, on_grid
