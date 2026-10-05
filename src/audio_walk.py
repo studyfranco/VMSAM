@@ -52,6 +52,15 @@ FINE_SILENT_DB = -100.0
 FINE_FLOOR_MAX = 0.1
 # Level (20 ms window) at or above which master-only sound must be covered by a fill.
 AUDIBLE_DB = -60.0
+# A master-only-audible span the candidate already matches at this NCC (searched, not the
+# gain-fitted residual test) is not really master-only: same threshold as the coarse side claim.
+MASTER_ONLY_COVERED_NCC = SHORT_THRESHOLD
+# The matched offset must beat the other by this much (fine_edges' own ncc100ms disambiguation),
+# so a short span searched widely cannot read as covered by chance at both offsets alike.
+MASTER_ONLY_COVERED_MARGIN = 0.2
+# A span counts as covered only once at least this fraction of it reads a match: a wide span's
+# natural boundary into the next level (one window's width) must not look like real coverage.
+MASTER_ONLY_COVERED_FRACTION = 0.05
 
 
 # ---------------------------------------------------------------------------------------------
@@ -504,6 +513,36 @@ def _ncc_profile(m, c, offsets, t0, t1, win_s=0.1):
     nccs = [np.array([(_fixed_ncc(m, c, t, off, win_s, 0.5)[0] or 0.0) for t in times])
             for off in offsets]
     return times, mdb, nccs
+
+
+def master_only_covered(m, c, only_s, a_ms, b_ms, win_s=0.1, hop_s=0.02, search_ms=WALK_SEARCH_MS):
+    """True when the candidate's own audio already covers `only_s` at either offset.
+
+    Samples a 0.1 s window (fine_edges' own ncc100ms fallback width) every `hop_s` across
+    `only_s`: a plain NCC search (`_search`, as the walk already uses) is scale-free, so it
+    still matches genuine content that fine_edges' gain-fitted good_a/good_b test can miss next
+    to true silence. A sample counts as covered only when its offset clears
+    MASTER_ONLY_COVERED_NCC and beats the other offset by MASTER_ONLY_COVERED_MARGIN (fine_edges'
+    own disambiguation), and the span counts as covered only once at least a
+    MASTER_ONLY_COVERED_FRACTION share of samples do: a wide span's one-window sliver into the
+    next level, at its very edge, must not alone read as real coverage.
+    """
+    lo_s, hi_s = only_s
+    if hi_s <= lo_s:
+        return False
+    samples = covered = 0
+    t = lo_s
+    while t < hi_s:
+        ra = _search(m, c, t, a_ms, win_s, search_ms)
+        rb = _search(m, c, t, b_ms, win_s, search_ms)
+        na = 0.0 if ra is None or ra.get("cand_silent") else float(ra.get("ncc", 0.0))
+        nb = 0.0 if rb is None or rb.get("cand_silent") else float(rb.get("ncc", 0.0))
+        if ((na >= MASTER_ONLY_COVERED_NCC and na - nb >= MASTER_ONLY_COVERED_MARGIN)
+                or (nb >= MASTER_ONLY_COVERED_NCC and nb - na >= MASTER_ONLY_COVERED_MARGIN)):
+            covered += 1
+        samples += 1
+        t += hop_s
+    return samples > 0 and covered / samples >= MASTER_ONLY_COVERED_FRACTION
 
 
 def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b=None):

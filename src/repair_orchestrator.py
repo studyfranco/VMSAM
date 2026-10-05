@@ -2699,12 +2699,12 @@ def replacement_hole(outcome, domain, edges, slack_s):
             "cut_ms": round(excess * 1000.0, 3)}
 
 
-def addition_replacement(point, union):
+def addition_replacement(point, union, walk):
     """Detect an addition change point that is really a replacement.
 
     It is one when audible master content between its edges matches neither offset
-    (`master_only_audible`) and lies in a union interior hole; the master then fills
-    [edge_A, edge_B).
+    (`master_only_audible`) and lies in a union interior hole, UNLESS the candidate's own
+    material already covers that span at either offset (a plain splice, not a hole).
 
     Returns:
         {start_s, end_s, fill_s, cut_ms, hole}, or None (a point splice).
@@ -2721,6 +2721,10 @@ def addition_replacement(point, union):
             if hole["kind"] == "interior"
             and hole["master_ms"][0] < high_ms and hole["master_ms"][1] > low_ms]
     if not hits:
+        return None
+    import audio_walk
+    if audio_walk.master_only_covered(walk["master"], walk["candidate"], only,
+                                      point["a_ms"], point["b_ms"]):
         return None
     fill_s = end_s - start_s
     return {"start_s": start_s, "end_s": end_s, "fill_s": fill_s,
@@ -2852,7 +2856,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                                   f"a time bound ({outcome.get('evidence')}) -- the partial plan "
                                   f"is logged; the file comes back next wave")
         status = outcome["status"]
-        replaced = addition_replacement(point, union)
+        replaced = addition_replacement(point, union, walk)
         if replaced is not None:
             transitions.append({"at_s": replaced["start_s"], "fill_s": replaced["fill_s"],
                                 "a_ms": point["a_ms"], "b_ms": point["b_ms"],
