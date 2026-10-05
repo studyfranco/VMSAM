@@ -127,6 +127,19 @@ def rms_db(x):
     return 20 * np.log10(max(value, 1e-10))
 
 
+def peak_db(x):
+    """Return the peak level of `x` in dB (-200 for an empty array).
+
+    Unlike `rms_db`, a peak is not diluted by surrounding silence, so it stays
+    the right measure of "is this sample audible" over a span that mixes a
+    short loud stretch with a much longer quiet one.
+    """
+    if len(x) == 0:
+        return -200.0
+    value = float(np.max(np.abs(np.asarray(x, np.float64))))
+    return 20 * np.log10(max(value, 1e-10))
+
+
 # ---------------------------------------------------------------------------------------------
 # CROSS-CORRELATION
 # ---------------------------------------------------------------------------------------------
@@ -719,9 +732,11 @@ def head_lead_in(m, c, off, limit_s):
     """Measure master content left uncovered by a candidate's digitally silent lead-in.
 
     Under the head offset `off`, returns {content_edge_s, master_first_sound_s, uncovered_s,
-    master_db} in master time when the candidate's first non-silent sample maps at least
-    FINE_WIN_S after the master's first audible sample and the span between is audible; else
-    None (also on an envelope pair). Searched up to `limit_s`."""
+    master_db} in master time when the master has any sample at AUDIBLE_DB or louder before the
+    candidate's first non-silent sample; else None (also on an envelope pair). `master_db` is a
+    peak, not an average: a short loud stretch inside a much longer uncovered span must still be
+    filled, and an average over the whole span would dilute it under AUDIBLE_DB. Searched up to
+    `limit_s`."""
     if isinstance(c, EnvelopeSignal) or isinstance(m, EnvelopeSignal):
         return None
     shift = off / 1000.0
@@ -736,13 +751,12 @@ def head_lead_in(m, c, off, limit_s):
     loud = np.flatnonzero(np.abs(span) >= AUDIBLE_AMPLITUDE)
     if not len(loud):
         return None
-    level = rms_db(span[loud[0]:])
-    if level < AUDIBLE_DB or content_s - loud[0] / WALK_RATE < FINE_WIN_S:
-        return None
+    # `loud` already holds only samples at or above AUDIBLE_AMPLITUDE: no extra threshold
+    # check needed, and no minimum duration -- any genuine uncovered sound must be filled.
     return {"content_edge_s": round(float(content_s), 4),
             "master_first_sound_s": round(float(loud[0]) / WALK_RATE, 4),
             "uncovered_s": round(float(content_s - loud[0] / WALK_RATE), 4),
-            "master_db": round(float(level), 1)}
+            "master_db": round(float(peak_db(span[loud])), 1)}
 
 
 def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
