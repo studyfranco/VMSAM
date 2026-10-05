@@ -18,7 +18,6 @@ import tools
 import video
 import integrity
 from audio_extract import StrictDecodeFailed
-from language_content_check import NO_COMMON_LANGUAGE
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -37,19 +36,6 @@ merge_plan = None
 max_stream = 80
 show_not_compatible_error = True
 not_compatible_video_list = []
-
-class NoCommonLanguage(Exception):
-    """None of the videos being merged share an audio language.
-
-    Same terminal cause as the orchestrator's `language_content_check.NO_COMMON_LANGUAGE`.
-    """
-
-    def __init__(self, file_paths, audio_counts):
-        super().__init__(f"{NO_COMMON_LANGUAGE}: no common language between {file_paths}, "
-                         f"audio language counts {audio_counts}")
-        self.file_paths = list(file_paths)
-        self.audio_counts = dict(audio_counts)
-
 
 def decript_merge_rules(stringRules):
     """Parse an audio merge-rules string into a pairwise preference table.
@@ -2167,9 +2153,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
 
         most_frequent_language = max(audio_counts, key=audio_counts.get)
         if audio_counts[most_frequent_language] == 1:
-            # Same terminal cause as the orchestrator's content check: no shared audio language.
-            raise NoCommonLanguage(
-                [videoObj.filePath for videoObj in videosObj], audio_counts)
+            raise Exception(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}")
         else:
             commonLanguages.add(most_frequent_language)
             i = 0
