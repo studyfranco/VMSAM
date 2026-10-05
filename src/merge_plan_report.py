@@ -3748,6 +3748,8 @@ def render_human_summary(job, geometry, merge_log=None):
             + (f" → maître {_escape(g.get('kept_master_stream'))} "
                f"{_escape(g.get('kept_master_format'))}"
                if g.get("kept_master_stream") else "")
+            + (f" (langue réelle {_escape(g.get('cross_lang'))})"
+               if g.get("cross_lang") else "")
             for g in gates)
         said.append(f"<li>Livraison : {len(gates)} piste(s) reconstruite(s) "
                     f"<b>{'écartée(s)' if verdict == 'dropped' else 'gardée(s)'}</b>"

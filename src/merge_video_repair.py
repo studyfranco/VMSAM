@@ -648,8 +648,10 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     Commentary tracks are kept. Other tracks are compared with each intact master track of the
     same language (`measure_same_content`): same content (or unmeasurable) -> raced through
     `mergeVideo.keep_best_audio`, where the intact track wins; different content or no intact
-    track -> kept. `content_probe` replaces the comparison; `kept` collects kept-track
-    decisions; past `deadline` the repair declines `repair_budget_exceeded`.
+    track -> compared with the intact tracks of the other languages, and dropped as a duplicate
+    (`cross_lang=<declared>-><matched>`) if one measures as the same content, else kept.
+    `content_probe` replaces the comparison; `kept` collects kept-track decisions; past
+    `deadline` the repair declines `repair_budget_exceeded`.
     Returns the dropped tracks.
     """
     import mergeVideo
@@ -703,13 +705,23 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     _note_kept(kept, audio, language, holder, "commentary_tagged")
                     continue
                 opponents = master_intact.get(language, [])
+                past_deadline = deadline is not None and time.monotonic() > deadline
                 if not len(opponents):
-                    say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
-                        f"reason=the master carries no intact {language} track "
-                        f"to race it against")
-                    _note_kept(kept, audio, language, holder, "no_intact_master_track")
+                    cross = (None if past_deadline else
+                             _cross_language_match(probe, master_obj, master_intact, language,
+                                                   repaired_obj, audio, work_dir, ()))
+                    if cross is None or cross[0] is None:
+                        cross_measures = " ".join(cross[2]) if cross else ""
+                        say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
+                            f"{cross_measures + ' ' if cross_measures else ''}"
+                            f"reason=the master carries no intact {language} track "
+                            f"to race it against")
+                        _note_kept(kept, audio, language, holder, "no_intact_master_track")
+                        continue
+                    _drop_duplicate(dropped, say, holder, language, audio, marker, where,
+                                    cross[0], True, cross[2], cross[1])
                     continue
-                if deadline is not None and time.monotonic() > deadline:
+                if past_deadline:
                     import merge_video_chimeric
                     judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
                     tools.log_always(
@@ -722,9 +734,11 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         cause="repair_budget_exceeded")
                 lost_to = None
                 measures = []
+                verdicts = []
                 track_started = time.monotonic()
                 for intact in opponents:
                     same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
+                    verdicts.append(same)
                     measures.append(f"vs_master_stream={intact.get('StreamOrder')}"
                                     f"[same_content={same} {detail}]")
                     if same is False:
@@ -735,6 +749,17 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     if not audio["keep"]:
                         lost_to = (intact, same)
                         break
+                cross_lang = None
+                # Only a track every same-language measure called "different" is looked up
+                # under the other languages: one that won a same-content race stays as it was.
+                if lost_to is None and all(same is False for same in verdicts):
+                    raced = tuple(str(intact.get("StreamOrder")) for intact in opponents)
+                    intact, cross_lang, cross_measures = _cross_language_match(
+                        probe, master_obj, master_intact, language, repaired_obj, audio,
+                        work_dir, raced)
+                    measures.extend(cross_measures)
+                    if intact is not None:
+                        lost_to = (intact, True)
                 say(f"repair: gate_cost {where} opponents={len(opponents)} "
                     f"seconds={round(time.monotonic() - track_started, 2)}")
                 if lost_to is None:
@@ -745,18 +770,57 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     _note_kept(kept, audio, language, holder, "different_version")
                     continue
                 intact, same = lost_to
-                dropped.append({"kind": "audio", "holder": holder, "language": language,
-                                "stream_order": audio.get("StreamOrder"),
-                                "format": audio.get("Format"), "marker": marker,
-                                "cause": "intact_same_language_wins",
-                                "kept_master_stream": intact.get("StreamOrder"),
-                                "same_content": same})
-                say(f"repair: fabricated_dropped cause=intact_same_language_wins {where} "
-                    f"kept_master_stream={intact.get('StreamOrder')} "
-                    f"kept_master_format={intact.get('Format')} {' '.join(measures)} "
-                    f"reason=same content (or unmeasured), raced by keep_best_audio, "
-                    f"intact wins", to_stderr=True)
+                _drop_duplicate(dropped, say, holder, language, audio, marker, where, intact,
+                                same, measures, cross_lang)
     return dropped
+
+
+def _cross_language_match(probe, master_obj, master_intact, language, repaired_obj, audio,
+                          work_dir, raced):
+    """Find the master's intact track of another language with the same content as `audio`.
+
+    `raced` lists the StreamOrders already compared; an unmeasured pair never matches.
+    Returns (intact or None, "<declared>-><matched>" or None, measure strings).
+    """
+    seen = set(raced)
+    measures = []
+    for other, intacts in master_intact.items():
+        if other == language:
+            continue
+        for intact in intacts:
+            order = str(intact.get("StreamOrder"))
+            if order in seen:
+                continue
+            seen.add(order)
+            same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
+            measures.append(f"vs_master_stream={order}[lang={other} same_content={same} "
+                            f"{detail}]")
+            if same is True:
+                return intact, f"{language}->{other}", measures
+    return None, None, measures
+
+
+def _drop_duplicate(dropped, say, holder, language, audio, marker, where, intact, same,
+                    measures, cross_lang):
+    """Record and log a rebuilt track dropped as a duplicate of the master's `intact` track."""
+    entry = {"kind": "audio", "holder": holder, "language": language,
+             "stream_order": audio.get("StreamOrder"),
+             "format": audio.get("Format"), "marker": marker,
+             "cause": "intact_same_language_wins",
+             "kept_master_stream": intact.get("StreamOrder"),
+             "same_content": same}
+    if cross_lang:
+        audio["keep"] = False
+        entry["cross_lang"] = cross_lang
+    dropped.append(entry)
+    reason = ("same content as the master's intact track of another language: a duplicate "
+              "under a wrong language tag, intact wins" if cross_lang else
+              "same content (or unmeasured), raced by keep_best_audio, intact wins")
+    say(f"repair: fabricated_dropped cause=intact_same_language_wins {where} "
+        f"kept_master_stream={intact.get('StreamOrder')} "
+        f"kept_master_format={intact.get('Format')} "
+        f"{f'cross_lang={cross_lang} ' if cross_lang else ''}{' '.join(measures)} "
+        f"reason={reason}", to_stderr=True)
 
 
 def _note_kept(kept, audio, language, holder, cause):
@@ -808,8 +872,9 @@ def chimeric_keep_decisions(candidate_obj, plan, assembly=None, repaired_obj=Non
 
     Returns:
         A list of dicts with keys track, lang, kind, holder, kept, reason (a token such as
-        source_corrupt, build_declined, repair_refused(<cause>), interior_silence or
-        retimed(...)), product_stream and plan.
+        source_corrupt, build_declined, repair_refused(<cause>), interior_silence,
+        intact_same_language_wins(master_stream=N[,cross_lang=X->Y]) or retimed(...)),
+        product_stream and plan.
     """
     track_plans = (plan or {}).get("track_plans") or {}
     assembly = assembly or {}
@@ -826,7 +891,10 @@ def chimeric_keep_decisions(candidate_obj, plan, assembly=None, repaired_obj=Non
                                          ("build_failed", assembly.get("failed") or []))
                 for entry in entries}
     gate_dropped = {str(entry.get("stream_order")): f"{entry.get('cause')}(master_stream="
-                                                     f"{entry.get('kept_master_stream')})"
+                                                     f"{entry.get('kept_master_stream')}"
+                                                     + (f",cross_lang={entry['cross_lang']}"
+                                                        if entry.get("cross_lang") else "")
+                                                     + ")"
                     for entry in assembly.get("fabricated_dropped") or []
                     if isinstance(entry, dict)}
     for entry in assembly.get("silence_dropped") or []:
