@@ -15,12 +15,14 @@ from sys import stderr
 from time import sleep
 
 def launch_cmdExt(cmd):
+    '''Run a command and return (stdout, stderr, exit code).'''
     cmdDownload = Popen(cmd, stdout=PIPE, stderr=PIPE)
     stdout, stderror = cmdDownload.communicate()
     exitCode = cmdDownload.returncode
     return stdout, stderror, exitCode
 
 def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_name):
+    '''Run the merge command on a folder, moving it or its incompatible files to the error folder on failure.'''
     stdout, stderror, exit_code = launch_cmdExt(cmd_use_to_process)
     if exit_code != 0:
         generate_error_folder(folder_path_for_error)
@@ -51,10 +53,12 @@ def process_files(cmd_use_to_process,folder_path,folder_path_for_error,folder_na
         shutil.rmtree(folder_path)
     
 def generate_error_folder(folder_path_for_error):
+    '''Create the error folder or raise.'''
     if (not make_dirs(folder_path_for_error)):
         raise Exception(f"Impossible to create {folder_path_for_error}")
     
 def process_files_in_folder(folder,original_folder,out_folder,folder_path_for_error):
+    '''Build and run the merge command for one input folder ([grouping] folders recurse, [merge] disables sync).'''
     folder_path = os.path.join(original_folder,folder)
     if match(r'\S+.*\s*\[grouping\]\s*.*',folder) != None:
         try:

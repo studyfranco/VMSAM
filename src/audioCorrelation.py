@@ -15,24 +15,15 @@ import sys
 1 May 2022
 Based on https://raw.githubusercontent.com/kdave/audio-compare/master/correlation.py 
 '''
-# correlation.py
 import numpy
 
-# seconds to sample audio file for
-#sample_time = 500
-# number of points to scan cross correlation over
-#span = 300
-# step size (in points) of cross correlation
+# Step size (in points) of the cross correlation.
 step = 1
-# minimum number of points that must overlap in cross correlation
-# exception is raised if this cannot be met
+# Minimum number of points that must overlap in a cross correlation.
 min_overlap = 32
-# report match when cross correlation has a peak exceeding threshold
-#threshold = 0.5
 
-# calculate fingerprint
-# Generate file.mp3.fpcalc by "fpcalc -raw -length 500 file.mp3"
 def calculate_fingerprints(filename,length=1):
+    '''Return the raw Chromaprint fingerprint (fpcalc -raw) of the first `length` seconds.'''
     cmd = [tools.software["fpcalc"], '-raw', '-length', str(length), filename]
     stdout, stderror, exitCode = tools.launch_cmdExt_no_test(cmd)
     if exitCode != 0:
@@ -44,16 +35,13 @@ def calculate_fingerprints(filename,length=1):
     
     fpcalc_out = stdout.decode("utf-8").strip().replace('\\n', '').replace("'", "")
     fingerprint_index = fpcalc_out.find('FINGERPRINT=') + 12
-    # convert fingerprint to list of integers
     fingerprints = list(map(int, fpcalc_out[fingerprint_index:].split(',')))
     
     return fingerprints
   
-# returns correlation between lists
 def correlation(listx, listy):
+    '''Return the bitwise similarity (0..1) of two fingerprint lists, truncated to equal length.'''
     if len(listx) == 0 or len(listy) == 0:
-        # Error checking in main program should prevent us from ever being
-        # able to get here.
         raise Exception('Empty lists cannot be correlated.')
     if len(listx) > len(listy):
         listx = listx[:len(listy)]
@@ -67,8 +55,8 @@ def correlation(listx, listy):
     
     return covariance/32
   
-# return cross correlation, with listy offset from listx
 def cross_correlation(listx, listy, offset):
+    '''Return the correlation at a shift of `offset` points, or None if the overlap is too small.'''
     if offset > 0:
         listx = listx[offset:]
         listy = listy[:len(listx)]
@@ -77,17 +65,12 @@ def cross_correlation(listx, listy, offset):
         listy = listy[offset:]
         listx = listx[:len(listy)]
     if min(len(listx), len(listy)) < min_overlap:
-        # Error checking in main program should prevent us from ever being
-        # able to get here.
         return 
-    #raise Exception('Overlap too small: %i' % min(len(listx), len(listy)))
     return correlation(listx, listy)
   
-# cross correlate listx and listy with offsets from -span to span
 def compare(listx, listy, span, step):
+    '''Return the cross correlations for every offset from -span to span.'''
     if span > min(len(listx), len(listy)):
-        # Error checking in main program should prevent us from ever being
-        # able to get here.
         raise Exception('span >= sample size: %i >= %i\n'
                         % (span, min(len(listx), len(listy)))
                         + 'Reduce span, reduce crop or increase sample_time.')
@@ -96,7 +79,6 @@ def compare(listx, listy, span, step):
         corr_xy.append(cross_correlation(listx, listy, offset))
     return corr_xy
   
-# return index of maximum value in list
 def max_index(listx):
     max_index = 0
     max_value = listx[0]
@@ -107,17 +89,13 @@ def max_index(listx):
     return max_index
   
 def get_max_corr(corr, source, target, span, sizePoint):
+    '''Return (best correlation, offset in points, offset in ms) from a correlation list.'''
     max_corr_index = max_index(corr)
     max_corr_offset = -span + max_corr_index * step
-    #print("max_corr_index = ", max_corr_index, "max_corr_offset = ", max_corr_offset)
-    # report matches
-    #print("File A: %s" % (source))
-    #print("File B: %s" % (target))
-    #print('Match with correlation of %.2f%% at offset %i'
-    #     % (corr[max_corr_index] * 100.0, max_corr_offset))
     return corr[max_corr_index],max_corr_offset,-max_corr_offset*sizePoint
 
 def correlate(source, target, lengthFile):
+    '''Correlate the fingerprints of two audio files and return get_max_corr's result.'''
     fingerprint_source = calculate_fingerprints(source,length=lengthFile)
     fingerprint_target = calculate_fingerprints(target,length=lengthFile)
     
@@ -136,6 +114,7 @@ End Copy
 '''
 
 def test_calcul_can_be(filename,length):
+    '''Return True when a fingerprint can be computed for the file.'''
     try:
         calculate_fingerprints(filename,length)
         return True
@@ -161,21 +140,26 @@ normalize = False
 denoise = False
 lowpass = 0
 
-#ffmpeglow = [tools.software["ffmpeg"], "-y", "-threads", str(tools.core_to_use), "-i", '"{}"', "-af", f"'lowpass=f={lowpass}'", '"{}"']
-
 def get_files_metrics(outfile):
+    '''Return (sample rate, first-channel samples) of a WAV file.'''
     r,s = wavfile.read(outfile)
     if len(s.shape)>1: #stereo
         s = s[:,0]
     return r,s
 
 def generate_norm_cmd(in_file,out_file):
+    '''Return the ffmpeg command that loudness-normalises a file to 16-bit PCM.'''
     return [tools.software["ffmpeg"], "-y", "-threads", str(2), "-nostdin", "-i", in_file, "-filter_complex",
             "[0:0]loudnorm=i=-23.0:lra=7.0:tp=-2.0:offset=4.45:linear=true:print_format=json[norm0]",
             "-map_metadata", "0", "-map_metadata:s:a:0", "0:s:a:0", "-map_chapters", "0", "-c:v", "copy", "-map", "[norm0]",
             "-c:a:0", "pcm_s16le", "-c:s", "copy", out_file]
 
 def read_normalized(in1,in2):
+    '''Read two WAV files at a common sample rate, normalising (then denoising) if rates differ.
+
+    Returns:
+        (sample rate, samples1, samples2).
+    '''
     from video import ffmpeg_pool_audio_convert,wait_end_big_job
 
     r1,s1 = get_files_metrics(in1)
@@ -217,6 +201,11 @@ def read_normalized(in1,in2):
     return fs,s1,s2
 
 def corrabs(s1,s2):
+    '''Return the FFT cross correlation magnitude of two signals and its peak index.
+
+    Returns:
+        (len1, len2, padded size, peak index, |correlation|).
+    '''
     ls1 = len(s1)
     ls2 = len(s2)
     padsize = ls1+ls2+1
@@ -259,6 +248,10 @@ def show2(fs,s1,s2,title=None):
 
 lock_fallback = RLock()
 def second_correlation(in1,in2):
+    '''Return (file to cut, offset in seconds) aligning two audio files.
+
+    Uses the audio_sync tool, falling back to an in-process FFT correlation.
+    '''
     try:
         begin = time.time()
         stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["audio_sync"],in1,in2],3,28800)
@@ -268,7 +261,7 @@ def second_correlation(in1,in2):
         if tools.dev:
             tools.logs.append(f"\t\tSecond correlation in new function took {time.time()-begin:.2f} seconds\n\t\tand we obtain: {data}\n")
     except Exception as e:
-        # If audio_sync is not installed, we return the file and offset
+        # Fall back to the in-process FFT correlation when audio_sync fails.
         sys.stderr.write(f"\t\taudio_sync not working: {e}\n")
         tools.logs.append(f"\t\taudio_sync not working: {e}\n")
         
@@ -281,19 +274,10 @@ def second_correlation(in1,in2):
             ca = None
             s1 = None
             s2 = None
-            # if show: show1(fs,ca,title='Correlation',v=xmax/fs) Change if we want reports
-            #sync_text = """
-            #==============================================================================
-            #%s needs 'ffmpeg -ss %s' cut to get in sync
-            #==============================================================================
-            #"""
             if xmax > padsize // 2:
-                # if show: show2(fs,s1,s2[padsize-xmax:],title='1st=blue;2nd=red=cut(%s;%s)'%(in1,in2))
                 file,offset = in2,(padsize-xmax)/fs
             else:
-                # if show: show2(fs,s1[xmax:],s2,title='1st=blue=cut;2nd=red (%s;%s)'%(in1,in2))
                 file,offset = in1,xmax/fs
-            #print(sync_text%(file,offset))
             padsize = None
             xmax = None
             fs = None

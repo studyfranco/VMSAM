@@ -1,6 +1,6 @@
-'''
-Created on 23 Apr 2022
+'''Media file probing, audio extraction, stream hashing and quality comparison.
 
+Created on 23 Apr 2022
 @author: francois
 '''
 
@@ -17,20 +17,15 @@ from iso639 import Lang,is_language
 
 ffmpeg_pool_audio_convert = None
 ffmpeg_pool_big_job = None
-path_to_livmaf_model = "" #Nothing if it use the default
+path_to_livmaf_model = ""  # Empty for the default libvmaf model.
 number_cut = 10
 percent_time_by_test_video_quality_from_cut = 25
 
 class video():
-    '''
-    classdocs
-    '''
+    '''A media file and its probed audio, video and subtitle streams.'''
 
 
     def __init__(self, fileFolder, fileName):
-        '''
-        Constructor
-        '''
         self.fileFolder = fileFolder
         self.fileName = fileName
         self.fileBaseName = path.splitext(fileName)[0]
@@ -57,6 +52,11 @@ class video():
         self.und_in_default = False
     
     def get_mediadata(self):
+        """Probe the file with mediainfo, mkvmerge and ffprobe and sort its streams.
+
+        Fills self.video, self.audios, self.commentary, self.audiodesc and
+        self.subtitles (dicts keyed by language) and re-encodes streams ffmpeg cannot copy.
+        """
         have_incompatible_ffmpeg_codec = False
         stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mediainfo"], "--Output=JSON", self.filePath], 5, 90)
         if exitCode != 0:
@@ -161,15 +161,12 @@ class video():
         if len(self.audios) == 0 and self.need_one_audio_track:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
         if "und" in self.audios and tools.default_language_for_undetermine not in self.audios:
-            # This step is linked to mergeVideo.generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language
+            # Aliased object; mergeVideo drops the duplicate entry when building the command.
             self.audios[tools.default_language_for_undetermine] = self.audios["und"]
             self.und_in_default = True
     
     def convert_problematic_stream_with_ffmpeg(self):
-        """
-        Sometimes, ffmpeg don't detect the codec of a stream correctly. It result of a impossibility to integrate it.
-        This function will convert stream who can be converted by ffmpeg.
-        """
+        """Re-encode streams whose codec ffmpeg misdetects so they can be merged."""
 
         base_cmd = [tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
                     "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "5"]
@@ -214,6 +211,7 @@ class video():
         self.get_mediadata()
 
     def get_best_video(self,data_video_1,data_video_2):
+        """Warn that the file holds several video streams, which makes the comparison unreliable."""
         stderr.write("!"*40+"\n")
         tools.logs.append("!"*40+"\n")
         stderr.write(f'Multiple video in the same file {self.filePath}, I will compare the {data_video_1["StreamOrder"]} et {data_video_2["StreamOrder"]} track\n')
@@ -226,24 +224,35 @@ class video():
         
             
     def get_fps(self):
+        """Return the video frame rate, or None if unknown."""
         if 'FrameRate' in self.video:
             return float(self.video['FrameRate'])
         else:
             return None
     
     def get_scale(self):
+        """Return [width, height] of the video, or None if unknown."""
         if 'Width' in self.video and 'Height' in self.video:
             return [int(self.video['Width']), int(self.video['Height'])]
         else:
             return None
         
     def get_video_duration(self):
+        """Return the video duration in seconds from its frame count, or None."""
         if 'FrameCount' in self.video:
             return float((float(self.video['FrameCount'])/float(self.video['FrameRate'])))
         else:
             return None
     
     def extract_audio_in_part(self,language,exportParam,cutTime=None,asDefault=False):
+        """Extract and loudness-normalise the audio tracks of a language in the background.
+
+        Args:
+            language: Audio language key.
+            exportParam: Output format, codec, bitrate, sampling rate and channels.
+            cutTime: List of [begin, length] cuts as HH:MM:SS strings, or None for the full track.
+            asDefault: Mark these cuts as the default extraction, skipped if already done.
+        """
         if (not self.lastCutAsDefault) or (not asDefault):
             self.lastCutAsDefault = asDefault
             global ffmpeg_pool_audio_convert
@@ -302,6 +311,7 @@ class video():
                             cutNumber += 1
             
     def remove_tmp_files(self,type_file=None):
+        """Wait for pending extractions and delete temporary files (all, or one type)."""
         self.wait_end_ffmpeg_progress_audio()
         if type_file == None:
             for key,list_tmp in self.tmpFiles.items():
@@ -316,12 +326,14 @@ class video():
             self.tmpFiles[type_file] = []
                 
     def wait_end_ffmpeg_progress_audio(self):
+        """Block until every queued audio extraction has finished."""
         while len(self.ffmpeg_progress_audio) > 0:
             ffmpeg_job = self.ffmpeg_progress_audio.pop(0)
             ffmpeg_job.get()
         self.ffmpeg_progress_audio = []
         
     def calculate_md5_streams(self):
+        """Compute the MD5 of every audio and subtitle stream over its whole length."""
         if self.mediadata == None:
             self.get_mediadata()
         task_audio = {}
@@ -389,6 +401,7 @@ class video():
                 i += 1
 
     def calculate_md5_streams_split(self):
+        """Compute stream MD5s on a window that skips the first and last 10 s."""
         if self.mediadata == None:
             self.get_mediadata()
         
@@ -472,12 +485,17 @@ class video():
 Preparation function
 """
 def generate_begin_and_length_by_segment(min_video_duration_in_sec):
-    if min_video_duration_in_sec > 540:
-        begin_in_second = 120
-        length_time = int((min_video_duration_in_sec-240)/(number_cut+1))
+    """Choose where the comparison cuts start and how long each lasts.
+
+    Returns:
+        tuple: (begin in seconds, cut length in seconds).
+    """
+    if min_video_duration_in_sec > 300:
+        begin_in_second = 45
+        length_time = int((min_video_duration_in_sec-90)/(number_cut+1))
     elif min_video_duration_in_sec > 60:
-        begin_in_second = 30
-        length_time = int((min_video_duration_in_sec-45)/(number_cut+1))
+        begin_in_second = 15
+        length_time = int((min_video_duration_in_sec-30)/(number_cut+1))
     elif min_video_duration_in_sec > 5:
         begin_in_second = 0
         length_time = int(min_video_duration_in_sec-2/(number_cut+1))
@@ -485,6 +503,7 @@ def generate_begin_and_length_by_segment(min_video_duration_in_sec):
     return float(begin_in_second),length_time
 
 def generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted):
+    """Return `number_cut` consecutive [begin HH:MM:SS.ms, length] cuts."""
     list_cut_begin_length = []
     for i in range(0,number_cut):
         time_second_begin, time_milisecond_begin = str(begin_in_second).split(".")
@@ -497,6 +516,7 @@ target_i = "-23.0"
 target_tp = "-2.0"
 target_lra = "7.0"
 def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_tmp):
+    """Run an audio extraction, then apply a gain toward -23 LUFS with band-limiting filters."""
     tools.launch_cmdExt_with_timeout_reload(cmd_extract,3,max(600*4,1800))
     if not path.exists(name_out_file_tmp):
         raise FileNotFoundError(f"Extraction failed for {name_out_file_tmp}")
@@ -506,7 +526,6 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
                     "-f", "null", "-"])
     try:
         stderr_lines = stderror.decode("utf-8").splitlines()
-        # Find the JSON block in the output
         json_str = ""
         in_json = False
         for line in stderr_lines:
@@ -520,14 +539,13 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
         stats = json.loads(json_str)
         measured_i = float(stats['input_i'])
     except (ValueError, KeyError, json.JSONDecodeError):
-        # Fallback if analysis fails (use 0dB gain)
         print(f"Warning: Could not analyze loudness for {name_out_file_tmp}. Skipping normalization.")
         measured_i = target_i
     
     gain_db = float(target_i) - float(measured_i)
 
     if abs(gain_db) < 0.5:
-        filter_str = "anull" # Pass-through
+        filter_str = "anull"
     else:
         filter_str = f"volume={gain_db:.2f}dB"
 
@@ -541,9 +559,9 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
     if path.exists(name_out_file_tmp):
         remove(name_out_file_tmp)
     
-   #baseCommand.extend(["-af", "adeclip,acompressor=threshold=-10dB:ratio=4:attack=20:release=250,alimiter=limit=0.97,loudnorm=i=-23.0:lra=7.0:tp=-2.0:linear=true:print_format=json"])
     
 def generate_cut_to_compare_video_quality(begin_in_second_video_1,begin_in_second_video_2,length_time):
+    """Return `number_cut` pairs of cut begin times, one per video, for quality comparison."""
     begins_video_for_compare_quality = []
     for i in range(0,number_cut):
         time_second_begin_video_1, time_milisecond_begin_video_1 = str(begin_in_second_video_1).split(".")
@@ -555,6 +573,7 @@ def generate_cut_to_compare_video_quality(begin_in_second_video_1,begin_in_secon
     return begins_video_for_compare_quality
 
 def generate_time_compare_video_quality(length_time):
+    """Return the duration in seconds of each video quality test."""
     if percent_time_by_test_video_quality_from_cut >= 100:
         time_by_test_best_quality = length_time
     else:
@@ -563,6 +582,11 @@ def generate_time_compare_video_quality(length_time):
     return time_by_test_best_quality
 
 def get_begin_time_with_millisecond(delay,beginInSecBeforeDelay):
+    """Shift a begin time by a delay in milliseconds.
+
+    Returns:
+        tuple: (seconds as int, milliseconds as a '.mmm' string or '').
+    """
     begining_in_second = int(beginInSecBeforeDelay)
     delayUseNegative = delay < 0
     delayUseSec = int(abs(delay)/1000)
@@ -600,12 +624,13 @@ def get_begin_time_with_millisecond(delay,beginInSecBeforeDelay):
 
 big_job_in_porgress = RLock()
 def wait_end_big_job():
+    """Wait until no big job holds the lock."""
     global big_job_in_porgress
-    #while big_job_in_porgress.locked():
     big_job_in_porgress.acquire()
     big_job_in_porgress.release()
 
 def big_job_waiter():
+    """Fill the audio pool with sleep jobs so a big job can run alone."""
     global ffmpeg_pool_audio_convert
     for i in range(0,tools.core_to_use-1):
         ffmpeg_pool_audio_convert.apply_async(sleep, (30,))
@@ -691,13 +716,7 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
     """
     import re
     from statistics import mean
-    # test_if_constant_good_delay retourne un Decimal, et la division par 1000
-    # dans get_best_video en garde le type -- alors que toute l'arithmetique de
-    # timeline ici est en float, semee par get_fps() qui rend deja un float.
-    # Le premier `begin_in_sec_frame_adjusted + calculated_delay` levait donc
-    # TypeError, que compare_video.run attrape et convertit en "not compatible":
-    # le chemin sans best_video force jetait silencieusement chaque candidat.
-    # Conversion une seule fois ici, ou les deux appelants convergent.
+    # The delay may arrive as a Decimal; the timeline arithmetic is float.
     calculated_delay = float(calculated_delay)
     ffmpeg_PSNR = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
        "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
@@ -757,12 +776,6 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
                 list_result_average_psnr.append(float(re.search(r'.*\[Parsed_psnr.*\].+average:(\d+.\d+).*',result[1].decode("utf-8"), re.MULTILINE).group(1)))
 
             if tools.dev:
-                # The PSNR frame scan, one line per candidate offset. It walks
-                # [-2,+2] frames and keeps the best mean PSNR, and the winner
-                # decides the frame the delay finally lands on -- yet nothing
-                # said which offset won, by how much, or whether the five were
-                # within noise of each other. A scan whose five means differ by
-                # a fraction of a dB has not located a frame, it has picked one.
                 tools.logs.append(f"\t\tPSNR frame scan {i:+d}: mean "
                                 f"{tools.dev_num(mean(list_result_average_psnr) if list_result_average_psnr else None)} dB over "
                                 f"{len(list_result_average_psnr)} cut(s), values "
@@ -787,12 +800,14 @@ def get_good_frame(video_obj_1, video_obj_2, begin_in_sec, length_time, time_by_
     """
 
 def get_common_audios_language(videosObj):
+    """Return the audio languages present in every video."""
     commonLanguages = set(videosObj[0].audios.keys())
     for videoObj in videosObj:
         commonLanguages = commonLanguages.intersection(videoObj.audios.keys())
     return commonLanguages
 
 def get_worse_quality_audio_param(videosObj,language,rules):
+    """Return the parameters of the worst audio track of a language, by the rules."""
     try:
         worseAudio = [0,0]
         while language not in videosObj[worseAudio[0]].audios and len(videosObj) > worseAudio[0]:
@@ -817,6 +832,7 @@ def get_worse_quality_audio_param(videosObj,language,rules):
                 'SamplingRate':"44100"}
 
 def get_less_channel_number(videos_obj,language):
+    """Return the lowest channel count (as a string) of a language's audio tracks."""
     try:
         less_channel_number = [0,0]
         while language not in videos_obj[less_channel_number[0]].audios and len(videos_obj) > less_channel_number[0]:
@@ -834,62 +850,18 @@ def get_less_channel_number(videos_obj,language):
 
         return videos_obj[less_channel_number[0]].audios[language][less_channel_number[1]]['Channels']
     except:
-        # INSTRUMENTATION ONLY -- behaviour deliberately unchanged, pending the
-        # corpus measurement the owner asked for before deciding.
-        #
-        # WHY THIS IS INSTRUMENTED, corrected by Agent 4 after I overstated it.
-        #
-        # I called this a measurement-integrity defect. It is not, on this
-        # corpus, for two reasons I verified rather than took on trust:
-        #   * prepare_get_delay_sub already defaults Channels to "2" and acts
-        #     only on `== "1"`, so returning "2" is EXACTLY equivalent to not
-        #     calling this function at all;
-        #   * the one value is applied to BOTH sides of the pair, so a wrong
-        #     answer cannot skew the lag between them -- the only quantity the
-        #     correlation measures.
-        # Measured over 1312 audio streams in 359 files: channels are 2, 6 and
-        # 8, with ZERO mono streams, so the only case where the fallback would
-        # change anything does not occur here.
-        #
-        # It is logged for a DIFFERENT reason. The bare except swallows ordinary
-        # control flow, not just corrupt metadata: the loop above reads
-        # `videos_obj[i].audios` BEFORE `len(videos_obj) > i`, so the bounds
-        # test is on the wrong side of the `and` and can never short-circuit --
-        # a pair where nobody carries this language raises IndexError and lands
-        # here. A video merely missing the language raises KeyError at the
-        # comparison below and lands here too. So this fires on normal
-        # conditions and says nothing, and how OFTEN it fires is a real signal
-        # about the corpus. Diagnostic, not correctness -- the _residual_detail
-        # shape, where the diagnosis is wrong and the verdict is right anyway.
-        #
-        # The err_id is not reachable from this module -- it receives video
-        # objects and a language, nothing that names the job -- so the language
-        # and the exception are logged and the id is recovered from the
-        # surrounding fusion job log. No path is logged: subtitle and media
-        # names are private.
-        #
-        # The handler stays a BARE `except:` and the exception is read from
-        # sys.exc_info(). Writing `except Exception as error` would have been
-        # tidier and IS a behaviour change -- bare except also catches
-        # BaseException, so KeyboardInterrupt and SystemExit would stop being
-        # swallowed here. closure_check caught exactly that and classified the
-        # first version BEHAVIOUR rather than logging-only, which is the guard
-        # doing its job on a change I had described to myself as pure
-        # instrumentation. Whether that handler SHOULD be narrowed is a separate
-        # decision the owner has not made.
+        # Also reached when a video lacks this language; logged in dev mode.
         if tools.dev:
             _err = exc_info()[1]
             tools.logs.append(f"\t\tget_less_channel_number FELL BACK to '2' for "
                             f"{language}: {type(_err).__name__}: {str(_err)[:120]}\n")
-        # Un `except:` nu attrape aussi BaseException: sans ce garde-fou, un
-        # Ctrl-C ou un sys.exit() pendant l'analyse etait avale et remplace par
-        # une valeur fabriquee. On relaie ces deux-la, le reste du comportement
-        # est inchange.
+        # The bare except would swallow Ctrl-C and sys.exit().
         if isinstance(exc_info()[1], (KeyboardInterrupt, SystemExit)):
             raise
         return "2"
 
 def get_less_sampling_rate(audios_1,audios_2):
+    """Return the lowest parseable sampling rate of two audio lists, as a string."""
     worse_sampling_rate = 99999999999999999999999999999
     for audio_1 in audios_1:
         try:
@@ -907,28 +879,17 @@ def get_less_sampling_rate(audios_1,audios_2):
     if worse_sampling_rate != 99999999999999999999999999999:
         return str(worse_sampling_rate)
     else:
-        # INSTRUMENTATION ONLY. Reaching here means EVERY audio entry on both
-        # sides failed to parse.
-        #
-        # Also corrected by Agent 4: this cannot corrupt a measurement on this
-        # corpus. mergeVideo clamps the result to 44100 on the very next line,
-        # so the fallback and the correctly-parsed value CONVERGE for any source
-        # at 44100 or above -- and across 1312 streams the rates are 48000
-        # (x1298) and 44100 (x14), nothing below. It is also one value applied
-        # to both sides, so it cannot skew a lag. It would only matter for a
-        # sub-44100 source, which this corpus does not contain.
-        # Logged to find out whether that ever changes, not because it is
-        # currently wrong.
+        # The caller clamps to 44100 anyway.
         if tools.dev:
             tools.logs.append(f"\t\tget_less_sampling_rate FELL BACK to '44100': "
                             f"no parseable SamplingRate in {len(audios_1)} + "
                             f"{len(audios_2)} audio entries\n")
-        # Meme garde-fou que get_less_channel_number ci-dessus.
         if isinstance(exc_info()[1], (KeyboardInterrupt, SystemExit)):
             raise
         return str(44100)
 
 def get_shortest_audio_durations(videosObj,language):
+    """Return the shortest audio duration of a language, in seconds."""
     shorter = 1000000000000000000000000000000000
     for videoObj in videosObj:
         for audio in videoObj.audios[language]:
@@ -937,6 +898,7 @@ def get_shortest_audio_durations(videosObj,language):
     return shorter
 
 def get_shortest_video_durations(videosObj):
+    """Return the shortest video duration, in seconds."""
     shorter = 1000000000000000000000000000000000
     for videoObj in videosObj:
         video_duration = videoObj.get_video_duration()
@@ -945,6 +907,7 @@ def get_shortest_video_durations(videosObj):
     return shorter
 
 def get_birate_key(data):
+    """Return the bitrate key present in a track dict."""
     if 'BitRate' in data:
         return 'BitRate'
     elif 'BitRate_Nominal' in data:
@@ -953,24 +916,28 @@ def get_birate_key(data):
         raise Exception(f"No video bitrate {data}")
     
 def get_bitrate(data):
+    """Return a track's bitrate, preferring the ffprobe value."""
     if 'ffprobe' in data and 'bit_rate' in data['ffprobe']:
         return data['ffprobe']['bit_rate']
     else:
         return data[get_birate_key(data)]
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
+    """Return True if the challenger video stream beats the base by the rules."""
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:
         return float(base[get_birate_key(base)]) < float(challenger[get_birate_key(challenger)])*(1+(0.05*(float(challenger['Format_Level'])-float(base['Format_Level']))))
     else:
         return test_if_the_best_by_rules(base['Encoded_Library_Name'],base[get_birate_key(base)],challenger['Encoded_Library_Name'],challenger[get_birate_key(challenger)],rules)
 
 def test_if_the_best_by_rules_audio_entry(base,challenger,rules):
+    """Return True if the challenger audio track beats the base by the rules."""
     if base['Format'] == challenger['Format']:
         return base['BitRate'] < challenger['BitRate']
     else:
         return test_if_the_best_by_rules(base['Format'],get_birate_key(base),challenger['Format'],get_birate_key(base),rules)
     
 def test_if_the_best_by_rules(formatFileBase,bitrateFileBase,formatFileChallenger,bitrateFileChallenger,rules,inEgualityKeepChallenger=False):
+    """Compare two formats by the rules; ties return `inEgualityKeepChallenger`."""
     testResul = test_if_it_better_by_rules(formatFileBase.lower(),bitrateFileBase,formatFileChallenger.lower(),bitrateFileChallenger,rules)
     if testResul == 2:
         return inEgualityKeepChallenger
@@ -985,6 +952,11 @@ Return:
     2 : The two are good
     '''
 def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChallenger,bitrateFileChallenger,rules):
+    """Compare two formats and bitrates with the merge rules.
+
+    Returns:
+        False if the base wins, True if the challenger wins, 2 if undecided.
+    """
     if formatFileBase in rules and formatFileChallenger in rules:
         if formatFileBase in rules[formatFileChallenger]:
             if isinstance(rules[formatFileChallenger][formatFileBase], float):
@@ -1007,6 +979,10 @@ def test_if_it_better_by_rules(formatFileBase,bitrateFileBase,formatFileChalleng
         return 2
 
 def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=None):
+    """Return (streamID, md5) of a stream copied by ffmpeg, md5 None on failure.
+
+    The stream is read from `start_time` to `end_time` (capped by its duration).
+    """
     cmd = [
     tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
     "-ss", str(start_time)]
@@ -1032,6 +1008,7 @@ def md5_calculator(filePath,streamID,start_time=0,end_time=None,duration_stream=
     return (streamID, None)
 
 class subtitle_md5_second(Thread):
+    """Thread that stores a subtitle's MD5 in subtitle['MD5']."""
     def __init__(self,filePath,subtitle,dic_index_data_sub_codec,length_video):
         Thread.__init__(self)
         self.filePath = filePath
@@ -1040,8 +1017,6 @@ class subtitle_md5_second(Thread):
         self.length_video = length_video
     
     def run(self):
-        #begin = time()
-        #stderr.write(f"Start to calculate the md5 of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
         try:
             if self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"] != None:
                 codec = self.dic_index_data_sub_codec[int(self.subtitle["StreamOrder"])]["codec_name"].lower()
@@ -1054,13 +1029,13 @@ class subtitle_md5_second(Thread):
                 
             if md5 != None:
                 self.subtitle['MD5'] = md5
-                #stderr.write(f"End of the md5 calculation in {time()-begin} of the subtitle {self.subtitle['StreamOrder']} for {self.filePath}\n")
             else:
                 stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle['StreamOrder']} (no md5 returned)\n")
         except Exception as e:
             stderr.write(f"Error with {self.filePath} during the md5 calculation of the stream {self.subtitle['StreamOrder']}: {e}\n")
 
 def subtitle_text_md5(filePath,streamID):
+    """Hash a text subtitle as SRT text, or as ASS when it has several styles."""
     number_of_style = count_font_lines_in_ass(filePath, streamID)
     if number_of_style == None or number_of_style > 1:
         return subtitle_text_ass_md5(filePath,streamID)
@@ -1068,6 +1043,7 @@ def subtitle_text_md5(filePath,streamID):
         return subtitle_text_srt_md5(filePath,streamID)
 
 def subtitle_text_srt_md5(filePath,streamID):
+    """Return (streamID, md5) of a subtitle's SRT text without timings or tags."""
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",
@@ -1096,6 +1072,7 @@ def subtitle_text_srt_md5(filePath,streamID):
         return (streamID, None)
 
 def count_font_lines_in_ass(filePath, streamID):
+    """Return the number of Style lines in a subtitle converted to ASS, or None."""
     cmd = [
         tools.software["ffmpeg"],
         "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -1122,6 +1099,7 @@ def count_font_lines_in_ass(filePath, streamID):
         return None
 
 def subtitle_text_ass_md5(filePath,streamID):
+    """Return (streamID, md5) of a subtitle's ASS lines without their timing fields."""
     cmd = [
         tools.software["ffmpeg"], "-v", "error", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "1", "-i", filePath,
         "-map", f"0:{streamID}",

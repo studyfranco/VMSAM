@@ -9,6 +9,7 @@ import os
 import shutil
 
 def make_dirs(d):
+    '''Create a directory tree; return True when it exists afterwards.'''
     try:
         os.makedirs(d,exist_ok=True)
         return os.path.isdir(d)
