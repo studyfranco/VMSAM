@@ -20,6 +20,7 @@ import time
 from fractions import Fraction
 
 import frame_compare
+import owner_judgment
 import repair_pool
 import video_offset_plan as vop
 import tools
@@ -104,24 +105,43 @@ def _log_run(candidate_path, zone_index, run):
         f"cuts={count} audio=continuous for {candidate_path}\n")
 
 
+def _disagreement(zone, rate, run):
+    """Build one `owner_judgment` zone dict from a confirmed picture-only-shift run.
+
+    Candidate bounds carry the zone's own audio offset forward (the zone is audio-continuous
+    by construction); there is no audio cut and no single video cut instant here, only a
+    sustained picture residual, so both cut fields stay None.
+    """
+    start_s, end_s, residual, count = run
+    offset_s = float(zone["offset_ms"]) / 1000.0
+    return {"zone": zone["zone"], "reason": "picture_only_shift",
+           "master_start_s": start_s, "master_end_s": end_s,
+           "candidate_start_s": start_s + offset_s, "candidate_end_s": end_s + offset_s,
+           "audio_cut_s": None, "video_cut_s": None,
+           "picture_shift_ms": float(residual) / float(rate) * 1000.0,
+           "frames_compared": count}
+
+
 def _scan_zone(zone, rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_coloured,
                candidate_path):
-    """Scan one zone; return (runs logged, cuts confirmed, unpaired cuts)."""
+    """Scan one zone; return (runs logged, cuts confirmed, unpaired cuts, disagreements)."""
     bounds = _zone_bounds(zone, rate)
     if bounds is None:
-        return 0, 0, 0
+        return 0, 0, 0, []
     first, stop = bounds
     nominal_lag = _nominal_lag_frames(zone["offset_ms"], rate)
     m_zone_cuts = [m for m in m_cuts if first <= m < stop]
     if not m_zone_cuts:
-        return 0, 0, 0
+        return 0, 0, 0, []
     lo, hi = nominal_lag - HYPOTHESIS_REACH_FRAMES, nominal_lag + HYPOTHESIS_REACH_FRAMES
     matched, _ambiguous, _total = vop.match_changes(m_hashes, m_zone_cuts, c_hashes, c_cuts,
                                                      lo, hi, m_coloured, c_coloured)
     residuals = _residuals(matched, nominal_lag)
     runs = _runs(residuals, rate)
+    disagreements = []
     for run in runs:
         _log_run(candidate_path, zone["zone"], run)
+        disagreements.append(_disagreement(zone, rate, run))
     unpaired_master = len(m_zone_cuts) - len(matched)
     c_zone_cuts = [c for c in c_cuts if first + nominal_lag - hi <= c < stop + nominal_lag + hi]
     unpaired_candidate = _unpaired(c_zone_cuts, (m + d for m, d, _ in matched),
@@ -131,22 +151,27 @@ def _scan_zone(zone, rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_col
             f"repair: picture_only_shift_unpaired zone={zone['zone']} "
             f"master_only={unpaired_master} candidate_only={unpaired_candidate} "
             f"for {candidate_path}\n")
-    return len(runs), len(matched), unpaired_master + unpaired_candidate
+    return len(runs), len(matched), unpaired_master + unpaired_candidate, disagreements
 
 
 def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_dir,
-               repair_deadline):
+               repair_deadline, language=None):
     """Scan audio-aligned zones for a picture-only shift and log what is found.
 
-    Logs, never acts: `zones` is read only. Skipped outright when the repair's own budget is
-    nearly spent; a budget that runs out mid-scan is logged with how far the scan got. Never
-    raises -- a failure here is informational, not a repair outcome.
+    `zones` is read only; the scan itself never changes the plan. Skipped outright when the
+    repair's own budget is nearly spent; a budget that runs out mid-scan is logged with how
+    far the scan got. Never raises -- a failure here is informational, not a repair outcome.
+
+    Returns:
+        A list of `owner_judgment` zone dicts (empty when no shift is confirmed), one per
+        confirmed residual run across every zone scanned: the caller declines on this,
+        before any plan built from these zones is applied.
     """
     if (repair_deadline is not None
             and repair_deadline - time.monotonic() < MIN_REMAINING_BUDGET_S):
         tools.log_always(f"repair: picture_only_shift_summary skipped=low_budget "
                          f"zones_done=0 zones_total={len(zones)} for {candidate_path}\n")
-        return
+        return []
     started = time.monotonic()
     try:
         master_rate, candidate_rate = domain["master_rate"], domain["candidate_rate"]
@@ -155,7 +180,7 @@ def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_di
             # native rate; a speed-changed candidate is left to the resampling it already got.
             tools.log_always(f"repair: picture_only_shift_summary skipped=rate_mismatch "
                              f"zones_done=0 zones_total={len(zones)} for {candidate_path}\n")
-            return
+            return []
         m_info, _reason = vop.probe_video(master_obj.filePath)
         c_info, _reason = vop.probe_video(candidate_obj.filePath)
         m_duration_s = m_info["duration_s"] if m_info else None
@@ -175,24 +200,35 @@ def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_di
     except vop.BudgetExceeded:
         tools.log_always(f"repair: picture_only_shift_summary skipped=budget_during_decode "
                          f"zones_done=0 zones_total={len(zones)} for {candidate_path}\n")
-        return
+        return []
     except Exception as error:                                           # noqa: BLE001
         tools.log_always(f"repair: picture_only_shift_summary skipped=error "
                          f"({type(error).__name__}: {str(error)[:200]}) for {candidate_path}\n")
-        return
+        return []
     total_runs = total_cuts = total_unpaired = zones_done = 0
+    all_disagreements = []
     partial = False
     for zone in zones:
         if repair_deadline is not None and time.monotonic() > repair_deadline:
             partial = True
             break
-        runs, cuts, unpaired = _scan_zone(zone, master_rate, m_cuts, m_hashes, m_coloured,
-                                          c_cuts, c_hashes, c_coloured, candidate_path)
+        runs, cuts, unpaired, disagreements = _scan_zone(
+            zone, master_rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_coloured,
+            candidate_path)
         total_runs, total_cuts, total_unpaired = (total_runs + runs, total_cuts + cuts,
                                                    total_unpaired + unpaired)
+        all_disagreements.extend(disagreements)
         zones_done += 1
     tools.log_always(
         f"repair: picture_only_shift_summary zones_done={zones_done} zones_total={len(zones)} "
         f"cuts_confirmed={total_cuts} runs={total_runs} unpaired={total_unpaired} "
         f"{'partial=1 ' if partial else ''}wall_s={round(time.monotonic() - started, 1)} "
         f"for {candidate_path}\n")
+    for entry in all_disagreements:
+        owner_judgment.log_pending(
+            entry["zone"], entry["reason"], entry["master_start_s"], entry["master_end_s"],
+            entry["candidate_start_s"], entry["candidate_end_s"], entry["audio_cut_s"],
+            entry["video_cut_s"], entry["picture_shift_ms"], entry["frames_compared"])
+    if all_disagreements:
+        owner_judgment.log_summary(len(all_disagreements), language)
+    return all_disagreements

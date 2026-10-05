@@ -23,6 +23,7 @@ import time
 import audioCorrelation
 import audio_extract
 import banded_seed_alignment
+import owner_judgment
 import repair_log
 import tools
 import video_offset_plan
@@ -224,6 +225,9 @@ DECLINE_CAUSES = {
     "plan_end_not_master_timeline": CLASS_COULD_NOT_RUN,
     # A delivery probe landed where a compared track has no audio:
     "probe_reads_no_audio": CLASS_COULD_NOT_RUN,
+    # The audio measures aligned but the video disagrees: a measured fact about the pair, not
+    # a failure to measure -- the owner judges it, the pair is not reattempted unchanged.
+    "owner_judgment_pending": CLASS_CONCLUSIVE,
 }
 
 # Hole-result vocabulary. The audio proposes a zone, the video decides; a hole the video crosses
@@ -2783,7 +2787,7 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
 
 
 def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
-                      candidate_path, union=None):
+                      candidate_path, language=None, union=None):
     """Place every walk change point on the master timeline.
 
     The audio fixes the step, the fill width (max(0, a - b)) and the interval the cut may lie
@@ -2791,6 +2795,11 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
     sub-quantum step is a slip at the quietest instant; otherwise the audio places the cut at
     the quietest instant. Unreadable edges are borrowed from the union (`union_hole_edges`).
     Additions with master-only audio in a union hole become replacements.
+
+    A resolved cut whose video fill width contradicts the audio fill by more than
+    `video_cut_instant`'s own tolerance is a video/audio disagreement: every such point is
+    logged and the whole plan declines with `owner_judgment_pending` instead of falling back
+    to the audio's own instant.
 
     Returns:
         (transitions, None) or (None, (cause, reason)).
@@ -2837,7 +2846,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         step_result("cluster", candidate=candidate_path, cluster=cluster["cluster_id"],
                     members=cluster["members"], shared_scan=len(cluster["members"]) > 1,
                     islands=islands)
-    transitions = []
+    transitions, disagreements = [], []
     for index, (point, hole) in enumerate(zip(points, holes)):
         edges = point["edges"]
         lo, hi = edges["interval"]
@@ -2900,6 +2909,21 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             continue
         video_s, width_note = video_cut_instant(outcome, domain, extra, (lo, hi),
                                                 hole["quantum_ms"])
+        if (video_s is None and width_note is not None
+                and status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END)):
+            # The video resolved a cut, but at a width the audio's own fill does not predict:
+            # audio ok, video differs. Collected, not decided here (owner_judgment_pending).
+            disagreements.append({
+                "zone": index, "reason": "video_audio_disagree",
+                "master_start_s": hole["master_ms"][0] / 1000.0,
+                "master_end_s": hole["master_ms"][1] / 1000.0,
+                "candidate_start_s": hole["candidate_ms"][0] / 1000.0,
+                "candidate_end_s": hole["candidate_ms"][1] / 1000.0,
+                "audio_cut_s": audio_walk.quietest_instant(walk["master"], lo, hi, extra),
+                "video_cut_s": _frame_s(outcome["master_start_frame"], domain),
+                "picture_shift_ms": None, "frames_compared": outcome.get("span_frames")})
+            tools.dev_log(f"repair: video_audio_disagree change_point={index} {width_note} "
+                         f"for {candidate_path}\n")
         fill = extra
         # Narrow the bounds so neither offset plays the candidate's own audible material past
         # its edge; a blind video then cuts where the least sound leaks.
@@ -2955,6 +2979,17 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"video_status={status} video_s={None if video_s is None else round(video_s, 4)} "
             f"decision={decision}{' ' + width_note.replace(' ', '_') if width_note else ''} "
             f"for {candidate_path}\n")
+    if disagreements:
+        for entry in disagreements:
+            owner_judgment.log_pending(
+                entry["zone"], entry["reason"], entry["master_start_s"], entry["master_end_s"],
+                entry["candidate_start_s"], entry["candidate_end_s"], entry["audio_cut_s"],
+                entry["video_cut_s"], entry["picture_shift_ms"], entry["frames_compared"])
+        owner_judgment.log_summary(len(disagreements), language)
+        return None, ("owner_judgment_pending",
+                      f"{len(disagreements)} change point(s) measure an audio-aligned cut "
+                      f"whose video fill width the audio does not predict -- logged for the "
+                      f"owner, no cut delivered")
     log_transitions_summary(transitions, candidate_path)
     return transitions, None
 
@@ -4212,7 +4247,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     log_holes_against_walk(holes, walk, candidate_path)
     log_absorbed_gaps(couple_results, holes, walk, candidate_path)
     transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
-                                             work_dir, candidate_path, union=holes)
+                                             work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
     head_end_s, tail_start_s, refusal = audio_edges(walk, holes, domain, master_obj,
@@ -4236,11 +4271,18 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
             f"the partial plan is logged; declined, retried at the next run"), None
-    # Report-only: logs a picture shift inside an otherwise audio-continuous zone, never
-    # touches `zones`.
+    # A picture shift inside an otherwise audio-continuous zone is never acted on by widening
+    # `zones`: it declines the whole repair instead (owner_judgment_pending), since nothing
+    # here measures which of the audio or the video is right.
     import picture_only_shift
-    picture_only_shift.scan_zones(zones, domain, master_obj, candidate_obj, candidate_path,
-                                  work_dir, repair_deadline)
+    picture_shifts = picture_only_shift.scan_zones(
+        zones, domain, master_obj, candidate_obj, candidate_path, work_dir, repair_deadline,
+        language)
+    if picture_shifts:
+        return False, "owner_judgment_pending", (
+            f"{len(picture_shifts)} zone(s) measured as audio-continuous show the picture "
+            f"itself at a different frame offset for a sustained run -- logged for the owner, "
+            f"no cut delivered"), None
     head_written_s, tail_written_s = written_edge_seconds(fills, walk["master_audio_end_s"])
     tagged, tag_reason = tag_decision(len(transitions), head_written_s + tail_written_s)
     step_result("plan_shape_resolved", candidate=candidate_path,

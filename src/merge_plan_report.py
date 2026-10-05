@@ -556,6 +556,8 @@ def parse_job_log(text):
         "output_durations": None,
         # `picture_only_shift` runs: logged, never acted on.
         "picture_only_shifts": [],
+        # `owner_judgment_pending` zones: audio ok, video differs -- logged, declined.
+        "owner_judgment": [],
     }
 
     for line in lines:
@@ -773,6 +775,16 @@ def parse_job_log(text):
             continue
         if body.startswith("picture_only_shift_summary ") or body.startswith(
                 "picture_only_shift_unpaired "):
+            # Recognised but not rendered; keeps it out of UNPARSED.
+            continue
+        if body.startswith("owner_judgment_pending "):
+            # `zone=<i> reason=<...> master_start_s=<f> master_end_s=<f>
+            # candidate_start_s=<f> candidate_end_s=<f> audio_cut_s=<f|None>
+            # video_cut_s=<f|None> picture_shift_ms=<f|None> frames_compared=<int>`.
+            fields = split_fields(body[len("owner_judgment_pending "):])
+            job["owner_judgment"].append(fields)
+            continue
+        if body.startswith("owner_judgment_pending_summary "):
             # Recognised but not rendered; keeps it out of UNPARSED.
             continue
         # Refusals the gate expects, then whether the outcome agreed.
