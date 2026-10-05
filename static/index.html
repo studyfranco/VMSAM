@@ -175,7 +175,10 @@
                             </div>
                         </div>
                         <div class="mt-4 text-sm text-muted">
-                            <strong>Grouping:</strong> each added file starts as its own rule. Drag a file onto another rule to
+                            <strong>Grouping:</strong> added files are grouped automatically: names that share the words before
+                            their season/episode marker (or their first two words) and their extension get one rule, split by
+                            release when several files share the same ending.
+                            "Split all" gives every file its own rule, "Auto-group" regroups the whole board. Drag a file onto another rule to
                             cover both with one regex: what differs between the names becomes <code class="text-accent">.+</code>,
                             a number that only changes value becomes <code class="text-accent">\d+</code>, and the digit run
                             chosen as the episode becomes <code class="text-accent">(?P&lt;episode&gt;\d+)</code>. Click another
@@ -219,7 +222,7 @@
                 <div class="card">
                     <h2 class="section-title">1. Select the folder to index</h2>
                     <p class="text-muted text-sm">A folder that already holds files. Files already indexed and files an
-                        existing rule covers are listed apart; the others are grouped by their first five characters, one proposed rule per group. Save the
+                        existing rule covers are listed apart; the others are grouped by the words their names share (the show name before a season/episode marker such as S01E03, 1x03 or Saison 1 Épisode 03, or the first two words, and the extension; a common ending such as the release tags splits two releases apart), one proposed rule per group; "Auto-group" and "Split all" redo the grouping. Save the
                         rules you want, then index: VMSAM renames each matching file with its rule and registers it with the
                         rule's weight. A file whose episode is already registered is left untouched.</p>
                     <div class="form-group">
@@ -397,6 +400,10 @@
             </div>
             <div class="form-group">
                 <input type="text" id="file-search" class="input" placeholder="Filter files (regex)...">
+            </div>
+            <div class="file-select-bar">
+                <button type="button" id="file-select-all" class="btn btn-secondary btn-sm">Select all</button>
+                <span id="file-selected-count" class="text-muted text-sm">0 selected</span>
             </div>
             <div id="file-list" class="modal-body dir-browser-container"></div>
             <div style="display: flex; justify-content: flex-end; gap: 1rem;">

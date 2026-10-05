@@ -14,7 +14,7 @@ port 8080 with no UI. This branch is the UI:
 | tab | what it does | VMSAM routes |
 | :--- | :--- | :--- |
 | Folder Creation | browses `CREATE_ROOT`, creates a library folder | `POST /folders/` |
-| Bulk Regex | one rule per downloaded file, files draggable into groups | `POST /regex/`, `GET /regex_folder/` |
+| Bulk Regex | one rule per group of downloaded files (grouped by name, regroupable by drag, "Auto-group", "Split all") | `POST /regex/`, `GET /regex_folder/` |
 | Index Folder | registers an existing library directory, moves/renames a folder, hides files already indexed, proposes a rule per group, then renames and indexes | `POST /folders/`, `POST /folders/move/`, `GET /episodes_folder/`, `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
 | Specials | exact-name rename of a special (`destination_path` is a control: a new name an existing rule already catches must belong to that folder, and the answer carries that rule for editing), plus the rule that catches the new name | `POST /special/`, `GET /special_list/`, `POST /regex/` |
 | Incrementaller | rules that shift an episode number before the folder rules run | `POST /incrementaller/`, `GET /incrementaller_list/` |
@@ -80,8 +80,10 @@ The part worth understanding before touching any tab. Pure functions, exposed as
    anything else that differs is `wild` (`optional` when empty in some name).
    `absorbBetweenWilds` merges a short literal run caught between two wild spans
    (shared title words) and a checksum glued to a wild word.
-3. `findEpisodeMarker`: when **every** name carries an `S<n>E<n>` marker, the digits
-   after `E` are the episode, unconditionally (+1000). Otherwise `scoreEpisodeSlot`
+3. `findMarkerSpan` / `findEpisodeMarker`: when **every** name carries the same kind
+   of season/episode marker — `S<n>E<n>`, `<n>x<nn>` (`3x01`, never `1920x1080`) or
+   `Saison|Season <n> Épisode|Episode <n>` — its episode digits are the episode,
+   unconditionally (+1000). Otherwise `scoreEpisodeSlot`
    scores each digit run: an `ep` word, a dash, zero padding and changing between
    files score up; resolution (`1080p`), codec (`x264`), version (`v2`), season
    (`S2`), year, CRC, brackets and the extension score down. Below −100 nothing is
@@ -93,10 +95,22 @@ The part worth understanding before touching any tab. Pure functions, exposed as
 5. `buildRename` is the first name with the episode replaced by `{<episode>}` and
    every wild span (per-episode titles, tags) dropped, separators merged.
 
-Default grouping: **Bulk Regex, Specials and Incrementaller start with one file per
-card**; **Index Folder groups by the first five characters** of the name. Drag a file
-onto another card to merge, `−` to give it back its own card. A manual edit of the
-regex or rename sticks until "Re-propose".
+Default grouping: **Bulk Regex and Index Folder group with `groupByNamePattern`**;
+**Specials and Incrementaller start with one file per card**. A word is a run between
+separators (space `. / , - ( ) _ ; : [ ] { } + ~ ! '`), compared case-insensitively;
+the extension is not a word but must be equal. (1) Files gather by prefix: with a
+season/episode marker (`findMarkerSpan`), the marker kind and the words before it;
+without one, the first two words, where an episode-like word (`01`, `E05`, `ep3`,
+`07v2`, at most three digits) only counts as "a number here". (2) Inside a prefix,
+the tail (last three words after the marker, or of the name; 8-hex CRC words left
+out) splits files only when at least two files share it: two releases stay apart,
+while a season whose names end with a per-episode title stays in one pooled group.
+(3) A file with no marker and no episode-like word leaves a group where others have
+one (a special among numbered episodes) for its own card. Groups keep the order of
+their first file. Every board has "Auto-group" (regroup all its files that way) and
+"Split all" (one file per card); both drop the manual edits of the groups. Drag a
+file onto another card to merge, `−` to give it back its own card. A manual edit of
+the regex or rename sticks until "Re-propose". `groupByPrefix` (first five characters) stays exported, unused.
 
 **The control around specials lives in VMSAM, and the UI surfaces it as-is.**
 `POST /special/` takes the folder and refuses a new name that a regex of *another*

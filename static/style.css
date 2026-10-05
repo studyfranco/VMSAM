@@ -709,3 +709,24 @@ body {
     min-width: 0;
     font-family: monospace;
 }
+
+/* --- File modal selection bar / board toolbar --- */
+.file-select-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.board-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.board-toolbar-buttons {
+    display: flex;
+    gap: 0.5rem;
+}

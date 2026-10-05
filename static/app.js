@@ -142,7 +142,8 @@ const api = {
 // an episode number stays aligned next to a changing title), anything else
 // that differs becomes .+ (.* when some name has nothing there). One digit run
 // is then chosen as the episode number: the user's click, else the E digits
-// of an SxxE marker every name carries, else the best score. The proposed
+// of a season/episode marker every name carries (SxxE, 3x01, Saison 1
+// Épisode 01), else the best score. The proposed
 // rename drops the wild spans, which belong to the reference file only.
 
 const EPISODE_PLACEHOLDER = '{<episode>}';
@@ -223,24 +224,55 @@ function lcsPairs(a, b) {
     return pairs;
 }
 
-// Index of the episode digit run of an S<season>E<episode> marker, or -1.
-// `S` must be its own letter run (`.S01E03.`, `s02e05`, ` S1E3 `), or the
-// capital end of a camel-cased word (`TitleS01E03`); `E` must stand alone.
-function findEpisodeMarker(tokens) {
-    for (let k = 0; k + 3 < tokens.length; k++) {
-        const s = tokens[k].v;
-        const isMarkerS = /^s$/i.test(s) || /[a-zà-ÿ]S$/.test(s);
-        if (isMarkerS && tokens[k + 1].d && /^e$/i.test(tokens[k + 2].v) && tokens[k + 3].d) return k + 3;
+// The first season/episode marker of a token list, or null:
+//   sxe:    S<season>E<episode>. `S` must be its own letter run (`.S01E03.`,
+//           `s02e05`, ` S1E3 `), or the capital end of a camel-cased word
+//           (`TitleS01E03`, glued); `E` must stand alone.
+//   nx:     <season>x<episode>, 1-2 digits then 2-3 digits, not glued to a
+//           word (`3x01`, `00x12`; never `1920x1080` nor `x264`).
+//   saison: Saison|Season <n> Épisode|Episode <n>, separators in between.
+// `from` is the token where the marker starts, `episode` the episode digits.
+function findMarkerSpan(tokens) {
+    const isWord = t => !!t && /^[A-Za-zÀ-ɏ]/.test(t.v);
+    const isSep = t => !!t && !t.d && !isWord(t);
+    const skipSeps = j => { while (isSep(tokens[j])) j++; return j; };
+    for (let k = 0; k < tokens.length; k++) {
+        const t = tokens[k];
+        if (k + 3 < tokens.length) {
+            const isMarkerS = /^s$/i.test(t.v) || /[a-zà-ÿ]S$/.test(t.v);
+            if (isMarkerS && tokens[k + 1].d && /^e$/i.test(tokens[k + 2].v) && tokens[k + 3].d) {
+                return { kind: 'sxe', from: k, glued: t.v.length > 1, episode: k + 3 };
+            }
+        }
+        if (t.d && t.v.length <= 2 && k + 2 < tokens.length && /^x$/i.test(tokens[k + 1].v)
+            && tokens[k + 2].d && /^\d{2,3}$/.test(tokens[k + 2].v) && !CODEC_VALUES.has(tokens[k + 2].v)
+            && !isWord(tokens[k - 1]) && !(isWord(tokens[k + 3]) && !/^v$/i.test(tokens[k + 3].v))) {
+            return { kind: 'nx', from: k, glued: false, episode: k + 2 };
+        }
+        if (/^(saison|season)$/i.test(t.v)) {
+            let j = skipSeps(k + 1);
+            if (!tokens[j] || !tokens[j].d) continue;
+            j = skipSeps(j + 1);
+            if (!tokens[j] || !/^[ée]pisode$/i.test(tokens[j].v)) continue;
+            j = skipSeps(j + 1);
+            if (tokens[j] && tokens[j].d) return { kind: 'saison', from: k, glued: false, episode: j };
+        }
     }
-    return -1;
+    return null;
+}
+
+// Index of the episode digit run of a season/episode marker, or -1.
+function findEpisodeMarker(tokens) {
+    const marker = findMarkerSpan(tokens);
+    return marker ? marker.episode : -1;
 }
 
 // A short literal run (at most three tokens) squeezed between two wild spans
 // is a coincidence of the titles (`.Is.` in two different titles): make it
 // wild too, so the regex holds one `.+` and the rename drops it. A changing
 // digit run glued after a wild word is the end of that word (`ABCD1234`, a
-// CRC): wild too, unless that word is an episode prefix (`E`, `Ep`). The SxxE
-// marker is never absorbed.
+// CRC): wild too, unless that word is an episode prefix (`E`, `Ep`). The
+// season/episode marker is never absorbed.
 function absorbBetweenWilds(slots, protectedFrom, protectedTo) {
     const isProtected = k => k >= protectedFrom && k <= protectedTo;
     for (let i = 1; i < slots.length; i++) {
@@ -272,20 +304,23 @@ function absorbBetweenWilds(slots, protectedFrom, protectedTo) {
 //   optional: wild, and absent from at least one other name -> .*
 //   extraBefore: another name carries tokens here that the reference lacks
 //                (empty in the reference, so always .*)
-//   markerIndex: the episode digits of an SxxE marker every name carries,
+//   markerIndex: the episode digits of a season/episode marker (SxxE, NxNN,
+//                Saison n Épisode n: findMarkerSpan) every name carries,
 //                aligned in every name (null otherwise)
 function buildTemplate(names) {
     const ref = tokenizeName(names[0]);
     const slots = ref.map(t => ({ v: t.v, d: t.d, start: t.start, end: t.start + t.v.length, varying: false, wild: false, optional: false, extraBefore: false }));
     let extraAfterEnd = false;
-    const refMarker = findEpisodeMarker(ref);
+    const refSpan = findMarkerSpan(ref);
+    const refMarker = refSpan ? refSpan.episode : -1;
     let markerAligned = refMarker >= 0;
 
     for (const name of names.slice(1)) {
         const other = tokenizeName(name);
         const pairs = lcsPairs(ref, other);
         if (markerAligned) {
-            const otherMarker = findEpisodeMarker(other);
+            const otherSpan = findMarkerSpan(other);
+            const otherMarker = otherSpan && otherSpan.kind === refSpan.kind ? otherSpan.episode : -1;
             markerAligned = otherMarker >= 0 && pairs.some(p => p[0] === refMarker && p[1] === otherMarker);
         }
         let prev = [-1, -1];
@@ -314,7 +349,7 @@ function buildTemplate(names) {
         }
     }
     const markerIndex = markerAligned && !slots[refMarker].wild ? refMarker : null;
-    absorbBetweenWilds(slots, markerIndex === null ? -1 : markerIndex - 3, markerIndex === null ? -1 : markerIndex);
+    absorbBetweenWilds(slots, markerIndex === null ? -1 : refSpan.from, markerIndex === null ? -1 : markerIndex);
     return { name: names[0], slots, extraAfterEnd, count: names.length, markerIndex };
 }
 
@@ -336,9 +371,10 @@ function scoreEpisodeSlot(template, index) {
     const extensionStart = template.name.lastIndexOf('.');
     if (extensionStart > 0 && slot.start > extensionStart && !/[\s._\-\[\]()]/.test(after)) add(-200, 'inside the file extension');
 
-    // An SxxE marker in every name of the group wins outright.
-    if (template.markerIndex === index) add(1000, 'SxxEyy in every name');
+    // A season/episode marker in every name of the group wins outright.
+    if (template.markerIndex === index) add(1000, 'season/episode marker in every name');
     else if (/S\d{1,3}[ ._-]?E$/i.test(before)) add(100, 'SxxEyy');
+    else if (/(^|[^0-9A-Za-zÀ-ɏ])\d{1,2}x$/i.test(before) && /^\d{2,3}$/.test(value)) add(100, 'NxNN');
     else if (/(^|[\s._\-\[(])(ep|episode|épisode|e)[\s._\-]*$/i.test(before)) add(50, 'episode word');
     else if (/[\s._]-[\s._]$/.test(before)) add(30, 'after dash');
     else if (/[\s._\-\])]$/.test(before)) add(10, 'after separator');
@@ -474,7 +510,95 @@ function analyzeGroup(names, forcedEpisodeIndex) {
     };
 }
 
-// Default grouping for a folder being indexed: same first five characters.
+// Default grouping. A word is a run between separators, compared
+// case-insensitively; the extension is not a word but must be equal.
+//  1. Files first gather by their prefix: the words before a season/episode
+//     marker (findMarkerSpan: SxxE, 3x01, Saison 1 Épisode 01) and the marker
+//     kind, or the first two words without a marker; plus the extension.
+//  2. Inside a prefix, the tail (last three words after the marker, or of the
+//     whole name; CRC words `[0-9a-f]{8}` left out) splits files only when at
+//     least two files share it: two releases of a show stay apart, while a
+//     season whose names end with the episode title, unique per file, stays
+//     together in one pooled group.
+//  3. A file with no marker and no episode-like word leaves a group where
+//     other files have one (a special among numbered episodes): own card.
+// An episode-like word (`01`, `E05`, `ep3`, `07v2`: at most three digits)
+// only counts as "a number here" in a key. Groups keep the order of their
+// first file, names inside a group keep input order.
+const NAME_WORD_SEPARATORS = /[\s.\/,\-()_;:\[\]{}+~!']+/;
+const NAME_EXTENSION = /\.([A-Za-z0-9]{1,5})$/;
+const EPISODE_LIKE_WORD = /^(?:e|ep)?\d{1,3}(?:v\d+)?$/;
+const CRC_WORD = /^[0-9a-f]{8}$/;
+
+function nameWords(text) {
+    return text.split(NAME_WORD_SEPARATORS).filter(Boolean).map(w => w.toLowerCase());
+}
+
+// { prefix, tail, numbered } of one name; prefix and tail are string keys.
+function nameShape(name) {
+    const ext = name.match(NAME_EXTENSION);
+    const extension = ext ? ext[1].toLowerCase() : '';
+    const stem = ext ? name.slice(0, ext.index) : name;
+    const tokens = tokenizeName(stem);
+    const marker = findMarkerSpan(tokens);
+    const tailOf = words => JSON.stringify(words.filter(w => !CRC_WORD.test(w)).slice(-3));
+    if (marker) {
+        const first = tokens[marker.from];
+        const markerStart = marker.glued ? first.start + first.v.length - 1 : first.start; // the S of `TitleS01E03`
+        const markerEnd = tokens[marker.episode].start + tokens[marker.episode].v.length;
+        // Whatever is glued after the episode digits belongs to the marker word.
+        const after = stem.slice(markerEnd).replace(/^[^\s.\/,\-()_;:\[\]{}+~!']+/, '');
+        return {
+            prefix: JSON.stringify([marker.kind, nameWords(stem.slice(0, markerStart)), extension]),
+            tail: tailOf(nameWords(after)),
+            numbered: true
+        };
+    }
+    const raw = nameWords(stem);
+    const words = raw.map(w => (EPISODE_LIKE_WORD.test(w) ? '#' : w));
+    return {
+        prefix: JSON.stringify(['plain', words.slice(0, 2), extension]),
+        tail: tailOf(words),
+        numbered: raw.some(w => EPISODE_LIKE_WORD.test(w))
+    };
+}
+
+function groupByNamePattern(names) {
+    const order = new Map();
+    names.forEach((n, i) => { if (!order.has(n)) order.set(n, i); });
+    const shapes = new Map(names.map(n => [n, nameShape(n)]));
+    const byPrefix = new Map();
+    for (const name of names) {
+        const prefix = shapes.get(name).prefix;
+        if (!byPrefix.has(prefix)) byPrefix.set(prefix, []);
+        byPrefix.get(prefix).push(name);
+    }
+    const result = [];
+    for (const members of byPrefix.values()) {
+        const tailCount = new Map();
+        members.forEach(n => { const t = shapes.get(n).tail; tailCount.set(t, (tailCount.get(t) || 0) + 1); });
+        const sub = new Map();
+        for (const name of members) {
+            const tail = shapes.get(name).tail;
+            const key = tailCount.get(tail) >= 2 ? 'tail' + tail : 'pool';
+            if (!sub.has(key)) sub.set(key, []);
+            sub.get(key).push(name);
+        }
+        for (const group of sub.values()) {
+            const numbered = group.filter(n => shapes.get(n).numbered);
+            if (numbered.length && numbered.length < group.length) {
+                result.push(numbered);
+                group.filter(n => !shapes.get(n).numbered).forEach(n => result.push([n]));
+            } else {
+                result.push(group);
+            }
+        }
+    }
+    return result.sort((x, y) => order.get(x[0]) - order.get(y[0]));
+}
+
+// Former default grouping (same first five characters), kept for callers
+// outside this file; the UI uses groupByNamePattern.
 function groupByPrefix(names, length = 5) {
     const groups = new Map();
     for (const name of names) {
@@ -779,6 +903,9 @@ async function openFileModal(onAdd) {
     const list = document.getElementById('file-list');
     list.innerHTML = '';
     list.appendChild(el('div', 'text-muted p-4', 'Loading files...'));
+    list.onchange = updateFileSelection;
+    document.getElementById('file-select-all').onclick = toggleVisibleFiles;
+    updateFileSelection();
 
     try {
         const files = await api.listFiles('', 'files');
@@ -804,11 +931,39 @@ async function openFileModal(onAdd) {
                 const match = regex ? regex.test(text) : text.toLowerCase().includes(val.toLowerCase());
                 row.style.display = match ? 'flex' : 'none';
             });
+            updateFileSelection();
         };
     } catch (e) {
         list.innerHTML = '';
         list.appendChild(el('div', 'text-accent p-4', e.message));
     }
+    updateFileSelection();
+}
+
+// Rows the filter leaves visible: "Select all" acts on these only.
+function visibleFileChecks() {
+    return Array.from(document.querySelectorAll('#file-list .file-row'))
+        .filter(row => row.style.display !== 'none')
+        .map(row => row.querySelector('input'));
+}
+
+// Counter of every ticked file (hidden ones are added too) and the label of
+// the button: "Unselect all" once every visible row is ticked.
+function updateFileSelection() {
+    const checked = document.querySelectorAll('#file-list input:checked').length;
+    const visible = visibleFileChecks();
+    const allVisibleTicked = visible.length > 0 && visible.every(c => c.checked);
+    const button = document.getElementById('file-select-all');
+    button.textContent = allVisibleTicked ? 'Unselect all' : 'Select all';
+    button.disabled = visible.length === 0;
+    document.getElementById('file-selected-count').textContent = `${checked} selected`;
+}
+
+function toggleVisibleFiles() {
+    const visible = visibleFileChecks();
+    const tick = !(visible.length > 0 && visible.every(c => c.checked));
+    visible.forEach(c => { c.checked = tick; });
+    updateFileSelection();
 }
 
 function closeFileModal() {
@@ -852,8 +1007,17 @@ function createGroupBoard(options) {
         const known = new Set(board.groups.flatMap(g => g.files));
         const fresh = names.filter(n => !known.has(n));
         if (!fresh.length) return;
-        board.addGroups(grouped ? groupByPrefix(fresh) : fresh.map(n => [n]));
+        board.addGroups(grouped ? groupByNamePattern(fresh) : fresh.map(n => [n]));
     };
+
+    // Regroup every file on the board from scratch: manual edits, chip
+    // choices and saved marks of the old groups are dropped.
+    board.regroup = (nameLists) => {
+        board.groups = [];
+        board.addGroups(nameLists);
+    };
+    board.autoGroup = () => board.regroup(groupByNamePattern(board.groups.flatMap(g => g.files)));
+    board.splitAll = () => board.regroup(board.groups.flatMap(g => g.files).map(n => [n]));
 
     board.findGroup = (id) => board.groups.find(g => g.id === id);
 
@@ -897,6 +1061,7 @@ function createGroupBoard(options) {
             container.appendChild(el('div', 'text-muted text-sm empty-board', options.emptyText || 'No file yet.'));
             return;
         }
+        container.appendChild(renderBoardToolbar(board));
         board.groups.forEach(group => container.appendChild(renderGroupCard(board, group)));
         const zone = el('div', 'drop-zone', 'Drop a file here to start a new group');
         wireDropTarget(zone, board, null);
@@ -904,6 +1069,24 @@ function createGroupBoard(options) {
     };
 
     return board;
+}
+
+function renderBoardToolbar(board) {
+    const fileCount = board.groups.reduce((n, g) => n + g.files.length, 0);
+    const groupCount = board.groups.length;
+    const bar = el('div', 'board-toolbar');
+    bar.appendChild(el('span', 'text-muted text-sm board-summary',
+        `${fileCount} file${fileCount > 1 ? 's' : ''} in ${groupCount} group${groupCount > 1 ? 's' : ''}`));
+    const buttons = el('div', 'board-toolbar-buttons');
+    const auto = el('button', 'btn btn-secondary btn-sm board-auto-group', 'Auto-group');
+    auto.title = 'Regroup every file by the words its name shares with the others (manual edits are dropped)';
+    auto.onclick = () => board.autoGroup();
+    const split = el('button', 'btn btn-secondary btn-sm board-split-all', 'Split all');
+    split.title = 'Put every file back on its own card (manual edits are dropped)';
+    split.onclick = () => board.splitAll();
+    buttons.append(auto, split);
+    bar.appendChild(buttons);
+    return bar;
 }
 
 function wireDropTarget(node, board, groupId) {
@@ -1130,7 +1313,7 @@ function initRegexTab() {
     const board = createGroupBoard({
         containerId: 'regex-cards', mode: 'regex',
         getFolderPath: () => state.selectedFolderPath,
-        emptyText: 'Add files: one rule per file by default, drag a file onto another rule to group them.'
+        emptyText: 'Add files: names that share their stable words are grouped under one rule; drag a file onto another rule to regroup.'
     });
     const picker = createFolderPicker('regex', (f) => {
         state.selectedFolderId = f.id;
@@ -1156,7 +1339,7 @@ function clearFolderSelection() {
 }
 
 function openRegexFileModal() {
-    openFileModal((names) => regexTab.board.addFiles(names, false));
+    openFileModal((names) => regexTab.board.addFiles(names, true));
 }
 
 // --- 8b. Index Folder tab ---
@@ -1418,7 +1601,7 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
         `${coveredFiles.length} covered by a rule, ${uncovered.length} without rule`;
     if (rebuildBoard) {
         indexTab.board.clear();
-        indexTab.board.addGroups(groupByPrefix(uncovered));
+        indexTab.board.addGroups(groupByNamePattern(uncovered));
     }
 }
 
@@ -1754,7 +1937,7 @@ function initIncrementallerTab() {
     if (incrementallerTab) { loadIncrementallerList(); return; }
     const board = createGroupBoard({
         containerId: 'incr-cards', mode: 'incrementaller',
-        emptyText: 'Add files: one rule per file by default, drag a file onto another rule to group them.'
+        emptyText: 'Add files: names that share their stable words are grouped under one rule; drag a file onto another rule to regroup.'
     });
     board.onSaved = () => loadIncrementallerList();
     incrementallerTab = { board };
@@ -1771,4 +1954,4 @@ function openIncrementallerFileModal() {
 }
 
 // Exposed for the engine self-test page (no module system, plain script).
-window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, extractEpisode, buildRegex };
+window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, groupByNamePattern, nameShape, findMarkerSpan, extractEpisode, buildRegex };
