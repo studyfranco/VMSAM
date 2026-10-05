@@ -1,3 +1,5 @@
+"""Public FastAPI app managing movies and their filename regexes."""
+
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
@@ -9,17 +11,18 @@ from time import sleep
 from .model import get_movie_by_path, insert_movie, get_all_regex, insert_regex, get_regex_data, search_like_movie, get_regex_by_tmdb_id, get_all_movie, get_movie_data
 
 class Settings(BaseSettings):
+    """Database settings read from the environment or `.env`."""
     DATABASE_URL: str
 
     class Config:
-        env_file = ".env"  # Ce nom est utilisé *par défaut* dans uvicorn =--env_file
+        env_file = ".env"
 
 settings = Settings()
 
-# Initialise la DB
 engine = create_engine(settings.DATABASE_URL, echo=False)
 
 def get_session():
+    """Yield a database session, committing on success and rolling back on error."""
     session = sessionmaker(bind=engine)()
     try:
         yield session
@@ -51,6 +54,7 @@ def get_session():
             pass
 
 class Movie(BaseModel):
+    """Request body to create or update a movie."""
     tmdb_id: str
     destination_path: str
     original_language: str
@@ -58,6 +62,7 @@ class Movie(BaseModel):
     cut_file_to_get_delay_second_method: float = Field(default=2)
     
 class Regex(BaseModel):
+    """Request body to create or update a movie regex."""
     regex_pattern: str
     rename_pattern: Optional[str] = None
     weight: int = Field(default=1)
@@ -72,7 +77,7 @@ app = FastAPI(
 
 @app.post("/movies/")
 def create_movie(movie_in: Movie, session: Session = Depends(get_session)):
-    # Vérifie s’il existe déjà
+    """Create a movie and its folder, or update it if it already exists."""
     existing = get_movie_data(movie_in.tmdb_id, session)
     if existing == None:
         existing = get_movie_by_path(movie_in.destination_path, session)
@@ -107,7 +112,6 @@ def create_movie(movie_in: Movie, session: Session = Depends(get_session)):
     elif (not os.access(movie_in.destination_path, os.W_OK)):
         raise HTTPException(status_code=400, detail="Folder not writable")
 
-    # Création avec valeurs Pydantic (défauts inclus automatiquement)
     new_movie = insert_movie(movie_in.tmdb_id, movie_in.destination_path, movie_in.original_language, movie_in.number_cut, movie_in.cut_file_to_get_delay_second_method, session)
 
     return {
@@ -117,6 +121,7 @@ def create_movie(movie_in: Movie, session: Session = Depends(get_session)):
     }
 
 def get_test_movie(regex_data,session):
+    """Return the movie referenced by `regex_data`, or raise HTTP 400."""
     movie = get_movie_data(regex_data.tmdb_id, session)
     if movie == None:
         raise HTTPException(status_code=400, detail=f"Movie {regex_data.tmdb_id} not found")
@@ -124,26 +129,23 @@ def get_test_movie(regex_data,session):
 
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
+    """Create a movie regex after checking it matches the example and conflicts with none."""
     import re
-    # Vérifier que la nouvelle regex matche le fichier d'exemple
-    # Vérifier que la regex permet d'extraire un numéro d'épisode valide
     match = re.search(regex_data.regex_pattern, regex_data.example_filename)
     if match == None:
         raise HTTPException(status_code=400, detail="Regex does not match the example filename")
     
-    # Vérifier l'existence du film via son tmdb_id
     movie = get_test_movie(regex_data,session)
 
     regex = get_regex_data(regex_data.regex_pattern, session)
     if regex == None:
 
-        # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
+        # No existing regex may also match the example filename.
         all_regex = get_all_regex(session)
         for regex in all_regex:
             if re.search(regex.regex_pattern, regex_data.example_filename) != None:
                 raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
 
-        # Créer et insérer la nouvelle regex
         try:
             regex = insert_regex(regex_data.regex_pattern, movie.tmdb_id, regex_data.rename_pattern, regex_data.weight, session)
         except Exception as e:
@@ -155,7 +157,6 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             "tmdb_id": regex.tmdb_id
         }
     else:
-        # Si la regex existe déjà, on met à jour les champs
         try:
             regex.tmdb_id = movie.tmdb_id
             regex.rename_pattern = regex_data.rename_pattern
@@ -171,7 +172,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
 
 @app.get("/movies_list/")
 def get_movies_list(session: Session = Depends(get_session)):
-    """Récupère la liste des dossiers"""
+    """List all movies."""
     movies = get_all_movie(session)
     if not movies:
         raise HTTPException(status_code=404, detail="No movies found")
@@ -194,7 +195,7 @@ def get_movies_list(session: Session = Depends(get_session)):
 
 @app.get("/movies_infos/")
 def get_movie_info(destination_like: str, session: Session = Depends(get_session)):
-    """Récupère les infos des dossiers qui matchent le nom partiel"""
+    """List movies whose path contains `destination_like`."""
     movies = search_like_movie(destination_like, session)
     if not movies:
         raise HTTPException(status_code=404, detail="No movies found matching the criteria")
@@ -217,7 +218,7 @@ def get_movie_info(destination_like: str, session: Session = Depends(get_session
 
 @app.get("/movie_infos_by_tmdb_id/")
 def get_movie_by_tmdb_id(tmdb_id: str, session: Session = Depends(get_session)):
-    """Récupère les infos d'un dossier spécifique"""
+    """Return one movie by TMDB id."""
     movie = get_movie_data(tmdb_id, session)
     if not movie:
         raise HTTPException(status_code=404, detail="No movie found matching the criteria")
@@ -237,7 +238,7 @@ def get_movie_by_tmdb_id(tmdb_id: str, session: Session = Depends(get_session)):
     
 @app.get("/regex_tmdb_id/")
 def get_regex_by_tmdb_id(tmdb_id: str, session: Session = Depends(get_session)):
-    """Récupère les regex d'un dossier spécifique"""
+    """List the regexes of one movie."""
     regex_list = get_regex_by_tmdb_id(tmdb_id, session)
     if not regex_list:
         raise HTTPException(status_code=404, detail="No regex found for this movie")

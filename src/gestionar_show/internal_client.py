@@ -1,11 +1,7 @@
-"""Thin client used by the public API to reach the internal fusion worker.
+"""Minimal urllib client used by the public API to reach the internal merge worker.
 
-The runtime image ships no HTTP client library (no httpx, no requests) and the
-Dockerfile is read-only, so this deliberately sticks to urllib from the standard
-library. Calls never leave the loopback interface.
-
-Imports nothing from fusion: the public API depends on this module and must stay
-free of the merge engine's dependency tree.
+Uses only the standard library and never imports the merge engine, so the
+public API stays free of its dependencies. Calls stay on the loopback interface.
 """
 
 import json
@@ -15,22 +11,20 @@ import urllib.request
 import tools
 
 
-# urlopen honours http_proxy/HTTP_PROXY, which would send loopback traffic to a
-# proxy when the container defines one. An empty ProxyHandler pins every call to
-# the local interface.
+# An empty ProxyHandler keeps loopback calls away from any http_proxy setting.
 internal_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def build_internal_url(path):
+    """Return the loopback URL of `path` on the internal API."""
     return f"http://127.0.0.1:{tools.internal_api_port}{path}"
 
 
 def call_internal_api(method, path, payload=None, timeout=15):
     """Call the internal worker and return (status_code, decoded_body).
 
-    An HTTP error status is returned like any other response so the caller can
-    forward the worker's own status and detail. Transport failures (worker down,
-    still starting) surface as urllib.error.URLError / OSError.
+    An HTTP error status is returned like any response; transport failures raise
+    urllib.error.URLError or OSError.
     """
     data = None
     headers = {}
@@ -47,6 +41,7 @@ def call_internal_api(method, path, payload=None, timeout=15):
 
 
 def decode_body(raw_body):
+    """Decode a response body as JSON, else wrap the text as `{"detail": text}`."""
     body = raw_body.decode("utf-8", errors="replace")
     try:
         return json.loads(body)

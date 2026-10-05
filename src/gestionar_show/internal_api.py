@@ -1,13 +1,8 @@
-"""Internal fusion worker instance.
+"""Internal merge worker instance.
 
-Runs as a single uvicorn process bound to 127.0.0.1 and owns the only fusion
-queue and worker thread in the deployment. It is never exposed outside the
-container: the public API validates a request first, then forwards it here.
-
-Running with workers=1 is what makes the merge engine usable at all. uvicorn
-skips its multiprocess supervisor at that setting and serves in-process, so this
-app inherits the fully initialised `tools` module from the fork done by
-main_gestionar_show (software paths, merge rules, core count, temp folders).
+A single uvicorn process bound to 127.0.0.1 that owns the only merge queue and
+worker thread. The public API validates requests and forwards them here. It
+runs with workers=1 so one process holds the merge runtime state.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -20,12 +15,12 @@ import tools
 from . import fusion
 from .settings import Settings
 
-# Faux tant que le worker n'a pas pu demarrer: la fusion est alors refusee avec
-# sa raison, au lieu d'accepter des jobs que personne ne consommera.
+# False until the worker has started; requests are then refused with the reason.
 fusion_enabled = False
 
 
 class InternalFusionRequest(BaseModel):
+    """Request body to queue a merge retry for an error file."""
     error_file_path: str
 
 app = FastAPI(
@@ -36,19 +31,14 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
+    """Load the merge runtime and start the worker unless test output is unconfigured."""
     global fusion_enabled
     settings = Settings()
-    # Reconstruire l'etat runtime des merges sans dependre de la methode de
-    # demarrage: sous forkserver (defaut depuis Python 3.14) rien n'est herite,
-    # et l'echec serait silencieux -- verrous d'episode dans un autre arbre,
-    # tools.software vide.
+    # A forkserver-started process inherits nothing, so rebuild the runtime state.
     tools.load_merge_runtime_from_env()
 
-    # En mode test, une fusion n'a nulle part ou deposer son resultat sans
-    # VMSAM_TEST_OUTPUT_DIR. On refuse alors de demarrer le worker plutot que de
-    # laisser chaque job echouer un par un apres avoir consomme un merge complet.
-    # Le reste de l'instance demarre: /internal/health reste interrogeable et dit
-    # pourquoi la fusion est indisponible.
+    # In test mode without VMSAM_TEST_OUTPUT_DIR a merge has nowhere to write; keep the
+    # worker off but serve /internal/health so it can report why.
     if fusion.is_test_mode() and (not len(fusion.get_test_output_dir())):
         fusion_enabled = False
         stderr.write("VMSAM_TEST_OUTPUT_DIR is not set: the internal fusion endpoint stays disabled, "
@@ -56,17 +46,17 @@ def on_startup():
         return
 
     fusion_enabled = True
-    # Le worker passe l'URL au process fils, qui ouvre sa propre session: un
-    # sessionmaker ne survit pas proprement au fork.
+    # The child process opens its own session from the URL: a sessionmaker does not survive fork.
     fusion.start_worker(settings.DATABASE_URL)
 
 @app.on_event("shutdown")
 def on_shutdown():
+    """Stop the worker thread."""
     fusion.stop_worker()
 
 @app.get("/internal/health")
 def get_internal_health():
-    """Etat du worker, consommé par le GET /health public"""
+    """Report worker state; read by the public GET /health."""
     return {
         "status": "ok",
         "git_commit": tools.get_git_commit(),
@@ -78,19 +68,16 @@ def get_internal_health():
 
 @app.get("/internal/fusion")
 def get_internal_fusion_status():
-    """Etat du worker séquentiel et de la file d'attente en mémoire"""
+    """Return the worker and in-memory queue status."""
     return fusion.get_fusion_status()
 
 @app.post("/internal/fusion")
 def create_internal_fusion_job(fusion_request: InternalFusionRequest):
-    """Met en file une fusion déjà validée par l'instance publique.
+    """Queue a merge already validated by the public instance.
 
-    Aucune revalidation en base ici: l'instance publique a déjà vérifié
-    l'existence de l'entrée incompatible_files et de l'épisode maître, et le
-    worker refera la résolution complète au moment de l'exécution.
+    No database check here; the worker resolves everything when the job runs.
     """
-    # The worker is the authority on execution settings: the public instance only
-    # screens out an unknown VMSAM_MODE, the test output directory is checked here.
+    # The test output directory is checked here, where the worker runs.
     if not fusion_enabled:
         raise HTTPException(status_code=503, detail="Fusion is disabled: VMSAM_TEST_OUTPUT_DIR is not set in test mode")
 

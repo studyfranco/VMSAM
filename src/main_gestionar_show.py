@@ -1,3 +1,4 @@
+"""Watch-folder integrator for shows: rename, group by episode and merge new files."""
 import argparse
 import os
 from datetime import datetime
@@ -7,7 +8,7 @@ from threading import Thread
 from sys import stderr,stdout
 from time import sleep,time
 import tools
-from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
+from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data, get_all_special_rename
 from gestionar_show.api import episode_pattern_insert
 import re
 import mergeVideo
@@ -19,6 +20,11 @@ import traceback
 parrallel_jobs = None
 
 def process_rejected_files(file, folder_id, folder_path, episode_number, session, data_rejected):
+    """Merge a rejected file with a previously rejected file of the same episode.
+
+    On success the merged file replaces both in the error folder; otherwise the file
+    is moved there and recorded as incompatible. An error log is written next to it.
+    """
     tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(folder_id)), str(episode_number))
     out_folder = os.path.join(tools.tmpFolder, "final_file")
 
@@ -90,6 +96,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
 
 def process_episode(files, folder_id, episode_number, database_url):
+    """Merge or add every received file of one episode, by decreasing regex weight."""
     dic_weight_files = {}
     for file in files:
         if file['weight'] not in dic_weight_files:
@@ -99,11 +106,7 @@ def process_episode(files, folder_id, episode_number, database_url):
     """Process files for a specific folder and extract episodes"""
     session = setup_database(database_url)
 
-    # Le worker de fusion peut travailler le meme episode, dans les deux modes:
-    # meme en test il lit le fichier maitre que l'on remplace ici. On prend le
-    # verrou sans bloquer: si la fusion le tient, on saute cet episode et la
-    # boucle repassera dessus au prochain tour, ce qui vaut mieux que de figer un
-    # worker d'integration pendant toute la duree d'une fusion.
+    # Non-blocking: if the merge worker holds this episode, skip it until the next pass.
     lock_handle = tools.acquire_episode_lock(folder_id, episode_number, blocking=False)
     if lock_handle == None:
         stderr.write(f"Episode {episode_number} of folder {folder_id} is held by the fusion worker, skipped this round\n")
@@ -111,7 +114,6 @@ def process_episode(files, folder_id, episode_number, database_url):
         return
 
     try:
-        # Récupérer le dossier
         current_folder = get_folder_data(folder_id, session)
         
         if tools.dev:
@@ -125,17 +127,15 @@ def process_episode(files, folder_id, episode_number, database_url):
         tools.tmpFolder = os.path.join(os.path.join(tools.tmpFolder_original, str(current_folder.id)), str(episode_number))
         out_folder = os.path.join(tools.tmpFolder, "final_file")
         
-        # Traiter les fichiers
         for weight in reversed(sorted(dic_weight_files)):
             for file in dic_weight_files[weight]:
                 previous_file = get_episode_data(folder_id, episode_number, session)
                 if previous_file != None:
-                    # Si l'épisode existe déjà, on le fusionne
                     if previous_file.file_weight >= file['weight']:
                         tools.special_params["forced_best_video"] = previous_file.file_path
                         new_file_path = previous_file.file_path
                         new_file_weight = previous_file.file_weight
-                    else: # previous_file.file_weight < file['weight']
+                    else:
                         regex_data = get_regex_data(file['regex'], session)
                         tools.special_params["forced_best_video"] = file['chemin']
                         new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
@@ -192,7 +192,6 @@ def process_episode(files, folder_id, episode_number, database_url):
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
                 else:
-                    # Si l'épisode n'existe pas, on l'ajoute
                     regex_data = get_regex_data(file['regex'], session)
                     new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
                     shutil.move(file['chemin'], new_file_path)
@@ -206,7 +205,7 @@ def process_episode(files, folder_id, episode_number, database_url):
     session.close()
 
 def extraire_episode(nom_fichier, regex_pattern):
-    """Extrait le numéro d'épisode selon le pattern regex"""
+    """Extract the episode number using the folder's regex pattern."""
     match = re.search(regex_pattern, nom_fichier)
     if match:
         if 'episode' in match.groupdict():
@@ -216,6 +215,7 @@ def extraire_episode(nom_fichier, regex_pattern):
     return None
 
 def process_file_by_folder(files, folder_id, database_url):
+    """Group a folder's files by episode number and process each episode in the pool."""
     group_files_by_episode = {}
     for file in files:
         episode_number = extraire_episode(file['nom'], file['regex'])
@@ -229,7 +229,6 @@ def process_file_by_folder(files, folder_id, database_url):
             
     if len(group_files_by_episode):
         with setup_database(database_url) as session:
-            # Récupérer le dossier
             current_folder = get_folder_data(folder_id, session)
             tmp_folder_group = os.path.join(tools.tmpFolder_original, str(current_folder.id))
         tools.make_dirs(tmp_folder_group)
@@ -238,13 +237,12 @@ def process_file_by_folder(files, folder_id, database_url):
         list_jobs = []
         for episode_number, files in group_files_by_episode.items():
             if episode_number <= current_folder.max_episode_number:
-                # Lancer le traitement des fichiers en parallèle
                 list_jobs.append(parrallel_jobs.submit(
                     process_episode,files, folder_id, episode_number, database_url
                 ))
             sleep(3)
-        group_files_by_episode = None  # Libérer la mémoire
-        current_folder = None  # Libérer la mémoire
+        group_files_by_episode = None
+        current_folder = None
         
         for job in list_jobs:
             try:
@@ -255,6 +253,7 @@ def process_file_by_folder(files, folder_id, database_url):
     return
 
 def process_files_in_folder(folder_files,database_url):
+    """Match the watched folder's files against the folder regexes and integrate them."""
     stderr.write("Start integrator !\n")
     fichiers = [
             {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
@@ -266,20 +265,17 @@ def process_files_in_folder(folder_files,database_url):
         return
     
     with setup_database(database_url) as session:
-        # Récupérer toutes les regex triées par poids décroissant
+        # Regexes sorted by decreasing weight; each one consumes the files it matches.
         all_regex = get_all_regex(session)
         
-        # Traiter chaque regex et supprimer les fichiers matchés directement
         resultats_finaux = {}
         
         for regex in all_regex:
-            if not fichiers:  # Plus de fichiers à traiter
+            if not fichiers:
                 break
                 
-            # Compiler la regex
             regex_compilee = re.compile(regex.regex_pattern)
             
-            # Filtrer les fichiers qui matchent
             fichiers_matches = list(filter(
                 lambda f: regex_compilee.search(f['nom']), 
                 fichiers
@@ -288,16 +284,15 @@ def process_files_in_folder(folder_files,database_url):
             if len(fichiers_matches):
                 if regex.folder_id not in resultats_finaux:
                     resultats_finaux[regex.folder_id] = []
-                # Retirer les fichiers matchés directement de la liste principale
                 for fichier_match in fichiers_matches:
                     fichier_match['regex'] = regex.regex_pattern
                     fichier_match['weight'] = regex.weight
                     resultats_finaux[regex.folder_id].append(fichier_match)
                     fichiers.remove(fichier_match)
     
-        all_regex = None  # Libérer la mémoire
-        fichiers_matches = None  # Libérer la mémoire
-    fichiers = None  # Libérer la mémoire
+        all_regex = None
+        fichiers_matches = None
+    fichiers = None
     
     list_jobs = []
     global parrallel_jobs
@@ -305,11 +300,10 @@ def process_files_in_folder(folder_files,database_url):
     parrallel_jobs = ProcessPoolExecutor(max_workers=2, mp_context=ctx)
 
     for folder_id, files in resultats_finaux.items():
-        # Lancer le traitement des fichiers en parallèle
         list_jobs.append(Thread(target=process_file_by_folder, args=(files, folder_id, database_url)))
         list_jobs[-1].start()
         sleep(2)
-    resultats_finaux = None  # Libérer la mémoire
+    resultats_finaux = None
     
     for job in list_jobs:
         try:
@@ -322,6 +316,7 @@ def process_files_in_folder(folder_files,database_url):
     return
 
 def incrementaller(folder_files,database_url):
+    """Rename matched files with the regex rename pattern and the episode number plus its offset."""
     fichiers = [
             {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
             for fichier in os.listdir(folder_files)
@@ -333,20 +328,17 @@ def incrementaller(folder_files,database_url):
     
     with setup_database(database_url) as session:
         stderr.write("Start Renamer !\n")
-        # Récupérer toutes les regex triées par poids décroissant
+        # Regexes sorted by decreasing weight; each one consumes the files it matches.
         all_regex = get_all_incrementaller(session)
         
-        # Traiter chaque regex et supprimer les fichiers matchés directement
         resultats_finaux = {}
         
         for regex in all_regex:
-            if not fichiers:  # Plus de fichiers à traiter
+            if not fichiers:
                 break
                 
-            # Compiler la regex
             regex_compilee = re.compile(regex.regex_pattern)
             
-            # Filtrer les fichiers qui matchent
             fichiers_matches = list(filter(
                 lambda f: regex_compilee.search(f['nom']), 
                 fichiers
@@ -366,16 +358,47 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
+def special_renamer(folder_files,database_url):
+    """Rename declared specials to their exact final name before incremental import.
+
+    A special has no usable number in its received name: its final name is declared
+    once (special_renames table) and the folder's regular regex then imports the
+    renamed file. Nothing is moved out of the watched folder.
+    """
+    fichiers = [
+            {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
+            for fichier in os.listdir(folder_files)
+            if os.path.isfile(os.path.join(folder_files, fichier))
+        ]
+
+    if not fichiers:
+        return
+
+    with setup_database(database_url) as session:
+        stderr.write("Start Special Renamer !\n")
+        special_by_name = {special.file_name: special.new_file_name for special in get_all_special_rename(session)}
+
+    if not special_by_name:
+        return
+
+    for fichier in fichiers:
+        if fichier['nom'] in special_by_name:
+            new_file_path = os.path.join(folder_files, special_by_name[fichier['nom']])
+            try:
+                if os.path.exists(new_file_path):
+                    raise Exception(f"{os.path.basename(new_file_path)} already exists")
+                shutil.move(fichier['chemin'], new_file_path)
+                stderr.write(f'\tSpecial {fichier['nom']} rename in {os.path.basename(new_file_path)}\n')
+            except Exception as e:
+                stderr.write(f"Error processing special {fichier['nom']}: {e}\n")
+
 def write_api_env_file(env_path, database_url, with_merge_runtime=False):
-    """Écrit le .env lu par uvicorn au démarrage d'une instance.
+    """Write the .env read by uvicorn when an instance starts.
 
-    Le port de l'instance interne n'y figure pas: il est fixé par
-    tools.internal_api_port et lu directement par le lanceur comme par
-    internal_client, ce qui évite qu'ils puissent diverger.
-
-    with_merge_runtime transmet l'état que __main__ a construit. On ne peut pas
-    compter sur l'héritage par fork: depuis Python 3.14 la méthode par défaut
-    est forkserver, où l'enfant ne voit que les valeurs par défaut du module.
+    The internal instance port is not written: launcher and internal_client both
+    read tools.internal_api_port so they cannot diverge. with_merge_runtime passes
+    the state built by __main__, since a forkserver child (the Python 3.14 default)
+    only sees the module defaults.
     """
     with open(env_path, "w") as env_file:
         env_file.write(f"DATABASE_URL={database_url}\n")
@@ -386,7 +409,7 @@ def write_api_env_file(env_path, database_url, with_merge_runtime=False):
             env_file.write(f"VMSAM_CONFIG={tools.config_file}\n")
 
 def run_uvicorn_public(database_url, tmpFolder):
-    """Instance publique: exposée, multi-worker, sans état de file d'attente."""
+    """Public instance: exposed, multi-worker, no merge-queue state."""
     import sys
     sys.stdin = None
 
@@ -396,13 +419,11 @@ def run_uvicorn_public(database_url, tmpFolder):
     uvicorn.run("gestionar_show.api:app", host="0.0.0.0", port=8080, env_file=env_path, workers=5, log_level="error")
 
 def run_uvicorn_internal(database_url, tmpFolder):
-    """Instance interne: 127.0.0.1 seulement, un seul worker.
+    """Internal instance: 127.0.0.1 only, single worker.
 
-    workers doit rester à 1. La file de fusion et son thread vivent dans la
-    mémoire de ce process, et à workers=1 uvicorn sert l'app en direct sans
-    superviseur multiprocess: elle hérite donc des globales `tools` du fork
-    fait par __main__. À 2 ou plus, la file se scinde entre les workers et
-    `tools.software` est vide, ce qui fait échouer toute fusion.
+    workers must stay 1: the merge queue and its thread live in this process, and
+    only a single unsupervised worker inherits the forked `tools` globals; with more
+    workers the queue splits and `tools.software` is empty.
     """
     import sys
     sys.stdin = None
@@ -473,6 +494,7 @@ if __name__ == '__main__':
         while True:
             begin = time()
             try:
+                special_renamer(args.folder,database_url_param["database_url"])
                 incrementaller(args.folder,database_url_param["database_url"])
                 process_files_in_folder(args.folder,database_url_param["database_url"])
             except Exception as e:

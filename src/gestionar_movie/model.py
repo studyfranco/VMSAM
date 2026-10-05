@@ -1,3 +1,5 @@
+"""SQLAlchemy models and queries for the movie manager database."""
+
 from sqlalchemy import Text, UniqueConstraint, ForeignKey, BigInteger, Index, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from typing import Optional,List
@@ -6,11 +8,13 @@ from typing_extensions import Annotated
 int_big = Annotated[BigInteger, mapped_column(BigInteger)]
 
 class Base(DeclarativeBase):
+    """Declarative base for the movie models."""
     type_annotations = {
         'str': Text,
     }
 
 class movie(Base):
+    """A movie, keyed by its TMDB id, with its destination folder."""
     __tablename__ = 'movies'
     
     tmdb_id: Mapped[str] = mapped_column(primary_key=True)
@@ -29,6 +33,7 @@ class movie(Base):
     )
 
 class regexPattern(Base):
+    """A filename regex that maps incoming files to a movie."""
     __tablename__ = 'movies_regex_patterns'
     
     regex_pattern: Mapped[str] = mapped_column(primary_key=True)
@@ -39,6 +44,7 @@ class regexPattern(Base):
     movie: Mapped["movie"] = relationship(back_populates="regex_patterns")
 
 class incompatibleFile(Base):
+    """A file the pipeline could not merge with its movie."""
     __tablename__ = 'movies_incompatible_files'
 
     tmdb_id: Mapped[str] = mapped_column(ForeignKey("movie.tmdb_id"), primary_key=True)
@@ -48,42 +54,47 @@ class incompatibleFile(Base):
     movie: Mapped["movie"] = relationship(back_populates="incompatible_files")
 
 def setup_database(database_url, create_tables=False):
-    """Configuration complète de la base de données"""
+    """Create an engine for `database_url` and return a new session.
+
+    Args:
+        database_url: SQLAlchemy URL (PostgreSQL or SQLite).
+        create_tables: Create missing tables first when True.
+    """
 
     connect_args = {}
     if database_url.startswith("postgresql"):
-        # Argument spécifique à PostgreSQL (psycopg2)
         connect_args['connect_timeout'] = 60
     elif database_url.startswith("sqlite"):
-        # Argument spécifique à SQLite
         connect_args['timeout'] = 61
-    # Créer l'engine
     engine = create_engine(database_url, echo=False, connect_args=connect_args, pool_pre_ping=True)
     
-    # Créer les tables si demandé
     if create_tables:
         Base.metadata.create_all(engine)
     
-    # Configurer la session
     Session = sessionmaker(bind=engine)
 
     return Session()
 
 def get_all_movie(session):
+    """Return all movies, sorted by path."""
     return session.query(movie).order_by(
         movie.destination_path.asc()
     ).all()
 
 def get_movie_data(tmdb_id, session):
+    """Return the movie with this TMDB id, or None."""
     return session.query(movie).filter(movie.tmdb_id == tmdb_id).first()
 
 def get_movie_by_path(destination_path, session):
+    """Return the movie at this destination path, or None."""
     return session.query(movie).filter(movie.destination_path == destination_path).first()
 
 def search_like_movie(folder_name_part, session):
+    """Return movies whose path contains `folder_name_part`."""
     return session.query(movie).filter(movie.destination_path.like(f"%{folder_name_part}%")).all()
 
 def insert_movie(tmdb_id, destination_path, original_language, number_cut, cut_file_to_get_delay_second_method, session):
+    """Validate and insert a new movie; raise ValueError on invalid input."""
     if tmdb_id == None and not len(tmdb_id):
         raise ValueError("tmdb_id cannot be empty")
     if number_cut == None:
@@ -111,11 +122,13 @@ def insert_movie(tmdb_id, destination_path, original_language, number_cut, cut_f
     return new_movie
 
 def get_regex_data(regex, session):
+    """Return the regex row for this exact pattern, or None."""
     return session.query(regexPattern).filter(
         regexPattern.regex_pattern == regex
     ).first()
     
 def insert_regex(regex_pattern, tmdb_id, rename_pattern, weight, session):
+    """Validate and insert a regex; raise ValueError on invalid input."""
     if regex_pattern == None or len(regex_pattern) == 0:
         raise ValueError("regex_pattern cannot be empty")
     if tmdb_id == None or len(tmdb_id) == 0:
@@ -138,6 +151,7 @@ def insert_regex(regex_pattern, tmdb_id, rename_pattern, weight, session):
     return new_regex
 
 def get_all_regex(session):
+    """Return all regexes, heaviest first."""
     return session.query(regexPattern).order_by(
         regexPattern.weight.desc()
     ).all()
@@ -148,6 +162,7 @@ def get_regex_by_tmdb_id(tmdb_id, session):
     ).all()
 
 def get_incompatible_files_data(tmdb_id, session):
+    """Return the incompatible files of one movie, heaviest first."""
     return session.query(incompatibleFile).filter(
         incompatibleFile.tmdb_id == tmdb_id
     ).order_by(
