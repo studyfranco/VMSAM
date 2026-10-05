@@ -20,6 +20,7 @@ import time
 from fractions import Fraction
 
 import frame_compare
+import repair_pool
 import video_offset_plan as vop
 import tools
 
@@ -159,10 +160,18 @@ def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_di
         c_info, _reason = vop.probe_video(candidate_obj.filePath)
         m_duration_s = m_info["duration_s"] if m_info else None
         c_duration_s = c_info["duration_s"] if c_info else None
-        m_cuts, m_hashes, m_coloured, _mc = vop.decode_scenes_and_hashes(
-            master_obj.filePath, float(master_rate), m_duration_s, work_dir, repair_deadline)
-        c_cuts, c_hashes, c_coloured, _cc = vop.decode_scenes_and_hashes(
-            candidate_obj.filePath, float(candidate_rate), c_duration_s, work_dir, repair_deadline)
+        # Master and candidate decoded concurrently on the shared repair pool; each decode is
+        # disk-cached (vop.decode_scenes_and_hashes), so a decode already on disk for this file
+        # in this work_dir (e.g. from video_offset_plan's own measure_video_offset) is read once.
+        (m_cuts, m_hashes, m_coloured, _mc), (c_cuts, c_hashes, c_coloured, _cc) = \
+            repair_pool.run_parallel([
+                lambda: vop.decode_scenes_and_hashes(
+                    master_obj.filePath, float(master_rate), m_duration_s, work_dir,
+                    repair_deadline),
+                lambda: vop.decode_scenes_and_hashes(
+                    candidate_obj.filePath, float(candidate_rate), c_duration_s, work_dir,
+                    repair_deadline),
+            ])
     except vop.BudgetExceeded:
         tools.log_always(f"repair: picture_only_shift_summary skipped=budget_during_decode "
                          f"zones_done=0 zones_total={len(zones)} for {candidate_path}\n")

@@ -43,11 +43,10 @@ import sys
 import threading
 import time
 from decimal import Decimal
-from concurrent.futures import ThreadPoolExecutor
-
 import numpy as np
 
 import frame_hash
+import repair_pool
 import tools
 
 # --------------------------------------------------------------------------------------------
@@ -64,7 +63,6 @@ DECODE_HEIGHT = 72
 # Decoder threads per file, kept low to fit the repair's budget.
 DECODE_THREADS = 2
 BATCH_FRAMES = 512
-CONCURRENT_DECODES = 2
 
 # ContentDetector's default threshold.
 SCENE_THRESHOLD = 27.0
@@ -643,21 +641,21 @@ def measure_video_offset(master_path, candidate_path, work_dir, log=None,
 
     common = {"fps": fps, "master_start_s": m_info["start_s"],
               "candidate_start_s": c_info["start_s"]}
-    # Both files are decoded concurrently: decoding dominates the cost.
-    with ThreadPoolExecutor(max_workers=CONCURRENT_DECODES) as pool:
-        futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
-                               deadline)
-                   for path, info in ((master_path, m_info), (candidate_path, c_info))]
-        errors, outcomes = [], []
-        for future in futures:
-            try:
-                outcomes.append(future.result())
-            except BudgetExceeded as exc:
-                errors.append((STATUS_BUDGET, str(exc)))
-            except tools.decoder_timeout as exc:
-                errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
-            except (RuntimeError, OSError) as exc:
-                errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
+    # Both files are decoded concurrently on the shared repair pool: decoding dominates the cost.
+    pool = repair_pool.get_pool()
+    futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
+                           deadline)
+               for path, info in ((master_path, m_info), (candidate_path, c_info))]
+    errors, outcomes = [], []
+    for future in futures:
+        try:
+            outcomes.append(future.result())
+        except BudgetExceeded as exc:
+            errors.append((STATUS_BUDGET, str(exc)))
+        except tools.decoder_timeout as exc:
+            errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
+        except (RuntimeError, OSError) as exc:
+            errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
     if errors:
         errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
         return done(VideoOffsetResult(errors[0][0], reason=errors[0][1], **common))
