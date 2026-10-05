@@ -2536,9 +2536,12 @@ def head_content_edge(placed_s, decision, frame_s, lead):
 def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
     """Place the head and tail fill edges from the audio walk, pinned to a video frame if close.
 
-    `audio_walk.single_edge` walks outward from the first/last level at 20 ms. A video edge
-    boundary replaces the audio edge only within one frame of it. An unreadable edge falls back
-    to the level's measured window.
+    `audio_walk.single_edge` walks outward from the first/last level at 20 ms. A level's
+    offset is its whole-span median, which a rate ratio applied with a residual drift can
+    carry a few ms off by the far edge; when the first probe returns nothing, one retry
+    re-measures the local offset actually seen on the edge's own last rows
+    (`off_first_ms`/`off_last_ms`) before the level's measured window is used as the fallback.
+    A video edge boundary replaces the audio edge only within one frame of it.
 
     Returns:
         (head_end_s, tail_start_s, refusal); an edge is None when no fill is needed there.
@@ -2552,8 +2555,22 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     window = audio_walk.WALK_WINDOW_S
     head = audio_walk.single_edge(master, candidate, first["off_ms"], first["t_first"] + window,
                                   max(0.0, first["t_first"] - reach), "head")
+    if head is None and first.get("off_first_ms", first["off_ms"]) != first["off_ms"]:
+        head = audio_walk.single_edge(master, candidate, first["off_first_ms"],
+                                      first["t_first"] + window,
+                                      max(0.0, first["t_first"] - reach), "head")
+        tools.dev_log(f"repair: audio_edge head retry at local offset "
+                      f"{first['off_first_ms']} {'found ' + str(head['edge_s']) if head else 'also failed, falling back to the walk window edge'} "
+                      f"for {candidate_path}\n")
     tail = audio_walk.single_edge(master, candidate, last["off_ms"], last["t_last"],
                                   min(walk["master_audio_end_s"], last["t_last"] + reach), "tail")
+    if tail is None and last.get("off_last_ms", last["off_ms"]) != last["off_ms"]:
+        tail = audio_walk.single_edge(master, candidate, last["off_last_ms"], last["t_last"],
+                                      min(walk["master_audio_end_s"], last["t_last"] + reach),
+                                      "tail")
+        tools.dev_log(f"repair: audio_edge tail retry at local offset "
+                      f"{last['off_last_ms']} {'found ' + str(tail['edge_s']) if tail else 'also failed, falling back to the walk window edge'} "
+                      f"for {candidate_path}\n")
     # Without a fine edge, the level's measured windows bound the common content.
     lead = audio_walk.head_lead_in(master, candidate, first["off_ms"], first["t_first"] + window)
     head_s = first["t_first"] if head is None else head["edge_s"]
