@@ -53,9 +53,9 @@ Filename matching is a **guess**. The real answer is the `episodes` row for
 `master_file_path` in the `POST /fusion` response, and which the batch records
 as `db_master` in `batch_state.json`.
 
-This is not theoretical: the Log Horizon pair was analysed against a
-filename-matched AMB3R BluRay while the database resolved a different Erai-raws
-BD as the master. Any plateau table or speed factor measured against the wrong
+This is not theoretical: one analysed pair was matched against a BluRay chosen
+BY FILENAME while the database resolved a DIFFERENT release group's BD as the
+master. Any plateau table or speed factor measured against the wrong
 master will re-time the candidate onto the wrong reference — a silent desync.
 `prepare_structural_corrected_candidate` and `apply_pal_step_repair` both refuse
 to act when the record's master differs from the job's master for this reason.
@@ -2597,9 +2597,9 @@ about one release rather than about eleven files.
 Two files were identified as carrying another episode's audio, and the cause was
 determined rather than guessed:
 
-    err_123  candidate filename S01E12  -> paired against ep 12's master
+    err_123  candidate filename ep 12 (by name)  -> paired against ep 12's master
                                         -> audio is episode 11
-    err_196  candidate filename S03E11  -> paired against ep 11's master
+    err_196  candidate filename ep 11 (by name)  -> paired against ep 11's master
                                         -> audio is episode 7
 
 **The pipeline paired correctly on the declaration it was given.** In both cases

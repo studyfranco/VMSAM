@@ -6,7 +6,8 @@ This file is the authority. A campaign that violates it is not validated, whatev
 its results. Read it before the first edit, not after a review.
 
 This file says **what may be changed and why**. It says nothing about what to
-build — that is `SPEC_ZONE_A.MD` and the campaign's own task documents.
+build — that is `CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD` and the
+campaign's own task documents.
 
 Two rules govern everything below:
 
@@ -30,7 +31,8 @@ Two rules govern everything below:
 | `init.sh`, `run.sh` | production entry points |
 | `Dockerfile` | the runtime image |
 | `.github/`, `.forgejo/` | CI/CD |
-| `AGENT.MD`, `WRITE_ZONES.MD`, `CAMPAIGN.MD`, `FILE_MAP.MD`, `SPEC_ZONE_A.MD`, `COMING_BACK.MD`, `docs/`, `CAMPAIGNS/` | the rules that bind you, and the campaign archives — history is even less yours to rewrite than a rule. Not yours to edit — a wrong rule is a finding, see §6. **`AGENT_NOTES.MD` and `TASKS/` are yours**, and no other document is frozen |
+| `AGENT.MD`, `WRITE_ZONES.MD`, `docs/` (all of it) | the rules that bind you and the standing rulings — modified **only by the Architect or the Lead Dev, with the owner's authorisation**. A wrong rule is a finding, see §6 |
+| `CAMPAIGNS/` | the campaign records — `CAMPAIGN.MD`, `SPEC_ZONE_A.MD`, `FINDINGS.MD`, `MEASURING.MD` and the archives. Written by the **Architect and the Lead Dev only**; history is even less yours to rewrite than a rule. **In-progress task files live in THEIR AGENT'S folder** — `VMSAM_HELP_AI/<agent>/` — so a file's location is its ownership (owner, 2026-09-15: the old *"`TASKS/` at the repository root is yours"* rule is revoked, and the root `TASKS/` directory is closed and removed). The repository carries only finished, synthesized work, landed by governance gesture; no document here is open to an agent |
 
 `src/gestionar_show/fusion.py` deserves its own line: it replaces the master file
 in the library and deletes the source. It has been reviewed and corrected — atomic
@@ -66,7 +68,7 @@ Existing zones:
 | `tools.py` | module level | shared helpers for the above |
 | `video.py` | `get_best_quality_video` | the quality vote that names the reference — verify it really returns the best video |
 | `video.py` | `get_good_frame` | PSNR frame scan; already carries a `float()` coercion fix, see below |
-| `mergeVideo.py` | `keep_best_audio` | the `fabricated` rule — inert until the repair sets the key (`SPEC_ZONE_A.MD` §4) |
+| `mergeVideo.py` | `keep_best_audio` | the `fabricated` rule — inert until the repair sets the key (`CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD` §4) |
 
 Adding a new zone is an owner decision, not an agent one.
 
@@ -118,7 +120,7 @@ PY
 two frozen fallbacks in `video.py` re-raise `KeyboardInterrupt` / `SystemExit`
 before returning their fabricated value. Both fix defects that produced **silent**
 wrong behaviour. Removing either is allowed — understanding what it protected
-first is not optional. See `SPEC_ZONE_A.MD`.
+first is not optional. See `CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD`.
 
 ## 3. Configuration
 
@@ -133,9 +135,24 @@ before the edit.
 
 ## 4. Open
 
-`src/frame_compare.py`, `src/get_cut_time.py`, `src/merge_video_unused.py`,
-`src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
-code that ships and runs in production.
+`src/frame_compare.py`, `src/get_cut_time.py`, `src/folder_generator.py`,
+`src/gestionar_movie/`, **every `src/merge_video_*.py`**, and **new runtime
+modules** — code that ships and runs in production.
+
+**Owner rulings on the `merge_video_*` family** (superseding the 2026-09-08
+closure, which `RULING_20260908_REPAIR_RESAMPLE.MD` records as history):
+`merge_video_chimeric.py` opened 2026-09-08; `merge_video_resample.py` opened
+2026-09-15 (*"modifiable, améliorez comme vous voulez"*);
+`merge_video_repair.py` opened in full 2026-09-15 (*"adaptez-le pour avoir vos
+informations en mode tools.dev et permettant le traitement du maximum de
+fichiers en erreur"*); and 2026-09-16 the owner generalised: *"les
+merge_video_*.py sont ouverts"* — this line exists so the information is never
+again lost to a stale closure note. The rule that generalises stays in force:
+**a permission must rest on a property checkable at the tip — never on a
+property of the history, which any rewrite can flatten.** The checker
+(`OWNER_CLOSED_MODULES`, empty as of this writing) is the current record; when
+this text and the checker disagree, the owner's most recent order is the
+authority and the disagreement is a finding.
 
 ### What does not go in the repository
 
@@ -166,23 +183,89 @@ Open like the rest, listed because their state is not obvious from reading them.
 
 | file | state |
 | :--- | :--- |
-| `frame_compare.py` | pHash/DCT frame comparison. **Does not compile** — `frame_compare.py:109`, pre-existing since `da1c191`. |
+| `frame_compare.py` | pHash/DCT frame comparison. Compiles since campaign 2's repair (§5, check 4 tolerates no failure there). |
 | `get_cut_time.py` | multi-range cut detection, drift, audio chimera. No importer; imports `frame_compare`. Homonym: `mergeVideo` used to define a *class* of the same name, now in `merge_video_unused.py`. |
 | `merge_video_unused.py` | `find_a_cut_for_not_compatible` and the old `get_cut_time` class, extracted from `mergeVideo.py`. No importer. |
 
-New capability goes in **its own module**, called from a tagged zone, behind a
-flag that is **off by default**, with a test that pins the call site.
+New capability goes in **its own module**, called from a tagged zone, with a test
+that pins the call site.
 
-**The flag goes in `config.ini`, not in the environment.** `run.sh` passes no
-`--config` and the image bakes its variables into the `Dockerfile`, which is frozen
-— so a new `VMSAM_<NAME>` variable is absent at runtime and there is no way to turn
-it on without editing a file you may not touch. A default-off env flag is therefore
-permanently off: not a gate, a deletion. Campaign 1 measured the consequence — **the
-code read 18 `VMSAM_` names and the image set two**, so every feature built to a
-ruling that day was unreachable by construction. Add a `[features]` key instead
-(§3 allows additions), and let the environment override it if it happens to be set.
+**It must not be conditioned on a parameter.** VMSAM runs with nobody watching —
+that is the premise the whole design rests on, and why a wrong automated decision
+is destructive. A repair that waits for a human to switch it on is a feature that
+will never run, on a service where nobody is there to run it.
+
+**The gate is the measurement, not a setting.** A capability decides for itself,
+from what it measured, whether it should act — and when it cannot establish that it
+should, it **declines**, which is already a correct outcome here (error id 237 was
+refused on its measurements, not on a flag). Measured cases:
+`CAMPAIGNS/02-dev-chimeric-resample/LESSONS_FROM_MASTER_DOCS.MD` §7.
+
+**Reimplement an idea; do not copy the code.** Comparable projects exist and reading
+them is encouraged, but an idea described in a README and implemented yourself is
+unencumbered, and copied lines are not. **If you do copy anything, say so in a
+comment at the copy** — project, file, revision, licence: that records provenance,
+it does not grant permission. The licences of the projects surveyed are in
+`docs/LICENSING_SURVEY.MD`; several are copyleft or unlicensed, which is the whole
+reason to reimplement instead and never reach the question.
+
+**A sub-option of an unconditional capability is a condition on it.** Anything that
+can make the capability **not act, or act unchecked** — a supplied plan, a source
+switch, a disableable verifier — is the same defect one level down. Measured cases:
+`LESSONS_FROM_MASTER_DOCS.MD` §8.
+
+**A flag may exist while a capability is being built**, so that half-finished
+behaviour does not reach a library — and **removing it is part of finishing**. It
+belongs in `config.ini`, never in the environment: `run.sh` passes no `--config` and
+the image bakes its variables into the frozen `Dockerfile`, so a new `VMSAM_<NAME>`
+is absent at runtime and cannot be turned on at all. Campaign 1 measured the
+consequence — **the code read 18 `VMSAM_` names and the image set two** — so every
+feature built to a ruling that day was unreachable by construction. `config.ini`
+additions are allowed by §3; a scaffolding flag left behind at the end is not.
+
+**A removed `config.ini` line is judged against `origin/master`**: a line master
+carries stays frozen, a line this campaign added is this campaign's to take back out.
+That satisfies §3 and §4 both rather than overriding one — found while removing the
+flags, and it is why the removal needed no ruling.
 
 ## 5. Verification
+
+**Run the write-zone checker** — `VMSAM_HELP_AI/tools/check_write_zones.py`, one
+command with one exit status, and **exit 2 means it could not run, which is not a
+pass**. It is the authority; the snippets below are what it replaced, kept because
+knowing what they missed is the point.
+
+**Reading a diff by eye is not enough — the checker covers holes the eye misses**:
+pure deletions of frozen lines, moved `END` markers, fresh marker pairs.
+The full reasoning is in `CAMPAIGNS/02-dev-chimeric-resample/LESSONS_FROM_MASTER_DOCS.MD` §9.
+
+**The snippets below are not the procedure and nobody runs them** — every agent runs
+the checker instead. They are kept as the reasoning, not as the steps: an agent
+following them literally would do weaker checks and believe it had done the
+campaign's.
+
+**Every snippet remaining in a governance document must FAIL CLOSED as
+written, or become prose.** A disclaimer people read past is not a control —
+measured 2026-09-15: a seat ran these snippets, and so did the Lead,
+repeatedly, while reviewing that seat's commit.
+
+Before every commit, and before any snippet below is trusted, pin identity
+against SHAPE — a repo that merely *looks* like VMSAM (any tree carrying a
+`src/`) must not pass silently:
+
+```sh
+R="$(git rev-parse --show-toplevel 2>/dev/null)"
+test -f "$R/WRITE_ZONES.MD" -a -d "$R/src" || exit 2
+```
+
+This closes the FAILURE CLASS, not one instance: `--show-toplevel` alone
+answers "which repo am I in," never "am I in VMSAM," so from any other
+repository carrying a `src/` directory the checks below would pass and
+silently compile or diff a stranger's tree, green. Measured by building one
+in `/tmp`: `test -d "$(git rev-parse --show-toplevel)/src"` (the narrower,
+wrong-cwd-only fix) still passes on a foreign tree; `test -f
+"$R/WRITE_ZONES.MD" -a -d "$R/src"` does not. A git WORKTREE of VMSAM passes
+this guard, and should — a VMSAM worktree is VMSAM's tree.
 
 Before every commit:
 
@@ -191,8 +274,7 @@ Before every commit:
 git diff --cached --name-only
 
 # 1b. no governance document rewritten
-git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD CAMPAIGN.MD \
-       FILE_MAP.MD SPEC_ZONE_A.MD COMING_BACK.MD docs/ CAMPAIGNS/   # must be empty
+git diff --cached --name-only -- AGENT.MD WRITE_ZONES.MD docs/ CAMPAIGNS/   # must be empty
 
 # 2. in the two tagged files, every changed line sits inside a zone
 #    (BEGIN: AGENT modification ok ... END: AGENT modification)
@@ -201,12 +283,15 @@ git diff --cached -U0 -- src/mergeVideo.py src/tools.py
 # 3. config.ini: additions only, no changed or removed line
 git diff --cached -- src/config.ini | grep '^-' | grep -v '^---'   # must be empty
 
-# 4. the tree still compiles
+# 4. the tree still compiles -- cleanly, no allowance
 python3 -m compileall -q src -x '__pycache__'
+# 5. Rust, when you touched it
+cargo check && cargo clippy && cargo fmt --check
 ```
 
-Checks 1b and 3 must print nothing. Check 4 fails on `frame_compare.py` until someone
-fixes it; that failure is expected and is the only one allowed.
+Checks 1b and 3 must print nothing. **Check 4 must pass cleanly**: it used to be
+allowed one failure on `frame_compare.py`, broken since `da1c191`, and campaign 2
+repaired it — so any failure at all is now yours.
 
 ## 6. Reporting a blocked need
 
