@@ -756,7 +756,190 @@ def build_candidate_plan(result, master_obj_like, candidate_obj_like, comparison
 
 
 # --------------------------------------------------------------------------------------------
-# Entry point 3: the detection and the route, called by `repair_orchestrator`
+# Entry point 3: zones from a changing video offset (the video-only chimeric route)
+# --------------------------------------------------------------------------------------------
+#
+# When the offset is not one constant, `measure_video_offset` already has everything needed
+# to build zones instead of declining: `prove_constant`'s `matched` pairs already carry, per
+# master scene cut, the candidate offset that cut's own two-sided `frame_hash.align` confirmed.
+# A stable run of that offset is a zone; a change between runs is a hole. No second decode, no
+# second match -- only the matched pairs already measured are regrouped.
+
+# A one-member group differing by exactly one frame from both its neighbours never opens a
+# hole on its own: the pipeline's own frame rounding can tip a single cut by a frame with
+# nothing underneath (the same caution as `picture_only_shift`'s residual runs). A real change
+# repeats on the next cut.
+ZONE_SINGLE_FRAME_MIN_REPEAT = 2
+
+# A zone narrower than this cannot itself prove a third offset: it is folded into the hole on
+# both sides of it, which the frame-exact search then settles in one span.
+ZONE_HOLE_MERGE_SECONDS = 10.0
+
+# A master duration share held by no zone below this fraction is too thin a sample to trust
+# the sequence built from it.
+ZONE_COVERAGE_MIN_FRACTION = 0.5
+
+STATUS_ZONES_OK = "video_zones_anchored"
+DECLINE_ZONE_COVERAGE = "video_zone_coverage_incomplete"
+DECLINE_ZONE_CONTRADICTION = "video_zone_contradiction"
+DECLINE_ZONE_UNMATCHED = "video_zone_unmatched"
+
+
+def _group_by_offset(matched):
+    """Group master-sorted `matched` (m, d, dist) into consecutive runs sharing one `d`.
+
+    Returns `[(d, [(m, dist), ...]), ...]` in file order.
+    """
+    groups = []
+    for m, d, dist in matched:
+        if groups and groups[-1][0] == d:
+            groups[-1][1].append((m, dist))
+        else:
+            groups.append((d, [(m, dist)]))
+    return groups
+
+
+def _coalesce_groups(groups):
+    """Merge adjacent groups that ended up sharing one offset after a fold."""
+    out = []
+    for d, members in groups:
+        if out and out[-1][0] == d:
+            out[-1] = (d, out[-1][1] + list(members))
+        else:
+            out.append((d, list(members)))
+    return out
+
+
+def _fold_single_frame_noise(groups):
+    """Drop a `ZONE_SINGLE_FRAME_MIN_REPEAT`-short group isolated by one frame on both sides.
+
+    Its member rejoins the longer-standing offset around it; nothing is dropped from the
+    proof, only regrouped.
+    """
+    out = []
+    for i, (d, members) in enumerate(groups):
+        prev_d = out[-1][0] if out else None
+        next_d = groups[i + 1][0] if i + 1 < len(groups) else None
+        lone = len(members) < ZONE_SINGLE_FRAME_MIN_REPEAT
+        isolated_step = (prev_d is not None and prev_d == next_d
+                         and abs(d - prev_d) == 1)
+        if lone and isolated_step:
+            out[-1] = (prev_d, out[-1][1] + list(members))
+        else:
+            out.append((d, list(members)))
+    return _coalesce_groups(out)
+
+
+def _merge_thin_zones(groups, frame_ms, merge_window_s):
+    """Drop any zone narrower than `merge_window_s`, merging the holes on both sides of it."""
+    if frame_ms <= 0:
+        return groups
+    merge_frames = merge_window_s * 1000.0 / float(frame_ms)
+    changed = True
+    while changed and len(groups) >= 3:
+        changed = False
+        for i in range(1, len(groups) - 1):
+            members = groups[i][1]
+            span = members[-1][0] - members[0][0] + 1
+            if span < merge_frames:
+                groups = _coalesce_groups(groups[:i] + groups[i + 1:])
+                changed = True
+                break
+    return groups
+
+
+def group_video_zones(matched, frame_ms, merge_window_s=ZONE_HOLE_MERGE_SECONDS):
+    """Turn matched video cuts into the owner's zone sequence: stable gap = zone, change = hole.
+
+    `matched` is master-sorted `(m, d, dist)`, as returned by `match_changes` (already
+    two-sided `frame_hash.align`-confirmed per cut). Returns `[(d, [(m, dist), ...]), ...]`.
+    """
+    groups = _fold_single_frame_noise(_group_by_offset(sorted(matched)))
+    return _merge_thin_zones(groups, frame_ms, merge_window_s)
+
+
+def check_zone_compatibility(groups, n_master):
+    """Guard before any zone plan is built; `None` means the zones may be trusted.
+
+    Every matched pair already cleared `match_changes`'s own content-distance gate
+    (`PAIR_CONTENT_MAX`), so zone content is not re-checked here. This guard only asks: is
+    there enough of the master covered, and does the zone sequence agree with itself (no two
+    adjacent zones left at the same offset, which `_merge_thin_zones`/coalescing should have
+    already removed).
+    """
+    if not groups or n_master <= 0:
+        return DECLINE_ZONE_UNMATCHED
+    first_m = groups[0][1][0][0]
+    last_m = groups[-1][1][-1][0]
+    if (last_m - first_m + 1) / n_master < ZONE_COVERAGE_MIN_FRACTION:
+        return DECLINE_ZONE_COVERAGE
+    if len(groups) < 2:
+        # Folding/merging collapsed every change: nothing distinguishes this from a constant
+        # offset `measure_video_offset` should have already accepted.
+        return DECLINE_ZONE_UNMATCHED
+    for i in range(len(groups) - 1):
+        if groups[i][0] == groups[i + 1][0]:
+            return DECLINE_ZONE_CONTRADICTION
+    return None
+
+
+def video_alignment_from_zones(groups, n_master, n_candidate, frame_ms):
+    """Build a `zones`/`zones_detail` dict shaped exactly like an audio alignment's.
+
+    One quantum = one frame, so this is the only video-specific step: downstream,
+    `repair_orchestrator.classify_holes` / `coalesce_same_offset_zones` / `track_pieces` read
+    it unmodified, as they already do for an audio alignment.
+    """
+    zones, zones_detail = [], []
+    for d, members in groups:
+        m_lo, m_hi = members[0][0], members[-1][0]
+        c_lo, c_hi = m_lo + d, m_hi + d
+        zones.append([[m_lo, m_hi], [c_lo, c_hi]])
+        zones_detail.append({
+            "offset_points": d, "n_members": len(members),
+            "master_points": [m_lo, m_hi], "candidate_points": [c_lo, c_hi],
+            "master_ms": [float(m_lo * frame_ms), float((m_hi + 1) * frame_ms)],
+            "candidate_ms": [float(c_lo * frame_ms), float((c_hi + 1) * frame_ms)],
+        })
+    return {"zones": zones, "zones_detail": zones_detail, "quantum_ms": float(frame_ms),
+            "candidate_quantum_ms": float(frame_ms), "n_master": n_master,
+            "n_candidate": n_candidate, "modality": "video_scene_cuts"}
+
+
+def measure_video_zones(master_path, candidate_path, work_dir, log=None,
+                        audio_delay_hints_ms=None, deadline=None,
+                        merge_window_s=ZONE_HOLE_MERGE_SECONDS):
+    '''Build video-only zones when the offset is not one constant.
+
+    Reuses `measure_video_offset` unchanged (same decode, same `match_changes`, same disk
+    cache); only its matched pairs are regrouped, never remeasured. Accepted only on top of
+    `STATUS_NOT_CONSTANT` or `STATUS_COVERAGE` -- any other status (fps mismatch, no match,
+    a probe/decode failure, a budget or a timeout) is returned unchanged: the video gave no
+    gap sequence to group.
+
+    Returns:
+        `(status, groups, result)`. `status` is `STATUS_ZONES_OK` or a named decline;
+        `groups` is `None` unless `status == STATUS_ZONES_OK`; `result` is the underlying
+        `VideoOffsetResult`, kept for its numbers (fps, frame counts, wall time).
+    '''
+    result = measure_video_offset(master_path, candidate_path, work_dir, log,
+                                  audio_delay_hints_ms, deadline)
+    if result.status not in (STATUS_NOT_CONSTANT, STATUS_COVERAGE):
+        return result.status, None, result
+    groups = group_video_zones(result.pairs, float(result.frame_ms), merge_window_s)
+    cause = check_zone_compatibility(groups, result.master_frames)
+    numbers = (f"matched={len(result.pairs)}/{result.total} ambiguous={result.ambiguous} "
+              f"n_zones={len(groups)}")
+    if cause is not None:
+        _emit(log, f"{LOG_PREFIX}zones declined cause={cause} {numbers}")
+        return cause, None, result
+    _emit(log, f"{LOG_PREFIX}zones built {numbers} offsets="
+         + ",".join(f"{d:+d}x{len(m)}" for d, m in groups))
+    return STATUS_ZONES_OK, groups, result
+
+
+# --------------------------------------------------------------------------------------------
+# Entry point 4: the detection and the route, called by `repair_orchestrator`
 # --------------------------------------------------------------------------------------------
 
 class _Orchestrator:
@@ -1009,6 +1192,19 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
                f"{None if result.wall_s is None else round(result.wall_s, 1)}")
     if result.status != video_offset_plan.STATUS_OK:
         status, cause = video_status_cause(result.status, trigger)
+        if result.status in (video_offset_plan.STATUS_NOT_CONSTANT,
+                             video_offset_plan.STATUS_COVERAGE):
+            # The video gave a changing offset rather than nothing: regroup its already
+            # two-sided-confirmed matched cuts into zones (no second decode, no second match)
+            # and log whether they would clear the compatibility guard. Diagnostic only here --
+            # applying such a plan through the common path is the video-only route's next step.
+            groups = video_offset_plan.group_video_zones(result.pairs or [], float(result.frame_ms))
+            zone_cause = video_offset_plan.check_zone_compatibility(groups, result.master_frames)
+            tools.log_always(
+                f"repair: video_zones trigger={trigger} zone_cause={zone_cause} "
+                f"n_zones={len(groups)} offsets="
+                + ",".join(f"{d:+d}x{len(m)}" for d, m in groups)
+                + f" for {candidate_path}\n")
         reason = (f"the audios contradict each other ({trigger}: {evidence}; per couple "
                   f"{_rows_text(rows)}) and the video could not arbitrate: {result.status}"
                   f"({result.reason}) -- {numbers}")
