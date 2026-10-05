@@ -14,12 +14,19 @@ requested one; that exact effective factor is what is written to the tag.
 
 from decimal import Decimal, getcontext
 from fractions import Fraction
+from math import ceil
+
+import tools
 
 
 # Upsample 8x before asetrate so its integer rounding weighs eight times less;
 # the cap bounds compute cost.
 speed_intermediate_factor = 8
 speed_intermediate_rate_max = 768000
+
+# A Decimal/float ratio is rationalised against this many denominators before
+# falling back to plain rounding; wide enough for every named broadcast ratio.
+RATIO_DENOMINATOR_LIMIT = 100000
 
 
 class resample_error(Exception):
@@ -33,8 +40,21 @@ def get_intermediate_rate(source_rate):
                speed_intermediate_rate_max)
 
 
+def _exact_intermediate(numerator, source_rate):
+    '''Return the smallest multiple of `numerator` at or above the 8x upsample target.
+
+    None when it would exceed `speed_intermediate_rate_max`.
+    '''
+    candidate = numerator * ceil(source_rate * speed_intermediate_factor / numerator)
+    return candidate if candidate <= speed_intermediate_rate_max else None
+
+
 def build_speed_filter_chain(source_rate, speed_ratio):
     '''Build the asetrate speed-and-pitch filter chain.
+
+    `speed_ratio` as an exact `Fraction` (or anything `str()`-able into one, via
+    `limit_denominator`) lets the intermediate rate be chosen as a multiple of the
+    fraction's numerator, so the applied ratio is exact instead of merely rounded.
 
     Returns:
         (chain, effective, intermediate, target): the -af string, the exact applied
@@ -43,20 +63,34 @@ def build_speed_filter_chain(source_rate, speed_ratio):
     Raises:
         resample_error: ratio not positive, equal to 1, or yielding an invalid rate.
     '''
-    ratio = Decimal(str(speed_ratio))
+    ratio = Decimal(str(speed_ratio)) if not isinstance(speed_ratio, Fraction) else \
+        Decimal(speed_ratio.numerator) / Decimal(speed_ratio.denominator)
     if ratio <= 0:
         raise resample_error(f"speed ratio {ratio} is not positive")
     if ratio == 1:
         raise resample_error("speed ratio is exactly 1: nothing to apply")
 
     source_rate = int(source_rate)
-    intermediate = get_intermediate_rate(source_rate)
     getcontext().prec = 28
-    target = int((Decimal(intermediate) / ratio).to_integral_value(rounding="ROUND_HALF_EVEN"))
+    fraction = speed_ratio if isinstance(speed_ratio, Fraction) else \
+        Fraction(str(ratio)).limit_denominator(RATIO_DENOMINATOR_LIMIT)
+    exact_intermediate = _exact_intermediate(fraction.numerator, source_rate)
+    if exact_intermediate is not None:
+        intermediate = exact_intermediate
+        target = fraction.denominator * (exact_intermediate // fraction.numerator)
+        effective = Decimal(fraction.numerator) / Decimal(fraction.denominator)
+    else:
+        intermediate = get_intermediate_rate(source_rate)
+        target = int((Decimal(intermediate) / ratio).to_integral_value(
+            rounding="ROUND_HALF_EVEN"))
+        effective = Decimal(intermediate) / Decimal(target) if target >= 1 else Decimal(0)
+        drift_ppm = abs(effective - ratio) / ratio * Decimal(1000000) if target >= 1 else None
+        tools.dev_log(f"resample: no exact intermediate fits the cap for ratio {fraction} at "
+                      f"source_rate={source_rate}, applying rounded {intermediate}/{target} "
+                      f"(drift {drift_ppm} ppm)\n")
     if target < 1:
         raise resample_error(
             f"speed ratio {ratio} would set the sample rate to {target}")
-    effective = Decimal(intermediate) / Decimal(target)
     # asetrate only relabels the rate; the two soxr aresample steps are the only
     # real interpolations (requires ffmpeg built with libsoxr).
     chain = (f"aresample={intermediate}:{SOXR_RESAMPLER_OPTIONS},"
@@ -124,12 +158,14 @@ def build_transform_chain(source_rate, speed_ratio, engine):
     Raises:
         resample_error: unknown engine or unusable ratio.
     """
-    if isinstance(speed_ratio, Fraction):
-        speed_ratio = Decimal(speed_ratio.numerator) / Decimal(speed_ratio.denominator)
     if engine == "asetrate":
+        # Kept as a Fraction here (when the caller holds one): only the exact
+        # numerator/denominator let build_speed_filter_chain apply the ratio exactly.
         chain, effective, _intermediate, _target = build_speed_filter_chain(
             source_rate, speed_ratio)
         return chain, effective
+    if isinstance(speed_ratio, Fraction):
+        speed_ratio = Decimal(speed_ratio.numerator) / Decimal(speed_ratio.denominator)
     if engine == "atempo":
         tempo = build_tempo_filter_chain(speed_ratio, rubberband_binary="")
         return tempo["filter"], tempo["time_ratio"]
