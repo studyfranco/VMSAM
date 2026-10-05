@@ -208,6 +208,10 @@ DECLINE_CAUSES = {
     "hole_width_contradicts_audio_step": CLASS_COULD_NOT_RUN,
     # A sub-quantum step the video could neither place nor rule out:
     "sub_quantum_step_video_ambiguous": CLASS_COULD_NOT_RUN,
+    # A step at or above the quantum the video could neither place nor rule out (no compatible
+    # anchor, a static/black span, a geometry mismatch...): the video decides, so a declined
+    # reading is never delivered as an audio-only cut.
+    "video_cut_undetermined": CLASS_COULD_NOT_RUN,
     # The audio's transitions or edges do not tile the timeline (a plan defect, not the pair's):
     "audio_transitions_overlap": CLASS_COULD_NOT_RUN,
     # The assembly's own refusals (`merge_video_chimeric` / `merge_video_repair`). A refusal of
@@ -2802,16 +2806,23 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                       candidate_path, language=None, union=None):
     """Place every walk change point on the master timeline.
 
-    The audio fixes the step, the fill width (max(0, a - b)) and the interval the cut may lie
-    in; the video only chooses inside it. A cut frame inside the interval wins; no cut on a
-    sub-quantum step is a slip at the quietest instant; otherwise the audio places the cut at
-    the quietest instant. Unreadable edges are borrowed from the union (`union_hole_edges`).
-    Additions with master-only audio in a union hole become replacements.
+    The video decides: its anchor and cross-sweep search (`_resolve_logged` ->
+    `_resolve_interior`) gives the exact cut frames, and the audio walk is the witness that
+    confirms them, within one frame at the pair's own rational rate (`video_pin`'s tolerance,
+    `domain["frame_ms"]`) -- the natural unit a frame-exact cut can miss by, never `int(fps)`
+    nor a fixed millisecond figure tuned on one grid. The audio still fixes the step, the fill
+    width (max(0, a - b)) and the interval a video cut must fall in to be confirmed.
 
-    A resolved cut whose video fill width contradicts the audio fill by more than
-    `video_cut_instant`'s own tolerance is a video/audio disagreement: every such point is
-    logged and the whole plan declines with `owner_judgment_pending` instead of falling back
-    to the audio's own instant.
+    Three measured outcomes, never a silent fourth: a video cut confirmed within tolerance
+    wins; a video cut the audio witness does not confirm (wrong width or wrong location) is a
+    disagreement, logged and declined as `owner_judgment_pending` with both positions; a video
+    that could neither place a cut nor rule one out (no compatible anchor, a static/black span,
+    a geometry mismatch) declines the whole plan by name (`video_cut_undetermined` or, under
+    the alignment's own resolution floor, `sub_quantum_step_video_ambiguous`) instead of
+    delivering the audio's own instant unverified. Only when the video itself confirms there is
+    no cut (`no_cut_confirmed`) does a sub-quantum step resolve as a slip at the quietest
+    instant. Unreadable edges are borrowed from the union (`union_hole_edges`). Additions with
+    master-only audio in a union hole become replacements.
 
     Returns:
         (transitions, None) or (None, (cause, reason)).
@@ -2927,21 +2938,17 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             continue
         video_s, width_note = video_cut_instant(outcome, domain, extra, (lo, hi),
                                                 hole["quantum_ms"])
-        if (video_s is None and width_note is not None
-                and status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END)):
-            # The video resolved a cut, but at a width the audio's own fill does not predict:
-            # audio ok, video differs. Collected, not decided here (owner_judgment_pending).
-            disagreements.append({
-                "zone": index, "reason": "video_audio_disagree",
-                "master_start_s": hole["master_ms"][0] / 1000.0,
-                "master_end_s": hole["master_ms"][1] / 1000.0,
-                "candidate_start_s": hole["candidate_ms"][0] / 1000.0,
-                "candidate_end_s": hole["candidate_ms"][1] / 1000.0,
-                "audio_cut_s": audio_walk.quietest_instant(walk["master"], lo, hi, extra),
-                "video_cut_s": _frame_s(outcome["master_start_frame"], domain),
-                "picture_shift_ms": None, "frames_compared": outcome.get("span_frames")})
-            tools.dev_log(f"repair: video_audio_disagree change_point={index} {width_note} "
-                         f"for {candidate_path}\n")
+        video_decided = status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END)
+        if status == HOLE_DECLINED:
+            # No compatible anchor, a static/black span, a geometry mismatch...: the video
+            # could neither place a cut here nor rule one out. A declined video reading is
+            # never delivered as an unverified audio-only cut -- the whole plan declines,
+            # named and explicit.
+            return None, ("sub_quantum_step_video_ambiguous" if sub_quantum
+                          else "video_cut_undetermined",
+                          f"the walk measured a {round(jump, 3)} ms step in [{lo}, {hi}] s and "
+                          f"the video could neither place a cut nor confirm there is none "
+                          f"({outcome.get('resolver_reason')})")
         fill = extra
         # Narrow the bounds so neither offset plays the candidate's own audible material past
         # its edge; a blind video then cuts where the least sound leaks.
@@ -2965,7 +2972,26 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             at = pinned
             if width_note:
                 decision = "video_cut_edge_pins_" + decision
-        elif not leak["clean"] and not (status == HOLE_DECLINED and sub_quantum):
+        elif video_decided:
+            # The video resolved a cut (or pinned a static span) but the audio witness does not
+            # confirm it within tolerance (one frame, `video_pin`) -- a measured disagreement,
+            # collected for the owner instead of a silent audio-only delivery.
+            disagreements.append({
+                "zone": index, "reason": "video_audio_disagree",
+                "master_start_s": hole["master_ms"][0] / 1000.0,
+                "master_end_s": hole["master_ms"][1] / 1000.0,
+                "candidate_start_s": hole["candidate_ms"][0] / 1000.0,
+                "candidate_end_s": hole["candidate_ms"][1] / 1000.0,
+                "audio_cut_s": audio_walk.quietest_instant(walk["master"], lo, hi, extra),
+                "video_cut_s": _frame_s(outcome["master_start_frame"], domain),
+                "picture_shift_ms": None, "frames_compared": outcome.get("span_frames")})
+            tools.dev_log(
+                f"repair: video_audio_disagree change_point={index} "
+                f"{width_note or 'video cut outside the audio interval and edges'} "
+                f"for {candidate_path}\n")
+            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q, extra)
+            decision = "video_audio_disagree_pending"
+        elif not leak["clean"]:
             at = leak["min_leak_s"]
             if status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
                 fill, decision = 0.0, "slip_applied"
@@ -2974,17 +3000,9 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         elif status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
             at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q)
             fill, decision = 0.0, "slip_applied"
-        elif status == HOLE_DECLINED and sub_quantum:
-            return None, ("sub_quantum_step_video_ambiguous",
-                          f"the walk measured a {round(jump, 3)} ms step (under one quantum) in "
-                          f"[{lo}, {hi}] s and the video could neither place a cut nor confirm "
-                          f"there is none ({outcome.get('resolver_reason')})")
         else:
             at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q, extra)
-            decision = ("audio_instant_video_width_contradicts" if width_note
-                        else "audio_instant_video_no_cut" if status == HOLE_NO_CUT_CONFIRMED
-                        else "audio_instant_video_declined" if status == HOLE_DECLINED
-                        else "audio_instant_video_outside_interval")
+            decision = "audio_instant_video_no_cut"
         transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
                             "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
                             "edges": [edges["edge_A"], edges["edge_B"]],
