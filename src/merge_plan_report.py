@@ -554,6 +554,8 @@ def parse_job_log(text):
         "delivery": [],
         "segments": [],
         "output_durations": None,
+        # `picture_only_shift` runs: logged, never acted on (ADDENDUM 25.2).
+        "picture_only_shifts": [],
     }
 
     for line in lines:
@@ -763,6 +765,15 @@ def parse_job_log(text):
             entry = split_fields(tail)
             entry["index"] = index
             job["segments"].append(entry)
+            continue
+        if body.startswith("picture_only_shift "):
+            # `zone=<i> master_s=[a, b] residual_frames=<n> cuts=<k> audio=continuous`.
+            fields = split_fields(body[len("picture_only_shift "):])
+            job["picture_only_shifts"].append(fields)
+            continue
+        if body.startswith("picture_only_shift_summary ") or body.startswith(
+                "picture_only_shift_unpaired "):
+            # Recognised but not rendered; keeps it out of UNPARSED.
             continue
         # Refusals the gate expects, then whether the outcome agreed.
         if body.startswith("PREDICTED_REFUSAL "):
@@ -3716,6 +3727,18 @@ def render_human_summary(job, geometry, merge_log=None):
             said.append("<li>Retiré du candidat sans point de coupe identifiable : "
                         + ", ".join(_fr_duration(i.get("dropped_ms"))
                                     for i in geometry["unplaced"]) + ".</li>")
+
+    # 2.5. picture-only shifts: logged, nothing changed (ADDENDUM 25.2)
+    shifts = job.get("picture_only_shifts") or []
+    for entry in shifts:
+        span = re.match(r"\[\s*([\d.-]+)\s*,\s*([\d.-]+)\s*\]", entry.get("master_s") or "")
+        where = (f"{_fr_clock(_decimal(span.group(1)) * 1000)} – "
+                f"{_fr_clock(_decimal(span.group(2)) * 1000)}") if span else "?"
+        said.append(
+            f"<li>Image décalée, son continu (zone {_escape(entry.get('zone'))}, "
+            f"{where}) : {_escape(entry.get('residual_frames'))} image(s) sur "
+            f"{_escape(entry.get('cuts'))} coupure(s) confirmée(s) — rien n'a été "
+            f"modifié, c'est une information.</li>")
 
     # 3. what was rebuilt and what the delivery gate did with it
     marker = re.search(r"marker '([^']+)'", job.get("summary_counts") or "")

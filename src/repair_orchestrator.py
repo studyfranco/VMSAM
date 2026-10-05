@@ -4234,6 +4234,11 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
             f"the partial plan is logged; the file comes back next wave"), None
+    # Report-only: logs a picture shift inside an otherwise audio-continuous zone, never
+    # touches `zones` (ADDENDUM 25.2, LAB 20260928(h)).
+    import picture_only_shift
+    picture_only_shift.scan_zones(zones, domain, master_obj, candidate_obj, candidate_path,
+                                  work_dir, repair_deadline)
     head_written_s, tail_written_s = written_edge_seconds(fills, walk["master_audio_end_s"])
     tagged, tag_reason = tag_decision(len(transitions), head_written_s + tail_written_s)
     step_result("plan_shape_resolved", candidate=candidate_path,
