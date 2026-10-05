@@ -25,6 +25,7 @@ import audio_extract
 import banded_seed_alignment
 import owner_judgment
 import repair_log
+import repair_pool
 import tools
 import video_offset_plan
 
@@ -2557,15 +2558,26 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                    "tail": "walk_window_edge" if tail is None else "audio_edge"}
     by_kind = {hole["kind"]: (index, hole) for index, hole in enumerate(holes)
                if hole["kind"] in ("head", "tail")}
-    decisions, summary = {}, []
-    for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
-        video_s = None
+    # Head and tail are independent holes (one anchor each): their exact-frame search runs
+    # together on the shared repair pool instead of one after the other.
+    edge_jobs = {}
+    for kind, level in (("head", first), ("tail", last)):
         if kind in by_kind:
             index, hole = by_kind[kind]
             offsets = ({"offset_after_ms": level["off_ms"]} if kind == "head"
                        else {"offset_before_ms": level["off_ms"]})
-            outcome = _resolve_logged(candidate_path, index, dict(hole, **offsets), domain,
-                                      master_obj, candidate_obj, work_dir)
+            edge_jobs[kind] = (index, dict(hole, **offsets))
+    edge_outcomes = dict(zip(
+        edge_jobs.keys(),
+        repair_pool.run_parallel([
+            (lambda k=kind, idx=index, h=hole: _resolve_logged(
+                candidate_path, idx, h, domain, master_obj, candidate_obj, work_dir))
+            for kind, (index, hole) in edge_jobs.items()]))) if edge_jobs else {}
+    decisions, summary = {}, []
+    for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
+        video_s = None
+        if kind in by_kind:
+            outcome = edge_outcomes[kind]
             budget = budget_cause(outcome, domain)
             if budget is not None:
                 log_partial_plan(candidate_path, budget,
@@ -2846,6 +2858,13 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         step_result("cluster", candidate=candidate_path, cluster=cluster["cluster_id"],
                     members=cluster["members"], shared_scan=len(cluster["members"]) > 1,
                     islands=islands)
+    # Every hole's exact-frame search is independent (holes under the merge window share only
+    # a read-through decode cache, never a decision), so they run together on the shared pool
+    # instead of one change point at a time.
+    hole_outcomes = repair_pool.run_parallel([
+        (lambda i=index, h=hole: _resolve_logged(candidate_path, f"change_point_{i}", h, domain,
+                                                 master_obj, candidate_obj, work_dir))
+        for index, hole in enumerate(holes)])
     transitions, disagreements = [], []
     for index, (point, hole) in enumerate(zip(points, holes)):
         edges = point["edges"]
@@ -2853,8 +2872,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         extra = edges["extra_s"]
         jump = point["b_ms"] - point["a_ms"]
         sub_quantum = abs(jump) < hole["quantum_ms"]
-        outcome = _resolve_logged(candidate_path, f"change_point_{index}", hole, domain,
-                                  master_obj, candidate_obj, work_dir)
+        outcome = hole_outcomes[index]
         budget = budget_cause(outcome, domain)
         if budget is not None:
             log_partial_plan(candidate_path, budget,
