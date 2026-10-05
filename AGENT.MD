@@ -101,7 +101,9 @@ separators (space `. / , - ( ) _ ; : [ ] { } + ~ ! '`), compared case-insensitiv
 the extension is not a word but must be equal. (1) Files gather by prefix: with a
 season/episode marker (`findMarkerSpan`), the marker kind and the words before it;
 without one, the first two words, where an episode-like word (`01`, `E05`, `ep3`,
-`07v2`, at most three digits) only counts as "a number here". (2) Inside a prefix,
+`07v2`, at most three digits) only counts as "a number here". The **separators** of
+that prefix (and the one right after it) are part of the key: `Show Z 01` and
+`Show_Z_01` never group, one regex cannot cover both styles (owner's rule). (2) Inside a prefix,
 the tail (last three words after the marker, or of the name; 8-hex CRC words left
 out) splits files only when at least two files share it: two releases stay apart,
 while a season whose names end with a per-episode title stays in one pooled group.

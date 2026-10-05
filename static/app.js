@@ -534,6 +534,32 @@ function nameWords(text) {
     return text.split(NAME_WORD_SEPARATORS).filter(Boolean).map(w => w.toLowerCase());
 }
 
+// Separator runs of a text, in order: `[Grp] Show - ` -> ['[', '] ', ' - '].
+// Part of the prefix key, so `Show D 01` and `Show_D_01` never group: the
+// same words written with another separator style are another release, and
+// one regex cannot cover both.
+const NAME_SEPARATOR_RUNS = /[\s.\/,\-()_;:\[\]{}+~!']+/g;
+function separatorRuns(text) {
+    return text.match(NAME_SEPARATOR_RUNS) || [];
+}
+
+// Separator runs around the first `count` words: before, between and right after them.
+function leadingSeparatorRuns(text, count) {
+    const runs = [];
+    let words = 0;
+    for (const part of text.split(/([\s.\/,\-()_;:\[\]{}+~!']+)/)) {
+        if (part === '') continue;
+        if (NAME_WORD_SEPARATORS.test(part) && !/[^\s.\/,\-()_;:\[\]{}+~!']/.test(part)) {
+            runs.push(part);
+            if (words >= count) break;
+        } else {
+            words++;
+            if (words > count) break;
+        }
+    }
+    return runs;
+}
+
 // { prefix, tail, numbered } of one name; prefix and tail are string keys.
 function nameShape(name) {
     const ext = name.match(NAME_EXTENSION);
@@ -548,8 +574,10 @@ function nameShape(name) {
         const markerEnd = tokens[marker.episode].start + tokens[marker.episode].v.length;
         // Whatever is glued after the episode digits belongs to the marker word.
         const after = stem.slice(markerEnd).replace(/^[^\s.\/,\-()_;:\[\]{}+~!']+/, '');
+        const before = stem.slice(0, markerStart);
+        const separators = [...separatorRuns(before), (after.match(/^[\s.\/,\-()_;:\[\]{}+~!']+/) || [''])[0]];
         return {
-            prefix: JSON.stringify([marker.kind, nameWords(stem.slice(0, markerStart)), extension]),
+            prefix: JSON.stringify([marker.kind, nameWords(before), separators, extension]),
             tail: tailOf(nameWords(after)),
             numbered: true
         };
@@ -557,7 +585,7 @@ function nameShape(name) {
     const raw = nameWords(stem);
     const words = raw.map(w => (EPISODE_LIKE_WORD.test(w) ? '#' : w));
     return {
-        prefix: JSON.stringify(['plain', words.slice(0, 2), extension]),
+        prefix: JSON.stringify(['plain', words.slice(0, 2), leadingSeparatorRuns(stem, 2), extension]),
         tail: tailOf(words),
         numbered: raw.some(w => EPISODE_LIKE_WORD.test(w))
     };
