@@ -1,18 +1,18 @@
-"""Frame comparison by 64-bit DCT pHash of low-resolution frames."""
+"""Frame extraction and hashing of a time window, on an exact frame grid."""
 
 from fractions import Fraction
 import subprocess
 from sys import stderr
 import numpy as np
-from scipy.fft import dct
+import frame_hash
 import tools
 import repair_log
 
 class FrameComparer:
     """Compare frames of two videos inside a time window.
 
-    Frames are decoded as 32x32 grey at the native rate and hashed with a
-    64-bit DCT pHash. The frame rate must be an exact rational
+    Frames are decoded as small RGB pictures at the native rate and hashed by
+    `frame_hash` (grey and colour). The frame rate must be an exact rational
     (`fps_num`/`fps_den`); every frame index is on that grid.
 
     Args:
@@ -50,7 +50,8 @@ class FrameComparer:
 
         self.band_width = max(1, self._round_frac(Fraction(band_width_sec).limit_denominator(10**6) * self.fps_frac))
         self.max_search_frames = max(8, self._round_frac(Fraction(max_search_sec).limit_denominator(10**6) * self.fps_frac))
-        self.side = 32
+        self.width = frame_hash.FRAME_WIDTH
+        self.height = frame_hash.FRAME_HEIGHT
         self.debug = debug
         self.scene_threshold = float(scene_threshold)
         self.crop_filters = dict(crop_filters) if crop_filters else {}
@@ -68,10 +69,6 @@ class FrameComparer:
                 self.time_scales[scaled_path] = scale
 
     @staticmethod
-    def _popcount64(x: int) -> int:
-        return int(x).bit_count()
-
-    @staticmethod
     def _round_frac(frac: Fraction) -> int:
         """Round half up on the exact rational (`int()` would truncate)."""
         return int(frac + Fraction(1, 2))
@@ -81,13 +78,14 @@ class FrameComparer:
         return self._round_frac(Fraction(seconds).limit_denominator(10**9) * self.fps_frac)
 
     def _ffmpeg_raw_frames(self, path, start_sec, dur_sec):
-        """Decode a window as raw 32x32 grey frames at the native rate (bytes)."""
+        """Decode a window as raw small RGB frames at the native rate (bytes)."""
         # No `fps=` filter: it would duplicate or drop frames.
         ffmpeg = tools.software["ffmpeg"]
-        w = h = self.side
+        w, h = self.width, self.height
         # Crop before scaling so black bars do not contaminate the hash.
         crop = self.crop_filters.get(path)
-        vf = f"scale={w}:{h},format=gray" if not crop else f"{crop},scale={w}:{h},format=gray"
+        scale = f"scale={w}:{h}:flags=area,format=rgb24"
+        vf = scale if not crop else f"{crop},{scale}"
         scale = self.time_scales.get(path)
         if scale is not None:
             start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
@@ -104,7 +102,9 @@ class FrameComparer:
             "-t", f"{dur_sec}",
             "-i", path,
             "-vf", vf,
-            "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"
+            # passthrough: the default constant-rate output may duplicate a frame
+            "-fps_mode", "passthrough",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"
         ]
         timeout = tools.decoder_timeout_for(dur_sec)
         tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
@@ -123,35 +123,12 @@ class FrameComparer:
                 stderr.write(f"[frame_compare] ffmpeg returned {rc}, partial data used\n")
         return stdout
 
-    def _phash64_frames(self, blob_bytes):
-        """64-bit DCT pHash of each 32x32 frame in a raw grey buffer."""
-        s = self.side
-        frame_size = s * s
-        n_frames = len(blob_bytes) // frame_size
-        hashes = []
-        if n_frames == 0:
-            return hashes
-        for i in range(n_frames):
-            block = blob_bytes[i*frame_size : (i+1)*frame_size]
-            arr = np.frombuffer(block, dtype=np.uint8).astype(np.float32)
-            arr = arr.reshape((s, s))
-            dct_rows = dct(arr, norm='ortho', axis=0)
-            dct_2d = dct(dct_rows, norm='ortho', axis=1)
-            d8 = dct_2d[:8, :8].copy()
-            # the DC coefficient [0,0] is left out of the median
-            flat = d8.flatten()
-            median = np.median(flat[1:]) if flat.size >= 2 else np.median(flat)
-            h = 0
-            bit = 0
-            for r in range(8):
-                for c in range(8):
-                    v = d8[r, c]
-                    if v > median:
-                        h |= (1 << bit)
-                    bit += 1
-            hashes.append(h)
+    def _hash_frames(self, blob_bytes):
+        """Grey and colour hashes of each frame in a raw rgb24 buffer (FrameHashes)."""
+        frames = frame_hash.frames_from_raw(blob_bytes, self.width, self.height, 3)
+        hashes = frame_hash.hash_frames(frames, colour=True)
         if self.debug:
-            stderr.write(f"[frame_compare] pHash frames: {len(hashes)}\n")
+            stderr.write(f"[frame_compare] hashed frames: {len(hashes)}\n")
         return hashes
 
 
@@ -228,7 +205,7 @@ def _on_comparer_grid(comparer, path, values):
     rounding residue). Returns `(values_on_grid, None)`, or `(None, reason)`
     when the file's rate cannot be measured.
     '''
-    if not values:
+    if not len(values):
         return values, None
     native_rate, reason = _native_frame_rate(path)
     if native_rate is None:
@@ -242,27 +219,29 @@ def _on_comparer_grid(comparer, path, values):
         return values, None
     ratio = native_rate / grid_rate
     n_native = len(values)
-    out = []
+    picks = []
     k = 0
     while True:
         j = FrameComparer._round_frac(Fraction(k) * ratio)
         if j >= n_native:
             break
-        out.append(values[j])
+        picks.append(j)
         k += 1
-    return out, None
+    if isinstance(values, frame_hash.FrameHashes):
+        return values[np.asarray(picks, dtype=np.int64)], None
+    return [values[j] for j in picks], None
 
 
 def _extract_hashes(comparer, path, start_s, dur_s):
-    """Return (base frame index, pHashes on the comparer's grid) for a window.
+    """Return (base frame index, FrameHashes on the comparer's grid) for a window.
 
-    The list is empty when the window is empty or the file's rate is unknown.
+    The hashes are empty when the window is empty or the file's rate is unknown.
     """
     start_s = max(0.0, start_s)
     if dur_s <= 0:
-        return comparer._frame_index(start_s), []
+        return comparer._frame_index(start_s), frame_hash.FrameHashes.empty(colour=True)
     blob = comparer._ffmpeg_raw_frames(path, start_s, dur_s)
-    hashes = comparer._phash64_frames(blob)
+    hashes = comparer._hash_frames(blob)
     base = comparer._frame_index(start_s)
     on_grid, reason = _on_comparer_grid(comparer, path, hashes)
     if on_grid is None:
@@ -270,5 +249,5 @@ def _extract_hashes(comparer, path, start_s, dur_s):
         tools.dev_log(f"frame_compare: _extract_hashes declining "
                       f"file={path} reason=native_rate_unmeasured:{reason} "
                       f"start_sec={start_s} decoded_frames={len(hashes)}\n")
-        return base, []
+        return base, frame_hash.FrameHashes.empty(colour=True)
     return base, on_grid

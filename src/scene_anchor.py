@@ -4,18 +4,23 @@ Scene cuts from PySceneDetect seed anchor candidates; pHash comparison validates
 the authoritative boundary method for merge_video_chimeric; when it declines, the caller
 declines too (frame_compare's locators are cross-checks only).
 
-Reuses frame_compare's private helpers (_extract_hashes, FrameComparer._popcount64) for
-native-rate frame extraction and pHash primitives.
+Frames come from frame_compare's `_extract_hashes` (native-rate extraction); hashes,
+distances and alignment from `frame_hash`.
 
-An anchor needs both cross-scene discrimination (scenes differ) and within-scene
-distinctiveness (the position differs from frames a few steps away); solid-colour scenes
-have only the first and are rejected by _check_anchor_distinctive.
+An anchor window lies entirely on one side of its seed and never holds a scene cut. It needs
+both cross-scene discrimination (the same content as the candidate) and within-scene
+distinctiveness (`frame_hash.align`'s margin over lags a few frames away); solid-colour or
+static shots have only the first and are refused.
 """
+import bisect
 from fractions import Fraction
 from decimal import Decimal
 import threading
 import time
 
+import numpy as np
+
+import frame_hash
 import tools
 import repair_log
 from frame_compare import FrameComparer, _extract_hashes, parse_positive_rate
@@ -34,18 +39,17 @@ CONTENT_DETECTOR_THRESHOLD_DEFAULT = 27.0
 # each is still pHash-validated, so this costs compute, not correctness.
 CONTENT_DETECTOR_THRESHOLD_LADDER = (CONTENT_DETECTOR_THRESHOLD_DEFAULT, 18.0, 10.0)
 
-# Minimum consecutive matching frames for anchor validation and window viability.
+# Minimum consecutive frames for a sweep stop and window viability.
 MIN_VALIDATION_FRAMES = 3
 
-# Validation length ladder: a seed that matches but is ambiguous (also matches a competing
-# shift) is re-checked with a longer run, which is less likely to stay self-similar. Rungs only
-# compare already-extracted hashes, so growth is cheap; 13 frames (~0.5 s) is where trying the
-# next seed is cheaper. This inner ladder runs inside `_anchor_search` before the outer window
-# ladder (which re-extracts frames); swapping them would re-decode video on every inner rung.
-VALIDATION_FRAME_LADDER = (MIN_VALIDATION_FRAMES, 4, 6, 9, 13)
+# Anchor window: at most ANCHOR_WINDOW_FRAMES master frames on one side of the seed, cut short
+# at the nearest scene cut; a window under ANCHOR_WINDOW_MIN_FRAMES is not used.
+ANCHOR_WINDOW_FRAMES = 12
+ANCHOR_WINDOW_MIN_FRAMES = frame_hash.ALIGN_MIN_FRAMES
 
-# Hamming threshold for "same picture"; stricter than frame_compare's boundary threshold.
-ANCHOR_HAMMING_THRESHOLD_DEFAULT = 6
+# Lags scanned on each side of the nominal shift: they give the margin gate its rivals (a
+# self-similar shot matches several of them).
+ANCHOR_LAG_REACH = 8
 
 # The sweep stops only after this many consecutive mismatches: isolated pHash noise frames
 # occur inside common content, while real cuts stay saturated for several frames.
@@ -71,10 +75,9 @@ WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
      # `locate_scene_anchors` keeps this reason.
      "anchor_ambiguous_static_span"})
 
-# Neighbouring shifts at which a frame-scan anchor is re-validated; two or more validating
-# shifts mean a static, ambiguous span. The +/-4/+/-8 distinctiveness probe can pass on a
-# static card that still matches within 1-3 frames of the true shift.
-FRAME_SCAN_AMBIGUITY_PROBE_FRAMES = (1, 2, 3)
+# A frame-scan anchor refused because a lag this close to its minimum is as good marks a
+# static, ambiguous span.
+FRAME_SCAN_AMBIGUITY_FRAMES = 3
 
 # ---------------------------------------------------------------------------
 # Edge brackets: one anchor on the common side, then a frame-by-frame pHash walk outward.
@@ -83,7 +86,7 @@ FRAME_SCAN_AMBIGUITY_PROBE_FRAMES = (1, 2, 3)
 
 # Sustained-mismatch width that stops the edge walk. Common content shows mismatch excursions
 # of up to 3 frames, so 4 avoids stopping early and master-filling real candidate frames.
-EDGE_WALK_SUSTAINED_MISMATCH_FRAMES = VALIDATION_FRAME_LADDER[1]
+EDGE_WALK_SUSTAINED_MISMATCH_FRAMES = 4
 
 # Walk chunk length: frame extraction costs ~0.45 s per ffmpeg call plus ~2.5 ms/frame, so
 # 80 s chunks amortise the fixed cost without excessive memory or latency.
@@ -96,19 +99,16 @@ EDGE_WALK_CHUNK_SECONDS = 80.0
 EDGE_WALK_CHUNK_OVERLAP_FRAMES = 48
 # Seam delta search range: +/-1 labelling error plus one frame of margin.
 EDGE_WALK_SEAM_SEARCH_FRAMES = 2
-# Minimum overlap agreement to accept a seam; below it the walk declines
-# (`edge_walk_unreadable`).
-EDGE_WALK_SEAM_AGREEMENT_MIN = 0.75
 
 # Relative displayed-aspect difference above which geometry is normalised before pHash.
-# pHash downsizes to 32x32, so small coded-size differences are irrelevant, but differing
-# aspects (picture vs black bars) break matching.
+# Frames are downsized to a fixed small size, so small coded-size differences are
+# irrelevant, but differing aspects (picture vs black bars) break matching.
 EDGE_GEOMETRY_ASPECT_TOLERANCE = 0.02
 
 # Shift search range around the nominal shift, resolved per extraction at the anchor. It
 # absorbs rounding of the audio offset onto the video grid and the one-frame labelling
-# ambiguity of `_extract_hashes`. Shifts are ranked by summed Hamming distance, since match
-# counts cannot separate one-frame-apart hypotheses.
+# ambiguity of `_extract_hashes`. Shifts are ranked by the alignment's distance curve, since
+# match counts cannot separate one-frame-apart hypotheses.
 EDGE_SHIFT_SEARCH_FRAMES = 2
 
 # Edge decline reasons a wider anchor window may fix.
@@ -280,136 +280,151 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
         return None, reason
 
 
-def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
-                  threshold):
+def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame):
+    '''Whether a master frame and a candidate frame show the same picture.
+
+    Returns None when either frame is outside its extracted range (never treated as a
+    match or a mismatch).
+    '''
     mi, ci = m_frame - m_base, c_frame - c_base
     if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
-        return None  # unreadable, never treated as either match or mismatch
-    return FrameComparer._popcount64(m_hashes[mi] ^ c_hashes[ci]) <= threshold
+        return None
+    return bool(frame_hash.same_picture(m_hashes[mi], c_hashes[ci])[0])
 
 
-def _anchor_window_frames(m_seed, direction, n_frames):
-    '''Master frames covered by an anchor window at m_seed.
+def _span_matches(m_hashes, m_base, c_hashes, c_base, first, stop, shift):
+    '''(matched, readable) frame counts of master [first, stop) against the candidate at shift.'''
+    m_idx = np.arange(first, stop) - m_base
+    c_idx = m_idx + m_base + shift - c_base
+    ok = (m_idx >= 0) & (m_idx < len(m_hashes)) & (c_idx >= 0) & (c_idx < len(c_hashes))
+    if not ok.any():
+        return 0, 0
+    same = frame_hash.same_picture(m_hashes[m_idx[ok]], c_hashes[c_idx[ok]])
+    return int(same.sum()), int(ok.sum())
 
-    "forward" -> [seed, seed+n) (Anchor B); "backward" -> [seed-n, seed) (Anchor A);
-    "straddle" -> centred on the seed. A window straddling a cut can only line up at the
-    true shift, even when the shots on either side are static.
+
+def _anchor_window(seed, direction, boundaries, m_base, m_len):
+    '''Master frames [first, stop) of the anchor window at seed, or None.
+
+    "backward" ends at the seed (Anchor A side), "forward" starts at it (Anchor B side). The
+    window holds at most ANCHOR_WINDOW_FRAMES frames and stops at the nearest boundary (a
+    scene cut of either file), so it never holds two shots; under
+    ANCHOR_WINDOW_MIN_FRAMES frames it is not used.
     '''
+    pos = bisect.bisect_right(boundaries, seed)
     if direction == "forward":
-        return range(m_seed, m_seed + n_frames)
-    if direction == "straddle":
-        first = m_seed - n_frames // 2
-        return range(first, first + n_frames)
-    return range(m_seed - n_frames, m_seed)
+        first = seed
+        stop = seed + ANCHOR_WINDOW_FRAMES
+        if pos < len(boundaries):
+            stop = min(stop, boundaries[pos])
+    else:
+        stop = seed
+        first = seed - ANCHOR_WINDOW_FRAMES
+        before = bisect.bisect_left(boundaries, seed)
+        if before > 0:
+            first = max(first, boundaries[before - 1])
+    first, stop = max(first, m_base), min(stop, m_base + m_len)
+    if stop - first < ANCHOR_WINDOW_MIN_FRAMES:
+        return None
+    return first, stop
 
 
-def _straddle_window_on_common_side(m_seed, n_frames, side, bracket_frame):
-    '''Whether a straddling window stays entirely on the common side of the bracket.
+def _try_anchor(m_hashes, m_base, c_hashes, c_base, seed, nominal_shift, direction,
+                boundaries, search_frames):
+    '''Align the anchor window at seed against the candidate around nominal_shift.
 
-    Checked per rung, since wider windows reach further across the cut.
+    Lags nominal +/- max(search_frames, ANCHOR_LAG_REACH) are scanned by
+    `frame_hash.align`; the window anchors when the minimum passes the margin gate, lies
+    within search_frames of nominal (one frame when search_frames is 0: the shift is then
+    kept, as a frame-exact offset only needs the content confirmed) and shows the same
+    content (SAME_CONTENT_MAX).
+
+    Returns:
+        dict: verdict ("anchor", "unreadable", "mismatch" or "uninformative"), window,
+        alignment, content, and for "uninformative" the near lags (`static_lags`).
     '''
-    frames = _anchor_window_frames(m_seed, "straddle", n_frames)
-    if side == "A":
-        return frames.stop <= bracket_frame
-    return frames.start >= bracket_frame
+    window = _anchor_window(seed, direction, boundaries, m_base, len(m_hashes))
+    if window is None:
+        return {"verdict": "unreadable", "window": None, "alignment": None, "content": None}
+    first, stop = window
+    ref = m_hashes[first - m_base:stop - m_base]
+    reach = max(search_frames, ANCHOR_LAG_REACH)
+    alignment = frame_hash.align(ref, c_hashes,
+                                 range(nominal_shift - reach, nominal_shift + reach + 1),
+                                 start=first - c_base)
+    out = {"window": window, "alignment": alignment, "content": None}
+    if alignment.best is None:
+        return {**out, "verdict": "unreadable"}
+    content = frame_hash.window_content_distance(ref, c_hashes,
+                                                 first - c_base + alignment.best)
+    out["content"] = content
+    if not content <= frame_hash.SAME_CONTENT_MAX:
+        return {**out, "verdict": "mismatch"}
+    tolerance = max(search_frames, 1)
+    if not alignment.ok:
+        low = alignment.curve[alignment.best]
+        near = sorted(lag for lag, value in alignment.curve.items()
+                      if value - low < frame_hash.ALIGN_MARGIN)
+        if any(abs(lag - nominal_shift) <= tolerance for lag in near):
+            # the shot looks the same at the nominal shift and at others: self-similar
+            return {**out, "verdict": "uninformative", "static_lags": near}
+        return {**out, "verdict": "mismatch"}
+    if abs(alignment.best - nominal_shift) > tolerance:
+        return {**out, "verdict": "mismatch"}
+    return {**out, "verdict": "anchor"}
 
 
-def _validate_anchor(m_hashes, m_base, c_hashes, c_base, m_seed, shift_frames,
-                     direction, threshold, n_frames=MIN_VALIDATION_FRAMES):
-    '''Check that n_frames consecutive frames match under shift_frames.
-
-    direction selects the window (see _anchor_window_frames). Returns True only if every
-    pair is readable and matching.
-    '''
-    for m_frame in _anchor_window_frames(m_seed, direction, n_frames):
-        c_frame = m_frame + shift_frames
-        result = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
-                               c_frame, threshold)
-        if result is not True:
-            return False
-    return True
-
-
-def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, shift_frames,
-                   direction, threshold, window_admissible=None, log_tag="",
-                   log_rungs=True):
-    '''Return the first seed (master frame number) that validates and is distinctive.
+def _anchor_search(m_hashes, m_base, c_hashes, c_base, seeds, nominal_shift, direction,
+                   boundaries, search_frames=0, log_tag="", log_rungs=True,
+                   static_reach=None):
+    '''Return the first seed (master frame number) whose window anchors.
 
     Seeds are the union of both files' scene cuts (in master coordinates) plus the bracket
-    edge, ordered by the caller; a cut missed on one side only costs a candidate. Per seed,
-    VALIDATION_FRAME_LADDER is walked: a failed validation moves to the next seed, a
-    validated but non-distinctive rung escalates to the next rung.
+    edge, ordered by the caller. search_frames 0 keeps the nominal shift; a wider value
+    resolves the shift within it.
 
-    Returns (seed, None, n_frames) on success, else (None, reason, n_frames) where
-    reason is the first seed's non-distinctiveness evidence (None if nothing validated).
-    window_admissible(seed, n) can refuse a rung; log_tag is appended to rung log lines;
-    log_rungs=False silences them.
+    With static_reach set (frame scan), the first seed that shows the same content but is
+    refused because a lag within static_reach of its minimum is as good ends the search as
+    an ambiguous static span.
+
+    Returns:
+        (seed, shift, n_frames, reason, static): seed None on failure, with reason None if
+        nothing showed the same content, else the first uninformative seed's evidence;
+        static is the ambiguous-span dict or None.
     '''
-    last_uninformative_reason = None
-    last_uninformative_n_frames = None
+    first_reason = first_n_frames = None
     for seed in seeds:
-        seed_reason = None
-        seed_n_frames = None
-        for n_frames in VALIDATION_FRAME_LADDER:
-            if window_admissible is not None and not window_admissible(seed, n_frames):
-                if log_rungs:
-                    tools.log_line(
-                        f"scene_anchor: anchor_rung direction={direction} "
-                        f"seed={seed} n_frames={n_frames} validated=False "
-                        f"distinctive=n/a{log_tag} "
-                        f"rejected=window_crosses_bracket\n")
-                break
-            validated = _validate_anchor(m_hashes, m_base, c_hashes, c_base,
-                                         seed, shift_frames, direction,
-                                         threshold, n_frames)
-            if not validated:
-                if log_rungs:
-                    tools.log_line(
-                        f"scene_anchor: anchor_rung direction={direction} "
-                        f"seed={seed} n_frames={n_frames} validated=False "
-                        f"distinctive=n/a{log_tag}\n")
-                break
-            distinctive, why_not = _check_anchor_distinctive(
-                m_hashes, m_base, c_hashes, c_base, seed, shift_frames,
-                direction, threshold, n_frames)
-            if log_rungs:
-                tools.log_line(
-                    f"scene_anchor: anchor_rung direction={direction} "
-                    f"seed={seed} n_frames={n_frames} validated=True "
-                    f"distinctive={distinctive}{log_tag}\n")
-            if distinctive:
-                return seed, None, n_frames
-            seed_reason, seed_n_frames = why_not, n_frames
-        if seed_reason is not None and last_uninformative_reason is None:
+        tried = _try_anchor(m_hashes, m_base, c_hashes, c_base, seed, nominal_shift,
+                            direction, boundaries, search_frames)
+        verdict, alignment, window = tried["verdict"], tried["alignment"], tried["window"]
+        n_frames = None if window is None else window[1] - window[0]
+        if log_rungs:
+            tools.log_line(
+                f"scene_anchor: anchor_window direction={direction} seed={seed} "
+                f"window={window} verdict={verdict} nominal_shift={nominal_shift} "
+                f"best={None if alignment is None else alignment.best} "
+                f"reason={None if alignment is None else alignment.reason} "
+                f"margin={None if alignment is None or alignment.margin is None else round(alignment.margin, 4)} "
+                f"content={None if tried['content'] is None else round(tried['content'], 4)}"
+                f"{log_tag}\n")
+        if verdict == "anchor":
+            return seed, alignment.best if search_frames else nominal_shift, n_frames, None, None
+        if verdict != "uninformative":
+            continue
+        static = [lag for lag in tried["static_lags"]
+                  if abs(lag - nominal_shift) <= (static_reach or 0)]
+        if static_reach is not None and len(static) >= 2 and static[-1] - static[0] >= 2:
+            return None, nominal_shift, n_frames, None, {
+                "anchor": seed, "shift": nominal_shift, "n_frames": n_frames,
+                "ambiguous_shift_span": [static[0], static[-1]], "validating_shifts": static}
+        if first_reason is None:
             # Keep only the first such seed's evidence: the closest candidate.
-            last_uninformative_reason = seed_reason
-            last_uninformative_n_frames = seed_n_frames
-    return None, last_uninformative_reason, last_uninformative_n_frames
-
-
-ANCHOR_DISTINCTIVENESS_PROBE_FRAMES = (4, 8)
-# Probes skip immediate neighbours, which are often alike even in distinctive content.
-
-
-def _check_anchor_distinctive(m_hashes, m_base, c_hashes, c_base, m_seed,
-                              shift_frames, direction, threshold,
-                              n_frames=MIN_VALIDATION_FRAMES):
-    '''Check that an anchor match could have been refuted by the local content.
-
-    The validated window is re-checked at shifts +/-ANCHOR_DISTINCTIVENESS_PROBE_FRAMES with
-    the same n_frames; a match at any of them means self-similar content. Returns
-    (True, None) or (False, evidence).
-    '''
-    for delta in ANCHOR_DISTINCTIVENESS_PROBE_FRAMES:
-        for probe_shift in (shift_frames + delta, shift_frames - delta):
-            if _validate_anchor(m_hashes, m_base, c_hashes, c_base, m_seed,
-                               probe_shift, direction, threshold, n_frames):
-                return False, (f"seed={m_seed} also matches at shift="
-                              f"{probe_shift} (true shift={shift_frames}, "
-                              f"delta={probe_shift - shift_frames}, "
-                              f"n_frames={n_frames}) -- self-similar "
-                              f"content, uninformative")
-    return True, None
+            first_reason = (f"seed={seed} window={window} best_shift={alignment.best} "
+                            f"also near at shift={alignment.rival} "
+                            f"(margin={alignment.margin}, {alignment.reason}) -- "
+                            f"self-similar content, uninformative")
+            first_n_frames = n_frames
+    return None, None, first_n_frames, first_reason, None
 
 
 def _check_step_plumbing(delta_frames, frame_ms, step_ms, quantum_ms):
@@ -441,83 +456,32 @@ def _check_anchor_ordering(anchor_a, anchor_b):
     return False, None
 
 
-def _static_shot_anchor_fallback(m_hashes, m_base, c_hashes, c_base,
-                                 scene_seeds, bracket_frame, side, shift,
-                                 threshold, resolve_shift, shift_search_frames):
+def _frame_scan_anchor(m_hashes, m_base, c_hashes, c_base, scene_seeds, bracket_frame, side,
+                       shift, boundaries, search_frames):
     '''Fallback anchor search for static shots, run only after every scene seed failed.
 
-    Pass 2 (anchor_window=straddle): each scene cut again, with a window centred on the cut
-    while it stays on the common side. Pass 3 (seed_source=frame_scan): every master frame
-    outward from the bracket edge over already-extracted hashes, with the side's one-sided
-    window. Both reuse the regular search functions and validation rules.
+    Every master frame outward from the bracket edge over already-extracted hashes is a
+    seed, with the side's one-sided window (never across a cut). The first seed that shows
+    the same content but cannot be told from a lag within FRAME_SCAN_AMBIGUITY_FRAMES is an
+    ambiguous static span and ends the search.
 
-    Returns (seed, shift, n_frames, reason, ambiguous). ambiguous is set (and seed
-    None) when the frame-scan anchor validates at two or more shifts within
-    +/-FRAME_SCAN_AMBIGUITY_PROBE_FRAMES.
+    Returns (seed, shift, n_frames, reason, ambiguous).
     '''
     one_sided = "backward" if side == "A" else "forward"
-
-    def _run(seeds, direction, admissible, tag, log_rungs):
-        if resolve_shift:
-            seed, resolved, n_frames, reason = _edge_anchor_search(
-                m_hashes, m_base, c_hashes, c_base, seeds, shift, direction,
-                threshold, search_frames=shift_search_frames,
-                window_admissible=admissible, log_tag=tag, log_rungs=log_rungs)
-            return seed, (resolved if seed is not None else shift), n_frames, reason
-        seed, reason, n_frames = _anchor_search(
-            m_hashes, m_base, c_hashes, c_base, seeds, shift, direction,
-            threshold, window_admissible=admissible, log_tag=tag,
-            log_rungs=log_rungs)
-        return seed, shift, n_frames, reason
-
-    first_reason = first_n_frames = None
-
-    cut_seeds = [seed for seed in scene_seeds if seed != bracket_frame]
-    seed, found_shift, n_frames, reason = _run(
-        cut_seeds, "straddle",
-        lambda s, n: _straddle_window_on_common_side(s, n, side, bracket_frame),
-        " anchor_window=straddle", True)
-    tools.log_line(
-        f"scene_anchor: static_shot_fallback anchor_window=straddle side={side} "
-        f"bracket_frame={bracket_frame} cut_seeds={len(cut_seeds)} "
-        f"nominal_shift={shift} anchor={seed} shift={found_shift if seed is not None else None} "
-        f"n_frames={n_frames} "
-        f"distance_frames={None if seed is None else abs(bracket_frame - seed)} "
-        f"reason={reason}\n")
-    if seed is not None:
-        return seed, found_shift, n_frames, None, None
-    if reason is not None:
-        first_reason, first_n_frames = reason, n_frames
-
     tried = set(scene_seeds)
     if side == "A":
-        # [f-n, f) readable needs f-n >= m_base at the ladder's floor.
-        scan = [f for f in range(bracket_frame - 1,
-                                 m_base + MIN_VALIDATION_FRAMES - 1, -1)
+        scan = [f for f in range(bracket_frame - 1, m_base + ANCHOR_WINDOW_MIN_FRAMES - 1, -1)
                 if f not in tried]
     else:
-        # [f, f+n) readable needs f+n <= m_base+len(m_hashes) at the floor.
         scan = [f for f in range(bracket_frame + 1,
-                                 m_base + len(m_hashes) - MIN_VALIDATION_FRAMES + 1)
+                                 m_base + len(m_hashes) - ANCHOR_WINDOW_MIN_FRAMES + 1)
                 if f not in tried]
-    seed, found_shift, n_frames, reason = _run(
-        scan, one_sided, None, " seed_source=frame_scan", False)
-    # A frame-scan window is not distinct by construction: re-validate at neighbouring shifts
-    # and refuse the anchor when two or more validate. Straddle anchors are exempt.
-    ambiguous = None
-    if seed is not None:
-        validating = sorted(
-            {found_shift}
-            | {found_shift + sign * delta
-               for delta in FRAME_SCAN_AMBIGUITY_PROBE_FRAMES for sign in (1, -1)
-               if _validate_anchor(m_hashes, m_base, c_hashes, c_base, seed,
-                                   found_shift + sign * delta, one_sided,
-                                   threshold, n_frames)})
-        if len(validating) >= 2:
-            ambiguous = {"side": side, "anchor": seed, "shift": found_shift,
-                         "n_frames": n_frames,
-                         "ambiguous_shift_span": [validating[0], validating[-1]],
-                         "validating_shifts": validating}
+    seed, found_shift, n_frames, reason, ambiguous = _anchor_search(
+        m_hashes, m_base, c_hashes, c_base, scan, shift, one_sided, boundaries,
+        search_frames=search_frames, log_rungs=False,
+        static_reach=FRAME_SCAN_AMBIGUITY_FRAMES)
+    if ambiguous is not None:
+        ambiguous["side"] = side
     tools.log_line(
         f"scene_anchor: static_shot_fallback seed_source=frame_scan side={side} "
         f"direction={one_sided} bracket_frame={bracket_frame} "
@@ -534,9 +498,7 @@ def _static_shot_anchor_fallback(m_hashes, m_base, c_hashes, c_base,
         return None, shift, n_frames, None, ambiguous
     if seed is not None:
         return seed, found_shift, n_frames, None, None
-    if first_reason is None and reason is not None:
-        first_reason, first_n_frames = reason, n_frames
-    return None, shift, first_n_frames, first_reason, None
+    return None, shift, n_frames, reason, None
 
 
 def island_match(master_path, candidate_path, fps_num, fps_den, low_ms, high_ms, offset_ms,
@@ -576,14 +538,7 @@ def island_match(master_path, candidate_path, fps_num, fps_den, low_ms, high_ms,
         lambda: _extract_hashes(comparer, candidate_path, c_start, c_dur))
     best = None
     for shift in range(nominal - shift_search_frames, nominal + shift_search_frames + 1):
-        matched = readable = 0
-        for m_frame in range(first, last):
-            verdict = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
-                                    m_frame + shift, ANCHOR_HAMMING_THRESHOLD_DEFAULT)
-            if verdict is None:
-                continue
-            readable += 1
-            matched += 1 if verdict else 0
+        matched, readable = _span_matches(m_hashes, m_base, c_hashes, c_base, first, last, shift)
         if readable and (best is None or matched > best[1]
                          or (matched == best[1] and abs(shift - nominal) < abs(best[0] - nominal))):
             best = (shift, matched, readable)
@@ -849,7 +804,6 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                "evidence": f"master_frames={len(m_hashes)} "
                           f"candidate_frames={len(c_hashes)}"}
 
-    threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
     cd_threshold = content_detector_threshold
 
     master_cuts, master_cuts_failed = _scan_memo(
@@ -880,25 +834,22 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         | {f for f in master_cuts_seeds if f <= m_bracket_first}
         | {f - before_shift for f in candidate_cuts_seeds if f - before_shift <= m_bracket_first},
         reverse=True)
-    if resolve_shift:
-        # Each anchor resolves its own shift; `_check_step_plumbing` then compares their
-        # difference with the caller's step.
-        anchor_a, resolved, anchor_a_n_frames, anchor_a_reason = _edge_anchor_search(
-            m_hashes, m_base, c_hashes, c_base, a_seeds_master,
-            before_shift, "backward", threshold, search_frames=shift_search_frames)
-        if anchor_a is not None:
-            before_shift = resolved
-    else:
-        anchor_a, anchor_a_reason, anchor_a_n_frames = _anchor_search(
-            m_hashes, m_base, c_hashes, c_base, a_seeds_master,
-            before_shift, "backward", threshold)
+    # Each anchor resolves its own shift when asked; `_check_step_plumbing` then compares
+    # their difference with the caller's step.
+    search = shift_search_frames if resolve_shift else 0
+    a_boundaries = sorted(set(master_cuts_seeds)
+                          | {f - before_shift for f in candidate_cuts_seeds})
+    anchor_a, resolved, anchor_a_n_frames, anchor_a_reason, _ = _anchor_search(
+        m_hashes, m_base, c_hashes, c_base, a_seeds_master,
+        before_shift, "backward", a_boundaries, search_frames=search)
+    if anchor_a is not None:
+        before_shift = resolved
     anchor_a_ambiguous = anchor_b_ambiguous = None
     if anchor_a is None:
         anchor_a, fallback_shift, fallback_n_frames, fallback_reason, anchor_a_ambiguous = \
-            _static_shot_anchor_fallback(
+            _frame_scan_anchor(
                 m_hashes, m_base, c_hashes, c_base, a_seeds_master,
-                m_bracket_first, "A", before_shift, threshold,
-                resolve_shift, shift_search_frames)
+                m_bracket_first, "A", before_shift, a_boundaries, search)
         if anchor_a is not None:
             before_shift, anchor_a_n_frames = fallback_shift, fallback_n_frames
             anchor_a_reason = None
@@ -909,22 +860,18 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         {m_bracket_last}
         | {f for f in master_cuts_seeds if f >= m_bracket_last}
         | {f - after_shift for f in candidate_cuts_seeds if f - after_shift >= m_bracket_last})
-    if resolve_shift:
-        anchor_b, resolved, anchor_b_n_frames, anchor_b_reason = _edge_anchor_search(
-            m_hashes, m_base, c_hashes, c_base, b_seeds_master,
-            after_shift, "forward", threshold, search_frames=shift_search_frames)
-        if anchor_b is not None:
-            after_shift = resolved
-    else:
-        anchor_b, anchor_b_reason, anchor_b_n_frames = _anchor_search(
-            m_hashes, m_base, c_hashes, c_base, b_seeds_master,
-            after_shift, "forward", threshold)
+    b_boundaries = sorted(set(master_cuts_seeds)
+                          | {f - after_shift for f in candidate_cuts_seeds})
+    anchor_b, resolved, anchor_b_n_frames, anchor_b_reason, _ = _anchor_search(
+        m_hashes, m_base, c_hashes, c_base, b_seeds_master,
+        after_shift, "forward", b_boundaries, search_frames=search)
+    if anchor_b is not None:
+        after_shift = resolved
     if anchor_b is None:
         anchor_b, fallback_shift, fallback_n_frames, fallback_reason, anchor_b_ambiguous = \
-            _static_shot_anchor_fallback(
+            _frame_scan_anchor(
                 m_hashes, m_base, c_hashes, c_base, b_seeds_master,
-                m_bracket_last, "B", after_shift, threshold,
-                resolve_shift, shift_search_frames)
+                m_bracket_last, "B", after_shift, b_boundaries, search)
         if anchor_b is not None:
             after_shift, anchor_b_n_frames = fallback_shift, fallback_n_frames
             anchor_b_reason = None
@@ -984,8 +931,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     consecutive_mismatches = 0
     for m_frame in range(anchor_a, anchor_b):
         c_frame = m_frame + before_shift
-        if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
-                         threshold) is True:
+        if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame) is True:
             split_start_master = m_frame + 1
             consecutive_mismatches = 0
         else:
@@ -998,8 +944,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     consecutive_mismatches = 0
     for m_frame in range(anchor_b - 1, anchor_a - 1, -1):
         c_frame = m_frame + after_shift
-        if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame,
-                         threshold) is True:
+        if _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame) is True:
             split_end_master = m_frame
             consecutive_mismatches = 0
         else:
@@ -1017,15 +962,9 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     # outrun the sustained-mismatch rule, so callers use these to tell divergence from noise.
     span_counts = {}
     for label, span_shift in (("before", before_shift), ("after", after_shift)):
-        matched = readable = 0
-        for m_frame in range(pre_collapse_start_master, pre_collapse_end_master):
-            verdict = _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
-                                    m_frame + span_shift, threshold)
-            if verdict is None:
-                continue
-            readable += 1
-            matched += 1 if verdict else 0
-        span_counts[label] = [matched, readable]
+        span_counts[label] = list(_span_matches(
+            m_hashes, m_base, c_hashes, c_base, pre_collapse_start_master,
+            pre_collapse_end_master, span_shift))
     if sweep_crossed:
         # Still-image degenerate case: the sweeps crossed, so collapse both to anchor B
         # instead of reporting a negative-length interior.
@@ -1277,7 +1216,7 @@ class _ChunkedFrames:
         # Seeding with the anchor window's hashes is required for correctness: a fresh
         # extraction may label the same picture one index apart, invalidating the shift.
         self.base = initial_base if initial_hashes else None
-        self.hashes = list(initial_hashes) if initial_hashes else []
+        self.hashes = initial_hashes if initial_hashes else frame_hash.FrameHashes.empty(colour=True)
         self.chunks_read = 0
         self.seam_deltas = []
         self.file_end_source = None
@@ -1294,9 +1233,13 @@ class _ChunkedFrames:
     def _seam_delta(self, new_base, new_hashes):
         '''Find the label correction that makes a new chunk agree with the held one.
 
+        The held overlap is aligned against the new chunk over
+        +/-EDGE_WALK_SEAM_SEARCH_FRAMES. A static overlap (every delta shows the same
+        picture) keeps the decoded labels (delta 0).
+
         Returns:
-            (delta, agreement), or (None, agreement) when no delta within
-            +/-EDGE_WALK_SEAM_SEARCH_FRAMES reaches EDGE_WALK_SEAM_AGREEMENT_MIN.
+            (delta, content distance at it), or (None, evidence) when the overlap shows
+            other content or cannot be placed.
         '''
         # The overlap is computed: a forward read starts inside the held chunk, a backward
         # read ends inside it.
@@ -1307,30 +1250,19 @@ class _ChunkedFrames:
                 hi = lo + EDGE_WALK_CHUNK_OVERLAP_FRAMES
             else:
                 lo = hi - EDGE_WALK_CHUNK_OVERLAP_FRAMES
-        best_delta, best_agree = None, 0.0
-        for delta in range(-EDGE_WALK_SEAM_SEARCH_FRAMES,
-                           EDGE_WALK_SEAM_SEARCH_FRAMES + 1):
-            agree = total = 0
-            for frame in range(lo, hi):
-                old_i = frame - self.base
-                new_i = frame + delta - new_base
-                if not (0 <= old_i < len(self.hashes)):
-                    continue
-                if not (0 <= new_i < len(new_hashes)):
-                    continue
-                total += 1
-                if FrameComparer._popcount64(
-                        self.hashes[old_i] ^ new_hashes[new_i]) \
-                        <= ANCHOR_HAMMING_THRESHOLD_DEFAULT:
-                    agree += 1
-            if total < MIN_VALIDATION_FRAMES:
-                continue
-            fraction = agree / total
-            if fraction > best_agree:
-                best_delta, best_agree = delta, fraction
-        if best_delta is None or best_agree < EDGE_WALK_SEAM_AGREEMENT_MIN:
-            return None, best_agree
-        return best_delta, best_agree
+        if hi - lo < frame_hash.ALIGN_MIN_FRAMES:
+            return None, f"overlap={hi - lo}"
+        held = self.hashes[lo - self.base:hi - self.base]
+        reach = EDGE_WALK_SEAM_SEARCH_FRAMES
+        alignment = frame_hash.align(held, new_hashes, range(-reach, reach + 1),
+                                     start=lo - new_base)
+        delta = alignment.lag if alignment.ok else (0 if alignment.best is not None else None)
+        if delta is None:
+            return None, alignment.reason
+        content = frame_hash.window_content_distance(held, new_hashes, lo - new_base + delta)
+        if not content <= frame_hash.SAME_CONTENT_MAX:
+            return None, f"{alignment.reason} content={content:.4f}"
+        return delta, round(content, 4)
 
     def get(self, frame):
         '''Return (hash, "ok"), (None, "file_end") or (None, "unreadable") for a master frame.'''
@@ -1368,20 +1300,19 @@ class _ChunkedFrames:
             want_overlap = False
 
         if want_overlap:
-            delta, agreement = self._seam_delta(new_base, new_hashes)
+            delta, evidence = self._seam_delta(new_base, new_hashes)
             if delta is None:
                 tools.log_line(
                     f"scene_anchor: edge_walk_seam side={self.side} "
                     f"read_start={read_start} re_established=False "
-                    f"best_agreement={agreement:.3f} "
-                    f"min={EDGE_WALK_SEAM_AGREEMENT_MIN}\n")
+                    f"evidence={evidence}\n")
                 return None, "unreadable"
             self.seam_deltas.append(delta)
             new_base += delta
             tools.log_line(
                 f"scene_anchor: edge_walk_seam side={self.side} "
                 f"read_start={read_start} re_established=True delta={delta} "
-                f"agreement={agreement:.3f}\n")
+                f"content={evidence}\n")
 
         self.base, self.hashes = new_base, new_hashes
         if 0 <= frame - self.base < len(self.hashes):
@@ -1397,96 +1328,8 @@ class _ChunkedFrames:
         return None, "unreadable"
 
 
-def _anchor_window_distance(m_hashes, m_base, c_hashes, c_base, m_seed,
-                            shift_frames, direction, n_frames):
-    '''Summed Hamming distance over the window _validate_anchor checks, or None if unreadable.
-
-    Unlike a match threshold, it separates shift hypotheses one frame apart.
-    '''
-    total = 0
-    for m_frame in _anchor_window_frames(m_seed, direction, n_frames):
-        mi = m_frame - m_base
-        ci = m_frame + shift_frames - c_base
-        if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
-            return None
-        total += FrameComparer._popcount64(m_hashes[mi] ^ c_hashes[ci])
-    return total
-
-
-def _edge_anchor_search(m_hashes, m_base, c_hashes, c_base, seeds,
-                        nominal_shift, direction, threshold,
-                        search_frames=EDGE_SHIFT_SEARCH_FRAMES,
-                        window_admissible=None, log_tag="", log_rungs=True):
-    '''Like _anchor_search, but also resolve the frame shift around nominal_shift.
-
-    Per seed and rung, each shift within +/-search_frames is validated; among those that
-    validate, the smallest summed Hamming wins (ties toward nominal), then must pass the
-    distinctiveness probe, otherwise the rung widens.
-
-    Returns:
-        (seed, shift, n_frames, reason); seed is None on failure, with reason None if nothing
-        validated, else the first non-distinctive seed's evidence.
-    '''
-    shift_candidates = sorted(
-        range(nominal_shift - search_frames,
-              nominal_shift + search_frames + 1),
-        key=lambda s: (abs(s - nominal_shift), s))
-    last_uninformative_reason = None
-    last_uninformative_n_frames = None
-    for seed in seeds:
-        seed_reason = None
-        seed_n_frames = None
-        for n_frames in VALIDATION_FRAME_LADDER:
-            if window_admissible is not None and not window_admissible(seed, n_frames):
-                if log_rungs:
-                    tools.log_line(
-                        f"scene_anchor: edge_anchor_rung direction={direction} "
-                        f"seed={seed} n_frames={n_frames} validated=False "
-                        f"shift=none distinctive=n/a{log_tag} "
-                        f"rejected=window_crosses_bracket\n")
-                break
-            scored = []
-            for shift in shift_candidates:
-                if not _validate_anchor(m_hashes, m_base, c_hashes, c_base,
-                                        seed, shift, direction, threshold,
-                                        n_frames):
-                    continue
-                distance = _anchor_window_distance(
-                    m_hashes, m_base, c_hashes, c_base, seed, shift,
-                    direction, n_frames)
-                if distance is None:
-                    continue
-                scored.append((distance, abs(shift - nominal_shift), shift))
-            if not scored:
-                if log_rungs:
-                    tools.log_line(
-                        f"scene_anchor: edge_anchor_rung direction={direction} "
-                        f"seed={seed} n_frames={n_frames} validated=False "
-                        f"shift=none distinctive=n/a{log_tag}\n")
-                break
-            scored.sort()
-            best_shift = scored[0][2]
-            distinctive, why_not = _check_anchor_distinctive(
-                m_hashes, m_base, c_hashes, c_base, seed, best_shift,
-                direction, threshold, n_frames)
-            if log_rungs:
-                tools.log_line(
-                    f"scene_anchor: edge_anchor_rung direction={direction} "
-                    f"seed={seed} n_frames={n_frames} validated=True "
-                    f"shift={best_shift} nominal_shift={nominal_shift} "
-                    f"shift_scores={[(d, s) for d, _, s in scored]} "
-                    f"distinctive={distinctive}{log_tag}\n")
-            if distinctive:
-                return seed, best_shift, n_frames, None
-            seed_reason, seed_n_frames = why_not, n_frames
-        if seed_reason is not None and last_uninformative_reason is None:
-            last_uninformative_reason = seed_reason
-            last_uninformative_n_frames = seed_n_frames
-    return None, None, last_uninformative_n_frames, last_uninformative_reason
-
-
 def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
-               edge, threshold, n_sustained):
+               edge, n_sustained):
     '''Walk outward from a validated anchor, one master frame at a time, to the edge.
 
     Compares master and candidate under the anchor's shift and stops on
@@ -1524,7 +1367,7 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
             unreadable_side = "candidate"
             break
         walked += 1
-        if FrameComparer._popcount64(m_hash ^ c_hash) <= threshold:
+        if frame_hash.same_picture(m_hash, c_hash)[0]:
             boundary_frame = frame
             mismatch_run = 0
         else:
@@ -1722,7 +1565,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     m_bracket_last = comparer._frame_index(bracket_high_ms / 1000.0)
     shift_frames = _nominal_shift_frames(offset_ms, fps_num, fps_den)
 
-    # The window also covers the outer side so the +/-4/+/-8 distinctiveness probes stay
+    # The window also covers the outer side so the lags scanned around the shift stay
     # readable; only the seed filter restricts to the common side.
     m_win_start = max(0, m_bracket_first - window_frames)
     m_win_end = m_bracket_last + window_frames
@@ -1778,7 +1621,6 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
                 "evidence": f"master_frames={len(m_hashes)} "
                             f"candidate_frames={len(c_hashes)}"}
 
-    threshold = ANCHOR_HAMMING_THRESHOLD_DEFAULT
     master_cuts, master_cuts_failed = _scene_cut_frames(
         master_path, m_scan_start, m_scan_frames, content_detector_threshold, debug)
     if candidate_rate is None:
@@ -1814,9 +1656,11 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
         anchor_side = "A"
 
     nominal_shift_frames = shift_frames
-    anchor, shift_frames, anchor_n_frames, anchor_reason = _edge_anchor_search(
+    boundaries = sorted(set(master_cuts_seeds)
+                        | {f - shift_frames for f in candidate_cuts_seeds})
+    anchor, shift_frames, anchor_n_frames, anchor_reason, _ = _anchor_search(
         m_hashes, m_base, c_hashes, c_base, seeds, nominal_shift_frames,
-        direction, threshold, search_frames=shift_search_frames)
+        direction, boundaries, search_frames=shift_search_frames)
 
     if anchor is None:
         payload = {"declined": True, "edge": edge, "geometry": geometry,
@@ -1859,8 +1703,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     # seed - 1.
     first_confirmed = anchor if edge == "head" else anchor - 1
     walk = _edge_walk(master_frames, candidate_frames, first_confirmed,
-                      shift_frames, edge, threshold,
-                      EDGE_WALK_SUSTAINED_MISMATCH_FRAMES)
+                      shift_frames, edge, EDGE_WALK_SUSTAINED_MISMATCH_FRAMES)
     if walk["reason"] is not None:
         return {"declined": True, "reason": walk["reason"], "edge": edge,
                 "geometry": geometry,
@@ -1921,7 +1764,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
         f"max_mismatch_run={walk['max_mismatch_run']} "
         f"termination={termination} net_kind={net_kind} "
         f"addition_frames={addition_frames} addition_ms={addition_ms} "
-        f"threshold={threshold} "
+        f"same_frame_max={frame_hash.SAME_FRAME_MAX} "
         f"n_sustained={EDGE_WALK_SUSTAINED_MISMATCH_FRAMES} "
         f"geometry_normalised={geometry.get('normalised')}\n")
 

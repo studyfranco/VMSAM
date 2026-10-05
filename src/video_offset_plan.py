@@ -17,12 +17,16 @@ candidate track is delayed by
 
 Measurement:
   1. both videos must be CFR at the same exact rate, otherwise `fps_mismatch`;
-  2. each video is decoded once to 128x72 BGR, feeding PySceneDetect's ContentDetector and
-     a per-frame 64x36 grayscale pHash; results are cached per file in `work_dir`;
-  3. each scene change away from the file ends gets a 20-frame signature (10 before, 10 after);
-  4. each master change is compared to candidate changes within the search bound (at +-1
-     frame); a clear best match under `PAIR_MEAN_HAMMING_MAX` is one vote; the offset is the
-     most-voted value (ties: lower mean distance);
+  2. each video is decoded once to 128x72, feeding PySceneDetect's ContentDetector and a
+     per-frame grey pHash (`frame_hash`), plus Cb/Cr hashes next to each change; results are
+     cached per file in `work_dir`;
+  3. each master change has two windows of up to `SIDE_FRAMES` frames, one entirely before it
+     and one entirely after it (never across another change);
+  4. each window is aligned (`frame_hash.align`) against the candidate around the candidate
+     changes within the search bound; the change votes when the sides with a clear minimum
+     agree, that offset sits within one frame of a candidate change, and their content
+     distance is under `PAIR_CONTENT_MAX`; the offset is the most-voted value (ties: lower
+     mean distance);
   5. constancy: each third of the master must elect the same offset with at least
      `MIN_PAIRS_PER_THIRD` pairs, no run of pairs may agree on another offset, and the fitted
      trend must stay under one frame -- otherwise `video_offset_not_constant` or
@@ -43,17 +47,18 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+import frame_hash
 import tools
 
 # --------------------------------------------------------------------------------------------
 # Named constants
 # --------------------------------------------------------------------------------------------
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 CACHE_DIRNAME = "video_offset_cache"
 
 # One decode per file at 128x72 BGR for ContentDetector (its HSV means are nearly
-# scale-free); the pHash reads the 64x36 grayscale 2x2 area mean of it.
+# scale-free); the pHash reads the same pictures.
 DECODE_WIDTH = 128
 DECODE_HEIGHT = 72
 # Decoder threads per file, kept low to fit the repair's budget.
@@ -64,17 +69,21 @@ CONCURRENT_DECODES = 2
 # ContentDetector's default threshold.
 SCENE_THRESHOLD = 27.0
 
-# Frames either side of a change.
-SIGNATURE_HALF = 10
+# Window on each side of a change, and the shortest side kept when another change is
+# closer than that.
+SIDE_FRAMES = 12
+SIDE_MIN_FRAMES = 6
 
-# Two changes are the same change when their 20-frame signatures differ by at most this
-# mean number of pHash bits; it keeps true pairs (typically under 6 bits, even across
-# re-encodes) while the rare wrong partners below it are outvoted.
-PAIR_MEAN_HAMMING_MAX = 8.0
+# Lags scanned on each side of every candidate-change hypothesis; the lags around the
+# hypothesis give the margin gate its rivals (a static or repeated shot ties them).
+LAG_REACH = 12
 
-# A vote is kept only when no other offset (more than 1 frame away) comes within this many bits
-# of the winner: a change into black, a fade or a repeated shot matches many offsets equally.
-AMBIGUITY_MARGIN_BITS = 2.0
+# Colour hashes are kept for frames this close to a change (a side window at +-1 frame).
+COLOUR_REACH = SIDE_FRAMES + 1
+
+# A side shows the same content as the candidate when its mean `frame_hash.content_distance`
+# is at most this (fraction of the bits).
+PAIR_CONTENT_MAX = frame_hash.SAME_CONTENT_MAX
 
 # The search bound when no audio delay is supplied: +-SEARCH_BOUND_DEFAULT_S, widened to the
 # duration difference plus SEARCH_BOUND_DURATION_MARGIN_S when the two files differ more.
@@ -128,7 +137,7 @@ class VideoOffsetResult:
         self.matched = fields.pop("matched", 0)
         self.ambiguous = fields.pop("ambiguous", 0)
         self.total = fields.pop("total", 0)
-        self.mean_hamming = fields.pop("mean_hamming", None)
+        self.mean_distance = fields.pop("mean_distance", None)
         self.covered_frames = fields.pop("covered_frames", None)   # (first, last) master frame
         self.thirds = fields.pop("thirds", None)               # [(mode, votes_at_mode, pairs_at_d)]
         self.regimes = fields.pop("regimes", None)
@@ -245,42 +254,17 @@ def check_fps(m_info, c_info):
 # Decode once: scene changes + per-frame pHash
 # --------------------------------------------------------------------------------------------
 
-_BIT_WEIGHTS = (np.uint64(1) << np.arange(64, dtype=np.uint64))
-_DCT_BASES = {}
-
-
-def _dct_rows(n, rows=8):
-    '''Return the first `rows` rows of the orthonormal DCT-II matrix of size n, cached.
-
-    The pHash reads only the top-left 8x8, so two small products replace a full 2-D transform.
-    '''
-    if (n, rows) not in _DCT_BASES:
-        k = np.arange(rows)[:, None]
-        i = np.arange(n)[None, :]
-        basis = np.sqrt(2.0 / n) * np.cos(np.pi * (2 * i + 1) * k / (2 * n))
-        basis[0] /= np.sqrt(2.0)
-        _DCT_BASES[(n, rows)] = basis.astype(np.float64)
-    return _DCT_BASES[(n, rows)]
-
-
-def phash64(gray_frames):
-    '''64-bit DCT pHash of each frame of a `(k, h, w)` array: 2-D DCT-II (orthonormal), top-left
-    8x8, bits set where the coefficient exceeds the median of the 63 non-DC ones.'''
-    frames = np.asarray(gray_frames, dtype=np.float64)
-    _, h, w = frames.shape
-    coeffs = np.einsum("ai,kij,bj->kab", _dct_rows(h), frames, _dct_rows(w),
-                       optimize=True).reshape(len(frames), 64)
-    median = np.median(coeffs[:, 1:], axis=1, keepdims=True)
-    bits = (coeffs > median).astype(np.uint64)
-    return (bits * _BIT_WEIGHTS).sum(axis=1, dtype=np.uint64)
-
-
-def _gray_64x36(bgr):
-    '''Convert (k, 72, 128, 3) uint8 BGR to (k, 36, 64) uint8 luma by 2x2 area mean, via OpenCV.'''
-    import cv2
-    return np.stack([cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY),
-                                (DECODE_WIDTH // 2, DECODE_HEIGHT // 2),
-                                interpolation=cv2.INTER_AREA) for frame in bgr])
+def _colour_rows(cuts, first, count):
+    '''Indices in [first, first + count) within COLOUR_REACH of a change.'''
+    if not cuts or count <= 0:
+        return np.zeros(0, dtype=np.int64)
+    rows = np.arange(first, first + count, dtype=np.int64)
+    marks = np.asarray(sorted(cuts), dtype=np.int64)
+    pos = np.searchsorted(marks, rows)
+    after = marks[np.minimum(pos, len(marks) - 1)]
+    before = marks[np.maximum(pos - 1, 0)]
+    near = (np.abs(after - rows) <= COLOUR_REACH) | (np.abs(rows - before) <= COLOUR_REACH)
+    return rows[near]
 
 
 def _cache_path(work_dir, path):
@@ -297,16 +281,23 @@ class BudgetExceeded(Exception):
 
 
 def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
-    '''Decode a whole video once and return `(cuts, hashes, from_cache)`.
+    '''Decode a whole video once and return `(cuts, hashes, coloured, from_cache)`.
 
-    `cuts` are ContentDetector scene starts (frame indices), `hashes` a uint64 pHash per frame.
-    Raises `tools.decoder_timeout`, `BudgetExceeded` when `deadline` comes first, or
+    `cuts` are ContentDetector scene starts (frame indices); `hashes` is a FrameHashes of every
+    frame whose colour rows are filled only where `coloured` (bool per frame) is set, near the
+    changes. Raises `tools.decoder_timeout`, `BudgetExceeded` when `deadline` comes first, or
     RuntimeError on a failed decode.
     '''
     cache = _cache_path(work_dir, path) if work_dir else None
     if cache and os.path.exists(cache):
         with np.load(cache) as data:
-            return [int(x) for x in data["cuts"]], data["hashes"].copy(), True
+            n = len(data["grey"])
+            colour = np.zeros((n,) + data["colour"].shape[1:], dtype=np.uint64)
+            coloured = np.zeros(n, dtype=bool)
+            colour[data["colour_rows"]] = data["colour"]
+            coloured[data["colour_rows"]] = True
+            hashes = frame_hash.FrameHashes(data["grey"].copy(), colour, data["std"].copy())
+            return [int(x) for x in data["cuts"]], hashes, coloured, True
 
     from scenedetect import ContentDetector, FrameTimecode  # heavy import, only when decoding
 
@@ -342,6 +333,17 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
     drain.start()
     detector = ContentDetector(threshold=SCENE_THRESHOLD)
     cuts, hash_parts, index = [], [], 0
+    # The last two batches stay in memory: a change is reported a few frames after it
+    # happens, and its colour rows are hashed once it is known.
+    held, colour = [], {}
+
+    def _colour_near_changes():
+        for first, rgb in held:
+            for row in _colour_rows(cuts, first, len(rgb)):
+                if int(row) not in colour:
+                    one = frame_hash.hash_frames(rgb[row - first:row - first + 1], colour=True)
+                    colour[int(row)] = one.colour[0]
+
     try:
         while True:
             blob = proc.stdout.read(frame_bytes * BATCH_FRAMES)
@@ -350,16 +352,21 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
             usable = len(blob) - len(blob) % frame_bytes
             frames = np.frombuffer(blob[:usable], dtype=np.uint8).reshape(
                 -1, DECODE_HEIGHT, DECODE_WIDTH, 3)
+            first = index
             for frame in frames:
                 for tc in detector.process_frame(FrameTimecode(index, fps=fps), frame):
                     cuts.append(int(tc.frame_num))
                 index += 1
-            hash_parts.append(phash64(_gray_64x36(frames)))
+            rgb = frames[..., ::-1]
+            hash_parts.append(frame_hash.hash_frames(rgb))
+            held = (held + [(first, rgb)])[-2:]
+            _colour_near_changes()
             if usable != len(blob):
                 break
         if index:
             for tc in detector.post_process(FrameTimecode(index - 1, fps=fps)):
                 cuts.append(int(tc.frame_num))
+            _colour_near_changes()
         proc.wait()
     finally:
         timer.cancel()
@@ -375,63 +382,102 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
     if proc.returncode != 0 or index == 0:
         err = b"".join(c for c in stderr_chunks if c).decode("utf-8", "replace")[-300:]
         raise RuntimeError(f"decode_exit:{proc.returncode} frames={index} {err.strip()}")
-    hashes = np.concatenate(hash_parts) if hash_parts else np.zeros(0, dtype=np.uint64)
-    cuts = sorted(set(c for c in cuts if 0 < c < len(hashes)))
+    grey = frame_hash.FrameHashes.concat(hash_parts)
+    cuts = sorted(set(c for c in cuts if 0 < c < len(grey)))
+    rows = np.asarray(sorted(colour), dtype=np.int64)
+    words = frame_hash.COLOUR_BITS // 64
+    colour_rows = (np.stack([colour[int(r)] for r in rows]) if len(rows)
+                   else np.zeros((0, 2, words), dtype=np.uint64))
+    full = np.zeros((len(grey), 2, words), dtype=np.uint64)
+    coloured = np.zeros(len(grey), dtype=bool)
+    full[rows] = colour_rows
+    coloured[rows] = True
+    hashes = frame_hash.FrameHashes(grey.grey, full, grey.std)
     if cache:
         os.makedirs(os.path.dirname(cache), exist_ok=True)
         tmp = cache + ".tmp.npz"
-        np.savez(tmp, cuts=np.asarray(cuts, dtype=np.int64), hashes=hashes)
+        np.savez(tmp, cuts=np.asarray(cuts, dtype=np.int64), grey=grey.grey, std=grey.std,
+                 colour_rows=rows, colour=colour_rows)
         os.replace(tmp, cache)
-    return cuts, hashes, False
+    return cuts, hashes, coloured, False
 
 
 # --------------------------------------------------------------------------------------------
 # Matching and constancy -- pure functions over scene lists and hash arrays
 # --------------------------------------------------------------------------------------------
 
-def _signature_ok(cut, n):
-    return cut - SIGNATURE_HALF >= 0 and cut + SIGNATURE_HALF <= n
+def _sides(m, m_cuts_sorted, n_m):
+    '''Master windows `(name, first, length)` before and after change `m`, each kept off
+    the neighbouring changes; sides shorter than SIDE_MIN_FRAMES are left out.'''
+    pos = int(np.searchsorted(m_cuts_sorted, m))
+    prev_cut = int(m_cuts_sorted[pos - 1]) if pos > 0 else 0
+    next_cut = int(m_cuts_sorted[pos + 1]) if pos + 1 < len(m_cuts_sorted) else n_m
+    out = []
+    before = max(prev_cut, m - SIDE_FRAMES)
+    if m - before >= SIDE_MIN_FRAMES:
+        out.append(("before", before, m - before))
+    after = min(next_cut, m + SIDE_FRAMES)
+    if after - m >= SIDE_MIN_FRAMES:
+        out.append(("after", m, after - m))
+    return out
 
 
-def match_changes(m_hashes, m_cuts, c_hashes, c_cuts, lo, hi):
-    '''Find, for each master change, the best candidate offset `d` in [lo, hi].
+def match_changes(m_hashes, m_cuts, c_hashes, c_cuts, lo, hi, m_coloured=None,
+                  c_coloured=None):
+    '''Find, for each master change, the candidate offset `d` in [lo, hi].
 
-    Returns `(matched, ambiguous, total)`: `matched` lists `(m_cut, d, mean_hamming)` sorted by
-    m_cut for changes with a clear partner under `PAIR_MEAN_HAMMING_MAX`; `ambiguous` counts
-    changes whose best partner was not distinct.
+    Args:
+        m_hashes, c_hashes: FrameHashes of the whole files (colour needed near changes).
+        m_coloured, c_coloured: optional bool per frame, where the colour rows are valid.
+
+    Returns:
+        `(matched, ambiguous, total)`: `matched` lists `(m_cut, d, mean content distance)`
+        sorted by m_cut; `ambiguous` counts changes no side could place.
     '''
-    m_hashes = np.asarray(m_hashes, dtype=np.uint64)
-    c_hashes = np.asarray(c_hashes, dtype=np.uint64)
-    n_m, n_c = len(m_hashes), len(c_hashes)
-    c_cuts = np.asarray(sorted(c for c in c_cuts if _signature_ok(c, n_c)), dtype=np.int64)
-    span = np.arange(-SIGNATURE_HALF, SIGNATURE_HALF, dtype=np.int64)
+    n_m = len(m_hashes)
+    m_sorted = np.asarray(sorted(set(m_cuts)), dtype=np.int64)
+    c_sorted = np.asarray(sorted(set(c_cuts)), dtype=np.int64)
+    reach = np.arange(-LAG_REACH, LAG_REACH + 1, dtype=np.int64)
     matched, ambiguous, total = [], 0, 0
-    for m in sorted(m_cuts):
-        if not _signature_ok(m, n_m):
+    for m in m_sorted:
+        m = int(m)
+        sides = _sides(m, m_sorted, n_m)
+        if not sides:
             continue
         total += 1
-        left = np.searchsorted(c_cuts, m + lo - 1, side="left")
-        right = np.searchsorted(c_cuts, m + hi + 1, side="right")
-        near = c_cuts[left:right]
-        if len(near) == 0:
+        left = np.searchsorted(c_sorted, m + lo - 1, side="left")
+        right = np.searchsorted(c_sorted, m + hi + 1, side="right")
+        hyps = c_sorted[left:right] - m
+        if len(hyps) == 0:
             continue
-        ds = np.unique(np.concatenate([near - m - 1, near - m, near - m + 1]))
-        ds = ds[(ds >= lo) & (ds <= hi)]
-        ds = ds[(m + ds - SIGNATURE_HALF >= 0) & (m + ds + SIGNATURE_HALF <= n_c)]
-        if len(ds) == 0:
-            continue
-        sig = m_hashes[m + span]
-        cand = c_hashes[(m + ds)[:, None] + span[None, :]]
-        dist = np.bitwise_count(np.bitwise_xor(cand, sig[None, :])).mean(axis=1)
-        order = np.argsort(dist, kind="stable")
-        best = order[0]
-        if dist[best] > PAIR_MEAN_HAMMING_MAX:
-            continue
-        rivals = [i for i in order[1:] if abs(int(ds[i]) - int(ds[best])) > 1]
-        if rivals and dist[rivals[0]] <= dist[best] + AMBIGUITY_MARGIN_BITS:
+        lags = np.unique((hyps[:, None] + reach[None, :]).ravel())
+        lags = lags[(lags >= lo) & (lags <= hi)]
+        on_cut = set(int(x) for x in np.unique((hyps[:, None] + np.arange(-1, 2)).ravel()))
+        votes = []
+        for _, first, length in sides:
+            side = m_hashes[first:first + length]
+            alignment = frame_hash.align(side, c_hashes, lags, start=first)
+            if alignment.ok:
+                votes.append((alignment.lag, first, length))
+        if not votes:
             ambiguous += 1
             continue
-        matched.append((int(m), int(ds[best]), float(dist[best])))
+        d = votes[0][0]
+        # Sides at different offsets mark a boundary at this change; a lag away from every
+        # candidate change does not confirm it. Neither votes.
+        if any(lag != d for lag, _, _ in votes) or d not in on_cut:
+            continue
+        dists = []
+        for _, first, length in votes:
+            rows = np.arange(first, first + length)
+            if ((m_coloured is not None and not m_coloured[rows].all())
+                    or (c_coloured is not None and not c_coloured[rows + d].all())):
+                break
+            dists.append(frame_hash.window_content_distance(m_hashes[first:first + length],
+                                                            c_hashes, first + d))
+        if len(dists) != len(votes) or not max(dists) <= PAIR_CONTENT_MAX:
+            continue
+        matched.append((m, d, float(np.mean(dists))))
     return matched, ambiguous, total
 
 
@@ -450,9 +496,9 @@ def _mode(values_dists):
 def prove_constant(matched, n_master):
     '''Check that the matched pairs prove one constant offset (module docstring, step 5).
 
-    Returns a dict: status, d, paired, mean_hamming, thirds, regimes, trend_frames, covered.
+    Returns a dict: status, d, paired, mean_distance, thirds, regimes, trend_frames, covered.
     '''
-    out = {"d": None, "paired": 0, "mean_hamming": None, "thirds": [], "regimes": [],
+    out = {"d": None, "paired": 0, "mean_distance": None, "thirds": [], "regimes": [],
            "trend_frames": None, "covered": None}
     d, votes = _mode([(dd, dist) for _, dd, dist in matched])
     if d is None or votes < MIN_PAIRS_PER_THIRD:
@@ -462,7 +508,7 @@ def prove_constant(matched, n_master):
         return out
     agreeing = [(m, dist) for m, dd, dist in matched if dd == d]
     out["d"], out["paired"] = d, len(agreeing)
-    out["mean_hamming"] = sum(dist for _, dist in agreeing) / len(agreeing)
+    out["mean_distance"] = sum(dist for _, dist in agreeing) / len(agreeing)
     out["covered"] = (agreeing[0][0], agreeing[-1][0])
     bounds = [0, n_master // 3, (2 * n_master) // 3, n_master]
     for i in range(3):
@@ -545,8 +591,8 @@ def _log_line(result, bound):
     if result.offset_frames is not None:
         parts.append(f"d={result.offset_frames:+d}fr ({_ms_str(result.offset_ms)} ms) "
                      f"track_delay_ms={_ms_str(result.candidate_track_delay_ms)}")
-    if result.mean_hamming is not None:
-        parts.append(f"mean_hamming={result.mean_hamming:.2f}/{PAIR_MEAN_HAMMING_MAX}")
+    if result.mean_distance is not None:
+        parts.append(f"mean_distance={result.mean_distance:.3f}/{PAIR_CONTENT_MAX}")
     if result.covered_frames is not None and fps is not None:
         a, b = result.covered_frames
         parts.append(f"covered=[{float(a / fps):.1f},{float(b / fps):.1f}]s "
@@ -615,20 +661,21 @@ def measure_video_offset(master_path, candidate_path, work_dir, log=None,
     if errors:
         errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
         return done(VideoOffsetResult(errors[0][0], reason=errors[0][1], **common))
-    (m_cuts, m_hashes, m_cached), (c_cuts, c_hashes, c_cached) = outcomes
+    (m_cuts, m_hashes, m_coloured, m_cached), (c_cuts, c_hashes, c_coloured, c_cached) = outcomes
 
     common.update(master_frames=len(m_hashes), candidate_frames=len(c_hashes),
                   master_scenes=len(m_cuts), candidate_scenes=len(c_cuts),
                   master_cached=m_cached, candidate_cached=c_cached)
     bound = search_bound_frames(fps, m_info["duration_s"], c_info["duration_s"],
                                 audio_delay_hints_ms)
-    matched, ambiguous, total = match_changes(m_hashes, m_cuts, c_hashes, c_cuts, *bound)
+    matched, ambiguous, total = match_changes(m_hashes, m_cuts, c_hashes, c_cuts, *bound,
+                                              m_coloured=m_coloured, c_coloured=c_coloured)
     proof = prove_constant(matched, len(m_hashes))
     status = proof["status"]
     result = VideoOffsetResult(
         status, offset_frames=proof["d"] if status == STATUS_OK else None,
         paired=proof["paired"], matched=len(matched), ambiguous=ambiguous, total=total,
-        mean_hamming=proof["mean_hamming"], covered_frames=proof["covered"],
+        mean_distance=proof["mean_distance"], covered_frames=proof["covered"],
         thirds=proof["thirds"], regimes=proof["regimes"], trend_frames=proof["trend_frames"],
         pairs=matched, best_d=proof["d"], **common)
     return done(result)
@@ -956,7 +1003,7 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
     numbers = (f"fps={result.fps} scenes master={result.master_scenes} "
                f"candidate={result.candidate_scenes} paired={result.paired}/{result.total} "
                f"matched={result.matched} ambiguous={result.ambiguous} "
-               f"mean_hamming={None if result.mean_hamming is None else round(result.mean_hamming, 2)} "
+               f"mean_distance={None if result.mean_distance is None else round(result.mean_distance, 3)} "
                f"covered_frames={result.covered_frames} thirds={result.thirds} "
                f"regimes={result.regimes} trend_frames="
                f"{None if result.trend_frames is None else round(result.trend_frames, 3)} "

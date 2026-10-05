@@ -5,11 +5,13 @@ audio delay sits near a half frame; this module checks the pictures instead.
 
 It only moves the rounded frame by -1, 0 or +1, and only when both videos are
 constant-frame-rate at the same rate (within RATE_TOLERANCE). At K positions
-over the common span it decodes G frames of the first video at `t` and G + 4
-frames of the second around `t + delay` (64x36 grey, one ffmpeg call each).
-Each candidate offset (rounded frame -2..+2) is a sliding G-frame window of the
-second group, scored by mean 64-bit pHash Hamming distance to the first group.
--1/0/+1 vote; +-2 is only a guard, logged and never selected.
+over the common span it decodes 2G frames of the first video from `t`, keeps the
+first G of them that hold no scene cut (so no window straddles a cut), and
+decodes G + 4 frames of the second around that group's time + delay (small RGB,
+one ffmpeg call each). Each candidate offset (rounded frame -2..+2) is a sliding
+G-frame window of the second group, scored by `frame_hash.align` (mean grey
+pHash distance; a position counts only when its minimum is clear of the lags two
+frames away). -1/0/+1 vote; +-2 is only a guard, logged and never selected.
 
 Decision (every outcome on ONE `log_always` line, `frame_snap ...`):
   * the offset with the lowest total over the valid positions, IF it wins at a
@@ -38,31 +40,39 @@ import threading
 import time
 
 import numpy as np
+from PIL import Image
 
+import frame_hash
 import tools
 
 # -- tunables ----------------------------------------------------------------
 POSITIONS = 8            # K: positions spread over the common span
 GROUP_FRAMES = 12        # G: consecutive frames compared at each position
+REF_DECODE_FRAMES = 2 * GROUP_FRAMES   # first-video frames decoded to find a cut-free group
 EDGE_FRACTION = 0.05     # the first/last 5 % of the common span are never used
 VOTE_OFFSETS = (-1, 0, 1)
 GUARD_OFFSETS = (-2, 2)  # logged, never selected
 REACH = 2                # frames of the second video decoded on each side
-WIDTH, HEIGHT = 64, 36
+WIDTH, HEIGHT = frame_hash.FRAME_WIDTH, frame_hash.FRAME_HEIGHT
 THREADS = 3
+# Group statistics (black, static) are read on a 64x36 area-averaged picture.
+STATS_SIZE = (64, 36)
 # A group whose mean inter-frame difference (grey levels, 0-255, on the 64x36
 # picture) is below this cannot tell one frame from its neighbour.
 STATIC_MEAN_DIFF = 0.3
 # A frame darker than this mean AND flatter than BLACK_STD is black.
 BLACK_MEAN = 18.0
 BLACK_STD = 6.0
-# A position where even the best of the five windows is this far (Hamming
-# bits out of 64) matches nothing: the delay does not hold there (a step, a
-# recap cut), so it votes for nothing. Unrelated pictures sit near 32; the
-# same picture re-encoded, 0-3.
-UNMATCHED_HAMMING = 12.0
-# Required relative margin of the winner's total over the runner-up's.
-MARGIN_MIN = 0.10
+# ContentDetector threshold for a cut inside a first-video group (its default).
+GROUP_CUT_THRESHOLD = 27.0
+# A position whose best window is this far (`frame_hash.content_distance`,
+# fraction of the bits, mean over the group) shows other content: the delay does
+# not hold there (a step, a recap cut), so it votes for nothing.
+UNMATCHED_DISTANCE = frame_hash.SAME_CONTENT_MAX
+# Required relative margin of the winner's total over the runner-up's (right winners: median
+# 0.84, 0.4 % under 0.20; wrong winners: median 0.18).
+MARGIN_MIN = 0.20
+# Fewest valid positions for a decision (wrong decisions: 0.12 % at 5, 0.19 % at 4).
 MIN_VALID_POSITIONS = 5
 # Two rates are "the same" when |a/b - 1| <= this: it absorbs millisecond
 # container timestamps (18965/791 vs 24000/1001) but keeps 1001/1000 pairs
@@ -151,110 +161,115 @@ def _duration_s(video_track):
 # -- decoding ----------------------------------------------------------------
 
 def decode_group(path, stream_order, start_s, n_frames):
-    '''Decode `n_frames` 64x36 grey frames from `start_s`.
+    '''Decode `n_frames` small RGB frames from `start_s`.
 
     Frame times are read from showinfo (`start_s + pts_time`), not assumed,
     so an inexact seek shifts the times rather than the comparison.
 
     Returns:
-        (frames array of shape (n, 36, 64), times array in seconds).
+        (frames array of shape (n, HEIGHT, WIDTH, 3) uint8, times array in seconds).
     '''
     start_s = max(0.0, float(start_s))
     cmd = [tools.software["ffmpeg"], "-hide_banner", "-nostdin", "-threads", str(THREADS),
            "-ss", f"{start_s:.6f}", "-i", path, "-map", f"0:{stream_order}",
            "-frames:v", str(n_frames), "-an", "-sn",
-           "-vf", f"showinfo,scale={WIDTH}:{HEIGHT}:flags=area,format=gray",
-           "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]
+           "-vf", f"showinfo,scale={WIDTH}:{HEIGHT}:flags=area,format=rgb24",
+           # passthrough: the raw output must hold exactly the frames showinfo lists
+           # (the default constant-rate output may duplicate the first one)
+           "-fps_mode", "passthrough",
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
     timeout = tools.decoder_timeout_for(n_frames / 10.0)
     try:
         done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     except subprocess.TimeoutExpired:
         raise tools.decoder_timeout("frame_snap_decode", timeout, f"file={path} start_s={start_s}")
-    size = WIDTH * HEIGHT
-    count = len(done.stdout) // size
-    frames = np.frombuffer(done.stdout[:count * size], dtype=np.uint8).reshape(count, HEIGHT, WIDTH).astype(np.float32)
+    frames = frame_hash.frames_from_raw(done.stdout, WIDTH, HEIGHT, 3)
     pts = [float(x) for x in _PTS_RE.findall(done.stderr.decode("utf-8", "replace"))]
-    count = min(count, len(pts))
+    count = min(len(frames), len(pts))
     times = np.array([start_s + p for p in pts[:count]], dtype=np.float64)
     return frames[:count], times
 
 
-# -- distance ----------------------------------------------------------------
+# -- group checks ------------------------------------------------------------
 
-def _dct_matrix(n):
-    k = np.arange(n)[:, None]
-    i = np.arange(n)[None, :]
-    m = np.cos(np.pi * (2 * i + 1) * k / (2 * n)) * np.sqrt(2.0 / n)
-    m[0, :] /= np.sqrt(2.0)
-    return m
-
-
-_DCT_H = _dct_matrix(HEIGHT)
-_DCT_W = _dct_matrix(WIDTH)
+def _stats_frames(frames):
+    '''Grey 64x36 area-averaged float copies of RGB (or grey) frames.'''
+    grey = frame_hash.grey_frames(frames) if np.ndim(frames) == 4 else np.asarray(frames, np.uint8)
+    if len(grey) == 0:
+        return np.zeros((0, STATS_SIZE[1], STATS_SIZE[0]), np.float32)
+    return np.stack([np.asarray(Image.fromarray(g, "L").resize(STATS_SIZE, Image.BOX), np.float32)
+                     for g in grey])
 
 
-def phash(frame):
-    '''64-bit perceptual hash of one 64x36 grey frame.
+def group_cuts(frames):
+    '''Indices of the frames of a run of RGB frames that start a new shot (ContentDetector).'''
+    from scenedetect import ContentDetector, FrameTimecode
+    detector = ContentDetector(threshold=GROUP_CUT_THRESHOLD, min_scene_len=1)
+    cuts = []
+    for index, frame in enumerate(frames):
+        # ContentDetector reads BGR
+        for tc in detector.process_frame(FrameTimecode(index, fps=24.0),
+                                         np.ascontiguousarray(frame[..., ::-1])):
+            cuts.append(int(tc.frame_num))
+    return cuts
 
-    2-D DCT, 8x8 lowest frequencies, bit = coefficient above their median (DC
-    excluded). Same construction as `frame_compare`'s and
-    `video_offset_plan.phash64`, but intentionally not shared: on flat frames
-    the AC coefficients are rounding noise and each arithmetic path rounds
-    differently, so sharing would shift this module's thresholds.'''
-    coeffs = (_DCT_H @ frame @ _DCT_W.T)[:8, :8].flatten()
-    median = np.median(coeffs[1:])
-    bits = coeffs > median
-    return int(sum(1 << i for i, b in enumerate(bits) if b))
 
-
-def hamming(a, b):
-    '''Number of differing bits between two hashes.'''
-    return (a ^ b).bit_count()
+def cut_free_start(frames, length=GROUP_FRAMES):
+    '''Start of the first run of `length` frames that holds no scene cut, or None.'''
+    cuts = group_cuts(frames)
+    for start in range(0, len(frames) - length + 1):
+        if not any(start < cut < start + length for cut in cuts):
+            return start
+    return None
 
 
 def group_is_usable(frames):
     '''Check that a group is long enough, not black and not static.
+
+    Args:
+        frames: (n, h, w, 3) RGB frames.
 
     Returns:
         (True, "") or (False, reason).
     '''
     if len(frames) < GROUP_FRAMES:
         return False, f"short:{len(frames)}"
-    means = frames.reshape(len(frames), -1).mean(axis=1)
-    stds = frames.reshape(len(frames), -1).std(axis=1)
-    if np.sum((means < BLACK_MEAN) & (stds < BLACK_STD)) > len(frames) // 2:
+    stats = _stats_frames(frames)
+    means = stats.reshape(len(stats), -1).mean(axis=1)
+    stds = stats.reshape(len(stats), -1).std(axis=1)
+    if np.sum((means < BLACK_MEAN) & (stds < BLACK_STD)) > len(stats) // 2:
         return False, "black"
-    motion = float(np.mean(np.abs(np.diff(frames, axis=0))))
+    motion = float(np.mean(np.abs(np.diff(stats, axis=0))))
     if motion < STATIC_MEAN_DIFF:
         return False, f"static:{motion:.2f}"
     return True, ""
 
 
+# -- distance ----------------------------------------------------------------
+
 def score_offsets(ref_hashes, ref_times, other_hashes, other_times, base_frames, frame_s):
-    '''Score offsets -2..+2 at one position by mean Hamming distance.
+    '''Score offsets -2..+2 at one position with `frame_hash.align`.
 
     Offset `o` is the G-frame window of the second group starting at
     `anchor + REACH + o`, where `anchor` is located from the decoded frame
     times. Offsets whose window is incomplete are not scored.
 
+    Args:
+        ref_hashes, other_hashes: FrameHashes of the two groups.
+
     Returns:
-        {offset: mean Hamming distance}.
+        ({offset: mean grey distance}, Alignment or None when the groups cannot
+        be paired by their times).
     '''
-    scores = {}
     if len(other_times) == 0 or len(ref_times) == 0:
-        return scores
+        return {}, None
     target = ref_times[0] + (base_frames - REACH) * frame_s
     anchor = int(np.argmin(np.abs(other_times - target)))
     if abs(other_times[anchor] - target) > frame_s / 2.0:
-        return scores
-    g = len(ref_hashes)
-    for offset in VOTE_OFFSETS + GUARD_OFFSETS:
-        first = anchor + REACH + offset
-        window = other_hashes[first:first + g]
-        if first < 0 or len(window) < g:
-            continue
-        scores[offset] = float(np.mean([hamming(x, y) for x, y in zip(ref_hashes, window)]))
-    return scores
+        return {}, None
+    alignment = frame_hash.align(ref_hashes, other_hashes, VOTE_OFFSETS + GUARD_OFFSETS,
+                                 start=anchor + REACH)
+    return dict(alignment.curve), alignment
 
 
 # -- decision ----------------------------------------------------------------
@@ -347,22 +362,38 @@ def measure(first_path, first_stream, second_path, second_stream, rate, delay_ms
                 notes.append("budget")
                 return base_frames, rows, notes, time.monotonic() - started
             # decode starts half a frame early so the frame AT t is the first one
-            ref_frames, ref_times = decode_group(first_path, first_stream, t - frame_s / 2.0, GROUP_FRAMES)
+            frames, times = decode_group(first_path, first_stream, t - frame_s / 2.0,
+                                         REF_DECODE_FRAMES)
+            start = cut_free_start(frames) if len(frames) >= GROUP_FRAMES else 0
+            if start is None:
+                notes.append(f"{t:.1f}:cut")
+                continue
+            ref_frames, ref_times = frames[start:start + GROUP_FRAMES], times[start:start + GROUP_FRAMES]
             usable, why = group_is_usable(ref_frames)
             if not usable:
                 notes.append(f"{t:.1f}:{why}")
                 continue
-            other_start = t + (base_frames - REACH) * frame_s - frame_s / 2.0
+            other_start = ref_times[0] + (base_frames - REACH) * frame_s - frame_s / 2.0
             other_frames, other_times = decode_group(second_path, second_stream, other_start,
                                                      GROUP_FRAMES + 2 * REACH)
-            scores = score_offsets([phash(f) for f in ref_frames], ref_times,
-                                   [phash(f) for f in other_frames], other_times, base_frames, frame_s)
+            ref_hashes = frame_hash.hash_frames(ref_frames, colour=True)
+            other_hashes = frame_hash.hash_frames(other_frames, colour=True)
+            scores, alignment = score_offsets(ref_hashes, ref_times, other_hashes, other_times,
+                                              base_frames, frame_s)
             if not all(o in scores for o in VOTE_OFFSETS):
                 notes.append(f"{t:.1f}:unpaired")
                 continue
-            if min(scores.values()) > UNMATCHED_HAMMING:
-                notes.append(f"{t:.1f}:unmatched:{min(scores.values()):.1f}")
+            if alignment.best is None:
+                notes.append(f"{t:.1f}:{alignment.reason}")
+                continue
+            content = frame_hash.window_content_distance(ref_hashes, other_hashes,
+                                                         alignment.start + alignment.best)
+            if not content <= UNMATCHED_DISTANCE:
+                notes.append(f"{t:.1f}:unmatched:{content:.3f}")
                 break
+            if not alignment.ok:
+                notes.append(f"{t:.1f}:{alignment.reason}")
+                continue
             scores["t"] = t
             rows.append(scores)
             break
@@ -370,7 +401,7 @@ def measure(first_path, first_stream, second_path, second_stream, rate, delay_ms
 
 
 def _fmt_scores(rows):
-    return "[" + "; ".join(f"{r['t']:.0f}s " + ",".join(f"{o:+d}={r[o]:.3f}" for o in sorted(k for k in r if k != "t"))
+    return "[" + "; ".join(f"{r['t']:.0f}s " + ",".join(f"{o:+d}={r[o]:.4f}" for o in sorted(k for k in r if k != "t"))
                            for r in rows) + "]"
 
 
@@ -440,7 +471,7 @@ def snap_for_merge(video_obj_1, video_obj_2, best_video_obj, delay):
             f"totals={ {o: round(v, 3) for o, v in detail.get('totals', {}).items()} } "
             f"margin={round(detail.get('margin', 0.0), 3)} "
             f"guard(+-2)={ {o: round(v, 3) for o, v in detail.get('guard', {}).items()} } "
-            f"hamming={_fmt_scores(rows)} skipped={notes} chosen_offset={chosen:+d} "
+            f"distance={_fmt_scores(rows)} skipped={notes} chosen_offset={chosen:+d} "
             f"final_delay_ms={Decimal((rounded + chosen) * frame_ms)} elapsed_s={elapsed:.1f}\n")
         return final
     except Exception as exc:
