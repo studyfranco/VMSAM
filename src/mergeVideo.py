@@ -16,6 +16,8 @@ from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
 import video
+import integrity
+from audio_extract import StrictDecodeFailed
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -120,7 +122,11 @@ def decript_merge_rules_bester(rules,best,weak):
     rules[best][weak] = True
     
 def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
-    """Check that a short audio extract of each video can be correlated, or raise."""
+    """Check that a short audio extract of each video can be correlated, or raise.
+
+    A source whose audio cannot be decoded ends in the named StrictDecodeFailed
+    refusal instead of the raw ffmpeg dump bubbling up as an uncaught traceback.
+    """
     if maxTime < 60:
         timeTake = strftime('%H:%M:%S',gmtime(maxTime))
     else:
@@ -128,7 +134,15 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         maxTime = 60
     for videoObj in videosObj:
         videoObj.extract_audio_in_part(language,audioParam,cutTime=[["00:00:00",timeTake]])
-        videoObj.wait_end_ffmpeg_progress_audio()
+        try:
+            videoObj.wait_end_ffmpeg_progress_audio()
+        except Exception as e:
+            decode_error_lines = integrity.decode_error_lines(str(e))
+            if decode_error_lines:
+                rc_match = re.search(r"Return code: (-?\d+)", str(e))
+                rc = int(rc_match.group(1)) if rc_match else None
+                raise StrictDecodeFailed(videoObj.filePath, language, rc, decode_error_lines) from e
+            raise
         if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
             raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
         
