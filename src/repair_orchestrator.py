@@ -2012,20 +2012,38 @@ def _blind_span_outcome(hole, domain, blind, candidate_path):
     clean through the whole span and touched the far anchor (`sweep_crossed`), which is what a
     held black or static picture produces -- it matches either offset, so neither walk ever
     finds a mismatch to stop on. The picture is never read past the anchors in that case: the
-    frame gap is their own shift difference, and `locate_scene_anchors` has already collapsed
-    the cut to the instant just before Anchor B's first frame (`master_start_frame ==
-    master_end_frame == anchor_b_frame`). No audio placement is involved.
+    width is the anchors' own shift difference (in whole frames), and the edit sits just before
+    Anchor B's first frame.
+
+    `locate_scene_anchors` collapses both axes to anchor B (`master_start_frame ==
+    master_end_frame == anchor_b_frame`), which loses the gap whenever it must fill from the
+    master (`video_cut_instant` would then read a 0 ms video width against a non-zero audio
+    fill and always decline). A master fill needs the master span widened to the gap, ending at
+    anchor B; a candidate removal needs no master span at all (the master is untouched), so its
+    collapsed shape is already correct. Either way the candidate side stays a single point at
+    anchor B's own frame, under the shift that survives (`after_shift_frames`): nothing in the
+    candidate is read twice and nothing of it is kept inside the removed/filled span.
     """
-    gap = blind["after_shift_frames"] - blind["before_shift_frames"]
+    before, after = blind["before_shift_frames"], blind["after_shift_frames"]
+    gap = after - before
+    anchor_b = blind["anchor_b_frame"]
     frame_ms = float(domain["frame_ms"])
+    if gap < 0:
+        placed = dict(blind, master_start_frame=anchor_b + gap, master_end_frame=anchor_b,
+                     candidate_start_frame=anchor_b + after, candidate_end_frame=anchor_b + after)
+        decision = "fill_from_master"
+    else:
+        placed = dict(blind, master_start_frame=anchor_b, master_end_frame=anchor_b,
+                     candidate_start_frame=anchor_b + before, candidate_end_frame=anchor_b + after)
+        decision = "remove_from_candidate"
     tools.log_always(
         f"repair: video_undecided_blind_span anchor_a={blind['anchor_a_frame']} "
-        f"anchor_b={blind['anchor_b_frame']} before_shift_frames={blind['before_shift_frames']} "
-        f"after_shift_frames={blind['after_shift_frames']} gap_frames={gap} "
+        f"anchor_b={anchor_b} before_shift_frames={before} "
+        f"after_shift_frames={after} gap_frames={gap} "
         f"gap_ms={round(gap * frame_ms, 3)} "
-        f"decision={'fill_from_master' if gap < 0 else 'remove_from_candidate'} "
-        f"placed_before_frame={blind['anchor_b_frame']} for {candidate_path}\n")
-    return _interior_outcome(hole, domain, blind, HOLE_RESOLVED)
+        f"decision={decision} "
+        f"placed_before_frame={anchor_b} for {candidate_path}\n")
+    return _interior_outcome(hole, domain, placed, HOLE_RESOLVED)
 
 
 def _resolve_interior(hole, domain, master_obj, candidate_obj):
