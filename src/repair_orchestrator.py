@@ -244,6 +244,9 @@ DECLINE_CAUSES = {
     # The audio measures aligned but the video disagrees: a measured fact about the pair, not
     # a failure to measure -- the owner judges it, the pair is not reattempted unchanged.
     "owner_judgment_pending": CLASS_CONCLUSIVE,
+    # The plan does not give back the master's frame count and the picture-only plan could not
+    # replace it: a defect of our plan, not a fact about the pair.
+    "frame_count_mismatch": CLASS_COULD_NOT_RUN,
 }
 
 # Hole-result vocabulary. The audio proposes a zone, the video decides; a hole the video crosses
@@ -4586,6 +4589,20 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
             f"the partial plan is logged; declined, retried at the next run"), None
+    # Whole-file frame count; a plan that does not give back the master's count is replaced by
+    # the picture-only plan, or declined.
+    import frame_count_check
+    frame_count = frame_count_check.check_audio_plan(zones, fills, walk, domain, factor,
+                                                     master_obj, candidate_obj, candidate_path)
+    if frame_count.get("ok") is False:
+        master_stream, candidate_stream = reference["couple"].split("x")
+        return frame_count_check.visual_fallback(frame_count, master_obj, candidate_obj, walk,
+                                                 domain, factor, {
+            "language": language, "work_dir": work_dir, "domain": domain,
+            "quantum_ms": reference["alignment"]["quantum_ms"],
+            "master_stream": master_stream, "candidate_stream": candidate_stream,
+            "resample_routing": resample_routing, "sweep_gate": sweep_gate},
+            candidate_path)
     # Owner ruling 2026-10-06 (the video is the source of truth): every zone's own picture
     # offset is what every delivered piece (rebuilt audio and retimed subtitles alike) is keyed
     # on -- the audio walk only located the zone boundaries. The pipeline only ever points a
@@ -5089,7 +5106,9 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                                   if isinstance(factor, Fraction) else factor))
         return True
     _plan_line("none", candidate_path, step="chimeric", cause=cause)
-    return _terminal(candidate_path, "declined" if cause == "master_cut_short" else "no_plan",
+    return _terminal(candidate_path,
+                     "declined" if cause in ("master_cut_short", "frame_count_mismatch")
+                     else "no_plan",
                      cause, reason,
                      detail={"cross_verification": detail} if detail else None)
 

@@ -1714,6 +1714,16 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
         return "declined", "repair_budget_exceeded", (
             "the repair's budget ran out after the video measurement -- the partial plan is "
             "logged; declined, retried at the next run")
+    import frame_count_check
+    count = frame_count_check.check_constant_plan(master_obj, candidate_obj,
+                                                  orch._decimal(picture_ms), candidate_path)
+    if count.get("ok") is False:
+        orch.step_result("video_anchored", candidate=candidate_path, status="declined",
+                         cause=frame_count_check.FRAME_COUNT_MISMATCH)
+        return "declined", frame_count_check.FRAME_COUNT_MISMATCH, (
+            f"the picture-anchored plan does not give back the master's frame count (expected "
+            f"{float(count['expected']):.3f}, obtained {float(count['obtained']):.3f}, route "
+            f"video_anchored)")
 
     # ---- the plan: one zone per track at the picture's offset -----------------
     work_dir = os.path.join(tools.tmpFolder, "repair", "video_anchored",
