@@ -3106,7 +3106,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                         "decision": "video_width_over_infeasible_audio_interval",
                         "interval": [lo, hi], "edges": [edges["edge_A"], edges["edge_B"]],
                         "video_status": status, "video_s": video_start_s,
-                        "change_point": index})
+                        "change_point": index,
+                        "before_shift_frames": before, "after_shift_frames": after})
                     tools.log_always(
                         f"repair: video_width_over_infeasible_audio_interval "
                         f"change_point={index} video_fill_ms={round(video_fill_ms, 3)} "
@@ -3193,7 +3194,13 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
                             "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
                             "edges": [edges["edge_A"], edges["edge_B"]],
-                            "video_status": status, "video_s": video_s, "change_point": index})
+                            "video_status": status, "video_s": video_s, "change_point": index,
+                            "before_shift_frames": (outcome.get("before_shift_frames")
+                                                    if video_decided or status == HOLE_NO_CUT_CONFIRMED
+                                                    else None),
+                            "after_shift_frames": (outcome.get("after_shift_frames")
+                                                   if video_decided or status == HOLE_NO_CUT_CONFIRMED
+                                                   else None)})
         tools.dev_log(
             f"repair: audio_transition "
             f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
@@ -3319,6 +3326,44 @@ def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
                       "n_windows": len(inside), "zone": len(zones)})
     fills.sort(key=lambda fill: fill["master_start_ms"])
     return zones, fills, None
+
+
+def zone_picture_offsets_from_hole_anchors(zones, transitions, domain):
+    """Read each zone's own picture offset off the pHash anchors already measured resolving
+    its bounding change point(s), instead of a separate scan.
+
+    `zones[k]` (`plan_geometry`'s own numbering) sits between `transitions[k-1]` (its left
+    bound, when `k > 0`) and `transitions[k]` (its right bound, when `k < len(transitions)`).
+    `audio_transitions` already measured, at any change point its anchors and pHash cross-sweep
+    resolved, the frame shift between master and candidate on each side of it
+    (`before_shift_frames`, `after_shift_frames`) -- the zone right after such a change point
+    carries that change point's own `after_shift_frames`, and the zone right before it carries
+    its `before_shift_frames`. Both sides are read when both bounding change points resolved
+    one, and must agree to within one frame (a disagreement is itself not a measured offset --
+    every change point around a zone is independent, so an inconsistency here means the zone's
+    offset is not actually one picture-anchored constant, which `audio_transitions` would need
+    a species of its own to express; until then this zone keeps the audio offset it already has).
+
+    Returns:
+        {zone_index: {"picture_ms": Fraction, "cuts": 1 or 2}} for every zone at least one
+        bounding change point resolved a frame shift for; a zone absent from this dict has no
+        anchors in reach.
+    """
+    frame_ms = domain["frame_ms"]
+    offsets = {}
+    for index, zone in enumerate(zones):
+        left = transitions[index - 1].get("after_shift_frames") if index > 0 else None
+        right = (transitions[index].get("before_shift_frames") if index < len(transitions)
+                else None)
+        if left is not None and right is not None:
+            if abs(left - right) > 1:
+                continue
+            offsets[zone["zone"]] = {"picture_ms": Fraction(left) * frame_ms, "cuts": 2}
+        elif left is not None:
+            offsets[zone["zone"]] = {"picture_ms": Fraction(left) * frame_ms, "cuts": 1}
+        elif right is not None:
+            offsets[zone["zone"]] = {"picture_ms": Fraction(right) * frame_ms, "cuts": 1}
+    return offsets
 
 
 def written_edge_seconds(fills, master_audio_end_s):
@@ -3626,6 +3671,59 @@ def track_pieces(zones, fills, readings, extent_ms, timeline_ms):
     return merged, adjustments, overlaps
 
 
+def apply_picture_offsets(zones, tracks, zone_picture_offsets_ms, candidate_path):
+    """Override every track's per-zone offset with that zone's own measured picture offset.
+
+    Owner ruling 2026-10-06 (video is the source of truth): the zone's own picture offset, read
+    off the pHash anchors already measured resolving its bounding change point(s)
+    (`zone_picture_offsets_from_hole_anchors`), is what every delivered piece is keyed on in
+    that zone -- rebuilt audio and retimed subtitles alike, every track alike. A candidate whose
+    own audio drifts from its own picture inside a zone is a finding only, logged here, never
+    reflected in what is delivered. A zone whose bounding change points carry no video anchor
+    keeps the audio-walk offset it already has, logged the same way.
+
+    Mutates `zones` (so later logging of the plan's geometry reads the delivered offset) and
+    every track's own zone reading in `tracks`.
+
+    Returns:
+        The largest |audio_ms - picture_ms| over every zone a picture offset was measured for
+        (None when no zone had one) -- the file's own expected audio-vs-picture drift, carried
+        forward so the post-build verifier (which independently cross-correlates the delivered
+        audio against the master's) does not mistake this same, already-logged finding for a
+        geometry defect in the comparison-language track.
+    """
+    worst_diff_ms = None
+    for zone in zones:
+        index = zone["zone"]
+        audio_ms = float(zone["offset_ms"])
+        measured = zone_picture_offsets_ms.get(index)
+        if measured is None:
+            tools.log_always(
+                f"repair: picture_audio_offset_diff zone={index} audio_ms={round(audio_ms, 3)} "
+                f"picture_ms=none reason=no_anchors for {candidate_path}\n")
+            continue
+        picture_ms = measured["picture_ms"]  # exact Fraction -- never rounded through a float
+        tools.log_always(
+            f"repair: picture_audio_offset_diff zone={index} audio_ms={round(audio_ms, 3)} "
+            f"picture_ms={round(float(picture_ms), 3)} cuts={measured['cuts']} "
+            f"for {candidate_path}\n")
+        # Decimal(numerator)/Decimal(denominator) at the module's default 28-digit precision --
+        # exact-rational for every value a frame count at a real-world rate produces, unlike
+        # `Decimal(str(round(picture_ms, 3)))`, which would round a repeating fraction (e.g.
+        # 1001/24 ms per frame) to the millisecond and discard its own frame-exactness.
+        zone["offset_ms"] = Decimal(picture_ms.numerator) / Decimal(picture_ms.denominator)
+        for entry in tracks.values():
+            reading = entry["zones"][index]
+            # Only the delivered value changes -- `source` still records whether this track's
+            # own audio was actually read for this zone (the confidence bookkeeping downstream
+            # reports keys on), now just no longer what the delivered offset itself is built
+            # from.
+            reading["offset_ms"] = zone["offset_ms"]
+        diff_ms = abs(audio_ms - float(picture_ms))
+        worst_diff_ms = diff_ms if worst_diff_ms is None else max(worst_diff_ms, diff_ms)
+    return worst_diff_ms
+
+
 @repair_log.timed_phase("orchestrator", "apply_plan", lambda candidate_path, *a, **k: candidate_path)
 def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_obj, context):
     """Apply a resolved plan and build the temporary chimeric file (step 5); decides nothing.
@@ -3704,6 +3802,8 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         step_result("apply_plan", candidate=candidate_path, ok=False,
                     cause="plan_offset_unmeasurable")
         return False, "plan_offset_unmeasurable", offset_failure
+    picture_audio_worst_diff_ms = apply_picture_offsets(
+        zones, tracks, plan_spec.get("zone_picture_offsets_ms") or {}, candidate_path)
 
     # ---- 4. pieces per track -------------------------------------------------
     track_plans = {}
@@ -3792,6 +3892,7 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "rate_source": (None if speed_ratio is None else "rate_arm"),
         "resample_gate": context.get("sweep_gate"),
         "repair_deadline": domain.get("repair_deadline"),
+        "picture_audio_worst_diff_ms": picture_audio_worst_diff_ms,
     }
     step_launch("build", candidate=candidate_path, marker=marker,
                 n_tracks=len(track_plans))
@@ -4494,6 +4595,17 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
             f"the partial plan is logged; declined, retried at the next run"), None
+    # Owner ruling 2026-10-06 (the video is the source of truth): every zone's own picture
+    # offset is what every delivered piece (rebuilt audio and retimed subtitles alike) is keyed
+    # on -- the audio walk only located the zone boundaries. The pipeline only ever points a
+    # scene search at a hole the audio walk already placed (no whole-file or whole-zone scan),
+    # so a zone's picture offset is read off the pHash anchors already measured resolving that
+    # zone's own bounding change point(s) (`audio_transitions`'s `before_shift_frames`/
+    # `after_shift_frames`), never from a separate decode. A candidate whose own audio drifts
+    # from its own picture inside a zone is a finding only (logged below), never reflected in
+    # what is delivered; a zone whose bounding change points carry no video anchor keeps the
+    # audio offset it already has, logged the same way.
+    zone_picture_offsets_ms = zone_picture_offsets_from_hole_anchors(zones, transitions, domain)
     head_written_s, tail_written_s = written_edge_seconds(fills, walk["master_audio_end_s"])
     tagged, tag_reason = tag_decision(len(transitions), head_written_s + tail_written_s)
     step_result("plan_shape_resolved", candidate=candidate_path,
@@ -4505,7 +4617,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     master_stream, candidate_stream = reference["couple"].split("x")
     ok, cause, reason = apply_plan(candidate_path, {
         "zones": zones, "fills": fills, "walk": walk, "head_written_s": head_written_s,
-        "tail_written_s": tail_written_s}, factor, master_obj, candidate_obj, {
+        "tail_written_s": tail_written_s,
+        "zone_picture_offsets_ms": zone_picture_offsets_ms}, factor, master_obj, candidate_obj, {
         "language": language, "work_dir": work_dir, "domain": domain,
         "quantum_ms": reference["alignment"]["quantum_ms"],
         "master_stream": master_stream, "candidate_stream": candidate_stream,

@@ -239,7 +239,8 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
         chapters_path=plan.get("chapters_path"),
         verify=video_anchored is None, verify_tolerance_ms=verify_tolerance_ms,
         deadline=plan.get("repair_deadline"),
-        speed_engine=plan.get("speed_engine") or "asetrate")
+        speed_engine=plan.get("speed_engine") or "asetrate",
+        comparison_tolerance_extra_ms=plan.get("picture_audio_worst_diff_ms"))
 
     assembly["unverified_segment_ms"] = Decimal("0")
     assembly["dropped_corrupt"] = dropped_corrupt
