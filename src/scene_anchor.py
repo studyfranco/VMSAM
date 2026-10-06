@@ -244,7 +244,13 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
     timeout = tools.decoder_timeout_for(n_frames / 24.0)
     fired = []
     try:
-        video = open_video(path)
+        # `open_video`'s default ("opencv") backend hands AV1 to OpenCV's own FFmpeg build,
+        # which picks a hardware-only AV1 decoder on this host and reads 0 frames without
+        # raising (measured: "Your platform doesn't support hardware accelerated AV1 decoding",
+        # `video.frame_number` stays 0, every call silently returns "no scene"). "pyav" opens
+        # with PyAV's own software decode and reads every frame on both the AV1 master and
+        # candidate measured.
+        video = open_video(path, backend="pyav")
         if start_frame > 0:
             video.seek(start_frame)
         sm = SceneManager()
@@ -265,6 +271,11 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
             raise tools.decoder_timeout("pyscenedetect", timeout,
                                         f"file={path} start_frame={start_frame} "
                                         f"n_frames={n_frames}")
+        if video.frame_number == 0:
+            # A 0-frame read is a decoder failure, never "no cut": returning `([], None)` here
+            # would read as a legitimate scene-less clip and feed a false "no anchor" decline
+            # downstream instead of the named, distinguishable cause.
+            return None, "scene_detector_blind_decode"
         scene_list = sm.get_scene_list()
         if len(scene_list) < 2:
             return [], None

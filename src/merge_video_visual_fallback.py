@@ -11,14 +11,28 @@ gates): no builder or verifier of its own.
 Speed: the two files' declared exact frame rates may differ while each side is still
 individually CFR (PAL/NTSC, 1001/1000, ...) -- frames, never time, carry the acceleration, per
 the owner's own rule. `video_offset_plan.detect_speed_ratio` matches scene cuts by FRAME INDEX
-with the lag search centred on the declared rate ratio's own prediction, divides that ratio back
-out of every matched pair, and proves the leftover residual constant across the whole shared
-span with the same `prove_constant` chantier C already runs for a plain offset. A confirmed
-ratio is snapped to the nearest named broadcast-rate fraction (`merge_video_resample
+UNSCALED, the same plain `match_changes`/`prove_constant` chantier C already runs for a no-speed
+offset: a pure declared-rate difference carries the SAME discrete frames on both sides, nothing
+added or dropped, so the ratio cancels out of the candidate-minus-master correspondence exactly
+(checked: `candidate_fps / (ratio_declared x master_fps) == 1`) and scaling the search by that
+ratio would manufacture a drift that the file does not actually carry (replay-E defect,
+corrected: measured on id 33 before its real block -- below -- was found). A confirmed ratio is
+snapped to the nearest named broadcast-rate fraction (`merge_video_resample
 .build_rate_ratio_vocabulary`) and carried through `merge_video_repair.speed_plan_evidence`'s
 own evidence gate (`rate_source="visual_frame_match"`) so `build_repaired_video_object` applies
 it to the loser's audio (exact-fraction `asetrate`) and subtitles (linear retime) before the
 zone plan is built, which is then expressed once, in master time.
+
+id 33's real block (chantier E, item 2) was never the matching math: the master and candidate
+are cropped to two different frame heights (a BluRay's open-matte 1080 px against a WEB
+release's cinematic 800 px crop of the SAME shot). `video_offset_plan.decode_scenes_and_hashes`
+used to scale every frame to its fixed decode box with a plain `scale=W:H`, which stretches
+rather than fits -- the same picture then sits at two different vertical scales on each side,
+and a frame pair that should pHash identical instead read as unrelated (measured: grey distance
+0.465, next to `frame_hash.SAME_FRAME_MAX` 0.07 -- indistinguishable from a wrong lag). Fixed by
+fitting each side to the decode box by its OWN aspect ratio first (letterboxed/pillarboxed,
+never stretched; measured on the same pair: grey distance 0.113, no longer indistinguishable
+from a wrong lag by `frame_hash.align`'s own margin, the only gate this decode feeds).
 
 Two guards, both logged and refused by returning `video_a` unchanged, never raised:
 

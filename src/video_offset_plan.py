@@ -55,7 +55,7 @@ import tools
 # Named constants
 # --------------------------------------------------------------------------------------------
 
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 CACHE_DIRNAME = "video_offset_cache"
 
 # One decode per file at 128x72 BGR for ContentDetector (its HSV means are nearly
@@ -302,9 +302,22 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
     from scenedetect import ContentDetector, FrameTimecode  # heavy import, only when decoding
 
     frame_bytes = DECODE_WIDTH * DECODE_HEIGHT * 3
+    # A plain `scale=W:H` stretches to the target box regardless of the source's own aspect
+    # ratio: two sides cropped to a different frame height (a BluRay's open-matte 16:9 against
+    # a WEB release's cinematic crop of the SAME shot, measured: id 33, 1080px against 800px)
+    # then show the same picture at two different VERTICAL scales, and a pHash of a frame pair
+    # that should read identical instead reads as unrelated (measured: grey distance 0.465, next
+    # to SAME_FRAME_MAX 0.07, barely distinguishable from a wrong lag). Fitting each side by its
+    # own aspect ratio first (letterboxed/pillarboxed into the same box, never stretched) puts
+    # the shared, uncropped dimension back at one common scale (measured: the same pair then
+    # reads 0.113 -- still short of SAME_FRAME_MAX's own single-frame floor, residual encode/
+    # grading drift between two unrelated releases, but no longer indistinguishable from a wrong
+    # lag by `frame_hash.align`'s own margin, which is the only gate this decode feeds).
+    scale = (f"scale={DECODE_WIDTH}:{DECODE_HEIGHT}:force_original_aspect_ratio=decrease:"
+            f"flags=area,pad={DECODE_WIDTH}:{DECODE_HEIGHT}:(ow-iw)/2:(oh-ih)/2")
     cmd = [_ffmpeg(), "-v", "error", "-nostdin", "-threads", str(DECODE_THREADS), "-i", path,
            "-map", "0:v:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough",
-           "-vf", f"scale={DECODE_WIDTH}:{DECODE_HEIGHT}:flags=area", "-pix_fmt", "bgr24",
+           "-vf", scale, "-pix_fmt", "bgr24",
            "-f", "rawvideo", "pipe:1"]
     timeout = tools.decoder_timeout_for(duration_s or 0.0)
     budget_bound = False
@@ -1182,8 +1195,16 @@ def detect_speed_ratio(master_path, candidate_path, work_dir, log=None, deadline
     common = {"master_fps": fps_m, "candidate_fps": fps_c, "ratio_declared": ratio_declared,
               "master_frames": len(m_hashes), "candidate_frames": len(c_hashes)}
     # Same matching `measure_video_offset` runs for the no-speed case, unscaled: a pure speed
-    # change leaves the frame-index correspondence a plain constant, so nothing about the
-    # search needs to know the declared rates differ at all.
+    # change (the same discrete frames, just declared and played at two different rates) leaves
+    # the frame-index correspondence a plain constant -- the declared ratio cancels out of it
+    # exactly (checked: candidate_frame/(ratio_declared x master_frame) = 1 for the owner's own
+    # 24 vs 24000/1001 case), so scaling the search by `ratio_declared` would manufacture a drift
+    # that is not really there. id 33's real block (measured) was never this: the master and
+    # candidate are cropped to two different frame heights (1080 px against 800 px), so the
+    # plain `scale=W:H` `decode_scenes_and_hashes` used to run stretched the same picture to two
+    # different vertical scales -- a frame pair that should read identical instead read as
+    # unrelated (grey distance 0.465, next to `frame_hash.SAME_FRAME_MAX` 0.07). Fixed once, in
+    # `decode_scenes_and_hashes` itself (aspect-preserving pad), not here.
     bound = search_bound_frames(fps_m, m_info["duration_s"], c_info["duration_s"])
     matched, ambiguous, total = match_changes(m_hashes, m_cuts, c_hashes, c_cuts, *bound,
                                               m_coloured=m_coloured, c_coloured=c_coloured)
