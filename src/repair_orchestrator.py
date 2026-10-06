@@ -67,7 +67,12 @@ INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 
 # Time budgets: an overrun is a named decline, never a blocked worker.
 ALIGNMENT_BUDGET_S = 120.0          # one couple's b2_align (`alignment_budget_exceeded`)
-HOLE_BUDGET_S = 300.0               # one hole's frame-exact search (`hole_budget_exceeded`)
+# One hole's frame-exact search (`hole_budget_exceeded`). Raised from 300.0 s (owner, 2026-10-06:
+# "faut augmenter le budget trop strict") after id 735 (Zetman S01E09, change_point_2) measured a
+# genuinely resolvable search that answered `resolved` only past the old 300.0 s budget -- the
+# search was not stuck, only slower than the bound under load. 3x the bound it had already
+# measured exceeding, in the absence of its own completion time in the log.
+HOLE_BUDGET_S = 900.0
 # One candidate's whole repair (`repair_budget_exceeded`): 40 min per started 30-min slice of the
 # master's video, capped at 4 h, so no file is declined for its length alone.
 REPAIR_BUDGET_PER_SLICE_S = 2400.0
