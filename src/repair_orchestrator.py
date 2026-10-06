@@ -1557,18 +1557,27 @@ def frame_domain(master_obj, candidate_obj, speed_factor):
     if speed_factor is not None and speed_factor != 1:
         scale = Fraction(speed_factor)
     video_ratio = candidate_rate / master_rate
+    video_ratio_matches_speed_factor = None if scale is None else video_ratio == scale
+    # A genuine picture speed change re-encodes at a container rate that is exactly the
+    # master's rate times the detected ratio (named fps-conversion ratios are how this
+    # candidate_rate was produced in the first place). When the container's own rate does
+    # not carry that relationship, the detected ratio was measured from the audio alone and
+    # does not describe the picture (e.g. a frame-repeat retiming to a delivery frame rate,
+    # which preserves real time): the picture's own frames are then placed as unscaled.
+    position_scale = scale if video_ratio_matches_speed_factor is not False else None
     return {
         "master_rate": master_rate, "master_rate_source": master_source,
         "candidate_rate": candidate_rate, "candidate_rate_source": candidate_source,
-        "time_scale": scale,
+        "time_scale": position_scale,
         "video_rate_ratio": video_ratio,
-        "video_ratio_matches_speed_factor": (None if scale is None else video_ratio == scale),
+        "video_ratio_matches_speed_factor": video_ratio_matches_speed_factor,
         "master_timeline_ms": master_timeline_ms,
         "candidate_raw_duration_ms": candidate_raw_ms,
         "candidate_equivalent_duration_ms": (
             None if candidate_raw_ms is None
-            else candidate_raw_ms * (Decimal(scale.numerator) / Decimal(scale.denominator)
-                                     if scale is not None else Decimal(1))),
+            else candidate_raw_ms * (Decimal(position_scale.numerator)
+                                     / Decimal(position_scale.denominator)
+                                     if position_scale is not None else Decimal(1))),
         "frame_ms": Fraction(1000) / master_rate,
     }, None
 
