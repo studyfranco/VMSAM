@@ -214,6 +214,9 @@ DECLINE_CAUSES = {
     "video_cut_undetermined": CLASS_COULD_NOT_RUN,
     # The audio's transitions or edges do not tile the timeline (a plan defect, not the pair's):
     "audio_transitions_overlap": CLASS_COULD_NOT_RUN,
+    # A hole status outside the four HOLE_STATUSES_WITH_FRAMES values reached the branch that
+    # places a transition: an internal state the plan does not recognize, never delivered.
+    "hole_status_unhandled": CLASS_COULD_NOT_RUN,
     # The assembly's own refusals (`merge_video_chimeric` / `merge_video_repair`). A refusal of
     # the built file measures the product, not the pair.
     "alignment_contradicts_plan": CLASS_CONCLUSIVE,
@@ -3043,8 +3046,14 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         else:
             # HOLE_STATUSES_WITH_FRAMES carries exactly four statuses; RESOLVED/PINNED took
             # the video_decided branch above and DECLINED returned earlier, so nothing else
-            # reaches here -- never a silent fourth outcome.
-            raise AssertionError(f"unhandled hole status {status!r} at change point {index}")
+            # should reach here -- but a repair never crashes a merge on an unexpected
+            # internal state, so this is a named decline, not a raise.
+            tools.log_always(
+                f"repair: hole_status_unhandled change_point={index} status={status!r} "
+                f"for {candidate_path}\n")
+            return None, ("hole_status_unhandled",
+                          f"an internal hole status {status!r} reached audio_transitions at "
+                          f"change point {index}, outside the four statuses it handles")
         transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
                             "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
                             "edges": [edges["edge_A"], edges["edge_B"]],
