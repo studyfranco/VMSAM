@@ -1771,7 +1771,8 @@ def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms
     narrowed = _two_anchor_call(hole, domain, master_obj, candidate_obj,
                                 front * frame_ms, (front + 1) * frame_ms,
                                 offset_before_ms, offset_after_ms, step_ms, quantum_ms,
-                                probe=f"{probe}_refront_{reading}", resolve_shift=resolve_shift)
+                                probe=f"{probe}_refront_{reading}", resolve_shift=resolve_shift,
+                                accept_step_disagreement=accept_step_disagreement)
     if narrowed["declined"]:
         return _with_claim(narrowed, reading, result)
     if _span_noise_reading(narrowed) is not None:
