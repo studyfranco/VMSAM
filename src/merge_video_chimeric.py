@@ -194,7 +194,16 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
 
     Each source is read once, forward, and pieces are joined by `concat`; every
     piece gets `aformat` because concat refuses mixed formats.
-    Returns (filtergraph, total head padding ms, per-piece head decisions).
+
+    A candidate piece whose own stream starts after the position it needs to read
+    (the candidate's container/Matroska delay) would otherwise yield a head
+    shorter than its slot. That missing head is materialised from the matching
+    master window (the owner's head-fill rule: a metadata delay becomes real
+    material, never a gap), so the delivered track needs no container delay. When
+    no master fill track exists for the language, the gap falls back to silence,
+    the pre-existing convention.
+
+    Returns (filtergraph, total silence padding ms, per-piece head decisions).
     '''
     chains = []
     labels = []
@@ -224,11 +233,39 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
         chains.append(f"{master_entry}asplit={len(master_pieces)}"
                       + "".join(f"[{label}]" for label in master_split))
 
+    # Candidate pieces whose head falls before the candidate stream's own first
+    # sample (its container delay): the missing span, keyed by piece index.
+    candidate_head_fills = {}
+    if candidate_start_ms != None and master_stream_order != None:
+        for i, piece in enumerate(pieces):
+            if piece["source"] != "candidate":
+                continue
+            width_ms = piece["master_end_ms"] - piece["master_start_ms"]
+            missing = min(Decimal(str(candidate_start_ms)) - Decimal(str(piece["source_start_ms"])),
+                          width_ms)
+            if missing > 0:
+                candidate_head_fills[i] = missing
+
+    # A second, independent read of the master stream, trimmed to the exact
+    # master-timeline windows the head fills need; kept apart from `master_entry`
+    # (the gap-filling pieces) since the two sets of windows can overlap or differ.
+    master_fill_entry = None
+    master_fill_split = []
+    if candidate_head_fills:
+        master_fill_entry = "[minhf]"
+        chains.append(f"[1:{master_stream_order}]asetpts=N/SR/TB+STARTPTS{master_fill_entry}")
+        if len(candidate_head_fills) > 1:
+            master_fill_split = [f"hf{i}" for i in range(len(candidate_head_fills))]
+            chains.append(f"{master_fill_entry}asplit={len(candidate_head_fills)}"
+                          + "".join(f"[{label}]" for label in master_fill_split))
+
     # A stream starting after zero yields a head piece shorter than its slot, which
-    # would shift every later piece early; the head is padded with silence.
+    # would shift every later piece early; the head is padded with silence when no
+    # master fill is available for it (see `candidate_head_fills` above otherwise).
     pads = []
     # Head outcomes: "unmeasured" (no stream start), "read_past" (stream starts
-    # after zero but the plan reads past it), "none" (starts at zero), "padded".
+    # after zero but the plan reads past it), "none" (starts at zero), "padded"
+    # (silence), "padded_master" (materialised from the master).
     head_decisions = []
 
     def head_pad(source_start_ms, stream_start_ms, sink, piece_ms):
@@ -268,11 +305,38 @@ def build_audio_filtergraph(pieces, candidate_stream_order, master_stream_order,
             else:
                 entry = candidate_entry
             candidate_index += 1
-            chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
-                          f"asetpts=PTS-STARTPTS"
-                          f"{head_pad(piece['source_start_ms'], candidate_start_ms, pads, width_ms)},"
-                          f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
-                          f"[{label}]")
+            missing = candidate_head_fills.get(i)
+            if missing is not None:
+                # Materialise the candidate's own head delay from the master
+                # instead of silence: trim the matching master window and concat
+                # it ahead of the (correspondingly shorter) candidate content --
+                # the same `start`/`end` the silence path would have read, which
+                # ffmpeg already truncates to what the stream actually has.
+                head_decisions.append({"outcome": "padded_master",
+                                       "stream_start_ms": str(candidate_start_ms),
+                                       "missing_ms": str(missing)})
+                fill_index = sum(1 for d in head_decisions if d["outcome"] == "padded_master") - 1
+                fill_source = (f"[{master_fill_split[fill_index]}]"
+                              if len(master_fill_split) else master_fill_entry)
+                fill_start = piece["master_start_ms"] / Decimal("1000")
+                fill_end = fill_start + (missing / Decimal("1000"))
+                fill_label = f"hfc{i}"
+                content_label = f"p{i}c"
+                chains.append(f"{fill_source}atrim=start={fill_start:.6f}:end={fill_end:.6f},"
+                              f"asetpts=PTS-STARTPTS,"
+                              f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
+                              f"[{fill_label}]")
+                chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
+                              f"asetpts=PTS-STARTPTS,"
+                              f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
+                              f"[{content_label}]")
+                chains.append(f"[{fill_label}][{content_label}]concat=n=2:v=0:a=1[{label}]")
+            else:
+                chains.append(f"{entry}atrim=start={start:.6f}:end={end:.6f},"
+                              f"asetpts=PTS-STARTPTS"
+                              f"{head_pad(piece['source_start_ms'], candidate_start_ms, pads, width_ms)},"
+                              f"aformat=sample_rates={sample_rate}:channel_layouts={layout}"
+                              f"[{label}]")
         elif piece["source"] == "master" and master_stream_order != None:
             start = piece["source_start_ms"] / Decimal("1000")
             end = start + duration
@@ -628,6 +692,12 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     filtergraph, head_pad_ms, head_decisions = build_audio_filtergraph(
         pieces, int(audio["StreamOrder"]), master_stream_order, sample_rate, layout,
         speed_chain, candidate_start_ms, get_stream_start_ms(master_audio), splices)
+
+    materialised_ms = sum((Decimal(d["missing_ms"]) for d in head_decisions
+                          if d["outcome"] == "padded_master"), Decimal("0"))
+    if materialised_ms > 0:
+        tools.log_always(f"chimeric: track_delay_materialised lang={language} "
+                         f"delay_ms={materialised_ms}\n")
 
     command = [tools.software["ffmpeg"], "-y", "-nostdin",
                "-analyzeduration", "1000M", "-probesize", "1000M",
