@@ -22,6 +22,10 @@ class FrameComparer:
         crop_filters: optional {path: "crop=w:h:x:y"} applied before scaling.
         time_scales: optional {path: Fraction r}, r = speed relative to the reference.
 
+    Attributes:
+        mask_box: optional (y0, y1, x0, x1) region of the hashed frame blanked on both
+            files before hashing (a static overlay only one file carries); None by default.
+
     Raises:
         ValueError: on a non-positive rate or time scale.
     """
@@ -67,6 +71,7 @@ class FrameComparer:
                                  f"got {scale} for {scaled_path}")
             if scale != 1:
                 self.time_scales[scaled_path] = scale
+        self.mask_box = None
 
     @staticmethod
     def _round_frac(frac: Fraction) -> int:
@@ -126,10 +131,20 @@ class FrameComparer:
     def _hash_frames(self, blob_bytes):
         """Grey and colour hashes of each frame in a raw rgb24 buffer (FrameHashes)."""
         frames = frame_hash.frames_from_raw(blob_bytes, self.width, self.height, 3)
+        if self.mask_box is not None:
+            frames = mask_frames(frames, self.mask_box)
         hashes = frame_hash.hash_frames(frames, colour=True)
         if self.debug:
             stderr.write(f"[frame_compare] hashed frames: {len(hashes)}\n")
         return hashes
+
+
+def mask_frames(frames, box):
+    '''Return a copy of (n, h, w[, 3]) frames with the (y0, y1, x0, x1) region set to zero.'''
+    y0, y1, x0, x1 = box
+    out = np.array(frames, copy=True)
+    out[:, y0:y1, x0:x1] = 0
+    return out
 
 
 def _nominal_shift_frames(offset_ms, fps_num, fps_den):

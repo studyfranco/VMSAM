@@ -23,7 +23,8 @@ import numpy as np
 import frame_hash
 import tools
 import repair_log
-from frame_compare import FrameComparer, _extract_hashes, parse_positive_rate
+from frame_compare import (FrameComparer, _extract_hashes, _on_comparer_grid, mask_frames,
+                           parse_positive_rate)
 from scenedetect import open_video, SceneManager, ContentDetector
 
 
@@ -88,6 +89,10 @@ FRAME_SCAN_AMBIGUITY_FRAMES = 3
 # of up to 3 frames, so 4 avoids stopping early and master-filling real candidate frames.
 EDGE_WALK_SUSTAINED_MISMATCH_FRAMES = 4
 
+# Luma standard deviation under which two non-flat frames are dim: the same fade read on both
+# files measured single-frame distances above SAME_FRAME_MAX up to a deviation of about 7.
+EDGE_WALK_DIM_STD = 8.0
+
 # Walk chunk length: frame extraction costs ~0.45 s per ffmpeg call plus ~2.5 ms/frame, so
 # 80 s chunks amortise the fixed cost without excessive memory or latency.
 EDGE_WALK_CHUNK_SECONDS = 80.0
@@ -110,6 +115,18 @@ EDGE_GEOMETRY_ASPECT_TOLERANCE = 0.02
 # ambiguity of `_extract_hashes`. Shifts are ranked by the alignment's distance curve, since
 # match counts cannot separate one-frame-apart hypotheses.
 EDGE_SHIFT_SEARCH_FRAMES = 2
+
+# Static overlay (a broadcaster logo burnt into one file): when the walk stops on a sustained
+# mismatch, each corner box of OVERLAY_CORNER_FRACTION of the frame's width and height is
+# blanked on both files over OVERLAY_PROBE_FRAMES master frames past the stop. A corner that
+# alone brings the median single-frame distance from above SAME_FRAME_MAX to at most it is an
+# overlay: the walk is re-run with that corner blanked. Real content past an edge differs over
+# the whole frame, so no corner box can bring it under SAME_FRAME_MAX.
+OVERLAY_CORNER_FRACTION = 0.25
+OVERLAY_PROBE_FRAMES = 48
+# Lags around the walk's shift tried by the probe, which decodes its own short windows and
+# so carries the one-frame labelling ambiguity of `_extract_hashes`.
+OVERLAY_PROBE_LAG_REACH = 2
 
 # Edge decline reasons a wider anchor window may fix.
 EDGE_WINDOW_LADDER_RETRYABLE_REASONS = frozenset(
@@ -1238,6 +1255,76 @@ def _resolve_geometry(master_path, candidate_path):
     return base, {bar_path: crop}, None
 
 
+def _overlay_corner_boxes(width, height):
+    """Return {name: (y0, y1, x0, x1)} for the four corner boxes of a width x height frame."""
+    bw = max(1, int(round(width * OVERLAY_CORNER_FRACTION)))
+    bh = max(1, int(round(height * OVERLAY_CORNER_FRACTION)))
+    return {"top_left": (0, bh, 0, bw), "top_right": (0, bh, width - bw, width),
+            "bottom_left": (height - bh, height, 0, bw),
+            "bottom_right": (height - bh, height, width - bw, width)}
+
+
+def _grid_frames(comparer, path, start_frame, n_frames):
+    """Decode n_frames grid frames of path from master grid frame start_frame (raw RGB)."""
+    blob = comparer._ffmpeg_raw_frames(path, start_frame * comparer.fps_den / comparer.fps_num,
+                                       n_frames * comparer.fps_den / comparer.fps_num)
+    frames = frame_hash.frames_from_raw(blob, comparer.width, comparer.height, 3)
+    picks, _ = _on_comparer_grid(comparer, path, list(range(len(frames))))
+    if not picks:
+        return frames[:0]
+    return frames[np.asarray(picks, dtype=np.int64)]
+
+
+def _overlay_median_distance(m_frames, c_frames, box):
+    """Lowest median single-frame grey distance over the probe lags, or None when unreadable.
+
+    Only frames whose blanked master side is not flat take part.
+    """
+    if box is not None:
+        m_frames, c_frames = mask_frames(m_frames, box), mask_frames(c_frames, box)
+    m_hashes = frame_hash.hash_frames(m_frames)
+    c_hashes = frame_hash.hash_frames(c_frames)
+    reach = OVERLAY_PROBE_LAG_REACH
+    rows = np.array([k for k in np.nonzero(m_hashes.std >= frame_hash.FLAT_STD)[0]
+                     if reach <= k < len(m_hashes) - reach and k + reach < len(c_hashes)],
+                    dtype=np.int64)
+    if len(rows) < frame_hash.ALIGN_MIN_FRAMES:
+        return None
+    return min(float(np.median(frame_hash.distance(m_hashes[rows], c_hashes[rows + lag])))
+               for lag in range(-reach, reach + 1))
+
+
+def _probe_overlay(comparer, master_path, candidate_path, first_frame, n_frames, shift_frames):
+    """Find a corner box that one file's static overlay occupies, past a walk's stop.
+
+    Returns:
+        (box or None, evidence string).
+    """
+    if n_frames < frame_hash.ALIGN_MIN_FRAMES + 2 * OVERLAY_PROBE_LAG_REACH:
+        return None, f"probe_frames={n_frames}"
+    m_frames = _grid_frames(comparer, master_path, first_frame, n_frames)
+    c_frames = _grid_frames(comparer, candidate_path, first_frame + shift_frames, n_frames)
+    n = min(len(m_frames), len(c_frames))
+    if n == 0:
+        return None, f"decoded master={len(m_frames)} candidate={len(c_frames)}"
+    m_frames, c_frames = m_frames[:n], c_frames[:n]
+    unmasked = _overlay_median_distance(m_frames, c_frames, None)
+    scores = {name: _overlay_median_distance(m_frames, c_frames, box)
+              for name, box in _overlay_corner_boxes(comparer.width, comparer.height).items()}
+    evidence = (f"unmasked={unmasked} "
+                + " ".join(f"{name}={'none' if v is None else round(v, 4)}"
+                           for name, v in scores.items()))
+    if unmasked is None or unmasked <= frame_hash.SAME_FRAME_MAX:
+        return None, evidence
+    readable = {name: v for name, v in scores.items() if v is not None}
+    if not readable:
+        return None, evidence
+    best = min(readable, key=readable.get)
+    if readable[best] > frame_hash.SAME_FRAME_MAX:
+        return None, evidence
+    return _overlay_corner_boxes(comparer.width, comparer.height)[best], f"corner={best} {evidence}"
+
+
 class _ChunkedFrames:
     '''One side of the edge walk's frame supply, read in chunks, indexed by master frame.
 
@@ -1381,7 +1468,8 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
                edge, n_sustained):
     '''Walk outward from a validated anchor, one master frame at a time, to the edge.
 
-    Compares master and candidate under the anchor's shift and stops on
+    Compares master and candidate under the anchor's shift (a pair of flat frames counts as
+    the same picture, a pair of dim frames is skipped) and stops on
     "sustained_mismatch" (n_sustained consecutive mismatches), "master_exhausted" or
     "candidate_exhausted". first_confirmed is the outermost frame validation already
     proved (anchor at a head, anchor - 1 at a tail).
@@ -1395,6 +1483,7 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
     walked = 0
     mismatch_run = 0
     max_mismatch_run = 0
+    dim_skipped = 0
     termination = None
     unreadable_side = None
     frame = first_confirmed
@@ -1416,9 +1505,16 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
             unreadable_side = "candidate"
             break
         walked += 1
-        if frame_hash.same_picture(m_hash, c_hash)[0]:
+        # Two flat frames are the same held black picture read through pHash noise; one
+        # flat side against content is a real difference. Two dim, non-flat frames (a fade)
+        # are too noisy to tell apart: they neither confirm nor break the walk.
+        m_std, c_std = float(m_hash.std[0]), float(c_hash.std[0])
+        m_flat, c_flat = m_std < frame_hash.FLAT_STD, c_std < frame_hash.FLAT_STD
+        if (m_flat and c_flat) or frame_hash.same_picture(m_hash, c_hash)[0]:
             boundary_frame = frame
             mismatch_run = 0
+        elif not (m_flat or c_flat) and max(m_std, c_std) < EDGE_WALK_DIM_STD:
+            dim_skipped += 1
         else:
             mismatch_run += 1
             if mismatch_run > max_mismatch_run:
@@ -1438,6 +1534,7 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
             "walked_frames": walked,
             "mismatch_run": mismatch_run,
             "max_mismatch_run": max_mismatch_run,
+            "dim_skipped": dim_skipped,
             "termination": termination,
             "master_end_source": master_frames.file_end_source,
             "candidate_end_source": candidate_frames.file_end_source,
@@ -1753,6 +1850,38 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     first_confirmed = anchor if edge == "head" else anchor - 1
     walk = _edge_walk(master_frames, candidate_frames, first_confirmed,
                       shift_frames, edge, EDGE_WALK_SUSTAINED_MISMATCH_FRAMES)
+    overlay = None
+    if walk["reason"] is None and walk["termination"] == "sustained_mismatch":
+        stop = walk["boundary_frame"]
+        if edge == "head":
+            probe_first = max(0, stop - OVERLAY_PROBE_FRAMES)
+            probe_frames = stop - probe_first
+        else:
+            probe_first = stop + 1
+            probe_frames = max(0, min(OVERLAY_PROBE_FRAMES, master_last_frame - stop))
+        overlay, overlay_evidence = _probe_overlay(
+            comparer, master_path, candidate_path, probe_first, probe_frames, shift_frames)
+        tools.log_line(
+            f"scene_anchor: edge_overlay_probe edge={edge} stop_frame={stop} "
+            f"probe=[{probe_first},+{probe_frames}) shift={shift_frames} "
+            f"overlay={overlay} same_frame_max={frame_hash.SAME_FRAME_MAX} "
+            f"{overlay_evidence}\n")
+    if overlay is not None:
+        # Same seek arguments as the first extraction, so the labels (and the shift) hold.
+        comparer.mask_box = overlay
+        m_base, m_hashes = _extract_hashes(comparer, master_path,
+                                           float(m_win_start_sec), float(m_win_span_sec))
+        c_base, c_hashes = _extract_hashes(comparer, candidate_path,
+                                           float(c_win_start_sec), float(c_win_span_sec))
+        master_frames = _ChunkedFrames(comparer, master_path, "master",
+                                       fps_num, fps_den, master_last_frame, debug,
+                                       initial_base=m_base, initial_hashes=m_hashes)
+        candidate_frames = _ChunkedFrames(comparer, candidate_path, "candidate",
+                                          fps_num, fps_den,
+                                          candidate_last_frame_ceiling, debug,
+                                          initial_base=c_base, initial_hashes=c_hashes)
+        walk = _edge_walk(master_frames, candidate_frames, first_confirmed,
+                          shift_frames, edge, EDGE_WALK_SUSTAINED_MISMATCH_FRAMES)
     if walk["reason"] is not None:
         return {"declined": True, "reason": walk["reason"], "edge": edge,
                 "geometry": geometry,
@@ -1788,6 +1917,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
                 f"boundary={boundary_frame} walked={walk['walked_frames']} "
                 f"mismatch_run={walk['mismatch_run']} "
                 f"max_mismatch_run={walk['max_mismatch_run']} "
+                f"dim_skipped={walk['dim_skipped']} "
                 f"termination={termination} "
                 f"master_end_source={walk['master_end_source']} "
                 f"candidate_end_source={walk['candidate_end_source']} "
@@ -1800,7 +1930,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
                 f"master_detector_failed={master_cuts_failed} "
                 f"candidate_cuts={len(candidate_cuts_seeds)} "
                 f"candidate_detector_failed={candidate_cuts_failed} "
-                f"seeds={len(seeds)}")
+                f"seeds={len(seeds)} overlay_mask={overlay}")
 
     tools.log_line(
         f"scene_anchor: edge_walk edge={edge} anchor_frame={anchor} "
@@ -1815,11 +1945,12 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
         f"addition_frames={addition_frames} addition_ms={addition_ms} "
         f"same_frame_max={frame_hash.SAME_FRAME_MAX} "
         f"n_sustained={EDGE_WALK_SUSTAINED_MISMATCH_FRAMES} "
-        f"geometry_normalised={geometry.get('normalised')}\n")
+        f"geometry_normalised={geometry.get('normalised')} overlay_mask={overlay}\n")
 
     return {
         "declined": False,
         "method": "scene_anchor_single_edge",
+        "overlay_mask": overlay,
         "edge": edge,
         "grid": {"num": fps_num, "den": fps_den},
         "anchor_frame": anchor,
