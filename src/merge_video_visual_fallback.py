@@ -10,6 +10,68 @@ gates): no builder or verifier of its own.
 
 Zero production caller yet: the owner wires the call into the frozen per-language round, inside
 `mergeVideo.sync_merge_video`'s "no common language" branch.
+
+Contract with `mergeVideo.generate_launch_merge_command(dict_with_video_quality_logic,
+dict_file_path_obj, out_folder, common_language_use_for_generate_delay, audioRules)`, called
+unchanged at the end of either flow below:
+
+- `dict_with_video_quality_logic` is the same `already_compared[name_a][name_b] = bool` shape
+  `get_delay_and_best_video` already builds: `name_a`/`name_b` sorted, the stored bool true when
+  `name_a` is the better file. A pairwise loop over `visual_fallback_merge` builds this
+  incrementally -- one entry per call that actually returns a verdict (see below); a call this
+  route *declines* (returns `video_a` with nothing added) records nothing and drops `video_b`
+  from `dict_file_path_obj` instead, the same way `remove_not_compatible_video` already does for
+  an audio-incompatible pair: a path left in `dict_file_path_obj` with no entry anywhere in
+  `dict_with_video_quality_logic` would otherwise still show up in
+  `generate_launch_merge_command`'s own `dict_file_path_obj.keys() - set_bad_video`.
+- `common_language_use_for_generate_delay` has no natural value here (no language is common):
+  use `pick_common_language_use_for_generate_delay(winner)` once, after the whole loop, on the
+  final surviving winner -- it is always one of the winner's own (untouched) audio languages, the
+  only ones `generate_launch_merge_command`'s `keep_best_audio` and
+  `generate_merge_command_other_part` can index without raising, since neither a `.delays` key
+  nor an audio language is otherwise initialized on this route (no `prepare_get_delay` runs).
+- A winner's `sameAudioMD5UseForCalculation` list already carries what `generate_merge_command
+  _common_md5` needs per chimeric loser (`delay_same_md5_audio = Decimal('0')`, set by
+  `merge_video_repair.build_repaired_video_object` itself): no further change.
+
+The owner's own pairwise round, inside `sync_merge_video`'s `if len(commonLanguages) == 0:`
+branch, before its `if audio_counts[most_frequent_language] == 1:` raise:
+
+    dict_with_video_quality_logic = {}
+    winner = videosObj[0]
+    for candidate in videosObj[1:]:
+        name_a, name_b = sorted((winner.filePath, candidate.filePath))
+        n_before = len(winner.sameAudioMD5UseForCalculation)
+        new_winner = merge_video_visual_fallback.visual_fallback_merge(
+            winner, candidate, forced_best_video)
+        if new_winner is winner and len(winner.sameAudioMD5UseForCalculation) == n_before:
+            # declined: nothing was added for `candidate` -- it never joins the merge
+            del dict_file_path_obj[candidate.filePath]
+            videosObj.remove(candidate)
+            continue
+        dict_with_video_quality_logic.setdefault(name_a, {})[name_b] = (new_winner.filePath == name_a)
+        winner = new_winner
+    common_language_use_for_generate_delay = (
+        merge_video_visual_fallback.pick_common_language_use_for_generate_delay(winner))
+    generate_launch_merge_command(dict_with_video_quality_logic, dict_file_path_obj, out_folder,
+                                  common_language_use_for_generate_delay, audioRules)
+
+A future `tools.force_video_comparison` mode (skips every per-language round, always compares by
+picture) reduces to the same loop over every file from the very first one:
+
+    if tools.force_video_comparison:
+        dict_with_video_quality_logic, winner = force_video_comparison_merge(
+            videosObj, dict_file_path_obj, forced_best_video)
+        common_language_use_for_generate_delay = (
+            merge_video_visual_fallback.pick_common_language_use_for_generate_delay(winner))
+        generate_launch_merge_command(dict_with_video_quality_logic, dict_file_path_obj,
+                                      out_folder, common_language_use_for_generate_delay,
+                                      audioRules)
+        return
+
+`force_video_comparison_merge` (the owner's own future function, not part of this module) is the
+same loop as above, lifted out so both call sites share it; it calls `visual_fallback_merge` for
+every file, not only when `commonLanguages` is empty.
 """
 
 from decimal import Decimal
@@ -20,10 +82,9 @@ import tools
 import video
 import video_offset_plan
 
-# A changing video offset (chantier C's zones) passes the same before-any-plan guards as a
-# constant one, but applying several zones through the common delivery path is chantier C's own
-# next step (its diagnostic-only comment on `video_anchored_route`), not wired yet: declined by
-# name rather than built here, unproven, against real media.
+# Kept for callers/tests still matching on the old token: a changing video offset now applies
+# through `_apply_multizone_plan` (`video_offset_plan.video_zone_plan` + `track_pieces`) once
+# `check_zone_compatibility` passes; this value is only ever logged, never returned, from here on.
 DECLINE_ZONE_APPLY_UNAVAILABLE = "video_zone_apply_not_available"
 
 # Failure causes this module names itself, beyond the ones `video_offset_plan` already returns
@@ -39,6 +100,33 @@ def _log_decline(cause, video_a, video_b, detail=""):
     tools.log_always(
         f"repair: visual_fallback_merge declined cause={cause} video_a={video_a.filePath} "
         f"video_b={video_b.filePath}" + (f" {detail}" if detail else "") + "\n")
+
+
+def pick_common_language_use_for_generate_delay(winner):
+    '''Pick `generate_launch_merge_command`'s `common_language_use_for_generate_delay` when the
+    owner's pairwise video-comparison loop leaves no audio language shared by every file.
+
+    No correlation ever runs on this route (every offset was measured on the picture, already
+    baked into each chimeric file by `video_offset_plan`/`merge_video_repair`), so nothing calls
+    `prepare_get_delay` to seed `winner.delays`; `generate_merge_command_other_part` and
+    `generate_launch_merge_command`'s own `keep_best_audio` call both index by this language, and
+    both read it off `winner` -- the overall survivor, the one object whose own `.audios` is
+    never touched by this route (only a loser's track plan is dropped, never the winner's).
+    Picking one of the winner's own languages guarantees both reads succeed.
+
+    Call this once, after the whole pairwise loop, right before `generate_launch_merge_command`
+    (see the module docstring for the owner's exact call site).
+
+    Returns:
+        The chosen language, after setting `winner.delays[language] = Decimal('0')` if it was
+        not already present (a prior per-language round may have left a real, measured delay
+        there; this never overwrites one).
+    '''
+    language = (tools.special_params["original_language"]
+               if tools.special_params["original_language"] in winner.audios
+               else next(iter(winner.audios)))
+    winner.delays.setdefault(language, Decimal('0'))
+    return language
 
 
 def _pick_quality_winner(video_a, video_b):
@@ -126,6 +214,84 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
     return repaired_obj
 
 
+def _apply_multizone_plan(winner, loser, result, groups, language, repair_deadline, work_root):
+    """Build and deliver a multi-zone video-anchored plan; return a repaired object or None.
+
+    Same shape as `_apply_constant_plan`'s one-zone plan, through the same build and delivery
+    path, but laid out by `video_offset_plan.video_zone_plan`: one candidate zone per stable
+    picture offset, the holes between them (and before/after the first/last) filled from the
+    master under the blind-span rule.
+    """
+    import merge_video_chimeric
+    import merge_video_repair
+    import repair_orchestrator as orch
+
+    candidate_path = loser.filePath
+    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
+    work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
+    tools.make_dirs(work_dir)
+
+    zones, fills = video_offset_plan.video_zone_plan(groups, result.frame_ms, timeline_ms)
+    readings = {zone["zone"]: {"offset_ms": zone["offset_ms"]} for zone in zones}
+
+    # Same drop as the constant-offset plan, same reason: no audio track survives verification
+    # against a master that shares no language with it.
+    track_plans = {}
+    for track_language, audio in merge_video_chimeric.iterate_candidate_audios(loser):
+        tools.log_line(f"repair: visual_fallback_audio_dropped stream={audio['StreamOrder']} "
+                       f"language={track_language} reason=no_language_in_common_to_verify_against "
+                       f"for {candidate_path}\n")
+
+    reference_pieces, adjustments, _ = orch.track_pieces(zones, fills, readings, None, timeline_ms)
+    for adjustment in adjustments:
+        tools.log_line(f"repair: plan_edge_adjustment stream=reference "
+                       f"zone={adjustment['zone']} kind={adjustment['kind']} "
+                       f"master_fill_ms={adjustment['master_fill_ms']}\n")
+    chapters_path, _ = merge_video_chimeric.build_delivered_chapters(
+        winner.filePath, candidate_path, reference_pieces, None, timeline_ms, work_dir)
+
+    seam = getattr(loser, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
+    job_start_utc = ((seam or {}).get("job_start_utc")
+                     or "unstamped(no_repair_seam_standalone_run)")
+    marker = f"visual_fallback_zones:n={len(zones)}"
+
+    plan = {
+        "kind": "orchestrator_visual_fallback_zones", "language": language,
+        "reference_stream": None, "quantum_ms": None, "master_path": winner.filePath,
+        "decided_by": "merge_video_visual_fallback.visual_fallback_merge",
+        "segments_dropped_unusable": 0, "speed_margin": None, "speed_engine": None,
+        "speed_margin_absent_reason": "no_rate_relation",
+        "segments": [{"master_start_ms": zone["master_start_ms"],
+                      "master_end_ms": zone["master_end_ms"],
+                      "candidate_offset_ms": zone["offset_ms"],
+                      "candidate_offset_ms_by_stream": {}} for zone in zones],
+        "track_plans": track_plans, "reference_pieces": reference_pieces,
+        "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
+        "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
+        "repair_deadline": repair_deadline,
+        "video_anchored": {"offset_frames": None, "n_zones": len(zones),
+                           "offsets_ms": [str(zone["offset_ms"]) for zone in zones],
+                           "fps": str(result.fps),
+                           "trigger": "visual_fallback_no_common_language_multizone"},
+    }
+    repaired_obj, assembly = merge_video_repair.build_repaired_video_object(
+        loser, winner, plan, path.join(tools.tmpFolder, "repair"), job_start_utc)
+    out_path = getattr(repaired_obj, "filePath", None)
+    if not out_path or not path.exists(out_path):
+        raise merge_video_chimeric.chimeric_error(
+            f"the build returned but the visual-fallback file is not on disk ({out_path})",
+            cause=CAUSE_BUILD_NO_FILE)
+    if seam is not None:
+        seam["repaired_obj"] = repaired_obj
+        seam["assembly"] = assembly
+    merge_video_repair.record(candidate_path, "repaired",
+                              f"visual fallback (no common audio language, {len(zones)} "
+                              f"picture zones): marker '{marker}', master {winner.filePath} "
+                              f"untouched, file {out_path}",
+                              detail={"out_path": out_path, "video_anchored": plan["video_anchored"]})
+    return repaired_obj
+
+
 def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
                           repair_deadline=None, work_root=None):
     '''Merge two files sharing no common audio language by their picture alone.
@@ -194,10 +360,12 @@ def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
             if cause is not None:
                 _log_decline(cause, video_a, video_b, f"n_zones={len(groups)}")
                 return video_a
-            _log_decline(DECLINE_ZONE_APPLY_UNAVAILABLE, video_a, video_b,
-                        f"n_zones={len(groups)} offsets="
-                        + ",".join(f"{d:+d}x{len(m)}" for d, m in groups))
-            return video_a
+            tools.log_always(
+                f"repair: visual_fallback_zones n_zones={len(groups)} offsets="
+                + ",".join(f"{d:+d}x{len(m)}" for d, m in groups)
+                + f" for {loser.filePath}\n")
+            repaired_obj = _apply_multizone_plan(winner, loser, result, groups, language,
+                                                 repair_deadline, work_root)
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:                                           # noqa: BLE001

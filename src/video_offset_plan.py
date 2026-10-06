@@ -938,6 +938,41 @@ def measure_video_zones(master_path, candidate_path, work_dir, log=None,
     return STATUS_ZONES_OK, groups, result
 
 
+def video_zone_plan(groups, frame_ms, timeline_ms):
+    """Build `(zones, fills)` for a multi-zone video plan, shaped like `plan_geometry`'s own.
+
+    One zone per `group_video_zones` run. Between two anchors -- the frames the scene-cut match
+    could not place on either side of a change -- and before the first / after the last zone,
+    the offset is unproven, so the gap is filled from the master: the blind-span rule already
+    used for a refused audio anchor, here applied to every hole a changing picture offset opens.
+    The cut lands just before the right anchor (the next zone's own first matched frame), never
+    inside it, so `track_pieces` reads the gap's width as the anchors' own shift, not any
+    audio step.
+    """
+    zones, fills = [], []
+    for d, members in groups:
+        m_lo, m_hi = members[0][0], members[-1][0]
+        start_ms = orch._decimal(m_lo * frame_ms)
+        end_ms = orch._decimal((m_hi + 1) * frame_ms)
+        zones.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
+                      "offset_ms": orch._decimal(d * frame_ms), "n_windows": len(members),
+                      "zone": len(zones)})
+    if not zones:
+        return zones, fills
+    if zones[0]["master_start_ms"] > 0:
+        fills.append({"master_start_ms": Decimal(0), "master_end_ms": zones[0]["master_start_ms"],
+                      "reason": orch.WHY_TOKEN["head"], "hole": "head", "status": "video_edge"})
+    for i in range(len(zones) - 1):
+        gap_start, gap_end = zones[i]["master_end_ms"], zones[i + 1]["master_start_ms"]
+        if gap_end > gap_start:
+            fills.append({"master_start_ms": gap_start, "master_end_ms": gap_end,
+                          "reason": orch.WHY_TOKEN["interior"], "hole": i, "status": "video_hole"})
+    if zones[-1]["master_end_ms"] < timeline_ms:
+        fills.append({"master_start_ms": zones[-1]["master_end_ms"], "master_end_ms": timeline_ms,
+                      "reason": orch.WHY_TOKEN["tail"], "hole": "tail", "status": "video_edge"})
+    return zones, fills
+
+
 # --------------------------------------------------------------------------------------------
 # Entry point 4: the detection and the route, called by `repair_orchestrator`
 # --------------------------------------------------------------------------------------------
