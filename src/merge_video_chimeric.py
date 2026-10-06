@@ -1840,7 +1840,28 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             verification = verify_on_master_timeline(
                 out_path, master_obj, audio_reports, reference_pieces, verify_tolerance_ms,
                 verify_search_ms, reference_stream, deadline=deadline,
-                envelope=(speed_engine == "atempo" and speed_ratio is not None))
+                envelope=(speed_engine == "atempo" and speed_ratio is not None),
+                comparison_language=comparison_language)
+            dropped_orders = {r["track"] for r in verification if r.get("drop")}
+            if dropped_orders:
+                for r in verification:
+                    if not r.get("drop"):
+                        continue
+                    declined.append({"kind": "audio", "stream_order": r["track"],
+                                     "language": r["language"],
+                                     "reason": f"dropped at verification: outcome={r['outcome']} "
+                                               f"-- its own content does not carry the file's "
+                                               f"geometry, so it is dropped by name instead of "
+                                               f"failing every other track"})
+                audio_reports[:] = [r for r in audio_reports
+                                    if r["stream_order"] not in dropped_orders]
+                if audio_reports or subtitle_reports:
+                    mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
+                                      build_bound(), job_start_utc, chapters_path=chapters_path)
+                else:
+                    raise chimeric_error(
+                        f"nothing could be rebuilt: every candidate track was dropped at "
+                        f"verification ({sorted(dropped_orders)})")
 
         # Fill-content verification always runs and only records; only a budget
         # refusal propagates.
@@ -2693,23 +2714,30 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                               tolerance_ms, search_ms, reference_stream=None, deadline=None,
-                              envelope=False):
+                              envelope=False, comparison_language=None):
     """Probe each rebuilt track against the master and raise if it is off the master's timeline.
 
     Catches plan errors (e.g. a wrong offset sign) that per-piece checks cannot
     see. Per track the outcome is `aligned`, `misaligned`, `uncorrelated`,
     `inconsistent` or `skipped` (no master track in that language, or no signal).
 
+    A non-comparison-language track that misaligns or fails to correlate carries
+    the file's own geometry (one picture-led geometry per file, owner ruling):
+    its own content, not the plan, is suspect, so it is flagged `"drop"` in its
+    result entry instead of failing every other track. Only a misaligned or
+    uncorrelated COMPARISON-language track still raises, since that is the
+    plan-wide error this check exists to catch.
+
     Raises:
         chimeric_error: `alignment_contradicts_plan` or
-            `delivery_offset_exceeds_tolerance`.
+            `delivery_offset_exceeds_tolerance` (comparison-language track only).
     """
     tools.dev_log(f"chimeric: verify_on_master_timeline starting "
                   f"out_path={out_path} master={master_obj.filePath}\n")
     started = time.monotonic()
     results = _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                                          tolerance_ms, search_ms, reference_stream, deadline,
-                                         envelope)
+                                         envelope, comparison_language)
     tools.log_line(f"chimeric: verify_on_master_timeline done seconds="
                    f"{round(time.monotonic() - started, 1)} tracks={len(results)} "
                    f"out_path={out_path}\n")
@@ -2717,7 +2745,8 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
 
 
 def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tolerance_ms,
-                               search_ms, reference_stream, deadline, envelope=False):
+                               search_ms, reference_stream, deadline, envelope=False,
+                               comparison_language=None):
     """Body of `verify_on_master_timeline`.
 
     With `envelope`, windows are compared on their speech envelopes: an atempo
@@ -2915,21 +2944,35 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
 
     misaligned = [r for r in results if r["outcome"] in ("misaligned", "uncorrelated")]
     if len(misaligned):
-        detail = "; ".join(
-            f"track {r['track']} ({r['language']}) off by {r['worst_lag_ms']:.1f} ms"
-            if r["outcome"] == "misaligned" else
-            f"track {r['track']} ({r['language']}) correlates nowhere with the master track "
-            f"its offset was measured on (strongest r={r['strongest_correlation']}, floor "
-            f"{r['correlation_floor']})" for r in misaligned)
-        error = chimeric_error(
-            f"the rebuilt track is not on the master's timeline: {detail}. "
-            f"Tolerance {tolerance_ms} ms. The plan is wrong, not the splice: a "
-            f"uniform offset means the base offset carries the wrong sign, and a "
-            f"residual that changes at a change point means a step was missed",
-            cause="delivery_offset_exceeds_tolerance")
-        error.verification = results
-        error.audios = audio_reports
-        raise error
+        # The comparison-language track carries the plan's own geometry: its misalignment
+        # means the plan itself is wrong (a sign error, a missed step) and stays fatal. Any
+        # other track's misalignment is that track's own content, not the file's single
+        # picture-led geometry -- it is dropped by name instead of failing the whole build.
+        plan_wide = [r for r in misaligned
+                    if comparison_language is not None and r["language"] == comparison_language]
+        if plan_wide:
+            detail = "; ".join(
+                f"track {r['track']} ({r['language']}) off by {r['worst_lag_ms']:.1f} ms"
+                if r["outcome"] == "misaligned" else
+                f"track {r['track']} ({r['language']}) correlates nowhere with the master "
+                f"track its offset was measured on (strongest r={r['strongest_correlation']}, "
+                f"floor {r['correlation_floor']})" for r in plan_wide)
+            error = chimeric_error(
+                f"the rebuilt track is not on the master's timeline: {detail}. "
+                f"Tolerance {tolerance_ms} ms. The plan is wrong, not the splice: a "
+                f"uniform offset means the base offset carries the wrong sign, and a "
+                f"residual that changes at a change point means a step was missed",
+                cause="delivery_offset_exceeds_tolerance")
+            error.verification = results
+            error.audios = audio_reports
+            raise error
+        for r in misaligned:
+            r["drop"] = True
+            tools.log_always(
+                f"chimeric: track_dropped_misaligned stream={r['track']} lang={r['language']} "
+                f"outcome={r['outcome']} tolerance_ms={tolerance_ms} -- not the comparison "
+                f"language, so the file's own geometry is not in doubt; dropped by name, the "
+                f"rest of the build is unaffected\n")
     return results
 
 

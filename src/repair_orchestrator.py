@@ -3743,10 +3743,14 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
             candidate_obj, master_obj, plan, path.join(tools.tmpFolder, "repair"),
             job_start_utc)
     except merge_video_chimeric.chimeric_error as error:
+        cause = getattr(error, "cause", None) or "chimeric_build_refused"
         step_result("build", candidate=candidate_path, ok=False,
-                    cause=getattr(error, "cause", None), error=str(error)[:300],
+                    cause=cause, error=str(error)[:300],
                     seconds=round(time.time() - started, 1))
-        raise
+        # Every other branch of this plan returns a (False, cause, reason) decline; a build
+        # refusal does the same instead of raising out of apply_plan -- a single unbuildable
+        # track (or an unrecoverable plan) is a decline, never a crash of the whole repair.
+        return False, cause, str(error)
     out_path = getattr(repaired_obj, "filePath", None)
     exists = bool(out_path) and path.exists(out_path)
     step_result("build", candidate=candidate_path, ok=exists, out_path=out_path,
