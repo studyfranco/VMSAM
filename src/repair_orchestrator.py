@@ -3018,16 +3018,51 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                 f"fill_ms={round(replaced['fill_s'] * 1000.0, 3)} cut_ms={replaced['cut_ms']} "
                 f"video_status={status} for {candidate_path}\n")
             continue
-        if not edges["feasible"]:
-            replacement = replacement_hole(outcome, domain, edges,
-                                           hole["quantum_ms"] / 1000.0 + 2 * frame)
+        if not edges["feasible"] and status != HOLE_NO_CUT_CONFIRMED:
+            slack = hole["quantum_ms"] / 1000.0 + 2 * frame
+            replacement = replacement_hole(outcome, domain, edges, slack)
+            if replacement is None and status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
+                # Owner ruling 2026-10-06 (study-63): the audio "edges" here only bracket and
+                # witness -- they do not veto a video that already resolved the width. A pair
+                # whose two tracks are different mixes can read common dialogue as "master-only"
+                # and call an ordinary hole infeasible; the video's own anchors do not share that
+                # defect. Width = the anchors' shift gap; accepted when it agrees with the
+                # audio's own step within one quantum + two frames and the video's span sits
+                # inside the audio edges (with the same slack `replacement_hole` uses).
+                frame_ms = frame * 1000.0
+                before, after = outcome["before_shift_frames"], outcome["after_shift_frames"]
+                video_fill_ms = max(0, before - after) * frame_ms
+                tolerance_ms = hole["quantum_ms"] + 2 * frame_ms
+                video_start_s = _frame_s(outcome["master_start_frame"], domain)
+                video_end_s = _frame_s(outcome["master_end_frame"], domain)
+                first, last = min(edges["edge_A"], edges["edge_B"]), max(edges["edge_A"],
+                                                                         edges["edge_B"])
+                if (abs(video_fill_ms - edges["extra_s"] * 1000.0) <= tolerance_ms
+                        and first - slack <= video_start_s
+                        and video_end_s <= last + slack):
+                    transitions.append({
+                        "at_s": video_start_s, "fill_s": video_fill_ms / 1000.0,
+                        "a_ms": point["a_ms"], "b_ms": point["b_ms"],
+                        "decision": "video_width_over_infeasible_audio_interval",
+                        "interval": [lo, hi], "edges": [edges["edge_A"], edges["edge_B"]],
+                        "video_status": status, "video_s": video_start_s,
+                        "change_point": index})
+                    tools.log_always(
+                        f"repair: video_width_over_infeasible_audio_interval "
+                        f"change_point={index} video_fill_ms={round(video_fill_ms, 3)} "
+                        f"audio_step_ms={round(edges['extra_s'] * 1000.0, 3)} "
+                        f"audio_edges_s=[{edges['edge_A']}, {edges['edge_B']}] "
+                        f"master_only_audible_s={edges['master_only_audible']} "
+                        f"for {candidate_path}\n")
+                    continue
             if replacement is None:
+                only = edges.get("master_only_audible")
                 return None, ("hole_width_contradicts_audio_step",
                               f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
                               f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not "
                               f"fit between the audio edges around its audible master-only sound "
-                              f"(interval {edges['interval']}), and the video does not pin a "
-                              f"replacement (status {status}, "
+                              f"({'span ' + str(only) if only else 'no audible master-only span'}"
+                              f"), and the video does not pin a replacement (status {status}, "
                               f"{outcome.get('resolver_reason') or 'frames outside the edges or an excess of 1 s or more'})")
             transitions.append({"at_s": replacement["start_s"], "fill_s": replacement["fill_s"],
                                 "a_ms": point["a_ms"], "b_ms": point["b_ms"],
