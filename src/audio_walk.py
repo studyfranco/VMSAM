@@ -292,12 +292,20 @@ def _probe_gaps(m, c, rows, win_s, search_ms):
 
 
 def walk(m, c, seeds, win_s=WALK_WINDOW_S, hop_s=WALK_HOP_S, search_ms=WALK_SEARCH_MS,
-         t0=0.0, t1=None, probe_gaps=True):
+         t0=0.0, t1=None, probe_gaps=True, _reseeded=False):
     """Return one row per master window: offset (sub-sample), NCC, second peak and status.
 
     Each window is searched first around the previous `ok` offset (continuity), and only when
     that fails around every seed, best NCC winning; continuity avoids jumping to a repeated copy
-    of the audio. `probe_gaps` then runs `_probe_gaps` on the unmeasured gaps."""
+    of the audio. `probe_gaps` then runs `_probe_gaps` on the unmeasured gaps.
+
+    When no seed covers the true head offset, the first seeded window can lock onto any other
+    `ok` peak (a repetitive-music secondary peak included), and continuity then holds that wrong
+    level until `_probe_gaps` finds the true offset -- but only in the rows still unmeasured, so
+    an already-`ok` wrong level is never revisited. If the probe finds an offset farther than
+    `search_ms` from every seed, the whole walk is re-run once with it added, which lets
+    continuity reach the true offset from its own start; `_reseeded` bounds this to one extra
+    pass."""
     end = len(m) / WALK_RATE if t1 is None else min(t1, len(m) / WALK_RATE)
     last = end - win_s
     rows = []
@@ -338,7 +346,18 @@ def walk(m, c, seeds, win_s=WALK_WINDOW_S, hop_s=WALK_HOP_S, search_ms=WALK_SEAR
                 current = best["off"]
         rows.append(row)
         t += hop_s
-    return _probe_gaps(m, c, rows, win_s, search_ms) if probe_gaps else rows
+    if not probe_gaps:
+        return rows
+    probed = _probe_gaps(m, c, rows, win_s, search_ms)
+    if _reseeded:
+        return probed
+    found_offsets = {row["off"] for row in probed if row.get("seed") == "gap_probe"}
+    new_seeds = [off for off in found_offsets
+                if all(abs(off - seed) >= search_ms for seed in seeds)]
+    if not new_seeds:
+        return probed
+    return walk(m, c, list(seeds) + new_seeds, win_s, hop_s, search_ms, t0, t1,
+               probe_gaps=True, _reseeded=True)
 
 
 def levels(rows):
