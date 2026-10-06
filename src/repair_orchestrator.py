@@ -1815,22 +1815,15 @@ def _pin_point(result):
     """Locate the end of the ambiguous (static) zone, where the N-frame edit is placed in one block.
 
     Crossed master fronts pin at the forward front; candidate fronts overlapping by k frames
-    pin at the backward front + k; a refused ambiguous anchor pins just before the firm anchor
-    on the right (anchor B) whenever it was seated -- the same "just before the right anchor"
-    rule as a blind span, since one ambiguous side is this same picture-cannot-decide case, only
-    with the other anchor still missing rather than both sweeps crossing. Only when B itself was
-    never seated does the pin fall back to the ambiguous anchor's own position. Either way the
-    refused window's frame count is reported as the width.
+    pin at the backward front + k. Only reached for a resolved two-anchor cross-sweep whose
+    fronts crossed or overlapped (`_interior_verdict`'s non-declined branch); a refused
+    ambiguous anchor is handled by `_ambiguous_pin_outcome`, which delegates to
+    `_blind_span_outcome` instead -- the same picture-cannot-decide case, with one anchor
+    missing rather than both sweeps crossing.
 
     Returns:
-        (pin_frame, ambiguous_frames)
+        (pin_frame, overlap_or_width)
     """
-    if result.get("declined"):
-        if result.get("anchor_b_frame") is not None:
-            ambiguous = result.get("anchor_a_ambiguous") or result.get("anchor_b_ambiguous")
-            return result["anchor_b_frame"], ambiguous["n_frames"]
-        ambiguous = result.get("anchor_b_ambiguous") or result.get("anchor_a_ambiguous")
-        return ambiguous["anchor"], ambiguous["n_frames"]
     if result["sweep_crossed"]:
         start, end = result["pre_collapse_start_master"], result["pre_collapse_end_master"]
         return start, start - end
@@ -1908,58 +1901,44 @@ def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
     return outcome
 
 
-def _ambiguous_pin_outcome(hole, domain, result):
-    """Build a static-span pin outcome when `scene_anchor` refused an anchor as ambiguous.
+def _ambiguous_pin_outcome(hole, domain, result, candidate_path):
+    """Route a refused ambiguous anchor through the blind-span placement.
 
-    N comes from the audio step (a shift read inside a static zone is what is ambiguous); the
-    firm side's shift anchors the other. No sweep ran, so walk lengths are None.
+    One side could not be seated because its content is self-similar (a black or static zone)
+    -- the same picture-cannot-decide case a blind span is, with one anchor missing instead of
+    both sweeps crossing. The firm side's resolved shift and the ambiguous side's own measured
+    shift (nominal when it was never seated) are both real anchor offsets, so their difference
+    is exactly the width `_blind_span_outcome` computes from a crossed sweep; no audio quantity
+    enters it. This only rebuilds the sweep-shaped fields the anchor search never produced (no
+    cross-sweep ran, so there is no walk, no pre-collapse front) before delegating to it, so one
+    function and one log line place every static span, however it was detected.
     """
-    frame_ms = domain["frame_ms"]
-    n_frames = _round_half_up(Fraction(str(hole["step_ms"])) / frame_ms)
     a_ambiguous, b_ambiguous = result.get("anchor_a_ambiguous"), result.get("anchor_b_ambiguous")
-    if result.get("anchor_a_frame") is not None:
-        before = result["before_shift_frames"]
-        after = before + n_frames
-    elif result.get("anchor_b_frame") is not None:
-        after = result["after_shift_frames"]
-        before = after - n_frames
-    else:
-        before = (a_ambiguous or {}).get("shift", result.get("before_shift_frames"))
-        after = before + n_frames
-    placed = dict(result, before_shift_frames=before, after_shift_frames=after)
-    master_start, master_end, candidate_start, candidate_end = _pinned_frames(placed)
-    pin, ambiguous_frames = _pin_point(placed)
-    anchor_a = result.get("anchor_a_frame") or (a_ambiguous or {}).get("anchor")
-    anchor_b = result.get("anchor_b_frame") or (b_ambiguous or {}).get("anchor")
-    return {
-        "modality": MODALITY, "status": HOLE_PINNED_TO_AMBIGUOUS_ZONE_END,
-        "kind": hole["kind"], "why_token": hole["why_token"],
-        "cause": "static_span_ambiguity", "pin_route": "ambiguous_anchor",
-        "grid": f"{domain['master_rate'].numerator}/{domain['master_rate'].denominator}",
-        "anchor_a_frame": anchor_a, "anchor_b_frame": anchor_b,
-        "master_start_frame": master_start, "master_end_frame": master_end,
-        "candidate_start_frame_equivalent": candidate_start,
-        "candidate_end_frame_equivalent": candidate_end,
-        "candidate_start_frame": _candidate_native_frame(candidate_start, domain),
-        "candidate_end_frame": _candidate_native_frame(candidate_end, domain),
-        "master_start_ms": _exact_ms_of_frame(master_start, domain),
-        "master_end_ms": _exact_ms_of_frame(master_end, domain),
-        "video_shift_ms_frame_quantised": [_exact_ms_of_frame(before, domain),
-                                           _exact_ms_of_frame(after, domain)],
-        **_audio_offsets(hole),
-        "net_kind": ("addition" if n_frames > 0 else "deletion" if n_frames < 0
-                     else "still_image"),
-        "frames_to_cut": max(0, n_frames), "frames_to_fill": max(0, -n_frames),
-        "before_shift_frames": before, "after_shift_frames": after,
-        "nominal_before_shift_frames": result.get("nominal_before_shift_frames"),
-        "nominal_after_shift_frames": result.get("nominal_after_shift_frames"),
-        "audio_step_frames": n_frames,
-        "forward_walk_frames": None, "backward_walk_frames": None,
-        "span_frames": (None if anchor_a is None or anchor_b is None else anchor_b - anchor_a),
-        "pin_frame": pin, "ambiguous_frames": ambiguous_frames,
-        "anchor_a_ambiguous": a_ambiguous, "anchor_b_ambiguous": b_ambiguous,
-        "evidence": result.get("evidence"),
-    }
+    anchor_a, anchor_b = result.get("anchor_a_frame"), result.get("anchor_b_frame")
+    if anchor_b is None:
+        # The right anchor itself was never seated -- nothing to place just before it. The
+        # only position left is the ambiguous anchor's own, nearest the hole.
+        ambiguous = b_ambiguous or a_ambiguous
+        anchor_b = ambiguous["anchor"]
+    if anchor_a is None:
+        anchor_a = (a_ambiguous or {}).get("anchor", anchor_b)
+    # The shift at a side that was never seated at all (no anchor, not even a nominal one
+    # carried through) falls back to its own ambiguous reading's validated shift.
+    before = result.get("before_shift_frames")
+    if before is None:
+        before = (a_ambiguous or {}).get("shift")
+    after = result.get("after_shift_frames")
+    if after is None:
+        after = (b_ambiguous or {}).get("shift")
+    blind = dict(result, anchor_a_frame=anchor_a, anchor_b_frame=anchor_b,
+                before_shift_frames=before, after_shift_frames=after,
+                forward_walk_frames=None, backward_walk_frames=None, sweep_crossed=True,
+                pre_collapse_start_master=anchor_a, pre_collapse_end_master=anchor_b)
+    outcome = _blind_span_outcome(hole, domain, blind, candidate_path)
+    outcome["pin_route"] = "ambiguous_anchor"
+    outcome["anchor_a_ambiguous"] = a_ambiguous
+    outcome["anchor_b_ambiguous"] = b_ambiguous
+    return outcome
 
 
 def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_ms, result):
@@ -2150,7 +2129,7 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
             if span_outcome is not None:
                 return span_outcome
         elif _interior_verdict(result) == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
-            return _ambiguous_pin_outcome(hole, domain, result)
+            return _ambiguous_pin_outcome(hole, domain, result, candidate_obj.filePath)
         elif result.get("reason") == "anchor_step_inconsistent":
             # Both anchors seated and the cross-sweep ran, but the frame gap it counted
             # disagreed with the audio's nominal step -- the usual sign of a blind span: a
@@ -2684,6 +2663,14 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                 video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
                                    else outcome["master_start_frame"], domain)
                 video_concluded = True
+            elif (by_kind[kind][1].get("master_span_seconds") is not None
+                  and by_kind[kind][1]["master_span_seconds"] <= frame):
+                # No master-exclusive runtime exists before (head) or after (tail) this
+                # bracket: the candidate simply runs past the master's own end here, or starts
+                # before its own beginning. There is nothing of the master's own left to search
+                # for, so this is a trim at the master's own edge, not a decline.
+                video_s = 0.0 if kind == "head" else float(domain["master_timeline_ms"]) / 1000.0
+                video_concluded = True
             else:
                 # The one-anchor walk could not establish a boundary here: a named decline,
                 # never a silent fall back to the audio's own edge.
@@ -2890,7 +2877,17 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
     frame_ms = float(domain["frame_ms"])
     tolerance_ms = quantum_ms + 2 * frame_ms
     start_s = _frame_s(outcome["master_start_frame"], domain)
-    video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
+    forward_walk = outcome.get("forward_walk_frames")
+    backward_walk = outcome.get("backward_walk_frames")
+    if forward_walk == 0 and backward_walk == 0:
+        # Neither walk advanced from its anchor: nothing inside the pair located a boundary, so
+        # the raw inter-anchor master span is not a found fill -- it is only the anchors' own
+        # positions. The anchors' own shift gap (after - before) is the real measured quantity,
+        # and a removal (gap <= 0) has zero master fill by construction.
+        video_fill_ms = max(0, outcome["after_shift_frames"]
+                            - outcome["before_shift_frames"]) * frame_ms
+    else:
+        video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
     if abs(video_fill_ms - extra_s * 1000.0) <= tolerance_ms:
         return start_s, None
     note = f"video fill {round(video_fill_ms, 3)} ms vs audio {round(extra_s * 1000.0, 3)} ms"
