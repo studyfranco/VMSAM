@@ -2631,13 +2631,6 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                    "tail": "walk_window_edge" if tail is None else "audio_edge"}
     by_kind = {hole["kind"]: (index, hole) for index, hole in enumerate(holes)
                if hole["kind"] in ("head", "tail")}
-    # Bounded by the hole's OWN bracket (where the coarse alignment already read no common
-    # content), never by the level's window reach: that can lock on well inside the episode,
-    # past genuine matched dialogue, which a scan that far would misread as the candidate's own.
-    head_hole = by_kind.get("head")
-    sting_floor = (audio_walk.head_sting_tail(
-        candidate, first["off_ms"], max(float(head_hole[1]["master_ms"][1]) / 1000.0, frame))
-        if head_hole is not None else None)
     # Head and tail are independent holes (one anchor each): their exact-frame search runs
     # together on the shared repair pool instead of one after the other.
     edge_jobs = {}
@@ -2695,12 +2688,6 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
             placed, decision = audio_s, edge_source[kind]
             if kind == "head":
                 placed, decision = head_content_edge(placed, decision, frame, lead)
-        if kind == "head" and placed is not None and sting_floor is not None:
-            # Neither the video's own boundary nor the audio witness ever protected against the
-            # candidate's own pre-content (a sting the master does not carry at all): raised
-            # unconditionally, concluded or not.
-            if placed < sting_floor:
-                placed, decision = sting_floor, f"{decision}_raised_past_candidate_sting"
         decisions[kind] = placed
         summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
         tools.dev_log(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "

@@ -805,28 +805,6 @@ def head_lead_in(m, c, off, limit_s):
             "master_db": round(float(peak_db(span[loud])), 1)}
 
 
-def head_sting_tail(c, off_ms, limit_s):
-    """Return the master-time instant just past the candidate's own last audible head sample.
-
-    The converse of `head_lead_in`: the candidate may open with its own content (a logo, a
-    sting) the master does not carry at all over this bracket (the master measured silent
-    there, which is why it is a head bracket). Any part of that sting before the first common
-    frame must stay inside the head fill -- never reach the delivered track -- so a head edge
-    must never be placed earlier than this instant. Peak, not RMS: a decaying sting's mean
-    energy crosses the audibility floor well before its last audible sample (measured: ids
-    26/29, 88 / 173 ms of sting reaching the delivered track). Returns None when the candidate
-    has no audible sample before `limit_s` (nothing to protect against), or on an envelope pair.
-    """
-    if c is None or isinstance(c, EnvelopeSignal):
-        return None
-    shift = off_ms / 1000.0
-    hi = max(0, int(round((limit_s + shift) * WALK_RATE)))
-    loud = np.flatnonzero(np.abs(c[:hi]) >= AUDIBLE_AMPLITUDE)
-    if not len(loud):
-        return None
-    return round(float(loud[-1]) / WALK_RATE - shift, 4)
-
-
 def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
     """Return the F in [lo, hi] where the master is quietest at F and F + extra (20 ms windows,
     5 ms steps)."""
