@@ -3,8 +3,11 @@
 A zone is one audio offset holding over a span of the master timeline. Inside such a zone
 the picture can still sit at a different frame offset for a while (the candidate's own
 edit, not an audio event). This module pairs every scene cut of the master, inside a zone,
-with its candidate counterpart and reads the residual between their frame offset and the
-zone's own audio offset; it never changes the plan.
+with its candidate counterpart and reads the residual between their file-clock picture lag
+(decoded-index lag plus each file's own video `start_time`) and the zone's own audio offset,
+against the pair's own whole-file baseline (its own constant audio/picture relation, logged
+once and never refused on); only a residual that departs from that baseline by a full frame,
+over at least two consecutive matched cuts, is reported. It never changes the plan.
 
 Reuse, not new code: `video_offset_plan.decode_scenes_and_hashes` (whole-file scene cuts and
 hashes, disk-cached -- a decode already on disk for this pair is read, not repeated) and
@@ -16,11 +19,11 @@ to be believed.
 """
 
 import bisect
+import statistics
 import time
 from fractions import Fraction
 
 import frame_compare
-import owner_judgment
 import repair_pool
 import video_offset_plan as vop
 import tools
@@ -50,11 +53,29 @@ def _frame_of_ms(ms, rate):
     return _round_half_up(Fraction(str(ms)) * rate / 1000)
 
 
-def _nominal_lag_frames(offset_ms, rate):
-    """The zone's audio offset, rounded to whole frames the way the pipeline already does
-    it (`frame_compare`/`scene_anchor`'s own `_nominal_shift_frames`) -- the same rounding
-    on both sides of a residual keeps a non-integer-frame offset from reading as a shift."""
+def _search_window_frames(offset_ms, rate):
+    """Rounded-to-frame search window centre for `match_changes`'s lag range only.
+
+    Never used to judge a residual: `match_changes` needs an integer frame window and already
+    reaches `HYPOTHESIS_REACH_FRAMES` past it, so rounding here only widens the search, it does
+    not decide whether a cut's picture lag agrees with the audio."""
     return frame_compare._nominal_shift_frames(float(offset_ms), rate.numerator, rate.denominator)
+
+
+def _frame_ms(rate):
+    """Exact frame duration in ms for a native rate (Fraction frames/second)."""
+    return 1000.0 / float(rate)
+
+
+def _video_start_ms(info):
+    """A probed video's `start_time` in ms, in file-clock units (0 when unprobed)."""
+    return float(info["start_s"]) * 1000.0 if info else 0.0
+
+
+def _picture_ms(d, frame_ms, c_start_ms, m_start_ms):
+    """File-clock picture lag of a matched cut: the decoded-index lag plus each file's own
+    video `start_time` -- `match_changes`'s `d` is an index lag, not a presentation-time one."""
+    return d * frame_ms + (c_start_ms - m_start_ms)
 
 
 def _zone_bounds(zone, rate):
@@ -67,21 +88,24 @@ def _zone_bounds(zone, rate):
     return (first, stop) if stop > first else None
 
 
-def _residuals(matched, nominal_lag):
-    """(m, residual) for each matched cut whose offset departs from the zone's own."""
-    return [(m, d - nominal_lag) for m, d, _dist in matched if d != nominal_lag]
+def _cut_runs(matched, rate):
+    """Group consecutive matched cuts sharing the same candidate lag `d` into runs.
 
+    Every cut in a run reads the same file-clock picture lag (`d` alone fixes it), so grouping
+    by `d` is grouping by residual without ever rounding the audio offset to decide it.
 
-def _runs(residuals, rate):
-    """Group consecutive same-residual cuts into runs: (start_s, end_s, residual, n_cuts)."""
-    runs, m0, last, residual0, count = [], None, None, None, 0
-    for m, residual in residuals + [(None, None)]:
-        if residual is not None and residual == residual0:
+    Returns:
+        [{start_s, end_s, d, count}], in master cut order.
+    """
+    runs, m0, last, d0, count = [], None, None, None, 0
+    for m, d, _dist in list(matched) + [(None, None, None)]:
+        if d is not None and d == d0:
             count, last = count + 1, m
             continue
         if count:
-            runs.append((float(m0 / rate), float((last + 1) / rate), residual0, count))
-        m0, residual0, count, last = m, residual, (1 if residual is not None else 0), m
+            runs.append({"start_s": float(m0) / float(rate),
+                        "end_s": float(last + 1) / float(rate), "d": d0, "count": count})
+        m0, d0, count, last = m, d, (1 if d is not None else 0), m
     return runs
 
 
@@ -97,53 +121,54 @@ def _unpaired(cuts, matched_marks, reach):
     return out
 
 
-def _log_run(candidate_path, zone_index, run):
-    start_s, end_s, residual, count = run
+def _log_run(candidate_path, zone_index, run, deviation_ms, frame_ms):
+    # `residual_frames` is a display-only rounding of the full-precision `deviation_ms` the
+    # decision above was made on (never the other way round) -- kept so the existing report
+    # renderer, which reads this field by name, still has an integer frame count to show.
+    residual_frames = int(round(deviation_ms / frame_ms))
     tools.log_always(
         f"repair: picture_only_shift zone={zone_index} "
-        f"master_s=[{round(start_s, 1)}, {round(end_s, 1)}] residual_frames={residual:+d} "
-        f"cuts={count} audio=continuous for {candidate_path}\n")
+        f"master_s=[{round(run['start_s'], 1)}, {round(run['end_s'], 1)}] "
+        f"residual_frames={residual_frames:+d} deviation_ms={round(deviation_ms, 3)} "
+        f"cuts={run['count']} audio=continuous for {candidate_path}\n")
 
 
-def _disagreement(zone, rate, run):
-    """Build one `owner_judgment` zone dict from a confirmed picture-only-shift run.
+def _disagreement(zone, run, deviation_ms):
+    """Build one descriptive dict for a confirmed picture-only-shift run (logged, never a
+    decline, per the owner's 2026-10-06 ruling that the picture is the truth for its own zone).
 
     Candidate bounds carry the zone's own audio offset forward (the zone is audio-continuous
     by construction); there is no audio cut and no single video cut instant here, only a
-    sustained picture residual, so both cut fields stay None.
+    sustained picture residual, so both cut fields stay None. `picture_shift_ms` is the run's
+    residual against the pair's own baseline, never the raw file-clock lag -- a whole-file
+    constant offset is not a shift.
     """
-    start_s, end_s, residual, count = run
     offset_s = float(zone["offset_ms"]) / 1000.0
     return {"zone": zone["zone"], "reason": "picture_only_shift",
-           "master_start_s": start_s, "master_end_s": end_s,
-           "candidate_start_s": start_s + offset_s, "candidate_end_s": end_s + offset_s,
+           "master_start_s": run["start_s"], "master_end_s": run["end_s"],
+           "candidate_start_s": run["start_s"] + offset_s,
+           "candidate_end_s": run["end_s"] + offset_s,
            "audio_cut_s": None, "video_cut_s": None,
-           "picture_shift_ms": float(residual) / float(rate) * 1000.0,
-           "frames_compared": count}
+           "picture_shift_ms": deviation_ms,
+           "frames_compared": run["count"]}
 
 
-def _scan_zone(zone, rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_coloured,
-               candidate_path):
-    """Scan one zone; return (runs logged, cuts confirmed, unpaired cuts, disagreements)."""
+def _zone_matches(zone, rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_coloured,
+                  candidate_path):
+    """Match one zone's cuts; return (m_zone_cuts, matched) or (None, None) when too short/empty."""
     bounds = _zone_bounds(zone, rate)
     if bounds is None:
-        return 0, 0, 0, []
+        return None, None
     first, stop = bounds
-    nominal_lag = _nominal_lag_frames(zone["offset_ms"], rate)
     m_zone_cuts = [m for m in m_cuts if first <= m < stop]
     if not m_zone_cuts:
-        return 0, 0, 0, []
+        return None, None
+    nominal_lag = _search_window_frames(zone["offset_ms"], rate)
     lo, hi = nominal_lag - HYPOTHESIS_REACH_FRAMES, nominal_lag + HYPOTHESIS_REACH_FRAMES
     matched, _ambiguous, _total = vop.match_changes(m_hashes, m_zone_cuts, c_hashes, c_cuts,
                                                      lo, hi, m_coloured, c_coloured)
-    residuals = _residuals(matched, nominal_lag)
-    runs = _runs(residuals, rate)
-    disagreements = []
-    for run in runs:
-        _log_run(candidate_path, zone["zone"], run)
-        disagreements.append(_disagreement(zone, rate, run))
-    unpaired_master = len(m_zone_cuts) - len(matched)
     c_zone_cuts = [c for c in c_cuts if first + nominal_lag - hi <= c < stop + nominal_lag + hi]
+    unpaired_master = len(m_zone_cuts) - len(matched)
     unpaired_candidate = _unpaired(c_zone_cuts, (m + d for m, d, _ in matched),
                                    HYPOTHESIS_REACH_FRAMES)
     if unpaired_master or unpaired_candidate:
@@ -151,7 +176,7 @@ def _scan_zone(zone, rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_col
             f"repair: picture_only_shift_unpaired zone={zone['zone']} "
             f"master_only={unpaired_master} candidate_only={unpaired_candidate} "
             f"for {candidate_path}\n")
-    return len(runs), len(matched), unpaired_master + unpaired_candidate, disagreements
+    return m_zone_cuts, matched
 
 
 def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_dir,
@@ -205,30 +230,58 @@ def scan_zones(zones, domain, master_obj, candidate_obj, candidate_path, work_di
         tools.log_always(f"repair: picture_only_shift_summary skipped=error "
                          f"({type(error).__name__}: {str(error)[:200]}) for {candidate_path}\n")
         return []
-    total_runs = total_cuts = total_unpaired = zones_done = 0
-    all_disagreements = []
+    frame_ms = _frame_ms(master_rate)
+    m_start_ms, c_start_ms = _video_start_ms(m_info), _video_start_ms(c_info)
+    total_cuts = total_unpaired = zones_done = 0
+    zone_runs = []  # [(zone, [run, ...])]
+    all_residual_ms = []
     partial = False
     for zone in zones:
         if repair_deadline is not None and time.monotonic() > repair_deadline:
             partial = True
             break
-        runs, cuts, unpaired, disagreements = _scan_zone(
-            zone, master_rate, m_cuts, m_hashes, m_coloured, c_cuts, c_hashes, c_coloured,
-            candidate_path)
-        total_runs, total_cuts, total_unpaired = (total_runs + runs, total_cuts + cuts,
-                                                   total_unpaired + unpaired)
-        all_disagreements.extend(disagreements)
+        m_zone_cuts, matched = _zone_matches(zone, master_rate, m_cuts, m_hashes, m_coloured,
+                                             c_cuts, c_hashes, c_coloured, candidate_path)
         zones_done += 1
+        if m_zone_cuts is None:
+            continue
+        total_cuts += len(matched)
+        total_unpaired += len(m_zone_cuts) - len(matched)
+        runs = _cut_runs(matched, master_rate)
+        zone_runs.append((zone, runs))
+        for run in runs:
+            residual_ms = (_picture_ms(run["d"], frame_ms, c_start_ms, m_start_ms)
+                          - float(zone["offset_ms"]))
+            all_residual_ms.extend([residual_ms] * run["count"])
+    # The pair's own A/V relation: a residual shared by every matched cut, over the whole file,
+    # is the two releases' own constant offset (codec delay, mux, start_time convention), not a
+    # picture edit -- logged once as information, and subtracted before any run is judged.
+    baseline_ms = statistics.median(all_residual_ms) if all_residual_ms else 0.0
+    if all_residual_ms:
+        tools.log_always(
+            f"repair: picture_audio_constant_offset offset_ms={round(baseline_ms, 3)} "
+            f"frame_ms={round(frame_ms, 3)} cuts_sampled={len(all_residual_ms)} "
+            f"for {candidate_path}\n")
+    total_runs = 0
+    all_disagreements = []
+    for zone, runs in zone_runs:
+        for run in runs:
+            if run["count"] < 2:
+                continue
+            residual_ms = (_picture_ms(run["d"], frame_ms, c_start_ms, m_start_ms)
+                          - float(zone["offset_ms"]))
+            deviation_ms = residual_ms - baseline_ms
+            if abs(deviation_ms) < frame_ms:
+                continue
+            total_runs += 1
+            _log_run(candidate_path, zone["zone"], run, deviation_ms, frame_ms)
+            all_disagreements.append(_disagreement(zone, run, deviation_ms))
     tools.log_always(
         f"repair: picture_only_shift_summary zones_done={zones_done} zones_total={len(zones)} "
         f"cuts_confirmed={total_cuts} runs={total_runs} unpaired={total_unpaired} "
         f"{'partial=1 ' if partial else ''}wall_s={round(time.monotonic() - started, 1)} "
         f"for {candidate_path}\n")
-    for entry in all_disagreements:
-        owner_judgment.log_pending(
-            entry["zone"], entry["reason"], entry["master_start_s"], entry["master_end_s"],
-            entry["candidate_start_s"], entry["candidate_end_s"], entry["audio_cut_s"],
-            entry["video_cut_s"], entry["picture_shift_ms"], entry["frames_compared"])
-    if all_disagreements:
-        owner_judgment.log_summary(len(all_disagreements), language)
+    # Owner ruling 2026-10-06: the picture is the truth for a confirmed run -- logged for
+    # visibility (the caller logs its own summary line), never turned into an `owner_judgment`
+    # decline.
     return all_disagreements

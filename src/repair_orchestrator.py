@@ -4407,18 +4407,26 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out before the plan's application -- "
             f"the partial plan is logged; declined, retried at the next run"), None
-    # A picture shift inside an otherwise audio-continuous zone is never acted on by widening
-    # `zones`: it declines the whole repair instead (owner_judgment_pending), since nothing
-    # here measures which of the audio or the video is right.
+    # Owner ruling 2026-10-06 (the picture is the truth for a confirmed picture-only shift): a
+    # sustained run is logged, never declined. Delivering the candidate's audio/subtitle pieces
+    # at the run's own picture offset instead of the zone's audio offset is not done here --
+    # splitting an already-built zone mid-span to re-key its pieces on a different offset is
+    # not a clean change to make inside this audio-led geometry (`plan_geometry`/`apply_plan`
+    # assume one offset per zone, built from the audio alone). A file carrying a confirmed
+    # picture-only shift is better served by the video-anchored route (`video_offset_plan`,
+    # chantier C/D), which measures the picture directly; this orchestrator only logs the find
+    # and proceeds on the audio offset it already has, which is still what the delivered audio
+    # track needs even where the picture itself has since drifted.
     import picture_only_shift
     picture_shifts = picture_only_shift.scan_zones(
         zones, domain, master_obj, candidate_obj, candidate_path, work_dir, repair_deadline,
         language)
     if picture_shifts:
-        return False, "owner_judgment_pending", (
-            f"{len(picture_shifts)} zone(s) measured as audio-continuous show the picture "
-            f"itself at a different frame offset for a sustained run -- logged for the owner, "
-            f"no cut delivered"), None
+        tools.log_always(
+            f"repair: picture_only_shift_followed_picture n={len(picture_shifts)} "
+            f"candidate_path={candidate_path} -- logged, not delivered at the picture offset "
+            f"(not a clean change to this audio-led geometry; a candidate for the "
+            f"video-anchored route)\n")
     head_written_s, tail_written_s = written_edge_seconds(fills, walk["master_audio_end_s"])
     tagged, tag_reason = tag_decision(len(transitions), head_written_s + tail_written_s)
     step_result("plan_shape_resolved", candidate=candidate_path,
