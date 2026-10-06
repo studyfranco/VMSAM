@@ -1,11 +1,9 @@
 """Owner-judgment-pending: the shared logging contract for a disputed audio/video zone.
 
 A repair that measures the audio as aligned but finds the video disagreeing does not decide
-between them. Two callers raise this: `repair_orchestrator.audio_transitions`, when a
-resolved cut's video fill width contradicts the audio's own fill by more than a frame, and
-`picture_only_shift.scan_zones`, when a confirmed picture-only-shift run sits inside an
-audio-continuous zone. Both log every disputed zone here and decline the repair with this
-module's cause; the owner judges case by case.
+between them. `repair_orchestrator.audio_transitions` raises this when a resolved cut's video
+fill width contradicts the audio's own fill by more than a frame: it logs the disputed zone
+here and declines the repair with this module's cause; the owner judges case by case.
 """
 
 import tools
