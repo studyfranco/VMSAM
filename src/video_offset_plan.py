@@ -46,6 +46,8 @@ from decimal import Decimal
 import numpy as np
 
 import frame_hash
+import merge_video_resample
+import rate_direction
 import repair_pool
 import tools
 
@@ -938,7 +940,7 @@ def measure_video_zones(master_path, candidate_path, work_dir, log=None,
     return STATUS_ZONES_OK, groups, result
 
 
-def video_zone_plan(groups, frame_ms, timeline_ms):
+def video_zone_plan(groups, frame_ms, timeline_ms, start_delta_ms=Decimal(0)):
     """Build `(zones, fills)` for a multi-zone video plan, shaped like `plan_geometry`'s own.
 
     One zone per `group_video_zones` run. Between two anchors -- the frames the scene-cut match
@@ -948,15 +950,21 @@ def video_zone_plan(groups, frame_ms, timeline_ms):
     The cut lands just before the right anchor (the next zone's own first matched frame), never
     inside it, so `track_pieces` reads the gap's width as the anchors' own shift, not any
     audio step.
+
+    `start_delta_ms`: `(candidate_start_s - master_start_s) x 1000`, the same term the
+    constant-offset plan already folds into `VideoOffsetResult.candidate_track_delay_ms` --
+    added to every zone's own `d x frame_ms`, since the two files' video start times differ the
+    same way everywhere regardless of which zone a frame falls in.
     """
+    start_delta_ms = orch._decimal(start_delta_ms)
     zones, fills = [], []
     for d, members in groups:
         m_lo, m_hi = members[0][0], members[-1][0]
         start_ms = orch._decimal(m_lo * frame_ms)
         end_ms = orch._decimal((m_hi + 1) * frame_ms)
         zones.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
-                      "offset_ms": orch._decimal(d * frame_ms), "n_windows": len(members),
-                      "zone": len(zones)})
+                      "offset_ms": orch._decimal(d * frame_ms) + start_delta_ms,
+                      "n_windows": len(members), "zone": len(zones)})
     if not zones:
         return zones, fills
     if zones[0]["master_start_ms"] > 0:
@@ -971,6 +979,252 @@ def video_zone_plan(groups, frame_ms, timeline_ms):
         fills.append({"master_start_ms": zones[-1]["master_end_ms"], "master_end_ms": timeline_ms,
                       "reason": orch.WHY_TOKEN["tail"], "hole": "tail", "status": "video_edge"})
     return zones, fills
+
+
+# --------------------------------------------------------------------------------------------
+# Entry point 3.5: speed from frame-indexed common scene cuts
+# --------------------------------------------------------------------------------------------
+#
+# `check_fps` refuses two CFR files at different exact rates for the plain (no-speed) case: one
+# constant frame offset is meaningless when the two frame grids are not even the same length. A
+# PAL/NTSC speedup (or a 1001/1000 WEB-vs-BluRay rate mislabel) is a different shape: the SAME
+# discrete frames, nothing added or dropped, merely declared -- and played -- at two different
+# exact rates. Between the first and last common scene cut the two files then carry the exact
+# same number of frames: the matched cuts' candidate-minus-master frame-index correspondence is
+# one constant offset, the identical shape `measure_video_offset` already proves for the
+# no-speed case, found by the exact same `match_changes` / `prove_constant`, no scaling at all.
+# Only the DURATION over that span differs, because the two declared rates differ for the same
+# frame count -- that declared-rate ratio is read off directly and snapped to the nearest named
+# broadcast-rate fraction; nothing about the matching itself needs to know it in advance.
+
+# Relative tolerance a measured ratio must sit within a named broadcast-rate ratio to be
+# snapped to it -- the same tolerance `merge_video_repair.speed_plan_evidence` applies when it
+# later checks the plan carries the evidence for the ratio it would apply.
+RATIO_SNAP_TOLERANCE = Decimal("0.0005")
+
+# Share of the master's span the matched, offset-agreeing cuts must cover before a speed
+# reading is trusted -- `rate_direction`'s own winner-span floor, reused rather than re-chosen.
+MIN_SPEED_SPAN_COVERAGE = rate_direction.RATE_ARM_MIN_SPAN_COVERAGE
+
+STATUS_SPEED_OK = "video_speed_anchored"
+# Too few matched scene cuts (or too little of the master's span covered by them) to trust any
+# frame correspondence at all: not the same content, by this module's own two-sided pHash gate.
+DECLINE_CONTENT_MISMATCH = "visual_content_mismatch"
+# The matched cuts do not all agree on one constant frame-index offset: between the first and
+# last common cut the two files do not carry the same number of frames (telecine, a frame-rate
+# conversion that dropped or duplicated frames) -- the declared rates are not comparable, and
+# no ratio read off them would mean anything.
+DECLINE_FRAME_COUNT_MISMATCH = "visual_frame_count_mismatch"
+
+# The instrument name this module's speed reading carries as `rate_source`, so
+# `merge_video_repair.speed_plan_evidence` can tell it apart from `repair_orchestrator.rate_arm`'s
+# own audio-chromaprint reading -- both are accepted, neither is trusted on the other's say-so.
+RATE_SOURCE_VISUAL = "visual_frame_match"
+
+
+class VideoSpeedResult:
+    '''Result of `detect_speed_ratio`.
+
+    Fields are valid only when `status == STATUS_SPEED_OK`: `ratio` (exact Fraction, candidate
+    frame rate / master frame rate, snapped to a named broadcast rate when `ratio_name` is not
+    None), `residual_frames` (the constant candidate-minus-master frame-index offset between the
+    first and last common scene cut -- the speed-case analogue of
+    `VideoOffsetResult.offset_frames`, found the same way), `master_fps`, `candidate_fps`,
+    `span_coverage`. Any other status is a named decline.
+    '''
+
+    def __init__(self, status, **fields):
+        self.status = status
+        self.reason = fields.pop("reason", None)
+        self.master_fps = fields.pop("master_fps", None)
+        self.candidate_fps = fields.pop("candidate_fps", None)
+        self.ratio_declared = fields.pop("ratio_declared", None)
+        self.ratio = fields.pop("ratio", None)
+        self.ratio_name = fields.pop("ratio_name", None)
+        self.residual_frames = fields.pop("residual_frames", None)
+        self.master_frames = fields.pop("master_frames", None)
+        self.candidate_frames = fields.pop("candidate_frames", None)
+        self.master_span_frames = fields.pop("master_span_frames", None)
+        self.candidate_span_frames = fields.pop("candidate_span_frames", None)
+        self.matched = fields.pop("matched", 0)
+        self.ambiguous = fields.pop("ambiguous", 0)
+        self.total = fields.pop("total", 0)
+        self.mean_distance = fields.pop("mean_distance", None)
+        self.span_coverage = fields.pop("span_coverage", None)
+        self.covered_frames = fields.pop("covered_frames", None)
+        self.wall_s = fields.pop("wall_s", None)
+        self.extra = fields
+
+    @property
+    def candidate_frame_ms(self):
+        """Duration of one candidate frame in ms, exact, or None."""
+        return None if self.candidate_fps is None else Fraction(1000) / self.candidate_fps
+
+    @property
+    def candidate_offset_ms(self):
+        '''residual_frames x the candidate's OWN frame duration, exact -- the constant shift in
+        the candidate's native (pre-resample) clock the matched cuts measured, the speed-case
+        analogue of `VideoOffsetResult.offset_ms`. `assemble_on_master_timeline` multiplies this
+        by the applied `speed_ratio` itself to land on the master's rescaled clock (same
+        reasoning as `VideoOffsetResult.candidate_track_delay_ms`, one frame unit substituted
+        for the other since the two sides no longer share one).'''
+        if self.residual_frames is None or self.candidate_frame_ms is None:
+            return None
+        return self.residual_frames * self.candidate_frame_ms
+
+
+def _snap_named_ratio(ratio):
+    """Return `(snapped Fraction, name)` when `ratio` sits within `RATIO_SNAP_TOLERANCE`
+    (relative) of a member of `merge_video_resample.build_rate_ratio_vocabulary()` (the closest
+    one), else the unsnapped `(ratio, None)`."""
+    target = Decimal(ratio.numerator) / Decimal(ratio.denominator)
+    best, best_drift = None, None
+    for named in merge_video_resample.build_rate_ratio_vocabulary():
+        nominal = Decimal(named.numerator) / Decimal(named.denominator)
+        drift = abs(target - nominal) / nominal
+        if best_drift is None or drift < best_drift:
+            best, best_drift = named, drift
+    if best is not None and best_drift <= RATIO_SNAP_TOLERANCE:
+        return best, f"{best.numerator}/{best.denominator}"
+    return ratio, None
+
+
+def _speed_log_line(result):
+    """Return the one-line summary of a `detect_speed_ratio` call."""
+    parts = [f"status={result.status}"]
+    if result.reason:
+        parts.append(f"reason={result.reason}")
+    if result.master_fps is not None:
+        parts.append(f"fps_master={result.master_fps} fps_candidate={result.candidate_fps} "
+                     f"ratio_declared={result.ratio_declared}")
+    if result.master_frames is not None:
+        parts.append(f"frames master={result.master_frames} candidate={result.candidate_frames}")
+    parts.append(f"matched={result.matched}/{result.total} ambiguous={result.ambiguous}")
+    if result.mean_distance is not None:
+        parts.append(f"mean_distance={result.mean_distance:.3f}/{PAIR_CONTENT_MAX}")
+    if result.span_coverage is not None:
+        parts.append(f"span_coverage={result.span_coverage:.4f}")
+    if result.master_span_frames is not None:
+        parts.append(f"span_frames master={result.master_span_frames} "
+                     f"candidate={result.candidate_span_frames}")
+    if result.ratio is not None:
+        parts.append(f"ratio={result.ratio}" + (f"({result.ratio_name})" if result.ratio_name
+                                                 else "(unnamed)")
+                     + f" residual={result.residual_frames:+d}fr")
+    if result.wall_s is not None:
+        parts.append(f"wall={result.wall_s:.1f}s")
+    return " ".join(parts)
+
+
+def detect_speed_ratio(master_path, candidate_path, work_dir, log=None, deadline=None):
+    '''Detect a constant-ratio speed change between two individually-CFR videos at different
+    declared exact rates, from their matched scene cuts alone -- frames, never time, per the
+    owner's own rule: the same frames, nothing added or dropped, just declared (and played) at
+    two different rates, so the matched cuts' frame-index correspondence is one constant offset
+    exactly like the no-speed case.
+
+    Meaningful only when the two files' declared exact rates differ: a caller first probes both
+    (or reads `measure_video_offset`'s own `fps`) and calls `measure_video_offset` instead when
+    they are equal -- this function never touches that, plain, no-speed case.
+
+    Never raises for a media reason: every failure is a named status, logged on one line.
+
+    Returns:
+        A `VideoSpeedResult`.
+    '''
+    t0 = time.monotonic()
+
+    def done(result):
+        result.wall_s = time.monotonic() - t0
+        _emit(log, _speed_log_line(result))
+        return result
+
+    m_info, why = probe_video(master_path)
+    if m_info is None:
+        return done(VideoSpeedResult(STATUS_PROBE_FAILED, reason=f"master:{why}"))
+    c_info, why = probe_video(candidate_path)
+    if c_info is None:
+        return done(VideoSpeedResult(STATUS_PROBE_FAILED, reason=f"candidate:{why}"))
+    for side, info in (("master", m_info), ("candidate", c_info)):
+        if info["r_rate"] is None or info["avg_rate"] is None:
+            return done(VideoSpeedResult(STATUS_FPS_MISMATCH, reason=f"{side}_rate_unmeasured"))
+        if info["r_rate"] != info["avg_rate"]:
+            return done(VideoSpeedResult(
+                STATUS_FPS_MISMATCH,
+                reason=f"{side}_not_cfr:r={info['r_rate']},avg={info['avg_rate']}"))
+    fps_m, fps_c = m_info["r_rate"], c_info["r_rate"]
+    if fps_m == fps_c:
+        return done(VideoSpeedResult(STATUS_FPS_MISMATCH, reason="rates_equal_not_a_speed_pair"))
+    ratio_declared = fps_c / fps_m
+
+    pool = repair_pool.get_pool()
+    futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
+                           deadline)
+               for path, fps, info in ((master_path, fps_m, m_info),
+                                       (candidate_path, fps_c, c_info))]
+    errors, outcomes = [], []
+    for future in futures:
+        try:
+            outcomes.append(future.result())
+        except BudgetExceeded as exc:
+            errors.append((STATUS_BUDGET, str(exc)))
+        except tools.decoder_timeout as exc:
+            errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
+        except (RuntimeError, OSError) as exc:
+            errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
+    if errors:
+        errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
+        return done(VideoSpeedResult(errors[0][0], reason=errors[0][1],
+                                     master_fps=fps_m, candidate_fps=fps_c,
+                                     ratio_declared=ratio_declared))
+    (m_cuts, m_hashes, m_coloured, _), (c_cuts, c_hashes, c_coloured, _) = outcomes
+
+    common = {"master_fps": fps_m, "candidate_fps": fps_c, "ratio_declared": ratio_declared,
+              "master_frames": len(m_hashes), "candidate_frames": len(c_hashes)}
+    # Same matching `measure_video_offset` runs for the no-speed case, unscaled: a pure speed
+    # change leaves the frame-index correspondence a plain constant, so nothing about the
+    # search needs to know the declared rates differ at all.
+    bound = search_bound_frames(fps_m, m_info["duration_s"], c_info["duration_s"])
+    matched, ambiguous, total = match_changes(m_hashes, m_cuts, c_hashes, c_cuts, *bound,
+                                              m_coloured=m_coloured, c_coloured=c_coloured)
+    proof = prove_constant(matched, len(m_hashes))
+    status = proof["status"]
+
+    if status == STATUS_UNMATCHED:
+        return done(VideoSpeedResult(DECLINE_CONTENT_MISMATCH, reason="too_few_matched_cuts",
+                                     matched=len(matched), ambiguous=ambiguous, total=total,
+                                     **common))
+
+    first_m, last_m = proof["covered"]
+    span_coverage = (last_m - first_m + 1) / len(m_hashes) if len(m_hashes) else 0.0
+    if span_coverage < MIN_SPEED_SPAN_COVERAGE:
+        return done(VideoSpeedResult(DECLINE_CONTENT_MISMATCH, reason="span_coverage_below_floor",
+                                     matched=len(matched), ambiguous=ambiguous, total=total,
+                                     mean_distance=proof["mean_distance"],
+                                     covered_frames=proof["covered"], span_coverage=span_coverage,
+                                     **common))
+
+    if status in (STATUS_NOT_CONSTANT, STATUS_COVERAGE):
+        # Both counts the guard names: the whole-file frame totals (`common`'s own
+        # `master_frames`/`candidate_frames`) -- the matched span itself cannot disagree with
+        # itself (it is built from pairs sharing one mode offset by construction), so the
+        # disagreement this status reports is necessarily elsewhere in the shared span.
+        return done(VideoSpeedResult(
+            DECLINE_FRAME_COUNT_MISMATCH, reason=f"residual_not_constant:{status}",
+            matched=len(matched), ambiguous=ambiguous, total=total,
+            mean_distance=proof["mean_distance"], covered_frames=proof["covered"],
+            span_coverage=span_coverage, **common))
+
+    residual = proof["d"]
+    span_frames = last_m - first_m
+    snapped, name = _snap_named_ratio(ratio_declared)
+    return done(VideoSpeedResult(
+        STATUS_SPEED_OK, ratio=snapped, ratio_name=name, residual_frames=residual,
+        master_span_frames=span_frames, candidate_span_frames=span_frames,
+        matched=len(matched), ambiguous=ambiguous, total=total,
+        mean_distance=proof["mean_distance"], covered_frames=proof["covered"],
+        span_coverage=span_coverage, **common))
+
 
 
 # --------------------------------------------------------------------------------------------

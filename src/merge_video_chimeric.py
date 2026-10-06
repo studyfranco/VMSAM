@@ -1741,6 +1741,18 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     index = 0
     for language, subtitles in candidate_obj.subtitles.items():
         for subtitle in subtitles:
+            # Set by a caller that compared this track's own text against a same-language
+            # master subtitle (`merge_video_visual_fallback._drop_duplicate_candidate
+            #_subtitles`): a retimed copy of a subtitle the master already carries never
+            # changes the delivered content, only its stream MD5 (the merge's own dedup key,
+            # which a retime always defeats).
+            if subtitle.get("dropped_duplicate"):
+                tools.log_line(
+                    f"chimeric: subtitle stream_order={subtitle['StreamOrder']} "
+                    f"language={language} decision=dropped_duplicate "
+                    f"reason={subtitle['dropped_duplicate']}\n")
+                index += 1
+                continue
             bound = build_bound()
             try:
                 with repair_log.announced(

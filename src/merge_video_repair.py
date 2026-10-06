@@ -81,9 +81,10 @@ def assemble_or_log_the_decline(logged_candidate, plan, unverified_ms, *args, **
         raise
 
 
-SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_arm"})
-# Rate sources accepted as speed evidence (produced by `repair_orchestrator.rate_arm`); any
-# other value is refused.
+SPEED_EVIDENCE_INSTRUMENTS = frozenset({"rate_arm", "visual_frame_match"})
+# Rate sources accepted as speed evidence: `repair_orchestrator.rate_arm` (audio chromaprint) and
+# `video_offset_plan.detect_speed_ratio` (matched scene-cut frame indices, `RATE_SOURCE_VISUAL`);
+# any other value is refused.
 
 # Relative applied-vs-evidenced tolerance: half the ~1e-3 gap between the closest named rates.
 SPEED_EVIDENCE_RELATIVE_TOLERANCE = Decimal("0.0005")
