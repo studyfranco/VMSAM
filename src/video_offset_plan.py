@@ -995,6 +995,129 @@ def video_zone_plan(groups, frame_ms, timeline_ms, start_delta_ms=Decimal(0)):
 
 
 # --------------------------------------------------------------------------------------------
+# Picture-divergent spans inside an otherwise-matched zone (chantier E, item 1)
+# --------------------------------------------------------------------------------------------
+#
+# A zone's offset can hold constant while its PICTURE still differs over a span bracketed by two
+# valid anchors: redrawn animation, a different eyecatch/credits card, or black/static on one
+# side against content on the other (owner, 2026-10-06 evening: "on cherche les ancres les plus
+# proche de la zone commune. On repère la zone divergente. On prend du master les zones
+# differentes."). `match_changes` already refuses to MATCH a scene cut whose own window content
+# distance is too high (`PAIR_CONTENT_MAX`), so a divergent span never contributes a false zone
+# of its own and never counts against `check_zone_compatibility`'s coverage floor; this walk
+# finds the span itself, inside a zone the owner's offset proof already trusts.
+
+# Shortest run of consecutive divergent frames trusted as a real span rather than one noisy
+# pHash outlier -- the same floor `_fold_single_frame_noise` applies to a lone offset step.
+DIVERGENT_MIN_FRAMES = ZONE_SINGLE_FRAME_MIN_REPEAT
+
+
+def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=DIVERGENT_MIN_FRAMES):
+    '''Picture-divergent master frame runs in `[m_lo, m_hi]` (inclusive) at one zone's own
+    constant offset `d` (candidate frame = master frame + d).
+
+    Uses `frame_hash.distance` (grey pHash only, every frame carries it) against
+    `frame_hash.SAME_FRAME_MAX`, the same single-frame "same picture" gate `same_picture`
+    already uses -- here run over the whole zone at once. A candidate index outside `c_hashes`
+    counts as divergent too: there is no candidate frame to compare against, the
+    black/static-vs-content and file-edge case.
+
+    Returns a list of dicts in master-frame order: `master_first`, `master_last`,
+    `candidate_first`, `candidate_last` (all inclusive), `width_frames`, `reason`
+    ("content_redrawn", or "flat_vs_content" when exactly one side's mean luma std over the
+    span is below `frame_hash.FLAT_STD`).
+    '''
+    n_c = len(c_hashes)
+    rows = np.arange(int(m_lo), int(m_hi) + 1, dtype=np.int64)
+    if len(rows) == 0:
+        return []
+    cand = rows + int(d)
+    in_range = (cand >= 0) & (cand < n_c)
+    diverges = np.ones(len(rows), dtype=bool)
+    if in_range.any():
+        dist = frame_hash.distance(m_hashes[rows[in_range]], c_hashes[cand[in_range]])
+        diverges[in_range] = dist > frame_hash.SAME_FRAME_MAX
+    spans = []
+    i = 0
+    while i < len(rows):
+        if not diverges[i]:
+            i += 1
+            continue
+        start = i
+        while i < len(rows) and diverges[i]:
+            i += 1
+        length = i - start
+        if length < min_frames:
+            continue
+        m_first, m_last = int(rows[start]), int(rows[i - 1])
+        c_first, c_last = m_first + int(d), m_last + int(d)
+        master_flat = bool(np.mean(m_hashes[m_first:m_last + 1].std) < frame_hash.FLAT_STD)
+        c_lo_clip, c_hi_clip = max(c_first, 0), min(c_last, n_c - 1)
+        candidate_flat = (c_hi_clip < c_lo_clip
+                          or bool(np.mean(c_hashes[c_lo_clip:c_hi_clip + 1].std) < frame_hash.FLAT_STD))
+        reason = "flat_vs_content" if master_flat != candidate_flat else "content_redrawn"
+        spans.append({"master_first": m_first, "master_last": m_last,
+                      "candidate_first": c_first, "candidate_last": c_last,
+                      "width_frames": length, "reason": reason})
+    return spans
+
+
+def carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms, log=None):
+    '''Split every zone's picture-divergent spans out as extra master fills.
+
+    `zones`/`fills` are `video_zone_plan`'s own shape (a single synthetic zone covering the
+    whole timeline works too, for the plain constant-offset case). Each span
+    `find_divergent_spans_in_zone` finds carves its zone into its surviving piece(s) (same
+    offset) plus one new interior fill -- the owner's rule, "on prend du master les zones
+    differentes" -- logged once per span with the measured master/candidate frames and width.
+
+    `d` is read back from each zone's own `offset_ms` (rounded to the nearest frame): a zone
+    built by `video_zone_plan` may also carry a fractional start-time correction, under one
+    frame wide, which rounding absorbs the same way the frame grid itself already does.
+
+    Returns `(zones, fills)`, renumbered/sorted the same way `video_zone_plan` leaves them.
+    '''
+    out_zones, out_fills = [], list(fills)
+    frame_ms_f = float(frame_ms)
+    for zone in zones:
+        d = int(round(float(zone["offset_ms"]) / frame_ms_f))
+        m_lo = int(round(float(zone["master_start_ms"]) / frame_ms_f))
+        m_hi = int(round(float(zone["master_end_ms"]) / frame_ms_f)) - 1
+        spans = find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d)
+        cursor = m_lo
+        for span in spans:
+            if span["master_first"] > cursor:
+                piece = dict(zone)
+                piece["master_start_ms"] = orch._decimal(cursor * frame_ms)
+                piece["master_end_ms"] = orch._decimal(span["master_first"] * frame_ms)
+                out_zones.append(piece)
+            start_ms = orch._decimal(span["master_first"] * frame_ms)
+            end_ms = orch._decimal((span["master_last"] + 1) * frame_ms)
+            out_fills.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
+                              "reason": orch.WHY_TOKEN["interior"],
+                              "hole": f"divergent_{len(out_fills)}", "status": "video_divergent",
+                              "divergent_reason": span["reason"],
+                              "master_frames": [span["master_first"], span["master_last"]],
+                              "candidate_frames": [span["candidate_first"], span["candidate_last"]],
+                              "width_frames": span["width_frames"]})
+            _emit(log, f"{LOG_PREFIX}divergent span master=[{span['master_first']},"
+                 f"{span['master_last']}] candidate=[{span['candidate_first']},"
+                 f"{span['candidate_last']}] width={span['width_frames']}fr "
+                 f"reason={span['reason']}")
+            cursor = span["master_last"] + 1
+        if cursor <= m_hi:
+            piece = dict(zone)
+            piece["master_start_ms"] = orch._decimal(cursor * frame_ms)
+            piece["master_end_ms"] = orch._decimal((m_hi + 1) * frame_ms)
+            out_zones.append(piece)
+    out_zones.sort(key=lambda z: z["master_start_ms"])
+    for i, zone in enumerate(out_zones):
+        zone["zone"] = i
+    out_fills.sort(key=lambda f: f["master_start_ms"])
+    return out_zones, out_fills
+
+
+# --------------------------------------------------------------------------------------------
 # Entry point 3.5: speed from frame-indexed common scene cuts
 # --------------------------------------------------------------------------------------------
 #

@@ -34,6 +34,18 @@ fitting each side to the decode box by its OWN aspect ratio first (letterboxed/p
 never stretched; measured on the same pair: grey distance 0.113, no longer indistinguishable
 from a wrong lag by `frame_hash.align`'s own margin, the only gate this decode feeds).
 
+Picture-divergent spans (chantier E, item 1): inside a zone whose own offset never changed, a
+span can still show a different PICTURE -- redrawn animation, a different eyecatch/credits
+card, or black/static on one side against content on the other. `match_changes` already
+refuses to match a scene cut whose own window content distance is too high, so a divergent
+span never invents a false zone of its own; `video_offset_plan.find_divergent_spans_in_zone`
+(grey pHash, `frame_hash.SAME_FRAME_MAX`, run over the whole zone) finds the span itself, and
+`carve_divergent_fills` splits it out of its zone as one more master fill -- the owner's rule,
+"on prend du master les zones differentes" -- so the master's own frames cover it in the
+delivered plan, logged once per span (master/candidate frames, width, reason). Wired into both
+`_apply_constant_plan` (promoted to a multi-zone plan when a span is found inside its single
+zone) and `_apply_multizone_plan`, through the shared `_apply_zoned_plan` builder.
+
 Two guards, both logged and refused by returning `video_a` unchanged, never raised:
 
 - `visual_content_mismatch`: too few matched scene cuts, or too little of the master's span
@@ -288,8 +300,143 @@ def _pick_quality_winner(video_a, video_b):
     return video_b, video_a
 
 
+def _decode_hashes_for_divergence(winner, loser, result_fps, work_root, repair_deadline):
+    '''Redecode (cache hit: same path/fps/work_dir `measure_video_offset` already used) the
+    whole-file grey pHash of both sides, for `video_offset_plan.carve_divergent_fills`.
+
+    Never raises: on any probe/decode failure, returns `(None, None, None)` and the caller
+    skips divergent-span detection for this pair, keeping its plan exactly as measured.
+    '''
+    try:
+        m_info, why = video_offset_plan.probe_video(winner.filePath)
+        if m_info is None:
+            raise RuntimeError(f"master:{why}")
+        c_info, why = video_offset_plan.probe_video(loser.filePath)
+        if c_info is None:
+            raise RuntimeError(f"candidate:{why}")
+        cache_dir = path.join(work_root, "measure")
+        tools.make_dirs(cache_dir)
+        _, m_hashes, _, _ = video_offset_plan.decode_scenes_and_hashes(
+            winner.filePath, result_fps, m_info["duration_s"], cache_dir, repair_deadline)
+        _, c_hashes, _, _ = video_offset_plan.decode_scenes_and_hashes(
+            loser.filePath, result_fps, c_info["duration_s"], cache_dir, repair_deadline)
+        return m_hashes, c_hashes, video_offset_plan.Fraction(1000) / result_fps
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as error:                                           # noqa: BLE001
+        tools.log_line(f"repair: visual_fallback_divergent_skip error={type(error).__name__}:"
+                       f"{error} for {loser.filePath}\n")
+        return None, None, None
+
+
+def _carve_divergence(winner, loser, result_fps, zones, fills, work_root, repair_deadline):
+    """Run `find_divergent_spans_in_zone`/`carve_divergent_fills` over `zones`; on any failure
+    (including no usable decode), return `(zones, fills)` unchanged."""
+    m_hashes, c_hashes, frame_ms = _decode_hashes_for_divergence(
+        winner, loser, result_fps, work_root, repair_deadline)
+    if m_hashes is None:
+        return zones, fills
+    return video_offset_plan.carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms,
+                                                    log=tools.log_always)
+
+
+def _apply_zoned_plan(winner, loser, zones, fills, fps, trigger, language, repair_deadline,
+                      work_root):
+    """Build and deliver a multi-zone video-anchored plan from already-built `zones`/`fills`
+    (one zone per stable picture offset, or more once `carve_divergence` has split out any
+    picture-divergent span); return a repaired object or None.
+
+    Shared by the plain constant-offset plan (promoted to one zone, split further when a
+    divergent span was found inside it) and the multi-zone plan built from `group_video_zones`.
+    """
+    import merge_video_chimeric
+    import merge_video_repair
+    import repair_orchestrator as orch
+
+    candidate_path = loser.filePath
+    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
+    work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
+    tools.make_dirs(work_dir)
+    _drop_duplicate_candidate_subtitles(winner, loser, work_dir)
+    readings = {zone["zone"]: {"offset_ms": zone["offset_ms"]} for zone in zones}
+
+    # Same drop as the plain constant-offset plan, same reason: no audio track survives
+    # verification against a master that shares no language with it.
+    track_plans = {}
+    for track_language, audio in merge_video_chimeric.iterate_candidate_audios(loser):
+        tools.log_line(f"repair: visual_fallback_audio_dropped stream={audio['StreamOrder']} "
+                       f"language={track_language} reason=no_language_in_common_to_verify_against "
+                       f"for {candidate_path}\n")
+
+    reference_pieces, adjustments, _ = orch.track_pieces(zones, fills, readings, None, timeline_ms)
+    for adjustment in adjustments:
+        tools.log_line(f"repair: plan_edge_adjustment stream=reference "
+                       f"zone={adjustment['zone']} kind={adjustment['kind']} "
+                       f"master_fill_ms={adjustment['master_fill_ms']}\n")
+    chapters_path, _ = merge_video_chimeric.build_delivered_chapters(
+        winner.filePath, candidate_path, reference_pieces, None, timeline_ms, work_dir)
+
+    seam = getattr(loser, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
+    job_start_utc = ((seam or {}).get("job_start_utc")
+                     or "unstamped(no_repair_seam_standalone_run)")
+    n_divergent = sum(1 for fill in fills if fill.get("status") == "video_divergent")
+    marker = f"visual_fallback_zones:n={len(zones)}" + (f":div={n_divergent}" if n_divergent
+                                                        else "")
+
+    plan = {
+        "kind": "orchestrator_visual_fallback_zones", "language": language,
+        "reference_stream": None, "quantum_ms": None, "master_path": winner.filePath,
+        "decided_by": "merge_video_visual_fallback.visual_fallback_merge",
+        "segments_dropped_unusable": 0, "speed_margin": None, "speed_engine": None,
+        "speed_margin_absent_reason": "no_rate_relation",
+        "segments": [{"master_start_ms": zone["master_start_ms"],
+                      "master_end_ms": zone["master_end_ms"],
+                      "candidate_offset_ms": zone["offset_ms"],
+                      "candidate_offset_ms_by_stream": {}} for zone in zones],
+        "track_plans": track_plans, "reference_pieces": reference_pieces,
+        "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
+        "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
+        "repair_deadline": repair_deadline,
+        "video_anchored": {"offset_frames": None, "n_zones": len(zones),
+                           # `merge_video_repair.build_repaired_video_object` reads this key
+                           # unconditionally whenever `video_anchored` is set, constant or
+                           # multi-zone alike (replay-D3 defect 2, measured: every multi-zone
+                           # call declined with `KeyError: 'offset_ms'`). `verify_video_anchored`
+                           # takes one offset, meaningless for several zones, but harmless here:
+                           # this route plans no candidate audio (`track_plans` is always empty,
+                           # above), so `verify_video_anchored` iterates zero tracks and never
+                           # reads this value for anything -- the first zone's offset is placed
+                           # here only so the key exists.
+                           "offset_ms": zones[0]["offset_ms"] if zones else Decimal(0),
+                           "offsets_ms": [str(zone["offset_ms"]) for zone in zones],
+                           "fps": str(fps), "n_divergent_spans": n_divergent,
+                           "trigger": trigger},
+    }
+    repaired_obj, assembly = merge_video_repair.build_repaired_video_object(
+        loser, winner, plan, path.join(tools.tmpFolder, "repair"), job_start_utc)
+    out_path = getattr(repaired_obj, "filePath", None)
+    if not out_path or not path.exists(out_path):
+        raise merge_video_chimeric.chimeric_error(
+            f"the build returned but the visual-fallback file is not on disk ({out_path})",
+            cause=CAUSE_BUILD_NO_FILE)
+    if seam is not None:
+        seam["repaired_obj"] = repaired_obj
+        seam["assembly"] = assembly
+    merge_video_repair.record(candidate_path, "repaired",
+                              f"visual fallback (no common audio language, {len(zones)} picture "
+                              f"zones, {n_divergent} taken from the master): marker '{marker}', "
+                              f"master {winner.filePath} untouched, file {out_path}",
+                              detail={"out_path": out_path, "video_anchored": plan["video_anchored"]})
+    return repaired_obj
+
+
 def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_root):
-    """Build and deliver the one-zone video-anchored plan; return a repaired object or None."""
+    """Build and deliver the one-zone video-anchored plan; return a repaired object or None.
+
+    When a picture-divergent span (chantier E, item 1) is found inside that single zone, the
+    plan is promoted to `_apply_zoned_plan`'s multi-zone shape instead: same offset throughout,
+    but the divergent span's own frames come from the master.
+    """
     import merge_video_chimeric
     import merge_video_repair
     import repair_orchestrator as orch
@@ -300,6 +447,16 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
     picture_ms = -result.candidate_track_delay_ms
     offset_ms = orch._decimal(picture_ms)
     timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
+
+    zones = [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
+             "offset_ms": offset_ms, "zone": 0}]
+    zones, fills = _carve_divergence(winner, loser, result.fps, zones, [], work_root,
+                                     repair_deadline)
+    if len(zones) > 1 or fills:
+        return _apply_zoned_plan(winner, loser, zones, fills, result.fps,
+                                 "visual_fallback_no_common_language_divergent", language,
+                                 repair_deadline, work_root)
+
     work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
     tools.make_dirs(work_dir)
     _drop_duplicate_candidate_subtitles(winner, loser, work_dir)
@@ -460,96 +617,27 @@ def _apply_speed_plan(winner, loser, speed_result, language, repair_deadline, wo
 def _apply_multizone_plan(winner, loser, result, groups, language, repair_deadline, work_root):
     """Build and deliver a multi-zone video-anchored plan; return a repaired object or None.
 
-    Same shape as `_apply_constant_plan`'s one-zone plan, through the same build and delivery
-    path, but laid out by `video_offset_plan.video_zone_plan`: one candidate zone per stable
-    picture offset, the holes between them (and before/after the first/last) filled from the
-    master under the blind-span rule.
+    Laid out by `video_offset_plan.video_zone_plan`: one candidate zone per stable picture
+    offset, the holes between them (and before/after the first/last) filled from the master
+    under the blind-span rule -- then, inside each zone, `_carve_divergence` splits out any
+    picture-divergent span (chantier E, item 1) as one more master fill. Delivered by the same
+    `_apply_zoned_plan` the promoted one-zone plan uses.
     """
     import merge_video_chimeric
-    import merge_video_repair
-    import repair_orchestrator as orch
-
-    candidate_path = loser.filePath
-    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
-    work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
-    tools.make_dirs(work_dir)
-    _drop_duplicate_candidate_subtitles(winner, loser, work_dir)
 
     # Same start-time correction the constant-offset plan already folds into its own
     # `candidate_track_delay_ms` (`VideoOffsetResult`'s own property) -- a per-zone `d x frame_ms`
     # alone leaves out the two files' differing video start times (replay-D3 defect 5b/2,
     # measured: a 23 ms error on files whose candidate starts at 0.023 s rather than 0.000 s).
     start_delta_ms = (result.candidate_start_s - result.master_start_s) * 1000
+    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
     zones, fills = video_offset_plan.video_zone_plan(groups, result.frame_ms, timeline_ms,
                                                       start_delta_ms)
-    readings = {zone["zone"]: {"offset_ms": zone["offset_ms"]} for zone in zones}
-
-    # Same drop as the constant-offset plan, same reason: no audio track survives verification
-    # against a master that shares no language with it.
-    track_plans = {}
-    for track_language, audio in merge_video_chimeric.iterate_candidate_audios(loser):
-        tools.log_line(f"repair: visual_fallback_audio_dropped stream={audio['StreamOrder']} "
-                       f"language={track_language} reason=no_language_in_common_to_verify_against "
-                       f"for {candidate_path}\n")
-
-    reference_pieces, adjustments, _ = orch.track_pieces(zones, fills, readings, None, timeline_ms)
-    for adjustment in adjustments:
-        tools.log_line(f"repair: plan_edge_adjustment stream=reference "
-                       f"zone={adjustment['zone']} kind={adjustment['kind']} "
-                       f"master_fill_ms={adjustment['master_fill_ms']}\n")
-    chapters_path, _ = merge_video_chimeric.build_delivered_chapters(
-        winner.filePath, candidate_path, reference_pieces, None, timeline_ms, work_dir)
-
-    seam = getattr(loser, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
-    job_start_utc = ((seam or {}).get("job_start_utc")
-                     or "unstamped(no_repair_seam_standalone_run)")
-    marker = f"visual_fallback_zones:n={len(zones)}"
-
-    plan = {
-        "kind": "orchestrator_visual_fallback_zones", "language": language,
-        "reference_stream": None, "quantum_ms": None, "master_path": winner.filePath,
-        "decided_by": "merge_video_visual_fallback.visual_fallback_merge",
-        "segments_dropped_unusable": 0, "speed_margin": None, "speed_engine": None,
-        "speed_margin_absent_reason": "no_rate_relation",
-        "segments": [{"master_start_ms": zone["master_start_ms"],
-                      "master_end_ms": zone["master_end_ms"],
-                      "candidate_offset_ms": zone["offset_ms"],
-                      "candidate_offset_ms_by_stream": {}} for zone in zones],
-        "track_plans": track_plans, "reference_pieces": reference_pieces,
-        "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
-        "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
-        "repair_deadline": repair_deadline,
-        "video_anchored": {"offset_frames": None, "n_zones": len(zones),
-                           # `merge_video_repair.build_repaired_video_object` reads this key
-                           # unconditionally whenever `video_anchored` is set, constant or
-                           # multi-zone alike (replay-D3 defect 2, measured: every multi-zone
-                           # call declined with `KeyError: 'offset_ms'`). `verify_video_anchored`
-                           # takes one offset, meaningless for several zones, but harmless here:
-                           # this route plans no candidate audio (`track_plans` is always empty,
-                           # above), so `verify_video_anchored` iterates zero tracks and never
-                           # reads this value for anything -- the first zone's offset is placed
-                           # here only so the key exists.
-                           "offset_ms": zones[0]["offset_ms"] if zones else Decimal(0),
-                           "offsets_ms": [str(zone["offset_ms"]) for zone in zones],
-                           "fps": str(result.fps),
-                           "trigger": "visual_fallback_no_common_language_multizone"},
-    }
-    repaired_obj, assembly = merge_video_repair.build_repaired_video_object(
-        loser, winner, plan, path.join(tools.tmpFolder, "repair"), job_start_utc)
-    out_path = getattr(repaired_obj, "filePath", None)
-    if not out_path or not path.exists(out_path):
-        raise merge_video_chimeric.chimeric_error(
-            f"the build returned but the visual-fallback file is not on disk ({out_path})",
-            cause=CAUSE_BUILD_NO_FILE)
-    if seam is not None:
-        seam["repaired_obj"] = repaired_obj
-        seam["assembly"] = assembly
-    merge_video_repair.record(candidate_path, "repaired",
-                              f"visual fallback (no common audio language, {len(zones)} "
-                              f"picture zones): marker '{marker}', master {winner.filePath} "
-                              f"untouched, file {out_path}",
-                              detail={"out_path": out_path, "video_anchored": plan["video_anchored"]})
-    return repaired_obj
+    zones, fills = _carve_divergence(winner, loser, result.fps, zones, fills, work_root,
+                                     repair_deadline)
+    return _apply_zoned_plan(winner, loser, zones, fills, result.fps,
+                             "visual_fallback_no_common_language_multizone", language,
+                             repair_deadline, work_root)
 
 
 def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
