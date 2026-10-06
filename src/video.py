@@ -642,70 +642,86 @@ def get_best_quality_video(video_obj_1, video_obj_2, begins_video, time_by_test)
     """
     import re
     from statistics import mean
-    ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath, 
-           "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
-           "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
-           "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
-    
-    framerate_video_obj_1 = video_obj_1.get_fps()
-    framerate_video_obj_2 = video_obj_2.get_fps()
-    scale_video_obj_1 = video_obj_1.get_scale()
-    scale_video_obj_2 = video_obj_2.get_scale()
-    filter_modifications = []
-    if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
-        if framerate_video_obj_1 > framerate_video_obj_2:
-            filter_modifications.append(f'fps=fps={framerate_video_obj_2}')
-        else:
-            filter_modifications.append(f'fps=fps={framerate_video_obj_1}')
-    if scale_video_obj_1 != None and scale_video_obj_2 != None and (scale_video_obj_1[0] != scale_video_obj_2[0] or scale_video_obj_1[1] != scale_video_obj_2[1]):
-        if (scale_video_obj_1[0]*scale_video_obj_1[1]) > (scale_video_obj_2[0]*scale_video_obj_2[1]):
-            filter_modifications.append(f'scale={scale_video_obj_1[0]}:{scale_video_obj_1[1]}')
-        else:
-            filter_modifications.append(f'scale={scale_video_obj_2[0]}:{scale_video_obj_2[1]}')
-    if len(filter_modifications):
-        ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
-        ffmpeg_VMAF_1_vs_2[14] = "[0:{}]{}[0];[1:{}]{}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],", ".join(filter_modifications),video_obj_2.video['StreamOrder'],", ".join(filter_modifications),tools.core_to_use)+path_to_livmaf_model
+    import video_quality
 
-    ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
-    ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath
-    ffmpeg_VMAF_2_vs_1[12] = video_obj_1.filePath
-    out_1_vs_2 = []
-    out_2_vs_1 = []
-    values_1_vs_2 = []
-    values_2_vs_1 = []
-    begin_pos_1_vs_2 = [2,8]
-    begin_pos_2_vs_1 = [8,2]
-    global big_job_in_porgress
-    with big_job_in_porgress:
-        big_job_waiter()
-        for begins in begins_video:
-            for x,y in zip(begin_pos_1_vs_2,begins):
-                ffmpeg_VMAF_1_vs_2[x] = y
-            job_1_vs_2 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_1_vs_2,))
-            
-            for x,y in zip(begin_pos_2_vs_1,begins):
-                ffmpeg_VMAF_2_vs_1[x] = y
-            job_2_vs_1 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_2_vs_1,))
-            
-            while len(out_1_vs_2) > 0:
-                values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
-                
-            while len(out_2_vs_1) > 0:
-                values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
-    
-            out_1_vs_2.append(job_1_vs_2.get())
-            out_2_vs_1.append(job_2_vs_1.get())
-    
-    while len(out_1_vs_2) > 0:
-        values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
-            
-    while len(out_2_vs_1) > 0:
-        values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
-    
-    if mean(values_1_vs_2) >= mean(values_2_vs_1):
-        return "1"
-    else:
-        return "2"
+    def _vmaf_fallback():
+        # Two-way VMAF scan, kept only as the fallback when the cheaper
+        # heuristic/no-reference signals in video_quality cannot decide.
+        # Each side is scored once as the other's reference and averaged;
+        # this is still an asymmetric full-reference comparison with no
+        # pristine source, which is exactly why it is no longer tried first.
+        ffmpeg_VMAF_1_vs_2 = [tools.software["ffmpeg"], "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_1.filePath,
+               "-ss", "00:03:00", "-t", time_by_test, "-i", video_obj_2.filePath,
+               "-lavfi", "[0:{}][1:{}]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],video_obj_2.video['StreamOrder'],tools.core_to_use)+path_to_livmaf_model,
+               "-threads", str(tools.core_to_use), "-f", "null","-map", f"0:{video_obj_1.video['StreamOrder']}", "-map", f"1:{video_obj_2.video['StreamOrder']}", "-"]
+
+        framerate_video_obj_1 = video_obj_1.get_fps()
+        framerate_video_obj_2 = video_obj_2.get_fps()
+        scale_video_obj_1 = video_obj_1.get_scale()
+        scale_video_obj_2 = video_obj_2.get_scale()
+        filter_modifications = []
+        if framerate_video_obj_1 != None and framerate_video_obj_2 != None and framerate_video_obj_1 != framerate_video_obj_2:
+            if framerate_video_obj_1 > framerate_video_obj_2:
+                filter_modifications.append(f'fps=fps={framerate_video_obj_2}')
+            else:
+                filter_modifications.append(f'fps=fps={framerate_video_obj_1}')
+        if scale_video_obj_1 != None and scale_video_obj_2 != None and (scale_video_obj_1[0] != scale_video_obj_2[0] or scale_video_obj_1[1] != scale_video_obj_2[1]):
+            if (scale_video_obj_1[0]*scale_video_obj_1[1]) > (scale_video_obj_2[0]*scale_video_obj_2[1]):
+                filter_modifications.append(f'scale={scale_video_obj_1[0]}:{scale_video_obj_1[1]}')
+            else:
+                filter_modifications.append(f'scale={scale_video_obj_2[0]}:{scale_video_obj_2[1]}')
+        if len(filter_modifications):
+            ffmpeg_VMAF_1_vs_2[13] = "-filter_complex"
+            ffmpeg_VMAF_1_vs_2[14] = "[0:{}]{}[0];[1:{}]{}[1]; [0][1]libvmaf=n_threads={}:log_fmt=json".format(video_obj_1.video['StreamOrder'],", ".join(filter_modifications),video_obj_2.video['StreamOrder'],", ".join(filter_modifications),tools.core_to_use)+path_to_livmaf_model
+
+        ffmpeg_VMAF_2_vs_1 = ffmpeg_VMAF_1_vs_2.copy()
+        ffmpeg_VMAF_2_vs_1[6] = video_obj_2.filePath
+        ffmpeg_VMAF_2_vs_1[12] = video_obj_1.filePath
+        out_1_vs_2 = []
+        out_2_vs_1 = []
+        values_1_vs_2 = []
+        values_2_vs_1 = []
+        begin_pos_1_vs_2 = [2,8]
+        begin_pos_2_vs_1 = [8,2]
+        global big_job_in_porgress
+        with big_job_in_porgress:
+            big_job_waiter()
+            for begins in begins_video:
+                for x,y in zip(begin_pos_1_vs_2,begins):
+                    ffmpeg_VMAF_1_vs_2[x] = y
+                job_1_vs_2 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_1_vs_2,))
+
+                for x,y in zip(begin_pos_2_vs_1,begins):
+                    ffmpeg_VMAF_2_vs_1[x] = y
+                job_2_vs_1 = ffmpeg_pool_big_job.apply_async(tools.launch_cmdExt, (ffmpeg_VMAF_2_vs_1,))
+
+                while len(out_1_vs_2) > 0:
+                    values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+
+                while len(out_2_vs_1) > 0:
+                    values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+
+                out_1_vs_2.append(job_1_vs_2.get())
+                out_2_vs_1.append(job_2_vs_1.get())
+
+        while len(out_1_vs_2) > 0:
+            values_1_vs_2.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_1_vs_2.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+
+        while len(out_2_vs_1) > 0:
+            values_2_vs_1.append(float(re.search(r'.*\[Parsed_libvmaf.*\] VMAF score. (\d*.\d*).*',out_2_vs_1.pop()[1].decode("utf-8"), re.MULTILINE).group(1)))
+
+        # An empty sample (parse failure on every job) must not reach statistics.mean,
+        # which raises StatisticsError -- declared a tie, resolved in favor of 1.
+        if not values_1_vs_2 or not values_2_vs_1:
+            tools.log_always("best_video: VMAF fallback got no parseable sample; defaulting to video 1\n")
+            return 1
+        # Contract fix: the callers (mergeVideo.py) test `== 1`, an int, so the
+        # winner must be returned as an int, not the "1"/"2" string this used to
+        # return -- which meant the VMAF verdict here never actually reached a caller.
+        return 1 if mean(values_1_vs_2) >= mean(values_2_vs_1) else 2
+
+    return video_quality.pick_best_video(video_obj_1, video_obj_2, begins_video, time_by_test,
+                                          get_bitrate, tools, _vmaf_fallback)
     """
     END: AGENT modification
     """
