@@ -78,6 +78,10 @@ class SpecialRename(BaseModel):
 class IndexFolderRequest(BaseModel):
     folder_id: int
 
+class FolderMove(BaseModel):
+    folder_id: int
+    new_destination_path: str
+
 app = FastAPI(
     title="Gestionar Show API",
     description="API pour la gestion des folders, regex patterns et épisodes",
@@ -628,4 +632,124 @@ def index_folder(index_request: IndexFolderRequest, session: Session = Depends(g
         "skipped": skipped,
         "unmatched": unmatched,
         "already_indexed": already_indexed
+    }
+
+@app.get("/episodes_folder/")
+def get_episodes_by_folder(folder_id: int, session: Session = Depends(get_session)):
+    """List the episodes registered for a folder, sorted by episode number.
+
+    An empty list is a valid answer (200): the folder exists and nothing is
+    registered yet.
+    """
+    current_folder = get_folder_data(folder_id, session)
+    if current_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
+
+    return {
+        "folder_id": current_folder.id,
+        "destination_path": current_folder.destination_path,
+        "episodes": [
+            {
+                "episode_number": current_episode.episode_number,
+                "file_path": current_episode.file_path,
+                "file_weight": current_episode.file_weight
+            }
+            for current_episode in get_episodes_by_folder_id(folder_id, session)
+        ]
+    }
+
+@app.post("/folders/move/")
+def move_folder(move_request: FolderMove, session: Session = Depends(get_session)):
+    """Move (or rename) a registered folder on disk and in the database.
+
+    The directory is moved first, then the folder path and the paths of its
+    episodes are rewritten. If the database update fails, the directory is
+    moved back so disk and database stay consistent.
+
+    Two deliberate limits:
+    - incompatible_files rows are not rewritten. They live in the error tree,
+      which mirrors the folder path at the moment of the rejection, and their
+      own paths stay valid after the move.
+    - No episode lock is taken, same reasoning as index_folder: the public
+      instance has no merge runtime, and the owner accepted it. A folder move
+      is an administrative action done while the folder is idle.
+
+    Once the move and the database commit have both succeeded, the empty
+    parent directories left behind by the old path are pruned, deepest
+    first, starting from the parent of the old path and walking upwards.
+    The walk stops at the first directory that:
+    - is the common ancestor of the old and new paths, or above it;
+    - is not empty (hidden files count as content);
+    - is a mount point;
+    - is the destination_path of a registered folder (it stays even empty);
+    - cannot be removed (os.rmdir raised an OSError).
+    Only empty directories are removed (os.rmdir), never files. The removed
+    directories are listed in "removed_directories".
+    """
+    import os
+    import shutil
+    current_folder = get_folder_data(move_request.folder_id, session)
+    if current_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {move_request.folder_id} not found")
+
+    old_path = os.path.normpath(current_folder.destination_path)
+    new_path = os.path.normpath(move_request.new_destination_path)
+    if not os.path.isabs(new_path):
+        raise HTTPException(status_code=400, detail="new_destination_path must be an absolute path")
+    if os.path.normcase(os.path.abspath(old_path)) == os.path.normcase(os.path.abspath(new_path)):
+        raise HTTPException(status_code=400, detail="new_destination_path is the current path of the folder")
+
+    other_folder = get_folder_by_path(new_path, session)
+    if other_folder != None and other_folder.id != current_folder.id:
+        raise HTTPException(status_code=400, detail=f"{new_path} is already registered to folder {other_folder.id}")
+
+    try:
+        if old_path == os.path.commonpath([old_path,new_path]):
+            raise HTTPException(status_code=400, detail="A folder cannot be moved inside itself")
+    except ValueError as e:
+        pass
+
+    if os.path.lexists(new_path):
+        raise HTTPException(status_code=400, detail=f"{new_path} already exists on disk")
+
+    if not os.path.isdir(old_path):
+        raise HTTPException(status_code=400, detail=f"Current folder path is not a directory on this instance, nothing moved")
+
+    try:
+        os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        shutil.move(old_path, new_path)
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Folder can't be moved, database untouched: {e}")
+
+    old_prefix = os.path.join(old_path, "")
+    episodes_updated = 0
+    try:
+        current_folder.destination_path = new_path
+        for current_episode in get_episodes_by_folder_id(current_folder.id, session):
+            ep_path = os.path.normpath(current_episode.file_path)
+            if ep_path.startswith(old_prefix):
+                current_episode.file_path = os.path.join(new_path,ep_path[len(old_prefix):])
+                episodes_updated += 1
+        session.commit()
+    except SQLAlchemyError as e:
+        session.rollback()
+        shutil.move(new_path, old_path)
+        raise HTTPException(status_code=500, detail=f"Database update failed, the move was reverted: {e}")
+
+    removed_folder = os.path.dirname(old_path)
+    removed_directories = []
+    if (not os.listdir(removed_folder)) and (not os.path.ismount(removed_folder)):
+        try:
+            os.rmdir(removed_folder)
+            removed_directories.append(removed_folder)
+        except OSError:
+            pass
+
+    return {
+        "message": "Folder moved",
+        "folder_id": current_folder.id,
+        "old_destination_path": old_path,
+        "new_destination_path": new_path,
+        "episodes_updated": episodes_updated,
+        "removed_directories": removed_directories
     }
