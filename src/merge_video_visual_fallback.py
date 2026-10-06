@@ -48,7 +48,7 @@ def _pick_quality_winner(video_a, video_b):
     begin_s, length_s = video.generate_begin_and_length_by_segment(min_duration_s)
     time_by_test = strftime('%H:%M:%S', gmtime(video.generate_time_compare_video_quality(length_s)))
     begins_video = video.generate_cut_to_compare_video_quality(begin_s, begin_s, length_s)
-    if video.get_best_quality_video(video_a, video_b, begins_video, time_by_test) == "1":
+    if video.get_best_quality_video(video_a, video_b, begins_video, time_by_test) == 1:
         return video_a, video_b
     return video_b, video_a
 
