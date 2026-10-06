@@ -826,13 +826,22 @@ def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
 
 
 def _candidate_db(c, times, t0, t1, off_ms, win):
-    """Candidate level (dB) of each fine window at `times`, read under `off_ms`."""
+    """Candidate PEAK level (dB) of each fine window at `times`, read under `off_ms`.
+
+    A peak, not an RMS average: a decaying sting (logo, sting) crosses the audibility floor on
+    its mean energy well before its last audible sample, and extending a head/tail edge past
+    that point leaves candidate-only sound delivered over a digitally silent master (measured:
+    ids 26/29, 88 / 173 ms of candidate sting audible at -49 to -59 dBFS peak over the master's
+    digital floor). The audibility rule (`AUDIBLE_DB`) is itself a peak threshold, so the quiet
+    test this feeds must use the same measure on both sides.
+    """
     cs = _shifted(c, t0, t1, off_ms).astype(np.float64)
-    cc = np.concatenate([[0.0], np.cumsum(cs * cs)])
     w = int(round(win * WALK_RATE))
     starts = np.clip(np.round((times - t0) * WALK_RATE).astype(int), 0, max(len(cs) - w, 0))
-    energy = (cc[np.minimum(starts + w, len(cs))] - cc[starts]) / max(w, 1)
-    return 10 * np.log10(np.maximum(energy, 1e-20))
+    ends = np.minimum(starts + w, len(cs))
+    peaks = np.array([float(np.max(np.abs(cs[s:e]))) if e > s else 0.0
+                      for s, e in zip(starts, ends)])
+    return 20 * np.log10(np.maximum(peaks, 1e-10))
 
 
 # A non-reference track's zone offset is a median over at most this many windows (the hop widens

@@ -2882,10 +2882,11 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
     if forward_walk == 0 and backward_walk == 0:
         # Neither walk advanced from its anchor: nothing inside the pair located a boundary, so
         # the raw inter-anchor master span is not a found fill -- it is only the anchors' own
-        # positions. The anchors' own shift gap (after - before) is the real measured quantity,
-        # and a removal (gap <= 0) has zero master fill by construction.
-        video_fill_ms = max(0, outcome["after_shift_frames"]
-                            - outcome["before_shift_frames"]) * frame_ms
+        # positions. The anchors' own shift gap is the real measured quantity: same convention
+        # as `_pinned_frames` (delta = after - before), where delta >= 0 is the candidate's own
+        # excess (zero master fill, by construction) and only delta < 0 fills from the master.
+        video_fill_ms = max(0, outcome["before_shift_frames"]
+                            - outcome["after_shift_frames"]) * frame_ms
     else:
         video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
     if abs(video_fill_ms - extra_s * 1000.0) <= tolerance_ms:
