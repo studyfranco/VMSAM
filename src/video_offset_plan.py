@@ -977,7 +977,7 @@ def video_zone_plan(groups, frame_ms, timeline_ms, start_delta_ms=Decimal(0)):
         end_ms = orch._decimal((m_hi + 1) * frame_ms)
         zones.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
                       "offset_ms": orch._decimal(d * frame_ms) + start_delta_ms,
-                      "n_windows": len(members), "zone": len(zones)})
+                      "offset_frames": d, "n_windows": len(members), "zone": len(zones)})
     if not zones:
         return zones, fills
     if zones[0]["master_start_ms"] > 0:
@@ -1007,9 +1007,24 @@ def video_zone_plan(groups, frame_ms, timeline_ms, start_delta_ms=Decimal(0)):
 # of its own and never counts against `check_zone_compatibility`'s coverage floor; this walk
 # finds the span itself, inside a zone the owner's offset proof already trusts.
 
-# Shortest run of consecutive divergent frames trusted as a real span rather than one noisy
-# pHash outlier -- the same floor `_fold_single_frame_noise` applies to a lone offset step.
-DIVERGENT_MIN_FRAMES = ZONE_SINGLE_FRAME_MIN_REPEAT
+# Shortest run of consecutive divergent frames trusted as a real span rather than motion's own
+# pHash noise. Measured on four real master/candidate pairs (whole-episode decode, every zone's
+# own offset, every width `find_divergent_spans_in_zone` found before this floor existed): the
+# noisy runs a moving scene throws up top out at 10 frames; the shortest run inside a
+# ground-truth-confirmed region (a scene genuinely redrawn or re-cut, frame-read verified
+# against both files) measures 12 frames. Set one frame above that, with a two-frame margin
+# over the tallest confirmed noise run -- never `ZONE_SINGLE_FRAME_MIN_REPEAT` (2), which keeps
+# every noisy run alongside the real ones and would replace candidate material with the
+# master's over a false span.
+DIVERGENT_MIN_FRAMES = 12
+
+# A span where neither side is flagged flat (below `frame_hash.FLAT_STD`) is trusted only when
+# at least one side still carries real picture detail over it. Measured on a fourth real pair
+# (a confirmed one-zone, no-divergence case): a near-black logo and a shared fade-to-black both
+# read "content_redrawn" at the plain distance gate, because pHash on a barely-above-flat frame
+# is noise, not signal -- mean luma std 6 and 0-18 there, against 45-73 on every confirmed real
+# span measured. Set with margin below the real floor and above the measured false ceiling.
+DIVERGENT_MIN_STD = 20.0
 
 
 def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=DIVERGENT_MIN_FRAMES):
@@ -1025,7 +1040,11 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
     Returns a list of dicts in master-frame order: `master_first`, `master_last`,
     `candidate_first`, `candidate_last` (all inclusive), `width_frames`, `reason`
     ("content_redrawn", or "flat_vs_content" when exactly one side's mean luma std over the
-    span is below `frame_hash.FLAT_STD`).
+    span is below `frame_hash.FLAT_STD`). A "content_redrawn" run is dropped (never appended)
+    when NEITHER side clears `DIVERGENT_MIN_STD`: both sides agreeing on low detail is a
+    pHash-on-flat-content false reading, not a real difference (measured -- see
+    `DIVERGENT_MIN_STD`); a "flat_vs_content" run is kept regardless, since one side being
+    genuinely flat under `frame_hash.FLAT_STD` against the other is already the signal itself.
     '''
     n_c = len(c_hashes)
     rows = np.arange(int(m_lo), int(m_hi) + 1, dtype=np.int64)
@@ -1051,10 +1070,15 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
             continue
         m_first, m_last = int(rows[start]), int(rows[i - 1])
         c_first, c_last = m_first + int(d), m_last + int(d)
-        master_flat = bool(np.mean(m_hashes[m_first:m_last + 1].std) < frame_hash.FLAT_STD)
+        master_std = float(np.mean(m_hashes[m_first:m_last + 1].std))
+        master_flat = master_std < frame_hash.FLAT_STD
         c_lo_clip, c_hi_clip = max(c_first, 0), min(c_last, n_c - 1)
-        candidate_flat = (c_hi_clip < c_lo_clip
-                          or bool(np.mean(c_hashes[c_lo_clip:c_hi_clip + 1].std) < frame_hash.FLAT_STD))
+        candidate_clipped = c_hi_clip < c_lo_clip
+        candidate_std = (0.0 if candidate_clipped
+                        else float(np.mean(c_hashes[c_lo_clip:c_hi_clip + 1].std)))
+        candidate_flat = candidate_clipped or candidate_std < frame_hash.FLAT_STD
+        if master_flat == candidate_flat and max(master_std, candidate_std) < DIVERGENT_MIN_STD:
+            continue
         reason = "flat_vs_content" if master_flat != candidate_flat else "content_redrawn"
         spans.append({"master_first": m_first, "master_last": m_last,
                       "candidate_first": c_first, "candidate_last": c_last,
@@ -1071,16 +1095,21 @@ def carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms, log=None):
     offset) plus one new interior fill -- the owner's rule, "on prend du master les zones
     differentes" -- logged once per span with the measured master/candidate frames and width.
 
-    `d` is read back from each zone's own `offset_ms` (rounded to the nearest frame): a zone
-    built by `video_zone_plan` may also carry a fractional start-time correction, under one
-    frame wide, which rounding absorbs the same way the frame grid itself already does.
+    `d` is read from each zone's own `offset_frames` when the zone carries one (every zone
+    `video_zone_plan` or the plain constant-offset caller builds today does). Falling back to
+    rounding `offset_ms / frame_ms` for a zone without it (a synthetic one built by hand, never
+    a real measurement) is wrong whenever `offset_ms` also carries the start-time correction --
+    measured: a candidate starting 23 ms into a 41.7 ms frame grid (0.55 frame, "under one frame"
+    but past the rounding midpoint) rounds the reconstructed `d` a whole frame off true, which
+    then misreads real, identical content as a picture-divergent span over most of the zone.
 
     Returns `(zones, fills)`, renumbered/sorted the same way `video_zone_plan` leaves them.
     '''
     out_zones, out_fills = [], list(fills)
     frame_ms_f = float(frame_ms)
     for zone in zones:
-        d = int(round(float(zone["offset_ms"]) / frame_ms_f))
+        d = zone["offset_frames"] if "offset_frames" in zone \
+            else int(round(float(zone["offset_ms"]) / frame_ms_f))
         m_lo = int(round(float(zone["master_start_ms"]) / frame_ms_f))
         m_hi = int(round(float(zone["master_end_ms"]) / frame_ms_f)) - 1
         spans = find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d)

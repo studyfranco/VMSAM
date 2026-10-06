@@ -449,7 +449,7 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
     timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
 
     zones = [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
-             "offset_ms": offset_ms, "zone": 0}]
+             "offset_ms": offset_ms, "offset_frames": result.offset_frames, "zone": 0}]
     zones, fills = _carve_divergence(winner, loser, result.fps, zones, [], work_root,
                                      repair_deadline)
     if len(zones) > 1 or fills:
