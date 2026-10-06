@@ -1040,11 +1040,13 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
     Returns a list of dicts in master-frame order: `master_first`, `master_last`,
     `candidate_first`, `candidate_last` (all inclusive), `width_frames`, `reason`
     ("content_redrawn", or "flat_vs_content" when exactly one side's mean luma std over the
-    span is below `frame_hash.FLAT_STD`). A "content_redrawn" run is dropped (never appended)
-    when NEITHER side clears `DIVERGENT_MIN_STD`: both sides agreeing on low detail is a
-    pHash-on-flat-content false reading, not a real difference (measured -- see
-    `DIVERGENT_MIN_STD`); a "flat_vs_content" run is kept regardless, since one side being
-    genuinely flat under `frame_hash.FLAT_STD` against the other is already the signal itself.
+    span is below `frame_hash.FLAT_STD`). `min_frames`/`DIVERGENT_MIN_STD` are the motion
+    pHash-noise floor and apply only to a "content_redrawn" run (both sides carry detail;
+    short or low-detail agreement there is noise, not a real difference -- measured, see
+    `DIVERGENT_MIN_STD`). A "flat_vs_content" run -- the owner's rule 2 case, a candidate
+    fade/black frame against the master's black/content -- is kept at ANY width, even one
+    frame: one side being genuinely flat against the other already is the difference, never
+    a "how black" reading to filter by run length.
     '''
     n_c = len(c_hashes)
     rows = np.arange(int(m_lo), int(m_hi) + 1, dtype=np.int64)
@@ -1066,8 +1068,6 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
         while i < len(rows) and diverges[i]:
             i += 1
         length = i - start
-        if length < min_frames:
-            continue
         m_first, m_last = int(rows[start]), int(rows[i - 1])
         c_first, c_last = m_first + int(d), m_last + int(d)
         master_std = float(np.mean(m_hashes[m_first:m_last + 1].std))
@@ -1077,9 +1077,13 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
         candidate_std = (0.0 if candidate_clipped
                         else float(np.mean(c_hashes[c_lo_clip:c_hi_clip + 1].std)))
         candidate_flat = candidate_clipped or candidate_std < frame_hash.FLAT_STD
-        if master_flat == candidate_flat and max(master_std, candidate_std) < DIVERGENT_MIN_STD:
-            continue
-        reason = "flat_vs_content" if master_flat != candidate_flat else "content_redrawn"
+        flat_vs_content = master_flat != candidate_flat
+        if not flat_vs_content:
+            if length < min_frames:
+                continue
+            if master_flat == candidate_flat and max(master_std, candidate_std) < DIVERGENT_MIN_STD:
+                continue
+        reason = "flat_vs_content" if flat_vs_content else "content_redrawn"
         spans.append({"master_first": m_first, "master_last": m_last,
                       "candidate_first": c_first, "candidate_last": c_last,
                       "width_frames": length, "reason": reason})

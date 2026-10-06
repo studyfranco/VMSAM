@@ -893,6 +893,39 @@ def zone_offset(m, c, t0, t1, seed):
             "levels": found, "counts": counts}
 
 
+def widest_shared_quiet_run(m, c, a_ms, t_lo, t_hi):
+    """Widest run inside `[t_lo, t_hi]` (s, master clock) where the master and the candidate
+    (read at `a_ms` ms offset) are both under `AUDIBLE_DB`, at the fine (20 ms / 5 ms hop)
+    resolution `_shared_silence_edges` also reads at.
+
+    Used to place a video-blind gap (`repair_orchestrator._blind_span_outcome`,
+    `video_offset_plan`'s zoned gap fill) inside a silence both files share, per the owner's
+    rule: a width check against the gap is the caller's own, not asked here.
+
+    Returns:
+        (run_s, run_e) in seconds on the master's own clock, or None.
+    """
+    win = FINE_WIN_S
+    times = np.arange(t_lo, t_hi - win, FINE_HOP_S)
+    if not len(times):
+        return None
+    mdb = np.array([rms_db(m[int(round(t * WALK_RATE)):int(round(t * WALK_RATE))
+                             + int(win * WALK_RATE)]) for t in times])
+    cdb = _candidate_db(c, times, t_lo, t_hi, a_ms, win)
+    quiet = (mdb < AUDIBLE_DB) & (cdb < AUDIBLE_DB)
+    best = None
+    start = None
+    for i, q in enumerate(list(quiet) + [False]):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            run_s, run_e = float(times[start]), float(times[i - 1] + win)
+            if best is None or run_e - run_s > best[1] - best[0]:
+                best = (run_s, run_e)
+            start = None
+    return best
+
+
 def _shared_silence_edges(m, c, a_ms, t_lo, t_hi, step_ms):
     """A sub-frame step hiding inside a digital silence both tracks share.
 

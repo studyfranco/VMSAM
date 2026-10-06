@@ -303,6 +303,22 @@ def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame):
     return bool(frame_hash.same_picture(m_hashes[mi], c_hashes[ci])[0])
 
 
+def _flat_vs_content_mismatch(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame):
+    '''A mismatching frame pair where exactly one side is flat (black/near-black).
+
+    The owner's rule (2026-10-06): a candidate fade or dim frame against a master black
+    frame, or a black candidate frame against master content, is a frame that genuinely
+    differs -- never a pHash noise reading to tolerate, whatever its run length. Returns
+    False when either frame is outside its extracted range (handled by the mismatch count
+    itself) or when both sides agree on flatness (two different noise readings of the same
+    held black/static picture, not a content difference).
+    '''
+    mi, ci = m_frame - m_base, c_frame - c_base
+    if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
+        return False
+    return bool(m_hashes.std[mi] < frame_hash.FLAT_STD) != bool(c_hashes.std[ci] < frame_hash.FLAT_STD)
+
+
 def _span_matches(m_hashes, m_base, c_hashes, c_base, first, stop, shift):
     '''(matched, readable) frame counts of master [first, stop) against the candidate at shift.'''
     m_idx = np.arange(first, stop) - m_base
@@ -950,7 +966,10 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
     # Cross-sweep: forward from A under before_shift, backward from B under after_shift,
     # each capped at the other anchor. A sweep stops only after
     # SWEEP_SUSTAINED_MISMATCH_FRAMES consecutive mismatches and lands on the last
-    # matching frame.
+    # matching frame -- except a flat-vs-content mismatch (owner's rule 2: a candidate
+    # fade/black frame against the master's black/content, never read by "how black" it
+    # is), which ends the walk's own extension at once, however short the run, instead of
+    # being absorbed back into the matched span when ordinary frames resume matching.
     split_start_master = anchor_a
     consecutive_mismatches = 0
     for m_frame in range(anchor_a, anchor_b):
@@ -960,7 +979,9 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
             consecutive_mismatches = 0
         else:
             consecutive_mismatches += 1
-            if consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES:
+            if (consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES
+                    or _flat_vs_content_mismatch(m_hashes, m_base, m_frame,
+                                                 c_hashes, c_base, c_frame)):
                 break
     split_start_candidate = split_start_master + before_shift
 
@@ -973,7 +994,9 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
             consecutive_mismatches = 0
         else:
             consecutive_mismatches += 1
-            if consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES:
+            if (consecutive_mismatches >= SWEEP_SUSTAINED_MISMATCH_FRAMES
+                    or _flat_vs_content_mismatch(m_hashes, m_base, m_frame,
+                                                 c_hashes, c_base, c_frame)):
                 break
     split_end_candidate = split_end_master + after_shift
 

@@ -1906,7 +1906,7 @@ def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
     return outcome
 
 
-def _ambiguous_pin_outcome(hole, domain, result, candidate_path):
+def _ambiguous_pin_outcome(hole, domain, result, candidate_path, walk=None):
     """Route a refused ambiguous anchor through the blind-span placement.
 
     One side could not be seated because its content is self-similar (a black or static zone)
@@ -1939,7 +1939,7 @@ def _ambiguous_pin_outcome(hole, domain, result, candidate_path):
                 before_shift_frames=before, after_shift_frames=after,
                 forward_walk_frames=None, backward_walk_frames=None, sweep_crossed=True,
                 pre_collapse_start_master=anchor_a, pre_collapse_end_master=anchor_b)
-    outcome = _blind_span_outcome(hole, domain, blind, candidate_path)
+    outcome = _blind_span_outcome(hole, domain, blind, candidate_path, walk=walk)
     outcome["pin_route"] = "ambiguous_anchor"
     outcome["anchor_a_ambiguous"] = a_ambiguous
     outcome["anchor_b_ambiguous"] = b_ambiguous
@@ -2000,48 +2000,95 @@ def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_m
     return outcome
 
 
-def _blind_span_outcome(hole, domain, blind, candidate_path):
+def _blind_span_silence_point(domain, blind, gap, walk):
+    """A frame to place a blind gap at, inside a silence both files share, or None.
+
+    Owner's rule (2026-10-06): a picture-blind gap (black/static/fade between two anchors) is
+    placed inside the audio silence common to both files when one covers the whole gap,
+    nearest the blind span's own right anchor -- never past it, the same bound the fallback
+    placement already respects. `walk` is the whole-track pair already decoded for this
+    candidate's audio comparison (`reference_walk`); no new decode is made. Returns the frame
+    position the gap's own right edge lands at (`_blind_span_outcome` builds the rest from
+    it), or None when `walk` is absent, the probe raises, or no shared silence covers the gap.
+    """
+    if walk is None:
+        return None
+    import audio_walk
+    frame_ms = float(domain["frame_ms"])
+    anchor_a, anchor_b, after = blind["anchor_a_frame"], blind["anchor_b_frame"], blind["after_shift_frames"]
+    gap_width_ms = abs(gap) * frame_ms
+    span_lo_s, span_hi_s = anchor_a * frame_ms / 1000.0, anchor_b * frame_ms / 1000.0
+    margin_s = max(2.0, gap_width_ms / 1000.0 * 4.0)
+    t_lo, t_hi = max(0.0, span_lo_s - margin_s), span_hi_s + margin_s
+    try:
+        run = audio_walk.widest_shared_quiet_run(walk["master"], walk["candidate"],
+                                                 after * frame_ms, t_lo, t_hi)
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: blind_span_silence_probe_failed "
+                      f"({type(error).__name__}: {error})\n")
+        return None
+    if run is None or (run[1] - run[0]) * 1000.0 < gap_width_ms:
+        return None
+    run_s, run_e = run
+    point = min(int(round(run_e * 1000.0 / frame_ms)), anchor_b + max(0, gap))
+    floor = int(round(run_s * 1000.0 / frame_ms))
+    if point - abs(gap) < floor or point < anchor_a:
+        return None
+    return point, (round(run_s, 3), round(run_e, 3))
+
+
+def _blind_span_outcome(hole, domain, blind, candidate_path, walk=None):
     """Resolve a hole the picture could not read as a blind (black/static) span.
 
     Both anchors seated, scene-cut-seeded and pHash-validated; the cross-sweep from each ran
     clean through the whole span and touched the far anchor (`sweep_crossed`), which is what a
     held black or static picture produces -- it matches either offset, so neither walk ever
     finds a mismatch to stop on. The picture is never read past the anchors in that case: the
-    width is the anchors' own shift difference (in whole frames), and the edit sits just before
-    Anchor B's first frame.
+    width is the anchors' own shift difference (in whole frames).
+
+    Owner's rule (2026-10-06): the edit is placed inside the audio silence common to both
+    files when one covers the whole gap (`_blind_span_silence_point`), else just before
+    Anchor B's first frame (the previous, now fallback, behaviour).
 
     `locate_scene_anchors` collapses both axes to anchor B (`master_start_frame ==
     master_end_frame == anchor_b_frame`), which loses the gap whenever it must fill from the
     master (`video_cut_instant` would then read a 0 ms video width against a non-zero audio
-    fill and always decline). A master fill needs the master span widened to the gap, ending at
-    anchor B; a candidate removal needs no master span at all (the master is untouched), so its
-    collapsed shape is already correct. Either way the candidate side stays a single point at
-    anchor B's own frame, under the shift that survives (`after_shift_frames`): nothing in the
-    candidate is read twice and nothing of it is kept inside the removed/filled span.
+    fill and always decline). A master fill needs the master span widened to the gap, ending
+    at the chosen point; a candidate removal needs no master span at all (the master is
+    untouched), so its collapsed shape is already correct. Either way the candidate side
+    stays a single point at the chosen frame, under the shift that survives
+    (`after_shift_frames`): nothing in the candidate is read twice and nothing of it is kept
+    inside the removed/filled span.
     """
     before, after = blind["before_shift_frames"], blind["after_shift_frames"]
     gap = after - before
     anchor_b = blind["anchor_b_frame"]
     frame_ms = float(domain["frame_ms"])
+    silence = _blind_span_silence_point(domain, blind, gap, walk)
+    if silence is not None:
+        point, interval_s = silence
+        placement, placement_evidence = "silence", f"silence_interval_s={list(interval_s)}"
+    else:
+        point, placement, placement_evidence = anchor_b, "right_anchor", "no_shared_silence"
     if gap < 0:
-        placed = dict(blind, master_start_frame=anchor_b + gap, master_end_frame=anchor_b,
-                     candidate_start_frame=anchor_b + after, candidate_end_frame=anchor_b + after)
+        placed = dict(blind, master_start_frame=point + gap, master_end_frame=point,
+                     candidate_start_frame=point + after, candidate_end_frame=point + after)
         decision = "fill_from_master"
     else:
-        placed = dict(blind, master_start_frame=anchor_b, master_end_frame=anchor_b,
-                     candidate_start_frame=anchor_b + before, candidate_end_frame=anchor_b + after)
+        placed = dict(blind, master_start_frame=point, master_end_frame=point,
+                     candidate_start_frame=point + before, candidate_end_frame=point + after)
         decision = "remove_from_candidate"
     tools.log_always(
         f"repair: video_undecided_blind_span anchor_a={blind['anchor_a_frame']} "
         f"anchor_b={anchor_b} before_shift_frames={before} "
         f"after_shift_frames={after} gap_frames={gap} "
         f"gap_ms={round(gap * frame_ms, 3)} "
-        f"decision={decision} "
-        f"placed_before_frame={anchor_b} for {candidate_path}\n")
+        f"decision={decision} placement={placement} {placement_evidence} "
+        f"placed_at_frame={point} for {candidate_path}\n")
     return _interior_outcome(hole, domain, placed, HOLE_RESOLVED)
 
 
-def _resolve_interior(hole, domain, master_obj, candidate_obj):
+def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
     """Resolve an interior hole with the two-anchor frame-exact search.
 
     The audio proposes a step, the video decides. For a step under the aligner's resolution
@@ -2049,7 +2096,8 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
     zones' audio offsets when no anchor resolved); the first that seats both anchors refutes
     the step. A step at or above the floor is likewise re-tested at a shift that claims the
     unmatched span. An ambiguous anchor leads to `_ambiguous_pin_outcome`, a sub-floor decline
-    to `_span_no_cut_outcome`.
+    to `_span_no_cut_outcome`. `walk` (the pair's own decoded audio, when the caller has it)
+    is only used to place a blind span inside a shared silence (`_blind_span_outcome`).
     """
     quantum_ms = hole["quantum_ms"]
     offset_before_ms = hole["offset_before_ms"]
@@ -2134,7 +2182,7 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
             if span_outcome is not None:
                 return span_outcome
         elif _interior_verdict(result) == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
-            return _ambiguous_pin_outcome(hole, domain, result, candidate_obj.filePath)
+            return _ambiguous_pin_outcome(hole, domain, result, candidate_obj.filePath, walk=walk)
         elif result.get("reason") == "anchor_step_inconsistent":
             # Both anchors seated and the cross-sweep ran, but the frame gap it counted
             # disagreed with the audio's nominal step -- the usual sign of a blind span: a
@@ -2148,7 +2196,7 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
                                         quantum_ms, probe="blind_span_anchor_gap",
                                         accept_step_disagreement=True)
             if not blind["declined"] and blind.get("sweep_crossed"):
-                return _blind_span_outcome(hole, domain, blind, candidate_obj.filePath)
+                return _blind_span_outcome(hole, domain, blind, candidate_obj.filePath, walk=walk)
         return _declined(hole, result.get("reason"), result.get("evidence"),
                          no_cut_probe_run=bool(hypotheses))
     return _interior_outcome(hole, domain, result, _interior_verdict(result))
@@ -2259,16 +2307,14 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
     }
 
 
-def resolve_hole(hole, master_obj, candidate_obj, work_dir):
+def resolve_hole(hole, master_obj, candidate_obj, work_dir, walk=None):
     """Resolve one hole to exact frames.
 
     Interior holes go to `_resolve_interior`, head and tail holes to `_resolve_edge`. The hole
     must carry `frame_domain` and `quantum_ms`; it gets HOLE_BUDGET_S, capped by the repair's
-    deadline. `work_dir` is unused (the resolvers decode through pipes).
-
-    Returns:
-        An outcome dict whose `status` is in HOLE_STATUSES_WITH_FRAMES, or `declined` with a
-        named `resolver_reason`.
+    deadline. `work_dir` is unused (the resolvers decode through pipes). `walk` (the pair's
+    already-decoded audio, when the caller has it) is forwarded to `_resolve_interior` only,
+    to place a blind span inside a shared silence.
     """
     domain = hole.get("frame_domain")
     if domain is None:
@@ -2280,7 +2326,7 @@ def resolve_hole(hole, master_obj, candidate_obj, work_dir):
     hole = dict(hole, deadline=(deadline if repair_deadline is None
                                 else min(deadline, repair_deadline)))
     if hole["kind"] == "interior":
-        outcome = _resolve_interior(hole, domain, master_obj, candidate_obj)
+        outcome = _resolve_interior(hole, domain, master_obj, candidate_obj, walk=walk)
     elif hole["kind"] in ("head", "tail"):
         outcome = _resolve_edge(hole, domain, master_obj, candidate_obj)
     else:
@@ -2299,7 +2345,8 @@ def resolve_hole(hole, master_obj, candidate_obj, work_dir):
     return outcome
 
 
-def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_obj, work_dir):
+def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_obj, work_dir,
+                    walk=None):
     """Run `resolve_hole` with step logging; an out-of-vocabulary status becomes a decline."""
     step_launch("resolve_hole", candidate=candidate_path, hole=index, kind=hole["kind"],
                 why=hole["why_token"], master_span_s=round(hole["master_span_seconds"], 3),
@@ -2312,7 +2359,8 @@ def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_o
                 union_of=hole.get("union_of"), cluster=hole.get("cluster_id"),
                 origin=hole.get("origin", "alignment"))
     started = time.time()
-    outcome = resolve_hole(dict(hole, frame_domain=domain), master_obj, candidate_obj, work_dir)
+    outcome = resolve_hole(dict(hole, frame_domain=domain), master_obj, candidate_obj, work_dir,
+                           walk=walk)
     if outcome["status"] not in HOLE_STATUSES_WITH_FRAMES + (HOLE_DECLINED,):
         tools.log_always(f"repair: orchestrator UNVOCABULARISED hole status="
                          f"{outcome['status']} hole={index} for {candidate_path} -- "
@@ -2984,7 +3032,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
     # instead of one change point at a time.
     hole_outcomes = repair_pool.run_parallel([
         (lambda i=index, h=hole: _resolve_logged(candidate_path, f"change_point_{i}", h, domain,
-                                                 master_obj, candidate_obj, work_dir))
+                                                 master_obj, candidate_obj, work_dir, walk=walk))
         for index, hole in enumerate(holes)])
     transitions = []
     for index, (point, hole) in enumerate(zip(points, holes)):
