@@ -438,8 +438,12 @@ EDGE_LOCAL_WINDOWS = 5
 EDGE_LOCAL_SEARCH_MS = 5.0
 
 
-def coarse_edges(m, c, a, b, t_lo, t_hi, micro_ms=1.0):
+def coarse_edges(m, c, a, b, t_lo, t_hi, micro_ms=1.0, claim_ncc=SHORT_THRESHOLD):
     """Locate an a -> b change in master [t_lo, t_hi] with 0.4 s fixed-lag windows.
+
+    `claim_ncc` is the absolute claim floor (default `SHORT_THRESHOLD`); the caller lowers it,
+    relative to the pair's own match level, for a couple whose mixes differ and never reach 0.8
+    (the 0.2 margin below still decides between the two sides).
 
     Returns (edge_A, edge_B) or None. Only a seed for `fine_edges`: coarse edges are biased
     inward by 0.1-0.3 s."""
@@ -454,7 +458,7 @@ def coarse_edges(m, c, a, b, t_lo, t_hi, micro_ms=1.0):
         t += SHORT_HOP_S
 
     def claims(p, mine, other):
-        return (p[1] >= WALK_SILENT_DB and mine is not None and mine >= SHORT_THRESHOLD
+        return (p[1] >= WALK_SILENT_DB and mine is not None and mine >= claim_ncc
                 and (other is None or mine - other >= SHORT_MARGIN))
     a_idx = [i for i, p in enumerate(profile) if claims(p, p[2], p[3])]
     b_idx = [i for i, p in enumerate(profile) if claims(p, p[3], p[2])]
@@ -571,14 +575,17 @@ def master_only_covered(m, c, only_s, a_ms, b_ms, win_s=0.1, hop_s=0.02, search_
     return samples > 0 and covered / samples >= MASTER_ONLY_COVERED_FRACTION
 
 
-def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b=None):
+def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b=None,
+              claim_ncc=SHORT_THRESHOLD):
     """Measure the sharp edges of an a -> b change.
 
     edge_A is the last master instant read at a, edge_B the first read at b; `extra_s` =
     max(0, a - b) is master content the candidate lacks. `interval` is the feasible fill-start
     interval for a deletion, the cut-instant interval for an addition. `status` is `ok` or
     `edge_unmeasurable`. `probe_a` / `probe_b` are the offsets probed (local offsets at the
-    edge); `a` / `b` stay the level medians, which set the step."""
+    edge); `a` / `b` stay the level medians, which set the step. `claim_ncc` is the `ncc100ms`
+    fallback's claim floor (default `SHORT_THRESHOLD`), lowered by the caller the same way as
+    `coarse_edges`' for a pair whose own match level never reaches 0.8."""
     probe_a = a if probe_a is None else probe_a
     probe_b = b if probe_b is None else probe_b
     # A deletion's b level cannot start before coarse_A + the step, so its residual floor is read
@@ -606,9 +613,9 @@ def fine_edges(m, c, a, b, coarse_a, coarse_b, margin=0.6, probe_a=None, probe_b
         method, win = "ncc100ms", 0.1
         times, mdb, (na, nb) = _ncc_profile(m, c, (probe_a, probe_b), t0, t1, win)
         audible = mdb >= FINE_SILENT_DB
-        is_a = audible & (na >= 0.8) & (na - nb >= 0.2)
-        is_b = audible & (nb >= 0.8) & (nb - na >= 0.2)
-        good_a, good_b = na >= 0.8, nb >= 0.8
+        is_a = audible & (na >= claim_ncc) & (na - nb >= SHORT_MARGIN)
+        is_b = audible & (nb >= claim_ncc) & (nb - na >= SHORT_MARGIN)
+        good_a, good_b = na >= claim_ncc, nb >= claim_ncc
         follows_a = follows_b = np.zeros(len(times), bool)       # NCC is already scale-free
     result = {"method": method, "floor_a": round(floor_a, 4), "floor_b": round(floor_b, 4),
               "a_ms": a, "b_ms": b, "step_ms": round(b - a, 3)}
@@ -909,17 +916,23 @@ def change_points(m, c, found):
         # claims can fall just outside the bounding windows.
         t_lo = before["t_last"] - WALK_HOP_S
         t_hi = after["t_first"] + WALK_WINDOW_S + WALK_HOP_S
-        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"], t_lo, t_hi)
-        edges = (fine_edges(m, c, before["off_ms"], after["off_ms"], *coarse)
+        # Claim gate relative to the pair's own match level: a couple whose mixes differ (never
+        # reaching the absolute 0.8) can still claim a side 0.9x its own measured level, with the
+        # 0.2 margin kept to decide between the two sides.
+        claim_ncc = min(SHORT_THRESHOLD,
+                        max(MATCH_NCC, 0.9 * min(before["ncc_med"], after["ncc_med"])))
+        coarse = coarse_edges(m, c, before["off_ms"], after["off_ms"], t_lo, t_hi,
+                              claim_ncc=claim_ncc)
+        edges = (fine_edges(m, c, before["off_ms"], after["off_ms"], *coarse, claim_ncc=claim_ncc)
                  if coarse is not None else None)
         if edges is None or edges["status"] != "ok":
             probe_a = before.get("off_last_ms", before["off_ms"])
             probe_b = after.get("off_first_ms", after["off_ms"])
             local = coarse_edges(m, c, probe_a, probe_b, t_lo, t_hi,
-                                 micro_ms=EDGE_LOCAL_SEARCH_MS)
+                                 micro_ms=EDGE_LOCAL_SEARCH_MS, claim_ncc=claim_ncc)
             if local is not None:
                 retried = fine_edges(m, c, before["off_ms"], after["off_ms"], *local,
-                                     probe_a=probe_a, probe_b=probe_b)
+                                     probe_a=probe_a, probe_b=probe_b, claim_ncc=claim_ncc)
                 if retried["status"] == "ok" or edges is None:
                     edges = dict(retried, probe_ms=[probe_a, probe_b])
         point["edges"] = (edges if edges is not None
