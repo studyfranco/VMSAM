@@ -2625,13 +2625,19 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                       f"for {candidate_path}\n")
     # Without a fine edge, the level's measured windows bound the common content.
     lead = audio_walk.head_lead_in(master, candidate, first["off_ms"], first["t_first"] + window)
-    sting_floor = audio_walk.head_sting_tail(candidate, first["off_ms"], first["t_first"] + window)
     head_s = first["t_first"] if head is None else head["edge_s"]
     tail_s = (last["t_last"] + window) if tail is None else tail["edge_s"]
     edge_source = {"head": "walk_window_edge" if head is None else "audio_edge",
                    "tail": "walk_window_edge" if tail is None else "audio_edge"}
     by_kind = {hole["kind"]: (index, hole) for index, hole in enumerate(holes)
                if hole["kind"] in ("head", "tail")}
+    # Bounded by the hole's OWN bracket (where the coarse alignment already read no common
+    # content), never by the level's window reach: that can lock on well inside the episode,
+    # past genuine matched dialogue, which a scan that far would misread as the candidate's own.
+    head_hole = by_kind.get("head")
+    sting_floor = (audio_walk.head_sting_tail(
+        candidate, first["off_ms"], max(float(head_hole[1]["master_ms"][1]) / 1000.0, frame))
+        if head_hole is not None else None)
     # Head and tail are independent holes (one anchor each): their exact-frame search runs
     # together on the shared repair pool instead of one after the other.
     edge_jobs = {}
