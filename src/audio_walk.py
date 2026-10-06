@@ -23,10 +23,12 @@ import tools
 WALK_RATE = 16000
 
 # Window 2 s, hop 1 s: no false jumps from 0.5 to 10 s windows, at ~30-60 s per hour of audio.
-# +/-150 ms covers one aligner quantum of uncertainty plus one quantum of margin.
+# +/-185.5 ms (measured, real media: a true middle offset 185.5 ms from its aligner seed) is the
+# worst seed error observed; +/-200 ms keeps a margin over it rather than sitting on the exact
+# measured figure.
 WALK_WINDOW_S = 2.0
 WALK_HOP_S = 1.0
-WALK_SEARCH_MS = 150.0
+WALK_SEARCH_MS = 200.0
 # A window whose master content is under this level is unmeasurable: no offset is read there.
 # This is the walk's floor only; the fine edges read down to digital silence.
 WALK_SILENT_DB = -55.0
@@ -35,9 +37,12 @@ WALK_SILENT_DB = -55.0
 MATCH_NCC = 0.5
 PEAK_AMBIGUITY = 0.92
 # LEVELS: a window joins a level within LEVEL_TOLERANCE_MS of its running median; a new level
-# must hold LEVEL_PERSIST consecutive windows or its windows are outliers.
+# must hold LEVEL_PERSIST consecutive windows or its windows are outliers. Measured: a 2-window
+# run (1 s of real content) read a spurious level from a window pair that did not belong to a
+# real offset change, which `change_points` then read as a false step; 3 windows still accepts
+# every genuine level observed and asks for one more confirming window before trusting a new one.
 LEVEL_TOLERANCE_MS = 5.0
-LEVEL_PERSIST = 2
+LEVEL_PERSIST = 3
 # A change point is a jump of at least this between levels: in-level wander stays under ~10 ms,
 # real sub-quantum steps are 25 ms and more.
 JUMP_MS = 15.0
@@ -228,8 +233,10 @@ def _status(result):
 # common content inside the candidate span those windows bound, since an edit keeps content order.
 # Offsets found are walked like seeds over the gap. This catches an offset outside every seed's
 # search window, which would otherwise be fused with a neighbour. At most GAP_PROBE_WORK_S
-# candidate-seconds are searched per gap; spans over GAP_PROBE_MAX_S are skipped.
-GAP_PROBE_MAX_S = 300.0
+# candidate-seconds are searched per gap; spans over GAP_PROBE_MAX_S are skipped. Measured: a
+# real 482 s unmatched run (above the former 300 s cap, so never probed) hid the offset that
+# change_points needed; 600 s keeps a margin over it.
+GAP_PROBE_MAX_S = 600.0
 GAP_PROBE_WORK_S = 2400.0
 GAP_PROBE_MIN_PROBES = 8
 
