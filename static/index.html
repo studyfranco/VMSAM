@@ -18,6 +18,7 @@
                 <button data-tab="folder-tab" onclick="switchTab('folder-tab')" class="btn btn-secondary">Folder Creation</button>
                 <button data-tab="regex-tab" onclick="switchTab('regex-tab')" class="btn btn-secondary">Bulk Regex</button>
                 <button data-tab="index-tab" onclick="switchTab('index-tab')" class="btn btn-secondary">Index Folder</button>
+                <button data-tab="move-tab" onclick="switchTab('move-tab')" class="btn btn-secondary">Move Folder</button>
                 <button data-tab="special-tab" onclick="switchTab('special-tab')" class="btn btn-secondary">Specials</button>
                 <button data-tab="incr-tab" onclick="switchTab('incr-tab')" class="btn btn-secondary">Incrementaller</button>
             </nav>
@@ -50,6 +51,13 @@
                         <div class="text-large icon-green-filter">🗂️</div>
                         <h3>Index Folder</h3>
                         <p class="text-muted">Register the files a folder already holds.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('move-tab')">
+                        <div class="text-large icon-green-filter">🚚</div>
+                        <h3>Move Folder</h3>
+                        <p class="text-muted">Move or rename a registered folder in the library.</p>
                         <button class="btn btn-primary mt-4">Get Started →</button>
                     </div>
 
@@ -234,15 +242,6 @@
                         <button onclick="indexTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
                     </div>
 
-                    <div id="index-move" class="hidden mt-4 move-panel">
-                        <label class="label" for="index-move-path">Move / rename this folder</label>
-                        <div class="flex items-center move-row">
-                            <input type="text" id="index-move-path" class="input" placeholder="e.g. Show A/Season 1">
-                            <button id="index-move-btn" onclick="moveIndexFolder()" class="btn btn-secondary">Move</button>
-                        </div>
-                        <div id="index-move-note" class="text-muted text-xs mt-1"></div>
-                    </div>
-
                     <div class="card mt-4 register-card">
                         <div onclick="toggleIndexRegister()" class="flex flex-between items-center" style="cursor: pointer;">
                             <h3 style="margin:0;">Register an existing folder</h3>
@@ -316,6 +315,47 @@
                         <h3 style="margin-top:0;">Indexing report</h3>
                         <div id="index-report-content"></div>
                     </div>
+                </div>
+            </section>
+
+            <!-- Move Folder Tab -->
+            <section id="move-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select the folder to move</h2>
+                    <p class="text-muted text-sm">Moves the directory on disk, rewrites the path of the folder and of
+                        its registered episodes, then deletes the old parent directories left empty.</p>
+                    <div class="form-group">
+                        <input type="text" id="move-folder-search" class="input" placeholder="Search folders...">
+                    </div>
+                    <div id="move-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="move-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                        <span class="font-mono text-accent"></span>
+                        <button onclick="moveTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                    </div>
+                    <div id="move-current" class="hidden text-sm mt-2">
+                        <div>Current path: <span id="move-current-path" class="font-mono text-accent"></span></div>
+                        <div>Registered episodes: <span id="move-episode-count" class="font-mono"></span></div>
+                    </div>
+                </div>
+
+                <div id="move-work-area" class="card mt-4 disabled-area">
+                    <h2 class="section-title">2. Choose the destination</h2>
+                    <p class="text-muted text-sm">Paths are relative to the library root (<span id="move-root"
+                            class="font-mono"></span>). Click a directory to move the folder inside it under its
+                        current name, open one with "Open →" (or a double click); then edit the name freely.</p>
+                    <div id="move-browser" class="dir-browser-container"></div>
+                    <div class="form-group mt-2">
+                        <label class="label" for="move-path">New path</label>
+                        <div class="flex items-center move-row">
+                            <input type="text" id="move-path" class="input" placeholder="e.g. Show A/Season 1">
+                            <button id="move-btn" onclick="moveSelectedFolder()" class="btn btn-primary">Move</button>
+                        </div>
+                    </div>
+                    <div class="card mt-2 move-preview-box">
+                        <div class="label move-preview-label">Preview</div>
+                        <div id="move-preview" class="font-mono text-sm move-preview"></div>
+                    </div>
+                    <div id="move-removed" class="hidden text-sm mt-2"></div>
                 </div>
             </section>
 

@@ -710,6 +710,31 @@ body {
     font-family: monospace;
 }
 
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.move-preview-box {
+    background-color: rgba(61, 174, 233, 0.1);
+    border-color: var(--highlight);
+}
+
+.move-preview-label {
+    color: var(--highlight);
+}
+
+.move-preview {
+    word-break: break-all;
+    white-space: pre-wrap;
+}
+
+.move-removed-list {
+    margin: 0.25rem 0 0 1.25rem;
+    padding: 0;
+    word-break: break-all;
+}
+
 /* --- File modal selection bar / board toolbar --- */
 .file-select-bar {
     display: flex;
@@ -729,4 +754,25 @@ body {
 .board-toolbar-buttons {
     display: flex;
     gap: 0.5rem;
+}
+
+/* Seven tabs: keep the title and every label on one line, wrap the buttons instead */
+.header-bar {
+    gap: 1rem;
+}
+
+.title {
+    white-space: nowrap;
+}
+
+.nav-group {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.4rem;
+}
+
+.nav-group .btn {
+    white-space: nowrap;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.9rem;
 }

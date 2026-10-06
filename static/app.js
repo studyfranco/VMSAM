@@ -650,6 +650,7 @@ const TAB_INIT = {
     },
     'regex-tab': () => initRegexTab(),
     'index-tab': () => initIndexTab(),
+    'move-tab': () => initMoveTab(),
     'special-tab': () => initSpecialTab(),
     'incr-tab': () => initIncrementallerTab()
 };
@@ -1385,12 +1386,10 @@ function initIndexTab() {
         indexTab.folder = f;
         document.getElementById('index-work-area').classList.remove('disabled-area');
         document.getElementById('index-report').classList.add('hidden');
-        showIndexMovePanel(f);
         loadIndexFolderFiles();
     }, () => {
         indexTab.folder = null;
         document.getElementById('index-work-area').classList.add('disabled-area');
-        document.getElementById('index-move').classList.add('hidden');
         board.clear();
     });
     // A save refreshes the rule and covered lists only: rebuilding the board
@@ -1520,57 +1519,6 @@ async function registerIndexFolder() {
     }
 }
 
-// --- Move / rename the selected folder ---
-
-async function showIndexMovePanel(folder) {
-    const panel = document.getElementById('index-move');
-    const input = document.getElementById('index-move-path');
-    const note = document.getElementById('index-move-note');
-    panel.classList.remove('hidden');
-    note.textContent = '';
-    input.value = '';
-    try {
-        const config = await fetchUiConfig();
-        if (indexTab.folder !== folder) return;
-        const relative = relativeToRoot(config.create_root, folder.destination_path);
-        if (relative === null) {
-            note.textContent = `This folder is outside the library root (${config.create_root}): the new path below is taken relative to that root.`;
-            input.value = '';
-        } else {
-            note.textContent = `Relative to ${config.create_root}. Moves the directory on disk and rewrites the paths of its episodes.`;
-            input.value = relative;
-        }
-    } catch (e) {
-        note.textContent = 'Cannot read the library root: ' + e.message;
-    }
-}
-
-async function moveIndexFolder() {
-    const folder = indexTab && indexTab.folder;
-    if (!folder) { showToast('Select a folder first', 'error'); return; }
-    const newPath = document.getElementById('index-move-path').value.trim().replace(/^\/+/, '').replace(/\/+$/, '');
-    if (!newPath) { showToast('Enter the new path, relative to the library root', 'error'); return; }
-    let config;
-    try { config = await fetchUiConfig(); } catch (e) { showToast('Cannot read the library root: ' + e.message, 'error'); return; }
-    const target = normalizePath(`${config.create_root}/${newPath}`);
-    if (!confirm(`Move this folder on disk?\n\n${folder.destination_path}\n→ ${target}`)) return;
-
-    const button = document.getElementById('index-move-btn');
-    button.disabled = true;
-    try {
-        const result = await api.moveFolder(folder.id, newPath);
-        showToast(`${result.message}: ${result.episodes_updated} episode path${result.episodes_updated === 1 ? '' : 's'} updated`, 'success', 5000);
-        await selectIndexFolderById(folder.id);
-        if (!document.getElementById('index-register-content').classList.contains('hidden')) {
-            loadIndexRegisterBrowser(indexTab.registerDir);
-        }
-    } catch (e) {
-        showToast(e.message, 'error', 8000);
-    } finally {
-        button.disabled = false;
-    }
-}
-
 async function loadIndexFolderFiles(rebuildBoard = true) {
     const folder = indexTab.folder;
     if (!folder) return;
@@ -1682,6 +1630,258 @@ async function runIndexFolder() {
     } finally {
         button.disabled = false;
     }
+}
+
+// --- 8b'. Move Folder tab ---
+//
+// Moves (or renames) a registered folder: the directory on disk, the folder
+// path and its episode paths, then VMSAM deletes the parent directories the
+// move left empty. Paths are shown and typed relative to CREATE_ROOT; the
+// relay prefixes the root and refuses "..".
+
+let moveTab = null;
+
+function initMoveTab() {
+    if (moveTab) { moveTab.picker.load(); loadMoveBrowser(moveTab.browseDir, true); return; }
+    // the promise is kept so a reselection after a move can wait for it
+    const picker = createFolderPicker('move', (f) => { moveTab.shown = showMoveFolder(f); }, () => {
+        moveTab.folder = null;
+        moveTab.relative = null;
+        document.getElementById('move-current').classList.add('hidden');
+        document.getElementById('move-work-area').classList.add('disabled-area');
+        document.getElementById('move-removed').classList.add('hidden');
+        document.getElementById('move-path').value = '';
+        updateMovePreview();
+    });
+    moveTab = { picker, folder: null, relative: null, root: null, browseDir: '', keepReport: false, shown: null };
+    document.getElementById('move-path').addEventListener('input', updateMovePreview);
+    picker.load();
+    loadMoveBrowser('');
+    updateMovePreview();
+}
+
+// "/a//b/" typed by the user -> "a/b"
+function cleanRelativePath(text) {
+    return String(text || '').trim().replace(/\/+/g, '/').replace(/^\//, '').replace(/\/$/, '');
+}
+
+// The folder's own directory name, kept when it moves into another directory.
+function moveFolderName() {
+    if (!moveTab.folder) return '';
+    const source = moveTab.relative !== null ? moveTab.relative : normalizePath(moveTab.folder.destination_path);
+    return source.split('/').filter(Boolean).pop() || '';
+}
+
+async function showMoveFolder(folder) {
+    moveTab.folder = folder;
+    moveTab.relative = null;
+    if (!moveTab.keepReport) document.getElementById('move-removed').classList.add('hidden');
+    document.getElementById('move-work-area').classList.remove('disabled-area');
+    document.getElementById('move-current').classList.remove('hidden');
+    const pathNode = document.getElementById('move-current-path');
+    const countNode = document.getElementById('move-episode-count');
+    const input = document.getElementById('move-path');
+    pathNode.textContent = folder.destination_path;
+    countNode.textContent = '…';
+    input.value = '';
+    updateMovePreview();
+
+    api.getFolderEpisodes(folder.id)
+        .then(r => {
+            if (moveTab.folder !== folder) return;
+            const episodes = (r && r.episodes) || [];
+            countNode.textContent = String(episodes.length);
+        })
+        .catch(e => { if (moveTab.folder === folder) countNode.textContent = 'unknown (' + e.message + ')'; });
+
+    try {
+        const config = await fetchUiConfig();
+        if (moveTab.folder !== folder) return;
+        moveTab.root = config.create_root;
+        document.getElementById('move-root').textContent = config.create_root;
+        const relative = relativeToRoot(config.create_root, folder.destination_path);
+        moveTab.relative = relative;
+        if (relative === null) {
+            pathNode.textContent = `${folder.destination_path} (outside the library root ${config.create_root}: the new path is taken relative to that root)`;
+        } else {
+            pathNode.textContent = relative || '/ (library root)';
+            input.value = relative;
+        }
+    } catch (e) {
+        showToast('Cannot read the library root: ' + e.message, 'error');
+    }
+    updateMovePreview();
+    markMoveBrowserRows();
+}
+
+function currentMoveLabel() {
+    if (!moveTab.folder) return '';
+    return moveTab.relative !== null ? moveTab.relative : moveTab.folder.destination_path;
+}
+
+function updateMovePreview() {
+    const preview = document.getElementById('move-preview');
+    const button = document.getElementById('move-btn');
+    if (!moveTab || !moveTab.folder) {
+        preview.textContent = 'Select a folder first';
+        button.disabled = true;
+        return;
+    }
+    const target = cleanRelativePath(document.getElementById('move-path').value);
+    if (!target) {
+        preview.textContent = `${currentMoveLabel()} → (enter the new path)`;
+        button.disabled = true;
+    } else if (target === moveTab.relative) {
+        preview.textContent = `${currentMoveLabel()} → ${target} (unchanged)`;
+        button.disabled = true;
+    } else {
+        preview.textContent = `${currentMoveLabel()} → ${target}`;
+        button.disabled = false;
+    }
+}
+
+// The directory browser over CREATE_ROOT: a click on a directory proposes
+// "<that directory>/<folder name>", "Open →" or a double click navigates.
+async function loadMoveBrowser(path = '', fallbackToRoot = false) {
+    const container = document.getElementById('move-browser');
+    container.innerHTML = '';
+    container.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
+    try {
+        const items = await api.listFiles(path, 'create');
+        moveTab.browseDir = path;
+        container.innerHTML = '';
+
+        const where = el('div', 'dir-item register-where flex-between');
+        where.appendChild(el('span', 'font-mono text-muted', path ? `/${path}` : '/ (library root)'));
+        const here = el('button', 'btn btn-sm btn-secondary', 'Move here');
+        here.title = 'Move the folder directly inside this directory';
+        here.onclick = () => setMoveTargetInside(path);
+        where.appendChild(here);
+        container.appendChild(where);
+        if (path) {
+            const back = el('div', 'dir-item text-blue');
+            back.appendChild(el('span', null, '📁 ..'));
+            back.onclick = () => loadMoveBrowser(path.split('/').slice(0, -1).join('/'));
+            container.appendChild(back);
+        }
+
+        const dirs = items.filter(i => i.is_dir);
+        if (!dirs.length) container.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
+        dirs.forEach(item => {
+            const row = el('div', 'dir-item');
+            row.dataset.path = item.path;
+            row.onclick = () => setMoveTargetInside(item.path);
+            row.ondblclick = () => loadMoveBrowser(item.path);
+            const name = el('div', 'dir-name flex-1');
+            name.appendChild(el('span', null, `📁 ${item.name}`));
+            const open = el('button', 'btn btn-sm btn-secondary', 'Open →');
+            open.onclick = (e) => { e.stopPropagation(); loadMoveBrowser(item.path); };
+            const actions = el('div', 'dir-actions');
+            actions.appendChild(open);
+            row.append(name, actions);
+            container.appendChild(row);
+        });
+        markMoveBrowserRows();
+    } catch (e) {
+        if (path && fallbackToRoot) { loadMoveBrowser(''); return; }
+        container.innerHTML = '';
+        const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
+        if (path) { // e.g. the browsed directory was just moved away
+            const root = el('button', 'btn btn-sm btn-secondary mt-2', 'Back to the library root');
+            root.onclick = () => loadMoveBrowser('');
+            err.appendChild(document.createElement('br'));
+            err.appendChild(root);
+        }
+        container.appendChild(err);
+    }
+}
+
+// Highlights the selected folder itself in the listing (moving into it is refused).
+function markMoveBrowserRows() {
+    if (!moveTab) return;
+    document.querySelectorAll('#move-browser .dir-item[data-path]').forEach(row => {
+        const isCurrent = moveTab.relative !== null && row.dataset.path === moveTab.relative;
+        row.classList.toggle('dir-registered', isCurrent);
+        const badge = row.querySelector('.register-badge');
+        if (isCurrent && !badge) row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this folder'));
+        if (!isCurrent && badge) badge.remove();
+    });
+}
+
+function setMoveTargetInside(dir) {
+    if (!moveTab.folder) { showToast('Select the folder to move first', 'error'); return; }
+    const name = moveFolderName();
+    document.getElementById('move-path').value = dir ? `${dir}/${name}` : name;
+    document.querySelectorAll('#move-browser .dir-item[data-path]').forEach(row => {
+        row.classList.toggle('selected', row.dataset.path === dir);
+    });
+    updateMovePreview();
+}
+
+async function moveSelectedFolder() {
+    const folder = moveTab && moveTab.folder;
+    if (!folder) { showToast('Select a folder first', 'error'); return; }
+    const newPath = cleanRelativePath(document.getElementById('move-path').value);
+    if (!newPath) { showToast('Enter the new path, relative to the library root', 'error'); return; }
+    const oldLabel = currentMoveLabel();
+    if (!confirm(`Move this folder on disk?\n\n${oldLabel}\n→ ${newPath}`)) return;
+
+    const button = document.getElementById('move-btn');
+    const report = document.getElementById('move-removed');
+    button.disabled = true;
+    report.classList.add('hidden');
+    try {
+        const result = await api.moveFolder(folder.id, newPath);
+        const count = result.episodes_updated;
+        showToast(`${result.message || 'Folder moved'}: ${count} episode path${count === 1 ? '' : 's'} updated`, 'success', 5000);
+        const removed = Array.isArray(result.removed_directories) ? result.removed_directories : [];
+        report.innerHTML = '';
+        if (removed.length) {
+            const root = moveTab.root;
+            const shown = removed.map(p => {
+                const relative = root ? relativeToRoot(root, p) : null;
+                return relative === null ? p : relative;
+            });
+            showToast(`Empty directories deleted: ${shown.join(', ')}`, 'info', 6000);
+            report.appendChild(el('div', 'text-muted', 'Empty directories deleted after the move:'));
+            const list = el('ul', 'font-mono move-removed-list');
+            shown.forEach(p => list.appendChild(el('li', null, p)));
+            report.appendChild(list);
+            report.classList.remove('hidden');
+        }
+        await reselectMovedFolder(folder.id);
+        loadMoveBrowser(moveTab.browseDir, true);
+    } catch (e) {
+        showToast(e.message, 'error', 8000);
+    } finally {
+        updateMovePreview();
+    }
+}
+
+// After a move the folder keeps its id: reload the list, keep it selected in
+// this tab with its new path, and refresh the other tabs that had it selected.
+async function reselectMovedFolder(id) {
+    folderCache = null;
+    let folders = [];
+    try {
+        folders = await fetchFolders();
+    } catch (e) {
+        showToast('Failed to load folders: ' + e.message, 'error');
+        return;
+    }
+    const folder = folders.find(f => f.id === id);
+    await moveTab.picker.load();
+    if (!folder) { showToast(`Folder ${id} is not in the folder list`, 'error'); return; }
+    moveTab.keepReport = true;
+    try {
+        moveTab.picker.select(folder);
+        await moveTab.shown;
+    } finally {
+        moveTab.keepReport = false;
+    }
+    if (indexTab && indexTab.folder && indexTab.folder.id === id) indexTab.picker.select(folder);
+    if (regexTab && state.selectedFolderId === id) regexTab.picker.select(folder);
+    if (specialTab && specialTab.folder && specialTab.folder.id === id) specialTab.picker.select(folder);
 }
 
 // --- 8c. Specials tab ---

@@ -15,7 +15,8 @@ port 8080 with no UI. This branch is the UI:
 | :--- | :--- | :--- |
 | Folder Creation | browses `CREATE_ROOT`, creates a library folder | `POST /folders/` |
 | Bulk Regex | one rule per group of downloaded files (grouped by name, regroupable by drag, "Auto-group", "Split all") | `POST /regex/`, `GET /regex_folder/` |
-| Index Folder | registers an existing library directory, moves/renames a folder, hides files already indexed, proposes a rule per group, then renames and indexes | `POST /folders/`, `POST /folders/move/`, `GET /episodes_folder/`, `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
+| Index Folder | registers an existing library directory, hides files already indexed, proposes a rule per group, then renames and indexes | `POST /folders/`, `GET /episodes_folder/`, `GET /regex_folder/`, `POST /regex/`, `POST /index_folder/` |
+| Move Folder | moves/renames a registered folder: destination typed relative to `CREATE_ROOT` or picked in a directory browser (a click proposes `<dir>/<folder name>`), live old → new preview; VMSAM moves the directory, rewrites the folder and episode paths and deletes the old parent directories left empty (`removed_directories`, shown relative to the root) | `POST /folders/move/`, `GET /episodes_folder/` |
 | Specials | exact-name rename of a special (`destination_path` is a control: a new name an existing rule already catches must belong to that folder, and the answer carries that rule for editing), plus the rule that catches the new name | `POST /special/`, `GET /special_list/`, `POST /regex/` |
 | Incrementaller | rules that shift an episode number before the folder rules run | `POST /incrementaller/`, `GET /incrementaller_list/` |
 
@@ -25,7 +26,7 @@ port 8080 with no UI. This branch is the UI:
 | :--- | :--- |
 | `src/main.rs` | poem server: `/api` routes, static files, CORS, `PORT` |
 | `src/api.rs` | `/api/fs/list` (directory listing under a root), `/api/config`, `/api/vmsam/folders`, and the generic `/api/vmsam/<name>` relay driven by `GET_ROUTES` / `POST_ROUTES` |
-| `static/index.html` | the six tabs and the shared file modal; every element the JS looks up by id lives here |
+| `static/index.html` | the seven tabs (home included) and the shared file modal; every element the JS looks up by id lives here |
 | `static/app.js` | one plain script: API client, **filename analysis engine** (pure functions), shared widgets, group board, one init function per tab |
 | `static/style.css` | dark theme; every colour is a variable on `:root` |
 | `Dockerfile`, `docker-compose.yml` | multi-stage build; runtime needs only `ca-certificates` |
