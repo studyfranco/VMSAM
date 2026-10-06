@@ -2871,10 +2871,19 @@ def video_pin(video_s, interval, edges, extra_s, frame_s):
 def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
     """Return the instant the video offers for a change point.
 
-    A resolved hole whose width matches the audio fill (within one quantum + two frames)
-    offers its first cut. Otherwise only a deletion whose video span reads two fills, with an
-    audio interval wider than a frame, offers its last cut minus the fill, if inside the
-    interval.
+    The video's own width is first read as the anchors' own shift gap -- the same convention
+    as `_pinned_frames`/`_blind_span_outcome` (delta = after_shift - before_shift; delta >= 0
+    is the candidate's own excess, zero master fill; delta < 0 fills -delta frames from the
+    master). This is checked in every case a walk reaches here, not only when neither walk
+    advanced: an advancing walk locates where a cut sits, but the raw master span it covers can
+    still include master-only frames that match neither shift (a fade, an eyecatch transition,
+    a dark scene), which is not the cut's width. When that gap agrees with the audio fill
+    within one frame, the video's first cut is offered directly. Otherwise the raw master span
+    (`master_end_frame - master_start_frame`) is tried next, at the wider tolerance a resolved
+    span is read at elsewhere in this pipeline -- this is the genuine case of two fills folded
+    into one span, which the anchors' own gap does not describe. A deletion whose video span
+    reads two fills this way, with an audio interval wider than a frame, offers its last cut
+    minus the fill, if inside the interval.
 
     Returns:
         (video_s or None, width_note or None)
@@ -2882,20 +2891,14 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
     if outcome.get("status") not in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
         return None, None
     frame_ms = float(domain["frame_ms"])
-    tolerance_ms = quantum_ms + 2 * frame_ms
     start_s = _frame_s(outcome["master_start_frame"], domain)
-    forward_walk = outcome.get("forward_walk_frames")
-    backward_walk = outcome.get("backward_walk_frames")
-    if forward_walk == 0 and backward_walk == 0:
-        # Neither walk advanced from its anchor: nothing inside the pair located a boundary, so
-        # the raw inter-anchor master span is not a found fill -- it is only the anchors' own
-        # positions. The anchors' own shift gap is the real measured quantity: same convention
-        # as `_pinned_frames` (delta = after - before), where delta >= 0 is the candidate's own
-        # excess (zero master fill, by construction) and only delta < 0 fills from the master.
-        video_fill_ms = max(0, outcome["before_shift_frames"]
-                            - outcome["after_shift_frames"]) * frame_ms
-    else:
-        video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
+    before, after = outcome.get("before_shift_frames"), outcome.get("after_shift_frames")
+    if before is not None and after is not None:
+        gap_fill_ms = max(0, before - after) * frame_ms
+        if abs(gap_fill_ms - extra_s * 1000.0) <= frame_ms:
+            return start_s, None
+    tolerance_ms = quantum_ms + 2 * frame_ms
+    video_fill_ms = (outcome["master_end_frame"] - outcome["master_start_frame"]) * frame_ms
     if abs(video_fill_ms - extra_s * 1000.0) <= tolerance_ms:
         return start_s, None
     note = f"video fill {round(video_fill_ms, 3)} ms vs audio {round(extra_s * 1000.0, 3)} ms"
@@ -2983,7 +2986,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         (lambda i=index, h=hole: _resolve_logged(candidate_path, f"change_point_{i}", h, domain,
                                                  master_obj, candidate_obj, work_dir))
         for index, hole in enumerate(holes)])
-    transitions, disagreements = [], []
+    transitions = []
     for index, (point, hole) in enumerate(zip(points, holes)):
         edges = point["edges"]
         lo, hi = edges["interval"]
@@ -3091,35 +3094,28 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"the walk measured a {round(jump, 3)} ms step in [{lo}, {hi}] s and "
                           f"the video could neither place a cut nor confirm there is none "
                           f"({outcome.get('resolver_reason')})")
-        fill = extra
-        # The witness bound is the audio edges/interval as measured, never narrowed by a
-        # candidate-leak reading: the cut's own position and width come from the video's
-        # anchors and pHash walk, not from audio.
-        pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
-                                     extra, frame)
-        if pinned is not None:
-            at = pinned
-            if width_note:
-                decision = "video_cut_edge_pins_" + decision
-        elif video_decided:
-            # The video resolved a cut (or pinned a static span) but the audio witness does not
-            # confirm it within tolerance (one frame, `video_pin`) -- a measured disagreement,
-            # collected for the owner instead of a silent audio-only delivery.
-            disagreements.append({
-                "zone": index, "reason": "video_audio_disagree",
-                "master_start_s": hole["master_ms"][0] / 1000.0,
-                "master_end_s": hole["master_ms"][1] / 1000.0,
-                "candidate_start_s": hole["candidate_ms"][0] / 1000.0,
-                "candidate_end_s": hole["candidate_ms"][1] / 1000.0,
-                "audio_cut_s": audio_walk.quietest_instant(walk["master"], lo, hi, extra),
-                "video_cut_s": _frame_s(outcome["master_start_frame"], domain),
-                "picture_shift_ms": None, "frames_compared": outcome.get("span_frames")})
-            tools.dev_log(
-                f"repair: video_audio_disagree change_point={index} "
-                f"{width_note or 'video cut outside the audio interval and edges'} "
-                f"for {candidate_path}\n")
-            at = audio_walk.quietest_instant(walk["master"], lo, hi, extra)
-            decision = "video_audio_disagree_pending"
+        if video_decided:
+            # Owner ruling 2026-10-06 (video is the source of truth): once the anchors and the
+            # pHash cross-sweep resolve a cut, its own position and width (the anchors' shift
+            # gap, the same convention as `_pinned_frames`/`_blind_span_outcome`) are delivered
+            # regardless of what the audio witness reads -- the audio alignment exists to save
+            # a full scene scan, not to veto a resolved video answer. A disagreement is only
+            # logged, with both readings, never refused.
+            at = _frame_s(outcome["master_start_frame"], domain)
+            before, after = outcome["before_shift_frames"], outcome["after_shift_frames"]
+            fill = max(0, before - after) * frame
+            pinned, pin_decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
+                                             extra, frame)
+            if pinned is not None and not width_note:
+                decision = "video_decides"
+            else:
+                tools.log_always(
+                    f"repair: video_audio_disagree_followed_video change_point={index} "
+                    f"video_s={round(at, 4)} video_fill_ms={round(fill * 1000.0, 3)} "
+                    f"audio_interval_s=[{lo}, {hi}] audio_fill_ms={round(extra * 1000.0, 3)} "
+                    f"{width_note or 'video cut outside the audio interval and edges'} "
+                    f"for {candidate_path}\n")
+                decision = "video_audio_disagree_followed_video"
         elif status == HOLE_NO_CUT_CONFIRMED:
             # The video itself confirms there is no cut here (a pHash-measured still span):
             # nothing is added or removed, and the placed instant is the video's own, never an
@@ -3149,17 +3145,6 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"video_status={status} video_s={None if video_s is None else round(video_s, 4)} "
             f"decision={decision}{' ' + width_note.replace(' ', '_') if width_note else ''} "
             f"for {candidate_path}\n")
-    if disagreements:
-        for entry in disagreements:
-            owner_judgment.log_pending(
-                entry["zone"], entry["reason"], entry["master_start_s"], entry["master_end_s"],
-                entry["candidate_start_s"], entry["candidate_end_s"], entry["audio_cut_s"],
-                entry["video_cut_s"], entry["picture_shift_ms"], entry["frames_compared"])
-        owner_judgment.log_summary(len(disagreements), language)
-        return None, ("owner_judgment_pending",
-                      f"{len(disagreements)} change point(s) measure an audio-aligned cut "
-                      f"whose video fill width the audio does not predict -- logged for the "
-                      f"owner, no cut delivered")
     log_transitions_summary(transitions, candidate_path)
     return transitions, None
 
@@ -3233,8 +3218,14 @@ def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
     cursor = Decimal(0)
     if head_end_s is not None:
         cursor = min(Decimal(str(head_end_s)) * 1000, timeline_ms)
-        fills.append({"master_start_ms": Decimal(0), "master_end_ms": cursor,
-                      "reason": WHY_TOKEN["head"], "hole": "head", "status": "audio_edge"})
+        if cursor > 0:
+            # A head trimmed to nothing (the candidate's own first frame already lines up with
+            # the master's) is not a fill -- an empty [0, 0) piece is what
+            # `merge_video_chimeric`'s own shape check (`plan_piece_empty_or_inverted`) exists to
+            # catch, so it is never handed down in the first place, the same way the tail fill
+            # below is already skipped when it would be empty.
+            fills.append({"master_start_ms": Decimal(0), "master_end_ms": cursor,
+                          "reason": WHY_TOKEN["head"], "hole": "head", "status": "audio_edge"})
     fallback = [walk["levels"][0]["off_ms"]] + [t["b_ms"] for t in transitions]
     boundaries = []
     for number, transition in enumerate(transitions):
