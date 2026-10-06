@@ -2500,11 +2500,13 @@ def _speed_chain(audio, speed_ratio, engine="asetrate"):
 
 
 def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_ratio,
-                   candidate_path, deadline=None, engine="asetrate"):
+                   candidate_path, deadline=None, engine="asetrate", frame_ms=None):
     """Run the millisecond audio walk on the reference couple, on the file clock.
 
     Seeded by every alignment offset of the reference couple's zones and the union's holes.
     A whole-track read stopped by `deadline` re-raises (cause `repair_budget_exceeded`).
+    `frame_ms` (the pair's own `domain['frame_ms']`, when measured) is passed to
+    `audio_walk.change_points` so a sub-frame step can be placed in a shared silence.
 
     Returns:
         (walk, None) or (None, reason); the walk keeps both decoded tracks.
@@ -2542,7 +2544,7 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
         return None, f"the comparison tracks could not be read ({type(error).__name__}: {error})"
     rows = audio_walk.walk(master, candidate, seeds)
     found, outliers = audio_walk.levels(rows)
-    points = audio_walk.change_points(master, candidate, found)
+    points = audio_walk.change_points(master, candidate, found, frame_ms=frame_ms)
     seconds = time.time() - started
     audio_walk.log_walk(candidate_path, rows, found, points, seconds)
     step_result("audio_walk", candidate=candidate_path, n_windows=len(rows),
@@ -4351,7 +4353,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                                            language, speed_ratio, candidate_path,
                                            deadline=repair_deadline,
                                            engine=(resample_routing or {}).get("filter_name",
-                                                                               "asetrate"))
+                                                                               "asetrate"),
+                                           frame_ms=float(domain["frame_ms"]))
     except Exception as error:                                           # noqa: BLE001
         if getattr(error, "cause", None) != "repair_budget_exceeded":
             raise

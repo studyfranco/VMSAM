@@ -893,12 +893,54 @@ def zone_offset(m, c, t0, t1, seed):
             "levels": found, "counts": counts}
 
 
-def change_points(m, c, found):
+def _shared_silence_edges(m, c, a_ms, t_lo, t_hi, step_ms):
+    """A sub-frame step hiding inside a digital silence both tracks share.
+
+    Looks for the widest run inside [t_lo, t_hi] where the master and the candidate (read at
+    `a_ms`) are both under AUDIBLE_DB, at a fine (20 ms / 5 ms hop) resolution. When one is at
+    least `abs(step_ms)` wide, the step is placed there: it is inaudible by construction, so it
+    needs no claimed side. Returns an edges dict shaped like `fine_edges`' own, or None."""
+    win = FINE_WIN_S
+    times = np.arange(t_lo, t_hi - win, FINE_HOP_S)
+    if not len(times):
+        return None
+    mdb = np.array([rms_db(m[int(round(t * WALK_RATE)):int(round(t * WALK_RATE))
+                             + int(win * WALK_RATE)]) for t in times])
+    cdb = _candidate_db(c, times, t_lo, t_hi, a_ms, win)
+    quiet = (mdb < AUDIBLE_DB) & (cdb < AUDIBLE_DB)
+    step_s = abs(step_ms) / 1000.0
+    best = None
+    start = None
+    for i, q in enumerate(list(quiet) + [False]):
+        if q and start is None:
+            start = i
+        elif not q and start is not None:
+            run_s, run_e = float(times[start]), float(times[i - 1] + win)
+            if run_e - run_s >= step_s and (best is None or run_e - run_s > best[1] - best[0]):
+                best = (run_s, run_e)
+            start = None
+    if best is None:
+        return None
+    run_s, run_e = best
+    kind = "deletion" if step_ms < 0 else "addition"
+    interval = [round(run_s, 4), round(run_e - step_s, 4)] if kind == "deletion" \
+        else [round(run_s, 4), round(run_e, 4)]
+    return {"status": "ok", "method": "shared_silence", "step_ms": round(step_ms, 3),
+            "edge_A": round(run_s, 4), "edge_B": round(run_e, 4),
+            "extra_s": round(step_s, 6) if kind == "deletion" else 0.0,
+            "master_only_audible": None, "kind": kind, "interval": interval, "feasible": True}
+
+
+def change_points(m, c, found, frame_ms=None):
     """Classify and localise each pair of consecutive levels.
 
     A pair is a `change_point` when both the median jump and the local jump at the boundary
     (`off_last_ms` before, `off_first_ms` after) reach JUMP_MS, otherwise `sub_threshold` (a
-    drifting offset has no step to find). Change points get coarse then fine edges."""
+    drifting offset has no step to find). Change points get coarse then fine edges.
+
+    `frame_ms` is the pair's own frame width (the caller's `domain['frame_ms']`), when known: a
+    step narrower than one frame that coarse/fine cannot claim a side for is looked for in a
+    shared digital silence instead of refused (`_shared_silence_edges`)."""
     points = []
     for before, after in zip(found, found[1:]):
         jump = after["off_ms"] - before["off_ms"]
@@ -935,6 +977,14 @@ def change_points(m, c, found):
                                      probe_a=probe_a, probe_b=probe_b, claim_ncc=claim_ncc)
                 if retried["status"] == "ok" or edges is None:
                     edges = dict(retried, probe_ms=[probe_a, probe_b])
+        # A sub-frame step this close together also unsettles a claimed edge into a degenerate,
+        # infeasible interval (two lags a frame apart can correlate almost equally): the shared
+        # silence is tried there too, not only when nothing at all was claimed.
+        if (edges is None or edges["status"] != "ok" or not edges.get("feasible", True)) \
+                and frame_ms is not None and abs(jump) < float(frame_ms):
+            silent = _shared_silence_edges(m, c, before["off_ms"], t_lo, t_hi, jump)
+            if silent is not None:
+                edges = silent
         point["edges"] = (edges if edges is not None
                           else {"status": "edge_unmeasurable", "stage": "coarse"})
         points.append(point)
