@@ -68,21 +68,18 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
     work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
     tools.make_dirs(work_dir)
 
+    # No candidate audio track is planned here, deliberately: this route exists only because no
+    # audio language is shared with the master, so none of the loser's audio tracks has anything
+    # to be verified against (`verify_video_anchored` checks a track against its own original,
+    # never against the master -- a track this route cannot place in any master language is not
+    # delivered unverified). Declining an unordered track_plans entry would also just decline it
+    # individually below with no effect on the subtitles; dropping it here says so once, by name.
+    # Subtitles carry no audio identity and ride `reference_pieces` unconditionally, below.
     track_plans = {}
     for track_language, audio in merge_video_chimeric.iterate_candidate_audios(loser):
-        order = int(audio["StreamOrder"])
-        _, extent_ms, extent_source = orch._track_timing(loser, audio, Decimal(1))
-        pieces, adjustments, _ = video_offset_plan.video_anchored_pieces(
-            offset_ms, extent_ms, timeline_ms)
-        for adjustment in adjustments:
-            tools.log_line(f"repair: plan_edge_adjustment stream={order} zone=0 "
-                           f"kind={adjustment['kind']} "
-                           f"master_fill_ms={adjustment['master_fill_ms']}\n")
-        track_plans[order] = {
-            "pieces": pieces, "extent_ms": extent_ms, "extent_source": extent_source,
-            "offset_measured": True, "borrow_reason": None,
-            "offset_sources": [{"zone": 0, "offset_ms": str(offset_ms),
-                                "source": "visual_fallback"}]}
+        tools.log_line(f"repair: visual_fallback_audio_dropped stream={audio['StreamOrder']} "
+                       f"language={track_language} reason=no_language_in_common_to_verify_against "
+                       f"for {candidate_path}\n")
 
     reference_pieces, _, _ = video_offset_plan.video_anchored_pieces(offset_ms, None, timeline_ms)
     chapters_path, _ = merge_video_chimeric.build_delivered_chapters(
