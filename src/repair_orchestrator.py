@@ -1811,13 +1811,20 @@ def _pin_point(result):
     """Locate the end of the ambiguous (static) zone, where the N-frame edit is placed in one block.
 
     Crossed master fronts pin at the forward front; candidate fronts overlapping by k frames
-    pin at the backward front + k; a refused ambiguous anchor pins at that anchor (B if
-    refused, else A), reporting the refused window's frame count.
+    pin at the backward front + k; a refused ambiguous anchor pins just before the firm anchor
+    on the right (anchor B) whenever it was seated -- the same "just before the right anchor"
+    rule as a blind span, since one ambiguous side is this same picture-cannot-decide case, only
+    with the other anchor still missing rather than both sweeps crossing. Only when B itself was
+    never seated does the pin fall back to the ambiguous anchor's own position. Either way the
+    refused window's frame count is reported as the width.
 
     Returns:
         (pin_frame, ambiguous_frames)
     """
     if result.get("declined"):
+        if result.get("anchor_b_frame") is not None:
+            ambiguous = result.get("anchor_a_ambiguous") or result.get("anchor_b_ambiguous")
+            return result["anchor_b_frame"], ambiguous["n_frames"]
         ambiguous = result.get("anchor_b_ambiguous") or result.get("anchor_a_ambiguous")
         return ambiguous["anchor"], ambiguous["n_frames"]
     if result["sweep_crossed"]:
