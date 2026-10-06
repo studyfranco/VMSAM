@@ -818,14 +818,6 @@ def quietest_instant(m, lo_s, hi_s, extra_s=0.0):
     return round(best, 4)
 
 
-# Leaks: a transition at F plays the candidate under a over [edge_A, F) and under b over
-# [F + extra, edge_B), i.e. candidate-only material past each edge. A 20 ms window leaks when the
-# candidate is audible there (AUDIBLE_DB) and does not match the master (residual >=
-# FINE_THRESHOLD). The guard keeps the cut one fine window from a leak so the crossfade never
-# plays its attack.
-LEAK_GUARD_S = FINE_WIN_S
-
-
 def _candidate_db(c, times, t0, t1, off_ms, win):
     """Candidate level (dB) of each fine window at `times`, read under `off_ms`."""
     cs = _shifted(c, t0, t1, off_ms).astype(np.float64)
@@ -834,52 +826,6 @@ def _candidate_db(c, times, t0, t1, off_ms, win):
     starts = np.clip(np.round((times - t0) * WALK_RATE).astype(int), 0, max(len(cs) - w, 0))
     energy = (cc[np.minimum(starts + w, len(cs))] - cc[starts]) / max(w, 1)
     return 10 * np.log10(np.maximum(energy, 1e-20))
-
-
-def leak_bounds(m, c, a_ms, b_ms, edge_a, edge_b, lo_s, hi_s, extra_s=0.0):
-    """Bound where an a -> b transition F in [lo_s, hi_s] plays no candidate-only audio.
-
-    Returns:
-        dict with interval ([lo', hi'] where no F plays a leak window), clean (that interval is
-        not empty), narrowed (it is narrower than [lo, hi]), leak_a_s / leak_b_s (first leak
-        under a, last leak under b, or None) and min_leak_s (the F with least leaked energy).
-    """
-    win = FINE_WIN_S
-    t0 = min(edge_a, lo_s) - win
-    t1 = max(edge_b, hi_s + extra_s) + win
-    # A speech envelope has no meaningful dB level: keep the bounds unchanged.
-    if t1 - t0 < 2 * win or isinstance(m, EnvelopeSignal) or isinstance(c, EnvelopeSignal):
-        return {"interval": [lo_s, hi_s], "clean": True, "narrowed": False, "leak_a_s": None,
-                "leak_b_s": None, "min_leak_s": lo_s}
-    times, _mdb, (ra, rb), _sf = _fits(m, c, (a_ms, b_ms), t0, t1)
-    cdb_a = _candidate_db(c, times, t0, t1, a_ms, win)
-    cdb_b = _candidate_db(c, times, t0, t1, b_ms, win)
-    # Only windows a transition in [lo, hi] can play: under a [edge_A, hi), under b
-    # (lo + extra, edge_B].
-    leak_a = ((cdb_a >= AUDIBLE_DB) & (ra >= FINE_THRESHOLD) & (times >= edge_a - 1e-9)
-              & (times < hi_s))
-    leak_b = ((cdb_b >= AUDIBLE_DB) & (rb >= FINE_THRESHOLD) & (times + win <= edge_b + 1e-9)
-              & (times + win > lo_s + extra_s))
-    leak_a_s = float(times[leak_a].min()) if leak_a.any() else None
-    leak_b_s = float(times[leak_b].max() + win) if leak_b.any() else None
-    clo = lo_s if leak_b_s is None else max(lo_s, leak_b_s + LEAK_GUARD_S - extra_s)
-    chi = hi_s if leak_a_s is None else min(hi_s, leak_a_s - LEAK_GUARD_S)
-    clean = clo <= chi + 1e-9
-    ea = np.where(leak_a, 10 ** (cdb_a / 10), 0.0)
-    eb = np.where(leak_b, 10 ** (cdb_b / 10), 0.0)
-    best, best_cost = lo_s, None
-    f = lo_s
-    while f <= hi_s + 1e-9:
-        cost = float(ea[times < f].sum()) + float(eb[times + win > f + extra_s].sum())
-        if best_cost is None or cost < best_cost:
-            best, best_cost = f, cost
-        f += FINE_HOP_S
-    return {"interval": [round(clo, 4), round(chi, 4)] if clean else [lo_s, hi_s],
-            "clean": bool(clean),
-            "narrowed": bool(clean and (clo > lo_s + 1e-9 or chi < hi_s - 1e-9)),
-            "leak_a_s": None if leak_a_s is None else round(leak_a_s, 4),
-            "leak_b_s": None if leak_b_s is None else round(leak_b_s, 4),
-            "min_leak_s": round(best, 4)}
 
 
 # A non-reference track's zone offset is a median over at most this many windows (the hop widens

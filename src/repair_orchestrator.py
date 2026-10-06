@@ -3006,24 +3006,11 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"the video could neither place a cut nor confirm there is none "
                           f"({outcome.get('resolver_reason')})")
         fill = extra
-        # Narrow the bounds so neither offset plays the candidate's own audible material past
-        # its edge; a blind video then cuts where the least sound leaks.
-        leak = audio_walk.leak_bounds(walk["master"], walk["candidate"], point["a_ms"],
-                                      point["b_ms"], edges["edge_A"], edges["edge_B"], lo, hi,
-                                      extra)
-        if leak["narrowed"]:
-            clo, chi = leak["interval"]
-            pinned, decision = video_pin(video_s, (clo, chi), (clo, chi + extra), extra, frame)
-            lo_q, hi_q = clo, chi
-        else:
-            pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
-                                         extra, frame)
-            lo_q, hi_q = lo, hi
-        tools.dev_log(
-            f"repair: splice_bounds change_point={index} audio_interval_s=[{lo}, {hi}] "
-            f"leak_a_s={leak['leak_a_s']} leak_b_s={leak['leak_b_s']} clean={leak['clean']} "
-            f"narrowed={leak['narrowed']} interval_s={leak['interval']} "
-            f"min_leak_s={leak['min_leak_s']} for {candidate_path}\n")
+        # The witness bound is the audio edges/interval as measured, never narrowed by a
+        # candidate-leak reading: the cut's own position and width come from the video's
+        # anchors and pHash walk, not from audio.
+        pinned, decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
+                                     extra, frame)
         if pinned is not None:
             at = pinned
             if width_note:
@@ -3045,26 +3032,25 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                 f"repair: video_audio_disagree change_point={index} "
                 f"{width_note or 'video cut outside the audio interval and edges'} "
                 f"for {candidate_path}\n")
-            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q, extra)
+            at = audio_walk.quietest_instant(walk["master"], lo, hi, extra)
             decision = "video_audio_disagree_pending"
-        elif not leak["clean"]:
-            at = leak["min_leak_s"]
-            if status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
-                fill, decision = 0.0, "slip_applied"
-            else:
-                decision = "audio_least_leak_no_silent_boundary"
-        elif status == HOLE_NO_CUT_CONFIRMED and sub_quantum:
-            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q)
-            fill, decision = 0.0, "slip_applied"
+        elif status == HOLE_NO_CUT_CONFIRMED:
+            # The video itself confirms there is no cut here (a pHash-measured still span):
+            # nothing is added or removed, and the placed instant is the video's own, never an
+            # audio-picked one.
+            at, fill, decision = _frame_s(outcome["master_start_frame"], domain), 0.0, \
+                "video_no_cut_confirmed"
         else:
-            at = audio_walk.quietest_instant(walk["master"], lo_q, hi_q, extra)
-            decision = "audio_instant_video_no_cut"
+            # HOLE_STATUSES_WITH_FRAMES carries exactly four statuses; RESOLVED/PINNED took
+            # the video_decided branch above and DECLINED returned earlier, so nothing else
+            # reaches here -- never a silent fourth outcome.
+            raise AssertionError(f"unhandled hole status {status!r} at change point {index}")
         transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
                             "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
                             "edges": [edges["edge_A"], edges["edge_B"]],
                             "video_status": status, "video_s": video_s, "change_point": index})
         tools.dev_log(
-            f"repair: {'slip_applied' if decision == 'slip_applied' else 'audio_transition'} "
+            f"repair: audio_transition "
             f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
             f"step_ms={round(jump, 3)} at_s={at} fill_ms={round(fill * 1000.0, 3)} "
             f"interval_s=[{lo}, {hi}] audio_edges_s=[{edges['edge_A']}, {edges['edge_B']}] "
