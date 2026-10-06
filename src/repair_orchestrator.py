@@ -1648,7 +1648,7 @@ def _declined(hole, cause_detail, evidence=None, **extra):
 
 def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                      offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                     resolve_shift=True):
+                     resolve_shift=True, accept_step_disagreement=False):
     """Run the interior resolver once as a logged step; an exception becomes a named decline."""
     import scene_anchor
     deadline = hole.get("deadline")
@@ -1675,7 +1675,7 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
             normalise_geometry=True, resolve_shift=resolve_shift,
             shift_search_frames=_shift_search_frames(domain, quantum_ms),
             cluster_window=hole.get("cluster_window"), scan_cache=hole.get("scan_cache"),
-            deadline=deadline)
+            deadline=deadline, accept_step_disagreement=accept_step_disagreement)
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
@@ -1691,6 +1691,7 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                 sweep_crossed=result.get("sweep_crossed"), net_kind=result.get("net_kind"),
                 unmatched_span_matches_before=result.get("unmatched_span_matches_before"),
                 unmatched_span_matches_after=result.get("unmatched_span_matches_after"),
+                step_plumbing_ok=result.get("step_plumbing_ok"),
                 evidence=result.get("evidence"))
     return result
 
@@ -1714,7 +1715,7 @@ def _span_noise_reading(result):
 
 def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                         offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                        resolve_shift=True):
+                        resolve_shift=True, accept_step_disagreement=False):
     """Run `_two_anchor_call` and reject answers whose unmatched span is really common content.
 
     When one shift claims the span, the front that stopped on noise is wrong, so the search is
@@ -1732,7 +1733,8 @@ def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms
 
     result = _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                               offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                              resolve_shift=resolve_shift)
+                              resolve_shift=resolve_shift,
+                              accept_step_disagreement=accept_step_disagreement)
     if result["declined"]:
         return result
     reading = _span_noise_reading(result)
@@ -2000,6 +2002,29 @@ def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_m
     return outcome
 
 
+def _blind_span_outcome(hole, domain, blind, candidate_path):
+    """Resolve a hole the picture could not read as a blind (black/static) span.
+
+    Both anchors seated, scene-cut-seeded and pHash-validated; the cross-sweep from each ran
+    clean through the whole span and touched the far anchor (`sweep_crossed`), which is what a
+    held black or static picture produces -- it matches either offset, so neither walk ever
+    finds a mismatch to stop on. The picture is never read past the anchors in that case: the
+    frame gap is their own shift difference, and `locate_scene_anchors` has already collapsed
+    the cut to the instant just before Anchor B's first frame (`master_start_frame ==
+    master_end_frame == anchor_b_frame`). No audio placement is involved.
+    """
+    gap = blind["after_shift_frames"] - blind["before_shift_frames"]
+    frame_ms = float(domain["frame_ms"])
+    tools.log_always(
+        f"repair: video_undecided_blind_span anchor_a={blind['anchor_a_frame']} "
+        f"anchor_b={blind['anchor_b_frame']} before_shift_frames={blind['before_shift_frames']} "
+        f"after_shift_frames={blind['after_shift_frames']} gap_frames={gap} "
+        f"gap_ms={round(gap * frame_ms, 3)} "
+        f"decision={'fill_from_master' if gap < 0 else 'remove_from_candidate'} "
+        f"placed_before_frame={blind['anchor_b_frame']} for {candidate_path}\n")
+    return _interior_outcome(hole, domain, blind, HOLE_RESOLVED)
+
+
 def _resolve_interior(hole, domain, master_obj, candidate_obj):
     """Resolve an interior hole with the two-anchor frame-exact search.
 
@@ -2094,6 +2119,20 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj):
                 return span_outcome
         elif _interior_verdict(result) == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
             return _ambiguous_pin_outcome(hole, domain, result)
+        elif result.get("reason") == "anchor_step_inconsistent":
+            # Both anchors seated and the cross-sweep ran, but the frame gap it counted
+            # disagreed with the audio's nominal step -- the usual sign of a blind span: a
+            # held black or static picture matches either offset, so each walk runs clean
+            # through the whole span and touches the far anchor (`sweep_crossed`). The
+            # picture is never read past the anchors in that case, so the anchors' own
+            # (frame-exact, scene-cut-seeded) shift difference is trusted over the nominal
+            # step instead of declining.
+            blind = _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms,
+                                        high_ms, offset_before_ms, offset_after_ms, step_ms,
+                                        quantum_ms, probe="blind_span_anchor_gap",
+                                        accept_step_disagreement=True)
+            if not blind["declined"] and blind.get("sweep_crossed"):
+                return _blind_span_outcome(hole, domain, blind, candidate_obj.filePath)
         return _declined(hole, result.get("reason"), result.get("evidence"),
                          no_cut_probe_run=bool(hypotheses))
     return _interior_outcome(hole, domain, result, _interior_verdict(result))
