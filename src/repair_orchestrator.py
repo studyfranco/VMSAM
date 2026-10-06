@@ -212,6 +212,9 @@ DECLINE_CAUSES = {
     # anchor, a static/black span, a geometry mismatch...): the video decides, so a declined
     # reading is never delivered as an audio-only cut.
     "video_cut_undetermined": CLASS_COULD_NOT_RUN,
+    # The one-anchor walk on a head/tail edge could neither place a boundary nor confirm there
+    # is none: the same rule as an interior cut, never delivered as an audio-only edge.
+    "video_edge_undetermined": CLASS_COULD_NOT_RUN,
     # The audio's transitions or edges do not tile the timeline (a plan defect, not the pair's):
     "audio_transitions_overlap": CLASS_COULD_NOT_RUN,
     # A hole status outside the four HOLE_STATUSES_WITH_FRAMES values reached the branch that
@@ -2603,12 +2606,14 @@ def head_content_edge(placed_s, decision, frame_s, lead):
 def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
     """Place the head and tail fill edges from the audio walk, pinned to a video frame if close.
 
-    `audio_walk.single_edge` walks outward from the first/last level at 20 ms. A level's
-    offset is its whole-span median, which a rate ratio applied with a residual drift can
-    carry a few ms off by the far edge; when the first probe returns nothing, one retry
-    re-measures the local offset actually seen on the edge's own last rows
-    (`off_first_ms`/`off_last_ms`) before the level's measured window is used as the fallback.
-    A video edge boundary replaces the audio edge only within one frame of it.
+    `audio_walk.single_edge` walks outward from the first/last level at 20 ms: a witness only,
+    to tell the resolver where to search and to confirm its answer in the dev log. Where the
+    one-anchor walk (`scene_anchor.locate_edge_boundary`, via `_resolve_edge`) concludes, its own
+    frame is delivered unconditionally -- never nudged onto the audio edge, never raised for the
+    candidate's lead-in, which was itself an audio placement. Only where no such hole was raised
+    for this edge (nothing flagged it as needing a frame-exact search) does the walk's own edge
+    stand, with the lead-in floor still applied to it. A one-anchor walk that could not conclude
+    declines by name instead of falling back to the audio's edge.
 
     Returns:
         (head_end_s, tail_start_s, refusal); an edge is None when no fill is needed there.
@@ -2663,7 +2668,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
             for kind, (index, hole) in edge_jobs.items()]))) if edge_jobs else {}
     decisions, summary = {}, []
     for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
-        video_s = None
+        video_s, video_concluded, decline_reason = None, False, None
         if kind in by_kind:
             outcome = edge_outcomes[kind]
             budget = budget_cause(outcome, domain)
@@ -2674,17 +2679,27 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                 return None, None, (budget, f"the video on the {kind} edge stopped on a time "
                                             f"bound ({outcome.get('evidence')}) -- the partial "
                                             f"plan is logged; declined, retried at the next run")
-            if outcome["status"] in EDGE_TERMINATIONS:
+            if outcome["status"] in EDGE_TERMINATIONS or outcome["status"] == HOLE_NO_CUT_CONFIRMED:
                 video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
                                    else outcome["master_start_frame"], domain)
-        placed = audio_s
-        decision = edge_source[kind]
-        if video_s is not None and abs(video_s - audio_s) <= frame:
-            placed, decision = video_s, "video_frame_at_audio_edge"
-        elif video_s is not None:
-            decision = f"{edge_source[kind]}_video_boundary_elsewhere"
-        if kind == "head":
-            placed, decision = head_content_edge(placed, decision, frame, lead)
+                video_concluded = True
+            else:
+                # The one-anchor walk could not establish a boundary here: a named decline,
+                # never a silent fall back to the audio's own edge.
+                decline_reason = outcome.get("resolver_reason")
+        if decline_reason is not None:
+            log_partial_plan(candidate_path, "video_edge_undetermined",
+                             [(edge, "placed", value) for edge, value in decisions.items()]
+                             + [(kind, "stopped", audio_s)])
+            return None, None, ("video_edge_undetermined",
+                                f"the one-anchor walk on the {kind} edge could not place a "
+                                f"boundary nor confirm there is none ({decline_reason})")
+        if video_concluded:
+            placed, decision = video_s, "video_edge_boundary"
+        else:
+            placed, decision = audio_s, edge_source[kind]
+            if kind == "head":
+                placed, decision = head_content_edge(placed, decision, frame, lead)
         decisions[kind] = placed
         summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
         tools.dev_log(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
@@ -2837,22 +2852,24 @@ def addition_replacement(point, union, walk):
 
 
 def video_pin(video_s, interval, edges, extra_s, frame_s):
-    """Pin a transition to the video's cut frame when it lies inside the audio's bounds.
+    """Confirm the video's own cut frame as a witness check against the audio's bounds.
 
     Accepted within one frame of the walk's interval, or inside the step's own edges leaving
-    room for the whole fill (the interval can read narrower than the step).
+    room for the whole fill (the interval can read narrower than the step). The audio only
+    confirms or refuses here; the delivered instant is always the video's own frame, never
+    nudged onto the audio interval's edge.
 
     Returns:
-        (at_s, decision), or (None, None) when the audio instant stands.
+        (at_s, decision), or (None, None) when the video is unconfirmed or blind.
     """
     if video_s is None:
         return None, None
     lo, hi = interval
     if lo - frame_s <= video_s <= hi + frame_s:
-        return min(max(video_s, lo), hi), "video_frame_inside_audio_interval"
+        return video_s, "video_frame_inside_audio_interval"
     first, last = min(edges), max(edges) - max(0.0, extra_s)
     if first - frame_s <= video_s <= last + frame_s:
-        return min(max(video_s, first), max(first, last)), "video_frame_inside_audio_bounds"
+        return video_s, "video_frame_inside_audio_bounds"
     return None, None
 
 
