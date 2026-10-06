@@ -2625,6 +2625,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                       f"for {candidate_path}\n")
     # Without a fine edge, the level's measured windows bound the common content.
     lead = audio_walk.head_lead_in(master, candidate, first["off_ms"], first["t_first"] + window)
+    sting_floor = audio_walk.head_sting_tail(candidate, first["off_ms"], first["t_first"] + window)
     head_s = first["t_first"] if head is None else head["edge_s"]
     tail_s = (last["t_last"] + window) if tail is None else tail["edge_s"]
     edge_source = {"head": "walk_window_edge" if head is None else "audio_edge",
@@ -2688,6 +2689,12 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
             placed, decision = audio_s, edge_source[kind]
             if kind == "head":
                 placed, decision = head_content_edge(placed, decision, frame, lead)
+        if kind == "head" and placed is not None and sting_floor is not None:
+            # Neither the video's own boundary nor the audio witness ever protected against the
+            # candidate's own pre-content (a sting the master does not carry at all): raised
+            # unconditionally, concluded or not.
+            if placed < sting_floor:
+                placed, decision = sting_floor, f"{decision}_raised_past_candidate_sting"
         decisions[kind] = placed
         summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
         tools.dev_log(f"repair: audio_edge kind={kind} level_offset_ms={level['off_ms']} "
