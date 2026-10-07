@@ -55,7 +55,7 @@ import tools
 # Named constants
 # --------------------------------------------------------------------------------------------
 
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 CACHE_DIRNAME = "video_offset_cache"
 
 # One decode per file at 128x72 BGR for ContentDetector (its HSV means are nearly
@@ -296,7 +296,9 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
             coloured = np.zeros(n, dtype=bool)
             colour[data["colour_rows"]] = data["colour"]
             coloured[data["colour_rows"]] = True
-            hashes = frame_hash.FrameHashes(data["grey"].copy(), colour, data["std"].copy())
+            hashes = frame_hash.FrameHashes(data["grey"].copy(), colour, data["std"].copy(),
+                                            data["extreme"].copy(), data["thumb_index"].copy(),
+                                            data["thumbs"].copy())
             return [int(x) for x in data["cuts"]], hashes, coloured, True
 
     from scenedetect import ContentDetector, FrameTimecode  # heavy import, only when decoding
@@ -405,12 +407,14 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None):
     coloured = np.zeros(len(grey), dtype=bool)
     full[rows] = colour_rows
     coloured[rows] = True
-    hashes = frame_hash.FrameHashes(grey.grey, full, grey.std)
+    hashes = frame_hash.FrameHashes(grey.grey, full, grey.std, grey.extreme, grey.thumb_index,
+                                    grey.thumbs)
     if cache:
         os.makedirs(os.path.dirname(cache), exist_ok=True)
         tmp = cache + ".tmp.npz"
         np.savez(tmp, cuts=np.asarray(cuts, dtype=np.int64), grey=grey.grey, std=grey.std,
-                 colour_rows=rows, colour=colour_rows)
+                 colour_rows=rows, colour=colour_rows, extreme=grey.extreme,
+                 thumb_index=grey.thumb_index, thumbs=grey.thumbs)
         os.replace(tmp, cache)
     return cuts, hashes, coloured, False
 
@@ -1031,7 +1035,7 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
     '''Picture-divergent master frame runs in `[m_lo, m_hi]` (inclusive) at one zone's own
     constant offset `d` (candidate frame = master frame + d).
 
-    Uses `frame_hash.distance` (grey pHash only, every frame carries it) against
+    Uses `frame_hash.frame_distance` (grey pHash, pixels on a near-uniform frame) against
     `frame_hash.SAME_FRAME_MAX`, the same single-frame "same picture" gate `same_picture`
     already uses -- here run over the whole zone at once. A candidate index outside `c_hashes`
     counts as divergent too: there is no candidate frame to compare against, the
@@ -1056,7 +1060,7 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
     in_range = (cand >= 0) & (cand < n_c)
     diverges = np.ones(len(rows), dtype=bool)
     if in_range.any():
-        dist = frame_hash.distance(m_hashes[rows[in_range]], c_hashes[cand[in_range]])
+        dist = frame_hash.frame_distance(m_hashes[rows[in_range]], c_hashes[cand[in_range]])
         diverges[in_range] = dist > frame_hash.SAME_FRAME_MAX
     spans = []
     i = 0

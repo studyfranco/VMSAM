@@ -1307,7 +1307,8 @@ def _overlay_median_distance(m_frames, c_frames, box):
                     dtype=np.int64)
     if len(rows) < frame_hash.ALIGN_MIN_FRAMES:
         return None
-    return min(float(np.median(frame_hash.distance(m_hashes[rows], c_hashes[rows + lag])))
+    return min(float(np.median(frame_hash.frame_distance(m_hashes[rows],
+                                                         c_hashes[rows + lag])))
                for lag in range(-reach, reach + 1))
 
 
