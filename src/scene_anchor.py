@@ -1029,6 +1029,21 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         span_counts[label] = list(_span_matches(
             m_hashes, m_base, c_hashes, c_base, pre_collapse_start_master,
             pre_collapse_end_master, span_shift))
+    # Frames next to each front that match under BOTH shifts: the picture cannot tell which
+    # side of the cut they belong to, so a gap may sit anywhere inside them.
+    blind_before_front = blind_after_front = 0
+    if not sweep_crossed and before_shift != after_shift:
+        def _both(m_frame):
+            return (_frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
+                                  m_frame + before_shift) is True
+                    and _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base,
+                                      m_frame + after_shift) is True)
+        while (pre_collapse_start_master - blind_before_front - 1 >= anchor_a
+               and _both(pre_collapse_start_master - blind_before_front - 1)):
+            blind_before_front += 1
+        while (pre_collapse_end_master + blind_after_front < anchor_b
+               and _both(pre_collapse_end_master + blind_after_front)):
+            blind_after_front += 1
     if sweep_crossed:
         # Still-image degenerate case: the sweeps crossed, so collapse both to anchor B
         # instead of reporting a negative-length interior.
@@ -1083,6 +1098,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
         "pre_collapse_end_master": pre_collapse_end_master,
         "unmatched_span_matches_before": span_counts["before"],
         "unmatched_span_matches_after": span_counts["after"],
+        "blind_before_front_frames": blind_before_front,
+        "blind_after_front_frames": blind_after_front,
         "forward_walk_frames": pre_collapse_start_master - anchor_a,
         "backward_walk_frames": anchor_b - pre_collapse_end_master,
         "before_shift_frames": before_shift,

@@ -1727,6 +1727,212 @@ def _span_noise_reading(result):
     return readings[0] if readings else None
 
 
+# Pixel fronts are trusted only when each side shows a run of at least this many consecutive
+# frames reading the same picture under its own shift (the anchor search's validation length);
+# a regraded or re-filtered pair never does and keeps the pHash fronts.
+PIXEL_TRUST_RUN_FRAMES = 12
+# Frames read past each anchor: a fade can start before anchor A or end after anchor B, since
+# pHash seats an anchor on a fade it cannot see.
+PIXEL_FRONT_MARGIN_FRAMES = 96
+# Widest span (frames) read at pixel level; wider ones keep the pHash fronts.
+PIXEL_FRONT_MAX_FRAMES = 2400
+
+
+def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts):
+    """{shift: [(level difference, local fraction, master std, master level) or None] * n} for
+    [first, first + n) against the candidate at each shift (`_pixel_reading`); None marks a
+    candidate frame that does not exist. Returns None on any read failure."""
+    rate = domain["master_rate"]
+    import frame_compare
+    scale = domain.get("time_scale")
+    comparer = frame_compare.FrameComparer(
+        master_obj.filePath, candidate_obj.filePath, 0.0, 1.0, rate.numerator,
+        rate.denominator,
+        time_scales=None if scale is None else {candidate_obj.filePath: scale})
+    master = _grey_frames(comparer, master_obj.filePath, first, count, rate)
+    low = first + min(shifts)
+    if first < 0 or low < 0 or not len(master):
+        return None
+    candidate = _grey_frames(comparer, candidate_obj.filePath, low,
+                             len(master) + max(shifts) - min(shifts), rate)
+    readings = {}
+    for shift in shifts:
+        row = []
+        for index in range(len(master)):
+            other = index + shift - min(shifts)
+            row.append(_pixel_reading(master[index], candidate[other])
+                       if other < len(candidate) else None)
+        readings[shift] = row
+    return readings
+
+
+def _same_flags(row, reference):
+    """Per-frame "same picture" flags of one reading row (`_pixel_readings`).
+
+    The two files' own steady level difference (a regrade, a different transfer curve, which
+    varies from scene to scene) is the median over the PIXEL_STEADY_FRAMES common frames
+    nearest each frame: first those of `reference` (known common), then, once more, every
+    frame the first pass read as the same picture, so a shot far from `reference` is judged
+    against its own steady difference. A frame differs when its local fraction reaches
+    PIXEL_DIFF_FRACTION or its level leaves the steady difference by more than
+    PIXEL_FADE_LEVELS, or by more than PIXEL_FADE_SHARE of the master's own level on a dark
+    picture (a fade or a dim frame), never less than PIXEL_FADE_FLOOR. Flat frames on both
+    sides at near levels (black against black) are the same picture.
+    """
+    import bisect
+    import frame_hash
+
+    def judge(known):
+        common = sorted(i for i in known if row[i] is not None
+                        and row[i][1] < PIXEL_DIFF_FRACTION
+                        and abs(row[i][0]) <= PIXEL_DIFF_LEVELS)
+        flags = []
+        for index, reading in enumerate(row):
+            if reading is None or reading[1] >= PIXEL_DIFF_FRACTION:
+                flags.append(False)
+                continue
+            if (reading[2] < frame_hash.FLAT_STD and reading[4] < frame_hash.FLAT_STD
+                    and abs(reading[0]) <= PIXEL_FADE_LEVELS):
+                flags.append(True)
+                continue
+            steady = 0.0
+            if common:
+                at = bisect.bisect_left(common, index)
+                near = common[max(0, at - PIXEL_STEADY_FRAMES):at + PIXEL_STEADY_FRAMES]
+                near = sorted(near, key=lambda i: abs(i - index))[:PIXEL_STEADY_FRAMES]
+                steady = statistics.median(row[i][0] for i in near)
+            bound = max(PIXEL_FADE_FLOOR, min(PIXEL_FADE_LEVELS, PIXEL_FADE_SHARE * reading[3]))
+            flags.append(abs(reading[0] - steady) <= bound)
+        return flags
+
+    first = judge(reference)
+    return judge(sorted(set(reference) | {i for i, flag in enumerate(first) if flag}))
+
+
+def _tolerant_flags(readings, shift, reference):
+    """`_same_flags` at `shift`, a frame also counting as the same picture when it matches at
+    shift - 1 or shift + 1: two releases can cut or fade the same shot one frame apart."""
+    rows = [_same_flags(readings[shift + delta], reference) for delta in (-1, 0, 1)
+            if shift + delta in readings]
+    return [any(flags) for flags in zip(*rows)]
+
+
+def _front_forward(same, front):
+    """Forward front over `same` flags: first index of a run of PIXEL_RUN_FRAMES differing
+    frames reached from `front` (moving right through same frames when `front` reads the
+    same picture, then left through differing ones)."""
+    count = len(same)
+
+    def run_differs(index):
+        return all(not same[i] for i in range(index, min(count, index + PIXEL_RUN_FRAMES)))
+    if front < count and same[front]:
+        while front < count and not run_differs(front):
+            front += 1
+    while front > 0 and not all(same[i] for i in range(max(0, front - PIXEL_RUN_FRAMES),
+                                                       front)):
+        front -= 1
+    return front
+
+
+def _front_backward(same, back):
+    """Mirror of `_front_forward`: index just after the last differing run ending before the
+    common frames that close the span."""
+    reverse = list(reversed(same))
+    return len(same) - _front_forward(reverse, len(same) - back)
+
+
+def _longest_run(flags):
+    best = run = 0
+    for flag in flags:
+        run = run + 1 if flag else 0
+        best = max(best, run)
+    return best
+
+
+def _pixel_refined(result, domain, master_obj, candidate_obj):
+    """Re-read a two-anchor answer's fronts on pixels, or None to keep the pHash ones.
+
+    pHash is blind to a fade or a dim frame (same structure, other brightness) and can stop on
+    one odd frame inside common or black content; owner's rule 2 needs every frame that really
+    differs. Around the anchors, each master frame is compared with the candidate under the
+    before and the after shift (`_same_flags`): the forward front advances over frames that
+    are the same under the before shift and moves back over differing ones; the backward front
+    does the same under the after shift, both free to pass an anchor seated on a fade. Fronts
+    that cross mark a span the picture cannot place; frames next to a front that are the same
+    under both shifts are counted as blind runs. Never raises.
+    """
+    anchor_a, anchor_b = result["anchor_a_frame"], result["anchor_b_frame"]
+    before, after = result["before_shift_frames"], result["after_shift_frames"]
+    if anchor_b - anchor_a <= 0 or anchor_b - anchor_a > PIXEL_FRONT_MAX_FRAMES:
+        return None
+    first = max(0, anchor_a - PIXEL_FRONT_MARGIN_FRAMES, 1 - min(before, after))
+    count = anchor_b + PIXEL_FRONT_MARGIN_FRAMES - first
+    try:
+        readings = _pixel_readings(domain, master_obj, candidate_obj, first, count,
+                                   sorted({shift + delta for shift in (before, after)
+                                           for delta in (-1, 0, 1)}))
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: pixel_fronts_unread ({type(error).__name__}: {error})\n")
+        return None
+    if readings is None:
+        return None
+    count = len(readings[before])
+    front = min(max(result["pre_collapse_start_master"] - first, 0), count)
+    back = min(max(result["pre_collapse_end_master"] - first, 0), count)
+    # The steady level difference is first read where the pHash walks found common picture,
+    # kept clear of their fronts: pHash walks into a fade it cannot see.
+    guard = 2 * PIXEL_STEADY_FRAMES
+    same_before = _tolerant_flags(readings, before, range(0, max(1, front - guard)))
+    same_after = _tolerant_flags(readings, after, range(min(count - 1, back + guard), count))
+    trusted = (_longest_run(same_before[:max(front, anchor_a - first + 1)])
+               >= PIXEL_TRUST_RUN_FRAMES
+               and _longest_run(same_after[min(back, anchor_b - first - 1):])
+               >= PIXEL_TRUST_RUN_FRAMES)
+    if not trusted:
+        tools.log_always(f"repair: pixel_fronts_untrusted anchors=[{anchor_a}, {anchor_b}] "
+                         f"for {candidate_obj.filePath}\n")
+        return None
+    # A front moves until PIXEL_RUN_FRAMES consecutive frames say otherwise: one odd frame
+    # (a flash, a single-frame match inside a fade) never stops it.
+    front = _front_forward(same_before, front)
+    back = _front_backward(same_after, back)
+    crossed = back < front
+    blind_before = blind_after = 0
+    if not crossed:
+        while front - blind_before - 1 >= 0 and same_after[front - blind_before - 1]:
+            blind_before += 1
+        while back + blind_after < count and same_before[back + blind_after]:
+            blind_after += 1
+        if after > before:
+            # A candidate excess: frames opening the span that the after shift reads as the
+            # same picture (or closing it under the before shift) need no fill; only the
+            # removal must sit somewhere among them (rule 1, `_differing_span_outcome`).
+            lead = 0
+            while front + lead < back and same_after[front + lead]:
+                lead += 1
+            tail = 0
+            while back - tail - 1 >= front + lead and same_before[back - tail - 1]:
+                tail += 1
+            front, back = front + lead, back - tail
+            blind_before, blind_after = blind_before + lead, blind_after + tail
+    front, back = first + front, first + back
+    refined = dict(result, pre_collapse_start_master=front, pre_collapse_end_master=back,
+                   sweep_crossed=crossed, blind_before_front_frames=blind_before,
+                   blind_after_front_frames=blind_after, pixel_fronts=True,
+                   span_majority_under_single_shift=False,
+                   anchor_a_frame=min(anchor_a, front), anchor_b_frame=max(anchor_b, back))
+    start, end = (anchor_b, anchor_b) if crossed else (front, back)
+    refined.update(master_start_frame=start, master_end_frame=end,
+                   candidate_start_frame=start + before, candidate_end_frame=end + after)
+    tools.log_always(
+        f"repair: pixel_fronts anchors=[{anchor_a}, {anchor_b}] shifts=[{before}, {after}] "
+        f"phash_fronts=[{result['pre_collapse_start_master']}, "
+        f"{result['pre_collapse_end_master']}] pixel_fronts=[{front}, {back}] "
+        f"crossed={crossed} blind_runs=[{blind_before}, {blind_after}] "
+        f"for {candidate_obj.filePath}\n")
+    return refined
+
+
 def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                         offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
                         resolve_shift=True, accept_step_disagreement=False):
@@ -1751,6 +1957,9 @@ def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms
                               accept_step_disagreement=accept_step_disagreement)
     if result["declined"]:
         return result
+    refined = _pixel_refined(result, domain, master_obj, candidate_obj)
+    if refined is not None:
+        return refined
     reading = _span_noise_reading(result)
     if reading is None:
         return result
@@ -1941,7 +2150,8 @@ def _ambiguous_pin_outcome(hole, domain, result, candidate_path, walk=None):
     blind = dict(result, anchor_a_frame=anchor_a, anchor_b_frame=anchor_b,
                 before_shift_frames=before, after_shift_frames=after,
                 forward_walk_frames=None, backward_walk_frames=None, sweep_crossed=True,
-                pre_collapse_start_master=anchor_a, pre_collapse_end_master=anchor_b)
+                # No sweep ran: the picture bounds the gap only by the anchors themselves.
+                pre_collapse_start_master=anchor_b, pre_collapse_end_master=anchor_a)
     outcome = _blind_span_outcome(hole, domain, blind, candidate_path, walk=walk)
     outcome["pin_route"] = "ambiguous_anchor"
     outcome["anchor_a_ambiguous"] = a_ambiguous
@@ -2003,76 +2213,179 @@ def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_m
     return outcome
 
 
-def _blind_span_silence_point(domain, blind, gap, walk):
-    """A frame to place a blind gap at, inside a silence both files share, or None.
+# Audio reading of a blind-gap placement: 20 ms RMS windows on a 5 ms hop; a window under
+# BLIND_SILENCE_DB is silent (the cut checker's own silence reading), and levels are floored at
+# BLIND_LEVEL_FLOOR_DB before two tracks are compared.
+BLIND_SILENCE_DB = -50.0
+BLIND_LEVEL_FLOOR_DB = -70.0
+BLIND_SILENCE_WIN_S = 0.02
+BLIND_SILENCE_HOP_S = 0.005
+# Placements whose audio misfit is within this fraction of the misfit's whole range tie.
+BLIND_MISFIT_TIE = 0.02
 
-    Owner's rule (2026-10-06): a picture-blind gap (black/static/fade between two anchors) is
-    placed inside the audio silence common to both files when one covers the whole gap,
-    nearest the blind span's own right anchor -- never past it, the same bound the fallback
-    placement already respects. `walk` is the whole-track pair already decoded for this
-    candidate's audio comparison (`reference_walk`); no new decode is made. Returns the frame
-    position the gap's own right edge lands at (`_blind_span_outcome` builds the rest from
-    it), or None when `walk` is absent, the probe raises, or no shared silence covers the gap.
-    """
-    if walk is None:
-        return None
+
+def _window_levels(samples, times, shift_s, peak=False):
+    """RMS (or, with `peak`, peak) level in dB, floored, of the 20 ms window starting at each
+    of `times` (+ `shift_s`)."""
+    import numpy as np
     import audio_walk
-    frame_ms = float(domain["frame_ms"])
-    anchor_a, anchor_b, after = blind["anchor_a_frame"], blind["anchor_b_frame"], blind["after_shift_frames"]
-    gap_width_ms = abs(gap) * frame_ms
-    span_lo_s, span_hi_s = anchor_a * frame_ms / 1000.0, anchor_b * frame_ms / 1000.0
-    margin_s = max(2.0, gap_width_ms / 1000.0 * 4.0)
-    t_lo, t_hi = max(0.0, span_lo_s - margin_s), span_hi_s + margin_s
+    rate = audio_walk.WALK_RATE
+    win = int(round(BLIND_SILENCE_WIN_S * rate))
+    measure = audio_walk.peak_db if peak else audio_walk.rms_db
+    rows = []
+    for t in times:
+        start = int(round((t + shift_s) * rate))
+        chunk = samples[max(0, start):max(0, start + win)]
+        rows.append(measure(chunk) if len(chunk) else -200.0)
+    return np.maximum(np.array(rows), BLIND_LEVEL_FLOOR_DB)
+
+
+def _candidate_silent(walk, times, shift_s):
+    """Whether the candidate is silent in each 20 ms window: its peak under the audibility
+    floor the audio walk itself uses (`audio_walk.AUDIBLE_DB`), so a fading sting tail still
+    counts as sound."""
+    import audio_walk
+    return _window_levels(walk["candidate"], times, shift_s, peak=True) < audio_walk.AUDIBLE_DB
+
+
+def _centre_of_longest(flags, low):
+    """(centre, [first, last]) of the longest True run of `flags` (index 0 = frame `low`)."""
+    best, start = None, None
+    for index, flag in enumerate(list(flags) + [False]):
+        if flag and start is None:
+            start = index
+        elif not flag and start is not None:
+            if best is None or index - start > best[1] - best[0]:
+                best = (start, index)
+            start = None
+    if best is None:
+        return None
+    first, last = low + best[0], low + best[1] - 1
+    return (first + last + 1) // 2, [first, last]
+
+
+def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
+    """Right-edge frame of a gap the picture cannot place, chosen from the audio, or None.
+
+    Owner's rule 1 (2026-10-06, refined): `low`..`high` are the right-edge frames the picture
+    allows (`_blind_span_bounds`).
+    - A candidate removal (gap > 0) goes inside the candidate's own silence: the removed
+      candidate audio must be silent, whatever the master plays there.
+    - A master fill (gap < 0) is located by aligning the audio inside the span: the candidate
+      is split where its audio before matches the master before the fill and its audio after
+      matches the master after. When the candidate gives no such evidence (silent), every
+      placement ties and the fill lands in the middle of the master's own silent stretch.
+    The longest run of best placements wins and the gap is centred in it. `walk` is the pair's
+    audio already decoded for the walk (`reference_walk`); no new decode is made.
+
+    Returns:
+        (frame, [first, last] frames of the winning run, how), or None when `walk` is absent,
+        the probe raises, or no placement qualifies.
+    """
+    import numpy as np
+    if walk is None or gap == 0 or high < low:
+        return None
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    width = abs(gap)
+    hop = BLIND_SILENCE_HOP_S
     try:
-        run = audio_walk.widest_shared_quiet_run(walk["master"], walk["candidate"],
-                                                 after * frame_ms, t_lo, t_hi)
+        t_lo = max(0.0, (low - width) * frame_s)
+        t_hi = high * frame_s
+        times = np.arange(t_lo, max(t_lo + hop, t_hi - BLIND_SILENCE_WIN_S) + 1e-9, hop)
+        candidate_after = _window_levels(walk["candidate"], times, after * frame_s)
+        points = range(low, high + 1)
+
+        def index_of(seconds):
+            return int(min(len(times), max(0, math.ceil((seconds - t_lo) / hop - 1e-9))))
+
+        def last_index(seconds):
+            return int(min(len(times) - 1, math.floor((seconds - t_lo) / hop + 1e-9)))
+        if gap > 0:
+            silent = _candidate_silent(walk, times, after * frame_s)
+            flags = []
+            for point in points:
+                first = index_of((point - width) * frame_s)
+                last = last_index(point * frame_s - BLIND_SILENCE_WIN_S)
+                flags.append(last >= first and bool(silent[first:last + 1].all()))
+            found = _centre_of_longest(flags, low)
+            return None if found is None else found + ("candidate_silence",)
+        master = _window_levels(walk["master"], times, 0.0)
+        candidate_before = _window_levels(walk["candidate"], times, before * frame_s)
+        misfit_before = np.concatenate([[0.0], np.cumsum(np.abs(master - candidate_before))])
+        misfit_after = np.concatenate([[0.0], np.cumsum(np.abs(master - candidate_after))])
+        costs = []
+        for point in points:
+            split = index_of((point - width) * frame_s)
+            resume = index_of(point * frame_s)
+            costs.append(misfit_before[split] + misfit_after[-1] - misfit_after[resume])
+        costs = np.array(costs)
+        spread = float(costs.max() - costs.min())
+        if spread <= 1e-9:
+            # No audio evidence at all: the master's own silent stretch decides.
+            silent = master < BLIND_SILENCE_DB
+            flags = []
+            for point in points:
+                first = index_of((point - width) * frame_s)
+                last = last_index(point * frame_s - BLIND_SILENCE_WIN_S)
+                flags.append(last >= first and bool(silent[first:last + 1].all()))
+            found = _centre_of_longest(flags, low)
+            return None if found is None else found + ("master_silence",)
+        found = _centre_of_longest(costs <= costs.min() + BLIND_MISFIT_TIE * spread, low)
+        return None if found is None else found + ("audio_alignment",)
     except Exception as error:                                           # noqa: BLE001
-        tools.dev_log(f"repair: blind_span_silence_probe_failed "
+        tools.dev_log(f"repair: blind_span_audio_probe_failed "
                       f"({type(error).__name__}: {error})\n")
         return None
-    if run is None or (run[1] - run[0]) * 1000.0 < gap_width_ms:
-        return None
-    run_s, run_e = run
-    point = min(int(round(run_e * 1000.0 / frame_ms)), anchor_b + max(0, gap))
-    floor = int(round(run_s * 1000.0 / frame_ms))
-    if point - abs(gap) < floor or point < anchor_a:
-        return None
-    return point, (round(run_s, 3), round(run_e, 3))
+
+
+def _blind_span_bounds(blind, gap):
+    """Right-edge frames [low, high] the picture allows for a blind gap.
+
+    Frames before the forward front F still match under the before shift, frames from the
+    backward front Bk on match under the after shift, and nothing leaves the anchors: with
+    w = max(0, -gap) master frames to fill, the edge P keeps [P - w, P) inside [A, B],
+    P - w <= F and P >= Bk.
+    """
+    width = max(0, -gap)
+    anchor_a, anchor_b = blind["anchor_a_frame"], blind["anchor_b_frame"]
+    front = blind.get("pre_collapse_start_master")
+    back = blind.get("pre_collapse_end_master")
+    front = anchor_b if front is None else front
+    back = anchor_a if back is None else back
+    low, high = max(back, anchor_a + width), min(front + width, anchor_b)
+    if high < low:
+        low, high = anchor_a + width, anchor_b
+    return low, high
 
 
 def _blind_span_outcome(hole, domain, blind, candidate_path, walk=None):
     """Resolve a hole the picture could not read as a blind (black/static) span.
 
-    Both anchors seated, scene-cut-seeded and pHash-validated; the cross-sweep from each ran
-    clean through the whole span and touched the far anchor (`sweep_crossed`), which is what a
-    held black or static picture produces -- it matches either offset, so neither walk ever
-    finds a mismatch to stop on. The picture is never read past the anchors in that case: the
+    Both anchors seated; the cross-sweep fronts crossed (or the candidate fronts overlapped),
+    which is what a held black or static picture produces -- it matches either shift, so the
+    picture bounds where the gap may sit (`_blind_span_bounds`) but cannot pick a frame. The
     width is the anchors' own shift difference (in whole frames).
 
-    Owner's rule (2026-10-06): the edit is placed inside the audio silence common to both
-    files when one covers the whole gap (`_blind_span_silence_point`), else just before
-    Anchor B's first frame (the previous, now fallback, behaviour).
+    Owner's rule 1 (2026-10-06): the audio places the gap inside the span when it can
+    (`_blind_span_audio_point`), else it goes just before the blind span's right edge (the
+    last frame the picture allows).
 
-    `locate_scene_anchors` collapses both axes to anchor B (`master_start_frame ==
-    master_end_frame == anchor_b_frame`), which loses the gap whenever it must fill from the
-    master (`video_cut_instant` would then read a 0 ms video width against a non-zero audio
-    fill and always decline). A master fill needs the master span widened to the gap, ending
-    at the chosen point; a candidate removal needs no master span at all (the master is
-    untouched), so its collapsed shape is already correct. Either way the candidate side
-    stays a single point at the chosen frame, under the shift that survives
-    (`after_shift_frames`): nothing in the candidate is read twice and nothing of it is kept
-    inside the removed/filled span.
+    A master fill widens the master span to the gap, ending at the chosen frame; a candidate
+    removal keeps a single master point. The candidate side stays a single point at the chosen
+    frame under the shift that survives (`after_shift_frames`): nothing in the candidate is
+    read twice and nothing of it is kept inside the removed/filled span.
     """
     before, after = blind["before_shift_frames"], blind["after_shift_frames"]
     gap = after - before
     anchor_b = blind["anchor_b_frame"]
     frame_ms = float(domain["frame_ms"])
-    silence = _blind_span_silence_point(domain, blind, gap, walk)
-    if silence is not None:
-        point, interval_s = silence
-        placement, placement_evidence = "silence", f"silence_interval_s={list(interval_s)}"
+    low, high = _blind_span_bounds(blind, gap)
+    found = _blind_span_audio_point(domain, gap, before, after, low, high, walk)
+    if found is not None:
+        point, frames, placement = found
+        placement_evidence = f"placement_frames={frames}"
     else:
-        point, placement, placement_evidence = anchor_b, "right_anchor", "no_shared_silence"
+        point, placement, placement_evidence = high, "right_edge", "no_shared_silence"
     if gap < 0:
         placed = dict(blind, master_start_frame=point + gap, master_end_frame=point,
                      candidate_start_frame=point + after, candidate_end_frame=point + after)
@@ -2085,7 +2398,7 @@ def _blind_span_outcome(hole, domain, blind, candidate_path, walk=None):
         f"repair: video_undecided_blind_span anchor_a={blind['anchor_a_frame']} "
         f"anchor_b={anchor_b} before_shift_frames={before} "
         f"after_shift_frames={after} gap_frames={gap} "
-        f"gap_ms={round(gap * frame_ms, 3)} "
+        f"gap_ms={round(gap * frame_ms, 3)} allowed_frames=[{low}, {high}] "
         f"decision={decision} placement={placement} {placement_evidence} "
         f"placed_at_frame={point} for {candidate_path}\n")
     return _interior_outcome(hole, domain, placed, HOLE_RESOLVED)
@@ -2146,6 +2459,10 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
             if probe["declined"] or probe["before_shift_frames"] != probe["after_shift_frames"]:
                 continue
             verdict = _interior_verdict(probe)
+            if verdict != HOLE_NO_CUT_CONFIRMED and not result["declined"]:
+                # One shift that still leaves differing frames does not refute a step the
+                # proposal resolved; the proposal's own answer stands.
+                continue
             refuted = {"audio_step_ms": round(step_ms, 3),
                        "audio_step_points": hole["step_points"],
                        "master_position_ms": [round(float(hole["master_ms"][0]), 2),
@@ -2202,7 +2519,74 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
                 return _blind_span_outcome(hole, domain, blind, candidate_obj.filePath, walk=walk)
         return _declined(hole, result.get("reason"), result.get("evidence"),
                          no_cut_probe_run=bool(hypotheses))
-    return _interior_outcome(hole, domain, result, _interior_verdict(result))
+    verdict = _interior_verdict(result)
+    if verdict == HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
+        # Crossed or overlapping fronts: frames match both shifts, so the picture cannot
+        # place the gap; the blind-span rule places it (shared silence, else right anchor).
+        outcome = _blind_span_outcome(hole, domain, result, candidate_obj.filePath, walk=walk)
+        outcome["pin_route"] = "sweep_fronts"
+        return outcome
+    if verdict == HOLE_RESOLVED:
+        return _differing_span_outcome(hole, domain, result, candidate_obj.filePath, walk=walk)
+    return _interior_outcome(hole, domain, result, verdict)
+
+
+def _differing_span_outcome(hole, domain, result, candidate_path, walk=None):
+    """Resolve a cut whose sweep fronts did not cross: fill every unmatched master frame.
+
+    Owner's rule 2 (2026-10-06): frames that differ between the files (a candidate fade, dim
+    or black frame against master content, master black against candidate content, a
+    retouched shot) are cut and filled from the master at any width. The unmatched master span
+    [F, Bk) between the fronts is exactly those frames plus any master-only content, so it is
+    the fill, and the candidate's own unmatched frames are removed.
+
+    A candidate excess (after shift > before shift) is not tied to the fill: when frames next
+    to a front match under both shifts (`blind_before_front_frames`,
+    `blind_after_front_frames`), the picture cannot place the removal inside them, so rule 1
+    applies there -- inside the candidate's own silence when one fits, else at the fill (the
+    blind run's right edge). The chosen frame is returned as `removal_frame`.
+    """
+    outcome = _interior_outcome(hole, domain, result, HOLE_RESOLVED)
+    before, after = result["before_shift_frames"], result["after_shift_frames"]
+    gap = after - before
+    front, back = result["master_start_frame"], result["master_end_frame"]
+    outcome["rule2_fill_frames"] = back - front
+    tools.log_always(
+        f"repair: differing_span_filled anchors=[{result['anchor_a_frame']}, "
+        f"{result['anchor_b_frame']}] shifts=[{before}, {after}] "
+        f"master_fill_frames=[{front}, {back}] candidate_removed_frames="
+        f"[{result['candidate_start_frame']}, {result['candidate_end_frame']}] "
+        f"blind_runs=[{result.get('blind_before_front_frames')}, "
+        f"{result.get('blind_after_front_frames')}] for {candidate_path}\n")
+    if gap <= 0:
+        return outcome
+    runs = []
+    before_run = result.get("blind_before_front_frames") or 0
+    after_run = result.get("blind_after_front_frames") or 0
+    if before_run:
+        runs.append(("before_fill", front - before_run, front))
+    if after_run:
+        runs.append(("after_fill", back, back + after_run))
+    best = None
+    for side, low, high in runs:
+        found = _blind_span_audio_point(domain, gap, before, after, low, high, walk)
+        if found is not None and (best is None
+                                  or found[1][1] - found[1][0] > best[2][1] - best[2][0]):
+            best = (side, found[0], found[1])
+    if best is None:
+        return outcome
+    side, point, frames = best
+    if (side == "before_fill" and point == front) or (side == "after_fill" and point == back):
+        return outcome
+    outcome["removal_frame"] = point
+    tools.log_always(
+        f"repair: video_undecided_blind_span anchor_a={result['anchor_a_frame']} "
+        f"anchor_b={result['anchor_b_frame']} before_shift_frames={before} "
+        f"after_shift_frames={after} gap_frames={gap} "
+        f"gap_ms={round(gap * float(domain['frame_ms']), 3)} allowed_frames={frames} "
+        f"decision=remove_from_candidate placement=candidate_silence side={side} "
+        f"placed_at_frame={point} for {candidate_path}\n")
+    return outcome
 
 
 def _resolve_edge(hole, domain, master_obj, candidate_obj):
@@ -2250,8 +2634,38 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
                 max_mismatch_run=result.get("max_mismatch_run"),
                 addition_frames=result.get("addition_frames"),
                 evidence=result.get("evidence"))
+    if result["declined"] and result.get("reason") in EDGE_PIXEL_FALLBACK_REASONS:
+        shift = hole.get("picture_shift_frames")
+        if shift is None:
+            shift = int(round(float(offset_ms) / frame_ms))
+        try:
+            fallback = _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift)
+        except Exception as error:                                       # noqa: BLE001
+            tools.dev_log(f"repair: pixel_edge_walk_failed ({type(error).__name__}: "
+                          f"{error})\n")
+            fallback = None
+        if fallback is not None:
+            result = fallback
     if result["declined"]:
         return _declined(hole, result.get("reason"), result.get("evidence"))
+    if result.get("method") != "pixel_edge_walk":
+        # pHash cannot see a fade and stops on a few odd frames: the boundary is re-read on
+        # pixels at the anchor's own shift, from the common side of the pHash boundary.
+        boundary_ms = float(result["boundary_frame"]) * frame_ms
+        bracket = [0.0, boundary_ms] if edge == "head" else [boundary_ms, timeline_ms]
+        try:
+            refined = _pixel_edge_walk(dict(hole, master_ms=bracket), domain, master_obj,
+                                       candidate_obj, result["shift_frames"])
+        except Exception as error:                                       # noqa: BLE001
+            tools.dev_log(f"repair: pixel_edge_walk_failed ({type(error).__name__}: "
+                          f"{error})\n")
+            refined = None
+        if refined is not None:
+            result = dict(refined, anchor_frame=result.get("anchor_frame"),
+                          anchor_side=result.get("anchor_side"),
+                          anchor_n_frames=result.get("anchor_n_frames"),
+                          nominal_shift_frames=result.get("nominal_shift_frames"),
+                          geometry=result.get("geometry"))
 
     boundary = result["boundary_frame"]
     shift = result["shift_frames"]
@@ -2308,6 +2722,103 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
         "geometry": (result.get("geometry") or {}).get("verdict"),
         "evidence": result.get("evidence"),
     }
+
+
+# Reasons for which a one-anchor edge search found only self-similar (static/black) content:
+# the picture cannot seat an anchor there, so the edge is read on pixels at a known shift.
+EDGE_PIXEL_FALLBACK_REASONS = ("edge_anchor_uninformative", "search_window_ceiling_reached")
+# Frames read on the common side of an edge bracket before the walk outward begins.
+EDGE_PIXEL_MARGIN_FRAMES = 48
+
+
+def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
+    """Walk an edge on pixels at a known shift when no anchor could be seated, or None.
+
+    Owner's rules (2026-10-06): a static or black edge the anchor search cannot seat is never a
+    reason to decline. The shift comes from the picture next to the edge (the nearest resolved
+    cut's own shift, `hole["picture_shift_frames"]`), else the zone's audio offset. From the
+    common side of the bracket the walk goes outward one master frame at a time and stops on
+    EDGE_WALK_SUSTAINED_MISMATCH_FRAMES differing frames (rule 2: they are filled from the
+    master), or where either file ends. The common side must first show
+    PIXEL_TRUST_RUN_FRAMES frames reading the same picture. Returns a
+    `scene_anchor.locate_edge_boundary`-shaped answer.
+    """
+    import scene_anchor
+    edge = hole["kind"]
+    frame_ms = float(domain["frame_ms"])
+    rate = domain["master_rate"]
+    master_last = int(Fraction(str(domain["master_timeline_ms"])) / 1000 * rate) - 1
+    if edge == "head":
+        stop = min(master_last + 1,
+                   int(math.ceil(float(hole["master_ms"][1]) / frame_ms)) + EDGE_PIXEL_MARGIN_FRAMES)
+        first, count = 0, stop
+    else:
+        first = max(0, int(float(hole["master_ms"][0]) / frame_ms) - EDGE_PIXEL_MARGIN_FRAMES)
+        count = master_last + 1 - first
+    if count <= 0 or count > PIXEL_FRONT_MAX_FRAMES or first + shift < 0 and edge == "tail":
+        return None
+    read_first = max(first, -shift)
+    read_first = max(read_first, 1 - shift)
+    readings = _pixel_readings(domain, master_obj, candidate_obj, read_first,
+                               first + count - read_first, [shift - 1, shift, shift + 1])
+    if readings is None:
+        return None
+    row = readings[shift]
+    common_side = (range(min(len(row), EDGE_PIXEL_MARGIN_FRAMES)) if edge == "tail"
+                   else range(max(0, len(row) - EDGE_PIXEL_MARGIN_FRAMES), len(row)))
+    same = _tolerant_flags(readings, shift, common_side)
+    # Candidate frames that do not exist (before its start, after its end) read as absent.
+    candidate_frames = domain.get("candidate_equivalent_duration_ms")
+    candidate_last = (None if candidate_frames is None
+                      else int(float(candidate_frames) / frame_ms) - 1)
+    order = list(range(len(same)) if edge == "tail" else range(len(same) - 1, -1, -1))
+    common = [same[i] for i in order]
+    # The walk starts at the first PIXEL_TRUST_RUN_FRAMES-long run of common picture: a
+    # bracket the audio opened early can still hold the last cut's other side.
+    start = next((i for i in range(len(common) - PIXEL_TRUST_RUN_FRAMES + 1)
+                  if all(common[i:i + PIXEL_TRUST_RUN_FRAMES])), None)
+    if start is None:
+        return None
+    boundary, run, termination, walked, max_run = None, 0, None, 0, 0
+    for index in order[start:]:
+        frame = read_first + index
+        if candidate_last is not None and frame + shift > candidate_last:
+            termination = EDGE_CANDIDATE_EXHAUSTED
+            break
+        walked += 1
+        if same[index]:
+            boundary, run = frame, 0
+            continue
+        run += 1
+        max_run = max(max_run, run)
+        if run >= scene_anchor.EDGE_WALK_SUSTAINED_MISMATCH_FRAMES and boundary is not None:
+            termination = EDGE_SUSTAINED_MISMATCH
+            break
+    if boundary is None:
+        return None
+    if termination is None:
+        termination = (EDGE_CANDIDATE_EXHAUSTED if edge == "head" and read_first > 0
+                       else EDGE_MASTER_EXHAUSTED)
+    if edge == "head":
+        addition = boundary if termination == EDGE_CANDIDATE_EXHAUSTED else None
+    else:
+        addition = (master_last - boundary if termination == EDGE_CANDIDATE_EXHAUSTED
+                    else None)
+    net_kind = {EDGE_CANDIDATE_EXHAUSTED: "master_addition",
+                EDGE_MASTER_EXHAUSTED: "candidate_excess_trimmed"}.get(termination,
+                                                                       "master_replacement")
+    tools.log_always(
+        f"repair: pixel_edge_walk edge={edge} shift_frames={shift} boundary_frame={boundary} "
+        f"termination={termination} walked={walked} for {candidate_obj.filePath}\n")
+    return {"declined": False, "method": "pixel_edge_walk", "edge": edge,
+            "grid": {"num": rate.numerator, "den": rate.denominator},
+            "anchor_frame": None, "anchor_side": None, "anchor_n_frames": None,
+            "shift_frames": shift, "nominal_shift_frames": shift, "boundary_frame": boundary,
+            "walked_frames": walked, "mismatch_run": run, "max_mismatch_run": max_run,
+            "termination": termination, "net_kind": net_kind, "addition_frames": addition,
+            "addition_ms": None if addition is None else _exact_ms_of_frame(addition, domain),
+            "master_last_frame": master_last, "geometry": None,
+            "evidence": f"pixel edge walk at shift {shift} (no anchor could be seated)"}
 
 
 def resolve_hole(hole, master_obj, candidate_obj, work_dir, walk=None):
@@ -2641,7 +3152,66 @@ def head_content_edge(placed_s, decision, frame_s, lead):
     return placed_s, decision
 
 
-def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path):
+def _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj, walk):
+    """Rule 1 at an edge: move a head/tail boundary inside the candidate's own silence.
+
+    Frames next to the boundary on the common side that are flat (black) on the master and
+    the same picture in the candidate are a span the picture cannot place the cut in. When
+    the candidate (at the edge's shift) is not silent at the walk's own boundary, the cut
+    moves into the longest silent stretch of that span, at its end nearest that boundary, so
+    no candidate sound is cut off over the master's fill. Returns the new boundary frame
+    (head: first common frame; tail: first filled frame), or None to keep the walk's own.
+    """
+    import frame_hash
+    import numpy as np
+    shift = outcome.get("shift_frames")
+    if walk is None or shift is None:
+        return None
+    edge = outcome["master_end_frame"] if kind == "head" else outcome["master_start_frame"]
+    if kind == "head" and edge <= 0 or kind == "tail" and edge > outcome["master_last_frame"]:
+        return None
+    first = edge if kind == "head" else max(0, edge - PIXEL_FRONT_MARGIN_FRAMES)
+    if first + shift - 1 < 0:
+        return None
+    readings = _pixel_readings(domain, master_obj, candidate_obj, first,
+                               PIXEL_FRONT_MARGIN_FRAMES, [shift - 1, shift, shift + 1])
+    if readings is None:
+        return None
+    row = readings[shift]
+    same = _tolerant_flags(readings, shift, range(len(row)))
+    order = range(len(row)) if kind == "head" else range(len(row) - 1, -1, -1)
+    run = 0
+    for index in order:
+        if not (same[index] and row[index][2] < frame_hash.FLAT_STD):
+            break
+        run += 1
+    if run == 0:
+        return None
+    low, high = (edge, edge + run) if kind == "head" else (edge - run, edge)
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    joint = BLIND_SILENCE_WIN_S
+    times = np.arange(max(0.0, low * frame_s - joint), high * frame_s + joint, BLIND_SILENCE_HOP_S)
+    silent = _candidate_silent(walk, times, shift * frame_s)
+    flags = []
+    for point in range(low, high + 1):
+        near = (times >= point * frame_s - joint - 1e-9) & (times <= point * frame_s + 1e-9)
+        flags.append(bool(near.any() and silent[near].all()))
+    if flags[edge - low]:
+        return None
+    found = _centre_of_longest(flags, low)
+    if found is None:
+        return None
+    # The silent frame nearest the walk's own boundary: the smallest move off the picture's
+    # answer that keeps the cut inside the candidate's silence.
+    point = found[1][0] if kind == "head" else found[1][1]
+    tools.log_always(f"repair: edge_blind_span edge={kind} walk_boundary={edge} "
+                     f"blind_frames=[{low}, {high}] candidate_silence_frames={found[1]} "
+                     f"placed_at_frame={point} for {candidate_obj.filePath}\n")
+    return point
+
+
+def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path,
+                shift_hints=None):
     """Place the head and tail fill edges from the audio walk, pinned to a video frame if close.
 
     `audio_walk.single_edge` walks outward from the first/last level at 20 ms: a witness only,
@@ -2652,6 +3222,9 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     for this edge (nothing flagged it as needing a frame-exact search) does the walk's own edge
     stand, with the lead-in floor still applied to it. A one-anchor walk that could not conclude
     declines by name instead of falling back to the audio's edge.
+
+    `shift_hints` ({"head"|"tail": frames}) carries the picture shift of the nearest resolved
+    cut, used when the edge's own anchor cannot be seated (`_pixel_edge_walk`).
 
     Returns:
         (head_end_s, tail_start_s, refusal); an edge is None when no fill is needed there.
@@ -2697,6 +3270,8 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
             index, hole = by_kind[kind]
             offsets = ({"offset_after_ms": level["off_ms"]} if kind == "head"
                        else {"offset_before_ms": level["off_ms"]})
+            if (shift_hints or {}).get(kind) is not None:
+                offsets["picture_shift_frames"] = shift_hints[kind]
             edge_jobs[kind] = (index, dict(hole, **offsets))
     edge_outcomes = dict(zip(
         edge_jobs.keys(),
@@ -2718,6 +3293,16 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                                             f"bound ({outcome.get('evidence')}) -- the partial "
                                             f"plan is logged; declined, retried at the next run")
             if outcome["status"] in EDGE_TERMINATIONS or outcome["status"] == HOLE_NO_CUT_CONFIRMED:
+                try:
+                    moved = _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj,
+                                              walk)
+                except Exception as error:                               # noqa: BLE001
+                    tools.dev_log(f"repair: edge_blind_span_unread ({type(error).__name__}: "
+                                  f"{error})\n")
+                    moved = None
+                if moved is not None:
+                    outcome = dict(outcome, **({"master_end_frame": moved} if kind == "head"
+                                               else {"master_start_frame": moved}))
                 video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
                                    else outcome["master_start_frame"], domain)
                 video_concluded = True
@@ -3072,67 +3657,18 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                 f"fill_ms={round(replaced['fill_s'] * 1000.0, 3)} cut_ms={replaced['cut_ms']} "
                 f"video_status={status} for {candidate_path}\n")
             continue
-        if not edges["feasible"] and status != HOLE_NO_CUT_CONFIRMED:
-            slack = hole["quantum_ms"] / 1000.0 + 2 * frame
-            replacement = replacement_hole(outcome, domain, edges, slack)
-            if replacement is None and status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
-                # Owner ruling 2026-10-06 (study-63): the audio "edges" here only bracket and
-                # witness -- they do not veto a video that already resolved the width. A pair
-                # whose two tracks are different mixes can read common dialogue as "master-only"
-                # and call an ordinary hole infeasible; the video's own anchors do not share that
-                # defect. Width = the anchors' shift gap; accepted when it agrees with the
-                # audio's own step within one quantum + two frames and the video's span sits
-                # inside the audio edges (with the same slack `replacement_hole` uses).
-                frame_ms = frame * 1000.0
-                before, after = outcome["before_shift_frames"], outcome["after_shift_frames"]
-                video_fill_ms = max(0, before - after) * frame_ms
-                tolerance_ms = hole["quantum_ms"] + 2 * frame_ms
-                video_start_s = _frame_s(outcome["master_start_frame"], domain)
-                video_end_s = _frame_s(outcome["master_end_frame"], domain)
-                first, last = min(edges["edge_A"], edges["edge_B"]), max(edges["edge_A"],
-                                                                         edges["edge_B"])
-                if (abs(video_fill_ms - edges["extra_s"] * 1000.0) <= tolerance_ms
-                        and first - slack <= video_start_s
-                        and video_end_s <= last + slack):
-                    transitions.append({
-                        "at_s": video_start_s, "fill_s": video_fill_ms / 1000.0,
-                        "a_ms": point["a_ms"], "b_ms": point["b_ms"],
-                        "decision": "video_width_over_infeasible_audio_interval",
-                        "interval": [lo, hi], "edges": [edges["edge_A"], edges["edge_B"]],
-                        "video_status": status, "video_s": video_start_s,
-                        "change_point": index,
-                        "before_shift_frames": before, "after_shift_frames": after})
-                    tools.log_always(
-                        f"repair: video_width_over_infeasible_audio_interval "
-                        f"change_point={index} video_fill_ms={round(video_fill_ms, 3)} "
-                        f"audio_step_ms={round(edges['extra_s'] * 1000.0, 3)} "
-                        f"audio_edges_s=[{edges['edge_A']}, {edges['edge_B']}] "
-                        f"master_only_audible_s={edges['master_only_audible']} "
-                        f"for {candidate_path}\n")
-                    continue
-            if replacement is None:
-                only = edges.get("master_only_audible")
-                return None, ("hole_width_contradicts_audio_step",
-                              f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
-                              f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not "
-                              f"fit between the audio edges around its audible master-only sound "
-                              f"({'span ' + str(only) if only else 'no audible master-only span'}"
-                              f"), and the video does not pin a replacement (status {status}, "
-                              f"{outcome.get('resolver_reason') or 'frames outside the edges or an excess of 1 s or more'})")
-            transitions.append({"at_s": replacement["start_s"], "fill_s": replacement["fill_s"],
-                                "a_ms": point["a_ms"], "b_ms": point["b_ms"],
-                                "decision": "replacement_hole", "interval": [lo, hi],
-                                "edges": [edges["edge_A"], edges["edge_B"]],
-                                "video_status": status, "video_s": replacement["start_s"],
-                                "change_point": index, "cut_ms": replacement["cut_ms"]})
-            tools.dev_log(
-                f"repair: replacement_hole change_point={index} a_ms={point['a_ms']} "
-                f"b_ms={point['b_ms']} step_ms={round(jump, 3)} audio_edges_s=[{edges['edge_A']}, "
-                f"{edges['edge_B']}] video_edges_s=[{replacement['start_s']}, "
-                f"{replacement['end_s']}] fill_ms={round(replacement['fill_s'] * 1000, 3)} "
-                f"cut_ms={replacement['cut_ms']} -- the candidate's own excess is cut, the "
-                f"master-only span is filled from the master for {candidate_path}\n")
-            continue
+        # A resolved video answer (rule 2: its unmatched span is the fill) is never vetoed by
+        # an audio interval that cannot hold the fill; only a video that placed nothing is.
+        if not edges["feasible"] and status not in (HOLE_NO_CUT_CONFIRMED, HOLE_RESOLVED,
+                                                     HOLE_PINNED_TO_AMBIGUOUS_ZONE_END):
+            only = edges.get("master_only_audible")
+            return None, ("hole_width_contradicts_audio_step",
+                          f"the {round(edges['extra_s'] * 1000, 3)} ms of master content the "
+                          f"candidate lacks at {edges['edge_A']}-{edges['edge_B']} s does not "
+                          f"fit between the audio edges around its audible master-only sound "
+                          f"({'span ' + str(only) if only else 'no audible master-only span'}"
+                          f"), and the video does not pin a replacement (status {status}, "
+                          f"{outcome.get('resolver_reason') or 'no frames placed'})")
         video_s, width_note = video_cut_instant(outcome, domain, extra, (lo, hi),
                                                 hole["quantum_ms"])
         video_decided = status in (HOLE_RESOLVED, HOLE_PINNED_TO_AMBIGUOUS_ZONE_END)
@@ -3155,7 +3691,10 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             # logged, with both readings, never refused.
             at = _frame_s(outcome["master_start_frame"], domain)
             before, after = outcome["before_shift_frames"], outcome["after_shift_frames"]
-            fill = max(0, before - after) * frame
+            # Rule 2: every unmatched master frame is filled, not only the shift gap.
+            fill = (max(0, before - after,
+                        outcome["master_end_frame"] - outcome["master_start_frame"]) * frame
+                    if status == HOLE_RESOLVED else max(0, before - after) * frame)
             pinned, pin_decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
                                              extra, frame)
             if pinned is not None and not width_note:
@@ -3185,16 +3724,30 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             return None, ("hole_status_unhandled",
                           f"an internal hole status {status!r} reached audio_transitions at "
                           f"change point {index}, outside the four statuses it handles")
-        transitions.append({"at_s": at, "fill_s": fill, "a_ms": point["a_ms"],
-                            "b_ms": point["b_ms"], "decision": decision, "interval": [lo, hi],
-                            "edges": [edges["edge_A"], edges["edge_B"]],
-                            "video_status": status, "video_s": video_s, "change_point": index,
-                            "before_shift_frames": (outcome.get("before_shift_frames")
-                                                    if video_decided or status == HOLE_NO_CUT_CONFIRMED
-                                                    else None),
-                            "after_shift_frames": (outcome.get("after_shift_frames")
-                                                   if video_decided or status == HOLE_NO_CUT_CONFIRMED
-                                                   else None)})
+        shifts_known = video_decided or status == HOLE_NO_CUT_CONFIRMED
+        before = outcome.get("before_shift_frames") if shifts_known else None
+        after = outcome.get("after_shift_frames") if shifts_known else None
+        removal = outcome.get("removal_frame")
+        if removal is not None and status == HOLE_RESOLVED:
+            # The candidate excess sits apart from the fill, in a run the picture cannot
+            # place (rule 1): one offset change at the removal, one master fill with none.
+            removal_s = _frame_s(removal, domain)
+            pieces = [(removal_s, 0.0, point["a_ms"], point["b_ms"], "blind_removal",
+                       before, after),
+                      (at, fill, point["b_ms"], point["b_ms"], decision, after, after)]
+            if removal_s > at:
+                pieces = [(at, fill, point["a_ms"], point["a_ms"], decision, before, before),
+                          (removal_s, 0.0, point["a_ms"], point["b_ms"], "blind_removal",
+                           before, after)]
+        else:
+            pieces = [(at, fill, point["a_ms"], point["b_ms"], decision, before, after)]
+        for piece_at, piece_fill, a_ms, b_ms, piece_decision, left, right in pieces:
+            transitions.append({"at_s": piece_at, "fill_s": piece_fill, "a_ms": a_ms,
+                                "b_ms": b_ms, "decision": piece_decision, "interval": [lo, hi],
+                                "edges": [edges["edge_A"], edges["edge_B"]],
+                                "video_status": status, "video_s": video_s,
+                                "change_point": index, "before_shift_frames": left,
+                                "after_shift_frames": right})
         tools.dev_log(
             f"repair: audio_transition "
             f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
@@ -3246,6 +3799,54 @@ def log_holes_against_walk(holes, walk, candidate_path):
             step_result("change_point_unseen_by_b2", candidate=candidate_path,
                         a_ms=point["a_ms"], b_ms=point["b_ms"], jump_ms=point["jump_ms"],
                         region_ms=[round(low, 1), round(high, 1)])
+
+
+# Pixel reading of a frame pair (160x90 grey): the pair differs when this fraction of its
+# pixels departs by more than PIXEL_DIFF_LEVELS from the pair's mean difference (other
+# content, a retouch, a layout change), or when its mean difference leaves the two files' own
+# steady difference by more than PIXEL_FADE_LEVELS (a fade or a dim frame). A uniform regrade
+# moves the steady difference itself and an encode difference stays near 1 level: neither
+# differs. Measured: a candidate fade-out reads 2.4 levels off steady on its first faded
+# frame; the same picture across two encodes keeps up to 1.4 % of its pixels past 20 levels.
+PIXEL_DIFF_LEVELS = 20.0
+PIXEL_DIFF_FRACTION = 0.03
+PIXEL_FADE_LEVELS = 2.0
+# On a dark picture a fade moves the level by little: 8 % of the master's own level counts
+# (measured: a candidate fade-in on a level-5 shot, 0.6 levels off steady on its last faded
+# frame, 0.4 on the first steady one), never under 0.75 level (measured: faint candidate text
+# over a black master frame, 0.45 off steady, is no difference).
+PIXEL_FADE_SHARE = 0.08
+PIXEL_FADE_FLOOR = 0.75
+# Common frames whose median level difference is the steady one around a frame.
+PIXEL_STEADY_FRAMES = 12
+# Consecutive frames that settle a front (see `_front_forward`).
+PIXEL_RUN_FRAMES = 3
+
+
+def _grey_frames(comparer, path, first, count, rate):
+    """`count` grey 160x90 frames of `path` from decoded frame `first` on (float array)."""
+    import numpy as np
+    import frame_hash
+    # Same window convention as the anchor search's own extraction, so frame labels agree.
+    start_s = float(Fraction(max(0, first)) / rate)
+    blob = comparer._ffmpeg_raw_frames(path, start_s, float(Fraction(count) / rate))
+    import frame_compare
+    frames = frame_hash.frames_from_raw(blob, comparer.width, comparer.height, 3)
+    # A file at another native rate is re-indexed onto the master grid, as the anchors are.
+    frames, _reason = frame_compare._on_comparer_grid(comparer, path, list(frames))
+    if not frames:
+        return np.zeros((0, comparer.height, comparer.width))
+    return np.asarray(frames, dtype=np.float64).mean(axis=-1)[:count]
+
+
+def _pixel_reading(master_frame, candidate_frame):
+    """(mean level difference, fraction of pixels departing from it by > PIXEL_DIFF_LEVELS,
+    master std, master level, candidate std) of one grey frame pair."""
+    import numpy as np
+    diff = master_frame - candidate_frame
+    level = float(diff.mean())
+    return (level, float((np.abs(diff - level) > PIXEL_DIFF_LEVELS).mean()),
+            float(master_frame.std()), float(master_frame.mean()), float(candidate_frame.std()))
 
 
 # ---------------------------------------------------------------------------
@@ -4568,8 +5169,13 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
-    head_end_s, tail_start_s, refusal = audio_edges(walk, holes, domain, master_obj,
-                                                    candidate_obj, work_dir, candidate_path)
+    picture_shifts = [(t["before_shift_frames"], t["after_shift_frames"]) for t in transitions
+                      if t.get("before_shift_frames") is not None
+                      and t.get("after_shift_frames") is not None]
+    head_end_s, tail_start_s, refusal = audio_edges(
+        walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path,
+        shift_hints=({"head": picture_shifts[0][0], "tail": picture_shifts[-1][1]}
+                     if picture_shifts else None))
     if refusal is not None:
         return False, refusal[0], refusal[1], None
     zones, fills, geometry_failure = plan_geometry(transitions, head_end_s, tail_start_s,
