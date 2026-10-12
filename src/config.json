@@ -21,5 +21,18 @@
         "ms",
         "he",
         "hi"
-    ]
+    ],
+    "integrity_samples_per_frame": {
+        "aac": 1024,
+        "ac3": 1536,
+        "eac3": 1536,
+        "dts": 512,
+        "truehd": 40,
+        "mp2": 1152,
+        "mp3": 1152,
+        "opus": 960,
+        "vorbis": 2048,
+        "flac": 4608,
+        "default": 4608
+    }
 }
