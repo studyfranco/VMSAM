@@ -1,8 +1,8 @@
 """Integrity of the audio and subtitle tracks of a produced file, against the tracks they come from.
 
 A produced track must end where its original, shifted by the delay put on it, ends (within one
-codec frame, never past the reference video), and hold no silence its original plays through.
-Any finding raises TrackIntegrityError.
+codec frame, never past the reference video), hold no silence its original plays through, and
+decode without error. Any finding raises TrackIntegrityError.
 """
 
 import concurrent.futures
@@ -19,7 +19,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"
 
 
 class TrackIntegrityError(Exception):
-    """A produced audio or subtitle track is truncated, too long or gained a silence."""
+    """A produced audio or subtitle track is truncated, too long, broken or gained a silence."""
 
 
 def expected_end_s(original_end_s, delay_ms, duration_best_video_s):
@@ -42,6 +42,14 @@ def frame_s(stream, last_packet_s):
     return SAMPLES_PER_FRAME.get(stream.get("codec_name"), SAMPLES_PER_FRAME["default"]) / rate
 
 
+def decode_errors(path, index):
+    """Return the error lines of a full decode of one stream (ffprobe decodes subtitles too)."""
+    p = subprocess.run([fc._bin("ffprobe"), "-v", "error", "-err_detect", "crccheck+bitstream+buffer",
+                        "-select_streams", str(index), "-show_entries", "frame=pts_time:subtitle=pts_time",
+                        "-of", "csv=p=0", path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    return p.stderr.strip().splitlines() or ([f"ffprobe exit {p.returncode}"] if p.returncode else [])
+
+
 def check_track(original_path, original_index, original_span, produced_path, stream, produced_span,
                 delay_ms, duration_best_video_s):
     """Return the findings (strings) on one produced track; empty when it is sound."""
@@ -55,6 +63,9 @@ def check_track(original_path, original_index, original_span, produced_path, str
     elif abs(produced_span[1] - expected) > frame_s(stream, produced_span[2]):
         findings.append(f"{label}: ends at {produced_span[1]:.3f} s, expected {expected:.3f} s "
                         f"(+/- {frame_s(stream, produced_span[2]):.3f} s)")
+    errors = decode_errors(produced_path, index)
+    if errors:
+        findings.append(f"{label}: decode errors: {' | '.join(errors[:3])}")
     if stream["codec_type"] == "audio":
         for s in integrity.silence_report(original_path, original_index, produced_path, index, delay_ms)["b_only"]:
             findings.append(f"{label}: silence {s['start_s']}-{s['end_s']} s that the original plays")
