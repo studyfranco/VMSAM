@@ -5,6 +5,10 @@ import math
 import shutil
 import subprocess
 
+SILENCE_DB = -60.0                # digital silence is ~-121 dB
+ISLAND_GAP_S = 60
+CLICK_S = 3
+
 
 def _bin(name):
     return shutil.which(name) or name

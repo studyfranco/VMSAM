@@ -1,7 +1,8 @@
 """Integrity of the audio and subtitle tracks of a produced file, against the tracks they come from.
 
 A produced track must end where its original, shifted by the delay put on it, ends (within one
-codec frame, never past the reference video). Any finding raises TrackIntegrityError.
+codec frame, never past the reference video), and hold no silence its original plays through.
+Any finding raises TrackIntegrityError.
 """
 
 import concurrent.futures
@@ -10,6 +11,7 @@ import os
 import subprocess
 
 import file_conformity as fc
+import integrity
 
 # Without the config.json table, every codec gets the longest frame of the table.
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")) as _config:
@@ -17,7 +19,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"
 
 
 class TrackIntegrityError(Exception):
-    """A produced audio or subtitle track is truncated or too long."""
+    """A produced audio or subtitle track is truncated, too long or gained a silence."""
 
 
 def expected_end_s(original_end_s, delay_ms, duration_best_video_s):
@@ -53,6 +55,9 @@ def check_track(original_path, original_index, original_span, produced_path, str
     elif abs(produced_span[1] - expected) > frame_s(stream, produced_span[2]):
         findings.append(f"{label}: ends at {produced_span[1]:.3f} s, expected {expected:.3f} s "
                         f"(+/- {frame_s(stream, produced_span[2]):.3f} s)")
+    if stream["codec_type"] == "audio":
+        for s in integrity.silence_report(original_path, original_index, produced_path, index, delay_ms)["b_only"]:
+            findings.append(f"{label}: silence {s['start_s']}-{s['end_s']} s that the original plays")
     return findings
 
 
