@@ -1,4 +1,4 @@
-"""Probe helpers of media files: ffprobe in JSON, tags, numbers and packet spans."""
+"""Conformity of media files: probe helpers, packet spans, and the refusal of a broken merge input."""
 
 import json
 import math
@@ -8,6 +8,8 @@ import subprocess
 SILENCE_DB = -60.0                # digital silence is ~-121 dB
 ISLAND_GAP_S = 60
 CLICK_S = 3
+TAIL_RULE_S = 300.0               # a gap over 5 min running to the end is a cut
+AFTER_VIDEO_ERROR_S = 60.0        # healthy files end audio < ~45 s after the video
 
 
 def _bin(name):
@@ -77,3 +79,27 @@ def packet_spans(path):
             end, last = start + length, length
         spans[int(index)] = (min(first, start), end, last)
     return spans
+
+
+class ConformityError(Exception):
+    """A merge input is cut or overlong: its audio cannot be aligned on its video."""
+
+
+def require_conformity(path):
+    """Raise ConformityError when an audio track runs a minute past the video, or every one stops
+    five minutes before it. A single track shorter than the video is common and valid.
+    """
+    streams = probe(path).get("streams", [])
+    video = [s["index"] for s in streams if s.get("codec_type") == "video"
+             and not (s.get("disposition") or {}).get("attached_pic")]
+    audio = [s["index"] for s in streams if s.get("codec_type") == "audio"]
+    if not video or not audio:
+        return
+    spans = packet_spans(path)
+    video_end = spans[video[0]][1]
+    ends = {i: spans[i][1] for i in audio if i in spans}
+    late = [f"audio track {i} ends at {e:.3f} s" for i, e in ends.items() if e > video_end + AFTER_VIDEO_ERROR_S]
+    if ends and all(e < video_end - TAIL_RULE_S for e in ends.values()):
+        late.append(f"every audio track ends by {max(ends.values()):.3f} s")
+    if late:
+        raise ConformityError(f"{path}: {'; '.join(late)}, the video ends at {video_end:.3f} s")
