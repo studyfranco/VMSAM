@@ -267,8 +267,6 @@ const POST_ROUTES: &[(&str, &str)] = &[
 const MOVIE_GET_ROUTES: &[(&str, &str)] = &[
     ("movies_list", "/movies_list/"),
     ("movie", "/movie/"),
-    ("movies_infos", "/movies_infos/"),
-    ("movies_by_metadata", "/movies_by_metadata/"),
     ("regex_movie", "/regex_movie/"),
     ("regex_list", "/regex_list/"),
     ("folders_list", "/folders_list/"),
