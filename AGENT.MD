@@ -76,11 +76,15 @@ The part worth understanding before touching any tab. Pure functions, exposed as
 2. `buildTemplate` aligns every name of a group on the first one with a **weighted**
    LCS (`lcsPairs`): identical tokens weigh most, two digit runs of different values
    still align (so an episode number stays aligned when the title next to it
-   changes), and among equal alignments the one with fewest holes wins. A shared
-   token stays literal; an aligned digit run whose value changes is `varying`;
-   anything else that differs is `wild` (`optional` when empty in some name).
+   changes), two words that differ only by case (`Of` / `of`) align too, and among
+   equal alignments the one with fewest holes wins. A shared token stays literal
+   (`caseFold` marks the letters whose case changes); an aligned digit run whose
+   value changes is `varying`; anything else that differs is `wild`.
    `absorbBetweenWilds` merges a short literal run caught between two wild spans
-   (shared title words) and a checksum glued to a wild word.
+   (shared title words) and a checksum glued to a wild word; `settleWildRuns` then
+   measures each wild run against every name: a separator that opens or closes it
+   in every name stays literal (` - ` before a title), and the run is `optional`
+   only when it is empty in some name.
 3. `findMarkerSpan` / `findEpisodeMarker`: when **every** name carries the same kind
    of season/episode marker — `S<n>E<n>`, `<n>x<nn>` (`3x01`, never `1920x1080`) or
    `Saison|Season <n> Épisode|Episode <n>` — its episode digits are the episode,
@@ -89,12 +93,17 @@ The part worth understanding before touching any tab. Pure functions, exposed as
    files score up; resolution (`1080p`), codec (`x264`), version (`v2`), season
    (`S2`), year, CRC, brackets and the extension score down. Below −100 nothing is
    chosen and the user clicks a chip. A chip click always overrides.
-4. `buildRegex` emits an anchored **Python** pattern: literals escaped, varying digits
+4. `buildRegex` emits an anchored **Python** pattern: literals escaped, a letter
+   whose case changes as a class (`[oO]f`), varying digits
    `\d+`, wild spans `.+` (`.*` when optional, lazy `.+?` right before the episode),
-   the episode `(?P<episode>\d+)`. `toJsRegex` converts `(?P<` to `(?<` so the
-   browser can check it on every file of the group.
-5. `buildRename` is the first name with the episode replaced by `{<episode>}` and
-   every wild span (per-episode titles, tags) dropped, separators merged.
+   the episode `(?P<episode>\d+)`. `anchorAfterEpisode` keeps the separator that
+   follows the episode number literal when every name has it, before the wild span
+   (`S01E(?P<episode>\d+)\..+`, or `\.(?:.+\.)?MULTi` when the title is sometimes
+   absent); a variant is kept only if it extracts the same episodes. `toJsRegex`
+   converts `(?P<` to `(?<` so the browser can check it on every file of the group.
+5. `buildRename` is the first name (its spelling, case included) with the episode
+   replaced by `{<episode>}` and every wild span (per-episode titles, tags) dropped,
+   separators merged.
 
 Default grouping: **Bulk Regex and Index Folder group with `groupByNamePattern`**;
 **Specials and Incrementaller start with one file per card**. A word is a run between
@@ -109,10 +118,23 @@ the tail (last three words after the marker, or of the name; 8-hex CRC words lef
 out) splits files only when at least two files share it: two releases stay apart,
 while a season whose names end with a per-episode title stays in one pooled group.
 (3) A file with no marker and no episode-like word leaves a group where others have
-one (a special among numbered episodes) for its own card. Groups keep the order of
+one (a special among numbered episodes) for its own card. (4) `refineGroupsByPairs`
+aligns every pair of a group of 4 to 200 names; pairs that keep the same extra words
+literal (beyond the whole group's) form a class, classes become sub-groups (largest
+first, leftovers join the sub-group that still gains with them). The split is kept
+only when every sub-group has two names or more, gains a word outside the
+per-episode title (`partGain`: a word that opens the title area right after the
+episode, or a fixed number after a wild span, does not count), the sub-group
+regexes differ, and no more groups lose a valid episode: two releases (`MULTi` /
+`DUAL`, `[GrpA]` / `[GrpB]`), two seasons, OP / ED separate; a season whose titles
+share a first word or an arc name does not. Groups keep the order of
 their first file. Every board has "Auto-group" (regroup all its files that way) and
 "Split all" (one file per card); both drop the manual edits of the groups. Drag a
-file onto another card to merge, `−` to give it back its own card. A manual edit of
+file onto another card to merge. `−` takes a file out (`findEjectTarget`): a card
+of several files whose current regex (manual edit included) yields a valid episode
+from it takes it, a one-file card with the same `nameShape` prefix takes it when the
+pair's proposal is valid; among several, the regex with most literal characters
+wins (a toast names the card); otherwise the file gets its own card. A manual edit of
 the regex or rename sticks until "Re-propose". `groupByPrefix` (first five characters) stays exported, unused.
 
 **The control around specials lives in VMSAM, and the UI surfaces it as-is.**

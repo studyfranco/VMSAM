@@ -251,6 +251,7 @@
                             <p class="text-muted text-sm">A directory of the library that VMSAM does not know yet. Open
                                 directories with "Open →" (or a double click), click one to select it. Directories marked
                                 "registered" are already known: registering one again only updates its options.</p>
+                            <input type="search" id="index-register-filter" class="input dir-filter" placeholder="Filter directories (name contains…)" aria-label="Filter directories" autocomplete="off" spellcheck="false">
                             <div id="index-register-browser" class="dir-browser-container"></div>
                             <div class="text-sm mt-2">Selected: <span id="index-register-path" class="font-mono text-accent">none</span></div>
                             <div class="grid-4 mt-2">
@@ -343,6 +344,7 @@
                     <p class="text-muted text-sm">Paths are relative to the library root (<span id="move-root"
                             class="font-mono"></span>). Click a directory to move the folder inside it under its
                         current name, open one with "Open →" (or a double click); then edit the name freely.</p>
+                    <input type="search" id="move-browser-filter" class="input dir-filter" placeholder="Filter directories (name contains…)" aria-label="Filter directories" autocomplete="off" spellcheck="false">
                     <div id="move-browser" class="dir-browser-container"></div>
                     <div class="form-group mt-2">
                         <label class="label" for="move-path">New path</label>
@@ -433,7 +435,7 @@
 
     <!-- Modal -->
     <div id="file-modal" class="modal-overlay hidden">
-        <div class="modal-box">
+        <div class="modal-box file-modal-box">
             <div class="modal-header">
                 <h3>Select Files</h3>
                 <button onclick="closeFileModal()" class="btn-icon">✕</button>
@@ -446,7 +448,7 @@
                 <span id="file-selected-count" class="text-muted text-sm">0 selected</span>
             </div>
             <div id="file-list" class="modal-body dir-browser-container"></div>
-            <div style="display: flex; justify-content: flex-end; gap: 1rem;">
+            <div class="modal-footer">
                 <button onclick="closeFileModal()" class="btn btn-secondary">Cancel</button>
                 <button onclick="addSelectedFiles()" class="btn btn-primary">Add Selected</button>
             </div>

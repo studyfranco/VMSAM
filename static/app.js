@@ -73,6 +73,51 @@ function el(tag, className, text) {
     return node;
 }
 
+// In-page replacement of window.confirm(), themed. Resolves true (OK) or
+// false (Cancel, Escape, a click outside the box). OK has the focus, so
+// Enter = OK; Escape = Cancel; Tab cycles between the two buttons only (Enter
+// on a focused Cancel cancels). The message is plain text (file names carry
+// brackets), its line breaks are kept.
+function confirmDialog(message, options = {}) {
+    return new Promise(resolve => {
+        const previousFocus = document.activeElement;
+        const overlay = el('div', 'modal-overlay confirm-overlay');
+        const box = el('div', 'modal-box confirm-box');
+        box.setAttribute('role', 'alertdialog');
+        box.setAttribute('aria-modal', 'true');
+        const title = el('h3', 'confirm-title', options.title || 'Please confirm');
+        title.id = 'confirm-dialog-title';
+        box.setAttribute('aria-labelledby', title.id);
+        const text = el('div', 'confirm-message', message);
+        const buttons = el('div', 'confirm-buttons');
+        const cancel = el('button', 'btn btn-secondary confirm-cancel', options.cancelText || 'Cancel');
+        const ok = el('button', 'btn btn-primary confirm-ok', options.okText || 'OK');
+        cancel.type = 'button';
+        ok.type = 'button';
+        buttons.append(cancel, ok);
+        box.append(title, text, buttons);
+        overlay.appendChild(box);
+
+        const close = (answer) => {
+            document.removeEventListener('keydown', onKey, true);
+            overlay.remove();
+            if (previousFocus && previousFocus.focus) previousFocus.focus();
+            resolve(answer);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); }
+            else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(document.activeElement !== cancel); }
+            else if (e.key === 'Tab') { e.preventDefault(); (document.activeElement === ok ? cancel : ok).focus(); }
+        };
+        ok.onclick = () => close(true);
+        cancel.onclick = () => close(false);
+        overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(false); });
+        document.addEventListener('keydown', onKey, true);
+        document.body.appendChild(overlay);
+        ok.focus();
+    });
+}
+
 const VIDEO_EXTS = ['mkv', 'mp4', 'avi', 'm4v', 'mov', 'ts', 'webm', 'wmv'];
 
 function isVideoName(name) {
@@ -173,14 +218,24 @@ function sameToken(a, b) {
 // when that costs no identical match (episode numbers stay aligned even when
 // the title next to them changes, and 1080 still pairs with 1080).
 const MATCH_WEIGHT_SAME = 100;
+// Two letter runs that differ only by case (`Of` / `of`) still pair, a little
+// below identical ones: the regex then carries `[oO]` for the letters that change.
+const MATCH_WEIGHT_CASE = 90;
 const MATCH_WEIGHT_DIGITS = 25;
 // Each run of unmatched tokens costs a little, far less than any match: among
 // alignments of equal weight, the one with the fewest holes wins, so the dots
 // around a changing title stay with the words they separate.
 const GAP_OPEN_COST = 1;
 
+// Same letters, same length, at least one letter in another case.
+function sameButCase(a, b) {
+    return !a.d && !b.d && a.v !== b.v && a.v.length === b.v.length
+        && /^[A-Za-zÀ-ɏ]+$/.test(a.v) && a.v.toLowerCase() === b.v.toLowerCase();
+}
+
 function matchWeight(a, b) {
     if (sameToken(a, b)) return MATCH_WEIGHT_SAME;
+    if (sameButCase(a, b)) return MATCH_WEIGHT_CASE;
     if (a.d && b.d) return MATCH_WEIGHT_DIGITS;
     return 0;
 }
@@ -304,6 +359,8 @@ function absorbBetweenWilds(slots, protectedFrom, protectedTo) {
 //   optional: wild, and absent from at least one other name -> .*
 //   extraBefore: another name carries tokens here that the reference lacks
 //                (empty in the reference, so always .*)
+//   caseFold: letters of a literal word written in another case in some
+//             name (`Of` / `of`): one flag per letter, emitted as `[oO]`
 //   markerIndex: the episode digits of a season/episode marker (SxxE, NxNN,
 //                Saison n Épisode n: findMarkerSpan) every name carries,
 //                aligned in every name (null otherwise)
@@ -314,10 +371,12 @@ function buildTemplate(names) {
     const refSpan = findMarkerSpan(ref);
     const refMarker = refSpan ? refSpan.episode : -1;
     let markerAligned = refMarker >= 0;
+    const alignments = [];
 
     for (const name of names.slice(1)) {
         const other = tokenizeName(name);
         const pairs = lcsPairs(ref, other);
+        alignments.push({ other, pairs });
         if (markerAligned) {
             const otherSpan = findMarkerSpan(other);
             const otherMarker = otherSpan && otherSpan.kind === refSpan.kind ? otherSpan.episode : -1;
@@ -327,7 +386,11 @@ function buildTemplate(names) {
         for (const pair of [...pairs, [ref.length, other.length]]) {
             const [i2, j2] = pair;
             const [i1, j1] = prev;
-            if (i2 < ref.length && j2 < other.length && !sameToken(ref[i2], other[j2])) slots[i2].varying = true;
+            if (i2 < ref.length && j2 < other.length && sameButCase(ref[i2], other[j2])) {
+                // Only the case changes: remember which letters, the token stays literal.
+                const fold = slots[i2].caseFold || (slots[i2].caseFold = new Array(ref[i2].v.length).fill(false));
+                for (let k = 0; k < fold.length; k++) if (ref[i2].v[k] !== other[j2].v[k]) fold[k] = true;
+            } else if (i2 < ref.length && j2 < other.length && !sameToken(ref[i2], other[j2])) slots[i2].varying = true;
             const refGap = i2 - i1 - 1;
             const otherGap = j2 - j1 - 1;
             if (refGap > 0 || otherGap > 0) {
@@ -350,7 +413,48 @@ function buildTemplate(names) {
     }
     const markerIndex = markerAligned && !slots[refMarker].wild ? refMarker : null;
     absorbBetweenWilds(slots, markerIndex === null ? -1 : refSpan.from, markerIndex === null ? -1 : markerIndex);
+    settleWildRuns(slots, alignments);
     return { name: names[0], slots, extraAfterEnd, count: names.length, markerIndex };
+}
+
+// Each maximal run of wild slots, once absorbed, is measured again against
+// every name: the tokens a name holds between the two literal tokens around
+// the run. A separator that opens (or closes) that text in every name leaves
+// the run and stays literal (`S01E03 - Title` keeps ` - ` whatever the
+// titles), and the run is optional (.*) only when that text is empty in some
+// name. A run whose neighbours are not aligned in some name is left as is.
+function settleWildRuns(slots, alignments) {
+    const isSeparator = v => !/[0-9A-Za-zÀ-ɏ]/.test(v);
+    const maps = alignments.map(({ other, pairs }) => ({ other, at: new Map(pairs) }));
+    let a = 0;
+    while (a < slots.length) {
+        if (!slots[a].wild) { a++; continue; }
+        let b = a;
+        while (b + 1 < slots.length && slots[b + 1].wild) b++;
+        const next = b + 1;
+        const spans = maps.map(({ other, at }) => {
+            const left = a === 0 ? -1 : at.get(a - 1);
+            const right = next === slots.length ? other.length : at.get(next);
+            return left === undefined || right === undefined ? null : { other, from: left + 1, to: right };
+        });
+        if (spans.every(Boolean)) {
+            while (a < b && isSeparator(slots[a].v) && spans.every(s => s.from < s.to && s.other[s.from].v === slots[a].v)) {
+                Object.assign(slots[a], { wild: false, varying: false, optional: false, extraBefore: false });
+                spans.forEach(s => { s.from++; });
+                a++;
+            }
+            while (b > a && isSeparator(slots[b].v) && spans.every(s => s.from < s.to && s.other[s.to - 1].v === slots[b].v)) {
+                Object.assign(slots[b], { wild: false, varying: false, optional: false, extraBefore: false });
+                spans.forEach(s => { s.to--; });
+                b--;
+            }
+            const optional = spans.some(s => s.from >= s.to);
+            for (let k = a; k <= b; k++) slots[k].optional = optional;
+            // The text of every name is counted in the run: no extra before what follows.
+            if (next < slots.length) slots[next].extraBefore = false;
+        }
+        a = next;
+    }
 }
 
 // Digit runs that can carry the episode number: every non-wild digit slot.
@@ -428,6 +532,7 @@ function buildRegex(template, episodeIndex) {
         flush(i === episodeIndex);
         if (i === episodeIndex) out += '(?P<episode>\\d+)';
         else if (slot.d && slot.varying) out += '\\d+';
+        else if (slot.caseFold) out += [...slot.v].map((ch, k) => (slot.caseFold[k] ? `[${ch.toLowerCase()}${ch.toUpperCase()}]` : escapeRegex(ch))).join('');
         else out += escapeRegex(slot.v);
     });
     if (template.extraAfterEnd) { pendingWild = true; pendingOptional = true; }
@@ -491,6 +596,38 @@ function testPattern(pythonPattern, names) {
     return { syntaxError, perFile, allValid: !syntaxError && perFile.every(f => f.valid) };
 }
 
+// A wild span right after the episode number (`(?P<episode>\d+).+`) starts,
+// when every name agrees, with the separator that follows the number in the
+// reference (` - `, `.`, `_`, `[`...): keep that separator literal and push the
+// wild span after it, `S01E(?P<episode>\d+)\..+`. An optional span (`.*`)
+// whose text ends on that same separator becomes `\.(?:.+\.)?`. A variant is
+// kept only when it extracts, from every name, the same episode as before.
+function anchorAfterEpisode(regex, template, episodeIndex, names) {
+    if (episodeIndex === null || episodeIndex === undefined) return regex;
+    const group = '(?P<episode>\\d+)';
+    const at = regex.indexOf(group);
+    if (at < 0) return regex;
+    const head = regex.slice(0, at + group.length);
+    const wild = regex.slice(head.length, head.length + 2);
+    if (wild !== '.+' && wild !== '.*') return regex;
+    const rest = regex.slice(head.length + 2);
+    if (rest.startsWith('?')) return regex;
+    const run = (template.name.slice(template.slots[episodeIndex].end).match(/^[^0-9A-Za-zÀ-ɏ]{1,3}/) || [''])[0];
+    const expected = names.map(n => extractEpisode(regex, n));
+    const same = candidate => {
+        try { toJsRegex(candidate); } catch (e) { return false; }
+        return names.every((n, k) => extractEpisode(candidate, n) === expected[k]);
+    };
+    for (let length = run.length; length > 0; length--) {
+        const literal = escapeRegex(run.slice(0, length));
+        const candidates = [head + literal + '.+' + rest, head + literal + '.*' + rest];
+        if (rest.startsWith(literal)) candidates.push(head + literal + '(?:.+' + literal + ')?' + rest.slice(literal.length));
+        const found = candidates.find(same);
+        if (found) return found;
+    }
+    return regex;
+}
+
 // The whole proposal for one group.
 function analyzeGroup(names, forcedEpisodeIndex) {
     const template = buildTemplate(names);
@@ -499,7 +636,7 @@ function analyzeGroup(names, forcedEpisodeIndex) {
     if (forcedEpisodeIndex !== null && forcedEpisodeIndex !== undefined && numberSlots(template).includes(forcedEpisodeIndex)) {
         episodeIndex = forcedEpisodeIndex;
     }
-    const regex = buildRegex(template, episodeIndex);
+    const regex = anchorAfterEpisode(buildRegex(template, episodeIndex), template, episodeIndex, names);
     return {
         template,
         episodeIndex,
@@ -522,6 +659,9 @@ function analyzeGroup(names, forcedEpisodeIndex) {
 //     together in one pooled group.
 //  3. A file with no marker and no episode-like word leaves a group where
 //     other files have one (a special among numbered episodes): own card.
+//  4. Each group is then refined pair by pair (splitGroupByPairs): sub-groups
+//     of two names or more that keep more words literal than the whole group,
+//     outside the per-episode title (two releases, two seasons, OP and ED).
 // An episode-like word (`01`, `E05`, `ep3`, `07v2`: at most three digits)
 // only counts as "a number here" in a key. Groups keep the order of their
 // first file, names inside a group keep input order.
@@ -591,7 +731,15 @@ function nameShape(name) {
     };
 }
 
+// Default grouping: the first pass by name shape, then the pairwise refinement.
 function groupByNamePattern(names) {
+    const order = new Map();
+    names.forEach((n, i) => { if (!order.has(n)) order.set(n, i); });
+    return refineGroupsByPairs(groupByNameShape(names)).sort((x, y) => order.get(x[0]) - order.get(y[0]));
+}
+
+// First pass of groupByNamePattern: prefix, tail, numbered (see above).
+function groupByNameShape(names) {
     const order = new Map();
     names.forEach((n, i) => { if (!order.has(n)) order.set(n, i); });
     const shapes = new Map(names.map(n => [n, nameShape(n)]));
@@ -623,6 +771,143 @@ function groupByNamePattern(names) {
         }
     }
     return result.sort((x, y) => order.get(x[0]) - order.get(y[0]));
+}
+
+// Second pass: inside one group of the first pass, look for sub-groups whose
+// names share more than the whole group does (two releases of a show the
+// first pass pooled). What a set of names "shares" is the multiset of words
+// its template keeps literal (letter runs of two letters or more, fixed digit
+// runs, lowercased); a set "gains" the words it keeps beyond those of the
+// whole group. Every pair of names is aligned; pairs that gain the same words
+// form a class; classes become sub-groups, largest first, each file in the
+// first class that takes it. A file no class took joins the sub-group that
+// still gains with it. The split is kept only when every sub-group has at
+// least two names and gains a word, and it leaves no more groups without a
+// valid episode than before. A season whose names differ by the per-episode
+// title only gains nothing outside the titles (short runs between two wild
+// spans are absorbed) and stays whole.
+const REFINE_MIN_GROUP = 4;
+// Every pair is aligned: about 0.5 s for 150 names, so larger groups are left as they are.
+const REFINE_MAX_GROUP = 200;
+
+// With `anchoredOnly`, words of a literal run that a wild span closes on the
+// right are left out: they open a per-episode title (`- The .+`, `(Il faut .+)`),
+// and titles sharing their first word are no release of their own. A run
+// ends at a wild span or a changing digit run.
+function literalWords(template, anchoredOnly) {
+    const words = new Map();
+    const slots = template.slots;
+    let k = 0;
+    while (k < slots.length) {
+        if (slots[k].wild || (slots[k].d && slots[k].varying)) { k++; continue; }
+        let end = k;
+        while (end < slots.length && !slots[end].wild && !(slots[end].d && slots[end].varying)) end++;
+        const titleStart = anchoredOnly && end < slots.length && slots[end].wild;
+        for (let i = k; i < end && !titleStart; i++) {
+            const slot = slots[i];
+            if (!slot.d && !/^[A-Za-zÀ-ɏ]{2,}$/.test(slot.v)) continue;
+            const word = slot.v.toLowerCase();
+            words.set(word, (words.get(word) || 0) + 1);
+        }
+        k = end;
+    }
+    return words;
+}
+
+// Words of `words` beyond those of `base` (multiset difference), sorted.
+function gainedWords(words, base) {
+    const gained = [];
+    for (const [word, count] of words) for (let k = base.get(word) || 0; k < count; k++) gained.push(word);
+    return gained.sort();
+}
+
+function splitGroupByPairs(names) {
+    if (names.length < REFINE_MIN_GROUP || names.length > REFINE_MAX_GROUP) return [names];
+    const baseWords = literalWords(buildTemplate(names));
+    const gainOf = indexes => gainedWords(literalWords(buildTemplate([...indexes].sort((a, b) => a - b).map(k => names[k])), true), baseWords);
+    const classes = new Map();
+    for (let i = 0; i < names.length; i++) {
+        for (let j = i + 1; j < names.length; j++) {
+            const gained = gainOf([i, j]);
+            if (!gained.length) continue;
+            const key = JSON.stringify(gained);
+            if (!classes.has(key)) classes.set(key, { gained, members: new Set(), first: i });
+            classes.get(key).members.add(i).add(j);
+        }
+    }
+    if (!classes.size) return [names];
+    const ordered = [...classes.values()].sort((a, b) => b.members.size - a.members.size || b.gained.length - a.gained.length || a.first - b.first);
+    const taken = new Array(names.length).fill(false);
+    const parts = [];
+    for (const c of ordered) {
+        const free = [...c.members].filter(k => !taken[k]).sort((a, b) => a - b);
+        if (free.length < 2) continue;
+        free.forEach(k => { taken[k] = true; });
+        parts.push(free);
+    }
+    const unplaced = [];
+    names.forEach((_, k) => {
+        if (taken[k]) return;
+        let best = -1, bestGain = 0;
+        parts.forEach((part, p) => {
+            const gain = gainOf([...part, k]).length;
+            if (gain > bestGain) { best = p; bestGain = gain; }
+        });
+        if (best >= 0) parts[best].push(k);
+        else unplaced.push(k);
+    });
+    if (unplaced.length) parts.push(unplaced);
+    if (parts.length < 2 || parts.some(part => part.length < 2)) return [names];
+    const split = parts.map(part => part.sort((a, b) => a - b).map(k => names[k]));
+    if (split.some(part => !partGain(names, part))) return [names];
+    const proposals = split.map(part => analyzeGroup(part));
+    if (new Set(proposals.map(p => p.regex)).size < proposals.length) return [names];
+    if (proposals.filter(p => !p.check.allValid).length > (analyzeGroup(names).check.allValid ? 0 : 1)) return [names];
+    return split;
+}
+
+// How many words a sub-group keeps literal that the whole group does not,
+// both aligned on the sub-group's first name so their slots match. The title
+// area is the wild span of the whole group right after the episode number
+// (separators and at most one short shared word in between): a word kept at its start opens a per-episode title
+// (`- La danse .+`, an arc name) and does not count, while a word kept after a
+// part that still changes inside the sub-group (`- .+ [GrpA]`) does. Neither
+// does a fixed number after a wild span (`Title – Chapitre 2`): a season or a
+// resolution comes before any title.
+function partGain(groupNames, part) {
+    const sub = buildTemplate(part).slots;
+    const whole = buildTemplate([part[0], ...groupNames.filter(n => n !== part[0])]);
+    const slots = whole.slots;
+    const episode = whole.markerIndex !== null ? whole.markerIndex : pickEpisodeSlot(whole).best;
+    const loose = s => s.wild || (s.d && s.varying);
+    const isSeparator = s => !/[0-9A-Za-zÀ-ɏ]/.test(s.v);
+    const regionStart = k => { while (k > 0 && slots[k - 1].wild) k--; return k; };
+    // Separators, and at most one short word every title shares (`La`, `The`).
+    const isTitleRegion = start => {
+        let j = start - 1;
+        let words = 0;
+        while (j >= 0 && !loose(slots[j]) && (isSeparator(slots[j]) || (!slots[j].d && slots[j].v.length <= 4 && ++words <= 1))) j--;
+        return episode !== null && j === episode;
+    };
+    let gain = 0;
+    slots.forEach((slot, k) => {
+        if (k === episode || !loose(slot) || loose(sub[k])) return;
+        if (!sub[k].d && !/^[A-Za-zÀ-ɏ]{2,}$/.test(sub[k].v)) return;
+        if (slot.wild) {
+            const start = regionStart(k);
+            if (isTitleRegion(start) && !sub.slice(start, k).some(s => s.wild)) return;
+        } else {
+            let j = k - 1;
+            while (j >= 0 && !loose(slots[j])) j--;
+            if (j >= 0 && slots[j].wild) return;
+        }
+        gain++;
+    });
+    return gain;
+}
+
+function refineGroupsByPairs(groups) {
+    return groups.flatMap(splitGroupByPairs);
 }
 
 // Former default grouping (same first five characters), kept for callers
@@ -877,11 +1162,12 @@ function createFolderPicker(prefix, onSelect, onClear) {
     return picker;
 }
 
-function renderRuleRow(rule) {
+function renderRuleRow(rule, index) {
     const row = el('div', 'rule-row');
-    const left = el('div');
+    if (index !== undefined) row.dataset.ruleIndex = String(index);
+    const left = el('div', 'rule-row-patterns');
     left.appendChild(el('div', 'font-mono text-accent mb-1', rule.regex_pattern));
-    left.appendChild(el('div', 'text-muted text-sm', `→ ${rule.rename_pattern || '(no rename)'}`));
+    left.appendChild(el('div', 'text-muted text-sm font-mono', `→ ${rule.rename_pattern || '(no rename)'}`));
     const right = el('div', 'badge', rule.weight !== undefined ? `W: ${rule.weight}` : `+${rule.episode_incremental}`);
     row.append(left, right);
     return row;
@@ -899,7 +1185,7 @@ async function loadExistingRulesInto(contentId, loader, emptyText) {
         if (!rules.length) {
             content.appendChild(el('div', 'text-sm text-muted', emptyText));
         } else {
-            rules.forEach(rule => content.appendChild(renderRuleRow(rule)));
+            rules.forEach((rule, i) => content.appendChild(renderRuleRow(rule, i)));
         }
         return rules;
     } catch (e) {
@@ -919,6 +1205,82 @@ async function loadFolderRules(folderId) {
         throw e;
     }
 }
+
+// The first rule of `rules` that extracts a valid episode number from `name`,
+// as { name, rule, index, episode }, or null. Such a file needs no new rule.
+function findCoveringRule(rules, name) {
+    for (let i = 0; i < rules.length; i++) {
+        const episode = extractEpisode(rules[i].regex_pattern, name);
+        if (episode !== null && /^\d+$/.test(episode)) return { name, rule: rules[i], index: i, episode };
+    }
+    return null;
+}
+
+// Lists files under the rule rows of an existing-rules panel (rows built by
+// loadExistingRulesInto, matched by index). entries: findCoveringRule results.
+// onPropose(name), when given, adds a "Propose a new rule anyway" button.
+function showRuleFiles(contentId, entries, onPropose) {
+    const content = document.getElementById(contentId);
+    content.querySelectorAll('.rule-files').forEach(node => node.remove());
+    const byRule = new Map();
+    entries.forEach(entry => {
+        if (!byRule.has(entry.index)) byRule.set(entry.index, []);
+        byRule.get(entry.index).push(entry);
+    });
+    byRule.forEach((files, index) => {
+        const row = content.querySelector(`.rule-row[data-rule-index="${index}"]`);
+        if (!row) return;
+        const box = el('div', 'rule-files');
+        box.appendChild(el('div', 'text-xs text-muted uppercase', `Already matched by this rule (${files.length})`));
+        files.forEach(f => {
+            const line = el('div', 'rule-file');
+            const name = el('span', 'rule-file-name font-mono', f.name);
+            name.title = f.name;
+            line.append(name, el('span', 'badge badge-success', `ep ${f.episode}`));
+            if (onPropose) {
+                const propose = el('button', 'btn btn-secondary btn-sm rule-file-propose', 'Propose a new rule anyway');
+                propose.type = 'button';
+                propose.title = 'Put this file on the board below to give it a rule of its own';
+                propose.onclick = () => onPropose(f.name);
+                line.appendChild(propose);
+            }
+            box.appendChild(line);
+        });
+        row.appendChild(box);
+    });
+}
+
+// Opens a collapsible section (toggleCollapsible) if it is closed.
+function openCollapsible(contentId, iconId) {
+    if (document.getElementById(contentId).classList.contains('hidden')) toggleCollapsible(contentId, iconId);
+}
+
+// Filter of a directory browser: shows only the listed directories whose name
+// contains the text, case-insensitively (`.*text.*`, no regex). The text is
+// kept while navigating, so it applies to every directory opened next.
+function applyDirFilter(containerId, inputId) {
+    const container = document.getElementById(containerId);
+    const query = document.getElementById(inputId).value.trim().toLowerCase();
+    let hidden = 0;
+    container.querySelectorAll('.dir-item[data-path]').forEach(row => {
+        const match = !query || (row.dataset.name || '').toLowerCase().includes(query);
+        row.classList.toggle('hidden', !match);
+        if (!match) hidden++;
+    });
+    let note = container.querySelector('.dir-filter-note');
+    if (!hidden) { if (note) note.remove(); return; }
+    if (!note) {
+        note = el('div', 'dir-filter-note text-muted text-sm text-center p-2');
+        container.appendChild(note);
+    }
+    const shown = container.querySelectorAll('.dir-item[data-path]:not(.hidden)').length;
+    note.textContent = `${hidden} director${hidden > 1 ? 'ies' : 'y'} hidden by the filter` + (shown ? '' : ': none matches here');
+}
+
+[['index-register-browser', 'index-register-filter'], ['move-browser', 'move-browser-filter']].forEach(([containerId, inputId]) => {
+    const input = document.getElementById(inputId);
+    if (input) input.addEventListener('input', () => applyDirFilter(containerId, inputId));
+});
 
 // File modal, shared: the caller says what to do with the ticked names.
 let fileModalCallback = null;
@@ -942,12 +1304,14 @@ async function openFileModal(onAdd) {
         list.innerHTML = '';
         if (!vidFiles.length) list.appendChild(el('div', 'text-muted p-4', 'No video file in the download root'));
         vidFiles.forEach(f => {
-            const row = el('div', 'file-row');
+            // A <label>: a click anywhere on the row toggles its checkbox.
+            const row = el('label', 'file-row');
             const check = document.createElement('input');
             check.type = 'checkbox';
             check.value = f.name;
             check.className = 'input-checkbox';
-            row.append(check, el('span', 'text-main', f.name));
+            row.title = f.name;
+            row.append(check, el('span', 'text-main file-row-name', f.name));
             list.appendChild(row);
         });
         document.getElementById('file-search').value = '';
@@ -1013,6 +1377,44 @@ function addSelectedFiles() {
 // drag a file to another group, eject it (−), or click the digit run that is
 // the episode number.
 
+// Literal characters of a regex: an escape or a class counts once, wild
+// spans, digit runs and group syntax not at all. How specific a rule is.
+function regexLiteralLength(pattern) {
+    return pattern
+        .replace(/\(\?P?<\w+>\\d\+\)/g, '')
+        .replace(/\\d\+|\.[*+]\??/g, '')
+        .replace(/\[(?:\\.|[^\]\\])*\]/g, 'c')
+        .replace(/\\(.)/g, '$1')
+        .replace(/\(\?:|[\^$()?]/g, '').length;
+}
+
+// Where a file ejected from group `fromId` can go instead of its own card.
+// A card of several files takes it when its current regex (the one shown,
+// manual edit included) yields a valid episode from it; a one-file card when
+// both names have the same first-pass shape (nameShape prefix: words and
+// separators before the number) and the proposal for the pair yields a valid
+// episode from both. Among the cards that fit, the most specific regex (most
+// literal characters) wins, then the first card. { group, regex } or null.
+function findEjectTarget(board, name, fromId) {
+    const prefix = nameShape(name).prefix;
+    let best = null;
+    for (const group of board.groups) {
+        if (group.id === fromId || group.files.includes(name)) continue;
+        let regex = null;
+        if (group.files.length > 1) {
+            const current = board.values(group).regex;
+            if (testPattern(current, [name]).allValid) regex = current;
+        } else if (nameShape(group.files[0]).prefix === prefix) {
+            const proposal = analyzeGroup([group.files[0], name], group.episodeIndex);
+            if (proposal.check.allValid) regex = proposal.regex;
+        }
+        if (regex === null) continue;
+        const score = regexLiteralLength(regex);
+        if (!best || score > best.score) best = { group, regex, score };
+    }
+    return best;
+}
+
 function createGroupBoard(options) {
     const container = document.getElementById(options.containerId);
     const board = {
@@ -1066,6 +1468,21 @@ function createGroupBoard(options) {
         }
         board.groups = board.groups.filter(g => g.files.length);
         board.render();
+    };
+
+    // "−" on a file: another card that fits it takes it (findEjectTarget),
+    // else it gets its own card. A one-file card whose manual regex would not
+    // cover the pair goes back to the proposal, the one that was checked.
+    board.ejectFile = (name, fromId) => {
+        const target = findEjectTarget(board, name, fromId);
+        if (!target) { board.moveFile(name, fromId, null); return; }
+        const to = target.group;
+        if (to.files.length === 1 && to.regexManual !== null && !testPattern(to.regexManual, [...to.files, name]).allValid) {
+            to.regexManual = null;
+            to.renameManual = null;
+        }
+        board.moveFile(name, fromId, to.id);
+        showToast(`${name} joined the group of ${to.files[0]}`, 'success', 4000);
     };
 
     board.removeGroup = (id) => {
@@ -1169,8 +1586,8 @@ function renderGroupCard(board, group) {
         row.appendChild(badge);
         if (group.files.length > 1) {
             const eject = el('button', 'btn-icon eject', '−');
-            eject.title = 'Move this file to its own group';
-            eject.onclick = () => board.moveFile(name, group.id, null);
+            eject.title = 'Take this file out: another group whose rule fits it takes it, else it gets its own group';
+            eject.onclick = () => board.ejectFile(name, group.id);
             row.appendChild(eject);
         }
         list.appendChild(row);
@@ -1198,12 +1615,13 @@ function renderGroupCard(board, group) {
     card.appendChild(example);
 
     // Inputs
-    const grid = el('div', 'grid-2');
+    const grid = el('div', 'rule-fields');
     const regexBox = el('div');
     regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
     const regexInput = document.createElement('input');
     regexInput.type = 'text';
-    regexInput.className = 'input font-mono';
+    regexInput.className = 'input font-mono pattern-input';
+    regexInput.spellcheck = false;
     regexInput.value = regex;
     regexInput.oninput = () => { group.regexManual = regexInput.value; group.saved = false; refreshCheck(); };
     regexBox.appendChild(regexInput);
@@ -1214,7 +1632,8 @@ function renderGroupCard(board, group) {
     renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
     const renameInput = document.createElement('input');
     renameInput.type = 'text';
-    renameInput.className = 'input font-mono';
+    renameInput.className = 'input font-mono pattern-input';
+    renameInput.spellcheck = false;
     renameInput.value = rename;
     renameInput.oninput = () => { group.renameManual = renameInput.value; group.saved = false; refreshCheck(); };
     renameBox.appendChild(renameInput);
@@ -1349,18 +1768,81 @@ function initRegexTab() {
         state.selectedFolderPath = f.destination_path;
         document.getElementById('regex-work-area').classList.remove('disabled-area');
         document.getElementById('regex-existing').classList.remove('hidden');
-        loadExistingRulesInto('regex-existing-content', () => loadFolderRules(f.id), 'No existing rules for this folder.');
+        reloadRegexRules(f.id);
     }, () => {
         state.selectedFolderId = null;
         state.selectedFolderPath = null;
         document.getElementById('regex-work-area').classList.add('disabled-area');
         document.getElementById('regex-existing').classList.add('hidden');
+        regexTab.rules = [];
+        regexTab.covered = [];
+        regexTab.rulesReady = Promise.resolve([]);
         board.clear();
     });
-    board.onSaved = () => loadExistingRulesInto('regex-existing-content', () => loadFolderRules(state.selectedFolderId), 'No existing rules for this folder.');
-    regexTab = { board, picker };
+    board.onSaved = () => reloadRegexRules(state.selectedFolderId);
+    // rules: the folder's existing rules; covered: added files one of them
+    // already matches, listed under it instead of on the board.
+    regexTab = { board, picker, rules: [], covered: [], rulesReady: Promise.resolve([]) };
     picker.load();
     board.render();
+}
+
+// (Re)loads the existing-rules panel of folder `folderId`, then lists the
+// covered files under their rule again.
+function reloadRegexRules(folderId) {
+    const loading = loadExistingRulesInto('regex-existing-content', () => loadFolderRules(folderId), 'No existing rules for this folder.')
+        .then(rules => {
+            if (state.selectedFolderId === folderId) {
+                regexTab.rules = rules;
+                renderRegexCovered();
+            }
+            return rules;
+        });
+    regexTab.rulesReady = loading;
+    return loading;
+}
+
+// Files waiting under an existing rule. A file no rule matches any more (the
+// folder changed) goes back to the board.
+function renderRegexCovered() {
+    const entries = [];
+    const lost = [];
+    regexTab.covered.forEach(name => {
+        const hit = findCoveringRule(regexTab.rules, name);
+        if (hit) entries.push(hit); else lost.push(name);
+    });
+    regexTab.covered = entries.map(entry => entry.name);
+    showRuleFiles('regex-existing-content', entries, proposeRegexRuleAnyway);
+    if (lost.length) regexTab.board.addFiles(lost, true);
+}
+
+function proposeRegexRuleAnyway(name) {
+    regexTab.covered = regexTab.covered.filter(n => n !== name);
+    renderRegexCovered();
+    regexTab.board.addFiles([name], true);
+}
+
+// Files from the modal: one an existing rule of the folder already matches
+// is listed under that rule (no duplicate rule card), the others go to the
+// board, grouped.
+async function addRegexFiles(names) {
+    await regexTab.rulesReady;
+    const onBoard = new Set(regexTab.board.groups.flatMap(g => g.files));
+    const waiting = new Set(regexTab.covered);
+    const covered = [];
+    const fresh = [];
+    names.forEach(name => {
+        if (waiting.has(name)) return;
+        if (!onBoard.has(name) && findCoveringRule(regexTab.rules, name)) covered.push(name);
+        else fresh.push(name);
+    });
+    if (covered.length) {
+        regexTab.covered.push(...covered);
+        renderRegexCovered();
+        openCollapsible('regex-existing-content', 'regex-existing-icon');
+        showToast(`${covered.length} file${covered.length > 1 ? 's' : ''} already matched by an existing rule: listed under it in Existing Rules`, 'info', 5000);
+    }
+    regexTab.board.addFiles(fresh, true);
 }
 
 function clearFolderSelection() {
@@ -1368,7 +1850,7 @@ function clearFolderSelection() {
 }
 
 function openRegexFileModal() {
-    openFileModal((names) => regexTab.board.addFiles(names, true));
+    openFileModal(addRegexFiles);
 }
 
 // --- 8b. Index Folder tab ---
@@ -1384,6 +1866,7 @@ function initIndexTab() {
     });
     const picker = createFolderPicker('index', (f) => {
         indexTab.folder = f;
+        indexTab.forced = new Set();
         document.getElementById('index-work-area').classList.remove('disabled-area');
         document.getElementById('index-report').classList.add('hidden');
         loadIndexFolderFiles();
@@ -1395,7 +1878,8 @@ function initIndexTab() {
     // A save refreshes the rule and covered lists only: rebuilding the board
     // would throw away the edits made on the other groups.
     board.onSaved = () => loadIndexFolderFiles(false);
-    indexTab = { board, picker, folder: null, rules: [], registerPath: null, registerDir: '' };
+    // forced: covered files the user put on the board anyway ("Propose a new rule anyway")
+    indexTab = { board, picker, folder: null, rules: [], forced: new Set(), registerPath: null, registerDir: '' };
     picker.load();
     board.render();
 }
@@ -1456,6 +1940,7 @@ async function loadIndexRegisterBrowser(path = '') {
             const isRegistered = registered.has(normalizePath(`${config.create_root}/${item.path}`));
             const row = el('div', 'dir-item' + (indexTab.registerPath === item.path ? ' selected' : '') + (isRegistered ? ' dir-registered' : ''));
             row.dataset.path = item.path;
+            row.dataset.name = item.name;
             row.onclick = () => selectIndexRegisterPath(item.path);
             row.ondblclick = () => loadIndexRegisterBrowser(item.path);
 
@@ -1469,6 +1954,7 @@ async function loadIndexRegisterBrowser(path = '') {
             row.append(name, actions);
             container.appendChild(row);
         });
+        if (dirs.length) applyDirFilter('index-register-browser', 'index-register-filter');
     } catch (e) {
         container.innerHTML = '';
         const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
@@ -1547,8 +2033,9 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
         const episode = episodeByPath.get(normalizePath(`${base}/${name}`));
         if (episode) { indexedFiles.push({ name, episode: episode.episode_number }); return; }
         // A file an existing rule already covers needs no new rule.
-        const hit = rules.map(r => ({ rule: r, episode: extractEpisode(r.regex_pattern, name) })).find(x => x.episode !== null && /^\d+$/.test(x.episode));
-        if (hit) coveredFiles.push({ name, ...hit }); else uncovered.push(name);
+        // Unless the user asked for a rule of its own ("Propose a new rule anyway").
+        const hit = indexTab.forced.has(name) ? null : findCoveringRule(rules, name);
+        if (hit) coveredFiles.push(hit); else uncovered.push(name);
     });
 
     const indexedBox = document.getElementById('index-indexed-content');
@@ -1571,6 +2058,9 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
         row.appendChild(el('span', 'badge badge-success', `ep ${f.episode}`));
         covered.appendChild(row);
     });
+    // The same files, under the rule that matches each one.
+    showRuleFiles('index-existing-content', coveredFiles, proposeIndexRuleAnyway);
+    if (rebuildBoard && coveredFiles.length) openCollapsible('index-existing-content', 'index-existing-icon');
 
     document.getElementById('index-file-count').textContent =
         `${names.length} video file${names.length > 1 ? 's' : ''}: ${indexedFiles.length} indexed, ` +
@@ -1579,6 +2069,14 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
         indexTab.board.clear();
         indexTab.board.addGroups(groupByNamePattern(uncovered));
     }
+}
+
+// A covered file goes to the board for a rule of its own; the covered lists
+// are refreshed without rebuilding the board (edits on it are kept).
+function proposeIndexRuleAnyway(name) {
+    indexTab.forced.add(name);
+    indexTab.board.addFiles([name], true);
+    loadIndexFolderFiles(false);
 }
 
 async function runIndexFolder() {
@@ -1770,6 +2268,7 @@ async function loadMoveBrowser(path = '', fallbackToRoot = false) {
         dirs.forEach(item => {
             const row = el('div', 'dir-item');
             row.dataset.path = item.path;
+            row.dataset.name = item.name;
             row.onclick = () => setMoveTargetInside(item.path);
             row.ondblclick = () => loadMoveBrowser(item.path);
             const name = el('div', 'dir-name flex-1');
@@ -1781,6 +2280,7 @@ async function loadMoveBrowser(path = '', fallbackToRoot = false) {
             row.append(name, actions);
             container.appendChild(row);
         });
+        if (dirs.length) applyDirFilter('move-browser', 'move-browser-filter');
         markMoveBrowserRows();
     } catch (e) {
         if (path && fallbackToRoot) { loadMoveBrowser(''); return; }
@@ -1824,7 +2324,8 @@ async function moveSelectedFolder() {
     const newPath = cleanRelativePath(document.getElementById('move-path').value);
     if (!newPath) { showToast('Enter the new path, relative to the library root', 'error'); return; }
     const oldLabel = currentMoveLabel();
-    if (!confirm(`Move this folder on disk?\n\n${oldLabel}\n→ ${newPath}`)) return;
+    const confirmed = await confirmDialog(`${oldLabel}\n→ ${newPath}`, { title: 'Move this folder on disk?', okText: 'Move' });
+    if (!confirmed) return;
 
     const button = document.getElementById('move-btn');
     const report = document.getElementById('move-removed');
@@ -2004,12 +2505,13 @@ function addSpecialCard(fileName, initialNewName) {
         example.appendChild(line);
         ruleBox.appendChild(example);
 
-        const grid = el('div', 'grid-2');
+        const grid = el('div', 'rule-fields');
         const regexBox = el('div');
         regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
         regexInput = document.createElement('input');
         regexInput.type = 'text';
-        regexInput.className = 'input font-mono';
+        regexInput.className = 'input font-mono pattern-input';
+        regexInput.spellcheck = false;
         regexInput.value = regex;
         regexInput.oninput = () => { cardState.regexManual = regexInput.value; refreshCheck(); };
         regexBox.appendChild(regexInput);
@@ -2019,7 +2521,8 @@ function addSpecialCard(fileName, initialNewName) {
         renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
         renameInput = document.createElement('input');
         renameInput.type = 'text';
-        renameInput.className = 'input font-mono';
+        renameInput.className = 'input font-mono pattern-input';
+        renameInput.spellcheck = false;
         renameInput.value = rename;
         renameInput.oninput = () => { cardState.renameManual = renameInput.value; refreshCheck(); };
         renameBox.appendChild(renameInput);
@@ -2182,4 +2685,4 @@ function openIncrementallerFileModal() {
 }
 
 // Exposed for the engine self-test page (no module system, plain script).
-window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, groupByNamePattern, nameShape, findMarkerSpan, extractEpisode, buildRegex };
+window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, groupByNamePattern, groupByNameShape, refineGroupsByPairs, nameShape, findMarkerSpan, extractEpisode, buildRegex };
