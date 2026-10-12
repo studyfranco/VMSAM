@@ -684,7 +684,9 @@ class compare_video(Thread):
             """
             BEGIN: AGENT modification ok
             """
-
+            import frame_snap
+            delay = frame_snap.snap_for_merge(self.video_obj_1, self.video_obj_2, self.video_obj_with_best_quality, delay,
+                                              [self.begin_in_second + k * self.lenghtTime for k in range(video.number_cut + 2)])
             """
             END: AGENT modification
             """
