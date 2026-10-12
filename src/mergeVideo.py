@@ -1545,7 +1545,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
 
     if any_error:
         sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
-        sys.stderr.write(f"{base_cmd}\n")
+        sys.stderr.write(f"{cmd_first_pass}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
