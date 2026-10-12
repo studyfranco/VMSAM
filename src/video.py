@@ -485,10 +485,10 @@ def generate_begin_and_length_by_segment(min_video_duration_in_sec):
     return float(begin_in_second),length_time
 
 def generate_cut_with_begin_length(begin_in_second,length_time,length_time_converted):
+    """Return `number_cut` consecutive [begin in seconds, never below 0, length] cuts."""
     list_cut_begin_length = []
     for i in range(0,number_cut):
-        time_second_begin, time_milisecond_begin = str(begin_in_second).split(".")
-        list_cut_begin_length.append([strftime('%H:%M:%S',gmtime(int(time_second_begin)))+"."+time_milisecond_begin,length_time_converted])
+        list_cut_begin_length.append(["%.3f" % max(float(begin_in_second),0.0),length_time_converted])
         begin_in_second += length_time
     
     return list_cut_begin_length
@@ -544,11 +544,10 @@ def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_t
    #baseCommand.extend(["-af", "adeclip,acompressor=threshold=-10dB:ratio=4:attack=20:release=250,alimiter=limit=0.97,loudnorm=i=-23.0:lra=7.0:tp=-2.0:linear=true:print_format=json"])
     
 def generate_cut_to_compare_video_quality(begin_in_second_video_1,begin_in_second_video_2,length_time):
+    """Return `number_cut` consecutive [begin of video 1, begin of video 2] pairs, in seconds and never below 0."""
     begins_video_for_compare_quality = []
     for i in range(0,number_cut):
-        time_second_begin_video_1, time_milisecond_begin_video_1 = str(begin_in_second_video_1).split(".")
-        time_second_begin_video_2, time_milisecond_begin_video_2 = str(begin_in_second_video_2).split(".")
-        begins_video_for_compare_quality.append([strftime('%H:%M:%S',gmtime(int(time_second_begin_video_1)))+"."+time_milisecond_begin_video_1,strftime('%H:%M:%S',gmtime(int(time_second_begin_video_2)))+"."+time_milisecond_begin_video_2])
+        begins_video_for_compare_quality.append(["%.6f" % max(float(begin_in_second_video_1),0.0),"%.6f" % max(float(begin_in_second_video_2),0.0)])
         begin_in_second_video_1 += length_time
         begin_in_second_video_2 += length_time
         
