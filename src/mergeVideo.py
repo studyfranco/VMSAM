@@ -16,6 +16,7 @@ from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
 import video
+import track_integrity
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -1608,6 +1609,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file])
 
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(base_cmd,5,3600)
+    track_integrity.check_rebuilt(video_obj.filePath, tmp_file, delay_to_put, duration_best_video)
     tools.file_remove(tmp_file_first_pass)
 
     stderr_text = stderror.decode("utf-8", errors="ignore")
@@ -1762,6 +1764,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
 
         ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
+        ffmpeg_cmd_dict['sources'].append((tmp_file, video_obj.filePath, delay_to_put))
     
     return number_track
 
@@ -1800,7 +1803,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'number_files_add' : 0,
                        'convert_process' : [],
                        'merge_cmd' : [],
-                       'metadata_cmd' : []}
+                       'metadata_cmd' : [],
+                       'sources' : []}
     
     generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
     
@@ -1951,6 +1955,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
+    track_integrity.check_merged(out_path_file_name, ffmpeg_cmd_dict['sources'], list_track_order, best_video.video['Duration'])
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
      

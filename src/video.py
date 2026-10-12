@@ -11,6 +11,7 @@ from threading import RLock,Thread
 from time import strftime,gmtime,sleep,time
 import hashlib
 import tools
+import file_conformity
 import re
 import json
 from iso639 import Lang,is_language
@@ -56,7 +57,9 @@ class video():
         self.need_one_audio_track = True
         self.und_in_default = False
     
-    def get_mediadata(self):
+    def get_mediadata(self, check_integrity=True):
+        if check_integrity:
+            file_conformity.require_conformity(self.filePath)
         have_incompatible_ffmpeg_codec = False
         stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mediainfo"], "--Output=JSON", self.filePath], 5, 90)
         if exitCode != 0:
