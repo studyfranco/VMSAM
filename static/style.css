@@ -815,18 +815,7 @@ input[type="checkbox"]:disabled {
     gap: 0.5rem;
 }
 
-.original-name {
-    padding: 0.5rem;
-    background: var(--bg-main);
-    border-radius: 4px;
-    word-break: break-all;
-}
 
-.special-rule {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px dashed var(--border);
-}
 
 .index-run {
     display: flex;
@@ -887,9 +876,6 @@ input[type="checkbox"]:disabled {
     }
 }
 
-.rule-info {
-    margin-bottom: 0.75rem;
-}
 
 /* --- Index Folder: register an existing folder, move a folder --- */
 .flex-1 {
@@ -1001,4 +987,195 @@ input[type="checkbox"]:disabled {
     white-space: nowrap;
     padding: 0.5rem 0.85rem;
     font-size: 0.9rem;
+}
+
+/* Section switch (Shows / Movies) above the tabs of the current section */
+.nav-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+}
+
+.section-switch .btn.active {
+    background-color: var(--accent);
+    color: #17191b;
+    border-color: var(--accent);
+}
+
+/* --- Shows: Episodes tab (eps-) --- */
+.eps-batch {
+    background-color: var(--bg-surface);
+}
+
+.eps-batch-row {
+    display: grid;
+    grid-template-columns: minmax(200px, 1fr) minmax(260px, 2fr);
+    gap: 1rem;
+}
+
+.eps-batch-row .form-group {
+    margin-bottom: 0.5rem;
+}
+
+.eps-batch-btn {
+    margin-left: auto;
+}
+
+.eps-table-wrap {
+    overflow-x: auto;
+}
+
+.eps-table td {
+    vertical-align: middle;
+}
+
+.eps-table td:first-child,
+.eps-table th:first-child {
+    width: 2.5rem;
+}
+
+.eps-name {
+    min-width: 16rem;
+}
+
+.eps-preview {
+    min-width: 12rem;
+}
+
+.eps-actions {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.eps-actions .btn + .btn {
+    margin-left: 0.4rem;
+}
+
+.eps-edit {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.eps-edit-input {
+    padding: 0.35rem 0.5rem;
+    font-size: 0.85rem;
+}
+
+.eps-ext {
+    color: var(--highlight);
+    white-space: nowrap;
+}
+
+.eps-result-list,
+.err-report-list,
+.err-queue-pending {
+    margin: 0.25rem 0 0 1.25rem;
+    padding: 0;
+    word-break: break-all;
+}
+
+/* --- Shows: Folder Settings tab (set-) --- */
+.set-path-row {
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.set-path {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem;
+    background: var(--bg-main);
+    border-radius: 4px;
+    word-break: break-all;
+}
+
+/* --- Shows: Rules tab (rul-) --- */
+.rul-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.rul-folder-box {
+    flex: 1;
+    min-width: 240px;
+}
+
+.rul-card.rul-dirty {
+    border-color: var(--highlight);
+}
+
+/* --- Shows: Errors tab (err-) --- */
+.err-group + .err-group {
+    margin-top: 1.5rem;
+}
+
+.err-group-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.95rem;
+    color: var(--accent);
+    word-break: break-all;
+}
+
+.err-table td {
+    vertical-align: middle;
+}
+
+.err-actions {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.err-actions .btn + .btn {
+    margin-left: 0.4rem;
+}
+
+.err-status {
+    min-width: 7rem;
+}
+
+.err-queue-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.err-queue-gap {
+    margin-left: 1.5rem;
+}
+
+@media (max-width: 700px) {
+    .eps-batch-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Errors tab: same columns in every folder group, scrolled sideways on a phone */
+.err-table-wrap {
+    overflow-x: auto;
+}
+
+.err-table {
+    table-layout: fixed;
+    min-width: 52rem;
+}
+
+.err-table th:nth-child(1) {
+    width: 3.5rem;
+}
+
+.err-table th:nth-child(3) {
+    width: 5rem;
+}
+
+.err-table th:nth-child(5) {
+    width: 9rem;
+}
+
+.err-table th:nth-child(6) {
+    width: 15rem;
 }

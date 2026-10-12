@@ -8,7 +8,8 @@
 //   5. folder creation
 //   6. shared widgets: folder picker, existing-rules panel, file modal
 //   7. group board (regex / index / incrementaller cards, drag & drop)
-//   8. tabs: bulk regex, index folder, specials, incrementaller
+//   8. Shows tabs: bulk regex, index folder, move folder, incrementaller,
+//      episodes, folder settings, rules, errors (Movies tabs: movie.js)
 
 // --- 1. Utilities ---
 
@@ -169,13 +170,22 @@ const api = {
     createRegex(payload) { return postJson('/api/vmsam/regex', payload); },
     getRegexes(folderId) { return apiFetch(`/api/vmsam/regex_list?folder_id=${folderId}`); },
     indexFolder(folderId) { return postJson('/api/vmsam/index_folder', { folder_id: folderId }); },
-    createSpecial(payload) { return postJson('/api/vmsam/special', payload); },
-    getSpecials() { return apiFetch('/api/vmsam/special_list'); },
     createIncrementaller(payload) { return postJson('/api/vmsam/incrementaller', payload); },
     getIncrementallers() { return apiFetch('/api/vmsam/incrementaller_list'); },
     getFolderEpisodes(folderId) { return apiFetch(`/api/vmsam/episodes_folder?folder_id=${folderId}`); },
     // newPath is relative to CREATE_ROOT: the relay prefixes the root
-    moveFolder(folderId, newPath) { return postJson('/api/vmsam/folders_move', { folder_id: folderId, new_destination_path: newPath }); }
+    moveFolder(folderId, newPath) { return postJson('/api/vmsam/folders_move', { folder_id: folderId, new_destination_path: newPath }); },
+    getFolder(folderId) { return apiFetch(`/api/vmsam/folder?folder_id=${folderId}`); },
+    // only the fields present change; the path is moveFolder's job
+    updateFolder(payload) { return postJson('/api/vmsam/folders_update', payload); },
+    // renames: [{ episode_number, new_file_name }], all or nothing
+    renameEpisodes(folderId, renames) { return postJson('/api/vmsam/episodes_rename', { folder_id: folderId, renames }); },
+    updateRegex(payload) { return postJson('/api/vmsam/regex_update', payload); },
+    deleteRegex(regexPattern) { return postJson('/api/vmsam/regex_delete', { regex_pattern: regexPattern }); },
+    getErrors() { return apiFetch('/api/vmsam/errors'); },
+    deleteError(errorFilePath) { return postJson('/api/vmsam/errors_delete', { error_file_path: errorFilePath }); },
+    queueFusion(errorFilePath) { return postJson('/api/vmsam/fusion', { error_file_path: errorFilePath }); },
+    getFusionStatus() { return apiFetch('/api/vmsam/fusion_status'); }
 };
 
 // --- 3. Filename analysis engine ---
@@ -936,16 +946,44 @@ const TAB_INIT = {
     'regex-tab': () => initRegexTab(),
     'index-tab': () => initIndexTab(),
     'move-tab': () => initMoveTab(),
-    'special-tab': () => initSpecialTab(),
-    'incr-tab': () => initIncrementallerTab()
+    'incr-tab': () => initIncrementallerTab(),
+    'episodes-tab': () => initEpisodesTab(),
+    'settings-tab': () => initSettingsTab(),
+    'rules-tab': () => initRulesTab(),
+    'errors-tab': () => initErrorsTab()
 };
+
+// Two sections share the page: Shows (this file) and Movies (movie.js).
+// Each tab registers its init in TAB_INIT; movie.js adds its own entries.
+// The section of a tab is the data-section of the nav holding its button.
+const SECTION_HOME = { shows: 'home-tab', movies: 'movie-home-tab' };
+let currentSection = 'shows';
+
+function switchSection(section) {
+    currentSection = section;
+    document.querySelectorAll('.section-switch button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.section === section);
+    });
+    document.querySelectorAll('.tab-nav').forEach(nav => {
+        nav.classList.toggle('hidden', nav.dataset.section !== section);
+    });
+    const home = SECTION_HOME[section];
+    if (home && document.getElementById(home)) switchTab(home);
+}
 
 function switchTab(tabId) {
     document.querySelectorAll('main > section').forEach(el => el.classList.add('hidden'));
     document.getElementById(tabId).classList.remove('hidden');
-    document.querySelectorAll('.nav-group button').forEach(btn => {
+    document.querySelectorAll('.tab-nav button').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tabId);
     });
+    const button = document.querySelector(`.tab-nav button[data-tab="${tabId}"]`);
+    const section = button ? button.closest('.tab-nav').dataset.section : null;
+    if (section && section !== currentSection) {
+        currentSection = section;
+        document.querySelectorAll('.section-switch button').forEach(btn => btn.classList.toggle('active', btn.dataset.section === section));
+        document.querySelectorAll('.tab-nav').forEach(nav => nav.classList.toggle('hidden', nav.dataset.section !== section));
+    }
     if (TAB_INIT[tabId]) TAB_INIT[tabId]();
 }
 
@@ -2382,285 +2420,12 @@ async function reselectMovedFolder(id) {
     }
     if (indexTab && indexTab.folder && indexTab.folder.id === id) indexTab.picker.select(folder);
     if (regexTab && state.selectedFolderId === id) regexTab.picker.select(folder);
-    if (specialTab && specialTab.folder && specialTab.folder.id === id) specialTab.picker.select(folder);
+    if (episodesTab && episodesTab.folder && episodesTab.folder.id === id) episodesTab.picker.select(folder);
+    if (settingsTab && settingsTab.folder && settingsTab.folder.id === id) settingsTab.picker.select(folder);
+    if (rulesTab && rulesTab.folder && rulesTab.folder.id === id) rulesTab.picker.select(folder);
 }
 
-// --- 8c. Specials tab ---
-//
-// A special is renamed by its exact name (special_renames table), then the
-// folder regex catches the new name. One card = one file: new name, and the
-// rule that will pick that new name up.
-
-let specialTab = null;
-
-function initSpecialTab() {
-    if (specialTab) { specialTab.picker.load(); loadSpecialList(); return; }
-    const picker = createFolderPicker('special', (f) => {
-        specialTab.folder = f;
-        document.getElementById('special-work-area').classList.remove('disabled-area');
-        document.getElementById('special-existing').classList.remove('hidden');
-        loadExistingRulesInto('special-existing-content', () => loadFolderRules(f.id), 'No existing rules for this folder.');
-    }, () => {
-        specialTab.folder = null;
-        document.getElementById('special-work-area').classList.add('disabled-area');
-        document.getElementById('special-existing').classList.add('hidden');
-    });
-    specialTab = { picker, folder: null, cards: [] };
-    picker.load();
-    loadSpecialList();
-}
-
-async function loadSpecialList() {
-    const content = document.getElementById('special-list-content');
-    content.innerHTML = '';
-    try {
-        const response = await api.getSpecials();
-        const specials = response.special_renames || [];
-        if (!specials.length) content.appendChild(el('div', 'text-sm text-muted', 'No special declared yet.'));
-        specials.forEach(s => {
-            const row = el('div', 'rule-row');
-            const left = el('div');
-            left.appendChild(el('div', 'font-mono text-accent', s.file_name));
-            left.appendChild(el('div', 'text-muted text-sm font-mono', `→ ${s.new_file_name}`));
-            const edit = el('button', 'btn btn-sm btn-secondary', 'Edit');
-            edit.onclick = () => {
-                if (!specialTab.folder) { showToast('Select the folder of the show first', 'error'); return; }
-                addSpecialCard(s.file_name, s.new_file_name);
-            };
-            row.append(left, edit);
-            content.appendChild(row);
-        });
-    } catch (e) {
-        content.appendChild(el('div', 'text-danger text-sm', `Failed to load: ${e.message}`));
-    }
-}
-
-function openSpecialFileModal() {
-    openFileModal((names) => names.forEach(addSpecialCard));
-}
-
-function addSpecialCard(fileName, initialNewName) {
-    const container = document.getElementById('special-cards');
-    const empty = container.querySelector('.empty-board');
-    if (empty) empty.remove();
-    const cardState = { fileName, newName: initialNewName || fileName, episodeIndex: null, regexManual: null, renameManual: null, weight: 1, existingRule: null };
-    const card = el('div', 'card group-card');
-
-    const header = el('div', 'group-header');
-    const title = el('div');
-    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Special'));
-    const savedBadge = el('span', 'badge badge-success hidden', 'special saved ✓');
-    title.appendChild(savedBadge);
-    const remove = el('button', 'btn-icon', '🗑️');
-    remove.onclick = () => card.remove();
-    header.append(title, remove);
-    card.appendChild(header);
-
-    card.appendChild(el('label', 'label', 'Incoming file name (exact match)'));
-    card.appendChild(el('div', 'font-mono text-accent original-name', fileName));
-
-    card.appendChild(el('label', 'label mt-4', 'New file name — what a rule of the selected folder must recognise'));
-    const newNameInput = document.createElement('input');
-    newNameInput.type = 'text';
-    newNameInput.className = 'input font-mono';
-    newNameInput.value = cardState.newName;
-    card.appendChild(newNameInput);
-    const newNameMsg = el('div', 'mt-2 text-xs validation-msg');
-    card.appendChild(newNameMsg);
-
-    const specialFooter = el('div', 'group-footer');
-    const saveSpecial = el('button', 'btn btn-primary btn-sm', 'Save Special');
-    specialFooter.appendChild(saveSpecial);
-    card.appendChild(specialFooter);
-
-    // The rule part: the proposal until VMSAM says an existing rule already
-    // catches the new name, then that rule, editable.
-    const ruleBox = el('div', 'special-rule');
-    card.appendChild(ruleBox);
-    const ruleInfo = el('div', 'rule-info text-sm text-muted');
-    let regexInput, renameInput, weightInput, saveRule;
-
-    function renderRule() {
-        const names = [cardState.newName];
-        const proposal = analyzeGroup(names, cardState.episodeIndex);
-        const existing = cardState.existingRule;
-        const regex = cardState.regexManual !== null ? cardState.regexManual : (existing ? existing.regex_pattern : proposal.regex);
-        const rename = cardState.renameManual !== null ? cardState.renameManual : (existing ? (existing.rename_pattern || '') : proposal.rename);
-        ruleBox.innerHTML = '';
-        ruleBox.appendChild(ruleInfo);
-
-        const example = el('div', 'group-example');
-        example.appendChild(el('span', 'text-muted text-xs', 'Episode number in the new name — click a digit run to change: '));
-        const line = el('div', 'font-mono example-line');
-        const numbers = new Set(numberSlots(proposal.template));
-        proposal.template.slots.forEach((slot, i) => {
-            if (numbers.has(i)) {
-                const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
-                chip.onclick = () => { cardState.episodeIndex = i; cardState.regexManual = null; cardState.renameManual = null; cardState.existingRule = null; renderRule(); };
-                line.appendChild(chip);
-            } else {
-                line.appendChild(el('span', null, slot.v));
-            }
-        });
-        example.appendChild(line);
-        ruleBox.appendChild(example);
-
-        const grid = el('div', 'rule-fields');
-        const regexBox = el('div');
-        regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
-        regexInput = document.createElement('input');
-        regexInput.type = 'text';
-        regexInput.className = 'input font-mono pattern-input';
-        regexInput.spellcheck = false;
-        regexInput.value = regex;
-        regexInput.oninput = () => { cardState.regexManual = regexInput.value; refreshCheck(); };
-        regexBox.appendChild(regexInput);
-        const regexMsg = el('div', 'mt-2 text-xs validation-msg');
-        regexBox.appendChild(regexMsg);
-        const renameBox = el('div');
-        renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
-        renameInput = document.createElement('input');
-        renameInput.type = 'text';
-        renameInput.className = 'input font-mono pattern-input';
-        renameInput.spellcheck = false;
-        renameInput.value = rename;
-        renameInput.oninput = () => { cardState.renameManual = renameInput.value; refreshCheck(); };
-        renameBox.appendChild(renameInput);
-        const renameMsg = el('div', 'mt-2 text-xs validation-msg');
-        renameBox.appendChild(renameMsg);
-        grid.append(regexBox, renameBox);
-        ruleBox.appendChild(grid);
-
-        const row = el('div', 'group-footer-row');
-        const weightBox = el('div');
-        weightBox.appendChild(el('label', 'label', 'Weight'));
-        weightInput = document.createElement('input');
-        weightInput.type = 'number';
-        weightInput.min = 1;
-        weightInput.className = 'input text-center small-number';
-        weightInput.value = existing ? existing.weight : cardState.weight;
-        weightInput.oninput = () => { cardState.weight = parseInt(weightInput.value, 10) || 1; };
-        weightBox.appendChild(weightInput);
-        const summary = el('div', 'extraction-box');
-        row.append(weightBox, summary);
-        ruleBox.appendChild(row);
-
-        const ruleFooter = el('div', 'group-footer');
-        saveRule = el('button', 'btn btn-primary btn-sm', existing ? 'Update Rule' : 'Save Rule');
-        saveRule.onclick = submitRule;
-        ruleFooter.appendChild(saveRule);
-        ruleBox.appendChild(ruleFooter);
-
-        function refreshCheck() {
-            const result = testPattern(regexInput.value, [cardState.newName]);
-            const first = result.perFile[0];
-            if (result.syntaxError) {
-                regexMsg.textContent = '⚠ Invalid regex syntax';
-                regexMsg.className = 'mt-2 text-xs text-danger validation-msg';
-            } else if (first.valid) {
-                regexMsg.textContent = '✓ The new name yields an episode number';
-                regexMsg.className = 'mt-2 text-xs text-success validation-msg';
-            } else {
-                regexMsg.textContent = "⚠ No valid 'episode' group on the new name";
-                regexMsg.className = 'mt-2 text-xs text-warning validation-msg';
-            }
-            if (!renameInput.value.includes(EPISODE_PLACEHOLDER)) {
-                renameMsg.textContent = `⚠ Must contain ${EPISODE_PLACEHOLDER}`;
-                renameMsg.className = 'mt-2 text-xs text-warning validation-msg';
-            } else {
-                renameMsg.textContent = '';
-                renameMsg.className = 'mt-2 text-xs text-muted validation-msg';
-            }
-            summary.innerHTML = '';
-            summary.appendChild(el('span', 'text-xs text-muted uppercase', 'Extracted episode'));
-            summary.appendChild(el('span', `text-3xl font-bold ${first.valid ? 'text-success' : 'text-muted'}`, first.valid ? first.episode : '-'));
-        }
-        refreshCheck();
-    }
-
-    function setRuleInfo(text, tone) {
-        ruleInfo.textContent = text;
-        ruleInfo.className = `rule-info text-sm ${tone || 'text-muted'}`;
-    }
-
-    newNameInput.oninput = () => {
-        cardState.newName = newNameInput.value;
-        cardState.episodeIndex = null;
-        cardState.regexManual = null;
-        cardState.renameManual = null;
-        cardState.existingRule = null;
-        savedBadge.classList.add('hidden');
-        card.classList.remove('saved');
-        if (cardState.newName === cardState.fileName) {
-            newNameMsg.textContent = '⚠ The new name must differ from the incoming name';
-            newNameMsg.className = 'mt-2 text-xs text-warning validation-msg';
-        } else if (/[\/\\]/.test(cardState.newName)) {
-            newNameMsg.textContent = '⚠ A file name, not a path';
-            newNameMsg.className = 'mt-2 text-xs text-danger validation-msg';
-        } else {
-            newNameMsg.textContent = '';
-        }
-        setRuleInfo('Save the special first: VMSAM answers whether a rule of this folder already catches the new name.');
-        renderRule();
-    };
-
-    saveSpecial.onclick = async () => {
-        if (!specialTab.folder) { showToast('Select a folder first', 'error'); return; }
-        const newName = cardState.newName.trim();
-        if (!newName || newName === cardState.fileName) { showToast('Give the special a new name first', 'error'); return; }
-        saveSpecial.disabled = true;
-        try {
-            const special = await api.createSpecial({ file_name: cardState.fileName, new_file_name: newName, destination_path: specialTab.folder.destination_path });
-            showToast(special.message, 'success');
-            savedBadge.classList.remove('hidden');
-            card.classList.add('saved');
-            cardState.regexManual = null;
-            cardState.renameManual = null;
-            if (special.matching_regex) {
-                cardState.existingRule = special.matching_regex;
-                setRuleInfo(`An existing rule of this folder already catches the new name (episode ${special.matching_regex.extracted_episode}). It is shown below; edit it only if needed.`, 'text-success');
-            } else {
-                cardState.existingRule = null;
-                setRuleInfo('No rule catches the new name yet: save the rule below so the renamed file is integrated.', 'text-warning');
-            }
-            renderRule();
-            loadSpecialList();
-        } catch (e) {
-            // A 400 is VMSAM's control: wrong folder, path in a name, same name. Nothing was stored.
-            showToast('Special not saved: ' + e.message, 'error', 8000);
-        } finally {
-            saveSpecial.disabled = false;
-        }
-    };
-
-    async function submitRule() {
-        if (!specialTab.folder) { showToast('Select a folder first', 'error'); return; }
-        const newName = cardState.newName.trim();
-        const regex = regexInput.value;
-        const rename = renameInput.value;
-        const check = testPattern(regex, [newName]);
-        if (!check.allValid) { showToast('The regex must extract a valid episode number from the new name', 'error'); return; }
-        if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
-        saveRule.disabled = true;
-        try {
-            const rule = await api.createRegex({ regex_pattern: regex, rename_pattern: rename, weight: parseInt(weightInput.value, 10) || 1, example_filename: newName, destination_path: specialTab.folder.destination_path });
-            showToast(rule.message, 'success');
-            cardState.existingRule = { regex_pattern: regex, rename_pattern: rename, weight: parseInt(weightInput.value, 10) || 1 };
-            setRuleInfo('Rule saved: the renamed file will be integrated into this folder.', 'text-success');
-            renderRule();
-            loadExistingRulesInto('special-existing-content', () => loadFolderRules(specialTab.folder.id), 'No existing rules for this folder.');
-        } catch (e) {
-            showToast('Rule not saved: ' + e.message, 'error', 8000);
-        } finally {
-            saveRule.disabled = false;
-        }
-    }
-
-    newNameInput.oninput();
-    container.appendChild(card);
-}
-
-// --- 8d. Incrementaller tab ---
+// --- 8c. Incrementaller tab ---
 
 let incrementallerTab = null;
 
@@ -2684,5 +2449,1026 @@ function openIncrementallerFileModal() {
     openFileModal((names) => incrementallerTab.board.addFiles(names, false));
 }
 
+// --- 8d. Episodes tab ---
+//
+// The episodes VMSAM registered for a folder (GET /episodes_folder/),
+// renamed in place by POST /episodes/rename/: one episode by an inline edit
+// of its name, or a batch built from a name pattern holding {<episode>}.
+// VMSAM checks the whole batch first and renames nothing when one name is
+// refused; nothing is stored as a rule either way.
+
+let episodesTab = null;
+
+// "/a/b/Show A - 01.mkv" -> "Show A - 01.mkv"
+function baseName(path) {
+    return String(path || '').split('/').pop();
+}
+
+// "Show A - 01.mkv" -> ['Show A - 01', '.mkv']; no extension -> [name, '']
+function splitExtension(name) {
+    const match = String(name).match(/^(.+?)(\.[A-Za-z0-9]{1,5})$/);
+    return match ? [match[1], match[2]] : [String(name), ''];
+}
+
+// The batch name of episode `number`: {<episode>} becomes the number on two
+// digits at least (VMSAM writes f"{n:02}"); a pattern that does not end with
+// a video extension gets the file's own extension.
+function batchEpisodeName(pattern, number, currentName) {
+    const name = pattern.split(EPISODE_PLACEHOLDER).join(padEpisode(number));
+    return isVideoName(name) ? name : name + splitExtension(currentName)[1];
+}
+
+function initEpisodesTab() {
+    if (episodesTab) { episodesTab.picker.load(); return; }
+    const picker = createFolderPicker('episodes', (f) => {
+        episodesTab.folder = f;
+        episodesTab.selected = new Set();
+        episodesTab.editing = null;
+        episodesTab.patternTouched = false;
+        document.getElementById('episodes-work-area').classList.remove('disabled-area');
+        document.getElementById('episodes-result').classList.add('hidden');
+        loadEpisodesList();
+    }, () => {
+        episodesTab.folder = null;
+        episodesTab.episodes = [];
+        episodesTab.rules = [];
+        episodesTab.selected = new Set();
+        episodesTab.editing = null;
+        document.getElementById('episodes-work-area').classList.add('disabled-area');
+        document.getElementById('episodes-result').classList.add('hidden');
+        document.getElementById('episodes-count').textContent = '';
+        fillEpisodesPatternChoices();
+        renderEpisodesRows();
+    });
+    episodesTab = { picker, folder: null, episodes: [], rules: [], selected: new Set(), editing: null, patternTouched: false };
+    const pattern = document.getElementById('episodes-pattern');
+    pattern.addEventListener('input', () => { episodesTab.patternTouched = true; updateEpisodesPreview(); });
+    document.getElementById('episodes-pattern-select').addEventListener('change', (e) => {
+        if (e.target.value) { pattern.value = e.target.value; episodesTab.patternTouched = false; }
+        updateEpisodesPreview();
+    });
+    document.getElementById('episodes-select-all').onclick = toggleAllEpisodes;
+    document.getElementById('episodes-batch-btn').onclick = renameEpisodesBatch;
+    picker.load();
+    fillEpisodesPatternChoices();
+    renderEpisodesRows();
+}
+
+async function loadEpisodesList() {
+    const folder = episodesTab && episodesTab.folder;
+    if (!folder) return;
+    const count = document.getElementById('episodes-count');
+    count.textContent = 'Loading…';
+    try {
+        const [response, rules] = await Promise.all([
+            api.getFolderEpisodes(folder.id),
+            loadFolderRules(folder.id).catch(() => [])
+        ]);
+        if (episodesTab.folder !== folder) return;
+        episodesTab.episodes = ((response && response.episodes) || []).slice().sort((a, b) => a.episode_number - b.episode_number);
+        episodesTab.rules = rules;
+        const known = new Set(episodesTab.episodes.map(ep => ep.episode_number));
+        episodesTab.selected = new Set(Array.from(episodesTab.selected).filter(n => known.has(n)));
+        const n = episodesTab.episodes.length;
+        count.textContent = `${n} registered episode${n === 1 ? '' : 's'}`;
+    } catch (e) {
+        if (episodesTab.folder !== folder) return;
+        episodesTab.episodes = [];
+        count.textContent = `Failed to load: ${e.message}`;
+        showToast('Failed to load the episodes: ' + e.message, 'error');
+    }
+    fillEpisodesPatternChoices();
+    renderEpisodesRows();
+}
+
+// "Start from": the rename patterns of the folder's rules, then a pattern
+// proposed from the current file names. The first one fills the pattern box
+// until the user types in it.
+function fillEpisodesPatternChoices() {
+    const select = document.getElementById('episodes-pattern-select');
+    const input = document.getElementById('episodes-pattern');
+    const choices = [];
+    const add = (value, label) => { if (value && !choices.some(c => c.value === value)) choices.push({ value, label }); };
+    (episodesTab ? episodesTab.rules : []).forEach(rule => add(rule.rename_pattern, `Rule rename pattern: ${rule.rename_pattern}`));
+    const names = (episodesTab ? episodesTab.episodes : []).map(ep => baseName(ep.file_path));
+    if (names.length) {
+        try {
+            const proposal = analyzeGroup(names).rename;
+            if (proposal.includes(EPISODE_PLACEHOLDER)) add(proposal, `Proposed from the current names: ${proposal}`);
+        } catch (e) { /* no proposal */ }
+    }
+    select.innerHTML = '';
+    const first = document.createElement('option');
+    first.value = '';
+    first.textContent = choices.length ? '— type a pattern, or pick one —' : 'No rename pattern in this folder: type one';
+    select.appendChild(first);
+    choices.forEach(choice => {
+        const option = document.createElement('option');
+        option.value = choice.value;
+        option.textContent = choice.label;
+        select.appendChild(option);
+    });
+    if (episodesTab && !episodesTab.patternTouched) {
+        input.value = choices.length ? choices[0].value : '';
+        select.value = input.value;
+    }
+}
+
+function renderEpisodesRows() {
+    const body = document.getElementById('episodes-rows');
+    body.innerHTML = '';
+    const episodes = episodesTab ? episodesTab.episodes : [];
+    if (!episodes.length) {
+        const row = el('tr');
+        const cell = el('td', 'text-muted', episodesTab && episodesTab.folder ? 'No episode registered for this folder.' : 'Select a folder first.');
+        cell.colSpan = 6;
+        row.appendChild(cell);
+        body.appendChild(row);
+    }
+    episodes.forEach(ep => {
+        const number = ep.episode_number;
+        const name = baseName(ep.file_path);
+        const row = el('tr', 'eps-row');
+        row.dataset.episode = String(number);
+
+        const checkCell = el('td');
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.className = 'input-checkbox eps-check';
+        box.checked = episodesTab.selected.has(number);
+        box.setAttribute('aria-label', `Select episode ${number}`);
+        box.onchange = () => {
+            if (box.checked) episodesTab.selected.add(number); else episodesTab.selected.delete(number);
+            updateEpisodesPreview();
+        };
+        checkCell.appendChild(box);
+
+        const nameCell = el('td', 'font-mono eps-name');
+        const actionCell = el('td', 'eps-actions');
+        if (episodesTab.editing === number) {
+            const [stem, extension] = splitExtension(name);
+            const edit = el('div', 'eps-edit');
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'input font-mono eps-edit-input';
+            input.spellcheck = false;
+            input.value = stem;
+            input.setAttribute('aria-label', `New name of episode ${number}`);
+            const save = el('button', 'btn btn-primary btn-sm eps-save', 'Save');
+            const cancel = el('button', 'btn btn-secondary btn-sm eps-cancel', 'Cancel');
+            save.type = 'button';
+            cancel.type = 'button';
+            save.onclick = () => renameOneEpisode(ep, input.value.trim() + extension, save);
+            cancel.onclick = () => { episodesTab.editing = null; renderEpisodesRows(); };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); save.click(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancel.click(); }
+            };
+            edit.append(input, el('span', 'eps-ext font-mono', extension || '(no extension)'));
+            nameCell.appendChild(edit);
+            actionCell.append(save, cancel);
+            setTimeout(() => input.focus(), 0);
+        } else {
+            nameCell.textContent = name;
+            nameCell.title = ep.file_path;
+            const rename = el('button', 'btn btn-secondary btn-sm eps-rename', 'Rename');
+            rename.type = 'button';
+            rename.onclick = () => { episodesTab.editing = number; renderEpisodesRows(); };
+            actionCell.appendChild(rename);
+        }
+
+        row.append(checkCell, el('td', 'font-mono', padEpisode(number)), nameCell,
+            el('td', 'font-mono', ep.file_weight === null || ep.file_weight === undefined ? '-' : String(ep.file_weight)),
+            el('td', 'font-mono eps-preview'), actionCell);
+        body.appendChild(row);
+    });
+    updateEpisodesPreview();
+}
+
+function toggleAllEpisodes() {
+    const episodes = episodesTab.episodes;
+    const all = episodes.length && episodes.every(ep => episodesTab.selected.has(ep.episode_number));
+    episodesTab.selected = all ? new Set() : new Set(episodes.map(ep => ep.episode_number));
+    document.querySelectorAll('#episodes-rows .eps-row').forEach(row => {
+        row.querySelector('.eps-check').checked = episodesTab.selected.has(parseInt(row.dataset.episode, 10));
+    });
+    updateEpisodesPreview();
+}
+
+// The batch as [{ ep, oldName, newName }], selected episodes in number order.
+function episodesBatchPlan() {
+    const pattern = document.getElementById('episodes-pattern').value;
+    return episodesTab.episodes
+        .filter(ep => episodesTab.selected.has(ep.episode_number))
+        .map(ep => {
+            const oldName = baseName(ep.file_path);
+            return { ep, oldName, newName: batchEpisodeName(pattern, ep.episode_number, oldName) };
+        });
+}
+
+// Live preview of the batch in the "Preview" column, the checks VMSAM would
+// refuse anyway (placeholder, path, two files on one name), and the button.
+function updateEpisodesPreview() {
+    if (!episodesTab) return;
+    const pattern = document.getElementById('episodes-pattern').value;
+    const msg = document.getElementById('episodes-pattern-msg');
+    const button = document.getElementById('episodes-batch-btn');
+    const selectAll = document.getElementById('episodes-select-all');
+    const episodes = episodesTab.episodes;
+    const selectedCount = episodes.filter(ep => episodesTab.selected.has(ep.episode_number)).length;
+    document.getElementById('episodes-selected-count').textContent = `${selectedCount} selected`;
+    selectAll.textContent = episodes.length && selectedCount === episodes.length ? 'Unselect all' : 'Select all';
+
+    let problem = null;
+    if (!pattern.trim()) problem = 'Enter a name pattern';
+    else if (!pattern.includes(EPISODE_PLACEHOLDER)) problem = `The pattern must contain ${EPISODE_PLACEHOLDER}`;
+    else if (/[\/\\]/.test(pattern)) problem = 'A file name pattern, not a path';
+
+    const plan = problem ? [] : episodesBatchPlan();
+    const byEpisode = new Map(plan.map(p => [p.ep.episode_number, p]));
+    // a target that is another file of the folder, or the target of two episodes
+    const targets = new Map();
+    plan.forEach(p => targets.set(p.newName, (targets.get(p.newName) || 0) + 1));
+    const others = new Set(episodes.filter(ep => !byEpisode.has(ep.episode_number)).map(ep => baseName(ep.file_path)));
+    let conflicts = 0;
+    let changed = 0;
+    document.querySelectorAll('#episodes-rows .eps-row').forEach(row => {
+        const cell = row.querySelector('.eps-preview');
+        const p = byEpisode.get(parseInt(row.dataset.episode, 10));
+        cell.textContent = '';
+        cell.className = 'font-mono eps-preview';
+        if (!p) return;
+        if (p.newName === p.oldName) {
+            cell.textContent = '= unchanged';
+            cell.classList.add('text-muted');
+        } else if (targets.get(p.newName) > 1 || others.has(p.newName)) {
+            conflicts++;
+            cell.textContent = `→ ${p.newName} (already taken)`;
+            cell.classList.add('text-danger');
+        } else {
+            changed++;
+            cell.textContent = `→ ${p.newName}`;
+            cell.classList.add('text-success');
+        }
+    });
+
+    if (!problem && conflicts) problem = `${conflicts} new name${conflicts > 1 ? 's are' : ' is'} already taken: change the pattern or the selection`;
+    if (problem) {
+        msg.textContent = `⚠ ${problem}`;
+        msg.className = 'text-xs validation-msg text-warning';
+    } else if (!selectedCount) {
+        msg.textContent = 'Tick the episodes to rename.';
+        msg.className = 'text-xs validation-msg text-muted';
+    } else {
+        msg.textContent = `${changed} file${changed === 1 ? '' : 's'} to rename` + (selectedCount > changed ? `, ${selectedCount - changed} unchanged` : '');
+        msg.className = 'text-xs validation-msg text-success';
+    }
+    button.disabled = !!problem || !changed;
+    button.textContent = changed ? `Rename ${changed} episode${changed === 1 ? '' : 's'}` : 'Rename selected';
+}
+
+// VMSAM's answer, kept on screen: what was renamed, or the reason nothing was.
+function showEpisodesResult(result, refusal) {
+    const box = document.getElementById('episodes-result');
+    box.innerHTML = '';
+    box.classList.remove('hidden');
+    if (refusal) {
+        box.className = 'text-sm mt-2 eps-result text-danger';
+        box.textContent = `VMSAM refused the rename: ${refusal}`;
+        showToast(refusal, 'error', 8000);
+        return;
+    }
+    box.className = 'text-sm mt-2 eps-result';
+    box.appendChild(el('div', 'text-success', result.message || 'Renamed'));
+    const list = el('ul', 'font-mono eps-result-list');
+    (result.renamed || []).forEach(r => {
+        list.appendChild(el('li', null, `${padEpisode(r.episode_number)}: ${r.old_file_name} → ${r.new_file_name}`));
+    });
+    box.appendChild(list);
+    showToast(result.message || 'Renamed', 'success');
+}
+
+async function renameOneEpisode(ep, newName, button) {
+    const folder = episodesTab.folder;
+    const oldName = baseName(ep.file_path);
+    if (!newName || newName === oldName) { showToast('Enter a new name first', 'error'); return; }
+    if (/[\/\\]/.test(newName)) { showToast('A file name, not a path', 'error'); return; }
+    button.disabled = true;
+    try {
+        const result = await api.renameEpisodes(folder.id, [{ episode_number: ep.episode_number, new_file_name: newName }]);
+        episodesTab.editing = null;
+        showEpisodesResult(result);
+        await loadEpisodesList();
+    } catch (e) {
+        showEpisodesResult(null, e.message);
+        button.disabled = false;
+    }
+}
+
+async function renameEpisodesBatch() {
+    const folder = episodesTab.folder;
+    if (!folder) return;
+    updateEpisodesPreview();
+    if (document.getElementById('episodes-batch-btn').disabled) return;
+    const plan = episodesBatchPlan().filter(p => p.newName !== p.oldName);
+    const shown = plan.slice(0, 12).map(p => `${padEpisode(p.ep.episode_number)}: ${p.oldName}\n    → ${p.newName}`);
+    if (plan.length > shown.length) shown.push(`… and ${plan.length - shown.length} more`);
+    const confirmed = await confirmDialog(shown.join('\n'), { title: `Rename ${plan.length} episode file${plan.length === 1 ? '' : 's'} on disk?`, okText: 'Rename' });
+    if (!confirmed) return;
+    const button = document.getElementById('episodes-batch-btn');
+    button.disabled = true;
+    try {
+        const result = await api.renameEpisodes(folder.id, plan.map(p => ({ episode_number: p.ep.episode_number, new_file_name: p.newName })));
+        episodesTab.selected = new Set();
+        showEpisodesResult(result);
+        await loadEpisodesList();
+    } catch (e) {
+        showEpisodesResult(null, e.message);
+        updateEpisodesPreview();
+    }
+}
+
+// --- 8e. Folder Settings tab ---
+//
+// The parameters of a registered folder (POST /folders/update/ changes only
+// the fields sent). The path is read-only here: moving is the Move Folder tab.
+
+let settingsTab = null;
+
+const SETTINGS_FIELDS = [
+    { key: 'original_language', id: 'settings-lang', label: 'Original Language', kind: 'text' },
+    { key: 'number_cut', id: 'settings-cut', label: 'Number Cut', kind: 'int' },
+    { key: 'max_episode_number', id: 'settings-max', label: 'Max Episode', kind: 'int' },
+    { key: 'cut_file_to_get_delay_second_method', id: 'settings-delay', label: 'Cut Ratio', kind: 'ratio' }
+];
+
+function initSettingsTab() {
+    if (settingsTab) { settingsTab.picker.load(); return; }
+    const picker = createFolderPicker('settings', (f) => showSettingsFolder(f), () => {
+        settingsTab.folder = null;
+        document.getElementById('settings-work-area').classList.add('disabled-area');
+        fillSettingsForm(null);
+    });
+    settingsTab = { picker, folder: null };
+    SETTINGS_FIELDS.forEach(field => document.getElementById(field.id).addEventListener('input', validateSettingsForm));
+    document.getElementById('settings-save-btn').onclick = saveFolderSettings;
+    document.getElementById('settings-reset-btn').onclick = () => fillSettingsForm(settingsTab.folder);
+    document.getElementById('settings-move-btn').onclick = openMoveForSettingsFolder;
+    picker.load();
+    fillSettingsForm(null);
+}
+
+// Shows the folder of the list at once, then VMSAM's current values.
+async function showSettingsFolder(folder) {
+    settingsTab.folder = folder;
+    document.getElementById('settings-work-area').classList.remove('disabled-area');
+    fillSettingsForm(folder);
+    try {
+        const fresh = await api.getFolder(folder.id);
+        if (!settingsTab.folder || settingsTab.folder.id !== folder.id) return;
+        settingsTab.folder = fresh;
+        fillSettingsForm(fresh);
+    } catch (e) {
+        showToast('Failed to read the folder: ' + e.message, 'error');
+    }
+}
+
+function fillSettingsForm(folder) {
+    document.getElementById('settings-path').textContent = folder ? folder.destination_path : '';
+    document.getElementById('settings-move-btn').disabled = !folder;
+    SETTINGS_FIELDS.forEach(field => {
+        const value = folder ? folder[field.key] : null;
+        document.getElementById(field.id).value = value === null || value === undefined ? '' : String(value);
+        document.getElementById(`${field.id}-current`).textContent = folder ? `current: ${value}` : '';
+    });
+    validateSettingsForm();
+}
+
+// { changed: { key: value } of the fields that differ, errors: [text] }
+function readSettingsForm() {
+    const folder = settingsTab.folder;
+    const changed = {};
+    const errors = [];
+    SETTINGS_FIELDS.forEach(field => {
+        const raw = document.getElementById(field.id).value.trim();
+        let value;
+        if (field.kind === 'text') {
+            if (!raw) { errors.push(`${field.label} cannot be empty`); return; }
+            value = raw;
+        } else {
+            value = Number(raw);
+            if (!raw || !Number.isFinite(value)) { errors.push(`${field.label} must be a number`); return; }
+            if (field.kind === 'int' && (!Number.isInteger(value) || value < 1)) { errors.push(`${field.label} must be a whole number of 1 or more`); return; }
+            if (field.kind === 'ratio' && value <= 1) { errors.push(`${field.label} must be greater than 1`); return; }
+        }
+        if (folder && value !== folder[field.key]) changed[field.key] = value;
+    });
+    return { changed, errors };
+}
+
+function validateSettingsForm() {
+    const msg = document.getElementById('settings-msg');
+    const save = document.getElementById('settings-save-btn');
+    if (!settingsTab || !settingsTab.folder) { msg.textContent = ''; save.disabled = true; return; }
+    const { changed, errors } = readSettingsForm();
+    const count = Object.keys(changed).length;
+    if (errors.length) {
+        msg.textContent = '⚠ ' + errors.join('; ');
+        msg.className = 'text-xs validation-msg text-warning';
+    } else {
+        msg.textContent = count ? `${count} setting${count === 1 ? '' : 's'} changed` : 'No change';
+        msg.className = `text-xs validation-msg ${count ? 'text-success' : 'text-muted'}`;
+    }
+    save.disabled = !!errors.length || !count;
+}
+
+async function saveFolderSettings() {
+    const folder = settingsTab.folder;
+    if (!folder) return;
+    const { changed, errors } = readSettingsForm();
+    if (errors.length || !Object.keys(changed).length) { validateSettingsForm(); return; }
+    const save = document.getElementById('settings-save-btn');
+    save.disabled = true;
+    try {
+        const result = await api.updateFolder(Object.assign({ folder_id: folder.id }, changed));
+        showToast(result.message || 'Folder updated', 'success');
+        const updated = Object.assign({}, result);
+        delete updated.message;
+        folderCache = null; // the pickers must see the new values
+        if (settingsTab.folder && settingsTab.folder.id === folder.id) {
+            settingsTab.folder = updated;
+            fillSettingsForm(updated);
+        }
+    } catch (e) {
+        showToast('Settings not saved: ' + e.message, 'error', 8000);
+        const msg = document.getElementById('settings-msg');
+        msg.textContent = `VMSAM refused: ${e.message}`;
+        msg.className = 'text-xs validation-msg text-danger';
+        save.disabled = false;
+    }
+}
+
+function openMoveForSettingsFolder() {
+    const folder = settingsTab && settingsTab.folder;
+    if (!folder) return;
+    switchTab('move-tab');
+    moveTab.picker.select(folder);
+}
+
+// --- 8f. Rules tab ---
+//
+// Every rule of a folder, editable: regex, rename pattern, weight, folder
+// (POST /regex/update/), or deleted (POST /regex/delete/). VMSAM checks the
+// result on an example file name the user gives; the UI checks it first.
+
+let rulesTab = null;
+
+function initRulesTab() {
+    if (rulesTab) { rulesTab.picker.load(); return; }
+    const picker = createFolderPicker('rules', (f) => {
+        rulesTab.folder = f;
+        document.getElementById('rules-work-area').classList.remove('disabled-area');
+        loadRulesList();
+    }, () => {
+        rulesTab.folder = null;
+        document.getElementById('rules-work-area').classList.add('disabled-area');
+        document.getElementById('rules-cards').innerHTML = '';
+        document.getElementById('rules-count').textContent = '';
+    });
+    rulesTab = { picker, folder: null };
+    picker.load();
+}
+
+async function loadRulesList() {
+    const folder = rulesTab && rulesTab.folder;
+    if (!folder) return;
+    const container = document.getElementById('rules-cards');
+    container.innerHTML = '';
+    container.appendChild(el('div', 'text-muted text-sm', 'Loading...'));
+    let rules = [];
+    let folders = [];
+    try {
+        [rules, folders] = await Promise.all([loadFolderRules(folder.id), fetchFolders()]);
+    } catch (e) {
+        if (rulesTab.folder !== folder) return;
+        container.innerHTML = '';
+        container.appendChild(el('div', 'text-danger text-sm', `Failed to load: ${e.message}`));
+        return;
+    }
+    if (rulesTab.folder !== folder) return;
+    container.innerHTML = '';
+    document.getElementById('rules-count').textContent = `(${rules.length})`;
+    if (!rules.length) container.appendChild(el('div', 'card text-muted text-sm', 'No rule for this folder.'));
+    const sortedFolders = folders.slice().sort((a, b) => a.destination_path.localeCompare(b.destination_path));
+    rules.forEach(rule => container.appendChild(renderRuleEditor(rule, sortedFolders, folder)));
+}
+
+// The rename pattern with episode 01: what the rule's renamed files look like.
+function ruleExampleName(renamePattern) {
+    return renamePattern ? renamePattern.split(EPISODE_PLACEHOLDER).join(padEpisode(1)) : '';
+}
+
+// A file name a regex matches, built from the pattern itself: the episode
+// group as 01, \d as 1, a wild `.` as "x", a character class as its first
+// character, an optional `(?:…)?` group dropped, escaped characters as
+// themselves. Best effort: null on any other construct (alternation, a
+// quantified literal, \w…); callers keep it only when testPattern accepts it.
+function sampleFromRegex(pattern) {
+    const text = String(pattern || '');
+    // length of the quantifier at `at` (+, *, ?, {n,m}, lazy or not), and its minimum count
+    const quantifier = (at) => {
+        const match = text.slice(at).match(/^(?:([+*?])|\{(\d+)(?:,\d*)?\})\??/);
+        if (!match) return { length: 0, min: 1 };
+        return { length: match[0].length, min: match[2] !== undefined ? parseInt(match[2], 10) : (match[1] === '+' ? 1 : 0) };
+    };
+    // index of the `)` closing the group opened at `at`, escapes and classes skipped
+    const closing = (at) => {
+        let depth = 0;
+        for (let k = at; k < text.length; k++) {
+            if (text[k] === '\\') { k++; continue; }
+            if (text[k] === '(') depth++;
+            else if (text[k] === ')' && --depth === 0) return k;
+        }
+        return -1;
+    };
+    let out = '';
+    let i = text.startsWith('^') ? 1 : 0;
+    while (i < text.length) {
+        const c = text[i];
+        if (c === '$' && i === text.length - 1) break;
+        if (c === '\\') {
+            const next = text[i + 1];
+            if (next === 'd') {
+                const q = quantifier(i + 2);
+                out += '1'.repeat(Math.max(1, q.min));
+                i += 2 + q.length;
+                continue;
+            }
+            if (next === undefined || /[A-Za-z0-9]/.test(next)) return null;
+            out += next;
+            i += 2;
+            continue;
+        }
+        if (text.startsWith('(?P<episode>', i)) {
+            const end = closing(i);
+            if (end < 0) return null;
+            out += padEpisode(1);
+            i = end + 1;
+            continue;
+        }
+        if (text.startsWith('(?:', i)) {
+            const end = closing(i);
+            if (end < 0 || text[end + 1] !== '?') return null;
+            i = end + 2;
+            continue;
+        }
+        if (c === '[') {
+            const end = text.indexOf(']', i + 2);
+            const first = text[i + 1];
+            if (end < 0 || first === '^' || first === '\\') return null;
+            out += first;
+            i = end + 1 + quantifier(end + 1).length;
+            continue;
+        }
+        if (c === '.') {
+            out += 'x';
+            i += 1 + quantifier(i + 1).length;
+            continue;
+        }
+        if ('()|*+?{}^$'.includes(c)) return null;
+        out += c;
+        i++;
+    }
+    return out;
+}
+
+// The example proposed for a rule: the renamed name if the regex matches it,
+// else a name built from the regex, else the renamed name anyway (to edit).
+function proposeRuleExample(regex, rename) {
+    const candidates = [ruleExampleName(rename), sampleFromRegex(regex)].filter(Boolean);
+    return candidates.find(name => testPattern(regex, [name]).allValid) || candidates[0] || '';
+}
+
+function renderRuleEditor(rule, folders, folder) {
+    const card = el('div', 'card group-card rul-card');
+    card.dataset.pattern = rule.regex_pattern;
+    let exampleTouched = false;
+
+    const header = el('div', 'group-header');
+    header.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Rule'));
+    header.appendChild(el('span', 'badge', `W: ${rule.weight}`));
+    card.appendChild(header);
+
+    const field = (labelText, value, className) => {
+        const box = el('div');
+        box.appendChild(el('label', 'label', labelText));
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = `input font-mono pattern-input ${className}`;
+        input.spellcheck = false;
+        input.autocomplete = 'off';
+        input.value = value;
+        const msg = el('div', 'mt-1 text-xs validation-msg');
+        box.append(input, msg);
+        return { box, input, msg };
+    };
+    const regex = field('Regex Pattern (Python)', rule.regex_pattern, 'rul-regex');
+    const rename = field('Rename Pattern (empty: the file keeps its name)', rule.rename_pattern || '', 'rul-rename');
+    const fields = el('div', 'rule-fields');
+    fields.append(regex.box, rename.box);
+    card.appendChild(fields);
+
+    const row = el('div', 'rul-row mt-4');
+    const weightBox = el('div');
+    weightBox.appendChild(el('label', 'label', 'Weight'));
+    const weight = document.createElement('input');
+    weight.type = 'number';
+    weight.min = 1;
+    weight.step = 1;
+    weight.className = 'input text-center small-number rul-weight';
+    weight.value = rule.weight;
+    weightBox.appendChild(weight);
+    const folderBox = el('div', 'rul-folder-box');
+    folderBox.appendChild(el('label', 'label', 'Folder'));
+    const folderSelect = document.createElement('select');
+    folderSelect.className = 'input font-mono rul-folder';
+    folders.forEach(f => {
+        const option = document.createElement('option');
+        option.value = String(f.id);
+        option.textContent = f.destination_path;
+        folderSelect.appendChild(option);
+    });
+    folderSelect.value = String(folder.id);
+    folderBox.appendChild(folderSelect);
+    row.append(weightBox, folderBox);
+    card.appendChild(row);
+
+    const example = field('Example file name — VMSAM checks the rule on it', proposeRuleExample(rule.regex_pattern, rule.rename_pattern), 'rul-example');
+    example.box.classList.add('mt-4');
+    card.appendChild(example.box);
+
+    const footer = el('div', 'group-footer');
+    const remove = el('button', 'btn btn-secondary btn-sm rul-delete', 'Delete');
+    const save = el('button', 'btn btn-primary btn-sm rul-save', 'Save');
+    remove.type = 'button';
+    save.type = 'button';
+    footer.append(remove, save);
+    card.appendChild(footer);
+
+    const values = () => ({
+        regex: regex.input.value,
+        rename: rename.input.value,
+        weight: Number(weight.value),
+        folderId: parseInt(folderSelect.value, 10),
+        example: example.input.value
+    });
+    const setMsg = (node, text, tone) => { node.textContent = text; node.className = `mt-1 text-xs validation-msg ${tone}`; };
+
+    // Returns the problem that forbids saving, or null.
+    const refresh = () => {
+        const v = values();
+        const check = testPattern(v.regex, [v.example]);
+        let problem = null;
+        if (check.syntaxError) { setMsg(regex.msg, '⚠ Invalid regex syntax', 'text-danger'); problem = 'the regex does not compile'; }
+        else if (!/\(\?P<episode>/.test(v.regex)) { setMsg(regex.msg, "⚠ No named group 'episode'", 'text-warning'); problem = "the regex has no 'episode' group"; }
+        else setMsg(regex.msg, v.regex === rule.regex_pattern ? '' : 'changed', 'text-muted');
+        if (v.rename && !v.rename.includes(EPISODE_PLACEHOLDER)) { setMsg(rename.msg, `⚠ Must contain ${EPISODE_PLACEHOLDER}`, 'text-warning'); problem = problem || `the rename pattern lacks ${EPISODE_PLACEHOLDER}`; }
+        else setMsg(rename.msg, v.rename ? '' : 'No rename: the rule keeps the incoming name', 'text-muted');
+        if (!Number.isInteger(v.weight) || v.weight < 1) problem = problem || 'the weight must be a whole number of 1 or more';
+        if (!v.example.trim()) { setMsg(example.msg, 'Type or paste a file name the regex matches', 'text-warning'); problem = problem || 'an example file name is required'; }
+        else if (!check.syntaxError && check.perFile[0].valid) {
+            const episode = parseInt(check.perFile[0].episode, 10);
+            setMsg(example.msg, `✓ episode ${episode}` + (v.rename && v.rename.includes(EPISODE_PLACEHOLDER) ? ` → ${v.rename.split(EPISODE_PLACEHOLDER).join(padEpisode(episode))}` : ''), 'text-success');
+        } else {
+            setMsg(example.msg, '⚠ The regex does not extract a valid episode number from this name', 'text-warning');
+            problem = problem || 'the regex does not extract a valid episode from the example';
+        }
+        const dirty = v.regex !== rule.regex_pattern || v.rename !== (rule.rename_pattern || '') || v.weight !== rule.weight || v.folderId !== folder.id;
+        save.disabled = !!problem || !dirty;
+        save.title = problem ? `Cannot save: ${problem}` : (dirty ? '' : 'Nothing changed');
+        card.classList.toggle('rul-dirty', dirty);
+        return problem;
+    };
+    const patternsChanged = () => {
+        if (!exampleTouched) example.input.value = proposeRuleExample(regex.input.value, rename.input.value);
+        refresh();
+    };
+    regex.input.oninput = patternsChanged;
+    rename.input.oninput = patternsChanged;
+    weight.oninput = refresh;
+    folderSelect.onchange = refresh;
+    example.input.oninput = () => { exampleTouched = true; refresh(); };
+    save.onclick = () => saveRuleEdit(rule, folder, folders, values(), refresh, save);
+    remove.onclick = () => deleteRuleFromList(rule, remove);
+    refresh();
+    return card;
+}
+
+async function saveRuleEdit(rule, folder, folders, v, refresh, button) {
+    const problem = refresh();
+    if (problem) { showToast(`Cannot save: ${problem}`, 'error'); return; }
+    const payload = {
+        regex_pattern: rule.regex_pattern,
+        rename_pattern: v.rename ? v.rename : null,
+        weight: v.weight,
+        example_filename: v.example
+    };
+    if (v.regex !== rule.regex_pattern) payload.new_regex_pattern = v.regex;
+    const target = folders.find(f => f.id === v.folderId);
+    if (v.folderId !== folder.id) {
+        payload.folder_id = v.folderId;
+        const confirmed = await confirmDialog(`${v.regex}\n\nfrom ${folder.destination_path}\nto   ${target ? target.destination_path : 'folder ' + v.folderId}\n\nNew downloads this rule matches will go to the new folder; files already registered stay where they are.`, { title: 'Move this rule to another folder?', okText: 'Move rule' });
+        if (!confirmed) return;
+    }
+    button.disabled = true;
+    try {
+        const result = await api.updateRegex(payload);
+        const moved = result.folder_id !== folder.id;
+        showToast(`${result.message || 'Rule updated'}: episode ${result.extracted_episode} on the example` + (moved && target ? `, moved to ${target.destination_path}` : ''), 'success', 5000);
+    } catch (e) {
+        showToast('Rule not saved: ' + e.message, 'error', 8000);
+        button.disabled = false;
+        const msg = button.closest('.rul-card').querySelector('.rul-example').nextElementSibling;
+        msg.textContent = `VMSAM refused: ${e.message}`;
+        msg.className = 'mt-1 text-xs validation-msg text-danger';
+        return;
+    }
+    await loadRulesList();
+}
+
+async function deleteRuleFromList(rule, button) {
+    const confirmed = await confirmDialog(`${rule.regex_pattern}\n→ ${rule.rename_pattern || '(no rename)'}\n\nFiles already registered stay as they are; new downloads only this rule matched will no longer be integrated.`, { title: 'Delete this rule?', okText: 'Delete' });
+    if (!confirmed) return;
+    button.disabled = true;
+    try {
+        const result = await api.deleteRegex(rule.regex_pattern);
+        showToast(result.message || 'Rule deleted', 'success');
+    } catch (e) {
+        showToast('Rule not deleted: ' + e.message, 'error', 8000);
+        button.disabled = false;
+        return;
+    }
+    await loadRulesList();
+}
+
+// --- 8g. Errors tab ---
+//
+// The files the pipeline rejected (GET /errors), grouped by folder with the
+// registered episode they failed to merge with (the master). A rejected file
+// can be queued for a new fusion (POST /fusion) or deleted with its logs and
+// its error sub-folder (POST /errors/delete/). The fusion queue (GET /fusion)
+// is polled every 5 s while the tab is shown.
+
+let errorsTab = null;
+const FUSION_POLL_MS = 5000;
+
+function initErrorsTab() {
+    if (!errorsTab) errorsTab = { timer: null, queue: null };
+    loadErrorsList();
+    refreshFusionQueue();
+    startFusionPolling();
+}
+
+function errorsTabVisible() {
+    const section = document.getElementById('errors-tab');
+    return !!section && !section.classList.contains('hidden');
+}
+
+// One timer, stopped by itself once the tab is hidden; initErrorsTab starts it again.
+function startFusionPolling() {
+    if (errorsTab.timer) return;
+    errorsTab.timer = setInterval(() => {
+        if (!errorsTabVisible()) {
+            clearInterval(errorsTab.timer);
+            errorsTab.timer = null;
+            return;
+        }
+        if (!document.hidden) refreshFusionQueue();
+    }, FUSION_POLL_MS);
+}
+
+async function refreshFusionQueue() {
+    try {
+        errorsTab.queue = await api.getFusionStatus();
+        renderFusionQueue(errorsTab.queue, null);
+    } catch (e) {
+        errorsTab.queue = null;
+        renderFusionQueue(null, e.message);
+    }
+    markQueuedErrors();
+}
+
+function renderFusionQueue(queue, error) {
+    const box = document.getElementById('errors-queue');
+    box.innerHTML = '';
+    const time = new Date().toLocaleTimeString();
+    if (error) {
+        box.appendChild(el('div', 'text-danger err-queue-error', `Queue unavailable: ${error}`));
+        box.appendChild(el('div', 'text-muted text-xs', `checked at ${time}`));
+        return;
+    }
+    const status = el('div', 'err-queue-line');
+    status.appendChild(el('span', 'text-muted', 'Status: '));
+    status.appendChild(el('span', `badge ${queue.status === 'idle' ? '' : 'badge-success'} err-queue-status`, queue.status || 'unknown'));
+    status.appendChild(el('span', 'text-muted err-queue-gap', 'Waiting: '));
+    status.appendChild(el('span', 'font-mono err-queue-length', String(queue.queue_length !== undefined ? queue.queue_length : (queue.pending_jobs || []).length)));
+    box.appendChild(status);
+    const current = el('div', 'err-queue-line');
+    current.appendChild(el('span', 'text-muted', 'Current job: '));
+    if (queue.current_job && queue.current_job.error_file_path) {
+        const name = el('span', 'font-mono text-accent err-queue-current', baseName(queue.current_job.error_file_path));
+        name.title = queue.current_job.error_file_path;
+        current.appendChild(name);
+        if (queue.current_job.started_at) current.appendChild(el('span', 'text-muted text-xs', ` (started ${queue.current_job.started_at})`));
+    } else {
+        current.appendChild(el('span', 'text-muted err-queue-current', 'none'));
+    }
+    box.appendChild(current);
+    const pending = queue.pending_jobs || [];
+    if (pending.length) {
+        box.appendChild(el('div', 'text-muted', 'Pending jobs:'));
+        const list = el('ol', 'font-mono err-queue-pending');
+        pending.forEach(job => {
+            const item = el('li', null, baseName(job.error_file_path));
+            item.title = job.error_file_path;
+            list.appendChild(item);
+        });
+        box.appendChild(list);
+    } else {
+        box.appendChild(el('div', 'text-muted err-queue-pending-none', 'No job waiting.'));
+    }
+    box.appendChild(el('div', 'text-muted text-xs', `refreshed at ${time}`));
+}
+
+// Badges "processing" / "queued" on the rows the queue holds.
+function markQueuedErrors() {
+    const queue = errorsTab && errorsTab.queue;
+    const current = queue && queue.current_job ? queue.current_job.error_file_path : null;
+    const pending = new Set(queue ? (queue.pending_jobs || []).map(job => job.error_file_path) : []);
+    document.querySelectorAll('#errors-groups tr[data-path]').forEach(row => {
+        const badge = row.querySelector('.err-queue-badge');
+        const path = row.dataset.path;
+        const text = path === current ? 'processing' : pending.has(path) ? 'queued' : '';
+        badge.textContent = text;
+        badge.classList.toggle('hidden', !text);
+    });
+}
+
+async function loadErrorsList() {
+    const container = document.getElementById('errors-groups');
+    const count = document.getElementById('errors-count');
+    count.textContent = 'Loading…';
+    let files = [];
+    try {
+        files = ((await api.getErrors()) || {}).incompatible_files || [];
+    } catch (e) {
+        count.textContent = '';
+        container.innerHTML = '';
+        container.appendChild(el('div', 'text-danger text-sm', `Failed to load: ${e.message}`));
+        return;
+    }
+    folderCache = null;
+    const folders = await fetchFolders().catch(() => []);
+    const folderById = new Map(folders.map(f => [f.id, f]));
+    const groups = new Map();
+    files.forEach(file => {
+        if (!groups.has(file.folder_id)) groups.set(file.folder_id, []);
+        groups.get(file.folder_id).push(file);
+    });
+    const ids = Array.from(groups.keys()).sort((a, b) => {
+        const pa = folderById.has(a) ? folderById.get(a).destination_path : `~${a}`;
+        const pb = folderById.has(b) ? folderById.get(b).destination_path : `~${b}`;
+        return pa.localeCompare(pb);
+    });
+    // master episodes per folder: Map(episode_number -> episode), or an error text
+    const masters = new Map();
+    await Promise.all(ids.map(async id => {
+        try {
+            const response = await api.getFolderEpisodes(id);
+            masters.set(id, new Map(((response && response.episodes) || []).map(ep => [ep.episode_number, ep])));
+        } catch (e) {
+            masters.set(id, e.message);
+        }
+    }));
+
+    container.innerHTML = '';
+    count.textContent = `${files.length} rejected file${files.length === 1 ? '' : 's'}` + (ids.length ? ` in ${ids.length} folder${ids.length === 1 ? '' : 's'}` : '');
+    if (!files.length) container.appendChild(el('div', 'text-muted text-sm', 'No rejected file.'));
+    ids.forEach(id => {
+        const folder = folderById.get(id);
+        const group = el('div', 'err-group');
+        group.dataset.folderId = String(id);
+        const title = el('h3', 'font-mono err-group-title', folder ? folder.destination_path : `Folder ${id} (not in the folder list)`);
+        group.appendChild(title);
+        const folderMasters = masters.get(id);
+        if (typeof folderMasters === 'string') group.appendChild(el('div', 'text-warning text-xs', `Master episodes unavailable: ${folderMasters}`));
+        const table = el('table', 'report-table err-table');
+        const head = el('tr');
+        ['Ep', 'Rejected file', 'Weight', 'Master episode file', '', ''].forEach(h => head.appendChild(el('th', null, h)));
+        const thead = el('thead');
+        thead.appendChild(head);
+        const tbody = el('tbody');
+        groups.get(id).slice().sort((a, b) => a.episode_number - b.episode_number || a.file_path.localeCompare(b.file_path)).forEach(file => {
+            tbody.appendChild(renderErrorRow(file, folderMasters instanceof Map ? folderMasters.get(file.episode_number) : null));
+        });
+        table.append(thead, tbody);
+        const wrap = el('div', 'err-table-wrap');
+        wrap.appendChild(table);
+        group.appendChild(wrap);
+        container.appendChild(group);
+    });
+    markQueuedErrors();
+}
+
+function renderErrorRow(file, master) {
+    const row = el('tr', 'err-row');
+    row.dataset.path = file.file_path;
+    const name = el('td', 'font-mono err-file', baseName(file.file_path));
+    name.title = file.file_path;
+    const masterCell = el('td', 'font-mono err-master');
+    if (master) {
+        masterCell.textContent = `${baseName(master.file_path)} (W ${master.file_weight})`;
+        masterCell.title = master.file_path;
+    } else {
+        masterCell.textContent = 'no episode registered';
+        masterCell.classList.add('text-warning');
+    }
+    const status = el('td', 'err-status');
+    status.appendChild(el('span', 'badge badge-success err-queue-badge hidden'));
+    const message = el('div', 'text-xs err-msg');
+    status.appendChild(message);
+    const actions = el('td', 'err-actions');
+    const relaunch = el('button', 'btn btn-primary btn-sm err-relaunch', 'Relaunch fusion');
+    const remove = el('button', 'btn btn-secondary btn-sm err-delete', 'Delete');
+    relaunch.type = 'button';
+    remove.type = 'button';
+    relaunch.onclick = () => relaunchFusion(file, relaunch, message);
+    remove.onclick = () => deleteErrorFile(file, remove, message);
+    actions.append(relaunch, remove);
+    row.append(el('td', 'font-mono', padEpisode(file.episode_number)), name,
+        el('td', 'font-mono', file.file_weight === null || file.file_weight === undefined ? '-' : String(file.file_weight)),
+        masterCell, status, actions);
+    return row;
+}
+
+async function relaunchFusion(file, button, message) {
+    button.disabled = true;
+    message.textContent = '';
+    try {
+        const result = await api.queueFusion(file.file_path);
+        const text = (result.message || 'Fusion job queued') + (result.queue_position ? ` (position ${result.queue_position})` : '');
+        message.textContent = text;
+        message.className = 'text-xs err-msg text-success';
+        showToast(text, 'success');
+    } catch (e) {
+        message.textContent = e.message;
+        message.className = 'text-xs err-msg text-danger';
+        showToast('Fusion not queued: ' + e.message, 'error', 8000);
+    } finally {
+        button.disabled = false;
+    }
+    refreshFusionQueue();
+}
+
+async function deleteErrorFile(file, button, message) {
+    const confirmed = await confirmDialog(`${baseName(file.file_path)}\n\nDeletes this rejected file, its log files and its row. Its error sub-folder is removed as well when no video remains in it, then the parent directories left empty.\nThe registered episode is not touched. This cannot be undone.`, { title: 'Delete this rejected file?', okText: 'Delete' });
+    if (!confirmed) return;
+    button.disabled = true;
+    let result;
+    try {
+        result = await api.deleteError(file.file_path);
+    } catch (e) {
+        message.textContent = e.message;
+        message.className = 'text-xs err-msg text-danger';
+        showToast('Not deleted: ' + e.message, 'error', 8000);
+        button.disabled = false;
+        return;
+    }
+    const removed = result.removed_directories || [];
+    showToast((result.message || 'Deleted') + (removed.length ? `: ${removed.length} director${removed.length === 1 ? 'y' : 'ies'} removed` : ''), 'success', 5000);
+    showErrorsReport(result);
+    await loadErrorsList();
+}
+
+// What the last delete did, kept above the list.
+function showErrorsReport(result) {
+    const box = document.getElementById('errors-report');
+    box.innerHTML = '';
+    box.classList.remove('hidden');
+    box.appendChild(el('div', 'text-success', `${result.message || 'Deleted'}: ${baseName(result.error_file_path)}` + (result.file_was_missing ? ' (the file was already missing on disk)' : '')));
+    const section = (label, items, className) => {
+        if (!items || !items.length) return;
+        box.appendChild(el('div', 'text-muted mt-2', label));
+        const list = el('ul', `font-mono err-report-list ${className}`);
+        items.forEach(item => list.appendChild(el('li', null, item)));
+        box.appendChild(list);
+    };
+    section('Deleted files:', result.deleted_files, 'err-report-files');
+    section('Removed directories:', result.removed_directories, 'err-report-dirs');
+    section('Warnings:', result.warnings, 'err-report-warnings text-warning');
+    if (!(result.removed_directories || []).length) box.appendChild(el('div', 'text-muted mt-2', 'No directory removed (a video or another rejected file is still there).'));
+}
+
 // Exposed for the engine self-test page (no module system, plain script).
 window.vmsamEngine = { tokenizeName, buildTemplate, analyzeGroup, testPattern, groupByPrefix, groupByNamePattern, groupByNameShape, refineGroupsByPairs, nameShape, findMarkerSpan, extractEpisode, buildRegex };
+switchSection(currentSection);

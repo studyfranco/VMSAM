@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VMSAM Web Interface</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="movie.css">
 </head>
 
 <body>
@@ -13,15 +14,38 @@
         <!-- Header -->
         <header class="header-bar">
             <h1 class="title">VMSAM Interface</h1>
-            <nav class="nav-group">
-                <button data-tab="home-tab" onclick="switchTab('home-tab')" class="btn btn-secondary">Home</button>
-                <button data-tab="folder-tab" onclick="switchTab('folder-tab')" class="btn btn-secondary">Folder Creation</button>
-                <button data-tab="regex-tab" onclick="switchTab('regex-tab')" class="btn btn-secondary">Bulk Regex</button>
-                <button data-tab="index-tab" onclick="switchTab('index-tab')" class="btn btn-secondary">Index Folder</button>
-                <button data-tab="move-tab" onclick="switchTab('move-tab')" class="btn btn-secondary">Move Folder</button>
-                <button data-tab="special-tab" onclick="switchTab('special-tab')" class="btn btn-secondary">Specials</button>
-                <button data-tab="incr-tab" onclick="switchTab('incr-tab')" class="btn btn-secondary">Incrementaller</button>
-            </nav>
+            <div class="nav-stack">
+                <nav class="nav-group section-switch" aria-label="Section">
+                    <button data-section="shows" onclick="switchSection('shows')" class="btn btn-secondary">Shows</button>
+                    <button data-section="movies" onclick="switchSection('movies')" class="btn btn-secondary">Movies</button>
+                </nav>
+                <!-- Shows tabs: owned by app.js -->
+                <nav class="nav-group tab-nav" data-section="shows" aria-label="Shows">
+                    <button data-tab="home-tab" onclick="switchTab('home-tab')" class="btn btn-secondary">Home</button>
+                    <button data-tab="folder-tab" onclick="switchTab('folder-tab')" class="btn btn-secondary">Folder Creation</button>
+                    <button data-tab="regex-tab" onclick="switchTab('regex-tab')" class="btn btn-secondary">Bulk Regex</button>
+                    <button data-tab="index-tab" onclick="switchTab('index-tab')" class="btn btn-secondary">Index Folder</button>
+                    <button data-tab="move-tab" onclick="switchTab('move-tab')" class="btn btn-secondary">Move Folder</button>
+                    <button data-tab="episodes-tab" onclick="switchTab('episodes-tab')" class="btn btn-secondary">Episodes</button>
+                    <button data-tab="settings-tab" onclick="switchTab('settings-tab')" class="btn btn-secondary">Folder Settings</button>
+                    <button data-tab="rules-tab" onclick="switchTab('rules-tab')" class="btn btn-secondary">Rules</button>
+                    <button data-tab="errors-tab" onclick="switchTab('errors-tab')" class="btn btn-secondary">Errors</button>
+                    <button data-tab="incr-tab" onclick="switchTab('incr-tab')" class="btn btn-secondary">Incrementaller</button>
+                    <!-- SHOWS-NAV-END -->
+                </nav>
+                <!-- Movies tabs: owned by movie.js -->
+                <nav class="nav-group tab-nav hidden" data-section="movies" aria-label="Movies">
+                    <button data-tab="movie-home-tab" onclick="switchTab('movie-home-tab')" class="btn btn-secondary">Home</button>
+                    <button data-tab="movie-create-tab" onclick="switchTab('movie-create-tab')" class="btn btn-secondary">Movie Creation</button>
+                    <button data-tab="movie-regex-tab" onclick="switchTab('movie-regex-tab')" class="btn btn-secondary">Bulk Regex</button>
+                    <button data-tab="movie-index-tab" onclick="switchTab('movie-index-tab')" class="btn btn-secondary">Index</button>
+                    <button data-tab="movie-move-tab" onclick="switchTab('movie-move-tab')" class="btn btn-secondary">Move Folder</button>
+                    <button data-tab="movie-list-tab" onclick="switchTab('movie-list-tab')" class="btn btn-secondary">Movies</button>
+                    <button data-tab="movie-rules-tab" onclick="switchTab('movie-rules-tab')" class="btn btn-secondary">Rules</button>
+                    <button data-tab="movie-errors-tab" onclick="switchTab('movie-errors-tab')" class="btn btn-secondary">Errors</button>
+                    <!-- MOVIES-NAV-END -->
+                </nav>
+            </div>
         </header>
 
         <main id="app-content">
@@ -61,10 +85,31 @@
                         <button class="btn btn-primary mt-4">Get Started →</button>
                     </div>
 
-                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('special-tab')">
-                        <div class="text-large icon-green-filter">🎬</div>
-                        <h3>Specials</h3>
-                        <p class="text-muted">Give a special its final name before integration.</p>
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('episodes-tab')">
+                        <div class="text-large icon-green-filter">🎞️</div>
+                        <h3>Episodes</h3>
+                        <p class="text-muted">List the registered episodes of a folder and rename them, one by one or by batch.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('settings-tab')">
+                        <div class="text-large icon-green-filter">⚙️</div>
+                        <h3>Folder Settings</h3>
+                        <p class="text-muted">Edit the language, cut and episode settings of a folder.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('rules-tab')">
+                        <div class="text-large icon-green-filter">🧩</div>
+                        <h3>Rules</h3>
+                        <p class="text-muted">Edit the regex rules of a folder, move one to another folder or delete it.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+
+                    <div class="card card-hover text-center" style="cursor: pointer;" onclick="switchTab('errors-tab')">
+                        <div class="text-large icon-green-filter">⚠️</div>
+                        <h3>Errors</h3>
+                        <p class="text-muted">Files the pipeline rejected: relaunch their fusion or delete them.</p>
                         <button class="btn btn-primary mt-4">Get Started →</button>
                     </div>
 
@@ -361,47 +406,169 @@
                 </div>
             </section>
 
-            <!-- Specials Tab -->
-            <section id="special-tab" class="hidden">
+            <!-- Episodes Tab -->
+            <section id="episodes-tab" class="hidden">
                 <div class="card">
-                    <h2 class="section-title">1. Select the folder of the show</h2>
-                    <p class="text-muted text-sm">A special is matched by its exact incoming name and renamed in the watch
-                        folder before any rule runs. The rule you save with it recognises the new name and integrates the file
-                        into this folder like any other episode.</p>
+                    <h2 class="section-title">1. Select a folder</h2>
+                    <p class="text-muted text-sm">Lists the episodes VMSAM registered for the folder. Renaming changes the
+                        file on disk and its registered path; nothing else is stored (no rule is created).</p>
                     <div class="form-group">
-                        <input type="text" id="special-folder-search" class="input" placeholder="Search folders...">
+                        <input type="text" id="episodes-folder-search" class="input" placeholder="Search folders...">
                     </div>
-                    <div id="special-folder-list" class="dir-browser-container hidden"></div>
-                    <div id="special-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                    <div id="episodes-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="episodes-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
                         <span class="font-mono text-accent"></span>
-                        <button onclick="specialTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                        <button onclick="episodesTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
                     </div>
+                </div>
+
+                <div id="episodes-work-area" class="card mt-4 disabled-area">
+                    <div class="flex flex-between items-center mb-4">
+                        <div>
+                            <h2 class="section-title" style="margin:0;">2. Registered episodes</h2>
+                            <span id="episodes-count" class="text-muted text-sm"></span>
+                        </div>
+                        <button onclick="loadEpisodesList()" class="btn btn-secondary btn-sm">↻ Reload</button>
+                    </div>
+
+                    <div class="card eps-batch">
+                        <h3 style="margin-top:0;">Rename by batch</h3>
+                        <p class="text-muted text-sm">Tick the episodes, then give a name pattern containing
+                            <code class="text-accent">{&lt;episode&gt;}</code> (the episode number, two digits at least, as
+                            VMSAM writes it). When the pattern has no video extension, each file keeps its own. The files
+                            are renamed at once; the pattern is not saved as a rule.</p>
+                        <div class="eps-batch-row">
+                            <div class="form-group eps-pattern-source">
+                                <label class="label" for="episodes-pattern-select">Start from</label>
+                                <select id="episodes-pattern-select" class="input"></select>
+                            </div>
+                            <div class="form-group eps-pattern-box">
+                                <label class="label" for="episodes-pattern">Name pattern</label>
+                                <input type="text" id="episodes-pattern" class="input font-mono" spellcheck="false" autocomplete="off" placeholder="e.g. Show A - {<episode>}.mkv">
+                            </div>
+                        </div>
+                        <div id="episodes-pattern-msg" class="text-xs validation-msg"></div>
+                        <div class="file-select-bar mt-2">
+                            <button type="button" id="episodes-select-all" class="btn btn-secondary btn-sm">Select all</button>
+                            <span id="episodes-selected-count" class="text-muted text-sm">0 selected</span>
+                            <button type="button" id="episodes-batch-btn" class="btn btn-primary btn-sm eps-batch-btn" disabled>Rename selected</button>
+                        </div>
+                    </div>
+
+                    <div class="eps-table-wrap mt-4">
+                        <table id="episodes-table" class="report-table eps-table">
+                            <thead>
+                                <tr><th></th><th>Ep</th><th>File name</th><th>Weight</th><th>Preview of the batch rename</th><th></th></tr>
+                            </thead>
+                            <tbody id="episodes-rows"></tbody>
+                        </table>
+                    </div>
+                    <div id="episodes-result" class="hidden text-sm mt-2"></div>
+                </div>
+            </section>
+
+            <!-- Folder Settings Tab -->
+            <section id="settings-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select a folder</h2>
+                    <div class="form-group">
+                        <input type="text" id="settings-folder-search" class="input" placeholder="Search folders...">
+                    </div>
+                    <div id="settings-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="settings-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                        <span class="font-mono text-accent"></span>
+                        <button onclick="settingsTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                    </div>
+                </div>
+
+                <div id="settings-work-area" class="card mt-4 disabled-area">
+                    <h2 class="section-title">2. Settings</h2>
+                    <div class="form-group">
+                        <label class="label">Destination path (read-only)</label>
+                        <div class="flex items-center set-path-row">
+                            <code id="settings-path" class="font-mono text-accent set-path"></code>
+                            <button type="button" id="settings-move-btn" class="btn btn-secondary btn-sm">Move this folder →</button>
+                        </div>
+                    </div>
+                    <div class="grid-4">
+                        <div class="form-group">
+                            <label class="label" for="settings-lang">Original Language</label>
+                            <input type="text" id="settings-lang" class="input">
+                            <div id="settings-lang-current" class="text-muted text-xs mt-1"></div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="settings-cut">Number Cut</label>
+                            <input type="number" id="settings-cut" min="1" step="1" class="input">
+                            <div id="settings-cut-current" class="text-muted text-xs mt-1"></div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="settings-max">Max Episode</label>
+                            <input type="number" id="settings-max" min="1" step="1" class="input">
+                            <div id="settings-max-current" class="text-muted text-xs mt-1"></div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="settings-delay">Cut Ratio (1/N)</label>
+                            <input type="number" id="settings-delay" step="0.1" class="input">
+                            <div id="settings-delay-current" class="text-muted text-xs mt-1"></div>
+                        </div>
+                    </div>
+                    <div id="settings-msg" class="text-xs validation-msg"></div>
+                    <div class="group-footer">
+                        <button type="button" id="settings-reset-btn" class="btn btn-secondary">Reset</button>
+                        <button type="button" id="settings-save-btn" class="btn btn-primary">Save</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Rules Tab -->
+            <section id="rules-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select a folder</h2>
+                    <p class="text-muted text-sm">Every rule of the folder can be edited: its regex, its rename pattern,
+                        its weight and the folder it belongs to. VMSAM checks the result on an example file name: the regex
+                        must extract a valid episode number from it (and, when the regex changes, no other rule may match it).</p>
+                    <div class="form-group">
+                        <input type="text" id="rules-folder-search" class="input" placeholder="Search folders...">
+                    </div>
+                    <div id="rules-folder-list" class="dir-browser-container hidden"></div>
+                    <div id="rules-selected-folder" class="hidden flex flex-between items-center mt-2 p-2 selected-folder">
+                        <span class="font-mono text-accent"></span>
+                        <button onclick="rulesTab.picker.clear()" class="btn btn-sm btn-secondary">Change</button>
+                    </div>
+                </div>
+
+                <div id="rules-work-area" class="mt-4 disabled-area">
+                    <div class="flex flex-between items-center mb-4">
+                        <h2 class="section-title" style="margin:0;">2. Rules of this folder <span id="rules-count" class="text-muted text-sm"></span></h2>
+                        <button onclick="loadRulesList()" class="btn btn-secondary btn-sm">↻ Reload</button>
+                    </div>
+                    <div id="rules-cards" class="board"></div>
+                </div>
+            </section>
+
+            <!-- Errors Tab -->
+            <section id="errors-tab" class="hidden">
+                <div class="card">
+                    <div class="flex flex-between items-center">
+                        <h2 class="section-title" style="margin:0;">Fusion queue</h2>
+                        <span class="text-muted text-xs">refreshed every 5 s while this tab is open</span>
+                    </div>
+                    <div id="errors-queue" class="text-sm mt-2"></div>
                 </div>
 
                 <div class="card mt-4">
-                    <div onclick="toggleCollapsible('special-list-content', 'special-list-icon')" class="flex flex-between items-center" style="cursor: pointer;">
-                        <h3 style="margin:0;">Declared specials</h3>
-                        <span id="special-list-icon">▼</span>
-                    </div>
-                    <div id="special-list-content" class="hidden mt-4"></div>
-                </div>
-
-                <div id="special-existing" class="card mt-4 hidden">
-                    <div onclick="toggleCollapsible('special-existing-content', 'special-existing-icon')" class="flex flex-between items-center" style="cursor: pointer;">
-                        <h3 style="margin:0;">Existing Rules of this folder</h3>
-                        <span id="special-existing-icon">▼</span>
-                    </div>
-                    <div id="special-existing-content" class="hidden mt-4"></div>
-                </div>
-
-                <div id="special-work-area" class="mt-4 disabled-area">
                     <div class="flex flex-between items-center mb-4">
-                        <h2 class="section-title" style="margin:0;">2. Name the specials</h2>
-                        <button onclick="openSpecialFileModal()" class="btn btn-primary btn-sm">+ Add Files</button>
+                        <div>
+                            <h2 class="section-title" style="margin:0;">Rejected files</h2>
+                            <span id="errors-count" class="text-muted text-sm"></span>
+                        </div>
+                        <button onclick="loadErrorsList()" class="btn btn-secondary btn-sm">↻ Reload</button>
                     </div>
-                    <div id="special-cards" class="board">
-                        <div class="text-muted text-sm empty-board">Add the special files waiting in the download root.</div>
-                    </div>
+                    <p class="text-muted text-sm">Files the pipeline could not merge with the registered episode
+                        (the master). "Relaunch fusion" queues a new merge attempt; "Delete" removes the rejected file,
+                        its logs and its error sub-folder once no video remains in it.</p>
+                    <div id="errors-report" class="hidden text-sm mb-4"></div>
+                    <div id="errors-groups"></div>
                 </div>
             </section>
 
@@ -430,6 +597,278 @@
                     <div id="incr-cards" class="board"></div>
                 </div>
             </section>
+            <!-- SHOWS-SECTIONS-END -->
+
+            <!-- Movie tabs (sections with id movie-*-tab): owned by movie.js -->
+            <!-- Movies: Home Tab -->
+            <section id="movie-home-tab" class="welcome-section hidden">
+                <div class="text-center mb-4">
+                    <h2 class="title">Movies</h2>
+                    <p class="text-muted">A movie is one kept file (a film or a show special): <code>&lt;directory&gt;/&lt;title&gt;&lt;suffix&gt;.&lt;ext&gt;</code></p>
+                </div>
+                <div class="grid-3 home-grid">
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-create-tab')">
+                        <div class="text-large icon-green-filter">🎞️</div>
+                        <h3>Movie Creation</h3>
+                        <p class="text-muted">Declare a movie: directory, title, suffix and metadata ids.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-regex-tab')">
+                        <div class="text-large icon-green-filter">⚡</div>
+                        <h3>Bulk Regex</h3>
+                        <p class="text-muted">Link downloaded files to a movie with one rule per group.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-index-tab')">
+                        <div class="text-large icon-green-filter">🗂️</div>
+                        <h3>Index</h3>
+                        <p class="text-muted">Register a file already in the movie's directory.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-move-tab')">
+                        <div class="text-large icon-green-filter">🚚</div>
+                        <h3>Move Folder</h3>
+                        <p class="text-muted">Move or rename a directory holding movies.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-list-tab')">
+                        <div class="text-large icon-green-filter">📋</div>
+                        <h3>Movies</h3>
+                        <p class="text-muted">Search, edit (renames the file) or delete movies.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-rules-tab')">
+                        <div class="text-large icon-green-filter">📐</div>
+                        <h3>Rules</h3>
+                        <p class="text-muted">Every movie regex: edit, relink, delete, test a name.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                    <div class="card card-hover text-center movie-home-card" onclick="switchTab('movie-errors-tab')">
+                        <div class="text-large icon-green-filter">⚠️</div>
+                        <h3>Errors</h3>
+                        <p class="text-muted">Incompatible files per movie, fusion queue.</p>
+                        <button class="btn btn-primary mt-4">Get Started →</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Movies: Movie Creation Tab -->
+            <section id="movie-create-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Destination directory</h2>
+                    <p class="text-muted text-sm">Relative to the library root (<span id="movie-create-root" class="font-mono"></span>).
+                        Click a directory to choose it, open one with "Open →" (or a double click); a sub-path that does not
+                        exist yet may be typed: VMSAM creates it. Several movies may share one directory.</p>
+                    <input type="search" id="movie-create-filter" class="input dir-filter" placeholder="Filter directories (name contains…)" aria-label="Filter directories" autocomplete="off" spellcheck="false">
+                    <div id="movie-create-browser" class="dir-browser-container"></div>
+                    <div class="form-group mt-2">
+                        <label class="label" for="movie-create-dest">Directory</label>
+                        <input type="text" id="movie-create-dest" class="input font-mono" placeholder="e.g. Films/Movie A (2001)" spellcheck="false">
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <h2 class="section-title">2. Movie</h2>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label class="label" for="movie-create-title">Title</label>
+                            <input type="text" id="movie-create-title" class="input" placeholder="e.g. Movie A (2001)" spellcheck="false">
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="movie-create-suffix">Suffix (appended to the title, keep a leading space)</label>
+                            <input type="text" id="movie-create-suffix" class="input font-mono" placeholder="e.g.  {tmdb-123}" spellcheck="false">
+                        </div>
+                    </div>
+                    <div class="grid-3">
+                        <div class="form-group">
+                            <label class="label" for="movie-create-lang">Original Language</label>
+                            <input type="text" id="movie-create-lang" value="en" class="input">
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="movie-create-cut">Number Cut</label>
+                            <input type="number" id="movie-create-cut" value="10" class="input">
+                        </div>
+                        <div class="form-group">
+                            <label class="label" for="movie-create-ratio">Cut Ratio (1/N)</label>
+                            <input type="number" id="movie-create-ratio" value="2.0" step="0.1" class="input">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <h2 class="section-title">3. Metadata ids</h2>
+                    <p class="text-muted text-sm">The ids typed here are stored with the movie. Tick the apps the library is
+                        read by: a provider is enabled when one ticked app knows it. The tag string can become the suffix or
+                        be appended to the directory name.</p>
+                    <div id="movie-create-meta"></div>
+                </div>
+
+                <div class="card mt-4 movie-preview-box">
+                    <div class="label movie-preview-label">Final file</div>
+                    <code id="movie-create-preview" class="font-mono movie-preview"></code>
+                </div>
+                <div class="mt-4 movie-actions">
+                    <button id="movie-create-back" class="btn btn-secondary hidden">← Back to Bulk Regex</button>
+                    <button id="movie-create-btn" class="btn btn-primary">Create Movie</button>
+                </div>
+            </section>
+
+            <!-- Movies: Bulk Regex Tab -->
+            <section id="movie-regex-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">Rules for downloaded movies</h2>
+                    <p class="text-muted text-sm">A movie rule has no episode group: it only has to match the file names
+                        of its group. One file gives its exact name, anchored; several files give their shared parts with
+                        <code class="text-accent">.+</code> where the names differ and <code class="text-accent">\d+</code>
+                        where only a number changes. Each group is linked to one movie. VMSAM refuses a rule whose example
+                        another movie rule matches, or that a show rule would take as an episode (the movies run first).</p>
+                </div>
+                <div id="movie-regex-covered" class="card mt-4 hidden">
+                    <div onclick="toggleCollapsible('movie-regex-covered-content', 'movie-regex-covered-icon')" class="flex flex-between items-center" style="cursor: pointer;">
+                        <h3 style="margin:0;">Files already matched by a movie rule (<span id="movie-regex-covered-count">0</span>)</h3>
+                        <span id="movie-regex-covered-icon">▲</span>
+                    </div>
+                    <div id="movie-regex-covered-content" class="mt-4"></div>
+                </div>
+                <div class="mt-4">
+                    <div class="flex flex-between items-center mb-4">
+                        <h2 class="section-title" style="margin:0;">Groups</h2>
+                        <button id="movie-regex-add" class="btn btn-primary btn-sm">+ Add Files</button>
+                    </div>
+                    <div id="movie-regex-cards" class="board"></div>
+                </div>
+            </section>
+
+            <!-- Movies: Index Tab -->
+            <section id="movie-index-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select the movie</h2>
+                    <p class="text-muted text-sm">Pick a movie, or a directory then one of its movies. VMSAM takes, among
+                        the files of the movie's directory that one of its rules matches, the heaviest rule then the largest
+                        file, renames it <code>&lt;title&gt;&lt;suffix&gt;.&lt;ext&gt;</code> and registers it. Nothing is merged or deleted.</p>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label class="label">Movie</label>
+                            <div id="movie-index-picker"></div>
+                        </div>
+                        <div class="form-group">
+                            <label class="label">Or a directory</label>
+                            <div id="movie-index-dir-picker"></div>
+                            <div id="movie-index-dir-movies" class="movie-dir-movies"></div>
+                        </div>
+                    </div>
+                </div>
+                <div id="movie-index-work" class="mt-4 disabled-area">
+                    <div class="card">
+                        <div class="flex flex-between items-center">
+                            <h2 class="section-title" style="margin:0;">2. Files of the directory</h2>
+                            <button id="movie-index-reload" class="btn btn-secondary btn-sm">↻ Reload</button>
+                        </div>
+                        <div id="movie-index-info" class="text-sm mt-2"></div>
+                        <div id="movie-index-rules" class="mt-2"></div>
+                        <div id="movie-index-files" class="mt-2"></div>
+                    </div>
+                    <div class="card mt-4 index-run">
+                        <div>
+                            <h2 class="section-title" style="margin:0;">3. Rename and register</h2>
+                            <span class="text-muted text-sm">One file at most is taken for the movie.</span>
+                        </div>
+                        <button id="movie-index-run" class="btn btn-primary">Index movie now</button>
+                    </div>
+                    <div id="movie-index-report" class="card mt-4 hidden"></div>
+                </div>
+            </section>
+
+            <!-- Movies: Move Folder Tab -->
+            <section id="movie-move-tab" class="hidden">
+                <div class="card">
+                    <h2 class="section-title">1. Select the directory to move</h2>
+                    <p class="text-muted text-sm">A directory holding movies. VMSAM moves it on disk, rewrites the
+                        directory and file path of every movie in or under it, then deletes the old parent directories left
+                        empty. A directory that is or contains a show folder must be moved from the Shows section.</p>
+                    <div id="movie-move-picker"></div>
+                    <div id="movie-move-current" class="hidden text-sm mt-2">
+                        <div>Current path: <span id="movie-move-current-path" class="font-mono text-accent"></span></div>
+                        <div id="movie-move-movies" class="mt-1"></div>
+                    </div>
+                </div>
+                <div id="movie-move-work" class="card mt-4 disabled-area">
+                    <h2 class="section-title">2. Choose the destination</h2>
+                    <p class="text-muted text-sm">Relative to the library root (<span id="movie-move-root" class="font-mono"></span>).
+                        Click a directory to move the selected one inside it under its current name, open one with
+                        "Open →" (or a double click); then edit the path freely.</p>
+                    <input type="search" id="movie-move-filter" class="input dir-filter" placeholder="Filter directories (name contains…)" aria-label="Filter directories" autocomplete="off" spellcheck="false">
+                    <div id="movie-move-browser" class="dir-browser-container"></div>
+                    <div class="form-group mt-2">
+                        <label class="label" for="movie-move-path">New path</label>
+                        <div class="flex items-center move-row">
+                            <input type="text" id="movie-move-path" class="input font-mono" placeholder="e.g. Films/Movie A (2001)" spellcheck="false">
+                            <button id="movie-move-btn" class="btn btn-primary">Move</button>
+                        </div>
+                    </div>
+                    <div class="card mt-2 move-preview-box">
+                        <div class="label move-preview-label">Preview</div>
+                        <div id="movie-move-preview" class="font-mono text-sm move-preview"></div>
+                    </div>
+                    <div id="movie-move-report" class="hidden text-sm mt-2"></div>
+                </div>
+            </section>
+
+            <!-- Movies: Movies list Tab -->
+            <section id="movie-list-tab" class="hidden">
+                <div id="movie-edit" class="card mb-4 hidden"></div>
+                <div class="card">
+                    <div class="flex flex-between items-center mb-2 movie-toolbar">
+                        <h2 class="section-title" style="margin:0;">Movies (<span id="movie-list-count">0</span>)</h2>
+                        <div class="flex items-center movie-toolbar-right">
+                            <input type="search" id="movie-list-search" class="input" placeholder="Search title, suffix, directory, file, id…" autocomplete="off" spellcheck="false">
+                            <button id="movie-list-reload" class="btn btn-secondary btn-sm">↻</button>
+                        </div>
+                    </div>
+                    <div id="movie-list-table" class="movie-table-wrap"></div>
+                </div>
+            </section>
+
+            <!-- Movies: Rules Tab -->
+            <section id="movie-rules-tab" class="hidden">
+                <div class="card">
+                    <div class="flex flex-between items-center mb-2 movie-toolbar">
+                        <h2 class="section-title" style="margin:0;">Movie rules (<span id="movie-rules-count">0</span>)</h2>
+                        <div class="flex items-center movie-toolbar-right">
+                            <input type="search" id="movie-rules-search" class="input" placeholder="Filter pattern, movie, directory…" autocomplete="off" spellcheck="false">
+                            <button id="movie-rules-reload" class="btn btn-secondary btn-sm">↻</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="label" for="movie-rules-test">Test a file name</label>
+                        <input type="text" id="movie-rules-test" class="input font-mono" placeholder="A file name: the rules matching it are marked" spellcheck="false">
+                        <div id="movie-rules-test-result" class="text-sm mt-1"></div>
+                    </div>
+                    <div id="movie-rules-table" class="movie-table-wrap"></div>
+                </div>
+            </section>
+
+            <!-- Movies: Errors Tab -->
+            <section id="movie-errors-tab" class="hidden">
+                <div class="card">
+                    <div class="flex flex-between items-center">
+                        <h2 class="section-title" style="margin:0;">Fusion queue</h2>
+                        <span class="text-muted text-xs">refreshed every 5 s while this tab is shown</span>
+                    </div>
+                    <div id="movie-fusion-status" class="text-sm mt-2"></div>
+                </div>
+                <div class="card mt-4">
+                    <div class="flex flex-between items-center mb-2">
+                        <h2 class="section-title" style="margin:0;">Incompatible files (<span id="movie-errors-count">0</span>)</h2>
+                        <button id="movie-errors-reload" class="btn btn-secondary btn-sm">↻</button>
+                    </div>
+                    <p class="text-muted text-sm">Files the movie pipeline could not merge with the movie's file. "Relaunch
+                        fusion" queues a new merge with the registered file; "Delete" removes the file, its logs and the
+                        row, then the directories left without a video.</p>
+                    <div id="movie-errors-list"></div>
+                </div>
+            </section>
+            <!-- MOVIES-SECTIONS-END -->
         </main>
     </div>
 
@@ -456,6 +895,7 @@
     </div>
 
     <script src="app.js"></script>
+    <script src="movie.js"></script>
 </body>
 
 </html>

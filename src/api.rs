@@ -29,6 +29,11 @@ fn get_vmsam_host() -> String {
     env::var("VMSAM_API_HOST").unwrap_or_else(|_| "http://vmsam-api:8000".to_string())
 }
 
+// The movie API is a separate VMSAM instance (public port 8081).
+fn get_vmsam_movie_host() -> String {
+    env::var("VMSAM_MOVIE_API_HOST").unwrap_or_else(|_| "http://vmsam-api:8081".to_string())
+}
+
 fn json_response(status: StatusCode, body: impl Into<Body>) -> Response {
     Response::builder()
         .status(status)
@@ -63,8 +68,16 @@ async fn relay(result: Result<reqwest::Response, reqwest::Error>) -> Response {
 }
 
 async fn proxy_get(upstream_path: &str, params: &HashMap<String, String>) -> Response {
+    proxy_get_to(&get_vmsam_host(), upstream_path, params).await
+}
+
+async fn proxy_get_to(
+    host: &str,
+    upstream_path: &str,
+    params: &HashMap<String, String>,
+) -> Response {
     let client = reqwest::Client::new();
-    let mut url = match reqwest::Url::parse(&format!("{}{}", get_vmsam_host(), upstream_path)) {
+    let mut url = match reqwest::Url::parse(&format!("{}{}", host, upstream_path)) {
         Ok(url) => url,
         Err(e) => {
             return detail_response(
@@ -83,8 +96,12 @@ async fn proxy_get(upstream_path: &str, params: &HashMap<String, String>) -> Res
 }
 
 async fn proxy_post(upstream_path: &str, body: String) -> Response {
+    proxy_post_to(&get_vmsam_host(), upstream_path, body).await
+}
+
+async fn proxy_post_to(host: &str, upstream_path: &str, body: String) -> Response {
     let client = reqwest::Client::new();
-    let url = format!("{}{}", get_vmsam_host(), upstream_path);
+    let url = format!("{}{}", host, upstream_path);
     relay(
         client
             .post(&url)
@@ -226,18 +243,51 @@ async fn proxy_move_folder(body: String) -> impl IntoResponse {
 const GET_ROUTES: &[(&str, &str)] = &[
     ("folders_list", "/folders_list/"),
     ("regex_list", "/regex_folder/"),
-    ("special_list", "/special_list/"),
     ("incrementaller_list", "/incrementaller_list/"),
     ("episodes_folder", "/episodes_folder/"),
+    ("folder", "/folder/"),
+    ("fusion_status", "/fusion"),
     ("errors", "/errors"),
     ("health", "/health"),
 ];
 
 const POST_ROUTES: &[(&str, &str)] = &[
     ("regex", "/regex/"),
-    ("special", "/special/"),
     ("incrementaller", "/incrementaller/"),
     ("index_folder", "/index_folder/"),
+    ("episodes_rename", "/episodes/rename/"),
+    ("folders_update", "/folders/update/"),
+    ("regex_update", "/regex/update/"),
+    ("regex_delete", "/regex/delete/"),
+    ("errors_delete", "/errors/delete/"),
+    ("fusion", "/fusion"),
+];
+
+// Movie API routes: /api/movie/<name> -> VMSAM movie instance /<path>.
+const MOVIE_GET_ROUTES: &[(&str, &str)] = &[
+    ("movies_list", "/movies_list/"),
+    ("movie", "/movie/"),
+    ("movies_infos", "/movies_infos/"),
+    ("movies_by_metadata", "/movies_by_metadata/"),
+    ("regex_movie", "/regex_movie/"),
+    ("regex_list", "/regex_list/"),
+    ("folders_list", "/folders_list/"),
+    ("errors", "/errors"),
+    ("fusion_status", "/fusion"),
+    ("health", "/health"),
+    ("metadata_providers", "/metadata_providers/"),
+];
+
+const MOVIE_POST_ROUTES: &[(&str, &str)] = &[
+    ("movies_update", "/movies/update/"),
+    ("movies_delete", "/movies/delete/"),
+    ("regex", "/regex/"),
+    ("regex_update", "/regex/update/"),
+    ("regex_delete", "/regex/delete/"),
+    ("index_movie", "/index_movie/"),
+    ("errors_delete", "/errors/delete/"),
+    ("fusion", "/fusion"),
+    ("metadata_tags", "/metadata_tags/"),
 ];
 
 fn lookup(table: &[(&str, &'static str)], name: &str) -> Option<&'static str> {
@@ -261,6 +311,62 @@ async fn proxy_post_route(Path(name): Path<String>, body: String) -> impl IntoRe
         Some(upstream) => proxy_post(upstream, body).await,
         None => detail_response(StatusCode::NOT_FOUND, format!("Unknown route: {}", name)),
     }
+}
+
+#[handler]
+async fn proxy_movie_get_route(
+    Path(name): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    match lookup(MOVIE_GET_ROUTES, &name) {
+        Some(upstream) => proxy_get_to(&get_vmsam_movie_host(), upstream, &params).await,
+        None => detail_response(
+            StatusCode::NOT_FOUND,
+            format!("Unknown movie route: {}", name),
+        ),
+    }
+}
+
+#[handler]
+async fn proxy_movie_post_route(Path(name): Path<String>, body: String) -> impl IntoResponse {
+    match lookup(MOVIE_POST_ROUTES, &name) {
+        Some(upstream) => proxy_post_to(&get_vmsam_movie_host(), upstream, body).await,
+        None => detail_response(
+            StatusCode::NOT_FOUND,
+            format!("Unknown movie route: {}", name),
+        ),
+    }
+}
+
+// Movie creation: destination_path relative to CREATE_ROOT, like folders.
+#[handler]
+async fn proxy_movie_create(body: String) -> impl IntoResponse {
+    if has_parent_component(&body, "destination_path") {
+        return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
+    }
+    proxy_post_to(
+        &get_vmsam_movie_host(),
+        "/movies/",
+        absolutise_field(&body, "destination_path"),
+    )
+    .await
+}
+
+// Movie directory move: both paths relative to CREATE_ROOT.
+#[handler]
+async fn proxy_movie_move(body: String) -> impl IntoResponse {
+    if has_parent_component(&body, "destination_path")
+        || has_parent_component(&body, "new_destination_path")
+    {
+        return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
+    }
+    let body = absolutise_field(&body, "destination_path");
+    proxy_post_to(
+        &get_vmsam_movie_host(),
+        "/folders/move/",
+        absolutise_field(&body, "new_destination_path"),
+    )
+    .await
 }
 
 // --- Models ---
@@ -289,6 +395,12 @@ pub fn routes() -> Route {
         .at("/config", poem::get(get_config))
         .at("/vmsam/folders", poem::post(proxy_create_folder))
         .at("/vmsam/folders_move", poem::post(proxy_move_folder))
+        .at("/movie/movies", poem::post(proxy_movie_create))
+        .at("/movie/folders_move", poem::post(proxy_movie_move))
+        .at(
+            "/movie/:name",
+            poem::get(proxy_movie_get_route).post(proxy_movie_post_route),
+        )
         .at(
             "/vmsam/:name",
             poem::get(proxy_get_route).post(proxy_post_route),

@@ -1,0 +1,309 @@
+/* VMSAM web interface — Movies section (movie.js). Colours come from the
+   variables of style.css; nothing here applies outside the movie tabs. */
+
+.movie-home-card {
+    cursor: pointer;
+}
+
+.movie-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.movie-preview-box {
+    background-color: rgba(61, 174, 233, 0.1);
+    border-color: var(--highlight);
+}
+
+.movie-preview-label {
+    color: var(--highlight);
+}
+
+.movie-preview {
+    word-break: break-all;
+}
+
+.movie-message {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background-color: var(--bg-main);
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.movie-message.text-danger {
+    border-color: var(--danger);
+}
+
+.movie-message.text-success {
+    border-color: var(--success);
+}
+
+/* Search picker (movies, directories) */
+.movie-picker-list {
+    max-height: 260px;
+    margin-top: 0.25rem;
+}
+
+.movie-picker-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    width: 100%;
+    min-width: 0;
+}
+
+.movie-picker-row > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.movie-picker-title {
+    color: var(--text-main);
+}
+
+.movie-picker-chosen > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.movie-dir-movies {
+    margin-top: 0.5rem;
+}
+
+/* Metadata generator */
+.movie-meta-apps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.movie-meta-apps-label {
+    margin: 0;
+}
+
+.movie-meta-app {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+
+.movie-meta-providers {
+    align-items: start;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.75rem 1rem;
+}
+
+.movie-meta-provider {
+    display: grid;
+    grid-template-columns: 7rem 1fr;
+    align-items: center;
+    gap: 0.25rem 0.5rem;
+}
+
+.movie-meta-provider .movie-meta-support {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.movie-meta-off .movie-meta-name {
+    color: var(--text-muted);
+    text-decoration: line-through;
+}
+
+.movie-meta-chip {
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+}
+
+.movie-meta-chip.ok {
+    color: var(--success);
+    border-color: var(--success);
+}
+
+.movie-meta-chip.no {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.movie-meta-output {
+    margin-top: 1rem;
+    padding: 0.75rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.movie-meta-tags {
+    display: block;
+    font-size: 0.95rem;
+    color: var(--accent);
+    word-break: break-all;
+}
+
+.movie-meta-tags.text-muted {
+    color: var(--text-muted);
+}
+
+.movie-meta-per-app,
+.movie-meta-unsupported {
+    margin-top: 0.35rem;
+}
+
+.movie-meta-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+/* Bulk Regex cards */
+.movie-inline-row {
+    gap: 0.5rem;
+}
+
+.movie-inline-row > .input {
+    flex: 1;
+    min-width: 0;
+}
+
+.movie-inline-row > .small-number {
+    flex: 0 0 5rem;
+}
+
+.movie-link-row {
+    display: grid;
+    grid-template-columns: 1fr 7rem;
+    gap: 1rem;
+    align-items: start;
+}
+
+.movie-final-line {
+    word-break: break-all;
+}
+
+.movie-existing-rules .rule-row {
+    margin-top: 0.4rem;
+}
+
+/* Tables */
+.movie-table-wrap {
+    overflow-x: auto;
+}
+
+.movie-table td {
+    vertical-align: top;
+}
+
+.report-table td.movie-cell-title {
+    color: var(--text-main);
+    font-weight: 600;
+    word-break: normal;
+    overflow-wrap: anywhere;
+    min-width: 9rem;
+}
+
+.report-table td.movie-actions-cell {
+    white-space: nowrap;
+    width: 1%;
+    word-break: normal;
+}
+
+.movie-actions-cell .btn + .btn {
+    margin-left: 0.35rem;
+}
+
+.movie-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.movie-chip {
+    margin: 0;
+}
+
+.movie-row-hit td {
+    background-color: rgba(28, 220, 154, 0.08);
+}
+
+.movie-inline-form-row > td {
+    background-color: var(--bg-main);
+}
+
+.movie-inline-rule {
+    padding: 0.5rem 0;
+}
+
+.movie-rule-fields {
+    display: grid;
+    grid-template-columns: 1fr 7rem;
+    gap: 1rem;
+}
+
+.movie-toolbar {
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.movie-toolbar-right {
+    gap: 0.5rem;
+    flex: 1;
+    justify-content: flex-end;
+}
+
+.movie-toolbar-right .input {
+    max-width: 420px;
+}
+
+.movie-plain-list {
+    margin: 0.25rem 0 0;
+    padding-left: 1.25rem;
+    word-break: break-all;
+}
+
+.movie-report-title {
+    margin-top: 0;
+}
+
+/* Errors */
+.movie-error-group {
+    background-color: var(--bg-surface);
+    margin-top: 0.75rem;
+}
+
+.movie-error-title {
+    margin: 0;
+}
+
+@media (max-width: 700px) {
+    .movie-link-row,
+    .movie-rule-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .movie-meta-provider {
+        grid-template-columns: 1fr;
+    }
+
+    .movie-meta-provider .movie-meta-support {
+        grid-column: 1;
+    }
+
+    .movie-toolbar-right .input {
+        max-width: none;
+    }
+}
