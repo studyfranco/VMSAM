@@ -46,8 +46,8 @@ from repair_stage3_chimeric import (_budget_terminal, _speed_chain, _video_durat
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
                                     log_absorbed_gaps, log_cross_verification,
                                     log_holes_against_walk, log_partial_plan,
-                                    max_holes_per_couple, reference_walk, repair_budget_seconds,
-                                    union_holes)
+                                    max_holes_per_couple, picture_steps_in_continuous_zones,
+                                    reference_walk, repair_budget_seconds, union_holes)
 from repair_stage4_plan import (ZONE_EDGE_MARGIN_S, _track_timing, apply_picture_offsets,
                                 apply_plan, plan_geometry, remeasure_at_other_levels,
                                 track_offsets, track_pieces, written_edge_seconds,
@@ -907,12 +907,15 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out after the audio walk -- the "
             f"partial plan is logged; declined, retried at the next run"), None
-    log_holes_against_walk(holes, walk, candidate_path)
     log_absorbed_gaps(couple_results, holes, walk, candidate_path)
     transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
+    transitions = picture_steps_in_continuous_zones(transitions, walk, reference, domain,
+                                                    master_obj, candidate_obj, work_dir,
+                                                    candidate_path)
+    log_holes_against_walk(holes, walk, transitions, candidate_path)
     picture_shifts = [(t["before_shift_frames"], t["after_shift_frames"]) for t in transitions
                       if t.get("before_shift_frames") is not None
                       and t.get("after_shift_frames") is not None]

@@ -3050,6 +3050,174 @@ def _transition_pieces(at, fill, a_ms, b_ms, decision, before, after, removal_s=
             (at, fill, b_ms, b_ms, decision, after, after)]
 
 
+# A span whose bounding anchors read picture shifts this many frames apart has another frame
+# count than the master's; one frame apart is two releases cutting the same shot differently.
+PICTURE_STEP_MIN_FRAMES = 2
+# Frames read per bisection probe, and the width the probes narrow a picture step down to.
+PICTURE_PROBE_FRAMES = 24
+PICTURE_STEP_WINDOW_FRAMES = 240
+# Probe moves each way around a static middle: 16 probes, 16 s at 24 fps.
+PICTURE_PROBE_MOVES = 16
+# Widest window handed to the frame-exact resolver, whose anchor search reads +/- 10 s.
+PICTURE_STEP_MAX_FRAMES = 720
+
+
+def _picture_side(domain, master_obj, candidate_obj, frame, before, after):
+    """Return which shift the picture holds over PICTURE_PROBE_FRAMES from master `frame`.
+
+    "before" or "after" when two thirds of the frames read the same picture under that shift
+    and under a third under the other, or else when the share of departing pixels under the
+    other shift is at least twice its own and PIXEL_DIFF_FRACTION higher (moving content
+    over a static background); None otherwise (a static or black span, a misread).
+    """
+    readings = _pixel_readings(domain, master_obj, candidate_obj, frame,
+                               PICTURE_PROBE_FRAMES, sorted({before, after}))
+    if readings is None or not len(readings[before]):
+        return None
+    count = len(readings[before])
+    same_before = sum(_same_flags(readings[before], range(count)))
+    same_after = sum(_same_flags(readings[after], range(count)))
+    if 3 * same_before >= 2 * count and 3 * same_after < count:
+        return "before"
+    if 3 * same_after >= 2 * count and 3 * same_before < count:
+        return "after"
+    departing = {}
+    for shift in (before, after):
+        values = [reading[1] for reading in readings[shift] if reading is not None]
+        departing[shift] = statistics.mean(values) if values else None
+    if departing[before] is None or departing[after] is None:
+        return None
+    low, high = sorted((departing[before], departing[after]))
+    if high >= 2 * low and high - low >= PIXEL_DIFF_FRACTION:
+        return "before" if departing[before] == low else "after"
+    return None
+
+
+def _locate_picture_step(domain, master_obj, candidate_obj, low, high, before, after):
+    """Narrow master frames [low, high) by bisection to a window holding the step, or None.
+
+    The picture holds `before` at `low` and `after` at `high`. A probe that reads neither
+    shift is moved by one probe width, up to PICTURE_PROBE_MOVES times each way. The search
+    stops when the window is PICTURE_STEP_WINDOW_FRAMES wide, or when the probes no longer
+    narrow it (a static or black stretch holds the step); a window still wider than
+    PICTURE_STEP_MAX_FRAMES is not a location.
+    """
+    moves = [0] + [sign * step for step in range(1, PICTURE_PROBE_MOVES + 1) for sign in (1, -1)]
+    sides = {}
+    while high - low > PICTURE_STEP_WINDOW_FRAMES:
+        middle = (low + high) // 2
+        side = None
+        for move in moves:
+            probe = middle + move * PICTURE_PROBE_FRAMES
+            if low < probe < high - PICTURE_PROBE_FRAMES:
+                if probe not in sides:
+                    sides[probe] = _picture_side(domain, master_obj, candidate_obj, probe,
+                                                 before, after)
+                side = sides[probe]
+                if side is not None:
+                    break
+        if side is None:
+            break
+        width = high - low
+        if side == "before":
+            low = probe
+        else:
+            high = probe + PICTURE_PROBE_FRAMES
+        if width - (high - low) < PICTURE_PROBE_FRAMES:
+            break
+    if high - low > PICTURE_STEP_MAX_FRAMES:
+        return None
+    return low, high
+
+
+def picture_steps_in_continuous_zones(transitions, walk, reference, domain, master_obj,
+                                      candidate_obj, work_dir, candidate_path):
+    """Apply the frame-count rule to every span the audio sees as continuous.
+
+    Between two cuts the audio holds one offset. The anchors bounding that span give its frame
+    count on each file: the picture shift at its start and at its end.
+    - Same count (shifts within one frame: two releases can cut a shot one frame apart) and
+      the audio aligned: nothing in the span changes; a picture difference there is a finding.
+    - Another count (frames more or fewer in the candidate): that part is taken from the
+      master. The step is located by a pixel bisection inside the span and resolved
+      frame-exact like any hole; when the frames between the probes read either shift (a fade,
+      a black or static run), the whole window between the probes is taken from the master.
+      The audio offset of the span is kept on both sides.
+    A step the probes cannot locate stays a finding.
+
+    Returns:
+        the transitions, with the master takes in master order.
+    """
+    frame_ms = float(domain["frame_ms"])
+    quantum_ms = reference["alignment"]["quantum_ms"]
+    added = []
+    for number, (left, right) in enumerate(zip(transitions, transitions[1:])):
+        before, after = left.get("after_shift_frames"), right.get("before_shift_frames")
+        if before is None or after is None or abs(after - before) < PICTURE_STEP_MIN_FRAMES:
+            continue
+        low = _master_frame_of_ms((left["at_s"] + left["fill_s"]) * 1000.0, domain)
+        high = _master_frame_of_ms(right["at_s"] * 1000.0, domain)
+        window = _locate_picture_step(domain, master_obj, candidate_obj, low, high, before,
+                                      after)
+        finding = (f"zone_frames=[{low}, {high}] shifts=[{before}, {after}] "
+                   f"for {candidate_path}\n")
+        if window is None:
+            tools.log_always(f"repair: frame_count_differs_unlocated {finding}")
+            continue
+        level = left["b_ms"]
+        step_ms = (after - before) * frame_ms
+        low_ms, high_ms = window[0] * frame_ms, window[1] * frame_ms
+        hole = {"modality": _orch().MODALITY, "kind": "interior",
+                "why_token": _orch().WHY_TOKEN["interior"], "origin": "frame_count",
+                "touches_head": False, "touches_tail": False,
+                "master_ms": [low_ms, high_ms], "candidate_ms": [low_ms + level, high_ms + level],
+                "master_span_seconds": (high_ms - low_ms) / 1000.0,
+                "candidate_span_seconds": (high_ms - low_ms) / 1000.0,
+                "offset_before_ms": before * frame_ms, "offset_after_ms": after * frame_ms,
+                "offset_before_points": None, "offset_after_points": None,
+                "step_ms": step_ms,
+                "step_points": _round_half_up(Fraction(str(step_ms)) / Fraction(str(quantum_ms))),
+                "quantum_ms": quantum_ms, "track_delay_delta_ms": reference["fold"]["delta_ms"],
+                "offset_sources": ["picture", "picture"], "union_of": 1,
+                "members": [{"couple": reference["couple"], "kind": "frame_count",
+                             "master_ms": [round(low_ms, 2), round(high_ms, 2)],
+                             "step_ms": round(step_ms, 3), "change_point": None}]}
+        outcome = _resolve_logged(candidate_path, f"frame_count_{number}", hole, domain,
+                                  master_obj, candidate_obj, work_dir, walk=walk)
+        status = outcome["status"]
+        exact = (status == _orch().HOLE_RESOLVED
+                 and outcome["after_shift_frames"] - outcome["before_shift_frames"]
+                 == after - before)
+        if exact:
+            start, end = outcome["master_start_frame"], outcome["master_end_frame"]
+        else:
+            # The frames between the probes read either shift: the window is taken whole.
+            start, end = window
+        removal_s = None
+        if exact and outcome.get("removal_frame") is not None:
+            removal_s = _frame_s(outcome["removal_frame"], domain)
+        at = _frame_s(start, domain)
+        fill = max(0, before - after, end - start) * frame_ms / 1000.0
+        for piece_at, piece_fill, a_ms, b_ms, decision, left_shift, right_shift in (
+                _transition_pieces(at, fill, level, level, "frame_count_differs_from_master",
+                                   before, after, removal_s)):
+            added.append({"at_s": piece_at, "fill_s": piece_fill, "a_ms": a_ms, "b_ms": b_ms,
+                          "decision": decision, "interval": None, "edges": None,
+                          "video_status": status, "video_s": at,
+                          "change_point": left["change_point"],
+                          "before_shift_frames": left_shift, "after_shift_frames": right_shift})
+        tools.log_always(
+            f"repair: frame_count_differs_from_master at_s={round(at, 4)} "
+            f"fill_ms={round(fill * 1000.0, 3)} master_frames=[{start}, {end}] "
+            f"read={'exact' if exact else 'probe_window'} resolver_status={status} "
+            f"audio_offset_ms={level} {finding}")
+    if not added:
+        return transitions
+    transitions = sorted(transitions + added, key=lambda t: t["at_s"])
+    log_transitions_summary(transitions, candidate_path)
+    return transitions
+
+
 def log_transitions_summary(transitions, candidate_path):
     """Log one unconditional line with every transition as `change_point:decision:at_s:fill_ms:step_ms`."""
     tools.log_always(
@@ -3060,17 +3228,24 @@ def log_transitions_summary(transitions, candidate_path):
         + f" for {candidate_path}\n")
 
 
-def log_holes_against_walk(holes, walk, candidate_path):
-    """Cross-log the union's holes against the walk's change points.
+def log_holes_against_walk(holes, walk, transitions, candidate_path):
+    """Cross-log the union's holes against the walk's change points and the plan's cuts.
 
-    An interior hole with no change point in reach carries no audio step and creates no fill
-    (`picture_only`); a change point no hole reaches is logged as unseen by the aligner.
+    An interior hole with no change point in reach sits where the audio is continuous: the
+    frame-count rule decides its span (`picture_steps_in_continuous_zones`). Same frame count
+    -> nothing changes (`same_frame_count_no_change`); another count -> the span was taken
+    from the master (`frame_count_differs_from_master`). A change point no hole reaches is
+    logged as unseen by the aligner.
     """
     import audio_walk
     regions = [(p["level_before"]["t_last"] * 1000.0,
                 (p["level_after"]["t_first"] + audio_walk.WALK_WINDOW_S) * 1000.0, p)
                for p in walk["points"] if p["kind"] == "change_point"]
     reach = _orch().HOLE_MERGE_WINDOW_SECONDS * 1000.0
+    takes = [t["at_s"] * 1000.0 for t in transitions
+             if t["decision"] == "frame_count_differs_from_master"]
+    cuts = [t["at_s"] * 1000.0 for t in transitions
+            if t["decision"] != "frame_count_differs_from_master"]
     seen = set()
     for index, hole in enumerate(holes):
         if hole["kind"] != "interior":
@@ -3078,12 +3253,18 @@ def log_holes_against_walk(holes, walk, candidate_path):
         hits = [id(p) for low, high, p in regions
                 if low < hole["master_ms"][1] + reach and high > hole["master_ms"][0] - reach]
         seen.update(hits)
-        if not hits:
-            tools.log_always(
-                f"repair: picture_only hole={index} master_ms=[{round(hole['master_ms'][0], 2)}, "
-                f"{round(hole['master_ms'][1], 2)}] b2_step_ms="
-                f"{None if hole['step_ms'] is None else round(hole['step_ms'], 3)} "
-                f"rule=ADDENDUM_25_2_no_audio_jump_no_fill for {candidate_path}\n")
+        if hits:
+            continue
+        left = max((c for c in cuts if c <= hole["master_ms"][0]), default=None)
+        right = min((c for c in cuts if c >= hole["master_ms"][1]), default=None)
+        taken = any((left is None or left <= at) and (right is None or at <= right)
+                    for at in takes)
+        tools.log_always(
+            f"repair: picture_only hole={index} master_ms=[{round(hole['master_ms'][0], 2)}, "
+            f"{round(hole['master_ms'][1], 2)}] b2_step_ms="
+            f"{None if hole['step_ms'] is None else round(hole['step_ms'], 3)} "
+            f"rule={'frame_count_differs_from_master' if taken else 'same_frame_count_no_change'} "
+            f"for {candidate_path}\n")
     for low, high, point in regions:
         if id(point) not in seen:
             _orch().step_result("change_point_unseen_by_b2", candidate=candidate_path,
