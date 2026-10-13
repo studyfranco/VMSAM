@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
 from os import path
-import hashlib
 import json
 import sys
 import time
@@ -1458,7 +1457,11 @@ def record(candidate_path, outcome, reason, detail=None, cause=None):
     # so a filename cannot forge one.
     head = f"repair: {outcome}"
     if cause != None:
-        head += f" cause={cause}"
+        import repair_orchestrator
+        token, field, detailed = repair_orchestrator.surfaced_cause(cause)
+        head += f" cause={token}"
+        if field:
+            reason = f"[{field}={detailed}] {reason}"
     tools.log_always(f"{head} for {candidate_path}: {reason}\n")
     # `repair_detail:` prefix so the outcome parser does not read it as an outcome.
     if outcome in ("declined", "failed") and detail:

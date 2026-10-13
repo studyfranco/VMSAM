@@ -188,7 +188,6 @@ DECLINE_CAUSES = {
     "master_audio_complement_short": CLASS_CONCLUSIVE,
     "master_duration_sources_disagree": CLASS_CONCLUSIVE,
     "candidate_admission_window_exceeded": CLASS_CONCLUSIVE,
-    "candidate_segment_regression": CLASS_CONCLUSIVE,
     "speed_transform_not_validated": CLASS_COULD_NOT_RUN,
     "plan_not_contiguous": CLASS_COULD_NOT_RUN,
     "plan_piece_empty_or_inverted": CLASS_COULD_NOT_RUN,
@@ -198,7 +197,65 @@ DECLINE_CAUSES = {
     # The plan does not give back the master's frame count and the picture-only plan could not
     # replace it: a defect of our plan, not a fact about the pair.
     "frame_count_mismatch": CLASS_COULD_NOT_RUN,
+    # Family tokens of CAUSE_FAMILIES (below), when raised as such.
+    "boundary_unresolved": CLASS_COULD_NOT_RUN,
+    "audio_unmeasurable": CLASS_COULD_NOT_RUN,
+    "precondition_failed": CLASS_CONCLUSIVE,
+    "plan_invariant_broken": CLASS_COULD_NOT_RUN,
+    "video_route_unresolved": CLASS_COULD_NOT_RUN,
 }
+
+# Surfaced vocabulary: detailed causes that share one meaning are reported under one family
+# token, the detailed cause kept in a named field (`cause=<family> <field>=<detailed>`).
+# Internal decisions still read the detailed cause.
+CAUSE_FAMILIES = {
+    # A time or size budget stopped the run: a fact about this run, not the pair.
+    "repair_budget_exceeded": ("checkpoint", (
+        "alignment_budget_exceeded", "hole_budget_exceeded", "decoder_timeout",
+        "hole_count_exceeds_resolver_budget", "interior_hole_exceeds_budget")),
+    # The picture could not seat a frame-exact boundary.
+    "boundary_unresolved": ("kind", (
+        "hole_resolution_declined", "video_cut_undetermined",
+        "sub_quantum_step_video_ambiguous", "video_edge_undetermined",
+        "hole_status_unhandled")),
+    # The audio measurement gave nothing usable.
+    "audio_unmeasurable": ("stage", (
+        "audio_step_unlocalised", "hole_width_contradicts_audio_step",
+        "frame_domain_unmeasured", "plan_offset_unmeasurable", "alignment_degenerate_input",
+        "alignment_no_anchored_runs", "alignment_all_seeds_refused",
+        "alignment_segments_below_duration_floor", "alignment_coverage_below_floor",
+        "audio_walk_unavailable", "track_duration_unmeasurable")),
+    # The master's or the candidate's own shape rules the pair out before any comparison.
+    "precondition_failed": ("reason", (
+        "master_audio_complement_short", "master_duration_sources_disagree",
+        "candidate_admission_window_exceeded")),
+    # The picture-only route could not run or could not conclude.
+    "video_route_unresolved": ("reason", (
+        "video_fps_mismatch", "video_offset_not_constant", "video_offset_coverage_incomplete",
+        "video_probe_failed", "video_decode_failed")),
+    # Our own plan builder produced an impossible shape: a defect of the plan, not the pair.
+    "plan_invariant_broken": ("kind", (
+        "plan_not_contiguous", "plan_piece_empty_or_inverted", "plan_end_not_master_timeline",
+        "audio_transitions_overlap", "hole_outside_master_timeline",
+        "hole_step_exceeds_duration", "plan_application_no_file")),
+}
+_FAMILY_OF = {detailed: (family, field) for family, (field, members) in CAUSE_FAMILIES.items()
+              for detailed in members}
+assert all(DECLINE_CAUSES[family] == DECLINE_CAUSES[detailed]
+           for detailed, (family, _field) in _FAMILY_OF.items()), (
+    "repair_orchestrator: a cause family mixes measurement classes")
+
+
+def surfaced_cause(cause):
+    """Return (token, field, detail) for a cause as reported: its family when it has one.
+
+    `field` and `detail` are None for a cause without a family.
+    """
+    if cause in _FAMILY_OF:
+        family, field = _FAMILY_OF[cause]
+        return family, field, cause
+    return cause, None, None
+
 
 # Hole-result vocabulary. The audio proposes a zone, the video decides; a hole the video crosses
 # under one shift closes as `no_cut_confirmed`. Every status but `declined` carries exact frames:
@@ -266,6 +323,11 @@ def _plan_line(kind, candidate_path, **fields):
         tools.dev_log(f"orchestrator: plan line kind={kind} not repeated for {candidate_path} "
                       f"-- the build's plan line (with its geometry) is this run's one line\n")
         return
+    if "cause" in fields:
+        token, field, detail = surfaced_cause(fields["cause"])
+        fields["cause"] = token
+        if field:
+            fields[field] = detail
     tools.log_line(f"repair: plan {kind} build={repair_log.build_sha()} orchestrator=1 "
                       f"{_fields(sorted(fields.items()))} for {candidate_path}\n")
 
@@ -275,13 +337,18 @@ _PLAN_LINE_MARK = {}
 
 
 def log_measurement_class(candidate_path, cause):
-    """Log the measurement class of a cause token; an unknown token is logged as `unclassified`."""
+    """Log the measurement class of a cause token; an unknown token is logged as `unclassified`.
+
+    A detailed cause is logged under its family (`surfaced_cause`) with the detail beside it.
+    """
     if cause not in DECLINE_CAUSES:
         tools.log_always(f"repair: orchestrator UNVOCABULARISED cause={cause} for "
                          f"{candidate_path} -- this token is not in DECLINE_CAUSES and has no "
                          f"measurement class; add it there. The refusal below stands.\n")
-    tools.log_always(f"repair: orchestrator cause={cause} "
-                     f"measurement={DECLINE_CAUSES.get(cause, 'unclassified')} "
+    token, field, detail = surfaced_cause(cause)
+    tools.log_always(f"repair: orchestrator cause={token} "
+                     + (f"{field}={detail} " if field else "")
+                     + f"measurement={DECLINE_CAUSES.get(cause, 'unclassified')} "
                      f"for {candidate_path}\n")
 
 
