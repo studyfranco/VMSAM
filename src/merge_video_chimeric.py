@@ -498,6 +498,16 @@ def resolve_source_bitrate(audio, source_path, timeout=120):
         f"encoded at whatever default the encoder picks")
 
 
+def original_encode_of(audio, codec_name, source_path):
+    '''Return the ORIGINAL_ENCODE value of a source track, or None when its bitrate is unknown.'''
+    try:
+        bitrate, _ = resolve_source_bitrate(audio, source_path)
+        return tools.original_encode_value(codec_name, bitrate, audio["SamplingRate"])
+    except (chimeric_error, KeyError, ValueError, TypeError) as error:
+        tools.dev_log(f"chimeric: no ORIGINAL_ENCODE for stream {audio.get('StreamOrder')}: {error}\n")
+        return None
+
+
 def get_encoder_arguments(audio, codec_name, source_path=None):
     '''Encoder arguments chosen by `audio_reencode` (config.json `audio_reencode`).
 
@@ -801,6 +811,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     bitrate = None
     if "-b:a" in encoder_arguments:
         bitrate = encoder_arguments[encoder_arguments.index("-b:a") + 1]
+    original_encode = original_encode_of(audio, codec_name, candidate_obj.filePath)
     # Per-region report: master-filled regions, cut candidate regions, and used
     # candidate regions with their offset.
     filled = Decimal("0")
@@ -890,6 +901,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
             "fill_by_reference": fill_by_reference,
             "path": out_path,
             "bitrate": bitrate, "bitrate_origin": bitrate_origin,
+            "original_encode": original_encode,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
             "gap_filled_ms": str(filled),
@@ -1267,7 +1279,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 
     This is the only mux site of the repair path. Every track carries VMSAM_EDITED
     (what was done to it); VMSAM_FABRICATED only when `attach_track_tags` demoted
-    it. VMSAM_ERA records the git commit and `job_start_utc`.
+    it; ORIGINAL_ENCODE (codec, bitrate, sample rate of the source) on every re-encoded
+    audio track. VMSAM_ERA records the git commit and `job_start_utc`.
     '''
     tools.dev_log(f"chimeric: mux_repaired_file starting out_path={out_path} "
                   f"n_audio={len(audio_reports)} n_subtitle={len(subtitle_reports)} "
@@ -1288,6 +1301,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         tags = [f"VMSAM_EDITED={report.get('edited') or 'rebuilt'}"]
         if report.get("fabricated"):
             tags.append(f"VMSAM_FABRICATED={report['fabricated']}")
+        if report.get("original_encode"):
+            tags.append(f"{tools.ORIGINAL_ENCODE_TAG}={report['original_encode']}")
         for tag in tags:
             command.extend([spec, tag])
 
