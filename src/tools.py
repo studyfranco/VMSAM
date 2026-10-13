@@ -375,6 +375,7 @@ def load_merge_runtime_from_env():
     global tmpFolder_original, tmpFolder, core_to_use, folder_error, software
     global mergeRules, group_title_sub, language_to_keep
     global language_to_completely_remove, language_to_try_to_keep, special_params
+    global configuration
 
     tmp_original = os.environ.get("VMSAM_TMP_FOLDER_ORIGINAL", "").strip()
     if len(tmp_original):
@@ -518,86 +519,6 @@ def keep_best_audio_fabricated_trace(audio_1, audio_2):
     logs.append(trace_line + "\n")
     return outcome
 
-
-ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
-REENCODE_KEEP_HANDICAP_KEY = "reencode_keep_handicap"
-
-# ffmpeg codec name -> mediainfo Format, the names the [mergerules] audio rules use.
-ORIGINAL_ENCODE_FORMATS = {
-    "aac": "AAC", "ac3": "AC-3", "eac3": "E-AC-3", "dts": "DTS", "flac": "FLAC",
-    "opus": "Opus", "mp3": "MPEG Audio", "mp2": "MPEG Audio", "vorbis": "Vorbis",
-    "truehd": "MLP FBA", "mlp": "MLP", "alac": "ALAC",
-}
-
-_reencode_keep_handicap = None
-
-
-def original_encode_value(codec, bitrate, sampling_rate):
-    """Return the ORIGINAL_ENCODE tag value `<codec>:<bitrate_bps>:<sample_rate_hz>`."""
-    return f"{str(codec).lower()}:{int(float(bitrate))}:{int(float(sampling_rate))}"
-
-
-def parse_original_encode(value):
-    """Return (codec, bitrate_bps, sample_rate_hz) from an ORIGINAL_ENCODE value, or None."""
-    try:
-        codec, bitrate, sampling_rate = str(value).strip().split(":")
-        codec = codec.strip().lower()
-        if not codec:
-            return None
-        return codec, int(float(bitrate)), int(float(sampling_rate))
-    except (ValueError, TypeError):
-        return None
-
-
-def original_encode_format(codec):
-    """Map an ffmpeg codec name to the mediainfo Format string the merge rules compare."""
-    codec = codec.lower()
-    if codec.startswith("pcm_"):
-        return "PCM"
-    return ORIGINAL_ENCODE_FORMATS.get(codec, codec.upper())
-
-
-def reencode_keep_handicap(config_path="config.json"):
-    """Return the bitrate factor applied to a re-encoded track in keep_best_audio.
-
-    Read once from `reencode_keep_handicap` in config.json; 1.0 (no handicap) when
-    the file or the key is missing.
-    """
-    global _reencode_keep_handicap
-    if _reencode_keep_handicap is None:
-        factor = 1.0
-        try:
-            import json
-            with open(config_path) as configuration_file:
-                factor = float(json.load(configuration_file).get(REENCODE_KEEP_HANDICAP_KEY, 1.0))
-        except (OSError, ValueError, TypeError, AttributeError) as e:
-            sys.stderr.write(f"reencode_keep_handicap: {e}, no handicap\n")
-        _reencode_keep_handicap = factor
-    return _reencode_keep_handicap
-
-
-def audio_for_keep(audio):
-    """Return the audio dict keep_best_audio must compare.
-
-    A track without the ORIGINAL_ENCODE tag is returned unchanged. A re-encoded
-    track is returned as a shallow copy whose Format, bitrate (BitRate and
-    ffprobe bit_rate, the two fields video.get_bitrate reads) and SamplingRate
-    are those of its original encoding, the bitrate multiplied by the handicap.
-    """
-    value = (audio.get("extra") or {}).get(ORIGINAL_ENCODE_TAG)
-    original = parse_original_encode(value) if value else None
-    if original is None:
-        return audio
-    codec, bitrate, sampling_rate = original
-    handicapped = str(int(round(bitrate * reencode_keep_handicap())))
-    compared = dict(audio)
-    compared["Format"] = original_encode_format(codec)
-    compared["BitRate"] = handicapped
-    compared.pop("BitRate_Nominal", None)
-    compared["SamplingRate"] = str(sampling_rate)
-    if isinstance(audio.get("ffprobe"), dict):
-        compared["ffprobe"] = dict(audio["ffprobe"], bit_rate=handicapped)
-    return compared
 
 """
 END: AGENT modification

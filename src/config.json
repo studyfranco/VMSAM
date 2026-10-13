@@ -35,44 +35,45 @@
         "flac": 4608,
         "default": 4608
     },
-    "reencode_keep_handicap": 0.9,
     "audio_reencode": {
-        "lossless_formats": ["flac", "pcm"],
-        "lossless": "flac",
-        "sources": {"aac": "opus", "ac3": "opus", "eac3": "opus", "dts": "opus"},
-        "targets": {
-            "flac": {"encoder": "flac", "sample_fmt": {"16": "s16", "default": "s32"},
-                     "args": ["-compression_level", "12", "-exact_rice_parameters", "1"]},
-            "opus": {"encoder": "libopus", "sample_rate": "48000",
-                     "max_bitrate_per_channel": "256k",
-                     "filters": {"5.1(side)": "channelmap=channel_layout=5.1",
-                                 "5.0(side)": "channelmap=channel_layout=5.0"},
-                     "rules": [
-                         {"channels": 1, "source_bitrate": {"min": "0", "max": "128k"},
-                          "bitrate": {"factor": 1, "ceiling": "128k"}},
-                         {"channels": 1, "source_bitrate": {"min": "128k"}, "bitrate": "128k"},
-                         {"channels": 2, "source_bitrate": {"min": "0", "max": "80k"},
-                          "bitrate": {"factor": 1, "floor": "160k", "ceiling": "192k"}},
-                         {"channels": 2, "source_bitrate": {"min": "80k", "max": "192k"},
-                          "bitrate": {"factor": 1, "floor": "192k", "ceiling": "192k"}},
-                         {"channels": 2, "source_bitrate": {"min": "192k"}, "bitrate": "192k"},
-                         {"channels": {"min": 3, "max": 5}, "source_bitrate": {"min": "0", "max": "640k"},
-                          "bitrate": {"factor": 1, "ceiling": "640k"}, "args": ["-mapping_family", "1"]},
-                         {"channels": {"min": 3, "max": 5}, "source_bitrate": {"min": "640k"},
-                          "bitrate": "640k", "args": ["-mapping_family", "1"]},
-                         {"channels": 6, "source_bitrate": {"min": "0", "max": "640k"},
-                          "bitrate": {"factor": 1, "floor": "640k", "ceiling": "640k"}, "args": ["-mapping_family", "1"]},
-                         {"channels": 6, "source_bitrate": {"min": "640k"}, "bitrate": "640k", "args": ["-mapping_family", "1"]},
-                         {"channels": {"min": 7, "max": 8}, "source_bitrate": {"min": "0", "max": "640k"},
-                          "bitrate": {"factor": 1, "ceiling": "640k"}, "args": ["-mapping_family", "1"]},
-                         {"channels": {"min": 7, "max": 8}, "source_bitrate": {"min": "640k"},
-                          "bitrate": "640k", "args": ["-mapping_family", "1"]}
-                     ]},
-            "aac": {"encoder": "aac"},
-            "ac3": {"encoder": "ac3"},
-            "eac3": {"encoder": "eac3"},
-            "mp3": {"encoder": "libmp3lame"},
-            "vorbis": {"encoder": "libvorbis"}
-        }
+        "lossless": {"codec": "flac", "args": ["-compression_level", "12", "-exact_rice_parameters", "1"]},
+        "sources": {
+            "aac": {"target": "libopus", "args": ["-ar", "48000"], "rules": [
+                    {"channels": [1, 1], "bitrate": {"ceiling": "128k"}},
+                    {"channels": [2, 2], "source_bitrate": ["0", "80k"], "bitrate": "160k"},
+                    {"channels": [2, 2], "source_bitrate": ["80k", null], "bitrate": "192k"},
+                    {"channels": [3, 5], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"], "filters": {"5.0(side)": "channelmap=channel_layout=5.0"}},
+                    {"channels": [6, 6], "bitrate": "640k", "args": ["-mapping_family", "1"], "filters": {"5.1(side)": "channelmap=channel_layout=5.1"}},
+                    {"channels": [7, 8], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"]}
+                ]},
+            "ac3": {"target": "libopus", "args": ["-ar", "48000"], "rules": [
+                    {"channels": [1, 1], "bitrate": {"ceiling": "128k"}},
+                    {"channels": [2, 2], "bitrate": "192k"},
+                    {"channels": [3, 5], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"], "filters": {"5.0(side)": "channelmap=channel_layout=5.0"}},
+                    {"channels": [6, 6], "bitrate": "640k", "args": ["-mapping_family", "1"], "filters": {"5.1(side)": "channelmap=channel_layout=5.1"}},
+                    {"channels": [7, 8], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"]}
+                ]},
+            "eac3": {"target": "libopus", "args": ["-ar", "48000"], "rules": [
+                    {"channels": [1, 1], "bitrate": {"ceiling": "128k"}},
+                    {"channels": [2, 2], "bitrate": "192k"},
+                    {"channels": [3, 5], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"], "filters": {"5.0(side)": "channelmap=channel_layout=5.0"}},
+                    {"channels": [6, 6], "bitrate": "640k", "args": ["-mapping_family", "1"], "filters": {"5.1(side)": "channelmap=channel_layout=5.1"}},
+                    {"channels": [7, 8], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"]}
+                ]},
+            "dts": {"target": "libopus", "args": ["-ar", "48000"], "rules": [
+                    {"channels": [1, 1], "bitrate": {"ceiling": "128k"}},
+                    {"channels": [2, 2], "bitrate": "192k"},
+                    {"channels": [3, 5], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"], "filters": {"5.0(side)": "channelmap=channel_layout=5.0"}},
+                    {"channels": [6, 6], "bitrate": "640k", "args": ["-mapping_family", "1"], "filters": {"5.1(side)": "channelmap=channel_layout=5.1"}},
+                    {"channels": [7, 8], "bitrate": {"ceiling": "640k"}, "args": ["-mapping_family", "1"]}
+                ]}
+        },
+        "default": {"target": "same", "rules": [{"bitrate": "source"}]}
+    },
+    "reencode_keep_handicap": 0.9,
+    "original_encode_formats": {
+        "aac": "AAC", "ac3": "AC-3", "eac3": "E-AC-3", "dts": "DTS", "flac": "FLAC",
+        "opus": "Opus", "mp3": "MPEG Audio", "mp2": "MPEG Audio", "vorbis": "Vorbis",
+        "truehd": "MLP FBA", "mlp": "MLP", "alac": "ALAC"
     }
 }

@@ -1141,8 +1141,8 @@ def keep_best_audio(list_audio_metadata,audioRules):
     for i,real_audio_1 in enumerate(list_audio_metadata):
         for j,real_audio_2 in enumerate(list_audio_metadata):
             # A re-encoded track is compared by its original encoding; keep is copied back below.
-            audio_1 = tools.audio_for_keep(real_audio_1)
-            audio_2 = tools.audio_for_keep(real_audio_2)
+            audio_1 = audio_reencode.audio_for_keep(real_audio_1)
+            audio_2 = audio_reencode.audio_for_keep(real_audio_2)
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
             # A fabricated (repaired) track loses to an intact one before any codec rule.
@@ -1627,39 +1627,6 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
-    """Add the codec and resample options of one audio track to the ffmpeg second pass."""
-    if audio["Format"].lower() in ("flac", "pcm") or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
-        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", "flac", f"-compression_level:a{get_relative_id_track(audio)}", "12"])
-        if "BitDepth" in audio:
-            if audio["BitDepth"] == "16":
-                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s16"])
-            else:
-                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
-        else:
-            base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
-        base_cmd.extend([f"-exact_rice_parameters:a{get_relative_id_track(audio)}", "1"])
-        if delay_to_put < 0:
-            base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
-        set_original_encode_tag(base_cmd,audio)
-    elif delay_to_put < 0:
-        base_cmd.extend(audio_reencode.second_pass_options(audio, get_relative_id_track(audio), ["aresample=async=1:first_pts=0"], video.get_bitrate))
-        set_original_encode_tag(base_cmd,audio)
-
-def set_original_encode_tag(base_cmd,audio):
-    """Tag a re-encoded track with ORIGINAL_ENCODE=<codec>:<bitrate>:<sample rate> of its source.
-
-    A track that already carries the tag keeps it: it names the first encoding.
-    """
-    value = (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG)
-    if not value:
-        try:
-            value = tools.original_encode_value(audio["ffprobe"]["codec_name"], video.get_bitrate(audio), audio["SamplingRate"])
-        except Exception as e:
-            sys.stderr.write(f"No ORIGINAL_ENCODE for track {audio.get('StreamOrder')}: {e}\n")
-            return
-    base_cmd.extend([f"-metadata:s:a{get_relative_id_track(audio)}", f"{tools.ORIGINAL_ENCODE_TAG}={value}"])
-
 def check_delay_retention_sub(track, original_video_path,sentence):
     """Warn when a track's delay differs from the original delay stored in its VMSAM_TMP tag."""
     extra_tags = track.get("extra", {})
@@ -1737,15 +1704,15 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     
     for language,audios in new_video.audios.items():
         for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
+            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)
 
     for language,audios in new_video.commentary.items():
         for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
+            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)
    
     for language,audios in new_video.audiodesc.items():
         for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)    
+            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)    
 
     base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file])
 
