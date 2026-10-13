@@ -651,6 +651,14 @@ def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, de
         f"seconds={round(time.monotonic() - started, 2)}")
 
 
+def merge_audio_rules():
+    """Return the [mergerules] audio rules of the configuration, as keep_best_audio takes them."""
+    import mergeVideo
+    merge_rules = tools.mergeRules or tools.config_loader(
+        path.join(path.dirname(path.abspath(tools.__file__)), tools.config_file), "mergerules")
+    return mergeVideo.decript_merge_rules(merge_rules["audio"])
+
+
 def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                              content_probe=None, deadline=None, kept=None):
     """Judge every rebuilt audio track of the repaired file before delivery; only sets `keep`.
@@ -658,7 +666,8 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     Only a track carrying `VMSAM_FABRICATED` is demoted in the race; a rebuilt track
     without it races on the normal codec rules. Commentary tracks are kept. Other tracks are compared with each intact master track of the
     same language (`measure_same_content`): same content (or unmeasurable) -> raced through
-    `mergeVideo.keep_best_audio`, where the intact track wins; different content or no intact
+    `mergeVideo.keep_best_audio` with the configured audio rules, a re-encoded track
+    compared by its ORIGINAL_ENCODE; different content or no intact
     track -> compared with the intact tracks of the other languages, and dropped as a duplicate
     (`cross_lang=<declared>-><matched>`) if one measures as the same content, else kept.
     `content_probe` replaces the comparison; `kept` collects kept-track decisions; past
@@ -668,6 +677,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     import mergeVideo
     import merge_video_chimeric
     probe = content_probe or measure_same_content
+    audio_rules = merge_audio_rules()
     dropped = []
     master_intact = {}
     # Opponents: intact main and audio-description tracks, never a master commentary.
@@ -754,7 +764,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                         continue
                     rival = dict(intact)
                     rival["keep"] = True
-                    mergeVideo.keep_best_audio([rival, audio], {})
+                    mergeVideo.keep_best_audio([rival, audio], audio_rules)
                     if not audio["keep"]:
                         lost_to = (intact, same)
                         break
