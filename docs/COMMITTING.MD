@@ -6,20 +6,20 @@ moved here because the section people are pointed at is the section people read
 hours). Everything here is about the moment work lands; nothing here is about how you
 work before that.
 
-**Commit freely everywhere below the last hop, work in progress included.** The rules
-below govern what reaches `master`, and nothing else. In `/tmp`, in your `VMSAM_WIP`
-clone and on the campaign branch, commit as often as the work needs — **uncommitted
-work is the only thing a reset destroys**, and this file's framing once read as a
-standard of worthiness and left a modified file exposed through a branch rewrite
-(`vmsam-dev-2`, `vmsam-dev-1`). If you are unsure whether something earns a commit
-where you are, it does.
+**Commit freely everywhere below the shared branches, work in progress included.** In
+`/tmp` and in your `VMSAM_WIP` clone, commit as often as the work needs — **uncommitted
+work is the only thing a reset destroys**, and if you are unsure whether something
+earns a commit there, it does. **But the rules below govern every SHARED branch —
+`dev-AI` included — not only `master`.** A shared branch is one other agents fetch
+from, and what lands on it is read as an increment by every one of them: a cadence
+that is free in your clone is noise the moment it is published.
 
-**This section is about the last hop — what reaches `master`.** In the tiers above
-it, commit as often as the work needs — but see the shape rule below, because "as
-often as the work needs" is not the same as "once per thought".
+**This section is about what reaches a shared branch.** In the tiers below, commit as
+often as the work needs — but see the shape rule below, because "as often as the work
+needs" is not the same as "once per thought".
 
 **A note is not a deliverable: it travels with the change it explains.** Never commit
-`AGENT_NOTES.MD` or a `TASKS/` file on its own. Write the note when you have it —
+a `TASKS/` file or a findings note on its own. Write the note when you have it —
 that discipline is right — and let it ride along with the code, the measurement or
 the decision it is about. Measured over campaign 2's first five hours: **78 commits,
 of which 5 touched code and 69 were notes or task files alone.** Campaign 1 was 70 %
@@ -52,6 +52,23 @@ clock — it was that agents were racing for the same slot at all.
 **In your own clone this does not apply.** Commit documentation as freely as
 anything else; the rule governs what reaches the branch.
 
+## The final form of the cadence rule — measured in commits, not on a clock
+
+**Every clock form above was an approximation of this.** A documentation-only commit
+may land on a shared branch only when at least one commit that is NOT
+documentation-only has landed since the previous documentation-only one:
+
+    git rev-list --count <last-doc-only-commit>..HEAD    # must be >= 1 before yours
+
+**The classifier is by path, and the default is NOT documentation-only.** A commit is
+documentation-only when every path it touches is a `.MD`, task or notes file; anything
+unclassified — a script, a fixture, a config — makes the commit count as work.
+
+**One exception, and it is claimed in clear text.** A measurement that legitimately
+changes nothing in the repository lands as one commit whose message says so and
+**names the harness that produced the measurement** — an unclaimed exception is a
+documentation-only commit like any other.
+
 **It was branch-wide and that was wrong.** `vmsam-forensic` predicted the failure as
 a property of the rule — five actors reset one clock, and the agent committing least
 often is the one starved — and then lived it: its `TASKS/003`, holding objective 1
@@ -79,7 +96,7 @@ A commit is a unit of **result**, not of activity. What earns one:
 - a blocking bug fixed;
 - a complete, coherent change to one zone.
 
-What does not: a line added to `AGENT_NOTES.MD`, a comment, a rename, a
+What does not: a line added to a task file, a comment, a rename, a
 reformatting, a half-written function, "work in progress". Those wait and travel
 with the work they belong to.
 
@@ -102,4 +119,33 @@ And `WRITE_ZONES.MD` §5's checks run per commit, so a commit carrying nothing
 still costs a full verification.
 
 If a day's work produced nothing that fits the list above, it produces **no commit**.
-That is a normal outcome, and `AGENT_NOTES.MD` is where it is recorded.
+That is a normal outcome, and your task file in `CAMPAIGNS/<campaign>/TASKS/` is where it is recorded.
+
+## Be certain of the code before you commit it
+
+**Owner instruction, and it arrived on the day the fleet measured why it is needed:**
+*fewer commits, each on one subject — group them between devs — and above all TEST MORE
+BEFORE COMMITTING. Be certain of the code.*
+
+**A stream of small commits degrades testing:** each is too small to be worth a real
+test, so each gets a small one, and **the population every one of them is tested
+against is whatever was convenient at the time.**
+
+**Which is exactly the defect that pattern produces.** A rate detector was validated on
+three files and reported working; **all three carried a near-unity relation, and the
+instrument's error is proportional to the distance from unity.** *"The method works"
+had been measured entirely inside the region where the method's error rounds to
+nothing.* **A detector that refuses everything passes every negative test** — and it
+took four files nobody had run it against to show it.
+
+So, concretely, before a commit:
+
+- **Test where the defect would be LARGEST, not where files are available.** A population
+  chosen for convenience is chosen by something other than the question.
+- **Run the negative and the positive.** An instrument shown only to stay silent has had
+  its rejection behaviour measured and nothing else.
+- **Group the work.** One commit covering a whole change can carry one real test; six
+  commits covering the same change carry six token ones and no coverage.
+
+**None of this makes a commit slower to write. It makes it slower to declare finished**,
+and that is the intended effect.

@@ -110,15 +110,10 @@ the detector must DECLINE, not assume.**
 
 ### THE DETECTOR MUST HAVE THREE OUTCOMES AND A DECLINE, NOT TWO
 
-**Measured across 33 PAL-shaped files of 314 resolvable, three arms, real
-masters:**
-
-| verdict | files | |
-| :--- | ---: | :--- |
-| `asetrate` | 9 | naive PAL — the ruling holds, margin +0.267 to +0.313 |
-| `rubberband` | 1 | **the inverting case exists** |
-| **LEAVE IT ALONE** | 2 | already matching; needs no correction |
-| decline | 21 | no arm matches anything |
+**Measured against real masters, all four verdicts occurred**: `asetrate` (the naive ruling
+holds), `rubberband` (**the inverting case exists**), **LEAVE IT ALONE** (already matching; needs
+no correction), and decline (no arm matches anything) — and decline was the most common verdict.
+*(The counts: `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.)*
 
 **The match bar is taken from the data, not guessed**: in the unambiguous group
 `asetrate` reads **0.937–0.980** and nothing else in the corpus reaches that, so
@@ -164,21 +159,20 @@ restore duration and are therefore both alignable.
 ### Weakness 3 — the correction has a DIRECTION, and getting it wrong is invisible
 
 `r` = master / candidate = 1.0427. **The candidate runs FAST and must be SLOWED**:
-`asetrate = 48000 / r`. A sweep applied `48000 * r`, **speeding it up further and
-landing twice as wrong**, while the `rubberband` arm carried the correct
-direction.
-
-**The result was rubberband winning 33 of 33 files** — consistent sign, no
-outliers, plausible magnitudes. At face value, a corpus-wide refutation of this
-policy. **Nothing internal to the run could have caught it.**
-
-What caught it was that three of the thirty-three overlapped a set someone else
-had verified by another route. **The table disagreed with a result the author had
-not produced.** Had those sets not overlapped, there was no check at all.
+`asetrate = 48000 / r`; applying `48000 * r` speeds it up further and lands twice as wrong.
+**A sign error produces a consistent, plausible, corpus-wide refutation that nothing internal to
+the run can catch** — only an overlap with independently verified files can. *(The sweep that
+measured this: `CAMPAIGNS/02-dev-chimeric-resample/DOCS_EXTRACTS.MD`.)*
 
 **So: any sweep of a directional correction must carry the wrong direction as its
 own column** — as the table above does — so a sign error reads as the floor
 instead of as a finding.
+
+### Two limits that follow, stated as rules
+
+**A per-window check cannot see a drift smaller than its window — NTSC (1.001001) passes such a
+check silently.** **And a pitch-based producer never emits `no_rate_relation`; its own verdict is
+`no_pitch_relation` — a statement about what it measured, never about the world.**
 
 ---
 

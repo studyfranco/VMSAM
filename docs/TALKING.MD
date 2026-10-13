@@ -49,6 +49,29 @@ it in three *other* clones. **A true observation attached to the wrong target.**
 Complying would have destroyed its own history and left the real leak in place.
 Verify the premise, not the plausibility.
 
+## How a question reaches the owner
+
+**Through the architect — as one line, with the decision it unblocks and what you will do under
+each answer.** That is what makes it answerable in a sentence instead of a meeting; an agent that
+believes a question has no route stops forming the question at all. **An unanswered question is a
+blocked need and is recorded as one** — never substitute your own judgement for the owner's intent
+and leave the substitution unmarked.
+
+## Censoring a name out of a document is not delivering it
+
+**The permitted channel for a media name is this one — the message layer; only opaque ids travel
+into artefacts.** Censoring silently succeeds whenever the data can stand in for the identity,
+which trains the author that censoring is safe. So when you censor something out of a document,
+ask who needed it, and send it to them in a message.
+
+## Reassurance is where fabrication is most available
+
+**A message written to reassure supplies its own conclusion, and the evidence gets fitted to it.**
+When you tell someone their work is safe, name the commit, the file, the blob — something the
+other party can check without you; a mechanism ("it landed with the rewrite") is not a fact, and
+only the fact fails loudly when it is wrong. Telling someone their work is BLOCKED costs nothing;
+only the reassurance has to be earned.
+
 ## Carrying someone else's finding
 
 **Never restate a finding more strongly than its author did.** A campaign-1 lead

@@ -1,20 +1,16 @@
 # VMSAM — AI Agent Context & Directives
 
-**This file governs `master`.** Campaign 1 had its own copy with its own rules; do
-not apply them here. `CAMPAIGNS/01-dev-AI/` holds that campaign's archive — measured
-knowledge to consult, not instructions to follow. It is all that survives of it:
-**nothing outside this repository is a source you can go and read.**
+**This file governs `master`.** Campaign archives live in `CAMPAIGNS/` — measured
+knowledge to consult, not instructions to follow. **Nothing outside this repository
+is a source you can go and read.**
 
-**No line budget, deliberately.** This file declared 450 lines and stood at 654 —
-45 % over and unenforced, and *a ceiling nobody honours teaches that ceilings are
-decorative*. The number also caused harm: **a rule squeezed to fit names its
-mechanism and drops its consequence, which is exactly what makes it fail.** Four
-failures in a single day were rules whose mechanism was written down and whose
-consequence was not.
-
-So the test is not length. **A rule earns its lines by naming what goes wrong when it
-is broken**, in the reader's own terms. A rule that only names the mechanism is worse
-than absent: a reader who knows the mechanism files it as handled.
+**No line budget, deliberately.** A ceiling nobody honours teaches that ceilings are
+decorative, and a rule squeezed to fit names its mechanism and drops its consequence
+— which is exactly what makes it fail. **A rule earns its lines by naming what goes
+wrong when it is broken**, in the reader's own terms; a rule that only names the
+mechanism is worse than absent, because a reader who knows the mechanism files it as
+handled. The measurements behind this:
+`CAMPAIGNS/02-dev-chimeric-resample/LESSONS_FROM_MASTER_DOCS.MD` §1.
 
 ---
 
@@ -24,24 +20,26 @@ than absent: a reader who knows the mechanism files it as handled.
 | :--- | :--- | :--- |
 | `AGENT.MD` | this file — what binds you | before the first edit |
 | `WRITE_ZONES.MD` | **binding rules.** What you may change and what you may not. Breaking one invalidates the campaign, not the commit | before the first edit |
-| `FILE_MAP.MD` | where everything is and what it does | to find your way |
-| `CAMPAIGN.MD` | what this campaign is for | to know what you are building |
-| `SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
-| `AGENT_NOTES.MD` | logbook — decisions and why alternatives lost | when you decide something a successor would re-derive |
+| `docs/FILE_MAP.MD` | where everything is and what it does | to find your way |
+| `CAMPAIGNS/02-dev-chimeric-resample/CAMPAIGN.MD` | what this campaign is for | to know what you are building |
+| `CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD` | the repair contract | before writing in zone A |
+| `CAMPAIGNS/02-dev-chimeric-resample/FINDINGS.MD` | the campaign's measured findings — synthesised there by the **Architect and the Lead Dev only**; everyone else reports findings in their task file and their report | when a decision needs what the campaign already measured |
 | `TASKS/` | the work assigned to you, and what you did with it | at the start and at the end of every task |
-| `COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
-| `TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
-| `COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
+| `docs/COMMITTING.MD` | what earns a commit, and what may travel alone | when you are about to commit |
+| `docs/TALKING.MD` | who may direct you, and how what you know reaches anyone | when a message arrives, or when you have something to say |
+| `docs/COMING_BACK.MD` | the procedure for resuming after a stop | **only** when you were cut off mid-work |
+| `docs/MEASURING.MD` | the measurement rules, short — the full journal is `CAMPAIGNS/02-dev-chimeric-resample/MEASURING.MD` | before claiming a number |
 | `docs/` | standing technical rulings — what a correct merge is, which speed method, which subtitle codecs can be re-timed | when your change touches one |
 
-**These documents are frozen — `AGENT_NOTES.MD` and `TASKS/` excepted, and this file
-included.** Campaign 1's `AGENT.MD` carried the line *"You
-are expected to update this `AGENT.MD` whenever you implement a new feature"* — it
-reached 1191 lines, and the campaign shipped more documentation than engine. An
-agent that may rewrite what binds it eventually rewrites itself out of it.
+**These documents are frozen — `TASKS/` excepted.** `AGENT.MD`, `WRITE_ZONES.MD` and
+everything under `docs/` are modified **only by the Architect or the Lead Dev, with
+the owner's authorisation**, and the freeze is verified by
+`VMSAM_HELP_AI/tools/check_write_zones.py`. **An agent that may rewrite what binds
+it eventually rewrites itself out of it** — campaign 1 measured this
+(`LESSONS_FROM_MASTER_DOCS.MD` §10).
 
-So: a rule that is **wrong, missing, or blocks what `CAMPAIGN.MD` asks of you** is a
-**finding**, not an edit. Write it in `AGENT_NOTES.MD`, state it in your report, and
+So: a rule that is **wrong, missing, or blocks what the campaign's `CAMPAIGN.MD` (in `CAMPAIGNS/<campaign>/`) asks of you** is a
+**finding**, not an edit. Record it in your task file, state it in your report, and
 keep working elsewhere. The owner arbitrates and edits. This applies to a rule you
 believe is simply mistaken — being right does not make it yours to change.
 
@@ -89,25 +87,21 @@ A directory **beside the repository, never inside it**. Create it if it is missi
 it is never committed and never referenced by path in a tracked file.
 
 Put there anything the repository must not carry: real media paths and filenames,
-show titles, season/episode names, TVDB/TMDB ids and any external catalogue id,
-extracts or fragments of media files, session links, host paths, the mapping from
-an opaque error id to the file it designates — and **everything you are told about
-the test instance**: how it is provisioned, on what conditions it is refreshed, how
-a run is requested. None of that belongs in a tracked file.
-
-In a tracked file, cite the opaque id and write *"details in the private notes
-beside the repository"*. That sentence is enough; the id is the key.
+show titles, season/episode names, TVDB/TMDB and any external catalogue id, media
+extracts, session links, host paths, the mapping from an opaque error id to the file
+it designates — and **everything you are told about the test instance**
+(provisioning, refresh conditions, how a run is requested). In a tracked file, cite
+the opaque id and write *"details in the private notes beside the repository"*; the
+id is the key.
 
 **Write it down the moment you are told, not the moment you need it.** What arrives
-in a prompt lives only in the conversation that carried it: your own context is
-trimmed, and a successor inherits none of it. The test instance's rules are the case
-that will cost you — received once, needed days later. Record them in
-`VMSAM_HELP_AI/` on arrival. **Not in `AGENT_NOTES.MD`**: that file is tracked and
-committed, which makes the obvious place the wrong one.
+in a prompt lives only in the conversation that carried it: your context is trimmed,
+and a successor inherits none of it. The test instance's rules are the case that
+will cost you — received once, needed days later. Record them in `VMSAM_HELP_AI/`
+on arrival, **never in a tracked file**, which makes the obvious place the wrong one.
 
-The same rule binds this document. It carried a session link until it was noticed —
-which is the point: the leak is easy, it is a single paste, and it is only visible
-to someone reading with the rule in mind.
+The same rule binds this document: it carried a session link until it was noticed —
+the leak is a single paste, and only visible to someone reading with the rule in mind.
 
 ## 🎯 Project Overview
 
@@ -154,6 +148,36 @@ enforced in three places, not one — do not mistake the last for the rule:
   `abs(calculated_delay - delay_first_method) < 500` reduces algebraically to
   `abs(delay_second_method * 1000) < 500`.
 
+**The chromaprint point is not 125 ms, and nothing may hardcode it.** It is read
+per call — `audioCorrelation.py:132` passes `int(lengthFile/len(fingerprint_source)*1000)`
+— so it is a property of *the window this pair was measured over*, not of the
+instrument. Measured across window lengths it runs **124 to 142 ms**, and it is
+125 exactly only for a window of 160-286 s (`TASKS/005` §5, corroborated by a gcd
+of 124 ms measured on real files in `TASKS/008`). Campaign 1 saw the same thing
+from the other end and recorded **138 ms observed**.
+
+Mapped through the pipeline's own window arithmetic — `video.py:474-485` with
+`number_cut = 10`, doubled at `mergeVideo.py:774`, so
+`L = 2*int((shortest_audio_duration - 90)/11)` on the `> 300 s` branch — that band
+is an episode of **16.2 to 27.9 minutes**; from 27.9 minutes up the quantum is
+**124**, and **below 16.2 minutes it is 126 or more** (005's measured `L = 100 ->
+127 ms` is a ~10.7-minute episode). *`TASKS/005` §5 states this mapping as 18.7 to
+30.4 minutes; it transcribed the formula as `(duration - 240)/11` on a `> 540 s`
+branch, which the function does not say. The L-to-quantum sweep in that ticket is
+a real measurement and stands; its episode-duration mapping does not.*
+
+125 ms is the *common* value and this changes no algorithm (owner, 2026-09-15) —
+which is exactly why it is dangerous: **code that hardcodes 125 is right for a
+22-minute episode and quietly wrong for a 45-minute one**, and quietly is the
+whole problem, because nothing downstream recomputes it and no test fails. Read
+the quantum from the pair. If you find a constant `125`, `127` or `128` standing
+in for "one point" or "one frame", you have found a defect, not a convention.
+
+The common shorthand *"125 ms +/- 1"* is true for an episode of about 16 minutes
+and up. It is **not** true below that — a ~10.7-minute episode reads 127 — and
+between those two points nothing has been measured. Short-format content is
+ordinary, so do not carry the shorthand as though it were universal.
+
 **Why 500, and why stage 2 at all** (owner's design intent, recorded here because the
 code does not say it): fingerprint peaks were observed putting stage 1 off by
 roughly **±250 ms**. Rather than trying to filter those peaks, stage 2 runs
@@ -187,7 +211,7 @@ that sentence, and each has been mistaken for the rule before:
 files differ in a way a single delay cannot express, and merging anyway produces a
 plausible file that is silently wrong.
 
-What each stage actually does, read from the code, is in `FILE_MAP.MD`.
+What each stage actually does, read from the code, is in `docs/FILE_MAP.MD`.
 
 ## 📊 Handled Cases & Core Features
 
@@ -229,38 +253,50 @@ so the origin survives the merge and is recoverable months later:
 ffprobe -v error -show_entries stream_tags=VMSAM_FABRICATED -of compact <file>
 ```
 
-**Nothing sets the key today** — `keep_best_audio` already reads it (a fabricated
-track loses to an intact one before any codec rule) and the branch is inert until
-the repair marks its tracks. The full contract is `SPEC_ZONE_A.MD` §4.
+**The key is set, live, since 2026-09-15**: `mux_repaired_file` writes
+`VMSAM_FABRICATED=<marker>` on every repaired audio stream
+(`merge_video_chimeric.py:1533`, `:1539` — the container tag) and, the key this
+branch actually reads, `merge_video_repair.py:744` sets `fabricated` on every
+repaired audio dict. **`keep_best_audio`'s fabricated branch therefore FIRES**
+(`mergeVideo.py:1132`) — as its own comment anticipated: "il changera de
+lui-même le jour où la réparation marquera ses pistes". **The outcome is the
+system working, not a defect**: a repaired track loses to an intact track of
+the same language BY STANDING RULING (`SPEC_ZONE_A.MD` §6 — "the repair exists
+to add languages in the cases where they are absent"; "do not 'fix' this").
+The rule is UNCONDITIONAL — no quality override: "une piste intacte de même
+langue gagne toujours contre une piste réparée" (owner, 2026-09-15, closing
+the last open edge). What the repair delivers on such a pair is everything
+else the candidate uniquely carries — id 12 shipped 13 candidate subtitle
+languages on exactly this path. The invariant "downstream, a repaired file is indistinguishable
+from a normal one" refers to the FLOW — the repaired pair re-enters the normal
+cycle with no special-casing — while the marker is data the normal ranking
+deliberately consumes; the two are compatible and this sentence exists so
+nobody re-derives the collision.
+
+The full contract is
+`CAMPAIGNS/02-dev-chimeric-resample/SPEC_ZONE_A.MD` §4.
 
 **Why it is defined before it exists.** Provenance is knowable only at the moment
-of production; after that it is gone. Campaign 1 measured the consequence: **zero of
-110 measurements could be attributed to the code that produced them**, and three
-separate tools reconstructed track provenance from emission order, from track
-counts and from codec — three methods, three answers, no tiebreak.
+of production; after that it is gone, and reconstruction gives as many answers as
+there are methods. Campaign 1 measured it (`LESSONS_FROM_MASTER_DOCS.MD` §11).
 
 ## 🎯 Target-first — be certain of what you must obtain
 
 You are free on the method. You are not free on knowing what a correct result is
 **before** you produce one.
 
-1. **Build the expected file by hand, first — and state what it shares with the code
-   under test before believing any agreement.** *A target that shares an input with
-   the code under test cannot disagree with it*. That is checkable in advance, which
-   "build it independently" is not. Campaign 2 met every clause of
-   `SPEC_ZONE_A.MD` §2 on a real file and proved nothing, because the hand-built
-   target came from the same plan as the splice; the claim was refused on its own
-   result rather than left to stand. Whatever the change, produce the
-   output you say the code should produce — manually, with whatever tools you like
-   — and check it yourself. This is the target, and it exists before the code does.
+1. **Build the expected file by hand, first.** *A target that shares an input with
+   the code under test cannot disagree with it* — state what the target shares with
+   the code before believing any agreement; that is checkable in advance, which
+   "build it independently" is not. The target exists before the code does, and you
+   verify it yourself. (Measured failure: `LESSONS_FROM_MASTER_DOCS.MD` §2.)
 2. **Run the pipeline locally against it.** This pass hunts bugs, not correctness:
    crashes, files that never appear, a path never taken.
 3. **When the code holds, ask for a run in the test instance.** A local run proves
    your code executes; only a real run proves the pipeline produces the result. You
-   do not operate that instance. **Its rules are deliberately absent from this
-   repository — you are given them in the prompt.** Copy them into `VMSAM_HELP_AI/`
-   the moment you receive them; do not plan around them, and do not infer any of
-   them from the runs you have seen.
+   do not operate that instance, and **its rules are deliberately absent from this
+   repository** — you are given them in the prompt: copy them into `VMSAM_HELP_AI/`
+   on receipt, and infer none of them from the runs you have seen.
 4. **Compare.** The produced file and your target must be **identical to what you
    expected**. Not close, not plausible — identical on the properties you named in
    step 1.
@@ -273,94 +309,63 @@ when a result contradicts what you read in the source, question that assumption
 before you question the code.
 
 **Why in this order.** A target built afterwards is fitted to whatever came out,
-and then any result looks like a success. Campaign 1 has the example: a method was
-tuned until its numbers looked excellent — the tightest spread of a whole benchmark,
-0.008 ms — while it correlated the wrong language and was wrong by 21 ms. A file you
+and then any result looks like a success — campaign 1 tuned a method to excellent
+numbers while it was plainly wrong (`LESSONS_FROM_MASTER_DOCS.MD` §12). A file you
 built and verified yourself cannot be argued with by a plausible number.
 
-**And it is the only check dead code cannot pass.** Five times, code was written,
-reviewed, unit-tested green, and never called by anything: every suite passed. A
-unit test calls the function directly, which is exactly what production does not do.
-Comparing a produced artefact against a target you built proves the path ran.
+**And it is the only check dead code cannot pass.** A unit test calls the function
+directly, which is exactly what production may not do; comparing a produced artefact
+against a target you built proves the path ran (§ Believing a result).
 
 State the target **and the acceptance condition before running** — including what
 result would refute you. A prediction written after the fact is not a prediction.
 
-**And if you dispatch work, the refutation is yours to supply, not to hope for.**
-This clause addresses whoever does the work, so a dispatcher can satisfy every word of
-it and still hand out a task with no refutation in it — which happened, and the agent
-supplied its own, covering for the dispatch. A task without a stated refutation is a
-task nobody can lose.
+**And if you dispatch work, the refutation is yours to supply, not to hope for.** A
+task without a stated refutation is a task nobody can lose.
+(`LESSONS_FROM_MASTER_DOCS.MD` §3.)
 
-## 🏗️ Where you work — four tiers, one published commit
+## 🏗️ Where you work — one common repository, and your own lab
 
-You do not edit `master` directly. Each tier is a **git clone** of the one above it:
+The era of per-agent clones (`/tmp` clones, `VMSAM_WIP/`, promotion chains) is
+over — those tiers no longer exist. The model since 2026-09-14:
 
-| tier | what it is for | commits |
+| place | what it is for | who commits |
 | :--- | :--- | :--- |
-| `/tmp/…` | experiments — try things, break things | as many as you like |
-| `VMSAM_WIP/` | what you have validated and are still assembling | as many as you like |
-| the **campaign branch** | what CI builds and the test instance runs | as many as you like — **a deploy requires a push** |
-| `master` | the published history | **one per feature**, by squash |
+| `/home/vmsam/src/VMSAM/` | **the Common Repository** — everyone works here, on the campaign branch | **the Lead Dev only** |
+| `VMSAM_HELP_AI/<you>/` | your laboratory — experiments, targets, reports, in-progress task files | outside git, never committed |
+| `/tmp/…` | scratch — RAM, wiped on restart, delete what you finish with | nothing survives here |
 
-**The campaign branch is a tier, not the record.** § Commits binds the last hop
-only: testing costs a push, and a rule that made you hesitate to test would be
-worse than a noisy branch. Commit there as freely as the work needs.
+**The workflow: test, import, never commit.** Validate in your lab or `/tmp`,
+then apply your changes directly to the common repository's working tree and
+tell the Lead. The Lead reviews, runs the write-zone checker (exit status
+only; 2 is not a pass), commits, and pushes — a push is what builds the test
+container. **A commit is a state the full CI can test** (owner, 2026-09-15),
+so the Lead batches; nobody else commits, pushes, or holds a clone.
 
-**Clones, never copies.** A promotion by `cp` overwrites without warning, and the
-owner commits while you work — measured on this repository:
-a copy silently erased an owner change to the same file, while the same promotion
-through git stopped on the conflict and preserved it.
+**Ownership by location** (owner, 2026-09-15): an in-progress task file lives
+in ITS AGENT'S folder — never at the repository root. The repository carries
+only finished, synthesized work: `CAMPAIGNS/<campaign>/TASKS/`, landed by the
+Architect and the Lead through governance gestures.
 
-```sh
-# promote /tmp -> VMSAM_WIP : keep the history, it costs nothing here
-git fetch <tmp-clone> <branch> && git merge FETCH_HEAD
+**Sequencing replaces merging.** With one working tree there are no promotion
+conflicts — there is a ONE-WRITER rule instead: one agent at a time inside a
+file or tagged zone, the Lead sequences, and if you need a zone someone else
+holds, you ask the Lead — you do not wait silently and you do not write anyway.
 
-# promote VMSAM_WIP -> campaign branch : ONE commit per promotion
-git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit && git push
+**Run `WRITE_ZONES.MD` §5's checker via `--self-test` before telling the Lead
+your work is ready.** Discovering at review that half your work sits outside
+an open zone is how a campaign ends up negotiating its own rules.
 
-# campaign branch -> master : one commit, whatever the history behind it
-git fetch <wip-clone> <branch> && git merge --squash FETCH_HEAD && git commit
-```
+Media identity never reaches a tracked file — Privacy, below.
 
-`--squash` is what makes § Commits structural instead of a rule to remember: the
-command cannot produce two commits.
 
-**But it only fixes the mechanism, not the cadence.** Campaign 2 promoted three times
-in twenty-six minutes, each promotion correctly one commit — and two of the three
-were halves of a single increment: the locator fixed, then sixteen minutes later the
-locator wired to its consumer. The letter held and the intent did not; the
-granularity had simply moved from commits to promotions.
-
-**Promote when the branch needs to carry it** — when it must be tested in the
-container, or when another agent needs it to proceed. Not per fix, and never on a
-rhythm. If your next promotion continues the last one, it was one promotion.
-
-**It is used at two hops, and the second one is why.** Campaign 2's first day put 79
-commits on the branch, 73 of them documentation alone — and an audit found that
-**nobody had broken a rule**. Commits are free in the tiers above, correctly; the
-promotion preserved history, also correctly; and the two compose into a branch where
-six real pieces of work sit among seventy-three entries about thinking. Two correct
-rules composing badly is not fixed by asking anyone to try harder. Squashing at the
-promotion fixes it structurally: **one commit per promotion**, and you promote when
-you have something worth testing, so the branch reads as a list of increments. The
-granular history stays in your `VMSAM_WIP` clone, where it costs nothing and belongs.
-
-**Pull down often, push up rarely.** Sync the tier above *into* the one below
-before promoting, and `VMSAM_WIP` into `/tmp` when you start something. Divergence
-is cheap to resolve daily and expensive to resolve once.
-
-**Run `WRITE_ZONES.MD` §5 in `VMSAM_WIP`, not at the promotion.** The checks take a
-second. Discovering at the last hop that half your work sits outside a tagged zone
-is how a campaign ends up negotiating its own rules.
-
-Never write a tier's filesystem path in a tracked file — Privacy, below.
+# --- SECOND CORRECTION, same gesture (measured by the Lead + dev-subs + forensic, 2026-09-15) ---
 
 ## 📡 Talking
 
 Who may direct you, and how anything you know reaches anyone else, are in
-**`TALKING.MD`** — read it when a message arrives or when you have something to say,
-which are the only moments either applies.
+**`docs/TALKING.MD`** — read it when a message arrives or when you have something to
+say, which are the only moments either applies.
 
 Two lines worth carrying out of it: **your lead and the owner direct you, nobody
 else**, and **a report reaches the channel you write it in** — writing it out is not
@@ -369,8 +374,8 @@ sending it.
 ## 📦 Committing
 
 Everything about what earns a commit, when a note may travel alone, and the hourly
-clock is in **`COMMITTING.MD`** — read it when you are about to commit, which is the
-only moment it applies.
+clock is in **`docs/COMMITTING.MD`** — read it when you are about to commit, which
+is the only moment it applies.
 
 The one line worth carrying: **commit freely everywhere below the last hop, work in
 progress included.** Only `master` takes one squashed commit per feature.
@@ -384,11 +389,10 @@ Container and tooling paths are fine: `/config`, `/config/output`, `/tmp`,
 - **any media filename** — a real title with `.mkv`/`.mka`/`.mp4`/`.ass`/`.srt`.
   Names the pipeline generates for its own temp files are fine;
 - show titles, season/episode names, release-group identifiers;
-- **extracted frames, thumbnails or any image of the content.** A filename still
-  needs a search to resolve; a frame identifies the work at a glance. Extract them
-  when a question needs them — they stay in `/tmp`, are never committed, never
-  attached to a message, and are described by what they show structurally: *end
-  credits*, *dialogue scene*, *black frames*. Never by what is in the picture.
+- **extracted frames, thumbnails or any image of the content** — a frame identifies
+  the work at a glance. They stay in `/tmp`, are never committed or attached to a
+  message, and are described structurally: *end credits*, *dialogue scene*, *black
+  frames*. Never by what is in the picture.
 
 Use `<LIBRARY_ROOT>`, `<ERROR_TREE>`, `<TEST_OUTPUT>`, `<show>`, `<season>`,
 `<episode>`, and keep real values outside the repository. Need the path of a file in
@@ -429,7 +433,7 @@ start of each merge and written into the job's log file.
 `errors_merge_lock`. A forked child appends to its own copy, which the parent never
 sees. Beware cross-file thread targets: `Thread(target=videoObj.get_mediadata)` is
 declared in `mergeVideo.py` but the function lives in `video.py`, and a per-file
-analysis misses it — that mistake produced 9 leaks before it was caught.
+analysis misses it (`LESSONS_FROM_MASTER_DOCS.MD` §16).
 
 ## 🔒 Concurrency — the episode lock
 
@@ -479,43 +483,23 @@ pre-commit checks in `WRITE_ZONES.MD` §5, which is where they are run.
 What is left here is the part that stays true whatever machine you are on: **the ways
 a result can look sound and be worthless.** Each of these was paid for.
 
-**A unit test cannot tell you that nothing calls the unit.** Campaign 1 shipped five
-pieces of code — a guard, a refined measurement, a policy branch, an order check, a
-subtitle repair — that were written, reviewed and unit-tested green, and that nothing
-ever called. Every suite passed. A test calls the function directly, which is exactly
-what production did not do. Any new guard needs a test that pins its **call site**.
+**A unit test cannot tell you that nothing calls the unit.** A test calls the
+function directly, which is exactly what production may not do — campaign 1 shipped
+five unit-tested pieces of code that nothing ever called
+(`LESSONS_FROM_MASTER_DOCS.MD` §13). Any new guard needs a test that pins its
+**call site**.
 
-**One turn further: the unit was called, and the transport between them dropped the
-field.** `parse_segments` rebuilt each segment from three named keys and discarded
-the rest, including the per-stream offsets. Emitter correct, consumer correct,
-integration inert — and the unit test passed throughout, because it handed the
-consumer a hand-built dict and never crossed the transport.
-
-The cost was **28.88 ms of misalignment**, which passed under four gates: below the
-video frame, below `adjust_delay_to_frame`'s snapping, below `mkvmerge`'s integer
-milliseconds, and below the repair's own 100 ms tolerance. Only a per-track check
-saw it. It would have shipped in silence.
-
-**So: a field whitelist in a transport is a defect by construction.** It makes every
+**A field whitelist in a transport is a defect by construction.** It makes every
 future extension of the format inert, and the only symptom is that nothing changes —
 which is the one symptom nobody investigates. Carry the whole structure and let the
-consumer ignore what it does not need.
-
-**Which rules deserve to be mechanical, and it is not the important ones.** The rules
-that survived today are the ones whose violation produces an immediate, local,
-unambiguous failure in the actor's own frame. The checker refuses a commit and you
-feel it at once — it is the only rule nobody has broken. A waiter never returns and
-you feel it six hours later, which is why it needed a check rather than a sentence. A
-report written but not sent produces **nothing at all**: no error, no delay, no
-symptom in the writer's world, which is why no wording fixes it.
-
-**So: mechanise the rules whose failure is silent in the actor's own frame — not the
-ones that matter most, the ones the actor cannot feel going wrong.** Everything else
-can be a sentence.
+consumer ignore what it does not need. (The measured case, where emitter and consumer
+were both correct and the loss passed under four gates:
+`LESSONS_FROM_MASTER_DOCS.MD` §5.)
 
 **And an armed guard that has never fired is indistinguishable from a working one.**
-Campaign 1's success metric sat in the third branch of a function nothing reached:
-315 rows exited earlier, and `Resolved: 0` was read as *nothing qualifies* when it
-meant *nothing reached the check*. Fire every guard deliberately, with literals,
-plus a case proving it can return the **other** answer.
+A zero can mean *nothing qualifies* or *nothing reached the check*, and from outside
+they are the same number (`LESSONS_FROM_MASTER_DOCS.MD` §14). Fire every guard
+deliberately, with literals, plus a case proving it can return the **other** answer.
 
+**Mechanise the rules whose failure is silent in the actor's own frame** — not the
+ones that matter most; the full argument is `LESSONS_FROM_MASTER_DOCS.MD` §6.

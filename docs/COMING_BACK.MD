@@ -17,7 +17,7 @@ work — including, once, by the author of this file.
 ```sh
 git log --oneline -8         # what actually landed
 git status --porcelain       # what did NOT land — see step 2
-cat AGENT_NOTES.MD           # what you were deciding, and why
+cat CAMPAIGNS/*/TASKS/<yours> # what you were deciding, and why
 ls TASKS/                    # what you were asked for
 ```
 
