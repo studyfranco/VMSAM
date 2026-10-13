@@ -12,6 +12,9 @@ usable seed rate on clean pairs without excessive false seeds.
 
 A zone's width is the gap between matched points on each side of a cut, i.e. the true edit plus
 extension slack; the true cut sits near one edge, not at the centre.
+
+This module is the DNA-style alignment only (seed, extend, runs, zones and holes). The drift
+trace and the duration-budget check read its result and live in `alignment_diagnostics`.
 """
 import math
 import statistics
@@ -64,12 +67,6 @@ OFFSET_MERGE_TOLERANCE_POINTS = 3
 MIN_SEGMENT_DURATION_S = 2.0
 # A step under this many quanta is classified `below_resolution_floor` instead of `cut`.
 RESOLUTION_FLOOR_QUANTA = 2
-
-# Re-centering trace: checkpoint every X points (>= 2 per PAL-rate drift step), search radius
-# M points, and a re-center needs at least this many matched words so noise is never chased.
-TRACE_X_POINTS = 10
-TRACE_M_POINTS = 3
-TRACE_MIN_SUSTAINED_WORDS = 3
 
 
 def _popcount32(value):
@@ -177,112 +174,17 @@ def _segment_evidence(segment):
     return (segment["i_hi"] - segment["i_lo"] + 1) * segment["mean_match_quality"]
 
 
-def best_shift_trace(fp_master, fp_candidate, i_start=0, i_end=None, current_offset=0,
-                      x_points=TRACE_X_POINTS, m_points=TRACE_M_POINTS,
-                      min_sustained=TRACE_MIN_SUSTAINED_WORDS):
-    """Record the best shift at every checkpoint, re-centering on the way.
-
-    Every `x_points` master indices, shifts within +/- `m_points` of the current offset are
-    scored by how many points of the next window match; the offset moves only when another
-    shift scores higher and reaches `min_sustained`. A step in the trace suggests a cut; a steady
-    one-point slope suggests a rate (resample) relation.
-    """
-    n_master, n_candidate = len(fp_master), len(fp_candidate)
-    if i_end is None:
-        i_end = n_master
-
-    def word_score(offset, i0):
-        count = 0
-        for x in range(i0, min(i0 + x_points, n_master)):
-            j = x + offset
-            if 0 <= j < n_candidate and sim(fp_master[x], fp_candidate[j]) >= HAMMING_MATCH_THRESHOLD:
-                count += 1
-        return count
-
-    trace = []
-    offset = current_offset
-    i = i_start
-    while i < i_end:
-        current_score = word_score(offset, i)
-        best_offset, best_score = offset, current_score
-        for delta in range(-m_points, m_points + 1):
-            if delta == 0:
-                continue
-            candidate_offset = offset + delta
-            score = word_score(candidate_offset, i)
-            if score > best_score:
-                best_offset, best_score = candidate_offset, score
-        recentered = (best_offset != offset) and (best_score >= min_sustained)
-        trace.append({
-            "modality": MODALITY,
-            "master_index": i,
-            "offset_points_before": offset,
-            "offset_points_after": best_offset if recentered else offset,
-            "recentered": recentered,
-            "delta_points": (best_offset - offset) if recentered else 0,
-            "matched_words_at_offset": best_score if recentered else current_score,
-        })
-        if recentered:
-            offset = best_offset
-        i += x_points
-    return trace
-
-
-def fit_trace_slope(trace):
-    """Fit offset (points) against master index over a `best_shift_trace` result.
-
-    Returns slope, R^2 and residuals in points. The residual, not R^2, separates a rate relation
-    from a cut: a staircase also fits a line with high R^2, but with large residuals.
-    """
-    xs = [entry["master_index"] for entry in trace]
-    ys = [entry["offset_points_after"] for entry in trace]
-    n = len(xs)
-    if n < 2:
-        return {"slope_points_per_point": None, "r_squared": None, "n": n,
-                "residual_rms_points": None, "residual_max_points": None}
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    ss_xy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
-    ss_xx = sum((x - mean_x) ** 2 for x in xs)
-    if ss_xx == 0:
-        return {"slope_points_per_point": 0.0, "r_squared": None, "n": n,
-                "fit_degenerate": "single_master_index",
-                "residual_rms_points": None, "residual_max_points": None,
-                "implied_step_count": sum(1 for entry in trace if entry["recentered"])}
-    slope = ss_xy / ss_xx
-    intercept = mean_y - slope * mean_x
-    ss_tot = sum((y - mean_y) ** 2 for y in ys)
-    residuals = [y - (slope * x + intercept) for x, y in zip(xs, ys)]
-    ss_res = sum(residual ** 2 for residual in residuals)
-    # R^2 is undefined on a constant series (a true constant offset, or a trace that never moved
-    # from its start), so it reads None and `fit_degenerate` names the case.
-    r_squared = (1 - (ss_res / ss_tot)) if ss_tot > 0 else None
-    fit = {"slope_points_per_point": slope, "r_squared": r_squared, "n": n,
-           "residual_rms_points": (ss_res / n) ** 0.5,
-           "residual_max_points": max(abs(residual) for residual in residuals),
-           "implied_step_count": sum(1 for entry in trace if entry["recentered"])}
-    if ss_tot == 0:
-        fit["fit_degenerate"] = "constant_offset_series"
-    return fit
-
-
 def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
              min_run_points=MIN_RUN_POINTS, local_baseline_min=LOCAL_BASELINE_MIN,
-             include_drift_trace=True, duration_diff_ms=None,
-             signed_duration_diff_ms=None, shorter_duration_ms=None,
              candidate_quantum_ms=None, deadline=None):
     """Align two whole-track fingerprints into constant-offset zones.
 
     Pipeline: degeneracy screen, seeding, extension, minimum-run anchor, local-baseline guard,
-    merge into segments, short-fragment filter, overlap resolution, zones, optional drift trace.
+    merge into segments, short-fragment filter, overlap resolution, zones.
 
     Args:
         quantum_ms: master fingerprint point duration.
         band: optional (offset_lo, offset_hi) in points to restrict seeding.
-        duration_diff_ms: optional |master - candidate| duration; larger steps are classified
-            `exceeds_duration_budget` instead of `cut`.
-        signed_duration_diff_ms, shorter_duration_ms: optional; both enable `residual_ms` /
-            `residual_fraction` (net step minus the real duration difference).
         candidate_quantum_ms: optional candidate point duration, used only for ms bounds.
         deadline: optional time.monotonic() instant; past it the verdict is
             `alignment_budget_exceeded`.
@@ -291,7 +193,8 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         dict with every key present (None when not measured), notably: verdict (a VERDICT_*
         constant), segments, all_zones, cut_zones, zones ([[[m_lo, m_hi], [c_lo, c_hi]], ...]
         in points, inclusive, increasing and non-overlapping), zones_detail,
-        master_axis_coverage_fraction, drift_trace / drift_fit, residual_ms / residual_fraction.
+        master_axis_coverage_fraction. `drift_trace`, `drift_fit`, `residual_ms` and
+        `residual_fraction` stay None here; `alignment_diagnostics` fills them.
     """
     result = {
         "verdict": None,
@@ -502,12 +405,8 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         if seg_a["offset_points"] == seg_b["offset_points"]:
             continue
         step_ms = (seg_b["offset_points"] - seg_a["offset_points"]) * quantum_ms
-        # A single uncompensated step cannot exceed the duration difference (mixed-sign steps
-        # can, so this flags rather than forbids).
         if abs(step_ms) < floor_ms:
             classification = "below_resolution_floor"
-        elif duration_diff_ms is not None and abs(step_ms) > duration_diff_ms:
-            classification = "exceeds_duration_budget"
         else:
             classification = "cut"
         zone = {
@@ -520,7 +419,7 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
             "step_ms": step_ms,
             "classification": classification,
             "resolution_floor_ms": floor_ms,
-            "duration_diff_ms": duration_diff_ms,
+            "duration_diff_ms": None,
             "edge_slack_note": ("This zone's own width is the gap between the last matched point "
                                  "before it and the first matched point after -- it necessarily "
                                  "spans the true removed/added span PLUS extension slack (measured "
@@ -536,25 +435,4 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     result["all_zones"] = all_zones
     result["cut_zones"] = cut_zones
     result["verdict"] = VERDICT_SEGMENTS_FOUND if cut_zones else VERDICT_SINGLE_SEGMENT_NO_CUT
-
-    # Net step over the full segment chain (offset differences telescope to last minus first),
-    # compared with the real duration difference.
-    if signed_duration_diff_ms is not None and shorter_duration_ms and len(segments) >= 2:
-        signed_step_sum_ms = ((segments[-1]["offset_points"] - segments[0]["offset_points"])
-                               * quantum_ms)
-        residual_ms = signed_step_sum_ms - signed_duration_diff_ms
-        result["residual_ms"] = residual_ms
-        result["residual_fraction"] = abs(residual_ms) / shorter_duration_ms
-
-    if include_drift_trace:
-        trace = best_shift_trace(fp_master, fp_candidate)
-        for entry in trace:
-            entry["master_time_s"] = entry["master_index"] * quantum_ms / 1000.0
-        result["drift_trace"] = trace
-        result["drift_fit"] = fit_trace_slope(trace)
-        for _points_key, _ms_key in (("residual_rms_points", "residual_rms_ms"),
-                                      ("residual_max_points", "residual_max_ms")):
-            _value = result["drift_fit"].get(_points_key)
-            result["drift_fit"][_ms_key] = None if _value is None else _value * quantum_ms
-
     return result

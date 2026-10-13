@@ -27,6 +27,7 @@ import subprocess
 import time
 
 import audioCorrelation
+import alignment_diagnostics
 import audio_extract
 import banded_seed_alignment
 import repair_log
@@ -111,8 +112,9 @@ PITCH_PROBE_WINDOW_MINIMUM_SECONDS = 30.0
 
 # Rate-relation arm of the step-2 gate, read by `zone_ladder_signature`: a rate relation forces a
 # ladder of one-quantum steps all in one direction. The direction fraction is what separates
-# (drift has a sign, editing does not); a line fit of `best_shift_trace` does not. A false
-# positive costs one rate sweep and then continues on the alignment already measured.
+# (drift has a sign, editing does not); a line fit of the drift trace
+# (`alignment_diagnostics.best_shift_trace`) does not. A false positive costs one rate sweep and
+# then continues on the alignment already measured.
 RATE_RELATION_SLOPE_GATE_CALIBRATED = True
 
 # Minimum rungs: a statistical-sufficiency floor for the fractions below, not a detector. At the
@@ -5846,8 +5848,8 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
 
 def align_fingerprints(fp_master, quantum_master, duration_master, fp_candidate,
                        quantum_candidate, duration_candidate):
-    """Align two fingerprint lists with `b2_align`, as both the prime and the rate arm do."""
-    return banded_seed_alignment.b2_align(
+    """Align two fingerprint lists with `b2_align` and its diagnostics (prime and rate arm)."""
+    return alignment_diagnostics.align(
         fp_master, fp_candidate, quantum_master,
         candidate_quantum_ms=quantum_candidate,
         duration_diff_ms=abs(duration_master - duration_candidate) * 1000.0,
