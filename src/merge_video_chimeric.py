@@ -436,111 +436,18 @@ def append_output_filter(filtergraph, extra_filter, output_label="[aout]"):
     return f"{filtergraph[:-len(output_label)]},{extra_filter}{output_label}"
 
 
-def resolve_source_bitrate(audio, source_path, timeout=120):
-    '''Return (bitrate, origin) of the source track.
+def get_encoder_arguments(audio, source_path=None):
+    '''Encoder arguments of a rebuilt track, from audio_reencode (forced conversion).
 
-    Tries metadata, then StreamSize/Duration, then a `-c copy` pass. Raises
-    `chimeric_error` rather than let the encoder pick its default, which can
-    exceed the source and make `keep_best_audio` prefer the rebuilt track.
+    Returns (arguments, family, bitrate_origin, filter): `filter` is the chain
+    to put at the end of the filtergraph, since a filtergraph output takes no
+    `-filter`; None when there is none.
     '''
-    try:
-        bitrate = video.get_bitrate(audio)
-        if bitrate != None and str(bitrate).isdigit() and int(bitrate) > 0:
-            return int(bitrate), "video.get_bitrate"
-    except Exception:
-        pass
-
-    # `video.get_bitrate` already covers ffprobe.bit_rate, BitRate and
-    # BitRate_Nominal; BitRate_Maximum remains.
-    for key in ("BitRate_Maximum",):
-        value = audio.get(key)
-        if value != None and str(value).isdigit() and int(value) > 0:
-            return int(value), f"mediainfo.{key}"
-
-    stream_size = audio.get("StreamSize")
-    duration = audio.get("Duration")
-    if stream_size != None and duration != None:
-        try:
-            computed = int(Decimal(str(stream_size)) * 8 / Decimal(str(duration)))
-            if computed > 0:
-                return computed, "StreamSize/Duration"
-        except Exception:
-            pass
-
-    # Last route: a `-c copy` pass to null reads the stream size without decoding.
-    command = [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", source_path,
-               "-map", f"0:{int(audio['StreamOrder'])}", "-c", "copy", "-f", "null", "-"]
-    tools.dev_log(f"chimeric: resolve_source_bitrate starting "
-                  f"file={source_path} stream_order={audio.get('StreamOrder')}\n")
-    try:
-        with repair_log.announced("chimeric", "ffmpeg", source_path) as call:
-            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-                command, 1, timeout)
-            call["exit"] = exit_code
-    except Exception as error:
-        raise chimeric_error(
-            f"the source bitrate of track {audio.get('StreamOrder')} could not "
-            f"be measured: {error}")
-    text = stderror.decode("utf-8", errors="ignore")
-    match = re.search(r"audio:\s*(\d+)\s*([KMG])iB", text)
-    if match != None and duration != None:
-        scale = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3}[match.group(2)]
-        try:
-            measured = int(Decimal(match.group(1)) * scale * 8 / Decimal(str(duration)))
-            if measured > 0:
-                return measured, "measured by a copy pass"
-        except Exception:
-            pass
-
-    raise chimeric_error(
-        f"the source bitrate of track {audio.get('StreamOrder')} could not be "
-        f"determined by any of the four routes: track declined rather than "
-        f"encoded at whatever default the encoder picks")
-
-
-def original_encode_of(audio, codec_name, source_path):
-    '''Return the ORIGINAL_ENCODE value of a source track, or None when its bitrate is unknown.'''
-    try:
-        bitrate, _ = resolve_source_bitrate(audio, source_path)
-        return tools.original_encode_value(codec_name, bitrate, audio["SamplingRate"])
-    except (chimeric_error, KeyError, ValueError, TypeError) as error:
-        tools.dev_log(f"chimeric: no ORIGINAL_ENCODE for stream {audio.get('StreamOrder')}: {error}\n")
-        return None
-
-
-def get_encoder_arguments(audio, codec_name, source_path=None):
-    '''Encoder arguments chosen by `audio_reencode` (config.json `audio_reencode`).
-
-    Lossless -> FLAC; else the table entry of the codec; else the same codec at
-    the source bitrate. The source bitrate is measured only when it can change
-    the result. A codec with no encoder in the table is declined by name.
-
-    Returns (arguments, family, bitrate_origin, filter, sample_rate): `filter`
-    is the table's filter for this track (None if none), to be put at the end of
-    the filtergraph since a filtergraph output takes no `-filter`;
-    `sample_rate` is the encoder's rate, or None to keep the source's.
-    '''
-    decision = audio_reencode.choose(audio)
-    if decision["encoder"] is None:
-        raise chimeric_error(
-            f"no encoder kept for codec {codec_name}: track declined by name")
-    bitrate_origin = None
-    if decision["uses_source_bitrate"]:
-        try:
-            bitrate, bitrate_origin = resolve_source_bitrate(audio, source_path)
-        except chimeric_error:
-            # A table rule falls back to its own values; the same codec has none.
-            if decision["rule"] != "table":
-                raise
-            bitrate = None
-        decision = audio_reencode.choose(audio, bitrate)
-    if decision["rule"] == "table" and decision["bitrate"] is not None and bitrate_origin is None:
-        bitrate_origin = "audio_reencode table"
-    sample_rate = decision["sample_rate"]
-    decision["sample_rate"] = None
-    arguments = audio_reencode.encoder_options(decision, ":a", include_filter=False)
-    family = "lossless" if decision["rule"] == "lossless" else "lossy"
-    return arguments, family, bitrate_origin, decision["filter"], sample_rate
+    arguments, encoder_filter = audio_reencode.generate_audio_ffmpeg_conversion_cmd(
+        [], audio, 0, force_conversion=True, filters_inline=False, stream=":a",
+        path=source_path)
+    family = "lossless" if audio_reencode.is_lossless(audio) else "lossy"
+    return arguments, family, audio.get("BitRate_source"), encoder_filter
 
 
 def find_master_audio_for_language(master_obj, language, reference_stream=None):
@@ -682,8 +589,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                   f"stream_order={audio.get('StreamOrder')} language={language} "
                   f"out_path={out_path}\n")
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
-    encoder_arguments, family, bitrate_origin, encoder_filter, encoder_rate = (
-        get_encoder_arguments(audio, codec_name, candidate_obj.filePath))
+    encoder_arguments, family, bitrate_origin, encoder_filter = (
+        get_encoder_arguments(audio, candidate_obj.filePath))
     sample_rate, channels, layout, tool_disagreements = get_audio_stream_parameters(audio)
 
     master_audio, fill_language = find_fill_audio(
@@ -800,7 +707,10 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # `-map_chapters -1`: chapters are added later, retimed, by `mux_chapters`.
     command.extend(["-filter_complex", filtergraph, "-map", "[aout]", "-map_chapters", "-1"])
     command.extend(encoder_arguments)
-    command.extend(["-ar", encoder_rate or sample_rate, "-vn", "-sn", "-dn",
+    if "-ar:a" not in encoder_arguments:
+        command.extend(["-ar", sample_rate])
+    # The same-codec rule can name an experimental encoder (opus, vorbis).
+    command.extend(["-strict", "-2", "-vn", "-sn", "-dn",
                     "-max_muxing_queue_size", "16384", out_path])
     tools.dev_log(f"chimeric: build_one_audio_track ffmpeg build call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
@@ -811,7 +721,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     bitrate = None
     if "-b:a" in encoder_arguments:
         bitrate = encoder_arguments[encoder_arguments.index("-b:a") + 1]
-    original_encode = original_encode_of(audio, codec_name, candidate_obj.filePath)
+    original_encode = audio_reencode.original_encode_tag(audio, candidate_obj.filePath)
     # Per-region report: master-filled regions, cut candidate regions, and used
     # candidate regions with their offset.
     filled = Decimal("0")
@@ -1302,7 +1212,7 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         if report.get("fabricated"):
             tags.append(f"VMSAM_FABRICATED={report['fabricated']}")
         if report.get("original_encode"):
-            tags.append(f"{tools.ORIGINAL_ENCODE_TAG}={report['original_encode']}")
+            tags.append(f"{audio_reencode.ORIGINAL_ENCODE_TAG}={report['original_encode']}")
         for tag in tags:
             command.extend([spec, tag])
 
