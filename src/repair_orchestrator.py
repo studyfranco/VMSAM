@@ -42,9 +42,8 @@ from repair_stage1_resample import (ALIGNMENT_COULD_NOT_MEASURE_VERDICTS,
 from repair_stage3_chimeric import (_budget_terminal, _speed_chain, _video_duration_ms,
                                     audio_edges, audio_transitions, classify_holes,
                                     coalesce_same_offset_zones, couple_start_delta_ms,
-                                    cross_verify_couples, edge_addition_seconds, frame_domain,
+                                    edge_addition_seconds, frame_domain,
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
-                                    log_absorbed_gaps, log_cross_verification,
                                     log_holes_against_walk, log_partial_plan,
                                     max_holes_per_couple, picture_steps_in_continuous_zones,
                                     reference_walk, repair_budget_seconds, union_holes)
@@ -69,23 +68,8 @@ except Exception:                                                        # noqa:
     HOLE_MERGE_WINDOW_SECONDS = 10.0
     _HOLE_MERGE_SOURCE = "literal fallback -- scene_anchor unimportable"
 
-# Inter-couple positional window: a cluster is the events one anchor search would reach.
-INTERCOUPLE_POSITION_WINDOW_SECONDS = HOLE_MERGE_WINDOW_SECONDS
-
-# Same-offset gaps absorbed by coalescing are logged; those at or above the resolver's reach are
-# confirmed by the video no-cut test (below it, the gap cannot be told from the aligned zone).
-ABSORBED_GAP_VIDEO_CHECK_SECONDS = HOLE_MERGE_WINDOW_SECONDS
-
-# Island (aligned span between two clustered holes) video check: islands with at least
-# `scene_anchor.MIN_VALIDATION_FRAMES` frames get the video no-cut test; shorter ones are logged
-# `untestable`.
-try:
-    ISLAND_VIDEO_CHECK_MIN_FRAMES = int(_scene_anchor.MIN_VALIDATION_FRAMES)
-except Exception:                                                        # noqa: BLE001
-    ISLAND_VIDEO_CHECK_MIN_FRAMES = 3
-
-# Inter-couple step tolerance: couples measuring the same cut differ by up to ~1.02 quanta, so
-# steps are compared in milliseconds against 1.5 quanta. Positions are clustered, never compared.
+# Step tolerance between two measurements of one cut (a walk step against a union hole): couples
+# measuring the same cut differ by up to ~1.02 quanta, so steps are compared against 1.5 quanta.
 INTERCOUPLE_STEP_TOLERANCE_QUANTA = 1
 INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 
@@ -149,7 +133,6 @@ DECLINE_CAUSES = {
     "alignment_no_anchored_runs": CLASS_COULD_NOT_RUN,
     "alignment_all_seeds_refused": CLASS_COULD_NOT_RUN,
     "alignment_segments_below_duration_floor": CLASS_COULD_NOT_RUN,
-    "intercouple_disagreement": CLASS_CONCLUSIVE,
     # A budget limit, not a measurement about the pair (see MAX_HOLES_PER_COUPLE):
     "hole_count_exceeds_resolver_budget": CLASS_COULD_NOT_RUN,
     # Every couple falls under MASTER_AXIS_COVERAGE_FLOOR:
@@ -788,15 +771,6 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
             f"{sorted(verdicts)} across {len(names)} couples, covering {coverages} of the "
             f"master axis against a floor of {MASTER_AXIS_COVERAGE_FLOOR}"), None
 
-    step_launch("cross_verify", candidate=candidate_path, n_couples=len(couple_results))
-    report = cross_verify_couples(couple_results)
-    log_cross_verification(candidate_path, report)
-    if not report["agree"]:
-        return False, "intercouple_disagreement", (
-            f"{len(report['disagreements'])} of {len(report['clusters'])} event clusters "
-            f"disagree across {report['n_couples']} couples of {language}; every couple's "
-            f"position, step, quantum, residual and coverage is in the report"), report
-
     # Holes are the union of all couples. The reference couple (first usable one) only supplies
     # the master track the walk and `apply_plan` correlate against.
     holes = union_holes([[hole_on_file_clock(hole, record["couple"], record["fold"])
@@ -907,7 +881,6 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "repair_budget_exceeded", (
             f"the repair's budget ran out after the audio walk -- the "
             f"partial plan is logged; declined, retried at the next run"), None
-    log_absorbed_gaps(couple_results, holes, walk, candidate_path)
     transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:

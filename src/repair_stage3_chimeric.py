@@ -121,67 +121,30 @@ def merge_quantum_flicker(zones, zones_detail):
 
 
 def coalesce_same_offset_zones(zones, zones_detail):
-    """Merge adjacent zones at the same offset into one aligned region.
+    """Merge adjacent zones at the same offset into one aligned region, after the flicker merge.
 
     After this, a hole means a change of offset rather than a stretch the aligner failed to
-    match. Each absorbed span is kept in `absorbed_gaps` (bounds on both axes) and counted in
-    `unmatched_points_inside`. An edit that removes and adds the same duration inside one gap
-    is invisible to any offset instrument.
+    match: a same-offset gap changes no plan. An edit that removes and adds the same duration
+    inside one gap is invisible to any offset instrument.
+
     """
-    if not zones:
-        return [], []
     zones, zones_detail, _flicker = merge_quantum_flicker(zones, zones_detail)
     out_zones, out_detail = [], []
     for zone, detail in zip(zones, zones_detail):
         if out_detail and detail["offset_points"] == out_detail[-1]["offset_points"]:
             previous_zone, previous_detail = out_zones[-1], out_detail[-1]
-            unmatched = zone[0][0] - previous_zone[0][1] - 1
-            if unmatched > 0:
-                previous_detail["absorbed_gaps"].append({
-                    "master_points": [previous_zone[0][1] + 1, zone[0][0] - 1],
-                    "candidate_points": [previous_zone[1][1] + 1, zone[1][0] - 1],
-                    "offset_points": detail["offset_points"]})
             previous_zone[0][1] = zone[0][1]
             previous_zone[1][1] = zone[1][1]
-            previous_detail["master_points"][1] = detail["master_points"][1]
-            previous_detail["candidate_points"][1] = detail["candidate_points"][1]
-            previous_detail["master_ms"][1] = detail["master_ms"][1]
-            previous_detail["candidate_ms"][1] = detail["candidate_ms"][1]
+            for key in ("master_points", "candidate_points", "master_ms", "candidate_ms"):
+                previous_detail[key][1] = detail[key][1]
             previous_detail["n_members"] += detail["n_members"]
-            previous_detail["coalesced_zones"] = previous_detail.get("coalesced_zones", 1) + 1
-            previous_detail["unmatched_points_inside"] = (
-                previous_detail.get("unmatched_points_inside", 0) + max(0, unmatched))
             continue
         out_zones.append([list(zone[0]), list(zone[1])])
         detail = dict(detail)
-        detail["master_points"] = list(detail["master_points"])
-        detail["candidate_points"] = list(detail["candidate_points"])
-        detail["master_ms"] = list(detail["master_ms"])
-        detail["candidate_ms"] = list(detail["candidate_ms"])
-        detail["coalesced_zones"] = 1
-        detail["unmatched_points_inside"] = 0
-        detail["absorbed_gaps"] = []
+        for key in ("master_points", "candidate_points", "master_ms", "candidate_ms"):
+            detail[key] = list(detail[key])
         out_detail.append(detail)
     return out_zones, out_detail
-
-
-def absorbed_gaps_for_couple(alignment):
-    """Return every same-offset gap absorbed by coalescing, in track-relative milliseconds."""
-    _zones, detail = coalesce_same_offset_zones(alignment.get("zones") or [],
-                                                alignment.get("zones_detail") or [])
-    quantum_ms = alignment["quantum_ms"]
-    candidate_quantum_ms = alignment.get("candidate_quantum_ms") or quantum_ms
-    gaps = []
-    for zone in detail:
-        for gap in zone["absorbed_gaps"]:
-            m_lo, m_hi = gap["master_points"]
-            c_lo, c_hi = gap["candidate_points"]
-            gaps.append({
-                "master_ms": [m_lo * quantum_ms, (m_hi + 1) * quantum_ms],
-                "candidate_ms": [c_lo * candidate_quantum_ms, (c_hi + 1) * candidate_quantum_ms],
-                "offset_points": gap["offset_points"],
-                "offset_ms": gap["offset_points"] * quantum_ms})
-    return gaps
 
 
 def holes_for_couple(alignment):
@@ -190,8 +153,8 @@ def holes_for_couple(alignment):
     Nearby holes are not merged here (`cluster_holes` groups them). Gaps empty on both axes
     and without a step are dropped.
     """
-    _z, _d, flicker = merge_quantum_flicker(alignment.get("zones") or [],
-                                            alignment.get("zones_detail") or [])
+    _zones, _detail, flicker = merge_quantum_flicker(alignment.get("zones") or [],
+                                                     alignment.get("zones_detail") or [])
     for master_ms, offset_before, offset_after in flicker:
         tools.log_always(f"repair: quantum_flicker_merged master_ms=[{round(master_ms[0], 1)}, "
                          f"{round(master_ms[1], 1)}] offset_points={offset_before}->{offset_after} "
@@ -357,15 +320,14 @@ def union_holes(per_couple_holes):
     return settled
 
 
-def cluster_holes(holes, per_couple_alignments):
+def cluster_holes(holes):
     """Group holes closer than the resolver's reach so they share one scene-detection pass.
 
     Each hole keeps its own bounds and step. Holes of a multi-hole cluster get `cluster_id`,
     `cluster_window` (shared extraction window) and `scan_cache` (shared memo).
 
     Returns:
-        The clusters, each with its member indices and its islands (master span, offset and
-        per-couple similarity of the aligned zone between two holes).
+        The clusters, each with its member indices.
     """
     clusters = []
     for index, hole in enumerate(holes):
@@ -377,28 +339,6 @@ def cluster_holes(holes, per_couple_alignments):
     for number, cluster in enumerate(clusters):
         members = [holes[index] for index in cluster["members"]]
         cluster["cluster_id"] = number
-        cluster["islands"] = []
-        for left, right in zip(members, members[1:]):
-            low, high = left["master_ms"][1], right["master_ms"][0]
-            offset = (left["offset_after_ms"] if left["offset_after_ms"] is not None
-                      else right["offset_before_ms"])
-            similarity = []
-            for couple, alignment, fold in per_couple_alignments:
-                for detail in alignment.get("zones_detail") or []:
-                    z_low = detail["master_ms"][0] + fold["master_start_ms"]
-                    z_high = detail["master_ms"][1] + fold["master_start_ms"]
-                    if z_low < high and z_high > low:
-                        similarity.append({
-                            "couple": couple,
-                            "master_ms": [round(z_low, 2), round(z_high, 2)],
-                            "offset_ms": round(detail["offset_points"] * alignment["quantum_ms"]
-                                               + fold["delta_ms"], 3),
-                            "mean_match_quality": detail.get("mean_match_quality"),
-                            "mean_local_baseline": detail.get("mean_local_baseline")})
-            cluster["islands"].append({"master_ms": [low, high], "offset_ms": offset,
-                                       "quantum_ms": left["quantum_ms"],
-                                       "track_delay_delta_ms": left["track_delay_delta_ms"],
-                                       "b2_zones": similarity})
         if len(members) > 1:
             offsets = [value for hole in members
                        for value in (hole["offset_before_ms"], hole["offset_after_ms"])
@@ -411,230 +351,6 @@ def cluster_holes(holes, per_couple_alignments):
                 hole["cluster_window"] = window
                 hole["scan_cache"] = cache
     return clusters
-
-
-def walk_agreement(walk, low_ms, high_ms, offset_ms, tolerance_ms):
-    """Count the audio walk's windows inside master [low_ms, high_ms).
-
-    Returns:
-        (n_agree, n_ok, n_windows): windows within `tolerance_ms` of `offset_ms`, measured
-        windows, and all windows wholly inside the span.
-    """
-    import audio_walk
-    rows = [row for row in walk["rows"]
-            if row["t"] * 1000.0 >= low_ms
-            and (row["t"] + audio_walk.WALK_WINDOW_S) * 1000.0 <= high_ms]
-    ok = [row for row in rows if row["status"] == "ok"]
-    agree = [row for row in ok if abs(row["off"] - offset_ms) <= tolerance_ms]
-    return len(agree), len(ok), len(rows)
-
-
-def log_absorbed_gaps(couple_results, union, walk, candidate_path):
-    """Log every absorbed same-offset gap of every couple with the evidence for it.
-
-    Gaps at or above ABSORBED_GAP_VIDEO_CHECK_SECONDS are checked against the audio walk (only
-    an audio step can change the plan). Actions: under_threshold, inside_a_hole,
-    confirmed_by_another_couple, confirmed_by_walk, walk_change_point_inside (resolved as a
-    change point elsewhere), unverified_by_walk (too little measured). File clock throughout.
-    """
-    raw_zones = []
-    for record in couple_results:
-        alignment, fold = record["alignment"], record["fold"]
-        quantum_ms = alignment["quantum_ms"]
-        for detail in alignment.get("zones_detail") or []:
-            raw_zones.append((record["couple"],
-                              detail["master_points"][0] * quantum_ms + fold["master_start_ms"],
-                              (detail["master_points"][1] + 1) * quantum_ms
-                              + fold["master_start_ms"],
-                              detail["offset_points"] * quantum_ms + fold["delta_ms"],
-                              quantum_ms))
-    changes = [(min(p["level_before"]["t_last"], p["level_after"]["t_first"]) * 1000.0,
-                max(p["level_before"]["t_last"], p["level_after"]["t_first"]) * 1000.0)
-               for p in walk["points"] if p["kind"] == "change_point"]
-    for record in couple_results:
-        fold = record["fold"]
-        quantum_ms = record["alignment"]["quantum_ms"]
-        for gap in absorbed_gaps_for_couple(record["alignment"]):
-            low = gap["master_ms"][0] + fold["master_start_ms"]
-            high = gap["master_ms"][1] + fold["master_start_ms"]
-            offset = gap["offset_ms"] + fold["delta_ms"]
-            span_s = (high - low) / 1000.0
-            evidence = None
-            if span_s < _orch().ABSORBED_GAP_VIDEO_CHECK_SECONDS:
-                action = "under_threshold"
-            elif any(low < hole["master_ms"][1] and high > hole["master_ms"][0]
-                     for hole in union):
-                action = "inside_a_hole"
-            else:
-                covered = sum(max(0.0, min(high, z_high) - max(low, z_low))
-                              for couple, z_low, z_high, z_offset, z_quantum in raw_zones
-                              if couple != record["couple"]
-                              and abs(z_offset - offset) <= z_quantum)
-                if 2 * covered > (high - low):
-                    action = "confirmed_by_another_couple"
-                elif any(c_low < high and c_high > low for c_low, c_high in changes):
-                    action = "walk_change_point_inside"
-                else:
-                    agree, measured, windows = walk_agreement(walk, low, high, offset,
-                                                              quantum_ms)
-                    evidence = {"agree": agree, "ok": measured, "windows": windows}
-                    action = ("confirmed_by_walk" if measured and 2 * agree > measured
-                              else "unverified_by_walk")
-            _orch().step_result("absorbed_gap", candidate=candidate_path, couple=record["couple"],
-                        master_ms=[round(low, 2), round(high, 2)],
-                        span_s=round(span_s, 3), offset_ms=round(offset, 3),
-                        threshold_s=_orch().ABSORBED_GAP_VIDEO_CHECK_SECONDS, action=action,
-                        walk=evidence)
-
-def cross_verify_couples(couple_results):
-    """Check that all couples agree on the steps of each interior event.
-
-    Agreement is tested per position cluster on the signed step, never bound for bound, since
-    couples place the same event up to ~8 s apart. Rules: head and tail holes are not events;
-    a couple with no event in a cluster is `could_not_see`, not dissent; steps under the
-    aligner's resolution floor are excluded; only a step-magnitude disagreement declines.
-
-    Returns:
-        dict with `agree`, counts, `clusters` (per-cluster verdicts) and `disagreements`.
-    """
-    events = []
-    for record in couple_results:
-        alignment = record["alignment"]
-        quantum_ms = alignment["quantum_ms"]
-        floor_ms = banded_seed_alignment.RESOLUTION_FLOOR_QUANTA * quantum_ms
-        for hole in record["holes"]:
-            # A zero-step hole is a lost stretch, not a proposed cut.
-            if hole["kind"] != "interior" or not hole["step_points"]:
-                continue
-            events.append({
-                "couple": record["couple"],
-                "master_position_seconds": hole["master_ms"][0] / 1000.0,
-                "step_points": hole["step_points"],
-                "step_ms": hole["step_ms"],
-                "quantum_ms": quantum_ms,
-                "resolution_floor_ms": floor_ms,
-                "residual_fraction": alignment.get("residual_fraction"),
-                "master_axis_coverage_fraction": alignment.get(
-                    "master_axis_coverage_fraction"),
-            })
-
-    events.sort(key=lambda e: e["master_position_seconds"])
-    clusters = []
-    for event in events:
-        if clusters and (event["master_position_seconds"] - clusters[-1]["start_seconds"]
-                          <= _orch().INTERCOUPLE_POSITION_WINDOW_SECONDS):
-            clusters[-1]["events"].append(event)
-        else:
-            clusters.append({"start_seconds": event["master_position_seconds"],
-                              "events": [event]})
-
-    all_couples = [record["couple"] for record in couple_results]
-    verdicts = []
-    disagreements = []
-    for index, cluster in enumerate(clusters):
-        # One net step per couple per cluster: a cut and its re-add seconds apart can both
-        # land in one cluster.
-        by_couple = {}
-        for event in cluster["events"]:
-            net = by_couple.setdefault(event["couple"], dict(event, step_ms=0.0, step_points=0,
-                                                             n_events=0))
-            net["step_ms"] += event["step_ms"]
-            net["step_points"] += event["step_points"]
-            net["n_events"] += 1
-        members = list(by_couple.values())
-        seen = [event["couple"] for event in members]
-        could_not_see = [couple for couple in all_couples if couple not in seen]
-        tolerance_ms = (_orch().INTERCOUPLE_STEP_TOLERANCE_QUANTA * _orch().INTERCOUPLE_STEP_TOLERANCE_SLACK
-                        * max(event["quantum_ms"] for event in members))
-        # Steps under the aligner's resolution floor are not claims about a cut and cannot
-        # contradict each other; they stay in the record but out of the test.
-        above_floor = [event for event in members
-                       if abs(event["step_ms"]) >= event["resolution_floor_ms"]]
-        below_floor = [event for event in members if event not in above_floor]
-        steps = [event["step_ms"] for event in (above_floor or members)]
-        spread_ms = max(steps) - min(steps)
-        if not above_floor:
-            verdict = "below_floor_only_excluded"
-        elif len(above_floor) == 1:
-            verdict = "single_couple_event"
-        elif spread_ms <= tolerance_ms:
-            verdict = "agree"
-        else:
-            verdict = "disagree"
-        entry = {
-            "cluster_index": index,
-            "master_position_seconds": round(cluster["start_seconds"], 3),
-            "verdict": verdict,
-            "spread_ms": round(spread_ms, 3),
-            "tolerance_ms": round(tolerance_ms, 3),
-            "members": members,
-            "n_above_floor": len(above_floor),
-            "below_floor_excluded": [(event["couple"], round(event["step_ms"], 3))
-                                      for event in below_floor],
-            "could_not_see": could_not_see,
-        }
-        verdicts.append(entry)
-        if verdict == "disagree":
-            disagreements.append(entry)
-    return {
-        "modality": _orch().MODALITY,
-        "agree": not disagreements,
-        "n_couples": len(couple_results),
-        "n_events": len(events),
-        "clusters": verdicts,
-        "disagreements": disagreements,
-    }
-
-
-def log_cross_verification(candidate_path, report):
-    """Log the cross-verification report.
-
-    One unconditional `repair: cross_verify_summary` line, then per-cluster and per-member
-    detail in the dev log.
-    """
-    tools.log_always(
-        f"repair: cross_verify_summary agree={report['agree']} n_couples={report['n_couples']} "
-        f"n_events={report['n_events']} n_clusters={len(report['clusters'])} "
-        f"n_disagreements={len(report['disagreements'])} clusters="
-        + ",".join(f"{c['cluster_index']}:{c['verdict']}:{c['master_position_seconds']}:"
-                   f"{c['spread_ms']}" for c in report["clusters"])
-        + f" for {candidate_path}\n")
-    if report["agree"]:
-        _orch().step_result("cross_verify", candidate=candidate_path, agree=True,
-                    n_couples=report["n_couples"], n_events=report["n_events"],
-                    clusters=len(report["clusters"]))
-        for cluster in report["clusters"]:
-            tools.dev_log(
-                f"orchestrator: cross_verify cluster={cluster['cluster_index']} "
-                f"verdict={cluster['verdict']} "
-                f"master_position_s={cluster['master_position_seconds']} "
-                f"spread_ms={cluster['spread_ms']} tolerance_ms={cluster['tolerance_ms']} "
-                f"could_not_see={cluster['could_not_see']} "
-                f"below_floor_excluded={cluster['below_floor_excluded']} "
-                f"members={[(e['couple'], round(e['step_ms'], 1)) for e in cluster['members']]}"
-                f"\n")
-        return
-    for cluster in report["disagreements"]:
-        tools.dev_log(
-            f"orchestrator: intercouple_disagreement for {candidate_path} "
-            f"cluster={cluster['cluster_index']} "
-            f"master_position_s={cluster['master_position_seconds']} "
-            f"spread_ms={cluster['spread_ms']} tolerance_ms={cluster['tolerance_ms']} "
-            f"n_above_floor={cluster['n_above_floor']} "
-            f"below_floor_excluded={cluster['below_floor_excluded']} "
-            f"could_not_see={cluster['could_not_see']}\n")
-        for event in cluster["members"]:
-            tools.dev_log(
-                f"orchestrator: intercouple_disagreement_member "
-                f"for {candidate_path} cluster={cluster['cluster_index']} "
-                f"couple={event['couple']} "
-                f"master_position_s={round(event['master_position_seconds'], 3)} "
-                f"step_points={event['step_points']} "
-                f"step_ms={round(event['step_ms'], 3)} "
-                f"quantum_ms={round(event['quantum_ms'], 4)} "
-                f"resolution_floor_ms={round(event['resolution_floor_ms'], 3)} "
-                f"residual_fraction={event['residual_fraction']} "
-                f"coverage={event['master_axis_coverage_fraction']}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -2872,23 +2588,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"read at 20 ms or 100 ms, and no cross-verified union hole carries "
                           f"that step there")
         holes.append(_cp_hole(point, reference, index))
-    # Nearby change points share one scene pass; islands between them are checked by the walk.
-    import audio_walk
-    for cluster in cluster_holes(holes, [(reference["couple"], reference["alignment"],
-                                          reference["fold"])]):
-        islands = []
-        for island in cluster["islands"]:
-            agree, measured, windows = walk_agreement(
-                walk, island["master_ms"][0], island["master_ms"][1],
-                island["offset_ms"], audio_walk.LEVEL_TOLERANCE_MS)
-            islands.append({"master_ms": [round(island["master_ms"][0], 2),
-                                          round(island["master_ms"][1], 2)],
-                            "offset_ms": round(island["offset_ms"], 3),
-                            "b2_zones": island["b2_zones"],
-                            "walk": {"agree": agree, "ok": measured, "windows": windows}})
-        _orch().step_result("cluster", candidate=candidate_path, cluster=cluster["cluster_id"],
-                    members=cluster["members"], shared_scan=len(cluster["members"]) > 1,
-                    islands=islands)
+    # Nearby change points share one scene pass.
+    cluster_holes(holes)
     # Every hole's exact-frame search is independent (holes under the merge window share only
     # a read-through decode cache, never a decision), so they run together on the shared pool
     # instead of one change point at a time.
