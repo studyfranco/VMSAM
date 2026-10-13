@@ -1,9 +1,9 @@
-'''Merge several versions of a video into one file with synchronised tracks.
-
-Requires libchromaprint-tools, ffmpeg and mediainfo.
-
+'''
 Created on 24 Apr 2022
+
 @author: studyfranco
+
+This software need libchromaprint-tools,ffmpeg,mediainfo
 '''
 
 import re
@@ -24,7 +24,7 @@ import hashlib
 from decimal import *
 
 max_delay_variance_second_method = 0.004
-cut_file_to_get_delay_second_method = 2.5  # Divides the cut length for the finer second method.
+cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
 
 errors_merge = []
 errors_merge_lock = RLock()
@@ -37,17 +37,6 @@ show_not_compatible_error = True
 not_compatible_video_list = []
 
 def decript_merge_rules(stringRules):
-    """Parse an audio merge-rules string into a pairwise preference table.
-
-    Rules are comma-separated chains such as "flac>eac3*1.5>aac": '>' ranks
-    formats, '=' marks equals and '*k' turns the win into a bitrate factor k.
-
-    Args:
-        stringRules: The rules string from the configuration.
-
-    Returns:
-        dict: rules[a][b] is True (a wins), False (b wins) or a float bitrate factor.
-    """
     rules = {}
     egualRules = set()
     besterBy = []
@@ -113,7 +102,6 @@ def decript_merge_rules(stringRules):
     return rules
 
 def decript_merge_rules_bester(rules,best,weak):
-    """Propagate a strict win of `best` over `weak` to every format `weak` beats."""
     for rulesWeak in rules[weak].items():
         if (isinstance(rulesWeak[1], bool) and rulesWeak[1]) or (isinstance(rulesWeak[1], float) and rulesWeak[1] > 5):
             decript_merge_rules_bester(rules,best,rulesWeak[0])
@@ -121,7 +109,6 @@ def decript_merge_rules_bester(rules,best,weak):
     rules[best][weak] = True
     
 def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
-    """Check that a short audio extract of each video can be correlated, or raise."""
     if maxTime < 60:
         timeTake = strftime('%H:%M:%S',gmtime(maxTime))
     else:
@@ -141,7 +128,6 @@ def raise_first_thread_error(jobs):
                 raise thread.error
 
 class get_delay_fidelity_thread(Thread):
-    """Thread that runs the first (fidelity) correlation on one pair of audio cuts."""
     def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file,lenghtTime):
         Thread.__init__(self)
         self.video_obj_1_tmp_file = video_obj_1_tmp_file
@@ -158,11 +144,6 @@ class get_delay_fidelity_thread(Thread):
             self.error = e
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
-    """Correlate every audio cut pair of two videos with the first method.
-
-    Returns:
-        dict: "i-j" audio pair key -> list of correlation results, one per cut.
-    """
     delay_Fidelity_Values = {}
     delay_Fidelity_Values_jobs = []
     
@@ -189,7 +170,6 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
     return delay_Fidelity_Values
 
 class get_delay_second_method_thread(Thread):
-    """Thread that runs the second correlation method on one pair of audio cuts."""
     def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file):
         Thread.__init__(self)
         self.video_obj_1_tmp_file = video_obj_1_tmp_file
@@ -212,11 +192,6 @@ class get_delay_second_method_thread(Thread):
             self.delay_values = result
 
 def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()):
-    """Correlate every audio cut pair of two videos with the second method.
-
-    Returns:
-        dict: "i-j" audio pair key -> list of (file, delay in seconds), one per cut.
-    """
     delay_Values = {}
     delay_value_jobs = []
     
@@ -230,7 +205,7 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
                 for h in range(0,video.number_cut):
                     delay_value_jobs_between_audio.append(get_delay_second_method_thread(video_obj_1.tmpFiles['audio'][i][h],video_obj_2.tmpFiles['audio'][j][h]))
                     delay_value_jobs_between_audio[-1].start()
-                    sleep(5)  # Stagger the correlation processes.
+                    sleep(5) # To avoid too much process at the same time.
 
     for delay_value_job in delay_value_jobs:
         delay_between_two_audio = []
@@ -244,10 +219,15 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
     return delay_Values
 
 class compare_video(Thread):
-    '''Thread that measures the delay between two videos for one language.'''
+    '''
+    classdocs
+    '''
 
 
     def __init__(self, video_obj_1,video_obj_2,begin_in_second,audioParam,language,lenghtTime,lenghtTimePrepare,list_cut_begin_length,time_by_test_best_quality_converted,process_to_get_best_video=True):
+        '''
+        Constructor
+        '''
         Thread.__init__(self)
         self.video_obj_1 = video_obj_1
         self.video_obj_2 = video_obj_2
@@ -267,12 +247,12 @@ class compare_video(Thread):
             delay = self.test_if_constant_good_delay()
             if self.process_to_get_best_video:
                 self.get_best_video(delay)
-            else:  # video_obj_1 is the forced best video.
+            else: # You must have the video you want process in video_obj_1
                 self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
                 self.video_obj_2.remove_tmp_files(type_file="audio")
                 self.video_obj_with_best_quality = self.video_obj_1
                 delay = self.adjust_delay_to_frame(delay)
-                self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0'))  # Offset to give mkvmerge.
+                self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0')) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
             if show_not_compatible_error:
                 traceback.print_exc()
@@ -281,14 +261,6 @@ class compare_video(Thread):
                 errors_merge.append(str(e))
         
     def test_if_constant_good_delay(self):
-        """Measure the delay with both methods and require them to agree within 500 ms.
-
-        Returns:
-            Decimal: The delay in milliseconds.
-
-        Raises:
-            Exception: If no constant delay is found or the two methods disagree.
-        """
         try:
             delay_first_method,ignore_audio_couple = self.first_delay_test()
             delay_second_method = self.second_delay_test(delay_first_method,ignore_audio_couple)
@@ -304,11 +276,6 @@ class compare_video(Thread):
             raise e
         
     def first_delay_test(self):
-        """Find the delay with the first correlation method across all cuts.
-
-        Returns:
-            tuple: (delay in ms, set of "i-j" audio pairs to ignore afterwards).
-        """
         from statistics import mean
         if tools.dev:
             sys.stderr.write(f"\t\tStart first_delay_test with {self.video_obj_1.filePath} and {self.video_obj_2.filePath}\n")
@@ -351,12 +318,14 @@ class compare_video(Thread):
                         with errors_merge_lock:
                             errors_merge.append(f"We was in first_delay_test at delay_found == None. {set_delay}")
                     else:
+                        #delay_detected.add(delay_fidelity_list[0][2])
                         if set_delay_clone[1] > set_delay_clone[0]:
-                            delay_detected.add(set_delay_clone[0]+round(abs(list(set_delay)[0]-list(set_delay)[1])/2))
+                            delay_detected.add(set_delay_clone[0]+round(abs(list(set_delay)[0]-list(set_delay)[1])/2)) # 125/2
                         else:
                             delay_detected.add(set_delay_clone[1]+round(abs(list(set_delay)[0]-list(set_delay)[1])/2))
             else:
-                # Ambiguous delays are not resolved: the audio couple is ignored.
+                # Work in progress
+                # We need to ask to the user to pass them if they want.
                 ignore_audio_couple.add(key_audio)
                 with errors_merge_lock:
                     if len(set_delay) == 2:
@@ -563,19 +532,17 @@ class compare_video(Thread):
                 raise Exception(f"Not able to find delay with the method 1 and in test 4 we find {delay_detected} with a delay of {delayUse} with result {delay_Fidelity_Values} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}")
     
     def adjuster_chroma_bugged(self,list_delay,ignore_audio_couple):
-        """Resolve two candidate delays by running the second method at their midpoint.
-
-        Returns:
-            The refined delay in ms, or None if it is not within 125 ms of the midpoint.
-        """
         if list_delay[0] > list_delay[1]:
             delay_first_method_lower_result = list_delay[1]
             delay_first_method_bigger_result = list_delay[0]
         else:
             delay_first_method_lower_result = list_delay[0]
             delay_first_method_bigger_result = list_delay[1]
+        #self.recreate_files_for_delay_adjuster(delay_first_method_lower_result)
         mean_between_delay = round((list_delay[0]+list_delay[1])/2)
+        #self.recreate_files_for_delay_adjuster(mean_between_delay)
         try:
+            #delay_second_method = self.second_delay_test(delay_first_method_lower_result,ignore_audio_couple)
             delay_second_method = self.second_delay_test(mean_between_delay,ignore_audio_couple)
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
         except Exception as e:
@@ -586,8 +553,9 @@ class compare_video(Thread):
                 errors_merge.append("We get an error during adjuster_chroma_bugged:\n"+str(e)+"\n")
             return None
     
-        calculated_delay = mean_between_delay+round(delay_second_method*1000)
+        calculated_delay = mean_between_delay+round(delay_second_method*1000) #delay_first_method+round(delay_second_method*1000)
         if abs(delay_second_method) < 0.125:
+            # calculated_delay-delay_first_method_lower_result < 125 and calculated_delay-delay_first_method_lower_result > 0:
             if show_not_compatible_error:
                 sys.stderr.write(f"The delay {calculated_delay} find with adjuster_chroma_bugged is valid for {self.video_obj_1.filePath} and {self.video_obj_2.filePath}. The original delay was between {delay_first_method_lower_result} and {delay_first_method_bigger_result} \n")
             with errors_merge_lock:
@@ -601,23 +569,16 @@ class compare_video(Thread):
             return None
         
     def get_delays_dict(self,delay_Fidelity_Values,delayUse=0):
-        """Return the per-cut delays (ms) of each audio pair, offset by `delayUse`."""
         delays_dict = {}
         for key_audio, delay_fidelity_list in delay_Fidelity_Values.items():
             delays_dict[key_audio] = [delayUse + delay_fidelity[2] for delay_fidelity in delay_fidelity_list]
         return delays_dict
     
     def recreate_files_for_delay_adjuster(self,delay_use):
-        """Re-extract the second video's audio cuts shifted by `delay_use` ms."""
         list_cut_begin_length = video.generate_cut_with_begin_length(self.begin_in_second+(delay_use/1000),self.lenghtTime,self.lenghtTimePrepare)
         self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=list_cut_begin_length)
         
     def second_delay_test(self,delayUse,ignore_audio_couple):
-        """Refine a first-method delay with the second, finer correlation method.
-
-        Returns:
-            float: The residual delay in seconds to add to `delayUse`.
-        """
         global max_delay_variance_second_method
         global cut_file_to_get_delay_second_method
 
@@ -707,7 +668,6 @@ class compare_video(Thread):
             return mean(delay_detected)
             
     def get_best_video(self,delay):
-        """Pick the better-quality video of the pair and store the delay on the other one."""
         delay,begins_video_for_compare_quality = video.get_good_frame(self.video_obj_1, self.video_obj_2, self.begin_in_second, self.lenghtTime, self.time_by_test_best_quality_converted, (delay/1000))
 
         if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == 1:
@@ -715,16 +675,15 @@ class compare_video(Thread):
             self.video_obj_2.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_1
             delay = self.adjust_delay_to_frame(delay)
-            self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0'))  # Offset to give mkvmerge.
+            self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0')) # Delay you need to give to mkvmerge to be good.
         else:
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_1.remove_tmp_files(type_file="audio")
             self.video_obj_with_best_quality = self.video_obj_2
             delay = self.adjust_delay_to_frame(delay)
-            self.video_obj_1.delays[self.language] += delay  # Offset to give mkvmerge.
+            self.video_obj_1.delays[self.language] += delay # Delay you need to give to mkvmerge to be good.
             
     def adjust_delay_to_frame(self,delay):
-        """Snap a delay (ms) to a whole number of frames of the best video when it is CFR."""
         delay = Decimal(delay)
         if self.video_obj_with_best_quality.video["FrameRate_Mode"] == "CFR":
             """
@@ -765,13 +724,11 @@ class compare_video(Thread):
             return delay
 
 def was_they_not_already_compared(video_obj_1,video_obj_2,already_compared):
-    """Return True if the two videos have not been compared yet."""
     name_in_list = [video_obj_1.filePath,video_obj_2.filePath]
     sorted(name_in_list)
     return (name_in_list[0] not in already_compared or (name_in_list[0] in already_compared and name_in_list[1] not in already_compared[name_in_list[0]]))
 
 def can_always_compare_it(video_obj,compare_objs,new_compare_objs,already_compared):
-    """Return True if `video_obj` still has an uncompared partner in either list."""
     for other_video_obj in compare_objs:
         if was_they_not_already_compared(video_obj,other_video_obj,already_compared):
             return True
@@ -781,7 +738,6 @@ def can_always_compare_it(video_obj,compare_objs,new_compare_objs,already_compar
     return False
 
 def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
-    """Pop and return the first video in `new_compare_objs` not yet compared with `video_obj`, or None."""
     for i in range(0,len(new_compare_objs),1):
         if was_they_not_already_compared(video_obj,new_compare_objs[i],already_compared):
             return new_compare_objs.pop(i)
@@ -792,7 +748,6 @@ def get_waiter_to_compare(video_obj,new_compare_objs,already_compared):
     Theorically the video I will remove have no connexion between other files.
 """
 def remove_not_compatible_audio(video_obj_path_file,already_compared):
-    """Drop a video from the comparison graph and return the files that depended on it."""
     other_videos_path_file = []
     if video_obj_path_file in already_compared:
         for other_video_path_file, is_the_best_video in already_compared[video_obj_path_file].items():
@@ -819,12 +774,6 @@ def remove_not_compatible_audio(video_obj_path_file,already_compared):
     return other_videos_path_file
 
 def prepare_get_delay_sub(videos_obj,language):
-    """Prepare the audio extraction parameters and cut positions for one language.
-
-    Returns:
-        tuple: (begin in s, audio parameters, cut length in s, cut length as HH:MM:SS,
-        list of [begin, length] cuts).
-    """
     audio_parameter_to_use_for_comparison = {'Format':"WAV",
                                              'codec':"pcm_s16le",
                                              'Channels':"2"}
@@ -842,7 +791,6 @@ def prepare_get_delay_sub(videos_obj,language):
     return begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length
 
 def prepare_get_delay(videos_obj,language,audioRules):
-    """Run prepare_get_delay_sub, extract the cuts and reset the keep flags and delays."""
     begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub(videos_obj,language)
     for videoObj in videos_obj:
         for language_obj,audios in videoObj.audios.items():
@@ -868,7 +816,6 @@ def print_forced_video(forced_best_video):
         tools.logs.append(f"The forced video is {forced_best_video}\n")
 
 def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,best_video,language):
-    """Remove refused videos from the merge, repairing them first when possible."""
     if len(list_not_compatible_video):
         if show_not_compatible_error:
             sys.stderr.write(f"{[not_compatible_video for not_compatible_video in list_not_compatible_video]} not compatible with the others videos")
@@ -916,12 +863,6 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
 
     
 def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
-    """Compare all videos pairwise by elimination to find delays and the best video.
-
-    Returns:
-        dict: already_compared[file_a][file_b] is True if file_a is better, False if
-        file_b is, None if the pair is not compatible.
-    """
     begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
     
     time_by_test_best_quality_converted = strftime('%H:%M:%S',gmtime(video.generate_time_compare_video_quality(length_time)))
@@ -1010,7 +951,6 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
     return already_compared
 
 def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video):
-    """Measure every video's delay against the forced best video (see get_delay_and_best_video)."""
     begin_in_second,worseAudioQualityWillUse,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay(videosObj,language,audioRules)
     
     videosObj.remove(dict_file_path_obj[forced_best_video])
@@ -1044,7 +984,6 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     return already_compared
 
 def find_differences_and_keep_best_audio(video_obj,language,audioRules):
-    """Detect identical audio tracks of one language in a video and keep only the best one."""
     if len(video_obj.audios[language]) > 1:
         if tools.dev:
             tools.logs.append(f"\t\tKeep the best audio for {language}\n")
@@ -1131,12 +1070,9 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
             video_obj.remove_tmp_files(type_file="audio")
 
 def keep_best_audio(list_audio_metadata,audioRules):
-    '''Among same-language audio tracks, set keep=False on those beaten by the rules.
-
-    Fabricated tracks lose first; then format, channels, sampling rate and bitrate
-    are compared using `audioRules` from decript_merge_rules.
-
-    TODO: integrate FLAD, a fake-lossless audio detector.
+    '''
+    Todo:
+        Integrate https://github.com/Sg4Dylan/FLAD/tree/main
     '''
     for i,real_audio_1 in enumerate(list_audio_metadata):
         for j,real_audio_2 in enumerate(list_audio_metadata):
@@ -1145,8 +1081,22 @@ def keep_best_audio(list_audio_metadata,audioRules):
             audio_2 = audio_reencode.audio_for_keep(real_audio_2)
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
-            # A fabricated (repaired) track loses to an intact one before any codec rule.
-            # The marker is the 'fabricated' key or the re-probed extra.VMSAM_FABRICATED tag.
+            # Une piste fabriquee perd face a une piste intacte, avant toute
+            # regle de codec: sinon un FLAC assemble de trois sources evince un
+            # AAC d'origine, et les regles ci-dessous ne comparent que codec,
+            # canaux, frequence et debit -- sur lesquels une piste fabriquee
+            # peut gagner.
+            #
+            # `fabricated` est defini dans SPEC_ZONE_A.MD: chaine absente ou
+            # vide = piste intacte, chaine presente = piste construite par la
+            # reparation, et sa valeur dit comment. On teste la VERITE, jamais
+            # l'egalite, pour qu'une methode ajoutee plus tard soit prise en
+            # compte sans toucher a cette ligne.
+            #
+            # Rien ne pose la cle aujourd'hui: .get() rend False des deux cotes
+            # et cette branche ne s'active jamais. Le comportement actuel est
+            # donc inchange, et il changera de lui-meme le jour ou la reparation
+            # marquera ses pistes.
             elif (_fabricated_verdict := tools.keep_best_audio_fabricated_trace(audio_1, audio_2)) == "side1_fabricated_loses":
                 audio_1['keep'] = False
             elif _fabricated_verdict == "side2_fabricated_loses":
@@ -1200,7 +1150,6 @@ def keep_best_audio(list_audio_metadata,audioRules):
             real_audio_2['keep'] = audio_2['keep']
 
 def remove_sub_language(video_sub_track_list,language,number_sub_will_be_copy,number_max_sub_stream):
-    """Drop subtitles of `language` until the stream count fits the maximum; return the new count."""
     if number_sub_will_be_copy > number_max_sub_stream:
         for sub in video_sub_track_list[language]:
             if (sub['keep']) and number_sub_will_be_copy > number_max_sub_stream:
@@ -1209,7 +1158,6 @@ def remove_sub_language(video_sub_track_list,language,number_sub_will_be_copy,nu
     return number_sub_will_be_copy
 
 def keep_one_ass(groupID_srt_type_in,number_sub_will_be_copy,number_max_sub_stream):
-    """Keep one ASS subtitle per title group and type while over the maximum; return the new count."""
     for ass_name in ["forced_ass","hi_ass","dub_ass","ass"]:
         if number_sub_will_be_copy > number_max_sub_stream:
             for comparative_sub in groupID_srt_type_in.values():
@@ -1220,7 +1168,6 @@ def keep_one_ass(groupID_srt_type_in,number_sub_will_be_copy,number_max_sub_stre
     return number_sub_will_be_copy
 
 def sub_group_id_detector_and_clean_srt_when_ass_with_test(video_sub_track_list,language,language_groupID_srt_type_in,number_sub_will_be_copy,number_max_sub_stream):
-    """Group a language's subtitles and drop SRT duplicates of ASS ones while over the maximum."""
     if number_sub_will_be_copy > number_max_sub_stream and language in video_sub_track_list:
         sub_group_id_detector(video_sub_track_list[language],tools.group_title_sub[language],language_groupID_srt_type_in[language])
 
@@ -1233,7 +1180,6 @@ def sub_group_id_detector_and_clean_srt_when_ass_with_test(video_sub_track_list,
     return number_sub_will_be_copy
 
 def sub_group_id_detector(sub_list,group_title_sub_for_language,groupID_srt_type_in):
-    """Group kept text subtitles by cleaned title and type (srt/ass, hearing-impaired, dubtitle)."""
     for sub in sub_list:
         if (sub['keep']):
             codec = sub['ffprobe']["codec_name"].lower()
@@ -1254,7 +1200,6 @@ def sub_group_id_detector(sub_list,group_title_sub_for_language,groupID_srt_type
                     insert_type_in_group_sub_title(clean_title(sub),"ass",group_title_sub_for_language,groupID_srt_type_in,sub)
 
 def clean_srt_when_ass(groupID_srt_type_in,ass_name,srt_name,number_sub_will_be_copy):
-    """Drop SRT subtitles that have an ASS twin, else keep one SRT per group; return the new count."""
     for comparative_sub in groupID_srt_type_in.values():
         if ass_name in comparative_sub and len(comparative_sub[ass_name]) and srt_name in comparative_sub and len(comparative_sub[srt_name]):
             for sub in comparative_sub[srt_name]:
@@ -1267,14 +1212,12 @@ def clean_srt_when_ass(groupID_srt_type_in,ass_name,srt_name,number_sub_will_be_
     return number_sub_will_be_copy
 
 def get_sub_title_group_id(groups,sub_title):
-    """Return the index of the group containing `sub_title`, or None."""
     for i,group in enumerate(groups):
         if sub_title in group:
             return i
     return None
 
 def insert_type_in_group_sub_title(sub_clean_title,type_sub,groups,groupID_srt_type_in,sub):
-    """Add a subtitle to its title group (created if needed) under `type_sub`."""
     group_id = get_sub_title_group_id(groups,sub_clean_title)
     if group_id == None:
         groups.append([sub_clean_title])
@@ -1295,7 +1238,6 @@ def clean_title(sub):
     return clean_title
 
 def clean_dubtitle_title(sub):
-    """Return the lowercase subtitle title without the 'dubtitle' marker."""
     clean_title = ""
     if "Title" in sub:
         clean_title = re.sub(r'\s*\({0,1}dubtitle\){0,1}\s*',"",sub["Title"].lower())
@@ -1309,7 +1251,6 @@ def test_if_dubtitle(sub):
     return False
 
 def clean_hearing_impaired_title(sub):
-    """Return the lowercase subtitle title without SDH/CC markers."""
     clean_title = ""
     if "Title" in sub:
         if re.match(r".*sdh.*", sub["Title"].lower()):
@@ -1325,7 +1266,6 @@ def clean_hearing_impaired_title(sub):
     return clean_title
 
 def test_if_hearing_impaired(sub):
-    """Return True if the subtitle is hearing-impaired (title marker or track flag)."""
     if "Title" in sub:
         if re.match(r".*sdh.*", sub["Title"].lower()) or 'cc' == sub["Title"].lower() or 'hi' == sub["Title"].lower() or re.match(r".*\(cc\).*", sub["Title"].lower()):
             return True
@@ -1334,7 +1274,6 @@ def test_if_hearing_impaired(sub):
     return False
 
 def clean_forced_title(sub):
-    """Return the lowercase subtitle title without the 'forced' marker."""
     clean_title = ""
     if "Title" in sub:
         clean_title = re.sub(r'\s*\({0,1}forced\){0,1}\s*',"",sub["Title"].lower())
@@ -1349,12 +1288,6 @@ def test_if_forced(sub):
     return False
 
 def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_track_list):
-    """Deduplicate subtitles by MD5 and drop redundant ones until the count fits.
-
-    Redundancy is removed in order: forced SRT twins of ASS, then SRT twins in
-    languages not kept, then in languages to try to keep, and so on up to the kept
-    languages. Sets sub['keep'] in place.
-    """
     try:
         unique_md5 = set()
         number_sub_will_be_copy = 0
@@ -1370,7 +1303,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
         
         if number_sub_will_be_copy > number_max_sub_stream:
             language_groupID_srt_type_in = {}
-            # First drop forced SRT subtitles that have a forced ASS twin.
+            # Remove forced srt sub if we have an ass.
             for language,subs in video_sub_track_list.items():
                 if language not in tools.group_title_sub:
                     tools.group_title_sub[language] = []
@@ -1385,7 +1318,7 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
                             insert_type_in_group_sub_title(clean_forced_title(sub),"forced_ass",tools.group_title_sub[language],groupID_srt_type_in,sub)
                 number_sub_will_be_copy = clean_srt_when_ass(groupID_srt_type_in,"forced_ass","forced_srt",number_sub_will_be_copy)
 
-            # Then SRT twins in languages that are not kept.
+            # Remove srt sub on not keep
             if number_sub_will_be_copy > number_max_sub_stream:
                 language_to_clean = set(video_sub_track_list.keys()) - set(tools.language_to_keep) - set(tools.language_to_try_to_keep)
                 for language in language_to_clean:
@@ -1423,7 +1356,6 @@ def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_tra
         tools.logs.append(f"Error processing clean_number_stream_to_be_lover_than_max: {e}\n")
 
 def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
-    """Mark SRT subtitles whose text equals a kept ASS subtitle's as not kept."""
     set_md5_ass = set()
     for sub in keep_sub_ass:
         if sub['keep']:
@@ -1438,11 +1370,6 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
             sub['keep'] = False
 
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
-    """Add subtitle flags to the mkvmerge command and list the kept track order.
-
-    Returns:
-        int: Number of subtitle tracks kept.
-    """
     track_to_remove = set()
     number_track_sub = 0
     dic_language_list_track_ID = {}
@@ -1506,21 +1433,16 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
     return number_track_sub
 
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language_set_not_default_not_forced(merge_cmd,audio):
-    """Clear the forced and default flags of an audio track in the mkvmerge command."""
     merge_cmd.extend(["--forced-display-flag", audio["StreamOrder"]+":0", "--default-track-flag", audio["StreamOrder"]+":0"])
 
 default_audio = True
 def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(merge_cmd,video_audio_track_list,video_commentary_track_list,video_audio_desc_track_list,md5_audio_already_added,list_track_order=[]):
-    """Add audio flags to the mkvmerge command and list the kept track order.
-
-    Returns:
-        int: Number of audio tracks kept.
-    """
     global default_audio
     number_track_audio = 0
     dic_language_list_track_ID = {}
     if len(video_audio_track_list) == 2 and "und" in video_audio_track_list and tools.default_language_for_undetermine != "und":
-        # 'und' audio is aliased under the default language; drop the duplicate entry.
+        # This step is linked by the fact if you have und audio they are orginialy convert in another language
+        # This was convert in a language, but the object is the same and can be compared
         if video_audio_track_list[tools.default_language_for_undetermine] == video_audio_track_list['und']:
             del video_audio_track_list[tools.default_language_for_undetermine]
         
@@ -1567,7 +1489,6 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
                 merge_cmd.extend(["--commentary-flag", audio["StreamOrder"]])
     for language,audios in video_audio_desc_track_list.items():
         for audio in audios:
-            # An empty MD5 means "not computed", not a duplicate of another empty one.
             if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
                 track_to_remove.add(audio["StreamOrder"])
             else:
@@ -1591,7 +1512,6 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     return number_track_audio
 
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
-    """Add a video whose audio has the same MD5 as `video_obj`'s parent, with its delay."""
     delay_to_use = video_obj.delay_same_md5_audio + delay_to_put
     number_track = generate_new_file(video_obj,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
@@ -1607,7 +1527,6 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
         generate_merge_command_common_md5(video_obj_common_md5,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_winner,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video):
-    """Add a video and, recursively, the videos it beat, each with its cumulated delay."""
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
     number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
@@ -1628,7 +1547,6 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
 def check_delay_retention_sub(track, original_video_path,sentence):
-    """Warn when a track's delay differs from the original delay stored in its VMSAM_TMP tag."""
     extra_tags = track.get("extra", {})
     vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
     sys.stderr.write(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
@@ -1637,8 +1555,8 @@ def check_delay_retention_sub(track, original_video_path,sentence):
         if Decimal(str(data_to_save["original_delay"])) != Decimal(str(track.get('Delay', '0'))):
             sys.stderr.write(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track.get('Delay', '0')}\n")
 
+# With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
 def check_delay_retention(new_video, original_video_path,sentence):
-    """Check that every track of a rebuilt file kept its original delay."""
     for language,audios in new_video.audios.items():
         for audio in audios:
             check_delay_retention_sub(audio, original_video_path,sentence)
@@ -1656,11 +1574,6 @@ def check_delay_retention(new_video, original_video_path,sentence):
             check_delay_retention_sub(audio, original_video_path,sentence)
 
 def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
-    """Rebuild the kept audio and subtitle tracks of a video with ffmpeg in two passes.
-
-    The first pass copies the streams; the second applies the delay (itsoffset or
-    seek) and re-encodes lossless or shifted audio, trimmed to the best video's duration.
-    """
     cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
                             "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_first_pass, 2, 3600)
@@ -1679,6 +1592,7 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
+    #sys.stderr.write(f"[FFmpeg] First pass for {video_obj.filePath}\n{stderr_text}\n")
 
 
     new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
@@ -1740,11 +1654,6 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
         check_delay_retention(new_video,video_obj.filePath,"Second pass")
 
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
-    """Sort one audio track into the remove or keep list.
-
-    Returns:
-        int: 1 if kept, 0 otherwise.
-    """
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
         return 0
@@ -1759,18 +1668,12 @@ def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_
         return 1
 
 def get_relative_id_track(track):
-    """Return the ffmpeg per-type stream specifier suffix (':n') for a track."""
     if '@typeorder' in track:
         return f":{int(track['@typeorder'])-1}"
     else:
         return ":0"
 
 def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
-    """Queue the ffmpeg rebuild of a video's kept tracks and add it to the merge command.
-
-    Returns:
-        int: Number of tracks kept.
-    """
     if video_obj.und_in_default:
         del video_obj.audios[tools.default_language_for_undetermine]
 
@@ -1889,7 +1792,6 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     return number_track
 
 def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules):
-    """Build and run the final mkvmerge command from the comparison results."""
     for file_path,video_obj in dict_file_path_obj.items():
         video_obj.remove_tmp_files()
 
@@ -2079,7 +1981,6 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
         tools.logs.append("\t\tFile produce\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
-    """Merge videos without delay measurement, keeping the best-quality video stream."""
     if forced_best_video == None:
         min_video_duration_in_sec = video.get_shortest_video_durations(videosObj)
         begin_in_second,length_time = video.generate_begin_and_length_by_segment(min_video_duration_in_sec)
@@ -2126,11 +2027,6 @@ def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,"und",audioRules)
     
 def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
-    """Merge videos after measuring their delays on a common audio language.
-
-    Videos whose audio has the same MD5 as another one reuse its delay instead of
-    being measured.
-    """
     commonLanguages = video.get_common_audios_language(videosObj)
     try:
         commonLanguages.remove("und")
@@ -2222,14 +2118,6 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
     generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,common_language_use_for_generate_delay,audioRules)
     
 def merge_videos(files,out_folder,merge_sync,inFolder=None):
-    """Merge several versions of the same video into one file.
-
-    Args:
-        files: Paths of the files to merge.
-        out_folder: Output folder.
-        merge_sync: True to measure delays, False to merge without synchronisation.
-        inFolder: Folder the file names are relative to, if any.
-    """
     videosObj = []
     name_file = {}
     files = list(files)

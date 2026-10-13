@@ -1,4 +1,3 @@
-"""Command-line entry point: merge several versions of a video into one file."""
 import argparse
 from datetime import datetime
 from multiprocessing import Pool, set_start_method, get_context
@@ -69,9 +68,6 @@ if __name__ == '__main__':
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]
 
-        # Workers read tools.software, tools.mergeRules and the language configuration
-        # from module globals, which only the fork start method (forced above) carries
-        # into a child; Python 3.14 defaults to forkserver on Linux.
         video.ffmpeg_pool_audio_convert = Pool(processes=tools.core_to_use)
         video.ffmpeg_pool_big_job = Pool(processes=1)
 
