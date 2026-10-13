@@ -9,19 +9,20 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 
+/// The file to cut at its start and by how many seconds to bring the two files in sync.
 #[derive(Debug, Serialize)]
 pub struct CorrelationResult {
     pub file: String,
     pub offset_seconds: f64,
 }
 
-/// Tuning constants
-const USABLE_PERCENT: usize = 80; // use 85% of detected available memory
-const MIN_N_CAP: usize = 1 << 16; // min FFT size (16k)
-const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap for FFT size (~67M)
-const SAFETY_BYTES_PER_ELEMENT: usize = 18; // bytes per FFT "element" estimation (Complex32 * 2 + headroom)
+// Tuning constants.
+const USABLE_PERCENT: usize = 80; // percent of available memory the FFT may use
+const MIN_N_CAP: usize = 1 << 16; // minimum FFT size
+const ABS_MAX_N_CAP: usize = 1 << 28; // hard cap on FFT size
+const SAFETY_BYTES_PER_ELEMENT: usize = 18; // estimated bytes per FFT element (two Complex32 + headroom)
 
-/// Utility: probe sample rate & duration via ffprobe
+/// Probe the first audio stream's sample rate and duration (seconds) with ffprobe.
 async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
     let out = Command::new("ffprobe")
         .args(&[
@@ -66,9 +67,8 @@ async fn probe_samplerate_duration(path: &Path) -> Result<(u32, f64)> {
     Ok((sr.unwrap_or(44100), dur.unwrap_or(0.0)))
 }
 
-/// Detect cgroup memory limit (v2 or v1) if present. Returns Some(limit_bytes) or None if no concrete limit.
+/// Return the cgroup (v2 or v1) memory limit in bytes, or None when there is no concrete limit.
 fn detect_cgroup_limit_bytes() -> Option<usize> {
-    // cgroup v2 common file
     let v2_path = Path::new("/sys/fs/cgroup/memory.max");
     if v2_path.exists() {
         if let Ok(s) = fs::read_to_string(v2_path) {
@@ -83,7 +83,7 @@ fn detect_cgroup_limit_bytes() -> Option<usize> {
         }
     }
 
-    // parse /proc/self/cgroup for v2 path or v1 memory controller
+    // Resolve this process's cgroup path from /proc/self/cgroup.
     let cgp = fs::read_to_string("/proc/self/cgroup").ok()?;
     for line in cgp.lines() {
         // v2: "0::/some/path"
@@ -106,7 +106,6 @@ fn detect_cgroup_limit_bytes() -> Option<usize> {
         }
     }
 
-    // try v1: find controller containing "memory"
     for line in cgp.lines() {
         let parts: Vec<&str> = line.splitn(3, ':').collect();
         if parts.len() == 3 {
@@ -133,7 +132,7 @@ fn detect_cgroup_limit_bytes() -> Option<usize> {
     None
 }
 
-/// Read MemAvailable from /proc/meminfo. Fallback to MemTotal or 512MB if unavailable.
+/// Return MemAvailable from /proc/meminfo, falling back to MemTotal, then 512 MB.
 fn read_mem_available_bytes() -> usize {
     const DEFAULT: usize = 512 * 1024 * 1024;
     if let Ok(s) = fs::read_to_string("/proc/meminfo") {
@@ -161,7 +160,7 @@ fn read_mem_available_bytes() -> usize {
     DEFAULT
 }
 
-/// Compute available memory (considers cgroup limit if present).
+/// Return the available memory in bytes, capped by the cgroup limit if any.
 fn detect_available_memory_bytes() -> usize {
     let meminfo = read_mem_available_bytes();
     if let Some(cg) = detect_cgroup_limit_bytes() {
@@ -171,7 +170,7 @@ fn detect_available_memory_bytes() -> usize {
     }
 }
 
-/// Compute usable FFT cap (power of two) based on available memory and USABLE_PERCENT.
+/// Return the largest FFT size (power of two) that fits in USABLE_PERCENT of available memory.
 fn compute_max_n_cap() -> usize {
     let avail = detect_available_memory_bytes();
     let usable = avail.saturating_mul(USABLE_PERCENT) / 100;
@@ -185,12 +184,11 @@ fn compute_max_n_cap() -> usize {
     if n > ABS_MAX_N_CAP {
         n = ABS_MAX_N_CAP;
     }
-    // round down to power of two
     let p = next_pow2_floor(n);
     if p < MIN_N_CAP { MIN_N_CAP } else { p }
 }
 
-/// next pow2 >= n
+/// Smallest power of two >= n.
 fn next_pow2(mut n: usize) -> usize {
     if n == 0 { return 1; }
     n -= 1;
@@ -205,7 +203,7 @@ fn next_pow2(mut n: usize) -> usize {
     n + 1
 }
 
-/// largest power of two <= n
+/// Largest power of two <= n.
 fn next_pow2_floor(n: usize) -> usize {
     if n == 0 { return 1; }
     if n.is_power_of_two() { return n; }
@@ -214,8 +212,7 @@ fn next_pow2_floor(n: usize) -> usize {
     p >> 1
 }
 
-/// Read entire audio via ffmpeg into Vec<f32> (mono, target sample rate).
-/// Uses ffmpeg to mix to mono and resample if needed. Returns (sr, samples).
+/// Decode a whole file with ffmpeg to mono f32 samples at `target_sr`; returns (sr, samples).
 async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>)> {
     let args = vec![
         "-probesize".to_string(),
@@ -259,9 +256,8 @@ async fn read_full_pcm_f32(path: &Path, target_sr: u32) -> Result<(u32, Vec<f32>
     Ok((target_sr, samples))
 }
 
-/// Correlate fully in-memory using one big FFT (s1 and s2 are mono f32 samples).
+/// Cross-correlate two signals in memory with one FFT; returns (padsize, peak index).
 fn correlate_full(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
-    // compute needed padsize
     let ls1 = s1.len();
     let ls2 = s2.len();
     if ls1 == 0 || ls2 == 0 {
@@ -269,7 +265,6 @@ fn correlate_full(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
     }
     let needed = ls1 + ls2 - 1;
     let n = next_pow2(needed);
-    // create planner and buffers
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(n);
     let ifft = planner.plan_fft_inverse(n);
@@ -290,7 +285,6 @@ fn correlate_full(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
 
     ifft.process(&mut a);
 
-    // find max magnitude
     let mut xmax = 0usize;
     let mut maxv = f32::NEG_INFINITY;
     for (i, v) in a.iter().enumerate() {
@@ -304,8 +298,8 @@ fn correlate_full(s1: &[f32], s2: &[f32]) -> Result<(usize, usize)> {
     Ok((n, xmax))
 }
 
-/// Overlap-save correlation streaming: ref_samples is the (reversed) reference already in memory,
-/// stream_path is the path to feed ffmpeg which outputs pcm_f32le mono resampled to target_sr.
+/// Cross-correlate a reversed in-memory reference against a file streamed through ffmpeg,
+/// using overlap-save with FFT size `n`; returns (n, global sample index of the peak).
 async fn correlate_overlap_save(
     ref_samples_rev: &[f32],
     stream_path: &Path,
@@ -315,7 +309,6 @@ async fn correlate_overlap_save(
 ) -> Result<(usize, usize)> {
     let m = ref_samples_rev.len();
     if m == 0 { anyhow::bail!("empty reference"); }
-    // choose n: largest power of two <= max_n_cap but >= m
     let mut n = next_pow2_floor(max_n_cap);
     if n < m {
         n = next_pow2(m);
@@ -324,11 +317,10 @@ async fn correlate_overlap_save(
         }
     }
 
-    // block size B = N - m + 1
+    // Overlap-save block size: B = N - m + 1.
     let block_b = n.saturating_sub(m).saturating_add(1);
     if block_b == 0 { anyhow::bail!("computed block size is zero"); }
 
-    // prepare planner and precompute ref_fft at n
     let mut planner = FftPlanner::<f32>::new();
     let fft = planner.plan_fft_forward(n);
     let ifft = planner.plan_fft_inverse(n);
@@ -340,7 +332,6 @@ async fn correlate_overlap_save(
     fft.process(&mut ref_buf);
     let ref_fft = ref_buf;
 
-    // spawn ffmpeg for stream_path
     let args = vec![
         "-threads".to_string(),
         "3".to_string(),
@@ -368,7 +359,6 @@ async fn correlate_overlap_save(
     let stdout = child.stdout.take().context("no stdout from ffmpeg")?;
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    // buffers reused
     let overlap_len = m.saturating_sub(1);
     let mut overlap: Vec<f32> = vec![0.0f32; overlap_len];
     let mut local_bytes: Vec<u8> = vec![0u8; block_b.saturating_mul(4)];
@@ -385,14 +375,11 @@ async fn correlate_overlap_save(
         if nread == 0 { break; }
         let samples_read = nread / 4;
 
-        // zero in_buf
         for v in in_buf.iter_mut() { *v = Complex32::new(0.0, 0.0); }
 
-        // copy overlap
         for (i, &v) in overlap.iter().enumerate() {
             in_buf[i] = Complex32::new(v, 0.0);
         }
-        // copy block samples
         for i in 0..samples_read {
             let base = i * 4;
             let bytes = [local_bytes[base], local_bytes[base+1], local_bytes[base+2], local_bytes[base+3]];
@@ -403,16 +390,13 @@ async fn correlate_overlap_save(
             }
         }
 
-        // fft input
         fft.process(&mut in_buf);
-        // multiply with ref_fft
         for i in 0..n {
             in_buf[i] = in_buf[i] * ref_fft[i];
         }
-        // inverse
         ifft.process(&mut in_buf);
 
-        // output region start = m-1
+        // Valid (non-aliased) output starts at index m-1.
         let start_idx = m.saturating_sub(1);
         for i in 0..samples_read {
             let idx = start_idx + i;
@@ -425,7 +409,7 @@ async fn correlate_overlap_save(
             }
         }
 
-        // update overlap: keep last overlap_len samples of (overlap + block)
+        // Keep the last m-1 samples of (overlap + block) for the next block.
         let mut tail: Vec<f32> = Vec::with_capacity(overlap_len + samples_read);
         tail.extend_from_slice(&overlap);
         for i in 0..samples_read {
@@ -453,38 +437,34 @@ async fn correlate_overlap_save(
     Ok((n, max_idx_samples))
 }
 
-/// Top-level function exposed to main.rs: choose fast full-FFT if memory allows, else overlap-save streaming.
+/// Find the offset aligning two audio files and which file to cut.
+///
+/// Uses one in-memory FFT when memory allows, else overlap-save streaming
+/// with the shorter file as the reference.
 pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize) -> Result<CorrelationResult> {
-    // probe both files
     let p1 = Path::new(in1);
     let p2 = Path::new(in2);
     let (sr1, dur1) = probe_samplerate_duration(p1).await?;
     let (sr2, dur2) = probe_samplerate_duration(p2).await?;
 
-    // choose common target sr
     let target_sr = std::cmp::min(sr1, sr2);
 
-    // estimate samples
     let est1 = (sr1 as f64 * dur1).round() as usize;
     let est2 = (sr2 as f64 * dur2).round() as usize;
 
-    // compute memory-based cap
     let max_n_cap = compute_max_n_cap();
 
-    // Estimate needed N for full FFT
     let needed_full = est1.saturating_add(est2).saturating_sub(1);
     let n_full = next_pow2(needed_full);
 
-    // compute estimated bytes for full in-memory FFT: conservative
     let bytes_needed = (n_full as usize)
         .saturating_mul(SAFETY_BYTES_PER_ELEMENT)
-        .saturating_mul(2) / 2; // keep conservative factor ~1x
+        .saturating_mul(2) / 2;
 
     let avail = detect_available_memory_bytes();
     let usable = avail.saturating_mul(USABLE_PERCENT) / 100;
 
     if bytes_needed <= usable && n_full <= ABS_MAX_N_CAP {
-        // fast path: load both files fully and run correlate_full
         let (_sr_a, a) = read_full_pcm_f32(p1, target_sr).await?;
         let (_sr_b, b) = read_full_pcm_f32(p2, target_sr).await?;
         let (padsize, xmax) = correlate_full(&a, &b)?;
@@ -497,19 +477,18 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
         return Ok(CorrelationResult { file: file_cut, offset_seconds });
     }
 
-    // otherwise streaming: choose shorter file as reference to load fully
+    // Streaming: the shorter file is the in-memory reference.
     let (ref_path, stream_path, _ref_est) = if est1 <= est2 {
         (p1, p2, est1)
     } else {
         (p2, p1, est2)
     };
 
-    // read reference fully
     let (_sr_ref, mut ref_samples) = read_full_pcm_f32(ref_path, target_sr).await?;
     if ref_samples.is_empty() {
         anyhow::bail!("reference empty after read");
     }
-    // reverse reference for convolution
+    // Reversed so that convolution computes correlation.
     ref_samples.reverse();
     let m = ref_samples.len();
     if m > max_n_cap {
@@ -520,9 +499,7 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
         );
     }
 
-    // pick n: try to make blocks big (so fewer FFTs) but <= max_n_cap
-    // target block size B_target = something proportional to usable memory. We'll set N = min(max_n_cap, next_pow2(m + B_desired - 1))
-    // choose B_desired = min( est_stream, max( BLOCK ~ m or something ) ). For simplicity pick B_desired = max( BLOCK = m * 2, 1<<16 ) but bounded by memory.
+    // FFT size: room for blocks of max(2m, 64k) samples (fewer FFTs), bounded by the memory cap.
     let desired_b = std::cmp::max(m.saturating_mul(2), 1 << 16);
     let mut n_try = next_pow2(m.saturating_add(desired_b).saturating_sub(1));
     if n_try > max_n_cap {
@@ -536,13 +513,10 @@ pub async fn second_correlation_async(in1: &str, in2: &str, pool_capacity: usize
     }
     let n = n_try;
 
-    // run overlap-save with chosen n
     let (_padsize, xmax_samples) = correlate_overlap_save(&ref_samples, stream_path, target_sr, n, pool_capacity).await?;
 
-    // interpret result
     let fs_f = target_sr as f64;
-    // here overlap-save returns global sample index xmax_samples within stream where correlation peak occurred.
-    // If ref_path == p1 then we want to cut in2; else cut in1.
+    // The peak index is a sample position in the streamed file, which is the one to cut.
     let file_cut = if ref_path == p1 { in2.to_string() } else { in1.to_string() };
     let offset_seconds = (xmax_samples as f64) / fs_f;
 

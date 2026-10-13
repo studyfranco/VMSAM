@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::env;
 
+/// Print the JSON correlation result of two audio files: `audio_sync <file1> <file2> [pool_size]`.
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();

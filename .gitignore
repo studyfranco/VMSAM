@@ -10,3 +10,18 @@ target/*
 Cargo.lock
 .claude/*
 example/*
+# Runtime logs and merge reports; they belong next to the media, never in the repository.
+log.error
+log.out
+log.log
+*.log.error
+*.log.out
+merge_plan.html
+*.merge_plan.html
+
+# Local CI notes.
+ci-instruments/
+
+# Core dumps.
+core
+core.*
