@@ -22,6 +22,7 @@ from decimal import Decimal
 from fractions import Fraction
 import html
 import hashlib
+import json
 import re
 
 def measure_corpus(log_paths, read=None):
@@ -554,6 +555,8 @@ def parse_job_log(text):
         "delivery": [],
         "segments": [],
         "output_durations": None,
+        # The plan as applied (`repair: delivered_plan <json>`), when the build wrote one.
+        "delivered_plan": None,
     }
 
     for line in lines:
@@ -756,6 +759,12 @@ def parse_job_log(text):
             entry = split_fields(tail)
             entry["index"] = index
             job["brackets"].append(entry)
+            continue
+        if body.startswith("delivered_plan {"):
+            try:
+                job["delivered_plan"] = json.loads(body[len("delivered_plan "):])
+            except ValueError:
+                job["unparsed"].append(body)
             continue
         if body.startswith("segment "):
             rest = body[len("segment "):]
@@ -1444,6 +1453,53 @@ def plan_end_ms(job):
     return pieces[-1]["master_end_ms"] if pieces else None
 
 
+def delivered_plan_rows(plan, redactor=None):
+    """Rows of the plan as applied: one DELIVERED row, PLANREGION rows, STEP rows, PRODUCT rows.
+
+    The schematic and the cuts table are drawn from these rows when they exist (track `plan`),
+    whatever the route; the per-track log rows stay as evidence.
+    """
+    if not plan:
+        return []
+    rows = [_row("DELIVERED", _redactor=redactor, route=plan.get("route"),
+                 language=plan.get("language"), marker=plan.get("marker"),
+                 speed_ratio=plan.get("speed_ratio"),
+                 video_offset_frames=plan.get("video_offset_frames"),
+                 master_timeline_ms=plan.get("master_timeline_ms"),
+                 reference_candidate_stream=plan.get("reference_candidate_stream"),
+                 regions=len(plan.get("regions") or []),
+                 built=len(plan.get("built") or []),
+                 kept=sum(1 for d in plan.get("delivered") or [] if d.get("kept")))]
+    previous = None
+    for index, region in enumerate(plan.get("regions") or []):
+        start, end = Decimal(region["master_start_ms"]), Decimal(region["master_end_ms"])
+        source = region.get("source") or "?"
+        kind = ("CANDIDATE" if source == "candidate" else
+                "SILENCE" if source.startswith("silence") else "MASTER")
+        offset = region.get("offset_ms")
+        offset = None if offset is None else Decimal(str(offset))
+        rows.append(_row("PLANREGION", _redactor=redactor, track="plan", seq=index, kind=kind,
+                         master_start_ms=_trim(start), master_end_ms=_trim(end),
+                         master_start=clock(start), master_end=clock(end),
+                         source=source, offset_ms=None if offset is None else _trim(offset),
+                         offset_s=None if offset is None else seconds_fr(offset, 3),
+                         candidate_start_ms=region.get("candidate_start_ms"),
+                         why=region.get("reason"), duration=short_clock(end - start)))
+        if kind == "CANDIDATE":
+            if previous is not None:
+                delta = offset - Decimal(str(previous["offset_ms"]))
+                rows.append(_row("STEP", _redactor=redactor, track="plan",
+                                 at_master_ms=_trim(Decimal(previous["master_end_ms"])),
+                                 at_master=clock(Decimal(previous["master_end_ms"])),
+                                 step_ms=_trim(delta), step_s=seconds_fr(delta, 1)))
+            previous = region
+    for entry in plan.get("delivered") or []:
+        rows.append(_row("PRODUCT", _redactor=redactor, holder=entry.get("holder"),
+                         lang=entry.get("language"), stream=entry.get("stream"),
+                         kept=entry.get("kept"), drop_cause=entry.get("drop_cause")))
+    return rows
+
+
 def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
     """Build the report's text rows, one record per line, carrying every number."""
     generation, description = format_generation(job)
@@ -1868,6 +1924,8 @@ def build_rows(job, artefact_id, source_name, n_caveat, corpus=None):
                              at_master_ms=_trim(previous["master_end_ms"]),
                              at_master=clock(previous["master_end_ms"]),
                              step_ms=_trim(delta), step_s=seconds_fr(delta, 1)))
+
+    rows.extend(delivered_plan_rows(job.get("delivered_plan"), redactor))
 
     for fields in job.get("subtitles") or []:
         rows.append(_row("SUBTITLE", track=fields.get("stream_order"),
@@ -3287,7 +3345,9 @@ def delivery_drops(records):
 def plan_geometry(records):
     """Return the geometry the schematic and table draw, read from the rows.
 
-    The lead track is the first delivered, measured (not borrowed) track with
+    When the build logged the applied plan (PLANREGION rows), the geometry is that plan,
+    whatever the route and whichever tracks were delivered. Older logs fall back to the
+    per-track rows: the lead track is the first delivered, measured (not borrowed) track with
     regions; dropped tracks are identified by rank (see `delivery_drops`).
     When no such track is delivered, returns `{"undelivered": True, ...}`.
     A cut is every non-candidate region plus every seam between adjacent
@@ -3310,6 +3370,14 @@ def plan_geometry(records):
             lost.setdefault(fields["track"], []).append(fields)
         elif kind == "REFUSED":
             refused.append(fields)
+    planned = [f for k, f in records if k == "PLANREGION"]
+    if planned:
+        delivered = next(f for k, f in records if k == "DELIVERED")
+        reference = delivered.get("reference_candidate_stream")
+        lead = {"track": "plan", "lang": delivered.get("language"),
+                "offset": "measured", "route": delivered.get("route")}
+        return _geometry(plan, span, planned, steps.get("plan", []), lead,
+                         lost.get(reference, []) if reference else [], refused, tracks, 1)
     _drop_counts, dropped_ranks = delivery_drops(records)
     # A drop line's `stream=` is a 0-based rank among rebuilt tracks ordered by
     # `track=`; only that track is gone.
@@ -3330,8 +3398,16 @@ def plan_geometry(records):
                     "dropped": sorted(gone), "tracks": tracks}
         return None
     number = lead["track"]
-    regs = sorted(regions[number], key=lambda r: Decimal(r["master_start_ms"]))
-    step_at = {Decimal(s["at_master_ms"]): s for s in steps.get(number, [])}
+    geometries = len({_geometry_key(regions.get(t["track"], []))
+                      for t in with_regions})
+    return _geometry(plan, span, regions[number], steps.get(number, []), lead,
+                     lost.get(number, []), refused, tracks, geometries)
+
+
+def _geometry(plan, span, regions, steps, lead, lost, refused, tracks, geometries):
+    """Build the cuts the schematic and the table draw from one track's regions."""
+    regs = sorted(regions, key=lambda r: Decimal(r["master_start_ms"]))
+    step_at = {Decimal(s["at_master_ms"]): s for s in steps}
 
     cuts = []
     for index, region in enumerate(regs):
@@ -3360,7 +3436,7 @@ def plan_geometry(records):
         return next((c for c in cuts
                      if c["start"] == boundary or c["end"] == boundary), None)
 
-    for item in lost.get(number, []):
+    for item in lost:
         where = item.get("where")
         target = None
         if where == "head" and candidates:
@@ -3403,8 +3479,6 @@ def plan_geometry(records):
             cut["lost"].append((item, True))
         unplaced = [i for i in unplaced if i not in interior_left]
     cuts.sort(key=lambda c: (c["start"], c["end"]))
-    geometries = len({_geometry_key(regions.get(t["track"], []))
-                      for t in with_regions})
     return {"plan": plan, "span": span, "lead": lead, "regions": regs,
             "candidates": candidates, "cuts": cuts, "refused": refused,
             "unplaced": unplaced, "tracks": tracks, "geometries": geometries}
@@ -3556,7 +3630,7 @@ def render_plan_schematic(geometry):
     missing = any(_dec(c.get("offset_ms")) is None for c in geometry["candidates"])
     height = int((unknown_y if missing else stair_top + depth) + 14)
     lead = geometry["lead"]
-    title = (f"Plan sur la timeline du maître, piste {lead.get('track')} "
+    title = (f"Plan sur la timeline du maître, {_lead_label(lead)} "
              f"({lead.get('lang')})")
     return (f'<svg class="schema" viewBox="0 0 {width} {height}" width="100%" '
             f'role="img" aria-label="{_escape(title)}" '
@@ -3635,6 +3709,28 @@ def _source_word(path, job):
     return "autre source"
 
 
+def _lead_label(lead):
+    """Name the source of the drawn geometry: the applied plan or one track."""
+    if lead.get("track") == "plan":
+        return f"plan appliqué, route {lead.get('route')}"
+    return f"piste {lead.get('track')}"
+
+
+def _delivery_sentence(plan):
+    """One summary line on which tracks of the applied plan were delivered."""
+    kept = [d for d in plan.get("delivered") or [] if d.get("kept")]
+    dropped = [d for d in plan.get("delivered") or [] if not d.get("kept")]
+
+    def names(entries):
+        return ", ".join(f"{_escape(d.get('holder'))} {_escape(d.get('language'))}"
+                         for d in entries) or "aucune"
+    text = (f"<li><b>Plan livré :</b> {len(kept)} piste(s) livrée(s) ({names(kept)})")
+    if dropped:
+        text += (f" ; {len(dropped)} écartée(s) par la porte de livraison "
+                 f"({names(dropped)}), le maître garde son audio pour celles-ci")
+    return text + ".</li>"
+
+
 def render_human_summary(job, geometry, merge_log=None):
     """Render the human summary (part B): a short French list with decimal commas."""
     said = []
@@ -3675,11 +3771,13 @@ def render_human_summary(job, geometry, merge_log=None):
         said.append(
             f"<li><b>Coupes : {len(cuts)}</b> — {pieces} morceau(x) du candidat "
             f"recollé(s) sur la timeline du maître, qui dure "
-            f"{_fr_clock(geometry['span'])} (piste {geometry['lead'].get('track')}, "
+            f"{_fr_clock(geometry['span'])} ({_lead_label(geometry['lead'])}, "
             f"{_escape(geometry['lead'].get('lang'))}"
             + (f" ; {geometry['geometries']} géométries différentes entre pistes, "
                f"voir le détail" if geometry["geometries"] > 1 else "")
             + ").</li>")
+        if geometry["lead"].get("track") == "plan":
+            said.append(_delivery_sentence(job.get("delivered_plan") or {}))
         lines = ["<table class=\"cuts\"><thead><tr><th>#</th><th>où</th>"
                  "<th>début (maître)</th><th>fin</th><th>durée</th>"
                  "<th>inséré</th><th>saut de décalage</th>"
@@ -3978,6 +4076,8 @@ def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
                  corpus=None, merge_log=None):
     """Write the report beside the produced file and return (path, transport_entry).
 
+    When the job carries the applied plan, it is also written as `<product>.merge_plan.json`.
+
     Does not write to `tools.logs`; the caller decides whether to log the entry.
     """
     validate_job(job)
@@ -3986,4 +4086,8 @@ def write_report(job, artefact_id, source_name, produced_file_path, caveats=(),
     destination = report_path(produced_file_path)
     with open(destination, "w", encoding="utf-8") as handle:
         handle.write(document)
+    if job.get("delivered_plan"):
+        # The applied plan itself, beside the product, for tools that read it.
+        with open(str(produced_file_path) + ".merge_plan.json", "w", encoding="utf-8") as handle:
+            json.dump(job["delivered_plan"], handle, sort_keys=True, indent=1)
     return destination, transport_entry(document, artefact_id)

@@ -214,7 +214,97 @@ def build_repaired_video_object(candidate_obj, master_obj, plan, work_root, job_
                           refused=getattr(error, "cause", None) or type(error).__name__)
         raise
     log_chimeric_keep(candidate_obj, plan, assembly, repaired_obj)
+    publish_delivered_plan(plan, assembly, repaired_obj, out_path)
     return repaired_obj, assembly
+
+
+DELIVERED_PLAN_FORMAT = "vmsam_delivered_plan"
+DELIVERED_PLAN_SUFFIX = ".delivered_plan.json"
+
+
+def delivered_plan(plan, assembly, repaired_obj):
+    """Return the plan as applied: master-timeline regions, built tracks and delivered tracks.
+
+    One structure for every route (chimeric, video-anchored, visual fallback). `regions` are
+    the reference pieces: a candidate region carries its offset (candidate minus master
+    position), a master region its fill source. `delivered` lists the product's tracks with
+    the delivery gate's decision.
+    """
+    audios = assembly.get("audios") or []
+    reference = next((report for report in audios
+                      if str(report.get("stream_order"))
+                      == str(plan.get("reference_candidate_stream"))),
+                     audios[0] if audios else None)
+    fill = (reference or {}).get("gap_fill")
+    fill_language = (reference or {}).get("fill_language") or plan.get("language")
+    regions = []
+    for piece in plan.get("reference_pieces") or []:
+        start, end = Decimal(str(piece["master_start_ms"])), Decimal(str(piece["master_end_ms"]))
+        region = {"master_start_ms": str(start), "master_end_ms": str(end),
+                  "reason": piece.get("reason")}
+        if piece["source"] == "candidate":
+            source_start = Decimal(str(piece["source_start_ms"]))
+            region.update(source="candidate", candidate_start_ms=str(source_start),
+                          offset_ms=str(source_start - start))
+        else:
+            region["source"] = ("silence" if fill == "silence"
+                                else f"master/{fill_language}" if fill_language else "master")
+        regions.append(region)
+    dropped = {}
+    for entry in ((assembly.get("fabricated_dropped") or [])
+                  + (assembly.get("silence_dropped") or [])):
+        if isinstance(entry, dict) and entry.get("stream_order") is not None:
+            dropped[str(entry["stream_order"])] = entry.get("cause") or "dropped"
+    delivered = []
+    for holder in AUDIO_HOLDERS + ("subtitles",):
+        for language, tracks in (getattr(repaired_obj, holder, None) or {}).items():
+            for track in tracks:
+                order = str(track.get("StreamOrder"))
+                kept = track.get("keep", True) is not False and order not in dropped
+                delivered.append({"holder": holder, "language": language, "stream": order,
+                                  "kept": kept,
+                                  "drop_cause": None if kept else dropped.get(order, "keep=False")})
+    built = ([{"type": "audio", "stream": report.get("stream_order"),
+               "language": report.get("language"), "fill": report.get("gap_fill"),
+               "offset": "measured" if report.get("offset_measured") else "borrowed"}
+              for report in audios]
+             + [{"type": "subtitle", "stream": report.get("stream_order"),
+                 "language": report.get("language"), "kept_cues": report.get("kept_cues")}
+                for report in assembly.get("subtitles") or []]
+             + [{"type": entry.get("kind"), "stream": entry.get("stream_order"),
+                 "refused": str(entry.get("reason"))[:200]}
+                for entry in (assembly.get("declined") or []) + (assembly.get("failed") or [])])
+    anchored = plan.get("video_anchored") or {}
+    return {
+        "format": DELIVERED_PLAN_FORMAT, "version": 1,
+        "route": plan.get("kind"), "language": plan.get("language"),
+        "marker": assembly.get("marker") or plan.get("marker"),
+        "master_timeline_ms": regions[-1]["master_end_ms"] if regions else None,
+        "speed_ratio": (plan.get("speed_ratio_exact")
+                        or (None if plan.get("speed_ratio") is None else str(plan["speed_ratio"]))),
+        "video_offset_frames": anchored.get("offset_frames"),
+        "reference_stream": plan.get("reference_stream"),
+        "reference_candidate_stream": plan.get("reference_candidate_stream"),
+        "regions": regions, "built": built, "delivered": delivered,
+    }
+
+
+def publish_delivered_plan(plan, assembly, repaired_obj, out_path):
+    """Write the delivered plan beside the repaired file and log it on one line.
+
+    The log line (`repair: delivered_plan <json>`) is what the merge plan report renders.
+    Never raises: a plan that cannot be written is logged as such.
+    """
+    try:
+        document = delivered_plan(plan, assembly, repaired_obj)
+        text = json.dumps(document, sort_keys=True, default=str)
+        with open(out_path + DELIVERED_PLAN_SUFFIX, "w", encoding="utf-8") as handle:
+            handle.write(text + "\n")
+        assembly["delivered_plan"] = document
+        tools.logs.append(f"repair: delivered_plan {text}\n")
+    except Exception as error:                                           # noqa: BLE001
+        tools.logs.append(f"repair: delivered_plan unwritten ({type(error).__name__}: "
+                          f"{error})\n")
 
 
 def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_start_utc,
