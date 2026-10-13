@@ -1138,8 +1138,11 @@ def keep_best_audio(list_audio_metadata,audioRules):
 
     TODO: integrate FLAD, a fake-lossless audio detector.
     '''
-    for i,audio_1 in enumerate(list_audio_metadata):
-        for j,audio_2 in enumerate(list_audio_metadata):
+    for i,real_audio_1 in enumerate(list_audio_metadata):
+        for j,real_audio_2 in enumerate(list_audio_metadata):
+            # A re-encoded track is compared by its original encoding; keep is copied back below.
+            audio_1 = tools.audio_for_keep(real_audio_1)
+            audio_2 = tools.audio_for_keep(real_audio_2)
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
             # A fabricated (repaired) track loses to an intact one before any codec rule.
@@ -1193,6 +1196,8 @@ def keep_best_audio(list_audio_metadata,audioRules):
                         except Exception as e:
                             sys.stderr.write(str(e))
                             tools.logs.append(str(e))
+            real_audio_1['keep'] = audio_1['keep']
+            real_audio_2['keep'] = audio_2['keep']
 
 def remove_sub_language(video_sub_track_list,language,number_sub_will_be_copy,number_max_sub_stream):
     """Drop subtitles of `language` until the stream count fits the maximum; return the new count."""
@@ -1636,8 +1641,24 @@ def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
         base_cmd.extend([f"-exact_rice_parameters:a{get_relative_id_track(audio)}", "1"])
         if delay_to_put < 0:
             base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
+        set_original_encode_tag(base_cmd,audio)
     elif delay_to_put < 0:
         base_cmd.extend(audio_reencode.second_pass_options(audio, get_relative_id_track(audio), ["aresample=async=1:first_pts=0"], video.get_bitrate))
+        set_original_encode_tag(base_cmd,audio)
+
+def set_original_encode_tag(base_cmd,audio):
+    """Tag a re-encoded track with ORIGINAL_ENCODE=<codec>:<bitrate>:<sample rate> of its source.
+
+    A track that already carries the tag keeps it: it names the first encoding.
+    """
+    value = (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG)
+    if not value:
+        try:
+            value = tools.original_encode_value(audio["ffprobe"]["codec_name"], video.get_bitrate(audio), audio["SamplingRate"])
+        except Exception as e:
+            sys.stderr.write(f"No ORIGINAL_ENCODE for track {audio.get('StreamOrder')}: {e}\n")
+            return
+    base_cmd.extend([f"-metadata:s:a{get_relative_id_track(audio)}", f"{tools.ORIGINAL_ENCODE_TAG}={value}"])
 
 def check_delay_retention_sub(track, original_video_path,sentence):
     """Warn when a track's delay differs from the original delay stored in its VMSAM_TMP tag."""

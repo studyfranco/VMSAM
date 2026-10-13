@@ -35,6 +35,7 @@
         "flac": 4608,
         "default": 4608
     },
+    "reencode_keep_handicap": 0.9,
     "audio_reencode": {
         "lossless_formats": ["flac", "pcm"],
         "lossless": "flac",
