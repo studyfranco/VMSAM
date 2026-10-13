@@ -21,6 +21,7 @@ import threading
 import traceback
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 from multiprocessing import Pool, get_context
 from sys import stderr
@@ -144,6 +145,12 @@ def worker_loop():
             # .result() attend la fin du fils sans borne: une fusion dure ce
             # qu'elle dure, et rien ici ne doit l'interrompre.
             parrallel_jobs.submit(run_fusion_job, database_url, job).result()
+        except BrokenProcessPool as e:
+            # A dead child (OOM, segfault, kill -9) breaks the pool for good, so every
+            # later submit would fail too: rebuild it. The job is not replayed.
+            stderr.write(f"Fusion job failed for {job}: {e}\n")
+            parrallel_jobs.shutdown(wait=False)
+            parrallel_jobs = ProcessPoolExecutor(max_workers=1, mp_context=get_context("fork"))
         except Exception as e:
             stderr.write(f"Fusion job failed for {job}: {e}\n")
         finally:
