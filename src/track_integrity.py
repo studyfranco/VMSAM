@@ -2,7 +2,7 @@
 
 A produced track must end where its original, shifted by the delay put on it, ends (within one
 codec frame, never past the reference video), hold no silence its original plays through, and
-decode without error. Any finding raises TrackIntegrityError.
+decode without error. Any finding raises track_integrity_error.
 """
 
 import concurrent.futures
@@ -18,7 +18,7 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"
     SAMPLES_PER_FRAME = json.load(_config).get("integrity_samples_per_frame", {"default": 4608})
 
 
-class TrackIntegrityError(Exception):
+class track_integrity_error(Exception):
     """A produced audio or subtitle track is truncated, too long, broken or gained a silence."""
 
 
@@ -73,7 +73,7 @@ def check_track(original_path, original_index, original_span, produced_path, str
 
 
 def check_tracks(produced_path, origins, duration_best_video_s):
-    """Check produced tracks in parallel and raise TrackIntegrityError naming every finding.
+    """Check produced tracks in parallel and raise track_integrity_error naming every finding.
 
     origins: {produced stream index: (original path, original stream index, delay_ms)}.
     """
@@ -86,7 +86,7 @@ def check_tracks(produced_path, origins, duration_best_video_s):
                 for index, (o_path, o_index, delay_ms) in sorted(origins.items())]
         findings = [f for job in jobs for f in job.result()]
     if findings:
-        raise TrackIntegrityError("\n".join(findings))
+        raise track_integrity_error("\n".join(findings))
 
 
 def _sound_streams(path):
@@ -117,6 +117,6 @@ def check_merged(final_path, sources, track_order, duration_best_video_s):
     final = _sound_streams(final_path)
     pinned = [(s, joined[int(t)]) for s, t in zip(final, track_order)]
     if len(final) != len(track_order) or any((s["codec_type"], _original_index(s)) != j[:2] for s, j in pinned):
-        raise TrackIntegrityError(f"{final_path}: its audio and subtitle tracks do not match the merged "
+        raise track_integrity_error(f"{final_path}: its audio and subtitle tracks do not match the merged "
                                   f"sources in order {track_order}")
     check_tracks(final_path, {s["index"]: (j[2], j[1], j[3]) for s, j in pinned}, duration_best_video_s)

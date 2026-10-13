@@ -129,7 +129,7 @@ class FrameComparer:
         return stdout
 
     def _hash_frames(self, blob_bytes):
-        """Grey and colour hashes of each frame in a raw rgb24 buffer (FrameHashes)."""
+        """Grey and colour hashes of each frame in a raw rgb24 buffer (frame_hashes)."""
         frames = frame_hash.frames_from_raw(blob_bytes, self.width, self.height, 3)
         if self.mask_box is not None:
             frames = mask_frames(frames, self.mask_box)
@@ -242,19 +242,19 @@ def _on_comparer_grid(comparer, path, values):
             break
         picks.append(j)
         k += 1
-    if isinstance(values, frame_hash.FrameHashes):
+    if isinstance(values, frame_hash.frame_hashes):
         return values[np.asarray(picks, dtype=np.int64)], None
     return [values[j] for j in picks], None
 
 
 def _extract_hashes(comparer, path, start_s, dur_s):
-    """Return (base frame index, FrameHashes on the comparer's grid) for a window.
+    """Return (base frame index, frame_hashes on the comparer's grid) for a window.
 
     The hashes are empty when the window is empty or the file's rate is unknown.
     """
     start_s = max(0.0, start_s)
     if dur_s <= 0:
-        return comparer._frame_index(start_s), frame_hash.FrameHashes.empty(colour=True)
+        return comparer._frame_index(start_s), frame_hash.frame_hashes.empty(colour=True)
     blob = comparer._ffmpeg_raw_frames(path, start_s, dur_s)
     hashes = comparer._hash_frames(blob)
     base = comparer._frame_index(start_s)
@@ -264,5 +264,5 @@ def _extract_hashes(comparer, path, start_s, dur_s):
         tools.dev_log(f"frame_compare: _extract_hashes declining "
                       f"file={path} reason=native_rate_unmeasured:{reason} "
                       f"start_sec={start_s} decoded_frames={len(hashes)}\n")
-        return base, frame_hash.FrameHashes.empty(colour=True)
+        return base, frame_hash.frame_hashes.empty(colour=True)
     return base, on_grid

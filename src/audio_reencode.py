@@ -122,7 +122,8 @@ def pick_target(audio, path=None):
     codec = str(ffprobe.get("codec_name", "")).lower()
     try:
         source = video.get_bitrate(audio, path)
-    except Exception:
+    except Exception as e:
+        tools.dev_log(f"audio_reencode: no source bitrate for track {audio.get('StreamOrder')}: {e}\n")
         source = None
     entry = table.get("sources", {}).get(codec, table.get("default", {}))
     target = entry.get("target", "same")

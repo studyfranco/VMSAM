@@ -71,7 +71,7 @@ PIXEL_STD_FLOOR = 12.0
 SAME_PIXEL_MAX = 0.005
 
 
-class FrameHashes:
+class frame_hashes:
     '''Hashes of a run of consecutive frames.
 
     Attributes:
@@ -82,7 +82,7 @@ class FrameHashes:
         thumb_index: (n,) int32 row of each frame in `thumbs`, -1 when it has none.
         thumbs: (k, THUMB_HEIGHT, THUMB_WIDTH) uint8 grey thumbnails, shared by every slice.
 
-    Indexing with an int, a slice or an index array returns another FrameHashes.
+    Indexing with an int, a slice or an index array returns another frame_hashes.
     '''
 
     __slots__ = ("grey", "colour", "std", "extreme", "thumb_index", "thumbs")
@@ -107,7 +107,7 @@ class FrameHashes:
     def __getitem__(self, key):
         if isinstance(key, (int, np.integer)):
             key = slice(int(key), int(key) + 1) if key != -1 else slice(-1, None)
-        return FrameHashes(self.grey[key],
+        return frame_hashes(self.grey[key],
                            None if self.colour is None else self.colour[key],
                            self.std[key], self.extreme[key], self.thumb_index[key], self.thumbs)
 
@@ -118,17 +118,17 @@ class FrameHashes:
 
     @staticmethod
     def empty(colour=False):
-        '''A FrameHashes of no frame.'''
-        return FrameHashes(np.zeros((0, HASH_BITS // 64), np.uint64),
+        '''A frame_hashes of no frame.'''
+        return frame_hashes(np.zeros((0, HASH_BITS // 64), np.uint64),
                            np.zeros((0, 2, COLOUR_BITS // 64), np.uint64) if colour else None,
                            np.zeros(0, np.float32))
 
     @staticmethod
     def concat(parts):
-        '''Join FrameHashes end to end; colour is kept only when every part has it.'''
+        '''Join frame_hashes end to end; colour is kept only when every part has it.'''
         parts = list(parts)
         if not parts:
-            return FrameHashes.empty()
+            return frame_hashes.empty()
         colour = (np.concatenate([p.colour for p in parts])
                   if all(p.colour is not None for p in parts) else None)
         index, thumbs, base = [], [], 0
@@ -139,7 +139,7 @@ class FrameHashes:
             index.append(remap[p.thumb_index])
             thumbs.append(p.thumbs[used])
             base += len(used)
-        return FrameHashes(np.concatenate([p.grey for p in parts]), colour,
+        return frame_hashes(np.concatenate([p.grey for p in parts]), colour,
                            np.concatenate([p.std for p in parts]),
                            np.concatenate([p.extreme for p in parts]),
                            np.concatenate(index), np.concatenate(thumbs))
@@ -186,7 +186,7 @@ def hash_frames(frames, colour=False, hash_size=HASH_SIZE, colour_size=COLOUR_HA
         colour: also hash the Cb and Cr planes (RGB frames only).
 
     Returns:
-        FrameHashes.
+        frame_hashes.
     '''
     frames = np.asarray(frames)
     rgb = frames.ndim == 4
@@ -211,7 +211,7 @@ def hash_frames(frames, colour=False, hash_size=HASH_SIZE, colour_size=COLOUR_HA
             _, cb, cr = img.convert("YCbCr").split()
             chroma.append([pack(phash(cb, colour_size)), pack(phash(cr, colour_size))])
     n = len(grey)
-    return FrameHashes(np.stack(grey) if n else np.zeros((0, words), np.uint64),
+    return frame_hashes(np.stack(grey) if n else np.zeros((0, words), np.uint64),
                        (np.asarray(chroma, np.uint64).reshape(n, 2, colour_words) if colour else None),
                        np.asarray(std, np.float32), np.asarray(extreme, np.float32),
                        np.asarray(thumb_index, np.int32),
@@ -239,15 +239,15 @@ def thumbnail(luma):
 def hamming(a, b):
     '''Differing bits between packed hashes (words on the last axis); broadcasts.
 
-    FrameHashes arguments compare their grey hashes.
+    frame_hashes arguments compare their grey hashes.
     '''
-    a = a.grey if isinstance(a, FrameHashes) else a
-    b = b.grey if isinstance(b, FrameHashes) else b
+    a = a.grey if isinstance(a, frame_hashes) else a
+    b = b.grey if isinstance(b, frame_hashes) else b
     return np.bitwise_count(np.bitwise_xor(a, b)).sum(axis=-1, dtype=np.int64)
 
 
 def distance(a, b):
-    '''Per-frame raw grey pHash distance of two equal-length FrameHashes, as a fraction of the
+    '''Per-frame raw grey pHash distance of two equal-length frame_hashes, as a fraction of the
     bits. Comparisons go through `frame_distance`.'''
     return hamming(a.grey, b.grey) / a.bits
 
@@ -282,7 +282,7 @@ def _pixel_as_bits(pixel):
 
 
 def frame_distance(a, b):
-    '''Per-frame distance of two equal-length FrameHashes on the grey pHash scale.
+    '''Per-frame distance of two equal-length frame_hashes on the grey pHash scale.
 
     The grey pHash fraction of differing bits, except where either frame is near-uniform
     (`extreme` >= UNIFORM_FRACTION) and both carry a thumbnail: there `pixel_distance`
@@ -298,12 +298,12 @@ def frame_distance(a, b):
 
 
 def same_picture(a, b):
-    '''Per-frame verdicts (bool array) that two equal-length FrameHashes show the same picture.'''
+    '''Per-frame verdicts (bool array) that two equal-length frame_hashes show the same picture.'''
     return frame_distance(a, b) <= SAME_FRAME_MAX
 
 
 def content_distance(a, b):
-    '''Per-frame content distance of two equal-length FrameHashes, as a fraction of the bits.
+    '''Per-frame content distance of two equal-length frame_hashes, as a fraction of the bits.
 
     (grey + COLOUR_WEIGHT x mean(Cb, Cr)) / (1 + COLOUR_WEIGHT), each part as a fraction of
     its own bits; `frame_distance` alone where it decides by pixels. Both sides need colour.
@@ -337,7 +337,7 @@ def window_content_distance(ref, other, offset=0):
 
 # -- alignment -------------------------------------------------------------------------------
 
-class Alignment:
+class alignment:
     '''Result of `align`.
 
     Attributes:
@@ -371,7 +371,7 @@ class Alignment:
 
     def __repr__(self):
         margin = "None" if self.margin is None else f"{self.margin:.4f}"
-        return (f"Alignment(lag={self.lag} reason={self.reason} best={self.best} "
+        return (f"alignment(lag={self.lag} reason={self.reason} best={self.best} "
                 f"margin={margin} rival={self.rival} frames={self.frames})")
 
 
@@ -413,25 +413,25 @@ def align(ref, other, lags, start=0, margin=ALIGN_MARGIN, min_frames=ALIGN_MIN_F
     `margin` (fraction of the bits); adjacent lags are not gated, the argmin decides.
 
     Returns:
-        Alignment.
+        alignment.
     '''
     lags = sorted({int(lag) for lag in lags})
     if len(ref) < min_frames:
-        return Alignment("short", frames=len(ref), start=start)
+        return alignment("short", frames=len(ref), start=start)
     values, used = distance_curve(ref, other, lags, start)
     if used < min_frames:
-        return Alignment("flat", frames=used, start=start)
+        return alignment("flat", frames=used, start=start)
     curve = {lag: float(v) for lag, v in zip(lags, values) if np.isfinite(v)}
     if not curve:
-        return Alignment("unreadable", frames=used, start=start)
+        return alignment("unreadable", frames=used, start=start)
     best = min(curve, key=lambda lag: (curve[lag], lag))
     low = curve[best]
     if sum(1 for v in curve.values() if v == low) > 1:
-        return Alignment("tie", curve, best, frames=used, start=start)
+        return alignment("tie", curve, best, frames=used, start=start)
     rivals = {lag: v for lag, v in curve.items() if abs(lag - best) >= 2}
     if not rivals:
-        return Alignment("no_rival", curve, best, frames=used, start=start)
+        return alignment("no_rival", curve, best, frames=used, start=start)
     rival = min(rivals, key=lambda lag: (rivals[lag], lag))
     gap = rivals[rival] - low
-    return Alignment("ok" if gap >= margin else "ambiguous", curve, best, gap, rival, used,
+    return alignment("ok" if gap >= margin else "ambiguous", curve, best, gap, rival, used,
                      start)

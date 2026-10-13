@@ -1427,7 +1427,7 @@ class _ChunkedFrames:
         # Seeding with the anchor window's hashes is required for correctness: a fresh
         # extraction may label the same picture one index apart, invalidating the shift.
         self.base = initial_base if initial_hashes else None
-        self.hashes = initial_hashes if initial_hashes else frame_hash.FrameHashes.empty(colour=True)
+        self.hashes = initial_hashes if initial_hashes else frame_hash.frame_hashes.empty(colour=True)
         self.chunks_read = 0
         self.seam_deltas = []
         self.file_end_source = None

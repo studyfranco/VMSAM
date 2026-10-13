@@ -255,10 +255,10 @@ def score_offsets(ref_hashes, ref_times, other_hashes, other_times, base_frames,
     times. Offsets whose window is incomplete are not scored.
 
     Args:
-        ref_hashes, other_hashes: FrameHashes of the two groups.
+        ref_hashes, other_hashes: frame_hashes of the two groups.
 
     Returns:
-        ({offset: mean grey distance}, Alignment or None when the groups cannot
+        ({offset: mean grey distance}, alignment or None when the groups cannot
         be paired by their times).
     '''
     if len(other_times) == 0 or len(ref_times) == 0:

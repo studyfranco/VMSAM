@@ -1718,7 +1718,7 @@ def read_master_subtitle_cues(master_obj, filled_spans, timeout=600):
             tracks.append(entry)
             if not intervals:
                 continue
-            command = [tools.software.get("ffprobe", "ffprobe"), "-v", "error",
+            command = [tools.software["ffprobe"], "-v", "error",
                        "-select_streams", str(subtitle.get("StreamOrder")),
                        "-read_intervals", intervals,
                        "-show_entries", "packet=pts_time,duration_time,size", "-of", "json",

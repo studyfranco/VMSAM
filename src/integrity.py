@@ -96,16 +96,18 @@ _cache_lock = threading.Lock()
 # ---------------------------------------------------------------- helpers
 
 def _log(message, always=False):
+    """Log one line through tools under the merge's log lock: worker threads call it."""
     line = f"integrity: {message}\n"
     if tools is None:
         return
-    (tools.log_always if always else tools.dev_log)(line)
+    import mergeVideo
+    with mergeVideo.errors_merge_lock:
+        (tools.log_always if always else tools.dev_log)(line)
 
 
 def _bin(name):
-    if tools is not None and getattr(tools, "software", None) and tools.software.get(name):
-        return tools.software[name]
-    return shutil.which(name) or name
+    """Path of an external tool, from tools.software only (a missing name raises KeyError)."""
+    return tools.software[name]
 
 
 def _bound(media_s):

@@ -193,11 +193,11 @@ def _ms_str(value):
 # --------------------------------------------------------------------------------------------
 
 def _ffprobe():
-    return tools.software.get("ffprobe", "ffprobe")
+    return tools.software["ffprobe"]
 
 
 def _ffmpeg():
-    return tools.software.get("ffmpeg", "ffmpeg")
+    return tools.software["ffmpeg"]
 
 
 def _rate(value):
@@ -315,7 +315,7 @@ def geometry_crop_filters(master_path, candidate_path, log=None):
 def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, crop_filter=None):
     '''Decode a whole video once and return `(cuts, hashes, coloured, from_cache)`.
 
-    `cuts` are ContentDetector scene starts (frame indices); `hashes` is a FrameHashes of every
+    `cuts` are ContentDetector scene starts (frame indices); `hashes` is a frame_hashes of every
     frame whose colour rows are filled only where `coloured` (bool per frame) is set, near the
     changes. `crop_filter`, when given (an ffmpeg `"crop=w:h:x:y"`, from `geometry_crop_filters`),
     is applied before the scale, reconciling a measured active-picture geometry mismatch between
@@ -330,7 +330,7 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, cro
             coloured = np.zeros(n, dtype=bool)
             colour[data["colour_rows"]] = data["colour"]
             coloured[data["colour_rows"]] = True
-            hashes = frame_hash.FrameHashes(data["grey"].copy(), colour, data["std"].copy(),
+            hashes = frame_hash.frame_hashes(data["grey"].copy(), colour, data["std"].copy(),
                                             data["extreme"].copy(), data["thumb_index"].copy(),
                                             data["thumbs"].copy())
             return [int(x) for x in data["cuts"]], hashes, coloured, True
@@ -431,7 +431,7 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, cro
     if proc.returncode != 0 or index == 0:
         err = b"".join(c for c in stderr_chunks if c).decode("utf-8", "replace")[-300:]
         raise RuntimeError(f"decode_exit:{proc.returncode} frames={index} {err.strip()}")
-    grey = frame_hash.FrameHashes.concat(hash_parts)
+    grey = frame_hash.frame_hashes.concat(hash_parts)
     cuts = sorted(set(c for c in cuts if 0 < c < len(grey)))
     rows = np.asarray(sorted(colour), dtype=np.int64)
     words = frame_hash.COLOUR_BITS // 64
@@ -441,7 +441,7 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, cro
     coloured = np.zeros(len(grey), dtype=bool)
     full[rows] = colour_rows
     coloured[rows] = True
-    hashes = frame_hash.FrameHashes(grey.grey, full, grey.std, grey.extreme, grey.thumb_index,
+    hashes = frame_hash.frame_hashes(grey.grey, full, grey.std, grey.extreme, grey.thumb_index,
                                     grey.thumbs)
     if cache:
         os.makedirs(os.path.dirname(cache), exist_ok=True)
@@ -478,7 +478,7 @@ def match_changes(m_hashes, m_cuts, c_hashes, c_cuts, lo, hi, m_coloured=None,
     '''Find, for each master change, the candidate offset `d` in [lo, hi].
 
     Args:
-        m_hashes, c_hashes: FrameHashes of the whole files (colour needed near changes).
+        m_hashes, c_hashes: frame_hashes of the whole files (colour needed near changes).
         m_coloured, c_coloured: optional bool per frame, where the colour rows are valid.
 
     Returns:

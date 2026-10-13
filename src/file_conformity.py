@@ -30,6 +30,8 @@ import tempfile
 import threading
 import time
 import zlib
+
+import tools
 from dataclasses import dataclass, field, asdict
 
 import numpy as np
@@ -179,7 +181,8 @@ def _fr(x, nd=1):
 # ---------------------------------------------------------------- tools
 
 def _bin(name):
-    return shutil.which(name) or name
+    """Path of an external tool, from tools.software only (a missing name raises KeyError)."""
+    return tools.software[name]
 
 
 def _run(cmd, timeout=None):
@@ -1198,6 +1201,9 @@ def check_file(path, *, mode="sampled", reference=None, threads=3, log=None,
 
 def main(argv=None):
     """Run the CLI and return the report's exit code."""
+    if not tools.software:
+        tools.software = tools.config_loader(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.ini"), "software")
     ap = argparse.ArgumentParser(
         prog="python3 -m file_conformity",
         description="Contrôle de conformité d'un fichier vidéo (conteneur, étendue du contenu "
