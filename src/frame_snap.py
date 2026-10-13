@@ -533,3 +533,97 @@ def probe_disagreement(video_obj_1, video_obj_2, delay_ms, budget_s=BUDGET_S):
     except Exception as exc:                                             # noqa: BLE001
         tools.log_always(f"frame_snap repair_probe declined: {type(exc).__name__}: {exc}\n")
         return None, f"raised({type(exc).__name__})"
+
+
+# -- resample ratio tie-break ---------------------------------------------------
+
+# Master instants read per tie-break, spread over the common span.
+RATIO_POSITIONS = 6
+# Fewest positions where every mapping was scored before the pictures may decide.
+RATIO_MIN_VALID_POSITIONS = 3
+
+
+def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_stream,
+                         candidate_rate, mappings, master_span_s, budget_s=BUDGET_S):
+    '''Score how well each master -> candidate time mapping lands on the same picture.
+
+    At each position a cut-free, usable group of master frames is decoded, then for every
+    mapping the candidate frames around the mapped instant. A mapping's score at a position is
+    the smallest `frame_hash.window_content_distance` within +-REACH frames: a right mapping
+    reads near 0 everywhere, a wrong speed ratio drifts away from the picture along the file.
+
+    Args:
+        mappings: {label: function(master_s) -> candidate_s or None}.
+        master_span_s: (first, last) master instants worth reading.
+
+    Returns:
+        (rows, notes): rows are {label: score} dicts with a "t" key, one per scored position.
+    '''
+    candidate_frame_s = float(1 / Fraction(candidate_rate))
+    low, high = master_span_s
+    span = high - low
+    rows, notes = [], []
+    if span <= 0:
+        return rows, ["empty_span"]
+    low, high = low + span * EDGE_FRACTION, high - span * EDGE_FRACTION
+    slot = (high - low) / RATIO_POSITIONS
+    started = time.monotonic()
+    for index in range(RATIO_POSITIONS):
+        for fraction in (0.5, 0.25, 0.75):
+            if time.monotonic() - started > budget_s:
+                notes.append("budget")
+                return rows, notes
+            t = low + (index + fraction) * slot
+            frames, times = decode_group(master_path, master_stream, t, REF_DECODE_FRAMES)
+            start = cut_free_start(frames) if len(frames) >= GROUP_FRAMES else None
+            if start is None:
+                notes.append(f"{t:.1f}:cut")
+                continue
+            ref_frames = frames[start:start + GROUP_FRAMES]
+            usable, why = group_is_usable(ref_frames)
+            if not usable:
+                notes.append(f"{t:.1f}:{why}")
+                continue
+            ref_hashes = frame_hash.hash_frames(ref_frames, colour=True)
+            row = {"t": float(times[start])}
+            for label, mapping in mappings.items():
+                target = mapping(float(times[start]))
+                if target is None:
+                    continue
+                other_frames, _ = decode_group(
+                    candidate_path, candidate_stream,
+                    target - (REACH + 0.5) * candidate_frame_s, GROUP_FRAMES + 2 * REACH)
+                other_hashes = frame_hash.hash_frames(other_frames, colour=True)
+                distances = [frame_hash.window_content_distance(ref_hashes, other_hashes, offset)
+                             for offset in range(2 * REACH + 1)]
+                distances = [d for d in distances if d == d]
+                if distances:
+                    row[label] = min(distances)
+            if len(row) == len(mappings) + 1:
+                rows.append(row)
+                break
+            notes.append(f"{t:.1f}:unscored")
+    return rows, notes
+
+
+def decide_ratio(rows, labels):
+    '''Pick the mapping the pictures agree with, or None.
+
+    The label with the lowest total wins when it is best at a strict majority of the rows and
+    beats the runner-up's total by more than MARGIN_MIN (relative).
+
+    Returns:
+        (label or None, reason, detail).
+    '''
+    detail = {"valid": len(rows)}
+    if len(rows) < RATIO_MIN_VALID_POSITIONS or len(labels) < 2:
+        return None, "ratio_picture_too_few_positions", detail
+    totals = {label: sum(row[label] for row in rows) for label in labels}
+    ranked = sorted(labels, key=lambda label: totals[label])
+    best, runner = ranked[0], ranked[1]
+    winners = [min(labels, key=lambda label: row[label]) for row in rows]
+    margin = (totals[runner] - totals[best]) / totals[runner] if totals[runner] > 0 else 0.0
+    detail.update(totals=totals, winners=winners, margin=margin)
+    if winners.count(best) * 2 <= len(rows) or margin <= MARGIN_MIN:
+        return None, "ratio_picture_no_consensus", detail
+    return best, "ratio_picture_chosen", detail

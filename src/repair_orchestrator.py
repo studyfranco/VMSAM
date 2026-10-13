@@ -5075,7 +5075,8 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
         step_launch("rate_arm", candidate=candidate_path, language=comparison_language,
                     armed_by=armed_by)
         winner, engine, sweep_gate, sweep_cause = rate_arm(
-            primed, first_ratios, work_dir, candidate_path, deadline=repair_deadline)
+            primed, first_ratios, work_dir, candidate_path, deadline=repair_deadline,
+            videos=(master_obj, candidate_obj))
         step_result("rate_arm", candidate=candidate_path, armed_by=armed_by,
                     factor=(None if winner is None
                             else f"{winner.numerator}/{winner.denominator}"),

@@ -145,12 +145,14 @@ def fidelity(zones_detail):
     return round(total / weight, 4) if weight else 0.0
 
 
-def choose_winner(rows):
+def choose_winner(rows, break_tie=None):
     """Return the winning finalist row, or None when none passes the gate.
 
     Each row holds `ratio`, `engine` (None at ratio 1), `fidelity` and `finalist_reading`'s keys.
-    Gate: not a ladder and span coverage >= RATE_ARM_MIN_SPAN_COVERAGE. Highest fidelity wins;
-    within RATE_ARM_FIDELITY_TIE, asetrate first, then fidelity, fewer zones, ratio nearer 1.
+    Gate: not a ladder and span coverage >= RATE_ARM_MIN_SPAN_COVERAGE. Highest fidelity wins.
+    Finalists within RATE_ARM_FIDELITY_TIE that name different ratios go to `break_tie` (the
+    pictures, see `repair_stage1_resample`), which returns one of them or None. Otherwise, or
+    when it cannot decide: asetrate first, then fidelity, fewer zones, ratio nearer 1.
     """
     admissible = [r for r in rows if not r["ladder"]
                   and r["span_coverage"] >= RATE_ARM_MIN_SPAN_COVERAGE]
@@ -158,9 +160,14 @@ def choose_winner(rows):
         return None
     best = max(r.get("fidelity", 0.0) for r in admissible)
     tied = [r for r in admissible if best - r.get("fidelity", 0.0) <= RATE_ARM_FIDELITY_TIE]
-    return min(tied, key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1,
-                                    -r.get("fidelity", 0.0), r["zones"],
-                                    abs(float(r["ratio"]) - 1.0)))
+    tied.sort(key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1,
+                             -r.get("fidelity", 0.0), r["zones"],
+                             abs(float(r["ratio"]) - 1.0)))
+    if break_tie is not None and len({r["ratio"] for r in tied}) > 1:
+        picked = break_tie(tied)
+        if picked is not None:
+            return picked
+    return tied[0]
 
 
 def log_finalist(candidate_path, row):

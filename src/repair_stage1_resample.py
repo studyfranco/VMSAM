@@ -352,13 +352,15 @@ def _finalist_row(ratio, engine, alignment, shared_ms, seconds, candidate_path):
     return row
 
 
-def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
+def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, videos=None):
     """Find which named speed ratio and engine, if any, best aligns the candidate.
 
     The prime's kept candidate WAV is resampled at each (ratio, engine), fingerprinted and
     aligned against the master; the prime's own alignment is the finalist at 1. Round one
     tries `first_ratios` in both engines; round two, only without a winner, every named ratio.
-    The winner is `rate_direction.choose_winner`'s. The WAV is deleted on every path.
+    The winner is `rate_direction.choose_winner`'s; with `videos` (master, candidate), near-tied
+    finalists naming different ratios are separated by the pictures (`picture_tie_break`).
+    The WAV is deleted on every path.
 
     Returns:
         (factor, engine, gate, cause): factor is an exact Fraction or None (1 won, or no
@@ -383,6 +385,7 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
                               min(master_duration_ms, wav["duration_s"] * 1000.0), 0.0,
                               candidate_path)]
         tried = {Fraction(1)}
+        mappings = {(Fraction(1), None): (baseline, Fraction(1))}
 
         def run_round(ratios):
             for ratio in ratios:
@@ -427,8 +430,10 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
                             pass
                     if not points:
                         continue
-                    alignment = _orch().align_fingerprints(fp_master, quantum_master, duration_master,
-                                                   points, _orch().CHROMAPRINT_HOP_MS, corrected)
+                    alignment = _orch().align_fingerprints(
+                        fp_master, quantum_master, duration_master, points,
+                        _orch().CHROMAPRINT_HOP_MS, corrected)
+                    mappings[(ratio, engine)] = (alignment, Fraction(str(effective)))
                     rows.append(_finalist_row(ratio, engine, alignment,
                                               min(master_duration_ms, corrected * 1000.0),
                                               time.time() - started, candidate_path))
@@ -444,7 +449,9 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
                 break
             gate["rounds"] = number
             stopped = run_round(ratios)
-            winner = rate_direction.choose_winner(rows)
+            break_tie = (None if videos is None else
+                         lambda tied: picture_tie_break(tied, mappings, videos, candidate_path))
+            winner = rate_direction.choose_winner(rows, break_tie=break_tie)
             if stopped:
                 gate["cause"] = stopped
                 break
@@ -472,6 +479,58 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None):
             except OSError:
                 pass
         primed.pop("rate_wav", None)
+
+
+def _time_mapping(alignment, effective):
+    """Return master_s -> native candidate_s through the zone holding that instant, or None."""
+    zones = [(zone["master_ms"][0], zone["master_ms"][1], zone["offset_ms"])
+             for zone in alignment.get("zones_detail") or []]
+
+    def mapping(master_s):
+        master_ms = master_s * 1000.0
+        for low, high, offset_ms in zones:
+            if low <= master_ms < high:
+                return float((master_ms + offset_ms) / 1000.0 / float(effective))
+        return None
+    return mapping
+
+
+def picture_tie_break(tied, mappings, videos, candidate_path):
+    """Pick among near-tied finalists of different ratios by the pictures, or return None.
+
+    Each finalist's zones map a master instant to the candidate's own clock at its ratio;
+    `frame_snap.ratio_picture_scores` reads which mapping lands on the same picture. One
+    finalist per ratio (the first, in metadata order) is compared. Never raises.
+    """
+    import frame_snap
+    master_obj, candidate_obj = videos
+    by_ratio = {}
+    for row in tied:
+        by_ratio.setdefault(row["ratio"], row)
+    labels = {f"{ratio.numerator}/{ratio.denominator}": row for ratio, row in by_ratio.items()}
+    try:
+        candidate_rate, _source = frame_snap.exact_rate(candidate_obj.video)
+        if candidate_rate is None:
+            raise ValueError("candidate frame rate unread")
+        functions, span = {}, None
+        for label, row in labels.items():
+            alignment, effective = mappings[(row["ratio"], row["engine"])]
+            functions[label] = _time_mapping(alignment, effective)
+            detail = alignment.get("zones_detail") or []
+            if detail:
+                low, high = detail[0]["master_ms"][0] / 1000.0, detail[-1]["master_ms"][1] / 1000.0
+                span = (low, high) if span is None else (max(span[0], low), min(span[1], high))
+        rows, notes = frame_snap.ratio_picture_scores(
+            master_obj.filePath, master_obj.video["StreamOrder"], candidate_obj.filePath,
+            candidate_obj.video["StreamOrder"], candidate_rate, functions, span or (0.0, 0.0))
+        label, reason, detail = frame_snap.decide_ratio(rows, list(functions))
+    except Exception as error:                                           # noqa: BLE001
+        label, reason, detail, notes = None, f"raised({type(error).__name__}: {error})", {}, []
+    tools.log_always(f"rate_direction: picture_tie_break {reason} ratios={list(labels)} "
+                     f"chosen={label} totals={detail.get('totals')} "
+                     f"winners={detail.get('winners')} valid={detail.get('valid')} "
+                     f"skipped={notes} for {candidate_path}\n")
+    return None if label is None else labels[label]
 
 
 def zone_offset_rate_signature(alignment):
