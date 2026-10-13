@@ -1,3 +1,5 @@
+"""Public FastAPI app managing show folders, regexes, specials and merge retries."""
+
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
@@ -13,10 +15,10 @@ from .settings import Settings
 
 episode_pattern_insert = "{<episode>}"
 
-# Initialise la DB
 engine = None
 
 def get_session():
+    """Yield a database session, committing on success and rolling back on error."""
     session = sessionmaker(bind=engine)()
     try:
         yield session
@@ -48,6 +50,7 @@ def get_session():
             pass
 
 class Folder(BaseModel):
+    """Request body to create or update a show folder."""
     destination_path: str
     original_language: str
     number_cut: int = Field(default=10)
@@ -55,6 +58,7 @@ class Folder(BaseModel):
     max_episode_number: int = Field(default=12)
     
 class Regex(BaseModel):
+    """Request body to create or update a folder regex."""
     regex_pattern: str
     rename_pattern: Optional[str] = None
     weight: int = Field(default=1)
@@ -62,20 +66,24 @@ class Regex(BaseModel):
     destination_path: str
 
 class Incrementaller(BaseModel):
+    """Request body to create or update an episode-shifting regex."""
     regex_pattern: str
     rename_pattern: str
     episode_incremental: int = Field(default=12)
     example_filename: str
 
 class FusionRequest(BaseModel):
+	"""Request body to queue a merge retry for an error file."""
 	error_file_path: str
 
 class SpecialRename(BaseModel):
+    """Request body to declare the final name of a special."""
     file_name: str
     new_file_name: str
     destination_path: str
 
 class IndexFolderRequest(BaseModel):
+    """Request body to index the files already present in a folder."""
     folder_id: int
 
 class FolderMove(BaseModel):
@@ -90,13 +98,14 @@ app = FastAPI(
 
 @app.on_event("startup")
 def on_startup():
+    """Create the database engine from the settings."""
     settings = Settings()
     global engine
     engine = create_engine(settings.DATABASE_URL, echo=False)
 
 @app.post("/folders/")
 def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
-    # Vérifie s’il existe déjà
+    """Create a show folder (and its directory), or update it if it already exists."""
     existing = get_folder_by_path(folder_in.destination_path, session)
     if existing != None:
         existing.max_episode_number = folder_in.max_episode_number
@@ -127,7 +136,6 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
     elif (not os.access(folder_in.destination_path, os.W_OK)):
         raise HTTPException(status_code=400, detail="Folder not writable")
 
-    # Création avec valeurs Pydantic (défauts inclus automatiquement)
     new_folder = insert_folder(folder_in.destination_path, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
 
     return {
@@ -136,10 +144,12 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
     }
 
 def test_regex_rename(regex_data):
+    """Raise HTTP 400 unless the rename pattern contains the episode placeholder."""
     if regex_data.rename_pattern != None and episode_pattern_insert not in regex_data.rename_pattern:
         raise HTTPException(status_code=400, detail=f"Rename pattern must contain the episode pattern: {episode_pattern_insert}")
 
 def get_test_folder(regex_data,session):
+    """Return the folder named by `regex_data.destination_path`, or raise HTTP 400."""
     folder = get_folder_by_path(regex_data.destination_path, session)
     if folder == None:
         raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
@@ -147,9 +157,12 @@ def get_test_folder(regex_data,session):
 
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
+    """Create or update a folder regex.
+
+    The regex must match the example filename with a valid `episode` group, and no
+    existing regex may also match it.
+    """
     import re
-    # Vérifier que la nouvelle regex matche le fichier d'exemple
-    # Vérifier que la regex permet d'extraire un numéro d'épisode valide
     match = re.search(regex_data.regex_pattern, regex_data.example_filename)
     if match != None:
         if 'episode' in match.groupdict():
@@ -166,16 +179,14 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
     regex = get_regex_data(regex_data.regex_pattern, session)
     if regex == None:
         
-        # Vérifier l'existence du dossier via son path
         folder = get_test_folder(regex_data,session)
 
-        # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
+        # No existing regex may also match the example filename.
         all_regex = get_all_regex(session)
         for regex in all_regex:
             if re.search(regex.regex_pattern, regex_data.example_filename) != None:
                 raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
 
-        # Créer et insérer la nouvelle regex
         try:
             insert_regex(regex_data.regex_pattern, folder.id, regex_data.rename_pattern, regex_data.weight, session)
         except Exception as e:
@@ -188,7 +199,6 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             "folder_id": folder.id
         }
     else:
-        # Si la regex existe déjà, on met à jour les champs
         try:
             update_regex(regex, get_test_folder(regex_data,session).id, regex_data.rename_pattern, regex_data.weight, session)
         except Exception as e:
@@ -200,11 +210,13 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
 
 @app.post("/incrementaller/")
 def create_regex_incrementaller(incremental_data: Incrementaller, session: Session = Depends(get_session)):
+    """Create or update an episode-shifting regex.
+
+    Same checks as `create_regex`; the response shows the shifted name of the example file.
+    """
     import re
     incremental = get_incrementaller_data(incremental_data.regex_pattern, session)
     if incremental == None:
-        # Vérifier que la nouvelle regex matche le fichier d'exemple
-        # Vérifier que la regex permet d'extraire un numéro d'épisode valide
         match = re.search(incremental_data.regex_pattern, incremental_data.example_filename)
         if match != None:
             if 'episode' in match.groupdict():
@@ -218,13 +230,12 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
 
         test_regex_rename(incremental_data)
 
-        # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
+        # No existing incrementaller may also match the example filename.
         all_incremental = get_all_incrementaller(session)
         for regex in all_incremental:
             if re.search(regex.regex_pattern, incremental_data.example_filename) != None:
                 raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
 
-        # Créer et insérer la nouvelle regex
         try:
             insert_incrementaller(incremental_data.regex_pattern, incremental_data.rename_pattern, incremental_data.episode_incremental, session)
         except Exception as e:
@@ -238,7 +249,6 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
         }
     else:
         test_regex_rename(incremental_data)
-        # Si la regex existe déjà, on met à jour les champs
         try:
             update_incrementaller(incremental, incremental_data.rename_pattern, incremental_data.episode_incremental, session)
             match = re.search(incremental_data.regex_pattern, incremental_data.example_filename)
@@ -253,7 +263,7 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
 
 @app.get("/folders_list/")
 def get_folders_list(session: Session = Depends(get_session)):
-    """Récupère la liste des dossiers"""
+    """List all folders."""
     folders = get_all_folder(session)
     if not folders:
         raise HTTPException(status_code=404, detail="No folders found")
@@ -274,7 +284,7 @@ def get_folders_list(session: Session = Depends(get_session)):
 
 @app.get("/folders_infos/")
 def get_folder_info(destination_like: str, session: Session = Depends(get_session)):
-    """Récupère les infos des dossiers qui matchent le nom partiel"""
+    """List folders whose path contains `destination_like`."""
     folders = search_like_folder(destination_like, session)
     if not folders:
         raise HTTPException(status_code=404, detail="No folders found matching the criteria")
@@ -295,7 +305,7 @@ def get_folder_info(destination_like: str, session: Session = Depends(get_sessio
     
 @app.get("/regex_folder/")
 def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session)):
-    """Récupère les regex d'un dossier spécifique"""
+    """List the regexes of one folder."""
     regex_list = get_regex_by_folder_id(folder_id, session)
     if not regex_list:
         raise HTTPException(status_code=404, detail="No regex found for this folder")
@@ -313,7 +323,7 @@ def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session))
 
 @app.get("/errors")
 def get_incompatible_files_list(session: Session = Depends(get_session)):
-    """Liste les fichiers rejetés par le pipeline avec leurs métadonnées"""
+    """List the files rejected by the pipeline, with their metadata."""
     incompatible_files = get_all_incompatible_files(session)
 
     infos = []
@@ -331,7 +341,7 @@ def get_incompatible_files_list(session: Session = Depends(get_session)):
 
 @app.get("/fusion")
 def get_fusion_queue_status():
-    """Etat de la file d'attente, relaye depuis l'instance interne"""
+    """Return the merge queue status, relayed from the internal instance."""
     try:
         status_code, payload = internal_client.call_internal_api("GET", "/internal/fusion")
     except (urllib.error.URLError, OSError) as e:
@@ -343,7 +353,7 @@ def get_fusion_queue_status():
 
 @app.post("/fusion")
 def create_fusion_job(fusion_request: FusionRequest, session: Session = Depends(get_session)):
-    """Valide une demande de fusion puis la transmet au worker interne"""
+    """Validate a merge retry request and forward it to the internal worker."""
     incompatible_file = get_incompatible_file_by_path(fusion_request.error_file_path, session)
     if incompatible_file == None:
         raise HTTPException(status_code=404, detail=f"{fusion_request.error_file_path} not found in incompatible_files")
@@ -367,12 +377,10 @@ def create_fusion_job(fusion_request: FusionRequest, session: Session = Depends(
 
 @app.get("/health")
 def get_health():
-    """Verification de deploiement: version, mode courant et etat d'execution"""
+    """Report deployment version, execution mode and merge worker state."""
     status = "ok"
     is_running = False
-    # None means "the internal instance did not tell us", which is not the same
-    # as False. A caller must be able to tell an unreachable worker from a
-    # worker that answered and reported its fusion path disabled.
+    # None means the internal instance did not answer, which differs from False.
     fusion_enabled = None
     queue_length = None
     internal_status = None
@@ -382,40 +390,31 @@ def get_health():
         if status_code == 200:
             is_running = bool(payload.get("is_running", False))
             queue_length = payload.get("queue_length")
-            # `/internal/health` stays answerable precisely so it can say WHY
-            # fusion is unavailable (internal_api.py refuses to start the worker
-            # when the test output dir is unset). Reading only `is_running`
-            # threw that answer away and reported "ok" for an instance that
-            # cannot fuse anything.
             fusion_enabled = payload.get("fusion_enabled")
             if fusion_enabled is False:
                 status = "degraded"
         else:
             status = "degraded"
     except (urllib.error.URLError, OSError):
-        # The public instance keeps serving its own endpoints when the internal
-        # worker is down, so this reports degraded rather than failing outright.
+        # The public endpoints keep working when the internal worker is down.
         status = "degraded"
 
     return {
         "status": status,
         "git_commit": tools.get_git_commit(),
         "mode": tools.get_execution_mode(),
-        # Whether the verbose diagnostics are actually on. The image has always
-        # set dev=true, but until run.sh was fixed nothing passed --dev, so
-        # tools.dev stayed False and every gated diagnostic was silently dark.
-        # There was no way to tell from outside; now there is.
         "dev": tools.get_dev_env_var(),
         "is_running": is_running,
-        # Reported verbatim from `/internal/health`; None means it did not answer.
         "fusion_enabled": fusion_enabled,
         "queue_length": queue_length,
         "internal_status": internal_status
     }
 
 def extract_episode_number(file_name, regex_pattern):
-    """Same contract as the daemon's extraire_episode: the `episode` named group,
-    else the first group. Returns the raw string, or None when nothing matched."""
+    """Return the episode number string matched by `regex_pattern`, or None.
+
+    Uses the `episode` named group, else the first group, like the daemon.
+    """
     import re
     match = re.search(regex_pattern, file_name)
     if match:
@@ -435,16 +434,12 @@ def test_bare_file_name(value, field_name):
 
 @app.post("/special/")
 def create_special_rename(special_data: SpecialRename, session: Session = Depends(get_session)):
-    """Declare (or edit) the final name of a special. The daemon renames the
-    exact incoming name in place, then the ordinary folder regex picks the new
-    name up.
+    """Declare or edit the final name of a special.
 
-    The table knows no folder; the endpoint does, as a control against a wrong
-    destination and against cross-matches: a new name caught by a regex of any
-    other folder, or by an increment rule, is refused. The heaviest regex of
-    the given folder that catches the new name is returned so the caller can
-    show and edit it instead of creating a second one. An existing special
-    (same incoming name) is updated under the same control.
+    The daemon renames the exact incoming name in place, then the folder regex picks
+    the new name up. A new name also caught by another folder's regex or by an
+    incrementaller is refused. Returns the heaviest regex of the folder that catches
+    the new name, or None if one still has to be created.
     """
     import re
     test_bare_file_name(special_data.file_name, "file_name")
@@ -454,10 +449,8 @@ def create_special_rename(special_data: SpecialRename, session: Session = Depend
 
     folder = get_test_folder(special_data, session)
 
-    # Every regex that would extract an episode number from the new name,
-    # heaviest first like the daemon. The heaviest one integrates the file; any
-    # other folder among them is a cross-match: the name is ambiguous between
-    # shows, and a later weight change would silently move the special.
+    # Every regex extracting an episode from the new name, heaviest first; a match in
+    # another folder makes the name ambiguous between shows.
     matching_regex = []
     for regex in get_all_regex(session):
         episode_number = extract_episode_number(special_data.new_file_name, regex.regex_pattern)
@@ -470,8 +463,7 @@ def create_special_rename(special_data: SpecialRename, session: Session = Depend
             f"`{regex.regex_pattern}` of folder {regex.folder_id} ({regex.folder.destination_path})" for regex in foreign
         ) + f". Choose a name only folder {folder.id} recognises")
 
-    # The incrementaller runs after the special renamer in the daemon loop: a
-    # new name it matches would be renamed a second time, with a shifted number.
+    # The incrementaller runs after the special renamer and would rename the file again.
     for incremental in get_all_incrementaller(session):
         if re.search(incremental.regex_pattern, special_data.new_file_name) != None:
             raise HTTPException(status_code=400, detail=f"The new name is caught by the increment rule `{incremental.regex_pattern}`: the daemon would rename it again. Choose a name no increment rule recognises")
@@ -492,9 +484,6 @@ def create_special_rename(special_data: SpecialRename, session: Session = Depend
         "file_name": special_data.file_name,
         "new_file_name": special_data.new_file_name,
         "folder_id": folder.id,
-        # None: no regex catches the new name yet, the caller should create one.
-        # Otherwise the heaviest regex of this folder, the one that will
-        # integrate the file, so the caller can show and edit it.
         "matching_regex": None if not matching_regex else {
             "regex_pattern": matching_regex[0][0].regex_pattern,
             "rename_pattern": matching_regex[0][0].rename_pattern,
@@ -506,7 +495,7 @@ def create_special_rename(special_data: SpecialRename, session: Session = Depend
 
 @app.get("/special_list/")
 def get_special_rename_list(session: Session = Depends(get_session)):
-    """Liste les renommages de speciaux declares"""
+    """List the declared special renames."""
     return {
         "special_renames": [
             {"file_name": special.file_name, "new_file_name": special.new_file_name}
@@ -516,7 +505,7 @@ def get_special_rename_list(session: Session = Depends(get_session)):
 
 @app.get("/incrementaller_list/")
 def get_incrementaller_list(session: Session = Depends(get_session)):
-    """Liste les regex d'incrementation declarees"""
+    """List the declared incrementallers."""
     return {
         "incrementaller": [
             {
@@ -532,13 +521,10 @@ def get_incrementaller_list(session: Session = Depends(get_session)):
 def index_folder(index_request: IndexFolderRequest, session: Session = Depends(get_session)):
     """Rename and register the files already present in a folder.
 
-    For every regular file of the folder that the database does not know yet,
-    the folder's own regex (heaviest first) extract the episode number; the file
-    is renamed with the regex rename pattern and inserted as an episode carrying
-    the regex weight. Nothing is merged, nothing is deleted, nothing outside the
-    folder is touched. Runs without the episode lock: the public instance has no
-    merge runtime, and a file the database does not know cannot be held by the
-    integration loop or the fusion worker.
+    Each unknown regular file is matched against the folder's regexes (heaviest
+    first), renamed with the rename pattern and inserted as an episode with the
+    regex weight. Nothing is merged or deleted. No episode lock is needed: an
+    unregistered file is not handled by the integration loop or the merge worker.
     """
     import os
     current_folder = get_folder_data(index_request.folder_id, session)
@@ -588,10 +574,8 @@ def index_folder(index_request: IndexFolderRequest, session: Session = Depends(g
             skipped.append({"file_name": file_name, "reason": "above_max_episode_number", "episode_number": episode_number})
             continue
 
-        # The daemon merges a newcomer into the registered episode; indexing does
-        # not merge anything, so a file whose episode is already registered is
-        # left exactly where it is, untouched and unregistered. The registered
-        # file keeps being the master of that episode.
+        # Indexing never merges: a file whose episode is already registered is left
+        # in place, unregistered.
         if get_episode_data(index_request.folder_id, episode_number, session) != None:
             skipped.append({"file_name": file_name, "reason": "episode_already_registered", "episode_number": episode_number})
             continue
