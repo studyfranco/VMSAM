@@ -3054,6 +3054,29 @@ def verify_output_file(out_path, master_duration_ms, audio_reports,
     return report
 
 
+def carries_plan(result, reference_candidate_stream, comparison_language):
+    """Return True when a verified track is the stream the plan was measured on.
+
+    Without that stream, the comparison language decides.
+    """
+    if reference_candidate_stream is not None:
+        return str(result["track"]) == str(reference_candidate_stream)
+    return comparison_language is not None and result["language"] == comparison_language
+
+
+def log_track_finding(result):
+    """Log a non-reference track kept at the plan's geometry; its lag is a finding."""
+    result["picture_geometry_finding"] = True
+    tools.log_always(
+        f"chimeric: track_kept_picture_geometry stream={result['track']} "
+        f"lang={result['language']} outcome={result['outcome']} "
+        f"worst_lag_ms={result.get('worst_lag_ms')} "
+        f"strongest_r={result.get('strongest_correlation')} "
+        f"disagreeing_pieces={[c['piece'] for c in result.get('inconsistent') or []]} "
+        f"-- not the plan's reference stream, delivered at the picture geometry; "
+        f"the lag is a finding\n")
+
+
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                               tolerance_ms, search_ms, reference_stream=None, deadline=None,
                               envelope=False, comparison_language=None,
@@ -3066,17 +3089,13 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     see. Per track the outcome is `aligned`, `misaligned`, `uncorrelated`,
     `inconsistent` or `skipped` (no master track in that language, or no signal).
 
-    A non-comparison-language track that misaligns or fails to correlate carries
-    the file's own geometry (one picture-led geometry per file): its own
-    content, not the plan, is suspect, so it is flagged `"drop"` in its
-    result entry instead of failing every other track. A merely MISALIGNED
-    (not uncorrelated) comparison-language track is also only flagged `"drop"`
-    when its own residual fits within `tolerance_ms` plus
-    `comparison_tolerance_extra_ms` -- the plan's own already-logged, file-wide
-    audio-vs-picture finding for a picture-led delivery is not a plan error.
-    An uncorrelated comparison-language track, or one whose residual still
-    exceeds that widened allowance, still raises: that is the plan-wide error
-    this check exists to catch.
+    Only the plan's reference stream can refuse the build: uncorrelated, or off
+    by more than `tolerance_ms` plus `comparison_tolerance_extra_ms`, it raises
+    (the plan is wrong); misaligned within that allowance it is flagged `"drop"`.
+    Any other track that misaligns, fails to correlate or whose probes disagree
+    is never dropped here:
+    it ships at the plan's geometry, flagged `picture_geometry_finding`, and
+    `keep_best_audio` decides at the final file.
 
     `picture_audio_residual_by_zone` -- {zone: signed picture_ms - audio_ms} of a
     picture-led plan: a track whose every measured probe lags by its piece's own
@@ -3085,12 +3104,8 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
     with `picture_led_residual_ms` set.
 
     `reference_candidate_stream` -- the candidate stream the plan was measured
-    on. Only that track carries the plan's geometry and can refuse the build;
-    another track of the comparison language follows the rule of the other
-    languages. On a picture-led plan such a track is not dropped either: it is
-    delivered at the picture geometry untested and flagged
-    `picture_geometry_finding`. When unknown, the comparison
-    language stands for the reference stream.
+    on, the only track that carries the plan's geometry. When unknown, the
+    comparison language stands for the reference stream.
 
     A measured waveform probe under the correlation floor is re-measured on
     the speech envelopes (same floor) before it counts as below the floor: a
@@ -3346,6 +3361,12 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
                                               reference_stream, window_ms, search_ms,
                                               tolerance_ms, deadline, envelope)
         if resolved is None:
+            reference_known = reference_candidate_stream is not None or comparison_language is not None
+            if reference_known and not carries_plan(pending["entry"], reference_candidate_stream,
+                                                    comparison_language):
+                # A change point in another track is that track's own geometry.
+                log_track_finding(pending["entry"])
+                continue
             error = pending["error"]
             error.verification = results
             raise error
@@ -3353,24 +3374,12 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
 
     misaligned = [r for r in results if r["outcome"] in ("misaligned", "uncorrelated")]
     if len(misaligned):
-        # The comparison-language track carries the plan's own geometry: its misalignment
-        # means the plan itself is wrong (a sign error, a missed step) and stays fatal. Any
-        # other track's misalignment is that track's own content, not the file's single
-        # picture-led geometry -- it is dropped by name instead of failing the whole build.
-        # A MISALIGNED (not uncorrelated) comparison track whose residual fits inside the
-        # plan's own already-logged audio-vs-picture finding is the same, expected finding
-        # again, not a new defect -- it is dropped like any other track instead.
+        # The reference track carries the plan's geometry: off beyond the plan's own
+        # logged audio-vs-picture finding, the plan itself is wrong and the build fails.
         widened_tolerance_ms = tolerance_ms + (comparison_tolerance_extra_ms or 0)
 
-        def carries_plan(r):
-            # The plan was measured on one candidate stream; another track of the same
-            # language has its own geometry. Without that stream, its language decides.
-            if reference_candidate_stream is not None:
-                return str(r["track"]) == str(reference_candidate_stream)
-            return comparison_language is not None and r["language"] == comparison_language
-
         plan_wide = [r for r in misaligned
-                    if carries_plan(r)
+                    if carries_plan(r, reference_candidate_stream, comparison_language)
                     and (r["outcome"] == "uncorrelated"
                          or r["worst_lag_ms"] > widened_tolerance_ms)]
         if plan_wide:
@@ -3390,27 +3399,16 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
             error.audios = audio_reports
             raise error
         for r in misaligned:
-            if picture_audio_residual_by_zone and not carries_plan(r):
-                # A track with its own geometry rides the picture geometry,
-                # untested; its residual is a finding, not a reason to drop it.
-                r["picture_geometry_finding"] = True
-                tools.log_always(
-                    f"chimeric: track_kept_picture_geometry stream={r['track']} "
-                    f"lang={r['language']} outcome={r['outcome']} "
-                    f"worst_lag_ms={r.get('worst_lag_ms')} "
-                    f"strongest_r={r.get('strongest_correlation')} -- not the plan's reference "
-                    f"stream, delivered at the picture geometry untested; the residual is a "
-                    f"finding\n")
+            if not carries_plan(r, reference_candidate_stream, comparison_language):
+                # Selection belongs to the final file (keep_best_audio).
+                log_track_finding(r)
                 continue
             r["drop"] = True
-            role = ("the plan's reference stream, within the plan's logged picture/audio "
-                    "finding" if carries_plan(r)
-                    else "not the plan's reference stream")
             tools.log_always(
                 f"chimeric: track_dropped_misaligned stream={r['track']} lang={r['language']} "
-                f"outcome={r['outcome']} tolerance_ms={tolerance_ms} -- {role}, so the file's "
-                f"own geometry is not in doubt; dropped by name, the rest of the build is "
-                f"unaffected\n")
+                f"outcome={r['outcome']} tolerance_ms={tolerance_ms} -- the plan's reference "
+                f"stream, within the plan's logged picture/audio finding; dropped by name, "
+                f"the rest of the build is unaffected\n")
     return results
 
 
