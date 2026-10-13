@@ -178,21 +178,6 @@ def pack(image_hash):
     return np.packbits(np.asarray(image_hash.hash, dtype=bool).ravel()).view(np.uint64)
 
 
-def phash_many(images, hash_size=HASH_SIZE):
-    '''Packed grey pHash of each image.
-
-    Args:
-        images: PIL images or 2-D uint8 arrays.
-
-    Returns:
-        (n, hash_size**2 // 64) uint64 array.
-    '''
-    words = max(1, hash_size * hash_size // 64)
-    out = [pack(phash(img if isinstance(img, Image.Image) else Image.fromarray(img), hash_size))
-           for img in images]
-    return np.stack(out) if out else np.zeros((0, words), np.uint64)
-
-
 def hash_frames(frames, colour=False, hash_size=HASH_SIZE, colour_size=COLOUR_HASH_SIZE):
     '''Hash a run of frames.
 

@@ -36,8 +36,6 @@ FAST_DRIFT_MIN_FACTOR_DEVIATION = 5e-4
 # Winner gate: fraction of the shared timeline spanned by aligned zones. Span, not point
 # density, because atempo output fingerprints sparsely even when correctly matched.
 RATE_ARM_MIN_SPAN_COVERAGE = 0.9
-# Span tie threshold (unused by choose_winner, kept for callers).
-RATE_ARM_SPAN_TIE = 0.01
 # Among finalists passing the gate, the highest fidelity wins (two rates can span the same
 # timeline while only one matches it well); fidelities this close are a tie, broken by
 # asetrate first, then fewer zones, then the ratio nearer 1.

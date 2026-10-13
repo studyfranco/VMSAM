@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
 """Flat repair orchestrator for a candidate the compatibility check refused.
 
-Each step is launched here and returns a result; the steps never call each other:
-master self-check, similarity gate and rate arm (`rate_arm`), priming of every couple
-(`prime_couples`), holes per couple and their union (`union_holes`), audio bounds with
-video-pinned cuts (`audio_walk`, `scene_anchor`), then plan application (`apply_plan`).
+Each step is launched here and returns a result; the steps never call each other. The
+pipeline has four stages:
+  0. preconditions: master conformity and self-consistency, comparison track and language
+     checks, audio self-contradiction (video-anchored route);
+  1/2. similarity gate and resample sweep (`ensemble_similarity_gate`, `rate_arm`): when the
+     native alignment is poor, every named ratio is tried and the best admissible one kept;
+  3. chimeric processing: whole-track chromaprint aligned by `banded_seed_alignment.b2_align`
+     gives the holes, `audio_walk` refines each edge to the millisecond, then the picture
+     (`scene_anchor`: scene cuts, pHash anchors, cross scan) pins every cut to a frame;
+  4. plan application (`plan_geometry`, `apply_plan`): trims, master fills and tail gap.
 
 Entry point: `merge_video_repair.repair_not_compatible_videos` calls `repair()` once per
 refused candidate. `repair()` returns True only when a plan was found and the chimeric file
@@ -23,7 +29,6 @@ import time
 import audioCorrelation
 import audio_extract
 import banded_seed_alignment
-import owner_judgment
 import repair_log
 import repair_pool
 import tools
@@ -236,9 +241,6 @@ DECLINE_CAUSES = {
     "plan_end_not_master_timeline": CLASS_COULD_NOT_RUN,
     # A delivery probe landed where a compared track has no audio:
     "probe_reads_no_audio": CLASS_COULD_NOT_RUN,
-    # The audio measures aligned but the video disagrees: a measured fact about the pair, not
-    # a failure to measure -- held for manual judgment, the pair is not reattempted unchanged.
-    "owner_judgment_pending": CLASS_CONCLUSIVE,
     # The plan does not give back the master's frame count and the picture-only plan could not
     # replace it: a defect of our plan, not a fact about the pair.
     "frame_count_mismatch": CLASS_COULD_NOT_RUN,
@@ -3682,7 +3684,7 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
 
     Three measured outcomes, never a silent fourth: a video cut confirmed within tolerance
     wins; a video cut the audio witness does not confirm (wrong width or wrong location) is a
-    disagreement, logged and declined as `owner_judgment_pending` with both positions; a video
+    disagreement, logged with both positions, and the video is followed; a video
     that could neither place a cut nor rule one out (no compatible anchor, a static/black span,
     a geometry mismatch) declines the whole plan by name (`video_cut_undetermined` or, under
     the alignment's own resolution floor, `sub_quantum_step_video_ambiguous`) instead of

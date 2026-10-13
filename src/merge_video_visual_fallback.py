@@ -172,7 +172,6 @@ DECLINE_ZONE_APPLY_UNAVAILABLE = "video_zone_apply_not_available"
 CAUSE_QUALITY_VOTE_FAILED = "video_quality_vote_failed"
 CAUSE_MEASUREMENT_RAISED = "video_offset_measurement_raised"
 CAUSE_BUILD_NO_FILE = "plan_application_no_file"
-CAUSE_WORK_DIR_UNAVAILABLE = "work_dir_unavailable"
 
 
 def _log_decline(cause, video_a, video_b, detail=""):

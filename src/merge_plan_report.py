@@ -554,8 +554,6 @@ def parse_job_log(text):
         "delivery": [],
         "segments": [],
         "output_durations": None,
-        # `owner_judgment_pending` zones: audio ok, video differs -- logged, declined.
-        "owner_judgment": [],
     }
 
     for line in lines:
@@ -765,16 +763,6 @@ def parse_job_log(text):
             entry = split_fields(tail)
             entry["index"] = index
             job["segments"].append(entry)
-            continue
-        if body.startswith("owner_judgment_pending "):
-            # `zone=<i> reason=<...> master_start_s=<f> master_end_s=<f>
-            # candidate_start_s=<f> candidate_end_s=<f> audio_cut_s=<f|None>
-            # video_cut_s=<f|None> picture_shift_ms=<f|None> frames_compared=<int>`.
-            fields = split_fields(body[len("owner_judgment_pending "):])
-            job["owner_judgment"].append(fields)
-            continue
-        if body.startswith("owner_judgment_pending_summary "):
-            # Recognised but not rendered; keeps it out of UNPARSED.
             continue
         # Refusals the gate expects, then whether the outcome agreed.
         if body.startswith("PREDICTED_REFUSAL "):
@@ -2560,12 +2548,6 @@ def parse_rows(rows):
     return records
 
 
-def _x(value, span, width):
-    if not span:
-        return 0.0
-    return float(Decimal(str(value)) / span) * width
-
-
 def _text(x, y, content, fill, size=11, anchor="start", extra=""):
     return (f'<text x="{x:.1f}" y="{y:.1f}" font-size="{size}" fill="{fill}" '
             f'text-anchor="{anchor}"{extra}>{_escape(content)}</text>')
@@ -3917,18 +3899,6 @@ def render_report(job, artefact_id, source_name, caveats=(), corpus=None,
     rendered = "\n".join(document)
     assert_no_leak(rendered)
     return rendered
-
-
-def report_for_log(text, artefact_id, source_name, caveats=(), corpus=None):
-    """Render the report for job-log text; raise if it is not a job log."""
-    if not is_job_log(text):
-        raise ValueError(
-            f"{source_name} carries no `repair: plan` line, so it is not a job "
-            f"log. Rejected by STRUCTURE and not by name: a `.log` suffix is not "
-            f"evidence, and a denominator defended by a filename is defended "
-            f"until the next filename.")
-    return render_report(parse_job_log(text), artefact_id, source_name,
-                         caveats, corpus)
 
 
 # Destination: the report is written beside the produced file; a log entry
