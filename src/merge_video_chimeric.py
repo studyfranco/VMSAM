@@ -436,20 +436,6 @@ def append_output_filter(filtergraph, extra_filter, output_label="[aout]"):
     return f"{filtergraph[:-len(output_label)]},{extra_filter}{output_label}"
 
 
-def get_encoder_arguments(audio, source_path=None):
-    '''Encoder arguments of a rebuilt track, from audio_reencode (forced conversion).
-
-    Returns (arguments, family, bitrate_origin, filter): `filter` is the chain
-    to put at the end of the filtergraph, since a filtergraph output takes no
-    `-filter`; None when there is none.
-    '''
-    arguments, encoder_filter = audio_reencode.generate_audio_ffmpeg_conversion_cmd(
-        [], audio, 0, force_conversion=True, filters_inline=False, stream=":a",
-        path=source_path)
-    family = "lossless" if audio_reencode.is_lossless(audio) else "lossy"
-    return arguments, family, audio.get("BitRate_source"), encoder_filter
-
-
 def find_master_audio_for_language(master_obj, language, reference_stream=None):
     '''The master track of `language` that fills the gaps, or None; never a commentary.
 
@@ -589,8 +575,12 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                   f"stream_order={audio.get('StreamOrder')} language={language} "
                   f"out_path={out_path}\n")
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
-    encoder_arguments, family, bitrate_origin, encoder_filter = (
-        get_encoder_arguments(audio, candidate_obj.filePath))
+    # The rebuilt track is always converted; its filter chain ends the filtergraph,
+    # since a filtergraph output takes no -filter. ORIGINAL_ENCODE is in the arguments.
+    encoder_arguments, encoder_filter = audio_reencode.generate_audio_ffmpeg_conversion_cmd(
+        [], audio, 0, force_conversion=True, filters_inline=False, stream=":a",
+        path=candidate_obj.filePath)
+    family = "lossless" if audio_reencode.is_lossless(audio) else "lossy"
     sample_rate, channels, layout, tool_disagreements = get_audio_stream_parameters(audio)
 
     master_audio, fill_language = find_fill_audio(
@@ -721,7 +711,10 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     bitrate = None
     if "-b:a" in encoder_arguments:
         bitrate = encoder_arguments[encoder_arguments.index("-b:a") + 1]
-    original_encode = audio_reencode.original_encode_tag(audio, candidate_obj.filePath)
+    original_encode = None
+    for argument in encoder_arguments:
+        if argument.startswith(audio_reencode.ORIGINAL_ENCODE_TAG + "="):
+            original_encode = argument.split("=", 1)[1]
     # Per-region report: master-filled regions, cut candidate regions, and used
     # candidate regions with their offset.
     filled = Decimal("0")
@@ -810,7 +803,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
                 if fill_short_by_ms_tail_exempt != None else None),
             "fill_by_reference": fill_by_reference,
             "path": out_path,
-            "bitrate": bitrate, "bitrate_origin": bitrate_origin,
+            "bitrate": bitrate, "bitrate_origin": audio.get("BitRate_source"),
             "original_encode": original_encode,
             "speed_ratio_requested": str(speed_ratio) if speed_ratio != None else None,
             "speed_ratio_applied": str(applied_ratio) if applied_ratio != None else None,
@@ -1189,8 +1182,8 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 
     This is the only mux site of the repair path. Every track carries VMSAM_EDITED
     (what was done to it); VMSAM_FABRICATED only when `attach_track_tags` demoted
-    it; ORIGINAL_ENCODE (codec, bitrate, sample rate of the source) on every re-encoded
-    audio track. VMSAM_ERA records the git commit and `job_start_utc`.
+    it. ORIGINAL_ENCODE comes with each audio track from its build (the copy keeps
+    stream tags). VMSAM_ERA records the git commit and `job_start_utc`.
     '''
     tools.dev_log(f"chimeric: mux_repaired_file starting out_path={out_path} "
                   f"n_audio={len(audio_reports)} n_subtitle={len(subtitle_reports)} "
@@ -1211,8 +1204,6 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
         tags = [f"VMSAM_EDITED={report.get('edited') or 'rebuilt'}"]
         if report.get("fabricated"):
             tags.append(f"VMSAM_FABRICATED={report['fabricated']}")
-        if report.get("original_encode"):
-            tags.append(f"{audio_reencode.ORIGINAL_ENCODE_TAG}={report['original_encode']}")
         for tag in tags:
             command.extend([spec, tag])
 
