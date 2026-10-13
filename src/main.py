@@ -63,6 +63,7 @@ if __name__ == '__main__':
         
         with open("config.json") as config_file:
             config = json.load(config_file)
+        tools.configuration = config
         tools.language_to_keep = config["language_to_keep"]
         tools.language_to_completely_remove = set(config["language_to_completely_remove"])
         tools.language_to_try_to_keep = config["language_to_try_to_keep"]

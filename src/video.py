@@ -952,11 +952,89 @@ def get_birate_key(data):
     else:
         raise Exception(f"No video bitrate {data}")
     
-def get_bitrate(data):
-    if 'ffprobe' in data and 'bit_rate' in data['ffprobe']:
-        return data['ffprobe']['bit_rate']
-    else:
-        return data[get_birate_key(data)]
+def get_channel(audio):
+    """Return the number of channels of an audio track, or None when unknown.
+
+    Tried in order: MediaInfo Channels, Channel(s), Channels_Original, ffprobe
+    channels, then the channel layout (MediaInfo ChannelLayout, else ffprobe
+    channel_layout) with its positions counted: "5.1(side)" -> 6, "stereo" -> 2.
+    """
+    ffprobe = audio.get('ffprobe') or {}
+    for value in (audio.get('Channels'), audio.get('Channel(s)'), audio.get('Channels_Original'), ffprobe.get('channels')):
+        try:
+            return int(str(value).split('/')[0])
+        except (TypeError, ValueError):
+            pass
+    layout = audio.get('ChannelLayout') or ffprobe.get('channel_layout')
+    if not layout:
+        return None
+    # "5.1(side)" -> "5.1"
+    layout = str(layout).split('(')[0].strip().lower()
+    named = {'mono': 1, 'stereo': 2, 'downmix': 2, 'quad': 4, 'hexagonal': 6, 'octagonal': 8}
+    if layout in named:
+        return named[layout]
+    if re.fullmatch(r"\d+(\.\d+)+", layout):
+        # ffprobe "5.1", "7.1.4": the numbers add up
+        return sum(int(number) for number in layout.split('.'))
+    # MediaInfo "L R C LFE Ls Rs": one position per channel
+    return len(layout.split())
+
+def _bitrate_from_stream_size(data):
+    """Return StreamSize * 8 / Duration in bit/s, or None when a value is missing."""
+    try:
+        return int(data['StreamSize']) * 8 / float(data['Duration'])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+def _bitrate_from_copy_pass(data, path):
+    """Return the bitrate measured by summing the packet sizes of the stream (-c copy to null), or None."""
+    try:
+        duration = float(data['Duration'])
+        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+            [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", path,
+             "-map", f"0:{int(data['StreamOrder'])}", "-c", "copy", "-f", "null", "-"], 1, 1800)
+    except Exception as e:
+        stderr.write(f"Copy pass failed on track {data.get('StreamOrder')}: {e}\n")
+        return None
+    scale = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+    sizes = re.findall(r"\b(?:audio|video):\s*(\d+)\s*([kmg])i?b", stderror.decode("utf-8", errors="ignore").lower())
+    if not sizes or duration <= 0:
+        return None
+    return sum(int(number) * scale[unit] for number, unit in sizes) * 8 / duration
+
+def get_bitrate(data, path=None):
+    """Return the bitrate (bit/s, int) of a track, or raise when no source gives one.
+
+    Sources in order: ffprobe bit_rate, BitRate, BitRate_Nominal,
+    StreamSize * 8 / Duration, the BPS tag, a -c copy pass on `path` (the file
+    holding the track) when given, then BitRate_Maximum (it over-estimates).
+    The value and its source are cached in `data` (BitRate_resolved,
+    BitRate_source) so the copy pass runs once per track.
+    """
+    if data.get('BitRate_resolved'):
+        return data['BitRate_resolved']
+    ffprobe = data.get('ffprobe') or {}
+    tags = ffprobe.get('tags') or {}
+    bitrate, source = ffprobe.get('bit_rate'), "ffprobe"
+    if not bitrate:
+        bitrate, source = data.get('BitRate'), "BitRate"
+    if not bitrate:
+        bitrate, source = data.get('BitRate_Nominal'), "BitRate_Nominal"
+    if not bitrate:
+        bitrate, source = _bitrate_from_stream_size(data), "StreamSize"
+    if not bitrate:
+        bitrate, source = tags.get('BPS', tags.get('BPS-eng')), "BPS"
+    if not bitrate and path is not None:
+        bitrate, source = _bitrate_from_copy_pass(data, path), "copy_pass"
+    if not bitrate:
+        bitrate, source = data.get('BitRate_Maximum'), "BitRate_Maximum"
+    if not bitrate:
+        raise Exception(f"No bitrate {data}")
+    bitrate = int(float(bitrate))
+    # Without a path a later call may still measure, so a maximum is not cached.
+    if source != "BitRate_Maximum" or path is not None:
+        data['BitRate_resolved'], data['BitRate_source'] = bitrate, source
+    return bitrate
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:
