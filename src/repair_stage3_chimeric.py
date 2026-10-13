@@ -2956,7 +2956,17 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                           f"the walk measured a {round(jump, 3)} ms step in [{lo}, {hi}] s and "
                           f"the video could neither place a cut nor confirm there is none "
                           f"({outcome.get('resolver_reason')})")
-        if video_decided:
+        if video_decided and outcome["before_shift_frames"] == outcome["after_shift_frames"]:
+            # The picture holds one offset across the hole: the audio step is the audio's own
+            # (a track off its picture), not an edit. Nothing is cut, added or removed.
+            at, fill, decision = _frame_s(outcome["master_start_frame"], domain), 0.0, \
+                "audio_only_step_picture_continuous"
+            tools.log_always(
+                f"repair: audio_only_step_picture_continuous change_point={index} "
+                f"a_ms={point['a_ms']} b_ms={point['b_ms']} step_ms={round(jump, 3)} "
+                f"picture_shift_frames={outcome['before_shift_frames']} "
+                f"audio_interval_s=[{lo}, {hi}] decision=finding_only for {candidate_path}\n")
+        elif video_decided:
             # The video is the source of truth: once the anchors and the pHash cross-sweep
             # resolve a cut, its own position and width (the anchors' shift gap, the same
             # convention as `_pinned_frames`/`_blind_span_outcome`) are delivered regardless
@@ -3001,21 +3011,12 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         shifts_known = video_decided or status == _orch().HOLE_NO_CUT_CONFIRMED
         before = outcome.get("before_shift_frames") if shifts_known else None
         after = outcome.get("after_shift_frames") if shifts_known else None
-        removal = outcome.get("removal_frame")
-        if removal is not None and status == _orch().HOLE_RESOLVED:
-            # The candidate excess sits apart from the fill, in a run the picture cannot
-            # place (rule 1): one offset change at the removal, one master fill with none.
-            removal_s = _frame_s(removal, domain)
-            pieces = [(removal_s, 0.0, point["a_ms"], point["b_ms"], "blind_removal",
-                       before, after),
-                      (at, fill, point["b_ms"], point["b_ms"], decision, after, after)]
-            if removal_s > at:
-                pieces = [(at, fill, point["a_ms"], point["a_ms"], decision, before, before),
-                          (removal_s, 0.0, point["a_ms"], point["b_ms"], "blind_removal",
-                           before, after)]
-        else:
-            pieces = [(at, fill, point["a_ms"], point["b_ms"], decision, before, after)]
-        for piece_at, piece_fill, a_ms, b_ms, piece_decision, left, right in pieces:
+        removal_s = None
+        if (outcome.get("removal_frame") is not None and status == _orch().HOLE_RESOLVED
+                and before != after):
+            removal_s = _frame_s(outcome["removal_frame"], domain)
+        for piece_at, piece_fill, a_ms, b_ms, piece_decision, left, right in _transition_pieces(
+                at, fill, point["a_ms"], point["b_ms"], decision, before, after, removal_s):
             transitions.append({"at_s": piece_at, "fill_s": piece_fill, "a_ms": a_ms,
                                 "b_ms": b_ms, "decision": piece_decision, "interval": [lo, hi],
                                 "edges": [edges["edge_A"], edges["edge_B"]],
@@ -3032,6 +3033,21 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"for {candidate_path}\n")
     log_transitions_summary(transitions, candidate_path)
     return transitions, None
+
+
+def _transition_pieces(at, fill, a_ms, b_ms, decision, before, after, removal_s=None):
+    """Return the transitions (at, fill, a_ms, b_ms, decision, left shift, right shift) of one cut.
+
+    A candidate excess placed apart from the fill (`removal_s`, rule 1) gives two pieces: one
+    offset change at the removal, one master fill with none.
+    """
+    if removal_s is None:
+        return [(at, fill, a_ms, b_ms, decision, before, after)]
+    if removal_s > at:
+        return [(at, fill, a_ms, a_ms, decision, before, before),
+                (removal_s, 0.0, a_ms, b_ms, "blind_removal", before, after)]
+    return [(removal_s, 0.0, a_ms, b_ms, "blind_removal", before, after),
+            (at, fill, b_ms, b_ms, decision, after, after)]
 
 
 def log_transitions_summary(transitions, candidate_path):
