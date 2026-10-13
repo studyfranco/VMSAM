@@ -34,5 +34,39 @@
         "vorbis": 2048,
         "flac": 4608,
         "default": 4608
+    },
+    "audio_reencode": {
+        "lossless_formats": ["flac", "pcm"],
+        "lossless": "flac",
+        "sources": {"aac": "opus", "ac3": "opus", "eac3": "opus", "dts": "opus"},
+        "targets": {
+            "flac": {"encoder": "flac", "sample_fmt": {"16": "s16", "default": "s32"},
+                     "args": ["-compression_level", "12", "-exact_rice_parameters", "1"]},
+            "opus": {"encoder": "libopus", "sample_rate": "48000",
+                     "max_bitrate_per_channel": "256k",
+                     "filters": {"5.1(side)": "channelmap=channel_layout=5.1",
+                                 "5.0(side)": "channelmap=channel_layout=5.0"},
+                     "rules": [
+                         {"codecs": ["ac3"], "channels": 2, "bitrate": "320k"},
+                         {"codecs": ["aac"], "channels": 6, "bitrate": "640k",
+                          "args": ["-mapping_family", "1"]},
+                         {"codecs": ["dts"], "channels": 6,
+                          "bitrate": {"factor": 1, "floor": "768k", "ceiling": "1536k"},
+                          "args": ["-mapping_family", "1"]},
+                         {"channels": 1, "bitrate": "128k"},
+                         {"channels": 2, "bitrate": "256k"},
+                         {"channels": 3, "bitrate": "384k", "args": ["-mapping_family", "1"]},
+                         {"channels": 4, "bitrate": "512k", "args": ["-mapping_family", "1"]},
+                         {"channels": 5, "bitrate": "640k", "args": ["-mapping_family", "1"]},
+                         {"channels": 6, "bitrate": "768k", "args": ["-mapping_family", "1"]},
+                         {"channels": 7, "bitrate": "896k", "args": ["-mapping_family", "1"]},
+                         {"channels": 8, "bitrate": "1024k", "args": ["-mapping_family", "1"]}
+                     ]},
+            "aac": {"encoder": "aac"},
+            "ac3": {"encoder": "ac3"},
+            "eac3": {"encoder": "eac3"},
+            "mp3": {"encoder": "libmp3lame"},
+            "vorbis": {"encoder": "libvorbis"}
+        }
     }
 }
