@@ -13,27 +13,88 @@ is authoritative and comes from `WRITE_ZONES.MD`.
 
 | file | l. | status | role |
 | :--- | ---: | :---: | :--- |
-| `main_gestionar_show.py` | 494 | 🔒 | series daemon: scan loop, and forks **both** uvicorn instances |
-| `main.py` | 78 | 🔒 | CLI: merge an explicit list of files |
-| `infinite_wrapper.py` | 143 | 🔒 | loop around `main.py` for `software=main` |
-| `folder_generator.py` | 40 | ✅ | standalone folder scaffolding, no importer |
+| `main_gestionar_show.py` | 519 | 🔒 | series daemon: scan loop, and forks **both** uvicorn instances |
+| `main.py` | 83 | 🔒 | CLI: merge an explicit list of files |
+| `infinite_wrapper.py` | 147 | 🔒 | loop around `main.py` for `software=main` |
+| `folder_generator.py` | 41 | 🔒 | standalone folder scaffolding, no importer (closed by the owner) |
 
 ## Merge engine
 
 | file | l. | status | role |
 | :--- | ---: | :---: | :--- |
-| `mergeVideo.py` | 2122 | 🏷️ | the heart. `merge_videos()` drives ranking, delay, assembly. Tags in `remove_not_compatible_video`, `adjust_delay_to_frame`, `keep_best_audio` |
-| `video.py` | 1145 | 🏷️ | `video` class: probing, cutting, MD5, ffmpeg pools. Tags in `get_best_quality_video`, `get_good_frame` |
-| `audioCorrelation.py` | 309 | 🔒 | stages 1–2: fingerprint and FFT correlation, Rust `audio_sync` behind it |
-| `tools.py` | 394 | 🏷️ | shared runtime state, subprocess wrappers, episode lock, `tools.logs` |
-| `merge_video_unused.py` | 79 | ✅ | extracted from `mergeVideo.py`, no importer |
+| `mergeVideo.py` | 2317 | 🏷️ | the heart. `merge_videos()` drives ranking, delay, assembly. Tags in `remove_not_compatible_video`, `adjust_delay_to_frame`, `keep_best_audio` |
+| `video.py` | 1139 | 🏷️ | `video` class: probing, cutting, MD5, ffmpeg pools. Tags in `get_best_quality_video`, `get_good_frame` |
+| `audioCorrelation.py` | 293 | 🔒 | stages 1–2: fingerprint and FFT correlation, Rust `audio_sync` behind it |
+| `tools.py` | 604 | 🏷️ | shared runtime state, subprocess wrappers, episode lock, `tools.logs` |
 
-## Dormant — no importer
+## Repair pipeline — a candidate the merge refused, repaired or declined
 
-| file | l. | status | state |
+`merge_video_repair.repair_not_compatible_videos` (called from `mergeVideo.py`) runs
+`repair_orchestrator.repair` on each refused candidate. The orchestrator is the sequencer;
+each stage lives in its own module.
+
+### Sequencer and stage 0 — preconditions
+
+| file | l. | status | role |
 | :--- | ---: | :---: | :--- |
-| `get_cut_time.py` | 565 | ✅ | multi-range cut detection, drift, audio chimera. Imports `frame_compare` |
-| `frame_compare.py` | 221 | ✅ | pHash/DCT frame comparison. Compiles since campaign 2's repair |
+| `merge_video_repair.py` | 1782 | ✅ | repair entry point, build of the repaired file for every route, delivery gates, the delivered plan, outcome records |
+| `repair_orchestrator.py` | 1634 | ✅ | sequencer (`repair`, `_repair`, `chimeric`), couples and fingerprints, decline vocabulary and cause families, video-anchored and corrupt-track routes |
+| `master_self_check.py` | 337 | ✅ | the master's own conformity and track agreement, before any comparison |
+| `language_content_check.py` | 324 | ✅ | does a candidate track carry the comparison language, whatever its tag |
+| `video_offset_plan.py` | 1850 | ✅ | audio self-contradiction check and the picture-only (video-anchored) plan |
+
+### Stage 1/2 — similarity gate and resample sweep
+
+| file | l. | status | role |
+| :--- | ---: | :---: | :--- |
+| `repair_stage1_resample.py` | 748 | ✅ | similarity gate, sweep of every named ratio in both engines (`rate_arm`), picture tie-break, re-prime routing |
+| `rate_direction.py` | 264 | ✅ | pure half: first finalists, finalist reading, fidelity, winner rule, fast-drift signature |
+| `merge_video_resample.py` | 215 | ✅ | named-ratio vocabulary and the ffmpeg filter chain per ratio and engine |
+| `pal_pitch_confirmer.py` | 116 | ✅ | spectral check that a ratio is a true resample (an observation) |
+| `frame_snap.py` | 629 | ✅ | the pictures decide what the audio cannot: frame offset of a delay (also used by `mergeVideo.py`), and the tie between near-equal resample ratios |
+
+### Stage 3 — chimeric processing
+
+| file | l. | status | role |
+| :--- | ---: | :---: | :--- |
+| `banded_seed_alignment.py` | 438 | ✅ | the DNA-style alignment of two chromaprint fingerprints (`b2_align`): seeds, extension, runs, zones and holes |
+| `alignment_diagnostics.py` | 172 | ✅ | drift trace and duration-budget check read from a `b2_align` result |
+| `repair_stage3_chimeric.py` | 3123 | ✅ | holes per couple and their union, audio walk, frame-exact hole resolution (anchors A/B, cross scan, pixel re-read), edges and transitions |
+| `audio_walk.py` | 983 | ✅ | millisecond refinement of each change point and edge |
+| `scene_anchor.py` | 2052 | ✅ | scene cuts (PySceneDetect) and pHash anchors, forward/backward cross scan, edge walk |
+| `frame_hash.py` | 437 | ✅ | perceptual hashes and frame distances shared by the picture checks |
+| `frame_compare.py` | 268 | ✅ | low-level frame extraction for the picture checks |
+| `audioCorrelation.py` | 293 | 🔒 | chromaprint fingerprints (`calculate_fingerprints`), called as is |
+
+### Stage 4 — plan application
+
+| file | l. | status | role |
+| :--- | ---: | :---: | :--- |
+| `repair_stage4_plan.py` | 725 | ✅ | plan geometry (trims, master fills, tail gap), per-track offsets and pieces, `apply_plan` |
+| `frame_count_check.py` | 454 | ✅ | frame-count witness of the plan and the picture-only rebuild on a mismatch |
+| `merge_video_chimeric.py` | 3763 | ✅ | builds the repaired file from the plan's pieces and verifies it |
+| `merge_video_visual_fallback.py` | 753 | ✅ | picture-only delivery when no audio language is shared |
+| `splice_hygiene.py` | 128 | ✅ | gain and crossfade of an inserted fill piece |
+| `audio_reencode.py` | 440 | ✅ | encoder choice for a rebuilt track (also used by `mergeVideo.py`) |
+
+### Shared repair infrastructure and report
+
+| file | l. | status | role |
+| :--- | ---: | :---: | :--- |
+| `merge_video_decode_once.py` | 337 | ✅ | per-repair decode cache |
+| `audio_extract.py` | 129 | ✅ | audio window extraction and stream enumeration |
+| `repair_pool.py` | 47 | ✅ | shared thread pool for decodes and hashes |
+| `repair_log.py` | 88 | ✅ | timed-phase and announced-command log helpers |
+| `merge_plan_report.py` | 4093 | ✅ | the `.merge_plan.html` report beside the product, drawn from the delivered plan (written by `gestionar_show/fusion.py`) |
+
+## Checks — integrity and conformity
+
+| file | l. | status | role |
+| :--- | ---: | :---: | :--- |
+| `file_conformity.py` | 1226 | ✅ | conformity of one media file; also a CLI |
+| `integrity.py` | 1007 | ✅ | track soundness, silences and conversion checks |
+| `track_integrity.py` | 122 | ✅ | a produced track against the track it comes from |
+| `video_quality.py` | 183 | ✅ | reference-free ranking of two renditions, used by `video.py` |
 
 ## API — `gestionar_show`, entirely frozen
 
