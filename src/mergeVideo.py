@@ -115,6 +115,13 @@ def get_good_parameters_to_get_fidelity(videosObj,language,audioParam,maxTime):
         if (not test_calcul_can_be(videoObj.tmpFiles['audio'][0][0],maxTime)):
             raise Exception(f"Audio parameters to get the fidelity not working with {videoObj.filePath}")
         
+def raise_first_thread_error(jobs):
+    """Re-raise the first exception kept by a joined correlation thread, in launch order."""
+    for couple, threads in jobs:
+        for thread in threads:
+            if thread.error is not None:
+                raise thread.error
+
 class get_delay_fidelity_thread(Thread):
     def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file,lenghtTime):
         Thread.__init__(self)
@@ -122,9 +129,14 @@ class get_delay_fidelity_thread(Thread):
         self.video_obj_2_tmp_file = video_obj_2_tmp_file
         self.lenghtTime = lenghtTime
         self.delay_Fidelity_Values  = None
+        self.error = None
 
     def run(self):
-        self.delay_Fidelity_Values = correlate(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file,self.lenghtTime)
+        """Correlate the two audio cuts; an exception is kept in self.error for the caller."""
+        try:
+            self.delay_Fidelity_Values = correlate(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file,self.lenghtTime)
+        except Exception as e:
+            self.error = e
 
 def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=set()):
     delay_Fidelity_Values = {}
@@ -149,6 +161,7 @@ def get_delay_fidelity(video_obj_1,video_obj_2,lenghtTime,ignore_audio_couple=se
             delay_between_two_audio.append(delay_Fidelity_Values_job_between_audio.delay_Fidelity_Values)
 
     gc.collect()
+    raise_first_thread_error(delay_Fidelity_Values_jobs)
     return delay_Fidelity_Values
 
 class get_delay_second_method_thread(Thread):
@@ -157,9 +170,15 @@ class get_delay_second_method_thread(Thread):
         self.video_obj_1_tmp_file = video_obj_1_tmp_file
         self.video_obj_2_tmp_file = video_obj_2_tmp_file
         self.delay_values  = None
+        self.error = None
 
     def run(self):
-        result = second_correlation(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file)
+        """Correlate the two audio cuts; an exception is kept in self.error for the caller."""
+        try:
+            result = second_correlation(self.video_obj_1_tmp_file,self.video_obj_2_tmp_file)
+        except Exception as e:
+            self.error = e
+            return
         if result[0] == self.video_obj_1_tmp_file:
             self.delay_values = (self.video_obj_1_tmp_file, -result[1])
         elif result[0] == self.video_obj_2_tmp_file:
@@ -191,6 +210,7 @@ def get_delay_by_second_method(video_obj_1,video_obj_2,ignore_audio_couple=set()
             delay_between_two_audio.append(delay_value_job_between_audio.delay_values)
 
     gc.collect()
+    raise_first_thread_error(delay_value_jobs)
     return delay_Values
 
 class compare_video(Thread):
@@ -1540,11 +1560,12 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
     keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
     any_error = []
     for line in stderr_text.splitlines():
-        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
+        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
             any_error.append(line)
 
     if any_error:
         sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
+        sys.stderr.write(f"{cmd_first_pass}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
@@ -1593,11 +1614,12 @@ def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass,
 
     any_error = []
     for line in stderr_text.splitlines():
-        if (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
+        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
             any_error.append(line)
 
     if any_error:
         sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}\n")
+        sys.stderr.write(f"{base_cmd}\n")
         for line in any_error:
             sys.stderr.write(f"  {line}\n")
 
