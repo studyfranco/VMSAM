@@ -1,0 +1,7 @@
+{
+    "imdb": {"plex": "imdb", "jellyfin": "imdbid"},
+    "tmdb": {"plex": "tmdb", "jellyfin": "tmdbid"},
+    "tvdb": {"plex": "tvdb", "jellyfin": "tvdbid"},
+    "anidb": {"jellyfin": "anidbid"},
+    "hama-anidb": {"plex": "anidb"}
+}

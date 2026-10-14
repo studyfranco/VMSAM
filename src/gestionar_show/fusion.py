@@ -29,6 +29,7 @@ import tools
 
 from .api import episode_pattern_insert
 from .model import setup_database, get_folder_data, get_episode_data, get_regex_by_folder_id, get_incompatible_file_by_path, delete_incompatible_file
+from gestionar_common.database import wait_for_database, is_database_unavailable
 
 status_idle = "idle"
 status_processing = "processing"
@@ -41,6 +42,13 @@ worker_thread = None
 parrallel_jobs = None
 database_url = None
 shutdown_sentinel = object()
+# Returned by run_fusion_job when the database was lost BEFORE the merge
+# started: nothing was written (no file, no row), the job can be replayed as is.
+# A string, not an object(): the value crosses the child process pickle.
+database_unavailable = "database_unavailable"
+# Replays of one job when the database answers SELECT 1 but the job still
+# loses it: beyond that, the problem is not an outage and the job is dropped.
+max_database_retries = 10
 
 
 def get_test_output_dir():
@@ -141,9 +149,21 @@ def worker_loop():
             current_job = {"error_file_path": job, "started_at": now_iso()}
 
         try:
+            # A database outage would empty the queue: every job would fail
+            # within milliseconds on its first read and be lost. So wait for
+            # the database to answer before running the job.
+            wait_for_database(database_url)
             # .result() attend la fin du fils sans borne: une fusion dure ce
             # qu'elle dure, et rien ici ne doit l'interrompre.
-            parrallel_jobs.submit(run_fusion_job, database_url, job).result()
+            result = parrallel_jobs.submit(run_fusion_job, database_url, job).result()
+            database_retries = 0
+            while result == database_unavailable and database_retries < max_database_retries:
+                database_retries += 1
+                stderr.write(f"Database lost before the merge of {job}, waiting to replay it ({database_retries}/{max_database_retries})\n")
+                wait_for_database(database_url)
+                result = parrallel_jobs.submit(run_fusion_job, database_url, job).result()
+            if result == database_unavailable:
+                stderr.write(f"Fusion job dropped for {job}: the database answers but the job kept losing it, resubmit it with POST /fusion\n")
         except Exception as e:
             stderr.write(f"Fusion job failed for {job}: {e}\n")
         finally:
@@ -194,6 +214,7 @@ def run_fusion_job(database_url, error_file_path):
     test_mode = is_test_mode()
     session = setup_database(database_url)
     lock_handle = None
+    merge_started = False
     try:
         # Premiere lecture: elle ne sert qu'a savoir QUEL verrou prendre.
         incompatible_file = get_incompatible_file_by_path(error_file_path, session)
@@ -278,6 +299,9 @@ def run_fusion_job(database_url, error_file_path):
         if not tools.dev:
             mergeVideo.show_not_compatible_error = False
 
+        # From here the job may write (files, then database): losing the
+        # database can no longer be replayed without risking a double merge.
+        merge_started = True
         video.ffmpeg_pool_audio_convert = Pool(processes=max(1, int(tools.core_to_use/1.6)))
         video.ffmpeg_pool_big_job = Pool(processes=1)
         merged_file_path = None
@@ -317,6 +341,11 @@ def run_fusion_job(database_url, error_file_path):
                            f"Merged errors:\n{chr(10).join(mergeVideo.errors_merge)}\n\n"
                            f"Logs:\n{chr(10).join(tools.logs)}\n")
     except Exception as e:
+        if (not merge_started) and is_database_unavailable(e):
+            # Only reads happened: the worker will wait for the database and
+            # replay the job instead of losing it.
+            stderr.write(f"Database unavailable before the merge of {error_file_path}: {str(e).strip().splitlines()[0] if str(e).strip() else type(e).__name__}\n")
+            return database_unavailable
         stderr.write(f"Error with the merge: {e}\n")
     finally:
         tools.release_episode_lock(lock_handle)

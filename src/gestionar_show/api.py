@@ -3,13 +3,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from time import sleep
-from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data, get_folder_data, get_episodes_by_folder_id, insert_episode, get_special_rename_data, get_all_special_rename, insert_special_rename, update_special_rename
+from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data, get_folder_data, get_episodes_by_folder_id, insert_episode, update_folder_parameters, replace_regex, delete_regex, delete_incompatible_file, get_episode_by_path
 import tools
 import urllib.error
 from . import internal_client
-from .settings import Settings
+from gestionar_common.settings import Settings
 
 episode_pattern_insert = "{<episode>}"
 
@@ -70,17 +70,35 @@ class Incrementaller(BaseModel):
 class FusionRequest(BaseModel):
 	error_file_path: str
 
-class SpecialRename(BaseModel):
-    file_name: str
-    new_file_name: str
-    destination_path: str
-
 class IndexFolderRequest(BaseModel):
     folder_id: int
 
 class FolderMove(BaseModel):
     folder_id: int
     new_destination_path: str
+
+class EpisodeRename(BaseModel):
+    episode_number: int
+    new_file_name: str
+
+class EpisodesRenameRequest(BaseModel):
+    folder_id: int
+    renames: List[EpisodeRename]
+
+class RegexReplace(BaseModel):
+    regex_pattern: str
+    new_regex_pattern: str
+    # Absent keeps the current rename pattern; an explicit null removes it.
+    rename_pattern: Optional[str] = None
+    weight: Optional[int] = None
+    folder_id: Optional[int] = None
+    example_filename: str
+
+class RegexDeleteRequest(BaseModel):
+    regex_pattern: str
+
+class ErrorDeleteRequest(BaseModel):
+    error_file_path: str
 
 app = FastAPI(
     title="Gestionar Show API",
@@ -94,28 +112,35 @@ def on_startup():
     global engine
     engine = create_engine(settings.DATABASE_URL, echo=False)
 
-@app.post("/folders/")
+def folder_to_infos(current_folder):
+    """One folder, with the keys used by /folders_list/."""
+    return {
+        "folder_id": current_folder.id,
+        "destination_path": current_folder.destination_path,
+        "original_language": current_folder.original_language,
+        "number_cut": current_folder.number_cut,
+        "cut_file_to_get_delay_second_method": current_folder.cut_file_to_get_delay_second_method,
+        "max_episode_number": current_folder.max_episode_number
+    }
+
+@app.post("/folder/")
 def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
     # Vérifie s’il existe déjà
     existing = get_folder_by_path(folder_in.destination_path, session)
     if existing != None:
-        existing.max_episode_number = folder_in.max_episode_number
-        existing.number_cut = folder_in.number_cut
-        existing.cut_file_to_get_delay_second_method = folder_in.cut_file_to_get_delay_second_method
-        existing.original_language = folder_in.original_language
+        update_folder_parameters(existing, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
         session.commit()
-        return {
-            "message": "Folder already exists and updated",
-            "folder_id": existing.id
-        }
+
+        infos = folder_to_infos(existing)
+        infos["message"] = "Folder updated"
+        return infos
 
     import os
     if os.path.isfile(folder_in.destination_path):
         raise HTTPException(status_code=400, detail="A regular file already exists at this path")
     elif (not os.path.isdir(folder_in.destination_path)):
         try:
-            if (not os.makedirs(folder_in.destination_path, exist_ok=True)):
-                raise HTTPException(status_code=400, detail="Folder can't be created")
+            os.makedirs(folder_in.destination_path, exist_ok=True)
             sleep(1)
             if (not os.path.isdir(folder_in.destination_path)):
                 raise HTTPException(status_code=400, detail="Folder can't be created")
@@ -130,13 +155,48 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
     # Création avec valeurs Pydantic (défauts inclus automatiquement)
     new_folder = insert_folder(folder_in.destination_path, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
 
+    infos = folder_to_infos(new_folder)
+    infos["message"] = "Folder created"
+    return infos
+
+@app.get("/folder/")
+def get_folder(folder_id: int, session: Session = Depends(get_session)):
+    """One folder by id, described like an element of /folders_list/."""
+    current_folder = get_folder_data(folder_id, session)
+    if current_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
+    return folder_to_infos(current_folder)
+
+@app.get("/folders/")
+def get_folders_list(session: Session = Depends(get_session)):
+    """Récupère la liste des dossiers"""
+    folders = get_all_folder(session)
+    if not folders:
+        raise HTTPException(status_code=404, detail="No folders found")
+
+    infos = []
+    for folder in folders:
+        infos.append(folder_to_infos(folder))
     return {
-        "message": "Folder created",
-        "folder_id": new_folder.id
+        "folders": infos
     }
 
-def test_regex_rename(regex_data):
-    if regex_data.rename_pattern != None and episode_pattern_insert not in regex_data.rename_pattern:
+@app.get("/folders/destination_like/")
+def get_folder_info(destination_like: str, session: Session = Depends(get_session)):
+    """Récupère les infos des dossiers qui matchent le nom partiel"""
+    folders = search_like_folder(destination_like, session)
+    if not folders:
+        raise HTTPException(status_code=404, detail="No folders found matching the criteria")
+    
+    infos = []
+    for folder in folders:
+        infos.append(folder_to_infos(folder))
+    return {
+        "folders": infos
+    }
+
+def test_regex_rename(rename_pattern):
+    if rename_pattern != None and episode_pattern_insert not in rename_pattern:
         raise HTTPException(status_code=400, detail=f"Rename pattern must contain the episode pattern: {episode_pattern_insert}")
 
 def get_test_folder(regex_data,session):
@@ -145,12 +205,14 @@ def get_test_folder(regex_data,session):
         raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
     return folder
 
-@app.post("/regex/")
-def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
+def valide_regex(regex_pattern, example_filename, rename_pattern):
     import re
     # Vérifier que la nouvelle regex matche le fichier d'exemple
     # Vérifier que la regex permet d'extraire un numéro d'épisode valide
-    match = re.search(regex_data.regex_pattern, regex_data.example_filename)
+    try:
+        match = re.search(regex_pattern, example_filename)
+    except re.error as e:
+        raise HTTPException(status_code=400, detail=f"Regex does not compile: {e}")
     if match != None:
         if 'episode' in match.groupdict():
             episode_number = match.group('episode')
@@ -161,7 +223,13 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
     else:
         raise HTTPException(status_code=400, detail="Regex does not match the example filename")
     
-    test_regex_rename(regex_data)
+    test_regex_rename(rename_pattern)
+
+    return episode_number
+
+@app.post("/regex/")
+def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
+    episode_number = valide_regex(regex_data.regex_pattern, regex_data.example_filename, regex_data.rename_pattern)
     
     regex = get_regex_data(regex_data.regex_pattern, session)
     if regex == None:
@@ -172,6 +240,7 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
         # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
         all_regex = get_all_regex(session)
         for regex in all_regex:
+            import re
             if re.search(regex.regex_pattern, regex_data.example_filename) != None:
                 raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
 
@@ -198,6 +267,84 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
             "regex_pattern": regex_data.regex_pattern
         }
 
+@app.post("/regex/replace/")
+def update_regex_pattern(update_data: RegexReplace, session: Session = Depends(get_session)):
+    """Edit an existing regex: pattern, rename pattern, weight and folder.
+
+    Absent fields keep their current value; rename_pattern set to null removes
+    the rename pattern. The resulting regex is validated like POST /regex/: it
+    must compile, match example_filename and extract an `episode` group >= 1.
+    When the pattern changes, the new one must not exist yet and no other
+    regex may match example_filename (the edited regex itself is excluded).
+    The pattern is the primary key, so a pattern change inserts the new row
+    and deletes the old one in a single transaction. Moving the regex to
+    another folder is allowed.
+    """
+
+    if update_data.regex_pattern == update_data.new_regex_pattern:
+        raise HTTPException(status_code=400, detail="The regex have to be different.")
+    current_regex = get_regex_data(update_data.regex_pattern, session)
+    if current_regex == None:
+        raise HTTPException(status_code=404, detail=f"Regex `{update_data.regex_pattern}` not found")
+    if get_regex_data(update_data.new_regex_pattern, session) != None:
+        raise HTTPException(status_code=400, detail=f"Regex `{update_data.new_regex_pattern}` already exists")
+    
+    folder_id = update_data.folder_id if update_data.folder_id != None else current_regex.folder_id
+    rename_pattern = update_data.rename_pattern if "rename_pattern" in update_data.model_fields_set else current_regex.rename_pattern
+    if rename_pattern != None and len(rename_pattern) == 0:
+        rename_pattern = None
+    weight = update_data.weight if update_data.weight != None else current_regex.weight
+
+    target_folder = get_folder_data(folder_id, session)
+    if target_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
+
+    episode_number = valide_regex(update_data.new_regex_pattern, update_data.example_filename, rename_pattern)
+
+    import re
+    for regex in get_all_regex(session):
+        if regex.regex_pattern != current_regex.regex_pattern:
+            try:
+                if re.search(regex.regex_pattern, update_data.example_filename) != None:
+                    raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
+            except re.error:
+                # A stored pattern that does not compile matches nothing.
+                pass
+
+    try:
+        updated_regex = replace_regex(current_regex, update_data.new_regex_pattern, folder_id, rename_pattern, weight, session)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Database update failed, regex unchanged: {e}")
+
+    return {
+        "message": "Regex replaced",
+        "regex_pattern": updated_regex.regex_pattern,
+        "rename_pattern": updated_regex.rename_pattern,
+        "weight": updated_regex.weight,
+        "folder_id": updated_regex.folder_id,
+        "previous_regex_pattern": update_data.regex_pattern,
+        "extracted_episode": int(episode_number)
+    }
+
+@app.post("/regex/delete/")
+def delete_regex_pattern(delete_request: RegexDeleteRequest, session: Session = Depends(get_session)):
+    """Delete a regex by its pattern (POST so the UI relay stays simple)."""
+    current_regex = get_regex_data(delete_request.regex_pattern, session)
+    if current_regex == None:
+        raise HTTPException(status_code=404, detail=f"Regex `{delete_request.regex_pattern}` not found")
+    try:
+        delete_regex(current_regex, session)
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Database delete failed, regex kept: {e}")
+    return {
+        "message": "Regex deleted",
+        "regex_pattern": delete_request.regex_pattern
+    }
+
 @app.post("/incrementaller/")
 def create_regex_incrementaller(incremental_data: Incrementaller, session: Session = Depends(get_session)):
     import re
@@ -216,7 +363,7 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
         else:
             raise HTTPException(status_code=400, detail="Regex does not match the example filename")
 
-        test_regex_rename(incremental_data)
+        test_regex_rename(incremental_data.rename_pattern)
 
         # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
         all_incremental = get_all_incrementaller(session)
@@ -237,7 +384,7 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
             "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
     else:
-        test_regex_rename(incremental_data)
+        test_regex_rename(incremental_data.rename_pattern)
         # Si la regex existe déjà, on met à jour les champs
         try:
             update_incrementaller(incremental, incremental_data.rename_pattern, incremental_data.episode_incremental, session)
@@ -251,48 +398,6 @@ def create_regex_incrementaller(incremental_data: Incrementaller, session: Sessi
             "new_file_name": incremental_data.rename_pattern.replace(episode_pattern_insert, f"{(int(episode_number)+incremental_data.episode_incremental):02}")
         }
 
-@app.get("/folders_list/")
-def get_folders_list(session: Session = Depends(get_session)):
-    """Récupère la liste des dossiers"""
-    folders = get_all_folder(session)
-    if not folders:
-        raise HTTPException(status_code=404, detail="No folders found")
-
-    infos = []
-    for folder in folders:
-        infos.append({
-            "id": folder.id,
-            "destination_path": folder.destination_path,
-            "original_language": folder.original_language,
-            "number_cut": folder.number_cut,
-            "cut_file_to_get_delay_second_method": folder.cut_file_to_get_delay_second_method,
-            "max_episode_number": folder.max_episode_number
-        })
-    return {
-        "folders": infos
-    }
-
-@app.get("/folders_infos/")
-def get_folder_info(destination_like: str, session: Session = Depends(get_session)):
-    """Récupère les infos des dossiers qui matchent le nom partiel"""
-    folders = search_like_folder(destination_like, session)
-    if not folders:
-        raise HTTPException(status_code=404, detail="No folders found matching the criteria")
-    
-    infos = []
-    for folder in folders:
-        infos.append({
-            "id": folder.id,
-            "destination_path": folder.destination_path,
-            "original_language": folder.original_language,
-            "number_cut": folder.number_cut,
-            "cut_file_to_get_delay_second_method": folder.cut_file_to_get_delay_second_method,
-            "max_episode_number": folder.max_episode_number
-        })
-    return {
-        "folders": infos
-    }
-    
 @app.get("/regex_folder/")
 def get_regex_by_folder(folder_id: int, session: Session = Depends(get_session)):
     """Récupère les regex d'un dossier spécifique"""
@@ -424,95 +529,6 @@ def extract_episode_number(file_name, regex_pattern):
         elif match.groups():
             return match.group(1)
     return None
-
-def test_bare_file_name(value, field_name):
-    """A special rename is a name inside the watch folder, never a path."""
-    import os
-    if value == None or len(value.strip()) == 0:
-        raise HTTPException(status_code=400, detail=f"{field_name} cannot be empty")
-    if os.sep in value or (os.altsep != None and os.altsep in value) or value in ('.', '..'):
-        raise HTTPException(status_code=400, detail=f"{field_name} must be a file name, not a path")
-
-@app.post("/special/")
-def create_special_rename(special_data: SpecialRename, session: Session = Depends(get_session)):
-    """Declare (or edit) the final name of a special. The daemon renames the
-    exact incoming name in place, then the ordinary folder regex picks the new
-    name up.
-
-    The table knows no folder; the endpoint does, as a control against a wrong
-    destination and against cross-matches: a new name caught by a regex of any
-    other folder, or by an increment rule, is refused. The heaviest regex of
-    the given folder that catches the new name is returned so the caller can
-    show and edit it instead of creating a second one. An existing special
-    (same incoming name) is updated under the same control.
-    """
-    import re
-    test_bare_file_name(special_data.file_name, "file_name")
-    test_bare_file_name(special_data.new_file_name, "new_file_name")
-    if special_data.file_name == special_data.new_file_name:
-        raise HTTPException(status_code=400, detail="new_file_name must differ from file_name")
-
-    folder = get_test_folder(special_data, session)
-
-    # Every regex that would extract an episode number from the new name,
-    # heaviest first like the daemon. The heaviest one integrates the file; any
-    # other folder among them is a cross-match: the name is ambiguous between
-    # shows, and a later weight change would silently move the special.
-    matching_regex = []
-    for regex in get_all_regex(session):
-        episode_number = extract_episode_number(special_data.new_file_name, regex.regex_pattern)
-        if episode_number != None and episode_number.isdigit() and int(episode_number) > 0:
-            matching_regex.append((regex, int(episode_number)))
-
-    foreign = [regex for regex, episode_number in matching_regex if regex.folder_id != folder.id]
-    if foreign:
-        raise HTTPException(status_code=400, detail="The new name is caught by a regex of another folder: " + "; ".join(
-            f"`{regex.regex_pattern}` of folder {regex.folder_id} ({regex.folder.destination_path})" for regex in foreign
-        ) + f". Choose a name only folder {folder.id} recognises")
-
-    # The incrementaller runs after the special renamer in the daemon loop: a
-    # new name it matches would be renamed a second time, with a shifted number.
-    for incremental in get_all_incrementaller(session):
-        if re.search(incremental.regex_pattern, special_data.new_file_name) != None:
-            raise HTTPException(status_code=400, detail=f"The new name is caught by the increment rule `{incremental.regex_pattern}`: the daemon would rename it again. Choose a name no increment rule recognises")
-
-    special = get_special_rename_data(special_data.file_name, session)
-    try:
-        if special == None:
-            insert_special_rename(special_data.file_name, special_data.new_file_name, session)
-            message = "Special rename added"
-        else:
-            update_special_rename(special, special_data.new_file_name, session)
-            message = "Special rename updated"
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error during insertion of the special rename: {e}")
-
-    return {
-        "message": message,
-        "file_name": special_data.file_name,
-        "new_file_name": special_data.new_file_name,
-        "folder_id": folder.id,
-        # None: no regex catches the new name yet, the caller should create one.
-        # Otherwise the heaviest regex of this folder, the one that will
-        # integrate the file, so the caller can show and edit it.
-        "matching_regex": None if not matching_regex else {
-            "regex_pattern": matching_regex[0][0].regex_pattern,
-            "rename_pattern": matching_regex[0][0].rename_pattern,
-            "weight": matching_regex[0][0].weight,
-            "folder_id": matching_regex[0][0].folder_id,
-            "extracted_episode": matching_regex[0][1]
-        }
-    }
-
-@app.get("/special_list/")
-def get_special_rename_list(session: Session = Depends(get_session)):
-    """Liste les renommages de speciaux declares"""
-    return {
-        "special_renames": [
-            {"file_name": special.file_name, "new_file_name": special.new_file_name}
-            for special in get_all_special_rename(session)
-        ]
-    }
 
 @app.get("/incrementaller_list/")
 def get_incrementaller_list(session: Session = Depends(get_session)):
@@ -752,4 +768,205 @@ def move_folder(move_request: FolderMove, session: Session = Depends(get_session
         "new_destination_path": new_path,
         "episodes_updated": episodes_updated,
         "removed_directories": removed_directories
+    }
+
+def revert_renames(done_renames):
+    """Rename back, last first, the (old_path, new_path) pairs already applied.
+    Returns the paths that could not be renamed back."""
+    import os
+    not_reverted = []
+    for old_path, new_path in reversed(done_renames):
+        try:
+            os.rename(new_path, old_path)
+        except OSError as e:
+            not_reverted.append(f"{new_path} ({e})")
+    return not_reverted
+
+@app.post("/episodes/rename/")
+def rename_episodes(rename_request: EpisodesRenameRequest, session: Session = Depends(get_session)):
+    """Rename registered episode files in place and update their file_path.
+
+    The whole batch is validated before anything is touched; a single problem
+    refuses the batch and nothing is renamed:
+    - 404 if the folder or one of the episodes is not registered;
+    - 400 if an episode is listed twice, a new name is not a bare file name or
+      has no extension, the current file is missing on disk, the target exists
+      on disk (unless it is the same file) or is the registered path of another
+      episode, or two renames of the batch produce the same target.
+    A target that exists is refused even when it is itself renamed away in the
+    same batch (swap or chain): the owner does that in two calls.
+
+    The files are renamed first, then the database is committed. If a rename
+    or the commit fails, the files already renamed are renamed back and 500 is
+    returned. The UI's "rename by pattern" computes the names client side and
+    sends them here in one batch.
+    """
+    import os
+    current_folder = get_folder_data(rename_request.folder_id, session)
+    if current_folder == None:
+        raise HTTPException(status_code=404, detail=f"Folder {rename_request.folder_id} not found")
+    if not rename_request.renames:
+        raise HTTPException(status_code=400, detail="renames cannot be empty")
+
+    registered = {current_episode.episode_number: current_episode for current_episode in get_episodes_by_folder_id(current_folder.id, session)}
+    registered_paths = {os.path.normcase(os.path.normpath(current_episode.file_path)): current_episode.episode_number for current_episode in registered.values()}
+
+    missing_episodes = []
+    problems = []
+    plan = []
+    seen_episodes = set()
+    seen_targets = {}
+    for rename in rename_request.renames:
+        label = f"episode {rename.episode_number}"
+        if rename.episode_number in seen_episodes:
+            problems.append(f"{label}: listed more than once")
+            continue
+        seen_episodes.add(rename.episode_number)
+
+        current_episode = registered.get(rename.episode_number)
+        if current_episode == None:
+            missing_episodes.append(rename.episode_number)
+            continue
+
+        new_file_name = rename.new_file_name
+        if new_file_name == None or len(new_file_name.strip()) == 0:
+            problems.append(f"{label}: new_file_name cannot be empty")
+            continue
+        if os.sep in new_file_name or (os.altsep != None and os.altsep in new_file_name) or new_file_name in ('.', '..') or '\0' in new_file_name:
+            problems.append(f"{label}: new_file_name must be a file name, not a path")
+            continue
+        if os.path.splitext(new_file_name)[1] in ('', '.'):
+            problems.append(f"{label}: new_file_name must keep a file extension")
+            continue
+
+        old_path = current_episode.file_path
+        new_path = os.path.join(os.path.dirname(old_path), new_file_name)
+        if not os.path.isfile(old_path):
+            problems.append(f"{label}: current file {os.path.basename(old_path)} not found on disk")
+            continue
+
+        target_key = os.path.normcase(os.path.normpath(new_path))
+        if target_key in seen_targets:
+            problems.append(f"{label}: same target {new_file_name} as episode {seen_targets[target_key]}")
+            continue
+        seen_targets[target_key] = rename.episode_number
+
+        if new_path != old_path:
+            # samefile covers a case-only rename on a case-insensitive file system.
+            if os.path.lexists(new_path) and not (os.path.exists(new_path) and os.path.samefile(old_path, new_path)):
+                problems.append(f"{label}: {new_file_name} already exists on disk")
+                continue
+            if registered_paths.get(target_key, rename.episode_number) != rename.episode_number:
+                problems.append(f"{label}: {new_file_name} is the registered file of episode {registered_paths[target_key]}")
+                continue
+        plan.append((current_episode, old_path, new_path))
+
+    if missing_episodes:
+        raise HTTPException(status_code=404, detail=f"Nothing renamed: episode(s) {', '.join(str(n) for n in missing_episodes)} not registered for folder {current_folder.id}" + ("; " + "; ".join(problems) if problems else ""))
+    if problems:
+        raise HTTPException(status_code=400, detail="Nothing renamed: " + "; ".join(problems))
+
+    done_renames = []
+    try:
+        for current_episode, old_path, new_path in plan:
+            if new_path != old_path:
+                os.rename(old_path, new_path)
+                done_renames.append((old_path, new_path))
+    except OSError as e:
+        not_reverted = revert_renames(done_renames)
+        raise HTTPException(status_code=500, detail=f"Rename failed, database untouched: {e}. "
+                            + (f"Could not rename back: {'; '.join(not_reverted)}" if not_reverted else f"{len(done_renames)} file(s) renamed back"))
+
+    try:
+        for current_episode, old_path, new_path in plan:
+            current_episode.file_path = new_path
+        session.commit()
+    except SQLAlchemyError as e:
+        session.rollback()
+        not_reverted = revert_renames(done_renames)
+        raise HTTPException(status_code=500, detail=f"Database update failed, the renames were reverted: {e}"
+                            + (f". Could not rename back: {'; '.join(not_reverted)}" if not_reverted else ""))
+
+    return {
+        "message": f"{len(done_renames)} file(s) renamed",
+        "folder_id": current_folder.id,
+        "renamed": [
+            {
+                "episode_number": current_episode.episode_number,
+                "old_file_name": os.path.basename(old_path),
+                "new_file_name": os.path.basename(new_path)
+            }
+            for current_episode, old_path, new_path in plan
+        ]
+    }
+
+def holds_only_error_files(directory):
+    """True for an existing directory (not a link) holding nothing but regular
+    files named `*.error`; an empty directory counts too."""
+    import os
+    if os.path.islink(directory) or not os.path.isdir(directory):
+        return False
+    with os.scandir(directory) as entries:
+        return all(entry.is_file(follow_symlinks=False) and entry.name.endswith('.error') for entry in entries)
+
+@app.post("/errors/delete/")
+def delete_error_file(delete_request: ErrorDeleteRequest, session: Session = Depends(get_session)):
+    """Delete an incompatible file, its `<file>.log.error` and its row.
+
+    A file already missing on disk is reported, not refused. Then the file's
+    directory is removed when only `.error` files are left in it.
+    """
+    import os
+    import shutil
+    incompatible_file = get_incompatible_file_by_path(delete_request.error_file_path, session)
+    if incompatible_file == None:
+        raise HTTPException(status_code=404, detail=f"{delete_request.error_file_path} not found in incompatible_files")
+
+    file_path = incompatible_file.file_path
+    if os.path.lexists(file_path) and not os.path.isfile(file_path):
+        raise HTTPException(status_code=400, detail=f"{file_path} is not a regular file, nothing deleted")
+    if os.path.islink(file_path):
+        raise HTTPException(status_code=400, detail=f"{file_path} is a symbolic link, nothing deleted")
+    if get_episode_by_path(file_path, session) != None:
+        raise HTTPException(status_code=400, detail=f"{file_path} is also a registered episode file, nothing deleted")
+
+    deleted_files = []
+    warnings = []
+    file_was_missing = not os.path.lexists(file_path)
+    if not file_was_missing:
+        try:
+            os.remove(file_path)
+            deleted_files.append(file_path)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"{file_path} can't be deleted, database untouched: {e}")
+    log_path = file_path + ".log.error"
+    if os.path.islink(log_path) or os.path.isfile(log_path):
+        try:
+            os.remove(log_path)
+            deleted_files.append(log_path)
+        except OSError as e:
+            warnings.append(f"{log_path} not deleted: {e}")
+
+    try:
+        delete_incompatible_file(incompatible_file, session)
+    except SQLAlchemyError as e:
+        session.rollback()
+        raise HTTPException(status_code=500, detail=f"Files deleted ({len(deleted_files)}) but the row was kept, call again to finish: {e}")
+
+    removed_directories = []
+    file_dir = os.path.dirname(os.path.normpath(file_path))
+    if holds_only_error_files(file_dir):
+        try:
+            shutil.rmtree(file_dir)
+            removed_directories.append(file_dir)
+        except OSError as e:
+            warnings.append(f"{file_dir} not removed: {e}")
+
+    return {
+        "message": "Error deleted",
+        "error_file_path": file_path,
+        "file_was_missing": file_was_missing,
+        "deleted_files": deleted_files,
+        "removed_directories": removed_directories,
+        "warnings": warnings
     }

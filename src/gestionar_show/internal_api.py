@@ -18,7 +18,7 @@ from sys import stderr
 import tools
 
 from . import fusion
-from .settings import Settings
+from gestionar_common.settings import Settings
 
 # Faux tant que le worker n'a pas pu demarrer: la fusion est alors refusee avec
 # sa raison, au lieu d'accepter des jobs que personne ne consommera.

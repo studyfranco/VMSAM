@@ -1,0 +1,4 @@
+{
+    "plex": {"begin": "{", "end": "}"},
+    "jellyfin": {"begin": "[", "end": "]"}
+}

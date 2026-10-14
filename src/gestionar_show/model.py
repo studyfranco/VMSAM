@@ -2,6 +2,7 @@ from sqlalchemy import Text, UniqueConstraint, ForeignKey, BigInteger, Index, cr
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from typing import Optional,List
 from typing_extensions import Annotated
+from gestionar_common.database import get_connect_args
 
 int_big = Annotated[BigInteger, mapped_column(BigInteger)]
 
@@ -87,30 +88,10 @@ class incrementaller(Base):
     rename_pattern: Mapped[str]
     episode_incremental: Mapped[int]
 
-class special_rename(Base):
-    """Exact-name rename applied by the daemon before any regex runs.
-
-    A special (OVA, recap, S00Exx) rarely carries a usable episode number in
-    the name it arrives with, so the owner declares the final name once. The
-    daemon renames the file in place in the watch folder; the ordinary
-    per-folder regex then catches the new name and integrates it like any
-    other episode. Keyed on the exact incoming file name, not on a pattern.
-    """
-    __tablename__ = 'special_renames'
-
-    file_name: Mapped[str] = mapped_column(primary_key=True)
-    new_file_name: Mapped[str]
-
 def setup_database(database_url, create_tables=False):
     """Configuration complète de la base de données"""
 
-    connect_args = {}
-    if database_url.startswith("postgresql"):
-        # Argument spécifique à PostgreSQL (psycopg2)
-        connect_args['connect_timeout'] = 60
-    elif database_url.startswith("sqlite"):
-        # Argument spécifique à SQLite
-        connect_args['timeout'] = 61
+    connect_args = get_connect_args(database_url)
     # Créer l'engine
     engine = create_engine(database_url, echo=False, connect_args=connect_args, pool_pre_ping=True)
     
@@ -137,23 +118,31 @@ def get_folder_by_path(destination_path, session):
 def search_like_folder(folder_name_part, session):
     return session.query(folder).filter(folder.destination_path.like(f"%{folder_name_part}%")).all()
 
-def insert_folder(destination_path, original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number, session):
+def test_conformity_folder_param(original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number):
     if max_episode_number == None:
         max_episode_number = 12
     elif max_episode_number < 1:
         raise ValueError("max_episode_number must be at least 1")
+
     if number_cut == None:
         number_cut = 5
     elif number_cut < 1:
         raise ValueError("number_cut must be at least 1")
+
     if cut_file_to_get_delay_second_method == None:
         cut_file_to_get_delay_second_method = 2.5
     elif cut_file_to_get_delay_second_method <= 1:
         raise ValueError("cut_file_to_get_delay_second_method must be greater than 1")
-    if destination_path == None and not len(destination_path):
-        raise ValueError("destination_path cannot be empty")
-    if original_language == None and not len(original_language):
+
+    if original_language == None or not len(original_language.strip()):
         raise ValueError("original_language cannot be empty")
+
+    return (max_episode_number, number_cut, cut_file_to_get_delay_second_method)
+
+def insert_folder(destination_path, original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number, session):
+    max_episode_number, number_cut, cut_file_to_get_delay_second_method = test_conformity_folder_param(original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number)
+    if destination_path == None or not len(destination_path.strip()):
+        raise ValueError("destination_path cannot be empty")
     
     new_folder = folder(
         destination_path=destination_path,
@@ -166,23 +155,38 @@ def insert_folder(destination_path, original_language, number_cut, cut_file_to_g
     session.commit()
     return new_folder
 
+def update_folder_parameters(folder_data, original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number, session):
+    folder_data.max_episode_number, folder_data.number_cut, folder_data.cut_file_to_get_delay_second_method = test_conformity_folder_param(original_language, number_cut, cut_file_to_get_delay_second_method, max_episode_number)
+
+    folder_data.original_language = original_language
+    session.commit()
+    return folder_data
+
 def get_regex_data(regex, session):
     return session.query(regexPattern).filter(
         regexPattern.regex_pattern == regex
     ).first()
-    
-def insert_regex(regex_pattern, folder_id, rename_pattern, weight, session):
-    if regex_pattern == None or len(regex_pattern) == 0:
-        raise ValueError("regex_pattern cannot be empty")
+
+def test_conformity_regex_param(folder_id, rename_pattern, weight):
     if folder_id == None or folder_id <= 0:
         raise ValueError("folder_id must be a positive integer")
+
     if rename_pattern != None and len(rename_pattern) == 0:
         rename_pattern = None
+
     if weight == None:
         weight = 1
     elif weight < 1:
         raise ValueError("weight must be at least 1")
-    
+
+    return (rename_pattern, weight)
+
+def insert_regex_sub(regex_pattern, folder_id, rename_pattern, weight, session):
+    if regex_pattern == None or len(regex_pattern) == 0:
+        raise ValueError("regex_pattern cannot be empty")
+
+    rename_pattern, weight = test_conformity_regex_param(folder_id, rename_pattern, weight)
+
     new_regex = regexPattern(
         regex_pattern=regex_pattern,
         folder_id=folder_id,
@@ -190,24 +194,35 @@ def insert_regex(regex_pattern, folder_id, rename_pattern, weight, session):
         weight=weight
     )
     session.add(new_regex)
+    return new_regex
+
+def insert_regex(regex_pattern, folder_id, rename_pattern, weight, session):
+    new_regex = insert_regex_sub(regex_pattern, folder_id, rename_pattern, weight, session)
     session.commit()
     return new_regex
 
 def update_regex(regex_data, folder_id, rename_pattern, weight, session):
-    if folder_id == None or folder_id <= 0:
-        raise ValueError("folder_id must be a positive integer")
-    if rename_pattern != None and len(rename_pattern) == 0:
-        rename_pattern = None
-    if weight == None:
-        weight = 1
-    elif weight < 1:
-        raise ValueError("weight must be at least 1")
+    regex_data.rename_pattern, regex_data.weight = test_conformity_regex_param(folder_id, rename_pattern, weight)
     
     regex_data.folder_id = folder_id
-    regex_data.rename_pattern = rename_pattern
-    regex_data.weight = weight
     session.commit()
     return regex_data
+
+def replace_regex(regex_data, new_regex_pattern, folder_id, rename_pattern, weight, session):
+    """Change the pattern of a regex, which is the primary key of the table.
+
+    A primary key is not updated in place: the new row is inserted and the old
+    one deleted in the same transaction, so either both happen or neither.
+    """
+    new_regex = insert_regex_sub(new_regex_pattern, folder_id, rename_pattern, weight, session)
+
+    session.delete(regex_data)
+    session.commit()
+    return new_regex
+
+def delete_regex(regex_data, session):
+    session.delete(regex_data)
+    session.commit()
 
 def get_all_regex(session):
     return session.query(regexPattern).order_by(
@@ -318,39 +333,3 @@ def update_incrementaller(incremental_data, rename_pattern, episode_incremental,
     incremental_data.episode_incremental = episode_incremental
     session.commit()
     return incremental_data
-
-def get_special_rename_data(file_name, session):
-    return session.query(special_rename).filter(
-        special_rename.file_name == file_name
-    ).first()
-
-def get_all_special_rename(session):
-    return session.query(special_rename).order_by(
-        special_rename.file_name.asc()
-    ).all()
-
-def insert_special_rename(file_name, new_file_name, session):
-    if file_name == None or len(file_name) == 0:
-        raise ValueError("file_name cannot be empty")
-    if new_file_name == None or len(new_file_name) == 0:
-        raise ValueError("new_file_name cannot be empty")
-    if file_name == new_file_name:
-        raise ValueError("new_file_name must differ from file_name")
-
-    new_special = special_rename(
-        file_name=file_name,
-        new_file_name=new_file_name
-    )
-    session.add(new_special)
-    session.commit()
-    return new_special
-
-def update_special_rename(special_data, new_file_name, session):
-    if new_file_name == None or len(new_file_name) == 0:
-        raise ValueError("new_file_name cannot be empty")
-    if special_data.file_name == new_file_name:
-        raise ValueError("new_file_name must differ from file_name")
-
-    special_data.new_file_name = new_file_name
-    session.commit()
-    return special_data
