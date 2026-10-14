@@ -5,11 +5,12 @@ from sqlalchemy.exc import SQLAlchemyError
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from time import sleep
-from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data, get_folder_data, get_episodes_by_folder_id, insert_episode, update_folder_parameters, replace_regex, delete_regex, delete_incompatible_file, get_episode_by_path
+from .model import get_folder_by_path, insert_folder, get_all_regex, insert_regex, get_regex_data, update_regex, get_incrementaller_data,get_all_incrementaller, insert_incrementaller, update_incrementaller, search_like_folder, get_regex_by_folder_id, get_all_folder, get_all_incompatible_files, get_incompatible_file_by_path, get_episode_data, get_folder_data, get_episodes_by_folder_id, insert_episode, update_folder_parameters, test_conformity_folder_param, replace_regex, delete_regex, delete_incompatible_file, get_episode_by_path
 import tools
 import urllib.error
 from . import internal_client
 from gestionar_common.settings import Settings
+from gestionar_common.database import get_connect_args
 
 episode_pattern_insert = "{<episode>}"
 
@@ -23,29 +24,10 @@ def get_session():
         session.commit()
     except SQLAlchemyError as e:
         session.rollback()
-        try:
-            session.close()
-            import gc
-            gc.collect()
-        except Exception as e:
-            pass
         raise HTTPException(status_code=500, detail=f"Database operation failed: {str(e)}")
-    except Exception as e:
-        try:
-            session.close()
-            import gc
-            gc.collect()
-        except Exception as e:
-            pass
-        session.rollback()
-        raise e
     finally:
-        try:
-            session.close()
-            import gc
-            gc.collect()
-        except Exception as e:
-            pass
+        # close() also rolls back a transaction left open by any other error
+        session.close()
 
 class Folder(BaseModel):
     destination_path: str
@@ -110,10 +92,12 @@ app = FastAPI(
 def on_startup():
     settings = Settings()
     global engine
-    engine = create_engine(settings.DATABASE_URL, echo=False)
+    # Same options as setup_database: pool_pre_ping drops a connection that died
+    # with a database restart instead of failing the next request on it.
+    engine = create_engine(settings.DATABASE_URL, echo=False, connect_args=get_connect_args(settings.DATABASE_URL), pool_pre_ping=True)
 
 def folder_to_infos(current_folder):
-    """One folder, with the keys used by /folders_list/."""
+    """One folder, with the keys used by /folders/."""
     return {
         "folder_id": current_folder.id,
         "destination_path": current_folder.destination_path,
@@ -125,6 +109,19 @@ def folder_to_infos(current_folder):
 
 @app.post("/folder/")
 def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
+    import os
+    # One spelling per folder: `x/` and `x` must not become two folders, and a
+    # relative path would be created relative to the process working directory.
+    if not os.path.isabs(folder_in.destination_path):
+        raise HTTPException(status_code=400, detail="destination_path must be an absolute path")
+    folder_in.destination_path = os.path.normpath(folder_in.destination_path)
+    # Checked before anything is written, so a refused value never leaves a
+    # created directory behind, and answers 400 instead of an uncaught 500.
+    try:
+        test_conformity_folder_param(folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Vérifie s’il existe déjà
     existing = get_folder_by_path(folder_in.destination_path, session)
     if existing != None:
@@ -135,7 +132,6 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
         infos["message"] = "Folder updated"
         return infos
 
-    import os
     if os.path.isfile(folder_in.destination_path):
         raise HTTPException(status_code=400, detail="A regular file already exists at this path")
     elif (not os.path.isdir(folder_in.destination_path)):
@@ -153,7 +149,10 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
         raise HTTPException(status_code=400, detail="Folder not writable")
 
     # Création avec valeurs Pydantic (défauts inclus automatiquement)
-    new_folder = insert_folder(folder_in.destination_path, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
+    try:
+        new_folder = insert_folder(folder_in.destination_path, folder_in.original_language, folder_in.number_cut, folder_in.cut_file_to_get_delay_second_method, folder_in.max_episode_number, session)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     infos = folder_to_infos(new_folder)
     infos["message"] = "Folder created"
@@ -161,7 +160,7 @@ def create_folder(folder_in: Folder, session: Session = Depends(get_session)):
 
 @app.get("/folder/")
 def get_folder(folder_id: int, session: Session = Depends(get_session)):
-    """One folder by id, described like an element of /folders_list/."""
+    """One folder by id, described like an element of /folders/."""
     current_folder = get_folder_data(folder_id, session)
     if current_folder == None:
         raise HTTPException(status_code=404, detail=f"Folder {folder_id} not found")
@@ -200,9 +199,10 @@ def test_regex_rename(rename_pattern):
         raise HTTPException(status_code=400, detail=f"Rename pattern must contain the episode pattern: {episode_pattern_insert}")
 
 def get_test_folder(regex_data,session):
-    folder = get_folder_by_path(regex_data.destination_path, session)
+    import os
+    folder = get_folder_by_path(os.path.normpath(regex_data.destination_path), session)
     if folder == None:
-        raise HTTPException(status_code=400, detail=f"Folder {regex_data.destination_path} not found")
+        raise HTTPException(status_code=404, detail=f"Folder {regex_data.destination_path} not found")
     return folder
 
 def valide_regex(regex_pattern, example_filename, rename_pattern):
@@ -227,6 +227,17 @@ def valide_regex(regex_pattern, example_filename, rename_pattern):
 
     return episode_number
 
+def regex_to_infos(regex, message, episode_number):
+    """The same answer for a created and an updated regex."""
+    return {
+        "message": message,
+        "regex_pattern": regex.regex_pattern,
+        "rename_pattern": regex.rename_pattern,
+        "weight": regex.weight,
+        "folder_id": regex.folder_id,
+        "extracted_episode": int(episode_number)
+    }
+
 @app.post("/regex/")
 def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
     episode_number = valide_regex(regex_data.regex_pattern, regex_data.example_filename, regex_data.rename_pattern)
@@ -239,33 +250,36 @@ def create_regex(regex_data: Regex, session: Session = Depends(get_session)):
 
         # Vérifier les conflits : aucune regex existante ne doit matcher le fichier d'exemple
         all_regex = get_all_regex(session)
+        import re
         for regex in all_regex:
-            import re
-            if re.search(regex.regex_pattern, regex_data.example_filename) != None:
-                raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
+            try:
+                if re.search(regex.regex_pattern, regex_data.example_filename) != None:
+                    raise HTTPException(status_code=400, detail=f"Conflict with existing regex: `{regex.regex_pattern}`")
+            except re.error:
+                # A stored pattern that does not compile matches nothing.
+                pass
 
         # Créer et insérer la nouvelle regex
         try:
-            insert_regex(regex_data.regex_pattern, folder.id, regex_data.rename_pattern, regex_data.weight, session)
-        except Exception as e:
+            new_regex = insert_regex(regex_data.regex_pattern, folder.id, regex_data.rename_pattern, regex_data.weight, session)
+        except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Error during insertion of the regex: {e}")
+        except SQLAlchemyError as e:
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"Database insertion failed, regex not added: {e}")
 
-        return {
-            "message": "Regex added",
-            "regex_pattern": regex_data.regex_pattern,
-            "extracted_episode": int(episode_number),
-            "folder_id": folder.id
-        }
+        return regex_to_infos(new_regex, "Regex added", episode_number)
     else:
         # Si la regex existe déjà, on met à jour les champs
+        target_folder = get_test_folder(regex_data,session)
         try:
-            update_regex(regex, get_test_folder(regex_data,session).id, regex_data.rename_pattern, regex_data.weight, session)
-        except Exception as e:
+            update_regex(regex, target_folder.id, regex_data.rename_pattern, regex_data.weight, session)
+        except ValueError as e:
             raise HTTPException(status_code=400, detail=f"Error during update of the regex: {e}")
-        return {
-            "message": "Regex updated",
-            "regex_pattern": regex_data.regex_pattern
-        }
+        except SQLAlchemyError as e:
+            session.rollback()
+            raise HTTPException(status_code=500, detail=f"Database update failed, regex unchanged: {e}")
+        return regex_to_infos(regex, "Regex updated", episode_number)
 
 @app.post("/regex/replace/")
 def update_regex_pattern(update_data: RegexReplace, session: Session = Depends(get_session)):
@@ -754,7 +768,10 @@ def move_folder(move_request: FolderMove, session: Session = Depends(get_session
 
     removed_folder = os.path.dirname(old_path)
     removed_directories = []
-    if (not os.listdir(removed_folder)) and (not os.path.ismount(removed_folder)):
+    registered_paths = set(os.path.normpath(registered_folder.destination_path) for registered_folder in get_all_folder(session))
+    # An empty parent that is itself a registered folder stays: removing it would
+    # leave that folder pointing to a missing directory.
+    if (not os.listdir(removed_folder)) and (not os.path.ismount(removed_folder)) and (os.path.normpath(removed_folder) not in registered_paths):
         try:
             os.rmdir(removed_folder)
             removed_directories.append(removed_folder)
