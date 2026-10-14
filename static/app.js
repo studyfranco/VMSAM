@@ -4,9 +4,10 @@
 //   1. utilities (toast, toggles)
 //   2. API client
 //   3. filename analysis engine (pure functions, no DOM)
-//   4. tabs
+//   4. tabs (section switch, header title link, home tiles)
 //   5. folder creation
-//   6. shared widgets: folder picker, existing-rules panel, file modal
+//   6. shared widgets: folder picker, existing-rules panel, directory picker,
+//      file modal
 //   7. group board (regex / index / incrementaller cards, drag & drop)
 //   8. Shows tabs: bulk regex, index folder, move folder, incrementaller,
 //      episodes, folder settings, rules, errors (Movies tabs: movie.js)
@@ -165,9 +166,19 @@ const api = {
         return apiFetch(`/api/fs/list${p}`);
     },
     getConfig() { return apiFetch('/api/config'); },
+    // folder objects carry `folder_id` (not `id`)
     getFolders() { return apiFetch('/api/vmsam/folders_list'); },
-    createFolder(payload) { return postJson('/api/vmsam/folders', payload); },
-    createRegex(payload) { return postJson('/api/vmsam/regex', payload); },
+    findFolders(text) { return apiFetch(`/api/vmsam/folders_like?destination_like=${encodeURIComponent(text)}`); },
+    // POST /folder/ creates OR updates (same destination_path) with the FULL
+    // data; destination_path relative to CREATE_ROOT, the relay prefixes it.
+    // Answers the folder object + message "Folder created" / "Folder updated".
+    saveFolder(payload) { return postJson('/api/vmsam/folders', payload); },
+    // POST /regex/ creates a rule, or updates an existing pattern (folder via
+    // destination_path, rename_pattern, weight); example_filename is checked
+    // either way (it must match and yield an episode >= 1)
+    saveRegex(payload) { return postJson('/api/vmsam/regex', payload); },
+    // { regex_pattern, new_regex_pattern, example_filename }: the pattern only
+    replaceRegex(payload) { return postJson('/api/vmsam/regex_replace', payload); },
     getRegexes(folderId) { return apiFetch(`/api/vmsam/regex_list?folder_id=${folderId}`); },
     indexFolder(folderId) { return postJson('/api/vmsam/index_folder', { folder_id: folderId }); },
     createIncrementaller(payload) { return postJson('/api/vmsam/incrementaller', payload); },
@@ -176,11 +187,8 @@ const api = {
     // newPath is relative to CREATE_ROOT: the relay prefixes the root
     moveFolder(folderId, newPath) { return postJson('/api/vmsam/folders_move', { folder_id: folderId, new_destination_path: newPath }); },
     getFolder(folderId) { return apiFetch(`/api/vmsam/folder?folder_id=${folderId}`); },
-    // only the fields present change; the path is moveFolder's job
-    updateFolder(payload) { return postJson('/api/vmsam/folders_update', payload); },
     // renames: [{ episode_number, new_file_name }], all or nothing
     renameEpisodes(folderId, renames) { return postJson('/api/vmsam/episodes_rename', { folder_id: folderId, renames }); },
-    updateRegex(payload) { return postJson('/api/vmsam/regex_update', payload); },
     deleteRegex(regexPattern) { return postJson('/api/vmsam/regex_delete', { regex_pattern: regexPattern }); },
     getErrors() { return apiFetch('/api/vmsam/errors'); },
     deleteError(errorFilePath) { return postJson('/api/vmsam/errors_delete', { error_file_path: errorFilePath }); },
@@ -554,29 +562,63 @@ function buildRegex(template, episodeIndex) {
 // Wild spans (a per-episode title, a changing tag) belong to the reference
 // file only: they are dropped, and the separators left on both sides of the
 // hole collapse into one (the left one, or the dot of the extension).
+// Then the episode stands out (owner's rule): the episode with the marker
+// glued to it (`S01E`, `1x`, `E`, `Ep`) is the unit, and a separator run
+// on either side of it that holds no dash becomes ` - `
+// (`Show.S01E03.1080p.mkv` -> `Show - S01E{<episode>} - 1080p.mkv`). A run
+// that already holds a dash is kept (no doubled ` - `), and nothing is added
+// at the start, at the end, before the extension or where the unit touches a
+// bracket or a word directly.
 function buildRename(template, episodeIndex) {
     if (episodeIndex === null || episodeIndex === undefined) return template.name;
     const GAP = '\u0000';
+    const UNIT_START = '\u0001';
+    const UNIT_END = '\u0002';
+    const slots = template.slots;
+    const isGlued = slot => !slot.wild && /^[0-9A-Za-zÀ-ɏ]+$/.test(slot.v);
+    const isPlainSeparator = slot => !slot.wild && /^[\s._]$/.test(slot.v);
+    let unitStart = episodeIndex;
+    while (unitStart > 0 && isGlued(slots[unitStart - 1])) unitStart--;
+    // A separated episode word belongs to the unit too (`Ep 03`, `Episode.03`),
+    // and so does a whole `Saison 1 Épisode 03` marker.
+    let word = unitStart;
+    while (word > 0 && isPlainSeparator(slots[word - 1])) word--;
+    if (word < unitStart && word > 0 && !slots[word - 1].wild && /^(e|ep|episode|épisode)$/i.test(slots[word - 1].v)) unitStart = word - 1;
+    const marker = findMarkerSpan(slots);
+    if (marker && marker.kind === 'saison' && marker.episode === episodeIndex && !slots.slice(marker.from, episodeIndex).some(s => s.wild)) unitStart = Math.min(unitStart, marker.from);
     let out = '';
     template.slots.forEach((slot, i) => {
         if (slot.wild) { if (!out.endsWith(GAP)) out += GAP; return; }
-        out += i === episodeIndex ? EPISODE_PLACEHOLDER : slot.v;
+        if (i === unitStart) out += UNIT_START;
+        out += i === episodeIndex ? EPISODE_PLACEHOLDER + UNIT_END : slot.v;
     });
-    if (!out.includes(GAP)) return out;
-    // A bracket pair that only held a dropped span goes with it.
-    let previous;
-    do {
-        previous = out;
-        out = out.replace(/[\[(][\s._\-]*\u0000[\s._\-]*[\])]/g, GAP).replace(/\u0000+/g, GAP);
-    } while (out !== previous);
-    out = out.replace(/([\s._\-]*)\u0000([\s._\-]*)/g, (match, left, right, offset, whole) => {
-        const before = whole.slice(0, offset);
+    if (out.includes(GAP)) {
+        // A bracket pair that only held a dropped span goes with it.
+        let previous;
+        do {
+            previous = out;
+            out = out.replace(/[\[(][\s._\-]*\u0000[\s._\-]*[\])]/g, GAP).replace(/\u0000+/g, GAP);
+        } while (out !== previous);
+        out = out.replace(/([\s._\-]*)\u0000([\s._\-]*)/g, (match, left, right, offset, whole) => {
+            const before = whole.slice(0, offset).replace(/[\u0001\u0002]/g, '');
+            const after = whole.slice(offset + match.length).replace(/[\u0001\u0002]/g, '');
+            if (!before || !after) return '';
+            if (right.endsWith('.') && /^[A-Za-z0-9]{1,5}$/.test(after)) return '.';
+            return left || right;
+        });
+    }
+    const DASH = ' - ';
+    out = out.replace(/([\s._\-]*)\u0001/, (match, run, offset) => {
+        if (!run || offset === 0 || run.includes('-')) return run;
+        return DASH;
+    });
+    out = out.replace(/\u0002([\s._\-]*)/, (match, run, offset, whole) => {
         const after = whole.slice(offset + match.length);
-        if (!before || !after) return '';
-        if (right.endsWith('.') && /^[A-Za-z0-9]{1,5}$/.test(after)) return '.';
-        return left || right;
+        if (!run || !after || run.includes('-')) return run;
+        if (run.endsWith('.') && /^[A-Za-z0-9]{1,5}$/.test(after)) return run;
+        return DASH;
     });
-    return out;
+    return out.replace(/[\u0001\u0002]/g, '');
 }
 
 // Python named groups -> JS named groups, so the browser can test the pattern.
@@ -987,6 +1029,27 @@ function switchTab(tabId) {
     if (TAB_INIT[tabId]) TAB_INIT[tabId]();
 }
 
+// The header title (a button): back to the home tab of the current section.
+function goToSectionHome() {
+    const home = SECTION_HOME[currentSection];
+    if (home && document.getElementById(home)) switchTab(home);
+}
+
+// Home tiles of both sections: `.card.home-tile[data-tab]` with role="button"
+// and tabindex="0", no onclick: the whole tile opens its tab, by a click,
+// Enter or Space (style.css gives the pointer, hover and focus ring).
+document.addEventListener('click', (e) => {
+    const tile = e.target.closest ? e.target.closest('.home-tile[data-tab]') : null;
+    if (tile) switchTab(tile.dataset.tab);
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const tile = e.target.closest ? e.target.closest('.home-tile[data-tab]') : null;
+    if (!tile || tile !== e.target) return;
+    e.preventDefault();
+    switchTab(tile.dataset.tab);
+});
+
 // --- 5. Folder Creation ---
 
 async function loadDirBrowser(path = '') {
@@ -1090,7 +1153,7 @@ async function submitFolder() {
     };
 
     try {
-        const result = await api.createFolder(payload);
+        const result = await api.saveFolder(payload);
         showToast(result && result.message ? result.message : 'Folder created successfully!', 'success');
         folderCache = null; // the pickers must see the new folder
     } catch (e) {
@@ -1212,8 +1275,9 @@ function renderRuleRow(rule, index) {
 }
 
 // Collapsible "Existing rules" panel. Returns the rules so the caller can
-// test files against them.
-async function loadExistingRulesInto(contentId, loader, emptyText) {
+// test files against them. decorate(row, rule, index), optional, adds
+// buttons to a rule row (Bulk Regex: "Edit regex").
+async function loadExistingRulesInto(contentId, loader, emptyText, decorate) {
     const content = document.getElementById(contentId);
     content.innerHTML = '';
     content.appendChild(el('div', 'text-sm text-muted', 'Loading...'));
@@ -1223,7 +1287,11 @@ async function loadExistingRulesInto(contentId, loader, emptyText) {
         if (!rules.length) {
             content.appendChild(el('div', 'text-sm text-muted', emptyText));
         } else {
-            rules.forEach((rule, i) => content.appendChild(renderRuleRow(rule, i)));
+            rules.forEach((rule, i) => {
+                const row = renderRuleRow(rule, i);
+                if (decorate) decorate(row, rule, i);
+                content.appendChild(row);
+            });
         }
         return rules;
     } catch (e) {
@@ -1315,10 +1383,180 @@ function applyDirFilter(containerId, inputId) {
     note.textContent = `${hidden} director${hidden > 1 ? 'ies' : 'y'} hidden by the filter` + (shown ? '' : ': none matches here');
 }
 
-[['index-register-browser', 'index-register-filter'], ['move-browser', 'move-browser-filter']].forEach(([containerId, inputId]) => {
-    const input = document.getElementById(inputId);
-    if (input) input.addEventListener('input', () => applyDirFilter(containerId, inputId));
-});
+// Large directory picker over CREATE_ROOT, a modal like the file modal (most
+// of the screen, many rows visible). Used by Index Folder ("Select a
+// folder…"), Move Folder and Folder Settings ("Browse…").
+//   openDirectoryPicker({
+//     title, hint,                 // header and help line
+//     startPath,                   // directory shown first ('' = the root)
+//     chooseLabel,                 // label of the button that picks the selected row
+//     hereLabel, allowCurrent(p),  // optional: a button picking the directory shown
+//     decorate(row, item),         // optional: badges on a row (item: { name, path })
+//     onNavigate(path),            // optional: the directory shown changed
+//     onPick(path)                 // a path relative to CREATE_ROOT; the picker closes
+//   })
+// A click selects a row, "Open →" or a double click goes inside, ".." goes up;
+// the name filter (applyDirFilter) is kept while navigating. Escape, ✕,
+// Cancel or a click outside close it without picking. Ids: dir-picker-*.
+let dirPicker = null;
+
+function openDirectoryPicker(options) {
+    closeDirectoryPicker();
+    const previousFocus = document.activeElement;
+    const overlay = el('div', 'modal-overlay dir-picker-overlay');
+    const box = el('div', 'modal-box file-modal-box dir-picker-box');
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    const header = el('div', 'modal-header');
+    const title = el('h3', null, options.title || 'Choose a directory');
+    title.id = 'dir-picker-title';
+    box.setAttribute('aria-labelledby', title.id);
+    const close = el('button', 'btn-icon', '✕');
+    close.type = 'button';
+    close.id = 'dir-picker-close';
+    close.title = 'Close without choosing';
+    header.append(title, close);
+    box.appendChild(header);
+    if (options.hint) box.appendChild(el('p', 'text-muted text-sm dir-picker-hint', options.hint));
+
+    const where = el('div', 'dir-picker-where');
+    const whereText = el('span', 'font-mono text-accent dir-picker-path');
+    whereText.id = 'dir-picker-where';
+    const here = el('button', 'btn btn-secondary btn-sm', options.hereLabel || 'Choose this directory');
+    here.type = 'button';
+    here.id = 'dir-picker-here';
+    where.append(whereText, here);
+    box.appendChild(where);
+
+    const filter = document.createElement('input');
+    filter.type = 'search';
+    filter.id = 'dir-picker-filter';
+    filter.className = 'input dir-filter';
+    filter.placeholder = 'Filter directories (name contains…)';
+    filter.setAttribute('aria-label', 'Filter directories');
+    filter.autocomplete = 'off';
+    filter.spellcheck = false;
+    box.appendChild(filter);
+
+    const list = el('div', 'modal-body dir-browser-container dir-picker-list');
+    list.id = 'dir-picker-list';
+    box.appendChild(list);
+
+    const footer = el('div', 'modal-footer dir-picker-footer');
+    const selectedLine = el('span', 'text-sm dir-picker-selected-line');
+    selectedLine.appendChild(el('span', 'text-muted', 'Selected: '));
+    const selectedText = el('span', 'font-mono text-accent', 'none');
+    selectedText.id = 'dir-picker-selected';
+    selectedLine.appendChild(selectedText);
+    const cancel = el('button', 'btn btn-secondary', 'Cancel');
+    cancel.type = 'button';
+    cancel.id = 'dir-picker-cancel';
+    const choose = el('button', 'btn btn-primary', options.chooseLabel || 'Choose');
+    choose.type = 'button';
+    choose.id = 'dir-picker-choose';
+    choose.disabled = true;
+    footer.append(selectedLine, cancel, choose);
+    box.appendChild(footer);
+    overlay.appendChild(box);
+
+    const picker = { overlay, options, path: '', selected: null, previousFocus, onKey: null };
+    dirPicker = picker;
+    const pick = (path) => {
+        closeDirectoryPicker();
+        options.onPick(path);
+    };
+    const select = (path) => {
+        picker.selected = path;
+        selectedText.textContent = path === null ? 'none' : (path || '/ (library root)');
+        choose.disabled = path === null;
+        list.querySelectorAll('.dir-item[data-path]').forEach(row => row.classList.toggle('selected', row.dataset.path === path));
+    };
+    const load = async (path) => {
+        list.innerHTML = '';
+        list.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
+        try {
+            const items = await api.listFiles(path, 'create');
+            if (dirPicker !== picker) return;
+            picker.path = path;
+            if (options.onNavigate) options.onNavigate(path);
+            whereText.textContent = path ? `/${path}` : '/ (library root)';
+            const allowHere = options.allowCurrent ? options.allowCurrent(path) : false;
+            here.classList.toggle('hidden', !allowHere);
+            list.innerHTML = '';
+            if (path) {
+                const up = el('div', 'dir-item text-blue dir-picker-up');
+                up.tabIndex = 0;
+                up.appendChild(el('span', null, '📁 ..'));
+                up.onclick = () => load(path.split('/').slice(0, -1).join('/'));
+                up.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); up.click(); } };
+                list.appendChild(up);
+            }
+            const dirs = items.filter(i => i.is_dir);
+            if (!dirs.length) list.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
+            dirs.forEach(item => {
+                const row = el('div', 'dir-item' + (picker.selected === item.path ? ' selected' : ''));
+                row.dataset.path = item.path;
+                row.dataset.name = item.name;
+                row.tabIndex = 0;
+                row.onclick = () => select(item.path);
+                row.ondblclick = () => load(item.path);
+                // Enter selects, Enter again chooses; → goes inside
+                row.onkeydown = (e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); if (picker.selected === item.path) pick(item.path); else select(item.path); }
+                    else if (e.key === 'ArrowRight') { e.preventDefault(); load(item.path); }
+                };
+                const name = el('div', 'dir-name flex-1');
+                name.appendChild(el('span', null, `📁 ${item.name}`));
+                const open = el('button', 'btn btn-sm btn-secondary', 'Open →');
+                open.type = 'button';
+                open.tabIndex = -1;
+                open.onclick = (e) => { e.stopPropagation(); load(item.path); };
+                const actions = el('div', 'dir-actions');
+                actions.appendChild(open);
+                row.append(name, actions);
+                if (options.decorate) options.decorate(row, item);
+                list.appendChild(row);
+            });
+            if (dirs.length) applyDirFilter('dir-picker-list', 'dir-picker-filter');
+        } catch (e) {
+            if (dirPicker !== picker) return;
+            list.innerHTML = '';
+            const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
+            if (path) { // e.g. the remembered directory was moved away
+                const root = el('button', 'btn btn-sm btn-secondary mt-2', 'Back to the library root');
+                root.type = 'button';
+                root.onclick = () => load('');
+                err.appendChild(document.createElement('br'));
+                err.appendChild(root);
+            }
+            list.appendChild(err);
+        }
+    };
+    picker.load = load;
+    filter.addEventListener('input', () => applyDirFilter('dir-picker-list', 'dir-picker-filter'));
+    here.onclick = () => pick(picker.path);
+    choose.onclick = () => { if (picker.selected !== null) pick(picker.selected); };
+    cancel.onclick = () => closeDirectoryPicker();
+    close.onclick = () => closeDirectoryPicker();
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) closeDirectoryPicker(); });
+    picker.onKey = (e) => {
+        if (e.key === 'Escape' && !document.querySelector('.confirm-overlay')) { e.preventDefault(); e.stopPropagation(); closeDirectoryPicker(); }
+    };
+    document.addEventListener('keydown', picker.onKey, true);
+    document.body.appendChild(overlay);
+    filter.focus();
+    load(options.startPath || '');
+    return picker;
+}
+
+function closeDirectoryPicker() {
+    if (!dirPicker) return;
+    const picker = dirPicker;
+    dirPicker = null;
+    document.removeEventListener('keydown', picker.onKey, true);
+    picker.overlay.remove();
+    if (picker.previousFocus && picker.previousFocus.focus) picker.previousFocus.focus();
+}
 
 // File modal, shared: the caller says what to do with the ticked names.
 let fileModalCallback = null;
@@ -1437,7 +1675,7 @@ function findEjectTarget(board, name, fromId) {
     const prefix = nameShape(name).prefix;
     let best = null;
     for (const group of board.groups) {
-        if (group.id === fromId || group.files.includes(name)) continue;
+        if (group.id === fromId || !group.files.length || group.files.includes(name)) continue;
         let regex = null;
         if (group.files.length > 1) {
             const current = board.values(group).regex;
@@ -1472,6 +1710,32 @@ function createGroupBoard(options) {
         board.render();
     };
 
+    // A replace card (Bulk Regex "Edit regex"): an existing rule whose regex
+    // is edited against real files and saved with POST /regex/replace/. It
+    // stays on the board without files (it cannot be saved then), and
+    // Auto-group / Split all leave it alone.
+    board.addReplaceGroup = (rule, names) => {
+        const group = { id: board.nextId++, files: [...names], episodeIndex: null, regexManual: rule.regex_pattern, renameManual: rule.rename_pattern || '', weight: rule.weight, increment: 12, saved: false,
+            replace: { regex_pattern: rule.regex_pattern, rename_pattern: rule.rename_pattern, weight: rule.weight } };
+        board.groups.unshift(group);
+        board.render();
+        return group;
+    };
+
+    // Names from the file modal onto one card: a name on another card moves.
+    board.addFilesToGroup = (id, names) => {
+        const group = board.findGroup(id);
+        if (!group) return;
+        names.forEach(name => {
+            if (group.files.includes(name)) return;
+            board.groups.forEach(g => { if (g !== group && g.files.includes(name)) { g.files = g.files.filter(f => f !== name); g.saved = false; } });
+            group.files.push(name);
+        });
+        group.saved = false;
+        board.groups = board.groups.filter(g => g.files.length || g.replace);
+        board.render();
+    };
+
     board.addFiles = (names, grouped) => {
         const known = new Set(board.groups.flatMap(g => g.files));
         const fresh = names.filter(n => !known.has(n));
@@ -1482,11 +1746,12 @@ function createGroupBoard(options) {
     // Regroup every file on the board from scratch: manual edits, chip
     // choices and saved marks of the old groups are dropped.
     board.regroup = (nameLists) => {
-        board.groups = [];
+        board.groups = board.groups.filter(g => g.replace);
         board.addGroups(nameLists);
     };
-    board.autoGroup = () => board.regroup(groupByNamePattern(board.groups.flatMap(g => g.files)));
-    board.splitAll = () => board.regroup(board.groups.flatMap(g => g.files).map(n => [n]));
+    const looseFiles = () => board.groups.filter(g => !g.replace).flatMap(g => g.files);
+    board.autoGroup = () => board.regroup(groupByNamePattern(looseFiles()));
+    board.splitAll = () => board.regroup(looseFiles().map(n => [n]));
 
     board.findGroup = (id) => board.groups.find(g => g.id === id);
 
@@ -1504,7 +1769,7 @@ function createGroupBoard(options) {
             to.files.push(name);
             to.saved = false;
         }
-        board.groups = board.groups.filter(g => g.files.length);
+        board.groups = board.groups.filter(g => g.files.length || g.replace);
         board.render();
     };
 
@@ -1528,13 +1793,13 @@ function createGroupBoard(options) {
         board.render();
     };
 
-    board.proposal = (group) => analyzeGroup(group.files, group.episodeIndex);
+    board.proposal = (group) => (group.files.length ? analyzeGroup(group.files, group.episodeIndex) : null);
 
     board.values = (group) => {
         const proposal = board.proposal(group);
         return {
-            regex: group.regexManual !== null ? group.regexManual : proposal.regex,
-            rename: group.renameManual !== null ? group.renameManual : proposal.rename,
+            regex: group.regexManual !== null ? group.regexManual : (proposal ? proposal.regex : ''),
+            rename: group.renameManual !== null ? group.renameManual : (proposal ? proposal.rename : ''),
             proposal
         };
     };
@@ -1588,24 +1853,37 @@ function wireDropTarget(node, board, groupId) {
 
 function renderGroupCard(board, group) {
     const { regex, rename, proposal } = board.values(group);
+    const replace = group.replace || null;
     const check = testPattern(regex, group.files);
-    const card = el('div', `card group-card${group.saved ? ' saved' : ''}`);
+    const card = el('div', `card group-card${group.saved ? ' saved' : ''}${replace ? ' replace-card' : ''}`);
+    card.dataset.groupId = String(group.id);
     wireDropTarget(card, board, group.id);
 
     // Header
     const header = el('div', 'group-header');
     const title = el('div');
-    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', board.mode === 'incrementaller' ? 'Increment rule' : 'Rule'));
-    title.appendChild(el('span', 'badge', `${group.files.length} file${group.files.length > 1 ? 's' : ''}`));
-    if (group.saved) title.appendChild(el('span', 'badge badge-success', 'saved ✓'));
+    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', replace ? 'Edit regex of an existing rule' : (board.mode === 'incrementaller' ? 'Increment rule' : 'Rule')));
+    title.appendChild(el('span', 'badge', `${group.files.length} file${group.files.length === 1 ? '' : 's'}`));
+    if (group.saved) title.appendChild(el('span', 'badge badge-success', replace ? 'replaced ✓' : 'saved ✓'));
     const remove = el('button', 'btn-icon', '🗑️');
-    remove.title = 'Remove this group';
+    remove.title = replace ? 'Close this card (the rule is not changed)' : 'Remove this group';
     remove.onclick = () => board.removeGroup(group.id);
     header.append(title, remove);
     card.appendChild(header);
 
+    if (replace) {
+        const current = el('div', 'replace-current text-sm');
+        current.appendChild(el('span', 'text-muted', 'Current regex: '));
+        current.appendChild(el('code', 'font-mono text-accent replace-current-regex', replace.regex_pattern));
+        card.appendChild(current);
+        card.appendChild(el('div', 'text-muted text-xs replace-help', 'The new regex must match every real file of this card (they are the control); VMSAM checks it on the first one. Only the pattern changes: rename pattern and weight are changed in the Rules tab.'));
+    }
+
     // Files
     const list = el('div', 'group-files');
+    if (replace && !group.files.length) {
+        list.appendChild(el('div', 'text-warning text-sm replace-no-file', 'No real file on this card: the watch folder holds no file this rule matches. Add one with "+ Add files": VMSAM needs a real file name to check the new regex on, and nothing can be saved without one.'));
+    }
     group.files.forEach(name => {
         const row = el('div', 'group-file');
         row.draggable = true;
@@ -1622,7 +1900,7 @@ function renderGroupCard(board, group) {
         const result = check.perFile.find(f => f.name === name);
         const badge = el('span', `badge ${result && result.valid ? 'badge-success' : 'badge-danger'}`, result && result.valid ? `ep ${result.episode}` : 'no match');
         row.appendChild(badge);
-        if (group.files.length > 1) {
+        if (group.files.length > 1 || replace) {
             const eject = el('button', 'btn-icon eject', '−');
             eject.title = 'Take this file out: another group whose rule fits it takes it, else it gets its own group';
             eject.onclick = () => board.ejectFile(name, group.id);
@@ -1633,29 +1911,31 @@ function renderGroupCard(board, group) {
     card.appendChild(list);
 
     // Reference name with clickable digit runs
-    const example = el('div', 'group-example');
-    example.appendChild(el('span', 'text-muted text-xs', 'Episode number — click a digit run to change: '));
-    const line = el('div', 'font-mono example-line');
-    const slots = proposal.template.slots;
-    const numbers = new Set(numberSlots(proposal.template));
-    slots.forEach((slot, i) => {
-        if (numbers.has(i)) {
-            const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
-            const candidate = proposal.candidates.find(c => c.index === i);
-            chip.title = candidate ? `score ${candidate.score}: ${candidate.reasons.join(', ')}` : '';
-            chip.onclick = () => { group.episodeIndex = i; group.regexManual = null; group.renameManual = null; group.saved = false; board.render(); };
-            line.appendChild(chip);
-        } else {
-            line.appendChild(el('span', slot.wild ? 'wild-part' : (slot.varying ? 'varying-part' : null), slot.v));
-        }
-    });
-    example.appendChild(line);
-    card.appendChild(example);
+    if (proposal) {
+        const example = el('div', 'group-example');
+        example.appendChild(el('span', 'text-muted text-xs', 'Episode number — click a digit run to change: '));
+        const line = el('div', 'font-mono example-line');
+        const slots = proposal.template.slots;
+        const numbers = new Set(numberSlots(proposal.template));
+        slots.forEach((slot, i) => {
+            if (numbers.has(i)) {
+                const chip = el('span', `num-chip${i === proposal.episodeIndex ? ' selected' : ''}`, slot.v);
+                const candidate = proposal.candidates.find(c => c.index === i);
+                chip.title = candidate ? `score ${candidate.score}: ${candidate.reasons.join(', ')}` : '';
+                chip.onclick = () => { group.episodeIndex = i; group.regexManual = null; if (!replace) group.renameManual = null; group.saved = false; board.render(); };
+                line.appendChild(chip);
+            } else {
+                line.appendChild(el('span', slot.wild ? 'wild-part' : (slot.varying ? 'varying-part' : null), slot.v));
+            }
+        });
+        example.appendChild(line);
+        card.appendChild(example);
+    }
 
     // Inputs
     const grid = el('div', 'rule-fields');
     const regexBox = el('div');
-    regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python)'));
+    regexBox.appendChild(el('label', 'label', replace ? 'New Regex Pattern (Python)' : 'Regex Pattern (Python)'));
     const regexInput = document.createElement('input');
     regexInput.type = 'text';
     regexInput.className = 'input font-mono pattern-input';
@@ -1667,12 +1947,13 @@ function renderGroupCard(board, group) {
     regexBox.appendChild(regexMsg);
 
     const renameBox = el('div');
-    renameBox.appendChild(el('label', 'label', 'Rename Pattern'));
+    renameBox.appendChild(el('label', 'label', replace ? 'Rename Pattern (unchanged here)' : 'Rename Pattern'));
     const renameInput = document.createElement('input');
     renameInput.type = 'text';
     renameInput.className = 'input font-mono pattern-input';
     renameInput.spellcheck = false;
-    renameInput.value = rename;
+    renameInput.value = replace ? (replace.rename_pattern || '(no rename)') : rename;
+    renameInput.disabled = !!replace;
     renameInput.oninput = () => { group.renameManual = renameInput.value; group.saved = false; refreshCheck(); };
     renameBox.appendChild(renameInput);
     const renameMsg = el('div', 'mt-2 text-xs validation-msg');
@@ -1694,6 +1975,7 @@ function renderGroupCard(board, group) {
         numberBox.appendChild(el('label', 'label', 'Weight'));
         numberInput.min = 1;
         numberInput.value = group.weight;
+        numberInput.disabled = !!replace;
         numberInput.oninput = () => { group.weight = parseInt(numberInput.value, 10) || 1; group.saved = false; };
     }
     numberBox.appendChild(numberInput);
@@ -1703,9 +1985,22 @@ function renderGroupCard(board, group) {
 
     // Footer
     const footer = el('div', 'group-footer');
+    if (replace) {
+        const add = el('button', 'btn btn-secondary btn-sm replace-add-files', '+ Add files');
+        add.type = 'button';
+        add.title = 'Add real files from the watch folder: the new regex must match them too';
+        add.onclick = () => openFileModal(names => board.addFilesToGroup(group.id, names));
+        const reset = el('button', 'btn btn-secondary btn-sm replace-reset', 'Current regex');
+        reset.type = 'button';
+        reset.title = 'Put the current regex of the rule back in the field';
+        reset.onclick = () => { group.regexManual = replace.regex_pattern; group.saved = false; board.render(); };
+        footer.append(add, reset);
+    }
     const repropose = el('button', 'btn btn-secondary btn-sm', 'Re-propose');
-    repropose.onclick = () => { group.regexManual = null; group.renameManual = null; group.saved = false; board.render(); };
-    const save = el('button', 'btn btn-primary btn-sm', board.mode === 'incrementaller' ? 'Save Increment Rule' : 'Save Rule');
+    repropose.title = replace ? 'A regex proposed from the files of this card' : '';
+    repropose.disabled = !proposal;
+    repropose.onclick = () => { group.regexManual = null; if (!replace) group.renameManual = null; group.saved = false; board.render(); };
+    const save = el('button', 'btn btn-primary btn-sm group-save', replace ? 'Replace regex' : (board.mode === 'incrementaller' ? 'Save Increment Rule' : 'Save Rule'));
     save.onclick = () => saveGroup(board, group, save);
     footer.append(repropose, save);
     card.appendChild(footer);
@@ -1717,20 +2012,30 @@ function renderGroupCard(board, group) {
         if (result.syntaxError) {
             regexMsg.textContent = '⚠ Invalid regex syntax';
             regexMsg.className = 'mt-2 text-xs text-danger validation-msg';
+        } else if (replace && !group.files.length) {
+            regexMsg.textContent = '⚠ No real file to check the regex on: add one';
+            regexMsg.className = 'mt-2 text-xs text-warning validation-msg';
         } else if (result.allValid) {
-            regexMsg.textContent = '✓ Every file yields an episode number';
+            regexMsg.textContent = replace && currentRegex === replace.regex_pattern ? '✓ Every file matches; this is the current regex: change it to replace it' : '✓ Every file yields an episode number';
             regexMsg.className = 'mt-2 text-xs text-success validation-msg';
         } else {
             const failing = result.perFile.filter(f => !f.valid).length;
             regexMsg.textContent = `⚠ ${failing} file${failing > 1 ? 's' : ''} without a valid 'episode' group`;
             regexMsg.className = 'mt-2 text-xs text-warning validation-msg';
         }
-        if (!currentRename.includes(EPISODE_PLACEHOLDER)) {
+        if (replace) {
+            renameMsg.textContent = '';
+        } else if (!currentRename.includes(EPISODE_PLACEHOLDER)) {
             renameMsg.textContent = `⚠ Must contain ${EPISODE_PLACEHOLDER}`;
             renameMsg.className = 'mt-2 text-xs text-warning validation-msg';
         } else {
             renameMsg.textContent = '';
             renameMsg.className = 'mt-2 text-xs text-muted validation-msg';
+        }
+        if (replace) {
+            const problem = replaceProblem(group, currentRegex, result);
+            save.disabled = !!problem;
+            save.title = problem ? `Cannot replace: ${problem}` : '';
         }
         // Summary: what the reference file becomes
         summary.innerHTML = '';
@@ -1759,34 +2064,57 @@ function renderGroupCard(board, group) {
     return card;
 }
 
+// Why a replace card cannot be saved, or null.
+function replaceProblem(group, regex, check) {
+    if (!group.files.length) return 'no real file on the card (add one with "+ Add files")';
+    if (!regex) return 'the regex is empty';
+    if (check.syntaxError) return 'the regex does not compile';
+    if (!check.allValid) return 'every file of the card must yield a valid episode number';
+    if (regex === group.replace.regex_pattern) return 'the regex is the current one';
+    return null;
+}
+
 async function saveGroup(board, group, button) {
     const { regex, rename } = board.values(group);
-    if (!regex) { showToast('Regex pattern is required', 'error'); return; }
-    if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
     const check = testPattern(regex, group.files);
-    if (!check.allValid) { showToast('Every file of the group must yield a valid episode number', 'error'); return; }
-
     let payload;
-    if (board.mode === 'incrementaller') {
-        payload = { regex_pattern: regex, rename_pattern: rename, episode_incremental: group.increment, example_filename: group.files[0] };
+    if (group.replace) {
+        const problem = replaceProblem(group, regex, check);
+        if (problem) { showToast(`Cannot replace: ${problem}`, 'error'); return; }
+        payload = { regex_pattern: group.replace.regex_pattern, new_regex_pattern: regex, example_filename: group.files[0] };
     } else {
-        const folderPath = board.getFolderPath();
-        if (!folderPath) { showToast('Select a folder first', 'error'); return; }
-        payload = { regex_pattern: regex, rename_pattern: rename, weight: group.weight, example_filename: group.files[0], destination_path: folderPath };
+        if (!regex) { showToast('Regex pattern is required', 'error'); return; }
+        if (!rename.includes(EPISODE_PLACEHOLDER)) { showToast(`Rename pattern must contain ${EPISODE_PLACEHOLDER}`, 'error'); return; }
+        if (!check.allValid) { showToast('Every file of the group must yield a valid episode number', 'error'); return; }
+        if (board.mode === 'incrementaller') {
+            payload = { regex_pattern: regex, rename_pattern: rename, episode_incremental: group.increment, example_filename: group.files[0] };
+        } else {
+            const folderPath = board.getFolderPath();
+            if (!folderPath) { showToast('Select a folder first', 'error'); return; }
+            payload = { regex_pattern: regex, rename_pattern: rename, weight: group.weight, example_filename: group.files[0], destination_path: folderPath };
+        }
     }
 
     button.disabled = true;
     try {
-        const result = board.mode === 'incrementaller' ? await api.createIncrementaller(payload) : await api.createRegex(payload);
+        let result;
+        if (group.replace) {
+            result = await api.replaceRegex(payload);
+            group.replace.regex_pattern = result.regex_pattern || regex;
+            group.regexManual = group.replace.regex_pattern;
+        } else {
+            result = board.mode === 'incrementaller' ? await api.createIncrementaller(payload) : await api.saveRegex(payload);
+        }
         group.saved = true;
-        const extra = result && result.new_file_name ? ` → ${result.new_file_name}` : '';
+        const extra = result && result.new_file_name ? ` → ${result.new_file_name}`
+            : (group.replace && result && result.extracted_episode !== undefined ? `: episode ${result.extracted_episode} on ${payload.example_filename}` : '');
         showToast((result && result.message ? result.message : 'Rule saved') + extra, 'success');
         board.render();
         if (board.onSaved) board.onSaved(group, result);
     } catch (e) {
-        showToast('Error saving rule: ' + e.message, 'error', 6000);
-    } finally {
+        showToast((group.replace ? 'Regex not replaced: ' : 'Error saving rule: ') + e.message, 'error', 6000);
         button.disabled = false;
+        return;
     }
 }
 
@@ -1802,11 +2130,11 @@ function initRegexTab() {
         emptyText: 'Add files: names that share their stable words are grouped under one rule; drag a file onto another rule to regroup.'
     });
     const picker = createFolderPicker('regex', (f) => {
-        state.selectedFolderId = f.id;
+        state.selectedFolderId = f.folder_id;
         state.selectedFolderPath = f.destination_path;
         document.getElementById('regex-work-area').classList.remove('disabled-area');
         document.getElementById('regex-existing').classList.remove('hidden');
-        reloadRegexRules(f.id);
+        reloadRegexRules(f.folder_id);
     }, () => {
         state.selectedFolderId = null;
         state.selectedFolderPath = null;
@@ -1828,7 +2156,14 @@ function initRegexTab() {
 // (Re)loads the existing-rules panel of folder `folderId`, then lists the
 // covered files under their rule again.
 function reloadRegexRules(folderId) {
-    const loading = loadExistingRulesInto('regex-existing-content', () => loadFolderRules(folderId), 'No existing rules for this folder.')
+    const decorate = (row, rule) => {
+        const edit = el('button', 'btn btn-secondary btn-sm rule-row-edit', 'Edit regex');
+        edit.type = 'button';
+        edit.title = 'Edit this regex on a card holding the real files it matches';
+        edit.onclick = () => startRegexReplace(rule);
+        row.appendChild(edit);
+    };
+    const loading = loadExistingRulesInto('regex-existing-content', () => loadFolderRules(folderId), 'No existing rules for this folder.', decorate)
         .then(rules => {
             if (state.selectedFolderId === folderId) {
                 regexTab.rules = rules;
@@ -1883,6 +2218,44 @@ async function addRegexFiles(names) {
     regexTab.board.addFiles(fresh, true);
 }
 
+// "Edit regex" (Existing Rules, or the Rules tab): a replace card holding the
+// rule's current regex and the real files of the watch folder (top level, as
+// the file modal lists it) it already matches; more can be added from the
+// file modal. Files on another card stay there.
+async function startRegexReplace(rule) {
+    const board = regexTab.board;
+    const open = board.groups.find(g => g.replace && g.replace.regex_pattern === rule.regex_pattern);
+    if (open) {
+        showToast('This rule is already on a card', 'info');
+        scrollToGroupCard('regex-cards', open.id);
+        return;
+    }
+    let names = [];
+    try {
+        names = (await api.listFiles('', 'files')).filter(f => !f.is_dir && isVideoName(f.name)).map(f => f.name);
+    } catch (e) {
+        showToast('Cannot list the watch folder: ' + e.message, 'error', 6000);
+    }
+    const matched = names.filter(name => testPattern(rule.regex_pattern, [name]).allValid);
+    const onBoard = new Set(board.groups.flatMap(g => g.files));
+    const files = matched.filter(name => !onBoard.has(name));
+    if (files.length) {
+        regexTab.covered = regexTab.covered.filter(name => !files.includes(name));
+        renderRegexCovered();
+    }
+    const group = board.addReplaceGroup(rule, files);
+    const elsewhere = matched.length - files.length;
+    showToast(files.length
+        ? `${files.length} real file${files.length === 1 ? '' : 's'} the rule matches put on the card` + (elsewhere ? ` (${elsewhere} already on another card)` : '')
+        : 'No file of the watch folder matches this rule: add a real file to the card to check the new regex on', files.length ? 'success' : 'info', 6000);
+    scrollToGroupCard('regex-cards', group.id);
+}
+
+function scrollToGroupCard(containerId, groupId) {
+    const card = document.querySelector(`#${containerId} .group-card[data-group-id="${groupId}"]`);
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'center' });
+}
+
 function clearFolderSelection() {
     if (regexTab) regexTab.picker.clear();
 }
@@ -1934,7 +2307,7 @@ async function selectIndexFolderById(id) {
         return;
     }
     await indexTab.picker.load();
-    const folder = folders.find(f => f.id === id);
+    const folder = folders.find(f => f.folder_id === id);
     if (folder) indexTab.picker.select(folder);
     else showToast(`Folder ${id} is not in the folder list`, 'error');
 }
@@ -1942,82 +2315,46 @@ async function selectIndexFolderById(id) {
 // --- Register an existing folder (a directory of CREATE_ROOT VMSAM does not know) ---
 
 function toggleIndexRegister() {
-    const content = document.getElementById('index-register-content');
-    const opening = content.classList.contains('hidden');
     toggleCollapsible('index-register-content', 'index-register-icon');
-    if (opening) loadIndexRegisterBrowser(indexTab ? indexTab.registerDir : '');
 }
 
-async function loadIndexRegisterBrowser(path = '') {
-    const container = document.getElementById('index-register-browser');
-    container.innerHTML = '';
-    container.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
-    indexTab.registerDir = path;
+// "Select a folder…": the library in the large directory picker; directories
+// VMSAM already knows are marked "registered".
+async function browseIndexRegister() {
+    let config, folders;
     try {
-        const [items, config, folders] = await Promise.all([
-            api.listFiles(path, 'create'),
-            fetchUiConfig(),
-            fetchFolders()
-        ]);
-        const registered = new Set(folders.map(f => normalizePath(f.destination_path)));
-        container.innerHTML = '';
-
-        const where = el('div', 'dir-item register-where');
-        where.appendChild(el('span', 'font-mono text-muted', path ? `/${path}` : '/ (library root)'));
-        container.appendChild(where);
-        if (path) {
-            const back = el('div', 'dir-item text-blue');
-            back.appendChild(el('span', null, '📁 ..'));
-            back.onclick = () => loadIndexRegisterBrowser(path.split('/').slice(0, -1).join('/'));
-            container.appendChild(back);
-        }
-
-        const dirs = items.filter(i => i.is_dir);
-        if (!dirs.length) container.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
-        dirs.forEach(item => {
-            const isRegistered = registered.has(normalizePath(`${config.create_root}/${item.path}`));
-            const row = el('div', 'dir-item' + (indexTab.registerPath === item.path ? ' selected' : '') + (isRegistered ? ' dir-registered' : ''));
-            row.dataset.path = item.path;
-            row.dataset.name = item.name;
-            row.onclick = () => selectIndexRegisterPath(item.path);
-            row.ondblclick = () => loadIndexRegisterBrowser(item.path);
-
-            const name = el('div', 'dir-name flex-1');
-            name.appendChild(el('span', null, `📁 ${item.name}`));
-            if (isRegistered) name.appendChild(el('span', 'badge badge-success register-badge', 'registered'));
-            const open = el('button', 'btn btn-sm btn-secondary', 'Open →');
-            open.onclick = (e) => { e.stopPropagation(); loadIndexRegisterBrowser(item.path); };
-            const actions = el('div', 'dir-actions');
-            actions.appendChild(open);
-            row.append(name, actions);
-            container.appendChild(row);
-        });
-        if (dirs.length) applyDirFilter('index-register-browser', 'index-register-filter');
+        [config, folders] = await Promise.all([fetchUiConfig(), fetchFolders()]);
     } catch (e) {
-        container.innerHTML = '';
-        const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
-        if (path) { // e.g. the browsed directory was just moved away
-            const root = el('button', 'btn btn-sm btn-secondary mt-2', 'Back to the library root');
-            root.onclick = () => loadIndexRegisterBrowser('');
-            err.appendChild(document.createElement('br'));
-            err.appendChild(root);
-        }
-        container.appendChild(err);
+        showToast('Cannot read the library: ' + e.message, 'error');
+        return;
     }
+    const registered = new Set(folders.map(f => normalizePath(f.destination_path)));
+    openDirectoryPicker({
+        title: 'Register an existing folder',
+        hint: 'A directory of the library VMSAM does not know yet. Click a directory to select it, "Open →" or a double click to go inside. "registered" marks a directory VMSAM already knows (registering it again only updates its options).',
+        startPath: indexTab.registerDir,
+        chooseLabel: 'Select this folder',
+        hereLabel: 'Select the directory shown',
+        allowCurrent: path => !!path,
+        decorate: (row, item) => {
+            if (!registered.has(normalizePath(`${config.create_root}/${item.path}`))) return;
+            row.classList.add('dir-registered');
+            row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'registered'));
+        },
+        onNavigate: path => { indexTab.registerDir = path; },
+        onPick: path => selectIndexRegisterPath(path)
+    });
 }
 
 function selectIndexRegisterPath(path) {
     indexTab.registerPath = path;
     document.getElementById('index-register-path').textContent = path;
     document.getElementById('index-register-btn').disabled = false;
-    document.querySelectorAll('#index-register-browser .dir-item').forEach(row => {
-        row.classList.toggle('selected', row.dataset.path === path);
-    });
 }
 
 async function registerIndexFolder() {
     const path = indexTab && indexTab.registerPath;
-    if (!path) { showToast('Click a folder in the browser first', 'error'); return; }
+    if (!path) { showToast('Select a folder first ("Select a folder…")', 'error'); return; }
     const number = (id, def, parse) => {
         const v = parse(document.getElementById(id).value);
         return isNaN(v) ? def : v;
@@ -2032,10 +2369,9 @@ async function registerIndexFolder() {
     const button = document.getElementById('index-register-btn');
     button.disabled = true;
     try {
-        const result = await api.createFolder(payload);
+        const result = await api.saveFolder(payload);
         showToast(result && result.message ? result.message : 'Folder registered', 'success');
         await selectIndexFolderById(result.folder_id);
-        loadIndexRegisterBrowser(indexTab.registerDir); // refresh the "registered" marks
     } catch (e) {
         showToast('Cannot register the folder: ' + e.message, 'error', 6000);
     } finally {
@@ -2052,9 +2388,9 @@ async function loadIndexFolderFiles(rebuildBoard = true) {
     document.getElementById('index-existing').classList.remove('hidden');
 
     const [rules, entries, episodes] = await Promise.all([
-        loadExistingRulesInto('index-existing-content', () => loadFolderRules(folder.id), 'No rule yet for this folder: create them below, then index.'),
+        loadExistingRulesInto('index-existing-content', () => loadFolderRules(folder.folder_id), 'No rule yet for this folder: create them below, then index.'),
         api.listFiles(folder.destination_path, 'create').catch(e => { showToast('Cannot list the folder: ' + e.message, 'error'); return []; }),
-        api.getFolderEpisodes(folder.id).then(r => (r && r.episodes) || []).catch(e => { showToast('Cannot read the indexed episodes: ' + e.message, 'error'); return []; })
+        api.getFolderEpisodes(folder.folder_id).then(r => (r && r.episodes) || []).catch(e => { showToast('Cannot read the indexed episodes: ' + e.message, 'error'); return []; })
     ]);
     if (indexTab.folder !== folder) return; // another folder was picked meanwhile
     indexTab.rules = rules;
@@ -2124,7 +2460,7 @@ async function runIndexFolder() {
     const report = document.getElementById('index-report');
     const body = document.getElementById('index-report-content');
     try {
-        const result = await api.indexFolder(indexTab.folder.id);
+        const result = await api.indexFolder(indexTab.folder.folder_id);
         body.innerHTML = '';
         report.classList.remove('hidden');
         body.appendChild(el('div', 'text-success font-bold mb-4', `${result.message} — ${result.already_indexed} already in the database`));
@@ -2178,7 +2514,7 @@ async function runIndexFolder() {
 let moveTab = null;
 
 function initMoveTab() {
-    if (moveTab) { moveTab.picker.load(); loadMoveBrowser(moveTab.browseDir, true); return; }
+    if (moveTab) { moveTab.picker.load(); return; }
     // the promise is kept so a reselection after a move can wait for it
     const picker = createFolderPicker('move', (f) => { moveTab.shown = showMoveFolder(f); }, () => {
         moveTab.folder = null;
@@ -2192,7 +2528,6 @@ function initMoveTab() {
     moveTab = { picker, folder: null, relative: null, root: null, browseDir: '', keepReport: false, shown: null };
     document.getElementById('move-path').addEventListener('input', updateMovePreview);
     picker.load();
-    loadMoveBrowser('');
     updateMovePreview();
 }
 
@@ -2222,7 +2557,7 @@ async function showMoveFolder(folder) {
     input.value = '';
     updateMovePreview();
 
-    api.getFolderEpisodes(folder.id)
+    api.getFolderEpisodes(folder.folder_id)
         .then(r => {
             if (moveTab.folder !== folder) return;
             const episodes = (r && r.episodes) || [];
@@ -2247,7 +2582,6 @@ async function showMoveFolder(folder) {
         showToast('Cannot read the library root: ' + e.message, 'error');
     }
     updateMovePreview();
-    markMoveBrowserRows();
 }
 
 function currentMoveLabel() {
@@ -2276,73 +2610,26 @@ function updateMovePreview() {
     }
 }
 
-// The directory browser over CREATE_ROOT: a click on a directory proposes
-// "<that directory>/<folder name>", "Open →" or a double click navigates.
-async function loadMoveBrowser(path = '', fallbackToRoot = false) {
-    const container = document.getElementById('move-browser');
-    container.innerHTML = '';
-    container.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
-    try {
-        const items = await api.listFiles(path, 'create');
-        moveTab.browseDir = path;
-        container.innerHTML = '';
-
-        const where = el('div', 'dir-item register-where flex-between');
-        where.appendChild(el('span', 'font-mono text-muted', path ? `/${path}` : '/ (library root)'));
-        const here = el('button', 'btn btn-sm btn-secondary', 'Move here');
-        here.title = 'Move the folder directly inside this directory';
-        here.onclick = () => setMoveTargetInside(path);
-        where.appendChild(here);
-        container.appendChild(where);
-        if (path) {
-            const back = el('div', 'dir-item text-blue');
-            back.appendChild(el('span', null, '📁 ..'));
-            back.onclick = () => loadMoveBrowser(path.split('/').slice(0, -1).join('/'));
-            container.appendChild(back);
-        }
-
-        const dirs = items.filter(i => i.is_dir);
-        if (!dirs.length) container.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
-        dirs.forEach(item => {
-            const row = el('div', 'dir-item');
-            row.dataset.path = item.path;
-            row.dataset.name = item.name;
-            row.onclick = () => setMoveTargetInside(item.path);
-            row.ondblclick = () => loadMoveBrowser(item.path);
-            const name = el('div', 'dir-name flex-1');
-            name.appendChild(el('span', null, `📁 ${item.name}`));
-            const open = el('button', 'btn btn-sm btn-secondary', 'Open →');
-            open.onclick = (e) => { e.stopPropagation(); loadMoveBrowser(item.path); };
-            const actions = el('div', 'dir-actions');
-            actions.appendChild(open);
-            row.append(name, actions);
-            container.appendChild(row);
-        });
-        if (dirs.length) applyDirFilter('move-browser', 'move-browser-filter');
-        markMoveBrowserRows();
-    } catch (e) {
-        if (path && fallbackToRoot) { loadMoveBrowser(''); return; }
-        container.innerHTML = '';
-        const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
-        if (path) { // e.g. the browsed directory was just moved away
-            const root = el('button', 'btn btn-sm btn-secondary mt-2', 'Back to the library root');
-            root.onclick = () => loadMoveBrowser('');
-            err.appendChild(document.createElement('br'));
-            err.appendChild(root);
-        }
-        container.appendChild(err);
-    }
-}
-
-// Highlights the selected folder itself in the listing (moving into it is refused).
-function markMoveBrowserRows() {
-    if (!moveTab) return;
-    document.querySelectorAll('#move-browser .dir-item[data-path]').forEach(row => {
-        const isCurrent = moveTab.relative !== null && row.dataset.path === moveTab.relative;
-        row.classList.toggle('dir-registered', isCurrent);
-        const badge = row.querySelector('.register-badge');
-        if (isCurrent && !badge) row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this folder'));
-        if (!isCurrent && badge) badge.remove();
+// "Browse…": the library in the large directory picker. Choosing a directory
+// proposes "<that directory>/<folder name>" in the free path input, which
+// stays editable; the folder itself is marked (moving into it is refused).
+function browseMoveDestination() {
+    if (!moveTab || !moveTab.folder) { showToast('Select the folder to move first', 'error'); return; }
+    const name = moveFolderName();
+    openDirectoryPicker({
+        title: 'Choose the destination',
+        hint: `The folder goes inside the directory you choose, under its current name (${name}); the path can be edited afterwards.`,
+        startPath: moveTab.browseDir,
+        chooseLabel: 'Move inside the selected directory',
+        hereLabel: 'Move inside the directory shown',
+        allowCurrent: () => true,
+        decorate: (row, item) => {
+            if (moveTab.relative === null || item.path !== moveTab.relative) return;
+            row.classList.add('dir-registered');
+            row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this folder'));
+        },
+        onNavigate: path => { moveTab.browseDir = path; },
+        onPick: dir => setMoveTargetInside(dir)
     });
 }
 
@@ -2350,9 +2637,6 @@ function setMoveTargetInside(dir) {
     if (!moveTab.folder) { showToast('Select the folder to move first', 'error'); return; }
     const name = moveFolderName();
     document.getElementById('move-path').value = dir ? `${dir}/${name}` : name;
-    document.querySelectorAll('#move-browser .dir-item[data-path]').forEach(row => {
-        row.classList.toggle('selected', row.dataset.path === dir);
-    });
     updateMovePreview();
 }
 
@@ -2370,31 +2654,48 @@ async function moveSelectedFolder() {
     button.disabled = true;
     report.classList.add('hidden');
     try {
-        const result = await api.moveFolder(folder.id, newPath);
+        const result = await api.moveFolder(folder.folder_id, newPath);
         const count = result.episodes_updated;
         showToast(`${result.message || 'Folder moved'}: ${count} episode path${count === 1 ? '' : 's'} updated`, 'success', 5000);
-        const removed = Array.isArray(result.removed_directories) ? result.removed_directories : [];
-        report.innerHTML = '';
-        if (removed.length) {
-            const root = moveTab.root;
-            const shown = removed.map(p => {
-                const relative = root ? relativeToRoot(root, p) : null;
-                return relative === null ? p : relative;
-            });
-            showToast(`Empty directories deleted: ${shown.join(', ')}`, 'info', 6000);
-            report.appendChild(el('div', 'text-muted', 'Empty directories deleted after the move:'));
-            const list = el('ul', 'font-mono move-removed-list');
-            shown.forEach(p => list.appendChild(el('li', null, p)));
-            report.appendChild(list);
-            report.classList.remove('hidden');
-        }
-        await reselectMovedFolder(folder.id);
-        loadMoveBrowser(moveTab.browseDir, true);
+        showRemovedDirectories(report, result.removed_directories, moveTab.root);
+        await reselectMovedFolder(folder.folder_id);
     } catch (e) {
         showToast(e.message, 'error', 8000);
     } finally {
         updateMovePreview();
     }
+}
+
+// The parent directories VMSAM deleted after a move (folders_move answers
+// them absolute), shown relative to the library root in `report` and in a
+// toast; `report` stays hidden when there is none.
+function showRemovedDirectories(report, removedDirectories, root) {
+    const removed = Array.isArray(removedDirectories) ? removedDirectories : [];
+    report.innerHTML = '';
+    report.classList.add('hidden');
+    if (!removed.length) return;
+    const shown = removed.map(p => {
+        const relative = root ? relativeToRoot(root, p) : null;
+        return relative === null ? p : relative;
+    });
+    showToast(`Empty directories deleted: ${shown.join(', ')}`, 'info', 6000);
+    report.appendChild(el('div', 'text-muted', 'Empty directories deleted after the move:'));
+    const list = el('ul', 'font-mono move-removed-list');
+    shown.forEach(p => list.appendChild(el('li', null, p)));
+    report.appendChild(list);
+    report.classList.remove('hidden');
+}
+
+// A folder changed (moved, settings saved): the tabs other than `except`
+// that have it selected pick it again with its new values.
+function syncFolderInTabs(folder, except) {
+    const id = folder.folder_id;
+    if (except !== 'move' && moveTab && moveTab.folder && moveTab.folder.folder_id === id) moveTab.picker.select(folder);
+    if (except !== 'index' && indexTab && indexTab.folder && indexTab.folder.folder_id === id) indexTab.picker.select(folder);
+    if (except !== 'regex' && regexTab && state.selectedFolderId === id) regexTab.picker.select(folder);
+    if (except !== 'episodes' && episodesTab && episodesTab.folder && episodesTab.folder.folder_id === id) episodesTab.picker.select(folder);
+    if (except !== 'settings' && settingsTab && settingsTab.folder && settingsTab.folder.folder_id === id) settingsTab.picker.select(folder);
+    if (except !== 'rules' && rulesTab && rulesTab.folder && rulesTab.folder.folder_id === id) rulesTab.picker.select(folder);
 }
 
 // After a move the folder keeps its id: reload the list, keep it selected in
@@ -2408,7 +2709,7 @@ async function reselectMovedFolder(id) {
         showToast('Failed to load folders: ' + e.message, 'error');
         return;
     }
-    const folder = folders.find(f => f.id === id);
+    const folder = folders.find(f => f.folder_id === id);
     await moveTab.picker.load();
     if (!folder) { showToast(`Folder ${id} is not in the folder list`, 'error'); return; }
     moveTab.keepReport = true;
@@ -2418,11 +2719,7 @@ async function reselectMovedFolder(id) {
     } finally {
         moveTab.keepReport = false;
     }
-    if (indexTab && indexTab.folder && indexTab.folder.id === id) indexTab.picker.select(folder);
-    if (regexTab && state.selectedFolderId === id) regexTab.picker.select(folder);
-    if (episodesTab && episodesTab.folder && episodesTab.folder.id === id) episodesTab.picker.select(folder);
-    if (settingsTab && settingsTab.folder && settingsTab.folder.id === id) settingsTab.picker.select(folder);
-    if (rulesTab && rulesTab.folder && rulesTab.folder.id === id) rulesTab.picker.select(folder);
+    syncFolderInTabs(folder, 'move');
 }
 
 // --- 8c. Incrementaller tab ---
@@ -2521,8 +2818,8 @@ async function loadEpisodesList() {
     count.textContent = 'Loading…';
     try {
         const [response, rules] = await Promise.all([
-            api.getFolderEpisodes(folder.id),
-            loadFolderRules(folder.id).catch(() => [])
+            api.getFolderEpisodes(folder.folder_id),
+            loadFolderRules(folder.folder_id).catch(() => [])
         ]);
         if (episodesTab.folder !== folder) return;
         episodesTab.episodes = ((response && response.episodes) || []).slice().sort((a, b) => a.episode_number - b.episode_number);
@@ -2755,7 +3052,7 @@ async function renameOneEpisode(ep, newName, button) {
     if (/[\/\\]/.test(newName)) { showToast('A file name, not a path', 'error'); return; }
     button.disabled = true;
     try {
-        const result = await api.renameEpisodes(folder.id, [{ episode_number: ep.episode_number, new_file_name: newName }]);
+        const result = await api.renameEpisodes(folder.folder_id, [{ episode_number: ep.episode_number, new_file_name: newName }]);
         episodesTab.editing = null;
         showEpisodesResult(result);
         await loadEpisodesList();
@@ -2778,7 +3075,7 @@ async function renameEpisodesBatch() {
     const button = document.getElementById('episodes-batch-btn');
     button.disabled = true;
     try {
-        const result = await api.renameEpisodes(folder.id, plan.map(p => ({ episode_number: p.ep.episode_number, new_file_name: p.newName })));
+        const result = await api.renameEpisodes(folder.folder_id, plan.map(p => ({ episode_number: p.ep.episode_number, new_file_name: p.newName })));
         episodesTab.selected = new Set();
         showEpisodesResult(result);
         await loadEpisodesList();
@@ -2790,8 +3087,11 @@ async function renameEpisodesBatch() {
 
 // --- 8e. Folder Settings tab ---
 //
-// The parameters of a registered folder (POST /folders/update/ changes only
-// the fields sent). The path is read-only here: moving is the Move Folder tab.
+// The parameters and the path of a registered folder. POST /folder/ creates
+// or updates the folder whose destination_path it is given, with the FULL
+// data, so the path is the key: a new path is first a move (POST
+// /folders/move/, confirmed, the removed directories shown), then the
+// parameters are saved under the new path. An unchanged path is only the save.
 
 let settingsTab = null;
 
@@ -2804,16 +3104,19 @@ const SETTINGS_FIELDS = [
 
 function initSettingsTab() {
     if (settingsTab) { settingsTab.picker.load(); return; }
-    const picker = createFolderPicker('settings', (f) => showSettingsFolder(f), () => {
+    // the promise is kept so a reselection after a save can wait for it
+    const picker = createFolderPicker('settings', (f) => { settingsTab.shown = showSettingsFolder(f); }, () => {
         settingsTab.folder = null;
         document.getElementById('settings-work-area').classList.add('disabled-area');
+        document.getElementById('settings-removed').classList.add('hidden');
         fillSettingsForm(null);
     });
-    settingsTab = { picker, folder: null };
+    settingsTab = { picker, folder: null, root: null, browseDir: '', keepReport: false, shown: null };
     SETTINGS_FIELDS.forEach(field => document.getElementById(field.id).addEventListener('input', validateSettingsForm));
+    document.getElementById('settings-path').addEventListener('input', validateSettingsForm);
     document.getElementById('settings-save-btn').onclick = saveFolderSettings;
     document.getElementById('settings-reset-btn').onclick = () => fillSettingsForm(settingsTab.folder);
-    document.getElementById('settings-move-btn').onclick = openMoveForSettingsFolder;
+    document.getElementById('settings-browse-btn').onclick = browseSettingsPath;
     picker.load();
     fillSettingsForm(null);
 }
@@ -2821,11 +3124,14 @@ function initSettingsTab() {
 // Shows the folder of the list at once, then VMSAM's current values.
 async function showSettingsFolder(folder) {
     settingsTab.folder = folder;
+    if (!settingsTab.keepReport) document.getElementById('settings-removed').classList.add('hidden');
     document.getElementById('settings-work-area').classList.remove('disabled-area');
     fillSettingsForm(folder);
     try {
-        const fresh = await api.getFolder(folder.id);
-        if (!settingsTab.folder || settingsTab.folder.id !== folder.id) return;
+        const [fresh, config] = await Promise.all([api.getFolder(folder.folder_id), fetchUiConfig()]);
+        if (!settingsTab.folder || settingsTab.folder.folder_id !== folder.folder_id) return;
+        settingsTab.root = config.create_root;
+        document.getElementById('settings-root').textContent = config.create_root;
         settingsTab.folder = fresh;
         fillSettingsForm(fresh);
     } catch (e) {
@@ -2833,9 +3139,30 @@ async function showSettingsFolder(folder) {
     }
 }
 
+// The folder path relative to the library root, as the relay rebuilds it
+// (CREATE_ROOT + "/" + relative), or null: outside the root, the root
+// itself, or stored in another spelling (`//`, a trailing `/`). POST /folder/
+// is keyed by the path, so saving such a folder would create another one.
+function settingsRelative(folder) {
+    if (!folder || !settingsTab || !settingsTab.root) return null;
+    const relative = relativeToRoot(settingsTab.root, folder.destination_path);
+    if (!relative) return null;
+    const root = normalizePath(settingsTab.root);
+    return (root === '/' ? '/' : root + '/') + relative === folder.destination_path ? relative : null;
+}
+
 function fillSettingsForm(folder) {
-    document.getElementById('settings-path').textContent = folder ? folder.destination_path : '';
-    document.getElementById('settings-move-btn').disabled = !folder;
+    const path = document.getElementById('settings-path');
+    const relative = settingsRelative(folder);
+    path.value = folder ? (relative !== null ? relative : folder.destination_path) : '';
+    path.disabled = !folder || relative === null;
+    document.getElementById('settings-browse-btn').disabled = path.disabled;
+    let current = '';
+    if (folder) {
+        current = `current: ${relative !== null ? relative : folder.destination_path}`;
+        if (relative === null && settingsTab && settingsTab.root) current += ' (outside the library root or not written as root + relative path: this tab cannot save it)';
+    }
+    document.getElementById('settings-path-current').textContent = current;
     SETTINGS_FIELDS.forEach(field => {
         const value = folder ? folder[field.key] : null;
         document.getElementById(field.id).value = value === null || value === undefined ? '' : String(value);
@@ -2844,9 +3171,11 @@ function fillSettingsForm(folder) {
     validateSettingsForm();
 }
 
-// { changed: { key: value } of the fields that differ, errors: [text] }
+// { values: every field, changed: the fields that differ, newPath: the new
+//   relative path or null when unchanged, relative: the current one, errors }
 function readSettingsForm() {
     const folder = settingsTab.folder;
+    const values = {};
     const changed = {};
     const errors = [];
     SETTINGS_FIELDS.forEach(field => {
@@ -2861,70 +3190,155 @@ function readSettingsForm() {
             if (field.kind === 'int' && (!Number.isInteger(value) || value < 1)) { errors.push(`${field.label} must be a whole number of 1 or more`); return; }
             if (field.kind === 'ratio' && value <= 1) { errors.push(`${field.label} must be greater than 1`); return; }
         }
+        values[field.key] = value;
         if (folder && value !== folder[field.key]) changed[field.key] = value;
     });
-    return { changed, errors };
+    const relative = settingsRelative(folder);
+    let newPath = null;
+    if (folder && relative === null) {
+        errors.push('the folder path is outside the library root (or not written as root + relative path): nothing can be saved from this tab');
+    } else if (folder) {
+        const typed = cleanRelativePath(document.getElementById('settings-path').value);
+        if (!typed) errors.push('The destination path cannot be empty');
+        else if (typed.split('/').includes('..')) errors.push('The destination path cannot hold ".."');
+        else if (typed !== relative) newPath = typed;
+    }
+    return { values, changed, newPath, relative, errors };
 }
 
 function validateSettingsForm() {
     const msg = document.getElementById('settings-msg');
     const save = document.getElementById('settings-save-btn');
-    if (!settingsTab || !settingsTab.folder) { msg.textContent = ''; save.disabled = true; return; }
-    const { changed, errors } = readSettingsForm();
+    if (!settingsTab || !settingsTab.folder) { msg.textContent = ''; save.disabled = true; save.textContent = 'Save'; return; }
+    const { changed, newPath, relative, errors } = readSettingsForm();
     const count = Object.keys(changed).length;
     if (errors.length) {
         msg.textContent = '⚠ ' + errors.join('; ');
         msg.className = 'text-xs validation-msg text-warning';
     } else {
-        msg.textContent = count ? `${count} setting${count === 1 ? '' : 's'} changed` : 'No change';
-        msg.className = `text-xs validation-msg ${count ? 'text-success' : 'text-muted'}`;
+        const parts = [];
+        if (newPath) parts.push(`moved first: ${relative} → ${newPath}`);
+        if (count) parts.push(`${count} setting${count === 1 ? '' : 's'} changed`);
+        msg.textContent = parts.length ? parts.join('; ') : 'No change';
+        msg.className = `text-xs validation-msg ${parts.length ? 'text-success' : 'text-muted'}`;
     }
-    save.disabled = !!errors.length || !count;
+    save.disabled = !!errors.length || (!count && !newPath);
+    save.textContent = newPath ? (count ? 'Move and save' : 'Move') : 'Save';
+}
+
+// "Browse…": choosing a directory proposes "<directory>/<folder name>".
+function browseSettingsPath() {
+    const folder = settingsTab && settingsTab.folder;
+    const relative = settingsRelative(folder);
+    if (relative === null) return;
+    const name = relative.split('/').pop();
+    openDirectoryPicker({
+        title: 'Choose the new location',
+        hint: `The folder goes inside the directory you choose, under its current name (${name}); the path can be edited afterwards. Saving moves it on disk first.`,
+        startPath: settingsTab.browseDir,
+        chooseLabel: 'Inside the selected directory',
+        hereLabel: 'Inside the directory shown',
+        allowCurrent: () => true,
+        decorate: (row, item) => {
+            if (item.path !== relative) return;
+            row.classList.add('dir-registered');
+            row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this folder'));
+        },
+        onNavigate: path => { settingsTab.browseDir = path; },
+        onPick: dir => {
+            document.getElementById('settings-path').value = dir ? `${dir}/${name}` : name;
+            validateSettingsForm();
+        }
+    });
 }
 
 async function saveFolderSettings() {
     const folder = settingsTab.folder;
     if (!folder) return;
-    const { changed, errors } = readSettingsForm();
-    if (errors.length || !Object.keys(changed).length) { validateSettingsForm(); return; }
+    const { values, changed, newPath, relative, errors } = readSettingsForm();
+    const count = Object.keys(changed).length;
+    if (errors.length || (!count && !newPath)) { validateSettingsForm(); return; }
+    const msg = document.getElementById('settings-msg');
+    const refused = (text) => {
+        msg.textContent = text;
+        msg.className = 'text-xs validation-msg text-danger';
+    };
+    if (newPath) {
+        const then = count ? `\n\nThen ${count} changed setting${count === 1 ? ' is' : 's are'} saved.` : '';
+        const confirmed = await confirmDialog(`${relative}\n→ ${newPath}${then}`, { title: 'Move this folder on disk?', okText: count ? 'Move and save' : 'Move' });
+        if (!confirmed) return;
+    }
     const save = document.getElementById('settings-save-btn');
     save.disabled = true;
-    try {
-        const result = await api.updateFolder(Object.assign({ folder_id: folder.id }, changed));
-        showToast(result.message || 'Folder updated', 'success');
-        const updated = Object.assign({}, result);
-        delete updated.message;
-        folderCache = null; // the pickers must see the new values
-        if (settingsTab.folder && settingsTab.folder.id === folder.id) {
-            settingsTab.folder = updated;
-            fillSettingsForm(updated);
+    const report = document.getElementById('settings-removed');
+    let path = relative;
+    if (newPath) {
+        try {
+            const result = await api.moveFolder(folder.folder_id, newPath);
+            const moved = result.episodes_updated;
+            showToast(`${result.message || 'Folder moved'}: ${moved} episode path${moved === 1 ? '' : 's'} updated`, 'success', 5000);
+            showRemovedDirectories(report, result.removed_directories, settingsTab.root);
+            path = newPath;
+        } catch (e) {
+            showToast('Folder not moved: ' + e.message, 'error', 8000);
+            refused(`VMSAM refused the move, nothing saved: ${e.message}`);
+            save.disabled = false;
+            return;
         }
-    } catch (e) {
-        showToast('Settings not saved: ' + e.message, 'error', 8000);
-        const msg = document.getElementById('settings-msg');
-        msg.textContent = `VMSAM refused: ${e.message}`;
-        msg.className = 'text-xs validation-msg text-danger';
-        save.disabled = false;
+    } else {
+        report.classList.add('hidden');
     }
-}
-
-function openMoveForSettingsFolder() {
-    const folder = settingsTab && settingsTab.folder;
-    if (!folder) return;
-    switchTab('move-tab');
-    moveTab.picker.select(folder);
+    let saveError = null;
+    if (count) {
+        try {
+            const result = await api.saveFolder(Object.assign({ destination_path: path }, values));
+            if (result.folder_id !== folder.folder_id) {
+                saveError = `VMSAM answered "${result.message}" for folder ${result.folder_id}, not folder ${folder.folder_id}: check the folder list`;
+                showToast(saveError, 'error', 10000);
+            } else {
+                showToast(result.message || 'Folder updated', 'success');
+            }
+        } catch (e) {
+            saveError = e.message;
+            showToast('Settings not saved: ' + e.message, 'error', 8000);
+        }
+    }
+    // reload the folder everywhere: its path may have changed even if the save failed
+    folderCache = null;
+    let updated = null;
+    try {
+        updated = (await fetchFolders()).find(f => f.folder_id === folder.folder_id) || null;
+    } catch (e) {
+        showToast('Failed to load folders: ' + e.message, 'error');
+    }
+    await settingsTab.picker.load();
+    if (updated && settingsTab.folder && settingsTab.folder.folder_id === folder.folder_id) {
+        settingsTab.keepReport = true;
+        try {
+            settingsTab.picker.select(updated);
+            await settingsTab.shown;
+        } finally {
+            settingsTab.keepReport = false;
+        }
+        syncFolderInTabs(updated, 'settings');
+    }
+    if (saveError) refused(`VMSAM refused the settings${newPath ? ' (the folder was moved)' : ''}: ${saveError}`);
 }
 
 // --- 8f. Rules tab ---
 //
-// Every rule of a folder, editable: regex, rename pattern, weight, folder
-// (POST /regex/update/), or deleted (POST /regex/delete/). VMSAM checks the
-// result on an example file name the user gives; the UI checks it first.
+// The rules of a folder: weight, destination folder and rename pattern
+// changed through POST /regex/ (an existing pattern is updated, with the
+// FULL data: same regex_pattern, rename_pattern, weight, the chosen folder's
+// destination_path and an example_filename the regex matches), or deleted
+// (POST /regex/delete/). The example is built here (proposeRuleExample);
+// when nothing built matches, the user gives a real file name. The regex is
+// read-only: "Edit regex in Bulk Regex" edits it against real files.
 
 let rulesTab = null;
 
 function initRulesTab() {
-    if (rulesTab) { rulesTab.picker.load(); return; }
+    if (rulesTab) { rulesTab.picker.load(); if (rulesTab.folder) loadRulesList(); return; }
     const picker = createFolderPicker('rules', (f) => {
         rulesTab.folder = f;
         document.getElementById('rules-work-area').classList.remove('disabled-area');
@@ -2948,7 +3362,7 @@ async function loadRulesList() {
     let rules = [];
     let folders = [];
     try {
-        [rules, folders] = await Promise.all([loadFolderRules(folder.id), fetchFolders()]);
+        [rules, folders] = await Promise.all([loadFolderRules(folder.folder_id), fetchFolders()]);
     } catch (e) {
         if (rulesTab.folder !== folder) return;
         container.innerHTML = '';
@@ -3042,41 +3456,48 @@ function sampleFromRegex(pattern) {
     return out;
 }
 
-// The example proposed for a rule: the renamed name if the regex matches it,
-// else a name built from the regex, else the renamed name anyway (to edit).
-function proposeRuleExample(regex, rename) {
-    const candidates = [ruleExampleName(rename), sampleFromRegex(regex)].filter(Boolean);
-    return candidates.find(name => testPattern(regex, [name]).allValid) || candidates[0] || '';
+// The example file name sent with a rule: a rename pattern with episode 01
+// when the regex matches it (the edited pattern first, then the stored one),
+// else a name built from the regex (sampleFromRegex); null when none of them
+// yields a valid episode, and the user has to give a real file name.
+function proposeRuleExample(regex, ...renames) {
+    const candidates = [...renames.map(ruleExampleName), sampleFromRegex(regex)].filter(Boolean);
+    return candidates.find(name => testPattern(regex, [name]).allValid) || null;
 }
 
 function renderRuleEditor(rule, folders, folder) {
     const card = el('div', 'card group-card rul-card');
     card.dataset.pattern = rule.regex_pattern;
-    let exampleTouched = false;
 
     const header = el('div', 'group-header');
     header.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Rule'));
     header.appendChild(el('span', 'badge', `W: ${rule.weight}`));
     card.appendChild(header);
 
-    const field = (labelText, value, className) => {
-        const box = el('div');
-        box.appendChild(el('label', 'label', labelText));
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = `input font-mono pattern-input ${className}`;
-        input.spellcheck = false;
-        input.autocomplete = 'off';
-        input.value = value;
-        const msg = el('div', 'mt-1 text-xs validation-msg');
-        box.append(input, msg);
-        return { box, input, msg };
-    };
-    const regex = field('Regex Pattern (Python)', rule.regex_pattern, 'rul-regex');
-    const rename = field('Rename Pattern (empty: the file keeps its name)', rule.rename_pattern || '', 'rul-rename');
-    const fields = el('div', 'rule-fields');
-    fields.append(regex.box, rename.box);
-    card.appendChild(fields);
+    // the regex, read-only: it is edited in Bulk Regex, against real files
+    const regexBox = el('div', 'rul-regex-box');
+    regexBox.appendChild(el('label', 'label', 'Regex Pattern (Python) — read-only here'));
+    const regexLine = el('div', 'flex items-center rul-regex-row');
+    const regexText = el('code', 'font-mono text-accent rul-regex', rule.regex_pattern);
+    const editRegex = el('button', 'btn btn-secondary btn-sm rul-edit-regex', 'Edit regex in Bulk Regex');
+    editRegex.type = 'button';
+    editRegex.title = 'Opens Bulk Regex on this folder with this rule on a card, with the real files it matches';
+    editRegex.onclick = () => openRegexEdit(folder, rule);
+    regexLine.append(regexText, editRegex);
+    regexBox.appendChild(regexLine);
+    card.appendChild(regexBox);
+
+    const renameBox = el('div', 'mt-4');
+    renameBox.appendChild(el('label', 'label', 'Rename Pattern (empty: the file keeps its name)'));
+    const rename = document.createElement('input');
+    rename.type = 'text';
+    rename.className = 'input font-mono pattern-input rul-rename';
+    rename.spellcheck = false;
+    rename.autocomplete = 'off';
+    rename.value = rule.rename_pattern || '';
+    const renameMsg = el('div', 'mt-1 text-xs validation-msg');
+    renameBox.append(rename, renameMsg);
+    card.appendChild(renameBox);
 
     const row = el('div', 'rul-row mt-4');
     const weightBox = el('div');
@@ -3089,23 +3510,33 @@ function renderRuleEditor(rule, folders, folder) {
     weight.value = rule.weight;
     weightBox.appendChild(weight);
     const folderBox = el('div', 'rul-folder-box');
-    folderBox.appendChild(el('label', 'label', 'Folder'));
+    folderBox.appendChild(el('label', 'label', 'Destination folder'));
     const folderSelect = document.createElement('select');
     folderSelect.className = 'input font-mono rul-folder';
     folders.forEach(f => {
         const option = document.createElement('option');
-        option.value = String(f.id);
+        option.value = String(f.folder_id);
         option.textContent = f.destination_path;
         folderSelect.appendChild(option);
     });
-    folderSelect.value = String(folder.id);
+    folderSelect.value = String(folder.folder_id);
     folderBox.appendChild(folderSelect);
     row.append(weightBox, folderBox);
     card.appendChild(row);
 
-    const example = field('Example file name — VMSAM checks the rule on it', proposeRuleExample(rule.regex_pattern, rule.rename_pattern), 'rul-example');
-    example.box.classList.add('mt-4');
-    card.appendChild(example.box);
+    // the example VMSAM checks the rule on: built, or asked for
+    const exampleBox = el('div', 'mt-4 rul-example-box');
+    exampleBox.appendChild(el('label', 'label', 'Example file name sent to VMSAM'));
+    const exampleAuto = el('div', 'font-mono text-sm rul-example-auto');
+    const example = document.createElement('input');
+    example.type = 'text';
+    example.className = 'input font-mono pattern-input rul-example hidden';
+    example.spellcheck = false;
+    example.autocomplete = 'off';
+    example.placeholder = 'A real file name this regex matches';
+    const exampleMsg = el('div', 'mt-1 text-xs validation-msg rul-example-msg');
+    exampleBox.append(exampleAuto, example, exampleMsg);
+    card.appendChild(exampleBox);
 
     const footer = el('div', 'group-footer');
     const remove = el('button', 'btn btn-secondary btn-sm rul-delete', 'Delete');
@@ -3115,49 +3546,52 @@ function renderRuleEditor(rule, folders, folder) {
     footer.append(remove, save);
     card.appendChild(footer);
 
-    const values = () => ({
-        regex: regex.input.value,
-        rename: rename.input.value,
-        weight: Number(weight.value),
-        folderId: parseInt(folderSelect.value, 10),
-        example: example.input.value
-    });
-    const setMsg = (node, text, tone) => { node.textContent = text; node.className = `mt-1 text-xs validation-msg ${tone}`; };
+    const setMsg = (node, text, tone) => { node.textContent = text; node.className = `mt-1 text-xs validation-msg ${tone}` + (node === exampleMsg ? ' rul-example-msg' : ''); };
+    const values = () => {
+        const renameValue = rename.value;
+        const built = proposeRuleExample(rule.regex_pattern, renameValue.includes(EPISODE_PLACEHOLDER) ? renameValue : '', rule.rename_pattern);
+        return {
+            rename: renameValue,
+            weight: Number(weight.value),
+            folderId: parseInt(folderSelect.value, 10),
+            built,
+            example: built !== null ? built : example.value.trim()
+        };
+    };
 
     // Returns the problem that forbids saving, or null.
     const refresh = () => {
         const v = values();
-        const check = testPattern(v.regex, [v.example]);
         let problem = null;
-        if (check.syntaxError) { setMsg(regex.msg, '⚠ Invalid regex syntax', 'text-danger'); problem = 'the regex does not compile'; }
-        else if (!/\(\?P<episode>/.test(v.regex)) { setMsg(regex.msg, "⚠ No named group 'episode'", 'text-warning'); problem = "the regex has no 'episode' group"; }
-        else setMsg(regex.msg, v.regex === rule.regex_pattern ? '' : 'changed', 'text-muted');
-        if (v.rename && !v.rename.includes(EPISODE_PLACEHOLDER)) { setMsg(rename.msg, `⚠ Must contain ${EPISODE_PLACEHOLDER}`, 'text-warning'); problem = problem || `the rename pattern lacks ${EPISODE_PLACEHOLDER}`; }
-        else setMsg(rename.msg, v.rename ? '' : 'No rename: the rule keeps the incoming name', 'text-muted');
+        if (v.rename && !v.rename.includes(EPISODE_PLACEHOLDER)) { setMsg(renameMsg, `⚠ Must contain ${EPISODE_PLACEHOLDER}`, 'text-warning'); problem = `the rename pattern lacks ${EPISODE_PLACEHOLDER}`; }
+        else setMsg(renameMsg, v.rename ? '' : 'No rename: the rule keeps the incoming name', 'text-muted');
         if (!Number.isInteger(v.weight) || v.weight < 1) problem = problem || 'the weight must be a whole number of 1 or more';
-        if (!v.example.trim()) { setMsg(example.msg, 'Type or paste a file name the regex matches', 'text-warning'); problem = problem || 'an example file name is required'; }
-        else if (!check.syntaxError && check.perFile[0].valid) {
-            const episode = parseInt(check.perFile[0].episode, 10);
-            setMsg(example.msg, `✓ episode ${episode}` + (v.rename && v.rename.includes(EPISODE_PLACEHOLDER) ? ` → ${v.rename.split(EPISODE_PLACEHOLDER).join(padEpisode(episode))}` : ''), 'text-success');
+        exampleAuto.classList.toggle('hidden', v.built === null);
+        example.classList.toggle('hidden', v.built !== null);
+        if (v.built !== null) {
+            exampleAuto.textContent = v.built;
+            const episode = parseInt(extractEpisode(rule.regex_pattern, v.built), 10);
+            const fromRename = [v.rename, rule.rename_pattern].some(r => r && r.includes(EPISODE_PLACEHOLDER) && ruleExampleName(r) === v.built);
+            setMsg(exampleMsg, `✓ built from the ${fromRename ? 'rename pattern' : 'regex'}: episode ${episode}`, 'text-success');
+        } else if (!v.example) {
+            setMsg(exampleMsg, 'No name built from the rename pattern or the regex matches it: type a real file name this regex matches', 'text-warning');
+            problem = problem || 'an example file name is required';
+        } else if (testPattern(rule.regex_pattern, [v.example]).allValid) {
+            setMsg(exampleMsg, `✓ episode ${parseInt(extractEpisode(rule.regex_pattern, v.example), 10)}`, 'text-success');
         } else {
-            setMsg(example.msg, '⚠ The regex does not extract a valid episode number from this name', 'text-warning');
+            setMsg(exampleMsg, '⚠ The regex does not extract a valid episode number from this name', 'text-warning');
             problem = problem || 'the regex does not extract a valid episode from the example';
         }
-        const dirty = v.regex !== rule.regex_pattern || v.rename !== (rule.rename_pattern || '') || v.weight !== rule.weight || v.folderId !== folder.id;
+        const dirty = v.rename !== (rule.rename_pattern || '') || v.weight !== rule.weight || v.folderId !== folder.folder_id;
         save.disabled = !!problem || !dirty;
         save.title = problem ? `Cannot save: ${problem}` : (dirty ? '' : 'Nothing changed');
         card.classList.toggle('rul-dirty', dirty);
         return problem;
     };
-    const patternsChanged = () => {
-        if (!exampleTouched) example.input.value = proposeRuleExample(regex.input.value, rename.input.value);
-        refresh();
-    };
-    regex.input.oninput = patternsChanged;
-    rename.input.oninput = patternsChanged;
+    rename.oninput = refresh;
     weight.oninput = refresh;
     folderSelect.onchange = refresh;
-    example.input.oninput = () => { exampleTouched = true; refresh(); };
+    example.oninput = refresh;
     save.onclick = () => saveRuleEdit(rule, folder, folders, values(), refresh, save);
     remove.onclick = () => deleteRuleFromList(rule, remove);
     refresh();
@@ -3167,33 +3601,42 @@ function renderRuleEditor(rule, folders, folder) {
 async function saveRuleEdit(rule, folder, folders, v, refresh, button) {
     const problem = refresh();
     if (problem) { showToast(`Cannot save: ${problem}`, 'error'); return; }
+    const target = folders.find(f => f.folder_id === v.folderId);
+    if (!target) { showToast(`Folder ${v.folderId} is not in the folder list`, 'error'); return; }
+    if (v.folderId !== folder.folder_id) {
+        const confirmed = await confirmDialog(`${rule.regex_pattern}\n\nfrom ${folder.destination_path}\nto   ${target.destination_path}\n\nNew downloads this rule matches will go to the new folder; files already registered stay where they are.`, { title: 'Move this rule to another folder?', okText: 'Move rule' });
+        if (!confirmed) return;
+    }
     const payload = {
         regex_pattern: rule.regex_pattern,
         rename_pattern: v.rename ? v.rename : null,
         weight: v.weight,
+        destination_path: target.destination_path,
         example_filename: v.example
     };
-    if (v.regex !== rule.regex_pattern) payload.new_regex_pattern = v.regex;
-    const target = folders.find(f => f.id === v.folderId);
-    if (v.folderId !== folder.id) {
-        payload.folder_id = v.folderId;
-        const confirmed = await confirmDialog(`${v.regex}\n\nfrom ${folder.destination_path}\nto   ${target ? target.destination_path : 'folder ' + v.folderId}\n\nNew downloads this rule matches will go to the new folder; files already registered stay where they are.`, { title: 'Move this rule to another folder?', okText: 'Move rule' });
-        if (!confirmed) return;
-    }
     button.disabled = true;
     try {
-        const result = await api.updateRegex(payload);
-        const moved = result.folder_id !== folder.id;
-        showToast(`${result.message || 'Rule updated'}: episode ${result.extracted_episode} on the example` + (moved && target ? `, moved to ${target.destination_path}` : ''), 'success', 5000);
+        const result = await api.saveRegex(payload);
+        const moved = v.folderId !== folder.folder_id;
+        showToast(`${result.message || 'Rule updated'}` + (moved ? `, moved to ${target.destination_path}` : ''), 'success', 5000);
     } catch (e) {
         showToast('Rule not saved: ' + e.message, 'error', 8000);
         button.disabled = false;
-        const msg = button.closest('.rul-card').querySelector('.rul-example').nextElementSibling;
+        const msg = button.closest('.rul-card').querySelector('.rul-example-msg');
         msg.textContent = `VMSAM refused: ${e.message}`;
-        msg.className = 'mt-1 text-xs validation-msg text-danger';
+        msg.className = 'mt-1 text-xs validation-msg text-danger rul-example-msg';
         return;
     }
     await loadRulesList();
+}
+
+// "Edit regex in Bulk Regex": that tab, on this folder, with the rule on a
+// replace card holding the real files it matches.
+async function openRegexEdit(folder, rule) {
+    switchTab('regex-tab');
+    if (state.selectedFolderId !== folder.folder_id) regexTab.picker.select(folder);
+    await regexTab.rulesReady;
+    await startRegexReplace(rule);
 }
 
 async function deleteRuleFromList(rule, button) {
@@ -3215,15 +3658,28 @@ async function deleteRuleFromList(rule, button) {
 //
 // The files the pipeline rejected (GET /errors), grouped by folder with the
 // registered episode they failed to merge with (the master). A rejected file
-// can be queued for a new fusion (POST /fusion) or deleted with its logs and
-// its error sub-folder (POST /errors/delete/). The fusion queue (GET /fusion)
-// is polled every 5 s while the tab is shown.
+// can be queued for a new fusion (POST /fusion) or deleted (POST
+// /errors/delete/: the file, its .log.error, its row, and its error directory
+// when only .error files remain). The fusion queue (GET /fusion) is polled
+// every 5 s while the tab is shown. Each folder group folds (its header is a
+// button); "Expand all" / "Collapse all"; the search box keeps the folders
+// whose path, or one of whose file names, contains the text (case-insensitive;
+// a folder matched by file names shows those files only). On arrival
+// everything is listed and unfolded; a reload after a delete keeps both.
 
 let errorsTab = null;
 const FUSION_POLL_MS = 5000;
 
 function initErrorsTab() {
-    if (!errorsTab) errorsTab = { timer: null, queue: null };
+    if (!errorsTab) {
+        errorsTab = { timer: null, queue: null, collapsed: new Set() };
+        document.getElementById('errors-search').addEventListener('input', applyErrorsSearch);
+        document.getElementById('errors-expand-all').onclick = () => setAllErrorGroups(false);
+        document.getElementById('errors-collapse-all').onclick = () => setAllErrorGroups(true);
+    }
+    // the overview first: everything listed and unfolded
+    errorsTab.collapsed = new Set();
+    document.getElementById('errors-search').value = '';
     loadErrorsList();
     refreshFusionQueue();
     startFusionPolling();
@@ -3329,7 +3785,7 @@ async function loadErrorsList() {
     }
     folderCache = null;
     const folders = await fetchFolders().catch(() => []);
-    const folderById = new Map(folders.map(f => [f.id, f]));
+    const folderById = new Map(folders.map(f => [f.folder_id, f]));
     const groups = new Map();
     files.forEach(file => {
         if (!groups.has(file.folder_id)) groups.set(file.folder_id, []);
@@ -3356,28 +3812,83 @@ async function loadErrorsList() {
     if (!files.length) container.appendChild(el('div', 'text-muted text-sm', 'No rejected file.'));
     ids.forEach(id => {
         const folder = folderById.get(id);
+        const folderFiles = groups.get(id);
         const group = el('div', 'err-group');
         group.dataset.folderId = String(id);
-        const title = el('h3', 'font-mono err-group-title', folder ? folder.destination_path : `Folder ${id} (not in the folder list)`);
-        group.appendChild(title);
+        const path = folder ? folder.destination_path : `Folder ${id} (not in the folder list)`;
+        group.dataset.path = path;
+        const head = el('button', 'err-group-head');
+        head.type = 'button';
+        head.appendChild(el('span', 'err-group-icon', '▼'));
+        head.appendChild(el('span', 'font-mono err-group-title', path));
+        head.appendChild(el('span', 'badge err-group-count', `${folderFiles.length} file${folderFiles.length === 1 ? '' : 's'}`));
+        head.onclick = () => setErrorGroupCollapsed(group, !group.classList.contains('collapsed'));
+        group.appendChild(head);
+        const body = el('div', 'err-group-body');
+        body.id = `err-group-body-${id}`;
+        head.setAttribute('aria-controls', body.id);
+        group.appendChild(body);
         const folderMasters = masters.get(id);
-        if (typeof folderMasters === 'string') group.appendChild(el('div', 'text-warning text-xs', `Master episodes unavailable: ${folderMasters}`));
+        if (typeof folderMasters === 'string') body.appendChild(el('div', 'text-warning text-xs', `Master episodes unavailable: ${folderMasters}`));
         const table = el('table', 'report-table err-table');
-        const head = el('tr');
-        ['Ep', 'Rejected file', 'Weight', 'Master episode file', '', ''].forEach(h => head.appendChild(el('th', null, h)));
+        const headRow = el('tr');
+        ['Ep', 'Rejected file', 'Weight', 'Master episode file', '', ''].forEach(h => headRow.appendChild(el('th', null, h)));
         const thead = el('thead');
-        thead.appendChild(head);
+        thead.appendChild(headRow);
         const tbody = el('tbody');
-        groups.get(id).slice().sort((a, b) => a.episode_number - b.episode_number || a.file_path.localeCompare(b.file_path)).forEach(file => {
+        folderFiles.slice().sort((a, b) => a.episode_number - b.episode_number || a.file_path.localeCompare(b.file_path)).forEach(file => {
             tbody.appendChild(renderErrorRow(file, folderMasters instanceof Map ? folderMasters.get(file.episode_number) : null));
         });
         table.append(thead, tbody);
         const wrap = el('div', 'err-table-wrap');
         wrap.appendChild(table);
-        group.appendChild(wrap);
+        body.appendChild(wrap);
+        setErrorGroupCollapsed(group, errorsTab.collapsed.has(String(id)));
         container.appendChild(group);
     });
+    applyErrorsSearch();
     markQueuedErrors();
+}
+
+function setErrorGroupCollapsed(group, collapsed) {
+    group.classList.toggle('collapsed', collapsed);
+    group.querySelector('.err-group-body').classList.toggle('hidden', collapsed);
+    group.querySelector('.err-group-icon').textContent = collapsed ? '▶' : '▼';
+    group.querySelector('.err-group-head').setAttribute('aria-expanded', String(!collapsed));
+    if (collapsed) errorsTab.collapsed.add(group.dataset.folderId);
+    else errorsTab.collapsed.delete(group.dataset.folderId);
+}
+
+// Expand all / Collapse all: the folders the search shows.
+function setAllErrorGroups(collapsed) {
+    document.querySelectorAll('#errors-groups .err-group:not(.hidden)').forEach(group => setErrorGroupCollapsed(group, collapsed));
+}
+
+function applyErrorsSearch() {
+    const query = document.getElementById('errors-search').value.trim().toLowerCase();
+    const groups = Array.from(document.querySelectorAll('#errors-groups .err-group'));
+    let shown = 0;
+    groups.forEach(group => {
+        const pathMatch = !query || group.dataset.path.toLowerCase().includes(query);
+        let rowsShown = 0;
+        group.querySelectorAll('tr[data-path]').forEach(row => {
+            const visible = pathMatch || baseName(row.dataset.path).toLowerCase().includes(query);
+            row.classList.toggle('hidden', !visible);
+            if (visible) rowsShown++;
+        });
+        const visible = pathMatch || rowsShown > 0;
+        group.classList.toggle('hidden', !visible);
+        if (visible) shown++;
+    });
+    const note = document.getElementById('errors-shown');
+    note.textContent = query && groups.length ? `${shown} of ${groups.length} folder${groups.length === 1 ? '' : 's'} shown` : '';
+    let none = document.querySelector('#errors-groups .err-search-none');
+    if (query && groups.length && !shown) {
+        if (!none) {
+            none = el('div', 'text-muted text-sm err-search-none', 'No folder or file name contains this text.');
+            document.getElementById('errors-groups').appendChild(none);
+        }
+    } else if (none) none.remove();
 }
 
 function renderErrorRow(file, master) {
@@ -3431,7 +3942,7 @@ async function relaunchFusion(file, button, message) {
 }
 
 async function deleteErrorFile(file, button, message) {
-    const confirmed = await confirmDialog(`${baseName(file.file_path)}\n\nDeletes this rejected file, its log files and its row. Its error sub-folder is removed as well when no video remains in it, then the parent directories left empty.\nThe registered episode is not touched. This cannot be undone.`, { title: 'Delete this rejected file?', okText: 'Delete' });
+    const confirmed = await confirmDialog(`${baseName(file.file_path)}\n\nDeletes this rejected file, its .log.error file and its row. Its error directory is removed as well when only .error files remain in it.\nThe registered episode is not touched. This cannot be undone.`, { title: 'Delete this rejected file?', okText: 'Delete' });
     if (!confirmed) return;
     button.disabled = true;
     let result;
@@ -3466,7 +3977,7 @@ function showErrorsReport(result) {
     section('Deleted files:', result.deleted_files, 'err-report-files');
     section('Removed directories:', result.removed_directories, 'err-report-dirs');
     section('Warnings:', result.warnings, 'err-report-warnings text-warning');
-    if (!(result.removed_directories || []).length) box.appendChild(el('div', 'text-muted mt-2', 'No directory removed (a video or another rejected file is still there).'));
+    if (!(result.removed_directories || []).length) box.appendChild(el('div', 'text-muted mt-2', 'No directory removed (files other than .error ones are still there).'));
 }
 
 // Exposed for the engine self-test page (no module system, plain script).

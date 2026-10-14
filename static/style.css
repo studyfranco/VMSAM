@@ -1082,13 +1082,14 @@ input[type="checkbox"]:disabled {
     flex-wrap: wrap;
 }
 
+/* the destination path is an input now: a new path is a move first */
 .set-path {
     flex: 1;
     min-width: 0;
-    padding: 0.5rem;
-    background: var(--bg-main);
-    border-radius: 4px;
-    word-break: break-all;
+}
+
+.set-path-row .btn {
+    white-space: nowrap;
 }
 
 /* --- Shows: Rules tab (rul-) --- */
@@ -1110,14 +1111,68 @@ input[type="checkbox"]:disabled {
 
 /* --- Shows: Errors tab (err-) --- */
 .err-group + .err-group {
-    margin-top: 1.5rem;
+    margin-top: 0.75rem;
+}
+
+/* a folder group folds: its header is a button (path, file count) */
+.err-group-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    padding: 0.55rem 0.75rem;
+    background: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-main);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.err-group-head:hover {
+    border-color: var(--accent);
+}
+
+.err-group-head:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.err-group-icon {
+    width: 1rem;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    flex: none;
 }
 
 .err-group-title {
-    margin: 0 0 0.5rem;
+    flex: 1;
+    min-width: 0;
     font-size: 0.95rem;
     color: var(--accent);
     word-break: break-all;
+}
+
+.err-group-count {
+    flex: none;
+}
+
+.err-group-body {
+    padding-top: 0.5rem;
+}
+
+.err-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.err-search {
+    flex: 1;
+    min-width: 14rem;
 }
 
 .err-table td {
@@ -1178,4 +1233,140 @@ input[type="checkbox"]:disabled {
 
 .err-table th:nth-child(6) {
     width: 15rem;
+}
+
+/* --- Header title: a button back to the home of the current section --- */
+.title-link {
+    padding: 0;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+    background: linear-gradient(90deg, var(--accent), var(--highlight));
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: var(--accent);
+    border-radius: 4px;
+}
+
+.title-link:hover {
+    filter: brightness(1.15);
+}
+
+.title-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+}
+
+/* --- Home tiles, both sections: the whole tile is the link ---
+   <div class="card home-tile text-center" data-tab="…" role="button" tabindex="0">
+   (app.js opens data-tab on a click, Enter or Space) */
+.home-tile {
+    cursor: pointer;
+    user-select: none;
+}
+
+.home-tile:hover,
+.home-tile:focus-visible {
+    transform: translateY(-2px);
+    border-color: var(--accent);
+}
+
+.home-tile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.home-tile:active {
+    transform: translateY(0);
+}
+
+/* --- Directory picker (openDirectoryPicker): large modal like the file modal --- */
+.dir-picker-overlay {
+    z-index: 1500;
+}
+
+.dir-picker-hint {
+    margin: 0 0 0.75rem;
+}
+
+.dir-picker-where {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.dir-picker-path {
+    min-width: 0;
+    word-break: break-all;
+}
+
+.dir-picker-list .dir-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.dir-picker-footer {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.dir-picker-selected-line {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+}
+
+/* a button that opens the picker, and what it chose */
+.picker-field {
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+/* --- Bulk Regex: "Edit regex" on a rule row, replace cards --- */
+.rule-row-edit {
+    flex: none;
+}
+
+.replace-card {
+    border-color: var(--highlight);
+}
+
+.replace-current {
+    margin-bottom: 0.25rem;
+    word-break: break-all;
+}
+
+.replace-help {
+    margin-bottom: 0.5rem;
+}
+
+.replace-no-file {
+    padding: 0.5rem 0;
+}
+
+/* --- Rules tab: read-only regex with its link to Bulk Regex --- */
+.rul-regex-row {
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.rul-regex {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem;
+    background: var(--bg-main);
+    border-radius: 4px;
+    word-break: break-all;
+}
+
+.rul-example-auto {
+    padding: 0.5rem;
+    background: var(--bg-main);
+    border-radius: 4px;
+    word-break: break-all;
 }

@@ -1,10 +1,6 @@
 /* VMSAM web interface — Movies section (movie.js). Colours come from the
    variables of style.css; nothing here applies outside the movie tabs. */
 
-.movie-home-card {
-    cursor: pointer;
-}
-
 .movie-actions {
     display: flex;
     justify-content: flex-end;
@@ -289,6 +285,91 @@
     margin: 0;
 }
 
+.movie-error-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+.movie-error-header:focus-visible {
+    outline: 2px solid var(--highlight);
+    outline-offset: 2px;
+}
+
+.movie-error-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.movie-error-icon {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    width: 1rem;
+}
+
+.movie-error-body {
+    margin-top: 0.5rem;
+}
+
+.movie-error-group.collapsed {
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+}
+
+/* Directory pickers: a directory that cannot be chosen (a click opens it) */
+.dir-item.movie-dir-blocked .dir-name {
+    color: var(--text-muted);
+}
+
+.movie-dir-count,
+.movie-dir-below {
+    margin-left: 0.5rem;
+}
+
+/* Rules: badge + "Edit regex" on the right of a rule row */
+.movie-rule-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.movie-rule-pattern-row {
+    flex-wrap: wrap;
+}
+
+.movie-rule-pattern-ro {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    padding: 0.4rem 0;
+}
+
+/* Bulk Regex: card editing an existing rule's regex */
+.movie-replace-card {
+    border-color: var(--highlight);
+}
+
+.movie-replace-about {
+    margin-bottom: 0.5rem;
+    overflow-wrap: anywhere;
+}
+
+.movie-replace-add {
+    margin-top: 0.5rem;
+}
+
+/* Movie edit: old -> new location of the file */
+.movie-edit-preview {
+    overflow-wrap: anywhere;
+}
+
+.movie-edit-notice {
+    margin-bottom: 0.75rem;
+}
+
 @media (max-width: 700px) {
     .movie-link-row,
     .movie-rule-fields {
@@ -306,4 +387,33 @@
     .movie-toolbar-right .input {
         max-width: none;
     }
+}
+
+/* Rename pattern field (Bulk Regex cards, Index "+ Rule", Rules editor) */
+.movie-rename-box .pattern-input {
+    flex: 1;
+}
+
+.movie-rename-preview {
+    margin-top: 4px;
+    word-break: break-all;
+}
+
+.movie-rule-rename,
+.movie-rule-rename-cell {
+    word-break: break-all;
+}
+
+/* Movies edit: the title is the key, read-only */
+.movie-edit-title {
+    font-weight: bold;
+    padding: 6px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    background-color: var(--bg-main);
+}
+
+.movie-edit-rule-names li {
+    margin: 2px 0;
+    word-break: break-all;
 }

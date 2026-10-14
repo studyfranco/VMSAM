@@ -7,10 +7,15 @@
 // the nav with data-section="movies". Each tab registers its init in
 // TAB_INIT (defined in app.js).
 //
-// A movie is one kept file (a film or a show special):
-// `<destination_path>/<title><suffix>.<ext>`. Its rules have no episode group,
-// they only have to match the downloaded names. Every call goes through the
-// relay /api/movie/<name>; a refusal is shown with VMSAM's own `detail`.
+// A movie is one kept file (a film or a show special). Its `title` is its
+// NAME in VMSAM (globally unique, the key of `movies`), not the file name.
+// The file name comes from the rule that matched it: the rule's rename
+// pattern holds `{<suffix>}`, replaced by the movie's suffix
+// (`Movie A (2001){<suffix>}.mkv`); a rule without rename pattern keeps the
+// downloaded name. The file lands in the movie's `destination_path`. Rules
+// have no episode group, they only have to match the downloaded names.
+// Every call goes through the relay /api/movie/<name>; a refusal is shown
+// with VMSAM's own `detail`.
 //
 // Sections:
 //   M1. API client and caches
@@ -28,31 +33,38 @@ const movieApi = {
     post(name, payload) { return postJson(`/api/movie/${name}`, payload); }
 };
 
-// VMSAM answers 404 for an empty list: an empty array here.
-async function movieListOr404(name, key, emptyPattern, params) {
-    try {
-        const response = await movieApi.get(name, params);
-        return (response && response[key]) || [];
-    } catch (e) {
-        if (emptyPattern.test(e.message)) return [];
-        throw e;
+// VMSAM answers 404 for an empty list: an empty array here. Any other
+// refusal keeps VMSAM's own `detail`.
+async function movieListOr404(name, key, params) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await fetch(`/api/movie/${name}${query}`);
+    if (res.status === 404) return [];
+    const text = await res.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (e) { payload = null; }
+    if (!res.ok) {
+        const detail = payload && payload.detail ? payload.detail : (text || `HTTP ${res.status}`);
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
     }
+    return (payload && payload[key]) || [];
 }
 
 let movieListCache = null;
 
+// Movies are keyed `movie_id` (rules and errors too).
 async function fetchMovies(force = false) {
     if (movieListCache && !force) return movieListCache;
-    movieListCache = await movieListOr404('movies_list', 'movies', /No movies found/i);
+    movieListCache = await movieListOr404('movies_list', 'movies');
     return movieListCache;
 }
 
 function fetchMovieFolders() {
-    return movieListOr404('folders_list', 'folders', /No folders found/i);
+    return movieListOr404('folders_list', 'folders');
 }
 
+// regex_movie answers 404 for an unknown movie too: the callers know it exists.
 function fetchMovieRules(movieId) {
-    return movieListOr404('regex_movie', 'regex_patterns', /No regex found/i, { movie_id: movieId });
+    return movieListOr404('regex_movie', 'regex_patterns', { movie_id: movieId });
 }
 
 async function fetchAllMovieRules() {
@@ -74,8 +86,60 @@ function invalidateMovies() {
 
 // --- M2. Helpers ---
 
-function movieFileName(movie, extension) {
-    return `${movie.title}${movie.suffix || ''}${extension || ''}`;
+const MOVIE_SUFFIX_PLACEHOLDER = '{<suffix>}';
+
+// The name a rule gives a file: its rename pattern with `{<suffix>}` replaced
+// by the movie's suffix; no rename pattern = the file keeps its name.
+function movieRenamedName(renamePattern, suffix, fileName) {
+    if (!renamePattern) return fileName || '';
+    return renamePattern.split(MOVIE_SUFFIX_PLACEHOLDER).join(suffix || '');
+}
+
+// null when the rename pattern can be sent, else the reason: empty is
+// allowed (the file keeps its name), otherwise it must hold `{<suffix>}` and
+// no `/` (a file name, the directory is the movie's).
+function movieRenameProblem(renamePattern) {
+    const text = String(renamePattern || '');
+    if (!text) return null;
+    if (!text.includes(MOVIE_SUFFIX_PLACEHOLDER)) return `must contain ${MOVIE_SUFFIX_PLACEHOLDER} (or be empty: the file keeps its name)`;
+    if (text.includes('/')) return 'a file name cannot hold a /';
+    if (text.trim() !== text) return 'no leading or trailing space';
+    return null;
+}
+
+// The rename pattern proposed for a group of names: the first name (its
+// spelling) with the wild spans of the engine's template dropped (the parts
+// that differ between the names: release tags, groups), the separators on
+// both sides of a hole merged, then `{<suffix>}` right before the extension:
+// `Movie.G.2005.1080p.BluRay-AAA.mkv` + `Movie.G.2005.720p.WEB-BBB.mkv` ->
+// `Movie.G.2005.1080p{<suffix>}.mkv`.
+function movieRenameFor(names) {
+    if (!names.length) return '';
+    let base = names[0];
+    if (names.length > 1) {
+        const GAP = '\u0000';
+        let out = '';
+        buildTemplate(names).slots.forEach(slot => {
+            if (slot.wild) { if (!out.endsWith(GAP)) out += GAP; return; }
+            out += slot.v;
+        });
+        // a bracket pair that only held a dropped span goes with it
+        let previous;
+        do {
+            previous = out;
+            out = out.replace(/[\[(][\s._\-]*\u0000[\s._\-]*[\])]/g, GAP).replace(/\u0000+/g, GAP);
+        } while (out !== previous);
+        out = out.replace(/([\s._\-]*)\u0000([\s._\-]*)/g, (match, left, right, offset, whole) => {
+            const before = whole.slice(0, offset);
+            const after = whole.slice(offset + match.length);
+            if (!before || !after) return '';
+            if (right.endsWith('.') && /^[A-Za-z0-9]{1,5}$/.test(after)) return '.';
+            return left || right;
+        });
+        if (out) base = out;
+    }
+    const extension = movieFileExtension(base);
+    return base.slice(0, base.length - extension.length) + MOVIE_SUFFIX_PLACEHOLDER + extension;
 }
 
 function movieFileExtension(name) {
@@ -96,8 +160,17 @@ function movieRel(absolute) {
     return relative || '/ (library root)';
 }
 
+// Where a directory picker opens for a selected folder: its parent, relative
+// to CREATE_ROOT ('' = the root, also when nothing is selected).
+function movieParentDir(folder) {
+    const root = uiConfigCache ? uiConfigCache.create_root : null;
+    const relative = folder && root ? relativeToRoot(root, folder.destination_path) : null;
+    return relative ? relative.split('/').slice(0, -1).join('/') : '';
+}
+
+// A movie is named by its title (its unique name in VMSAM).
 function movieLabel(movie) {
-    return `${movie.title}${movie.suffix || ''}`;
+    return String(movie.title || '');
 }
 
 // A title guessed from a file name: extension and bracket tags dropped, dots
@@ -118,6 +191,33 @@ function guessMovieTitle(name) {
 // that does not compile matches nothing.
 function movieRegexMatches(pattern, name) {
     try { return toJsRegex(pattern).test(name); } catch (e) { return false; }
+}
+
+// A file name a movie regex matches, for the example VMSAM requires when a
+// rule changes weight or movie: sampleFromRegex (app.js) on the pattern, or
+// on each alternative of a `^(?:a|b)$` rule; null when none fits (the user
+// then types a real file name).
+function movieSampleFromRegex(pattern) {
+    const text = String(pattern || '');
+    const candidates = [sampleFromRegex(text)];
+    const alternatives = text.match(/^\^\(\?:(.*)\)\$$/);
+    if (alternatives) {
+        // split on the | neither escaped nor nested
+        const body = alternatives[1];
+        let depth = 0;
+        let from = 0;
+        for (let i = 0; i <= body.length; i++) {
+            const c = body[i];
+            if (c === '\\') { i++; continue; }
+            if (c === '(') depth++;
+            else if (c === ')') depth--;
+            else if ((c === '|' && depth === 0) || i === body.length) {
+                candidates.push(sampleFromRegex('^' + body.slice(from, i) + '$'));
+                from = i + 1;
+            }
+        }
+    }
+    return candidates.find(name => name && movieRegexMatches(text, name)) || null;
 }
 
 // { syntaxError, perFile: [{ name, match }], allMatch, hasGroup }
@@ -186,7 +286,8 @@ function movieTabShown(tabId) {
 // A search box over a list loaded on demand, with a dropdown and a "selected"
 // line. options: placeholder, emptyText, load() -> items, text(item)
 // (searched), render(item) -> node (dropdown row), chosen(item) -> text,
-// onSelect(item), onClear(). picker.select(item, true) selects silently.
+// onSelect(item), onClear(); optional rank(item, query) -> number, the
+// lowest listed first (stable). picker.select(item, true) selects silently.
 function createMovieSearchPicker(host, options) {
     host.innerHTML = '';
     const input = movieInput('search', 'input movie-picker-input');
@@ -201,7 +302,8 @@ function createMovieSearchPicker(host, options) {
     const render = () => {
         list.innerHTML = '';
         const query = input.value.trim().toLowerCase();
-        const items = picker.items.filter(item => !query || options.text(item).toLowerCase().includes(query));
+        let items = picker.items.filter(item => !query || options.text(item).toLowerCase().includes(query));
+        if (query && options.rank) items = items.map((item, i) => [options.rank(item, query), i, item]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
         if (!items.length) list.appendChild(el('div', 'text-muted text-sm p-2', picker.items.length ? 'Nothing matches' : (options.emptyText || 'Nothing yet')));
         items.slice(0, 300).forEach(item => {
             const row = el('div', 'dir-item movie-picker-item');
@@ -255,18 +357,30 @@ document.addEventListener('click', (e) => {
 function moviePickerRow(movie) {
     const row = el('div', 'movie-picker-row');
     row.appendChild(el('span', 'movie-picker-title', movieLabel(movie)));
-    row.appendChild(el('span', 'text-muted text-xs font-mono', `${movieRel(movie.destination_path)} · #${movie.id}`));
+    row.appendChild(el('span', 'text-muted text-xs font-mono', `${movie.suffix ? 'suffix "' + movie.suffix + '" · ' : ''}${movieRel(movie.destination_path)} · #${movie.movie_id}`));
     return row;
+}
+
+// Movies are searched by title first: the movies whose title holds the text
+// come first (a title starting with it before), then those matched by their
+// directory, suffix or id.
+function movieTitleRank(movie, query) {
+    const title = movieLabel(movie).toLowerCase();
+    if (title === query) return 0;
+    if (title.startsWith(query)) return 1;
+    if (title.includes(query)) return 2;
+    return 3;
 }
 
 function createMoviePicker(host, onSelect, onClear) {
     return createMovieSearchPicker(host, {
-        placeholder: 'Search a movie (title, suffix, directory, id)…',
+        placeholder: 'Search a movie by title (or directory, suffix, id)…',
         emptyText: 'No movie yet: create one first',
         load: () => fetchMovies(),
-        text: m => `${movieLabel(m)} ${m.destination_path} #${m.id}`,
+        text: m => `${movieLabel(m)} ${m.suffix || ''} ${m.destination_path} #${m.movie_id}`,
+        rank: movieTitleRank,
         render: moviePickerRow,
-        chosen: m => `${movieLabel(m)} — ${movieRel(m.destination_path)} (#${m.id})`,
+        chosen: m => `${movieLabel(m)} — ${movieRel(m.destination_path)} (#${m.movie_id})`,
         onSelect,
         onClear
     });
@@ -290,61 +404,75 @@ function createMovieFolderPicker(host, onSelect, onClear) {
     });
 }
 
-// A directory browser over CREATE_ROOT with a name filter (applyDirFilter).
-// options: containerId, filterId, hereText / hereTitle (button of the listed
-// directory: onPick(currentDir)), onPick(path) (click on a row), markRows()
-// after each listing. "Open →" or a double click navigates.
-function createMovieDirBrowser(options) {
-    const browser = { dir: '' };
-    const container = document.getElementById(options.containerId);
-    document.getElementById(options.filterId).addEventListener('input', () => applyDirFilter(options.containerId, options.filterId));
-
-    browser.load = async (path = '', fallbackToRoot = false) => {
-        container.innerHTML = '';
-        container.appendChild(el('div', 'text-muted text-center p-4', 'Loading...'));
-        try {
-            const items = await api.listFiles(path, 'create');
-            browser.dir = path;
-            container.innerHTML = '';
-            const where = el('div', 'dir-item register-where flex-between');
-            where.appendChild(el('span', 'font-mono text-muted', path ? `/${path}` : '/ (library root)'));
-            where.appendChild(movieButton(options.hereText, 'btn btn-sm btn-secondary movie-browser-here', () => options.onPick(path), options.hereTitle));
-            container.appendChild(where);
-            if (path) {
-                const back = el('div', 'dir-item text-blue');
-                back.appendChild(el('span', null, '📁 ..'));
-                back.onclick = () => browser.load(path.split('/').slice(0, -1).join('/'));
-                container.appendChild(back);
-            }
-            const dirs = items.filter(i => i.is_dir);
-            if (!dirs.length) container.appendChild(el('div', 'text-muted text-center p-2', 'No sub-folder here'));
-            dirs.forEach(item => {
-                const row = el('div', 'dir-item');
-                row.dataset.path = item.path;
-                row.dataset.name = item.name;
-                row.onclick = () => options.onPick(item.path);
-                row.ondblclick = () => browser.load(item.path);
-                const name = el('div', 'dir-name flex-1');
-                name.appendChild(el('span', null, `📁 ${item.name}`));
-                const actions = el('div', 'dir-actions');
-                actions.appendChild(movieButton('Open →', 'btn btn-sm btn-secondary', (e) => { e.stopPropagation(); browser.load(item.path); }));
-                row.append(name, actions);
-                container.appendChild(row);
-            });
-            if (dirs.length) applyDirFilter(options.containerId, options.filterId);
-            if (options.markRows) options.markRows();
-        } catch (e) {
-            if (path && fallbackToRoot) { browser.load(''); return; }
-            container.innerHTML = '';
-            const err = el('div', 'text-danger text-sm p-4 text-center', `Error: ${e.message}`);
-            if (path) {
-                err.appendChild(document.createElement('br'));
-                err.appendChild(movieButton('Back to the library root', 'btn btn-sm btn-secondary mt-2', () => browser.load('')));
-            }
-            container.appendChild(err);
+// Directory pickers: app.js's large modal (openDirectoryPicker) over
+// CREATE_ROOT, with its name filter. movieDirPicker(options): title, hint,
+// start, chooseLabel, onPick(path); `blocked(path)` -> null or the reason a
+// directory cannot be chosen: such a row opens instead of being selected, and
+// the listed directory cannot be picked with the "here" button.
+function movieDirPicker(options) {
+    const blocked = options.blocked || (() => null);
+    return openDirectoryPicker({
+        title: options.title,
+        hint: options.hint,
+        startPath: cleanRelativePath(options.start || ''),
+        chooseLabel: options.chooseLabel || 'Choose',
+        hereLabel: options.hereLabel || options.chooseLabel || 'Choose this directory',
+        allowCurrent: path => !blocked(path),
+        decorate: (row, item) => {
+            if (options.decorate) options.decorate(row, item);
+            const reason = blocked(item.path);
+            if (!reason) return;
+            row.classList.add('movie-dir-blocked');
+            row.title = reason + ': a click opens it';
+            row.onclick = () => { if (dirPicker) dirPicker.load(item.path); };
+            row.onkeydown = (e) => { if ((e.key === 'Enter' || e.key === 'ArrowRight') && dirPicker) { e.preventDefault(); dirPicker.load(item.path); } };
+        },
+        onPick: path => {
+            const reason = blocked(path);
+            if (reason) { showToast(reason, 'error'); return; }
+            options.onPick(path);
         }
-    };
-    return browser;
+    });
+}
+
+// The picker over the directories holding movies (folders_list): those rows
+// carry their movie count, a directory with movies further down says so, and
+// only a directory holding movies can be chosen (a click on another opens
+// it). onChoose(folder).
+async function openMovieFolderModal(title, onChoose, start) {
+    let folders, config;
+    try {
+        [folders, config] = await Promise.all([fetchMovieFolders(), fetchUiConfig()]);
+    } catch (e) {
+        showToast('Directories not loaded: ' + e.message, 'error', 8000);
+        return null;
+    }
+    const byPath = new Map();
+    const above = new Set();
+    folders.forEach(folder => {
+        const relative = relativeToRoot(config.create_root, folder.destination_path);
+        if (relative === null) return;
+        byPath.set(relative, folder);
+        const parts = relative.split('/');
+        for (let i = 1; i < parts.length; i++) above.add(parts.slice(0, i).join('/'));
+    });
+    const outside = folders.length - byPath.size;
+    const count = n => `${n} movie${n === 1 ? '' : 's'}`;
+    return movieDirPicker({
+        title,
+        hint: `Directories holding movies show their count; "movies inside" marks a directory with movies further down.${outside ? ` ${outside} director${outside > 1 ? 'ies' : 'y'} outside the library root: use the search box instead.` : ''}`,
+        start,
+        chooseLabel: 'Select',
+        hereLabel: 'Select this directory',
+        blocked: path => byPath.has(path) ? null : 'No movie directly in this directory',
+        decorate: (row, item) => {
+            const name = row.querySelector('.dir-name');
+            const folder = byPath.get(item.path);
+            if (folder) name.appendChild(el('span', 'badge badge-success movie-dir-count', count(folder.movies_count)));
+            else if (above.has(item.path)) name.appendChild(el('span', 'badge movie-dir-below', 'movies inside'));
+        },
+        onPick: path => onChoose(byPath.get(path))
+    });
 }
 
 // Metadata id generator. Apps (plex, jellyfin…) and providers come from
@@ -519,26 +647,23 @@ function movieCreateValues() {
     };
 }
 
-function markMovieCreateRows() {
-    const dest = cleanRelativePath(document.getElementById('movie-create-dest').value);
-    document.querySelectorAll('#movie-create-browser .dir-item[data-path]').forEach(row => row.classList.toggle('selected', row.dataset.path === dest));
+function openMovieCreateBrowser() {
+    movieDirPicker({
+        title: 'Destination directory of the movie',
+        hint: 'Select the directory the movie goes in (several movies may share one). A sub-directory that does not exist yet can be typed afterwards: VMSAM creates it.',
+        start: document.getElementById('movie-create-dest').value,
+        chooseLabel: 'Use this directory',
+        onPick: path => setMovieCreateField('movie-create-dest', path)
+    });
 }
 
 function initMovieCreateTab() {
-    if (movieCreateTab) { movieCreateTab.browser.load(movieCreateTab.browser.dir, true); updateMovieCreatePreview(); return; }
-    const browser = createMovieDirBrowser({
-        containerId: 'movie-create-browser',
-        filterId: 'movie-create-filter',
-        hereText: 'Use this directory',
-        hereTitle: 'The movie goes directly in the directory listed',
-        onPick: (path) => setMovieCreateField('movie-create-dest', path),
-        markRows: markMovieCreateRows
-    });
+    if (movieCreateTab) { checkMovieCreateTitle(); return; }
     const meta = createMovieMetadataGenerator(document.getElementById('movie-create-meta'), [
         { text: 'Use as suffix', title: 'Suffix = a space and the tags', use: tags => setMovieCreateField('movie-create-suffix', ' ' + tags) },
         { text: 'Append to suffix', title: 'Adds the tags at the end of the suffix', use: tags => setMovieCreateField('movie-create-suffix', appendMovieTags(document.getElementById('movie-create-suffix').value, tags)) },
         {
-            text: 'Append to the destination folder name',
+            text: 'Append to the directory name',
             title: 'Adds the tags at the end of the last directory of the destination',
             use: tags => {
                 const dest = cleanRelativePath(document.getElementById('movie-create-dest').value);
@@ -547,17 +672,19 @@ function initMovieCreateTab() {
             }
         }
     ], updateMovieCreatePreview);
-    movieCreateTab = { browser, meta, returnGroupId: null };
-    ['movie-create-dest', 'movie-create-title', 'movie-create-suffix'].forEach(id => document.getElementById(id).addEventListener('input', () => {
+    movieCreateTab = { meta, returnGroupId: null, existing: null, checkedTitle: null, titleTimer: null, titleSequence: 0 };
+    ['movie-create-dest', 'movie-create-suffix'].forEach(id => document.getElementById(id).addEventListener('input', updateMovieCreatePreview));
+    document.getElementById('movie-create-title').addEventListener('input', () => {
+        clearTimeout(movieCreateTab.titleTimer);
+        movieCreateTab.titleTimer = setTimeout(checkMovieCreateTitle, 250);
         updateMovieCreatePreview();
-        if (id === 'movie-create-dest') markMovieCreateRows();
-    }));
+    });
+    document.getElementById('movie-create-browse').onclick = openMovieCreateBrowser;
     document.getElementById('movie-create-btn').onclick = submitMovieCreate;
     document.getElementById('movie-create-back').onclick = () => switchTab('movie-regex-tab');
     fetchUiConfig().then(config => { document.getElementById('movie-create-root').textContent = config.create_root; })
         .catch(e => showToast('Cannot read the library root: ' + e.message, 'error'));
-    browser.load('');
-    updateMovieCreatePreview();
+    checkMovieCreateTitle();
 }
 
 // "a {x}" + "{x} [y]" -> "a {x} [y]"; tags already at the end are not repeated.
@@ -573,20 +700,79 @@ function setMovieCreateField(id, value) {
     input.dispatchEvent(new Event('input'));
 }
 
+// The movie of a title (GET movie?title=), null when none: `movies` creates
+// or updates by title, so the tab says which it will do.
+async function fetchMovieByTitle(title) {
+    const res = await fetch('/api/movie/movie?' + new URLSearchParams({ title }).toString());
+    if (res.status === 404) return null;
+    const text = await res.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (e) { payload = null; }
+    if (!res.ok) throw new Error(payload && payload.detail ? String(payload.detail) : (text || `HTTP ${res.status}`));
+    return payload;
+}
+
+async function checkMovieCreateTitle() {
+    const title = document.getElementById('movie-create-title').value;
+    const sequence = ++movieCreateTab.titleSequence;
+    if (!title.trim()) {
+        movieCreateTab.existing = null;
+        movieCreateTab.checkedTitle = title;
+        updateMovieCreatePreview();
+        return;
+    }
+    let existing = null;
+    try {
+        existing = await fetchMovieByTitle(title);
+    } catch (e) {
+        existing = null;
+    }
+    if (sequence !== movieCreateTab.titleSequence) return;
+    movieCreateTab.existing = existing && existing.title === title ? existing : null;
+    movieCreateTab.checkedTitle = title;
+    updateMovieCreatePreview();
+}
+
 function updateMovieCreatePreview() {
     const preview = document.getElementById('movie-create-preview');
+    const status = document.getElementById('movie-create-title-status');
+    const button = document.getElementById('movie-create-btn');
     const { dest, title, suffix } = movieCreateValues();
+    const tab = movieCreateTab;
+    const existing = tab && tab.checkedTitle === title ? tab.existing : null;
     const problems = [];
     if (!title.trim()) problems.push('the title is empty');
-    if (/\//.test(title) || /\//.test(suffix)) problems.push('the title and the suffix cannot hold a /');
-    if (title.startsWith('.')) problems.push('a title starting with a dot makes a hidden file');
+    if (/\//.test(suffix)) problems.push('the suffix cannot hold a / (it goes in a file name)');
     if (dest.split('/').includes('..')) problems.push('".." is refused in the directory');
+    status.innerHTML = '';
+    if (existing) {
+        const existingDir = movieRel(existing.destination_path);
+        status.className = 'text-xs mt-1 text-warning movie-create-exists';
+        status.textContent = `A movie has this title (#${existing.movie_id}, ${existingDir}): saving updates it.`;
+        const root = uiConfigCache ? uiConfigCache.create_root : null;
+        const relative = root ? relativeToRoot(root, existing.destination_path) : null;
+        if (existing.file_path && relative !== dest) {
+            problems.push(`#${existing.movie_id} has a file in ${existingDir}: its directory is changed in the Movies tab (Edit, the file is moved)`);
+        }
+    } else if (title.trim() && tab && tab.checkedTitle === title) {
+        status.className = 'text-xs mt-1 text-success movie-create-new';
+        status.textContent = 'New title: a movie is created.';
+    } else {
+        status.className = 'text-xs mt-1';
+    }
     preview.innerHTML = '';
-    preview.appendChild(el('span', 'text-muted', (dest || '(library root)') + '/'));
-    preview.appendChild(el('span', 'text-main', `${title || '<title>'}${suffix}`));
-    preview.appendChild(el('span', 'text-muted', '.<ext>'));
+    const line = (key, ...nodes) => {
+        const row = el('div');
+        row.append(el('span', 'text-muted', key + ': '), ...nodes);
+        preview.appendChild(row);
+    };
+    line('Movie', el('span', 'text-main', title || '<title>'), el('span', 'text-muted', existing ? ` (update of #${existing.movie_id})` : ' (new)'));
+    line('Directory', el('span', 'font-mono text-main', (dest || '(library root)') + '/'));
+    line('File name', el('span', 'font-mono text-muted', `…${MOVIE_SUFFIX_PLACEHOLDER}.<ext>`), el('span', 'text-muted', ' → '),
+        el('span', 'font-mono text-success movie-create-suffix-shown', `…${suffix}.<ext>`), el('span', 'text-muted', ' (from the rename pattern of the rule that matches the file)'));
     if (problems.length) preview.appendChild(el('div', 'text-warning text-xs mt-1', '⚠ ' + problems.join('; ')));
-    document.getElementById('movie-create-btn').disabled = problems.length > 0;
+    button.textContent = existing ? `Update movie #${existing.movie_id}` : 'Create Movie';
+    button.disabled = problems.length > 0;
 }
 
 // Opens the creation tab with a title (from a Bulk Regex card); the movie
@@ -594,40 +780,42 @@ function updateMovieCreatePreview() {
 function startMovieCreation(title, groupId) {
     switchTab('movie-create-tab');
     setMovieCreateField('movie-create-title', title || '');
+    checkMovieCreateTitle();
     movieCreateTab.returnGroupId = groupId === undefined ? null : groupId;
     document.getElementById('movie-create-back').classList.toggle('hidden', movieCreateTab.returnGroupId === null);
     document.getElementById('movie-create-title').focus();
 }
 
+// `movies` creates or updates by title (database only), full data.
 async function submitMovieCreate() {
     const { dest, title, suffix } = movieCreateValues();
     const number = (id, def, parse) => { const v = parse(document.getElementById(id).value); return isNaN(v) ? def : v; };
     const payload = {
-        destination_path: dest,
         title,
+        destination_path: dest,
         suffix,
         original_language: document.getElementById('movie-create-lang').value.trim() || 'en',
         number_cut: number('movie-create-cut', 10, v => parseInt(v, 10)),
         cut_file_to_get_delay_second_method: number('movie-create-ratio', 2.0, parseFloat)
     };
+    // full data: no id is null
     const ids = movieCreateTab.meta.getIds();
-    if (Object.keys(ids).length) payload.metadata_ids = ids;
+    payload.metadata_ids = Object.keys(ids).length ? ids : null;
     const button = document.getElementById('movie-create-btn');
     button.disabled = true;
     try {
         const result = await movieApi.post('movies', payload);
-        showToast(`${result.message || 'Movie created'} (#${result.movie_id})`, 'success', 5000);
+        showToast(`${result.message || 'Movie saved'}: ${result.title} (#${result.movie_id})`, 'success', 5000);
         invalidateMovies();
-        const movie = (await fetchMovies(true)).find(m => m.id === result.movie_id);
+        const movie = (await fetchMovies(true)).find(m => m.movie_id === result.movie_id) || result;
         if (movieCreateTab.returnGroupId !== null && movie) {
             linkMovieToRegexGroup(movieCreateTab.returnGroupId, movie);
             showToast('Linked to its Bulk Regex group: "← Back to Bulk Regex"', 'info', 5000);
         }
-        movieCreateTab.browser.load(movieCreateTab.browser.dir, true);
     } catch (e) {
-        showToast('Movie not created: ' + e.message, 'error', 8000);
+        showToast('Movie not saved: ' + e.message, 'error', 8000);
     } finally {
-        updateMovieCreatePreview();
+        await checkMovieCreateTitle();
     }
 }
 
@@ -647,8 +835,63 @@ function initMovieRegexTab() {
     fetchUiConfig().catch(() => null).then(renderMovieRegexBoard);
 }
 
+// mode 'new': a new rule for the files; mode 'replace': the regex of an
+// existing rule (`rule`) checked on real files of the watched folder.
 function newMovieRegexGroup(files) {
-    return { id: movieRegexTab.nextId++, files: [...files], regexManual: null, movie: null, weight: 1, saved: false, error: null, result: null };
+    return { id: movieRegexTab.nextId++, mode: 'new', files: [...files], regexManual: null, renameManual: null, movie: null, weight: 1, saved: false, error: null, result: null };
+}
+
+function movieRenameOf(group) {
+    return group.renameManual !== null ? group.renameManual : movieRenameFor(group.files);
+}
+
+// One rename pattern field (input, live preview of the final name with the
+// movie's suffix, validation). options: value, files() -> names (the first
+// one is the example), movie() -> movie or null, onInput(value),
+// repropose() -> value or null (no button). field.problem() -> null or text.
+function createMovieRenameField(options) {
+    const box = el('div', 'form-group mt-2 movie-rename-box');
+    box.appendChild(el('label', 'label', `Rename Pattern (${MOVIE_SUFFIX_PLACEHOLDER} = the movie's suffix; empty = the file keeps its name)`));
+    const row = el('div', 'flex items-center movie-inline-row');
+    const input = movieInput('text', 'input font-mono pattern-input movie-rename-input', options.value || '');
+    input.placeholder = `e.g. Movie A (2001)${MOVIE_SUFFIX_PLACEHOLDER}.mkv`;
+    row.appendChild(input);
+    if (options.repropose) {
+        row.appendChild(movieButton('Re-propose', 'btn btn-secondary btn-sm movie-rename-repropose', () => {
+            input.value = options.repropose();
+            input.dispatchEvent(new Event('input'));
+        }, 'The first name without the parts that differ between the files, {<suffix>} before the extension'));
+    }
+    const message = el('div', 'mt-1 text-xs validation-msg movie-rename-msg');
+    const preview = el('div', 'text-sm movie-rename-preview');
+    box.append(row, message, preview);
+    const field = { box, input };
+    field.problem = () => movieRenameProblem(input.value);
+    field.refresh = () => {
+        const problem = field.problem();
+        const value = input.value;
+        message.textContent = problem ? '⚠ Rename pattern ' + problem : (value ? `✓ Holds ${MOVIE_SUFFIX_PLACEHOLDER}` : 'No rename pattern: the file keeps its downloaded name');
+        message.className = `mt-1 text-xs validation-msg movie-rename-msg ${problem ? 'text-danger' : (value ? 'text-success' : 'text-muted')}`;
+        preview.innerHTML = '';
+        const files = options.files();
+        const movie = options.movie();
+        const example = files[0] || '';
+        if (problem) return;
+        if (!value && !example) return;
+        const name = movieRenamedName(value, movie ? movie.suffix : '', example);
+        preview.append(el('span', 'text-muted', 'Final file: '));
+        if (movie) preview.append(el('span', 'font-mono text-muted', `${movieRel(movie.destination_path)}/`));
+        preview.append(el('span', 'font-mono text-success movie-rename-final', movie || !value ? name : value.split(MOVIE_SUFFIX_PLACEHOLDER).join('<suffix>')));
+        if (!movie && value) preview.append(el('span', 'text-muted', ' (link a movie: its suffix replaces <suffix>)'));
+        else if (movie) preview.append(el('span', 'text-muted', ` (suffix "${movie.suffix || ''}"${value ? '' : ', name kept'})`));
+    };
+    input.oninput = () => { if (options.onInput) options.onInput(input.value); field.refresh(); };
+    field.refresh();
+    return field;
+}
+
+function movieBoardGroups() {
+    return movieRegexTab.groups.filter(g => g.mode !== 'replace');
 }
 
 function movieRegexOf(group) {
@@ -657,7 +900,7 @@ function movieRegexOf(group) {
 
 async function addMovieRegexFiles(names) {
     if (!movieRegexTab) initMovieRegexTab();
-    const known = new Set([...movieRegexTab.groups.flatMap(g => g.files), ...movieRegexTab.covered.map(c => c.name)]);
+    const known = new Set([...movieBoardGroups().flatMap(g => g.files), ...movieRegexTab.covered.map(c => c.name)]);
     const fresh = names.filter(n => !known.has(n));
     if (!fresh.length) return;
     let rules = [];
@@ -690,6 +933,7 @@ function renderMovieRegexCovered() {
         const left = el('div', 'rule-row-patterns');
         left.appendChild(el('div', 'font-mono text-accent mb-1', rule.regex_pattern));
         left.appendChild(el('div', 'text-muted text-sm', `→ ${movieLabel(rule)} — ${movieRel(rule.destination_path)} (#${rule.movie_id})`));
+        left.appendChild(el('div', 'text-muted text-xs font-mono movie-rule-rename', rule.rename_pattern ? `rename: ${rule.rename_pattern}` : 'no rename pattern: names kept'));
         const files = el('div', 'rule-files');
         files.appendChild(el('div', 'text-xs text-muted uppercase', `Already matched by this rule (${entries.length})`));
         entries.forEach(entry => {
@@ -705,7 +949,9 @@ function renderMovieRegexCovered() {
             files.appendChild(line);
         });
         left.appendChild(files);
-        row.append(left, el('div', 'badge', `W: ${rule.weight}`));
+        const side = el('div', 'movie-rule-side');
+        side.append(el('div', 'badge', `W: ${rule.weight}`), movieButton('Edit regex', 'btn btn-secondary btn-sm movie-rule-replace', () => startMovieRegexReplace(rule, entries.map(e => e.name)), 'Change this rule\'s regex, checked on these files and the other files of the watched folder it matches'));
+        row.append(left, side);
         content.appendChild(row);
     });
 }
@@ -713,10 +959,12 @@ function renderMovieRegexCovered() {
 function moveMovieRegexFile(name, fromId, toId) {
     if (fromId === toId) return;
     const from = movieRegexTab.groups.find(g => g.id === fromId);
-    if (!from) return;
+    if (!from || from.mode === 'replace') return;
+    if (toId !== null && movieRegexTab.groups.some(g => g.id === toId && g.mode === 'replace')) return;
     from.files = from.files.filter(f => f !== name);
     from.saved = false;
     from.regexManual = null;
+    from.renameManual = null;
     if (toId === null) {
         const own = newMovieRegexGroup([name]);
         own.movie = from.movie;
@@ -728,6 +976,7 @@ function moveMovieRegexFile(name, fromId, toId) {
         to.files.push(name);
         to.saved = false;
         to.regexManual = null;
+        to.renameManual = null;
     }
     movieRegexTab.groups = movieRegexTab.groups.filter(g => g.files.length);
     renderMovieRegexBoard();
@@ -759,7 +1008,9 @@ function linkMovieToRegexGroup(groupId, movie) {
 function renderMovieRegexBoard() {
     const container = document.getElementById('movie-regex-cards');
     container.innerHTML = '';
-    const groups = movieRegexTab.groups;
+    const replacing = movieRegexTab.groups.filter(g => g.mode === 'replace');
+    replacing.forEach(group => container.appendChild(renderMovieReplaceCard(group)));
+    const groups = movieBoardGroups();
     if (!groups.length) {
         container.appendChild(el('div', 'text-muted text-sm empty-board', 'Add the downloaded files of one or several movies: "+ Add Files".'));
         return;
@@ -770,9 +1021,9 @@ function renderMovieRegexBoard() {
     const buttons = el('div', 'board-toolbar-buttons');
     const allFiles = () => groups.flatMap(g => g.files);
     buttons.append(
-        movieButton('Auto-group', 'btn btn-secondary btn-sm board-auto-group', () => { movieRegexTab.groups = groupByNamePattern(allFiles()).map(newMovieRegexGroup); renderMovieRegexBoard(); }, 'Regroup every file by the words its name shares with the others (manual edits are dropped)'),
-        movieButton('Split all', 'btn btn-secondary btn-sm board-split-all', () => { movieRegexTab.groups = allFiles().map(n => newMovieRegexGroup([n])); renderMovieRegexBoard(); }, 'One file per card (manual edits are dropped)'),
-        movieButton('Clear', 'btn btn-secondary btn-sm', () => { movieRegexTab.groups = []; movieRegexTab.covered = []; renderMovieRegexCovered(); renderMovieRegexBoard(); }, 'Remove every file from the board')
+        movieButton('Auto-group', 'btn btn-secondary btn-sm board-auto-group', () => { movieRegexTab.groups = [...replacing, ...groupByNamePattern(allFiles()).map(newMovieRegexGroup)]; renderMovieRegexBoard(); }, 'Regroup every file by the words its name shares with the others (manual edits are dropped)'),
+        movieButton('Split all', 'btn btn-secondary btn-sm board-split-all', () => { movieRegexTab.groups = [...replacing, ...allFiles().map(n => newMovieRegexGroup([n]))]; renderMovieRegexBoard(); }, 'One file per card (manual edits are dropped)'),
+        movieButton('Clear', 'btn btn-secondary btn-sm', () => { movieRegexTab.groups = replacing; movieRegexTab.covered = []; renderMovieRegexCovered(); renderMovieRegexBoard(); }, 'Remove every file from the board (the "Edit rule" cards stay)')
     );
     bar.appendChild(buttons);
     container.appendChild(bar);
@@ -824,6 +1075,16 @@ function renderMovieRegexCard(group) {
     regexBox.append(regexRow, regexMsg);
     card.appendChild(regexBox);
 
+    // Rename pattern (proposed from the names, previewed with the movie's suffix)
+    const rename = createMovieRenameField({
+        value: movieRenameOf(group),
+        files: () => group.files,
+        movie: () => group.movie,
+        onInput: value => { group.renameManual = value; group.saved = false; refreshCheck(); },
+        repropose: () => movieRenameFor(group.files)
+    });
+    card.appendChild(rename.box);
+
     // Movie + weight
     const linkRow = el('div', 'movie-link-row');
     const movieBox = el('div', 'form-group movie-link-movie');
@@ -846,7 +1107,7 @@ function renderMovieRegexCard(group) {
     else if (group.saved && group.result) movieMessage(errorBox, group.result, 'success');
 
     const footer = el('div', 'group-footer');
-    const save = movieButton('Save Rule', 'btn btn-primary btn-sm movie-regex-save', () => saveMovieRegexGroup(group, regexInput.value, save));
+    const save = movieButton('Save Rule', 'btn btn-primary btn-sm movie-regex-save', () => saveMovieRegexGroup(group, regexInput.value, rename.input.value, save));
     footer.appendChild(save);
     card.appendChild(footer);
 
@@ -871,21 +1132,21 @@ function renderMovieRegexCard(group) {
             regexMsg.textContent = '✓ Matches every file of the group';
             regexMsg.className = 'mt-1 text-xs text-success validation-msg';
         }
-        save.disabled = !check.allMatch || !group.movie;
+        save.disabled = !check.allMatch || !group.movie || !!rename.problem();
     }
 
     function refreshMovie() {
         finalLine.innerHTML = '';
         existing.innerHTML = '';
+        rename.refresh();
         refreshCheck();
         if (!group.movie) {
             finalLine.appendChild(el('span', 'text-muted', 'Link the group to a movie.'));
             return;
         }
         const movie = group.movie;
-        finalLine.append(el('span', 'text-muted', 'Becomes '), el('span', 'font-mono text-success', `${movieRel(movie.destination_path)}/${movieFileName(movie, movieFileExtension(group.files[0]))}`));
-        if (movie.file_path) finalLine.appendChild(el('span', 'text-muted', ` (the movie already has ${movieBaseName(movie.file_path)}: a newcomer is merged with it)`));
-        loadMovieRulesFor(movie.id).then(rules => {
+        if (movie.file_path) finalLine.appendChild(el('span', 'text-muted', `The movie already has ${movieBaseName(movie.file_path)}: a newcomer is merged with it.`));
+        loadMovieRulesFor(movie.movie_id).then(rules => {
             if (group.movie !== movie) return;
             existing.innerHTML = '';
             existing.appendChild(el('div', 'text-xs text-muted uppercase mt-2', rules.length ? `Existing rules of this movie (${rules.length})` : 'This movie has no rule yet'));
@@ -894,6 +1155,7 @@ function renderMovieRegexCard(group) {
                 const row = el('div', 'rule-row');
                 const left = el('div', 'rule-row-patterns');
                 left.appendChild(el('div', 'font-mono text-accent', rule.regex_pattern));
+                left.appendChild(el('div', 'text-muted text-xs font-mono movie-rule-rename', rule.rename_pattern ? `rename: ${rule.rename_pattern}` : 'no rename pattern: names kept'));
                 const matched = selection.filter(name => movieRegexMatches(rule.regex_pattern, name));
                 if (matched.length) {
                     const files = el('div', 'rule-files');
@@ -907,7 +1169,10 @@ function renderMovieRegexCard(group) {
                     });
                     left.appendChild(files);
                 }
-                row.append(left, el('div', 'badge', `W: ${rule.weight}`));
+                const side = el('div', 'movie-rule-side');
+                const full = { ...rule, movie_id: movie.movie_id, title: movie.title, suffix: movie.suffix, destination_path: movie.destination_path };
+                side.append(el('div', 'badge', `W: ${rule.weight}`), movieButton('Edit regex', 'btn btn-secondary btn-sm movie-rule-replace', () => startMovieRegexReplace(full, matched), 'Change this rule\'s regex in a card of its own, checked on the real files it matches'));
+                row.append(left, side);
                 existing.appendChild(row);
             });
         }).catch(e => { existing.appendChild(el('div', 'text-danger text-sm', 'Rules not loaded: ' + e.message)); });
@@ -926,22 +1191,219 @@ function loadMovieRulesFor(movieId) {
     return cache.get(movieId);
 }
 
-async function saveMovieRegexGroup(group, pattern, button) {
+async function saveMovieRegexGroup(group, pattern, renamePattern, button) {
     if (!group.movie) { showToast('Link the group to a movie first', 'error'); return; }
     if (!checkMovieRegex(pattern, group.files).allMatch) { showToast('The regex must match every file of the group', 'error'); return; }
+    const problem = movieRenameProblem(renamePattern);
+    if (problem) { showToast('Rename pattern ' + problem, 'error'); return; }
     button.disabled = true;
     try {
-        const result = await movieApi.post('regex', { regex_pattern: pattern, movie_id: group.movie.id, weight: group.weight, example_filename: group.files[0] });
+        const result = await movieApi.post('regex', { regex_pattern: pattern, movie_id: group.movie.movie_id, rename_pattern: renamePattern || null, weight: group.weight, example_filename: group.files[0] });
         group.saved = true;
         group.error = null;
         group.regexManual = pattern;
+        group.renameManual = renamePattern;
         group.result = `${result.message || 'Regex saved'} → ${result.final_file_name}`;
         showToast(group.result, 'success', 5000);
-        movieRegexTab.rulesByMovie.delete(group.movie.id);
+        movieRegexTab.rulesByMovie.delete(group.movie.movie_id);
     } catch (e) {
         group.saved = false;
         group.error = e.message;
         showToast('Rule not saved: ' + e.message, 'error', 8000);
+    } finally {
+        renderMovieRegexBoard();
+    }
+}
+
+// Editing the regex of an existing rule happens here, on real files: a card
+// in replace mode holds the current regex and the watched-folder files it
+// matches (plus `extraFiles`, real names already on the page); more files come
+// from the file modal. The new regex must match every file of the card, and
+// VMSAM checks it on the first one (regex_replace: the pattern, plus the
+// rename pattern only when it was edited here; the movie and the weight
+// stay). rule: { regex_pattern, movie_id, title, suffix, destination_path,
+// weight, rename_pattern }.
+async function startMovieRegexReplace(rule, extraFiles) {
+    switchTab('movie-regex-tab');
+    const open = movieRegexTab.groups.find(g => g.mode === 'replace' && !g.saved && g.rule.regex_pattern === rule.regex_pattern);
+    if (open) {
+        const card = document.querySelector(`#movie-regex-cards .movie-group-card[data-group-id="${open.id}"]`);
+        if (card) card.scrollIntoView({ block: 'start' });
+        return open;
+    }
+    const group = newMovieRegexGroup(extraFiles || []);
+    group.mode = 'replace';
+    group.rule = rule;
+    group.regexManual = rule.regex_pattern;
+    group.renameManual = rule.rename_pattern || '';
+    group.movie = { movie_id: rule.movie_id, title: rule.title, suffix: rule.suffix, destination_path: rule.destination_path };
+    group.loading = true;
+    movieRegexTab.groups.unshift(group);
+    renderMovieRegexBoard();
+    try {
+        // the movie as VMSAM has it now (its suffix for the preview)
+        const movie = (await fetchMovies()).find(m => m.movie_id === rule.movie_id);
+        if (movie) group.movie = movie;
+    } catch (e) { /* the rule's own copy is kept */ }
+    try {
+        const items = await api.listFiles('', 'files');
+        const matched = items.filter(i => !i.is_dir && isVideoName(i.name) && movieRegexMatches(rule.regex_pattern, i.name)).map(i => i.name);
+        group.files = [...new Set([...group.files, ...matched])];
+    } catch (e) {
+        group.error = 'Watched folder not listed: ' + e.message;
+    }
+    group.loading = false;
+    renderMovieRegexBoard();
+    const card = document.querySelector(`#movie-regex-cards .movie-group-card[data-group-id="${group.id}"]`);
+    if (card) card.scrollIntoView({ block: 'start' });
+    return group;
+}
+
+function renderMovieReplaceCard(group) {
+    const rule = group.rule;
+    const card = el('div', `card group-card movie-group-card movie-replace-card${group.saved ? ' saved' : ''}`);
+    card.dataset.groupId = String(group.id);
+    card.dataset.pattern = rule.regex_pattern;
+
+    const header = el('div', 'group-header');
+    const title = el('div');
+    title.appendChild(el('span', 'text-muted text-xs uppercase font-bold', 'Edit rule'));
+    title.appendChild(el('span', 'badge', `${group.files.length} file${group.files.length === 1 ? '' : 's'}`));
+    if (group.saved) title.appendChild(el('span', 'badge badge-success', 'saved ✓'));
+    header.append(title, movieButton('🗑️', 'btn-icon', () => { movieRegexTab.groups = movieRegexTab.groups.filter(g => g !== group); renderMovieRegexBoard(); }, 'Close this card (the rule is unchanged unless saved)'));
+    card.appendChild(header);
+
+    const about = el('div', 'text-sm movie-replace-about');
+    const current = el('div');
+    current.append(el('span', 'text-muted', group.saved ? 'Regex: ' : 'Current regex: '), el('span', 'font-mono text-accent movie-replace-current', rule.regex_pattern));
+    const owner = el('div', 'text-muted');
+    owner.textContent = `Movie #${rule.movie_id} ${movieLabel(rule)} — ${movieRel(rule.destination_path)} · weight ${rule.weight} (the weight, the movie and the rename pattern alone change in the Rules tab)`;
+    about.append(current, owner);
+    card.appendChild(about);
+
+    const list = el('div', 'group-files');
+    if (group.loading) list.appendChild(el('div', 'text-muted text-sm', 'Listing the watched folder…'));
+    group.files.forEach(name => {
+        const row = el('div', 'group-file');
+        const label = el('span', 'group-file-name font-mono', name);
+        label.title = name;
+        row.append(label, el('span', 'badge'), movieButton('−', 'btn-icon eject movie-replace-remove', () => {
+            group.files = group.files.filter(f => f !== name);
+            group.saved = false;
+            renderMovieRegexBoard();
+        }, 'Leave this file out of the check'));
+        list.appendChild(row);
+    });
+    card.appendChild(list);
+    const addRow = el('div', 'movie-replace-add');
+    addRow.appendChild(movieButton('+ Add files', 'btn btn-secondary btn-sm movie-replace-add-btn', () => openFileModal(names => {
+        const fresh = names.filter(n => !group.files.includes(n));
+        if (!fresh.length) return;
+        group.files.push(...fresh);
+        group.saved = false;
+        renderMovieRegexBoard();
+    }), 'Add files of the watched folder the new regex must match too'));
+    card.appendChild(addRow);
+
+    const regexBox = el('div', 'form-group mt-2');
+    regexBox.appendChild(el('label', 'label', 'New regex (Python, no episode group)'));
+    const regexRow = el('div', 'flex items-center movie-inline-row');
+    const regexInput = movieInput('text', 'input font-mono pattern-input movie-regex-input', group.regexManual);
+    regexRow.append(regexInput, movieButton('Re-propose', 'btn btn-secondary btn-sm', () => {
+        group.regexManual = movieRegexFor(group.files);
+        group.saved = false;
+        renderMovieRegexBoard();
+    }, 'A regex built from the files of this card'), movieButton('Reset', 'btn btn-secondary btn-sm movie-replace-reset', () => {
+        group.regexManual = rule.regex_pattern;
+        group.saved = false;
+        renderMovieRegexBoard();
+    }, 'Back to the current regex'));
+    const regexMsg = el('div', 'mt-1 text-xs validation-msg');
+    regexBox.append(regexRow, regexMsg);
+    card.appendChild(regexBox);
+
+    // the rule's rename pattern, kept (sent only when edited here)
+    const rename = createMovieRenameField({
+        value: group.renameManual,
+        files: () => group.files,
+        movie: () => group.movie,
+        onInput: value => { group.renameManual = value; group.saved = false; refreshCheck(); }
+    });
+    card.appendChild(rename.box);
+
+    const errorBox = el('div', 'movie-message hidden');
+    card.appendChild(errorBox);
+    if (group.error) movieMessage(errorBox, group.error, 'danger');
+    else if (group.saved && group.result) movieMessage(errorBox, group.result, 'success');
+
+    const footer = el('div', 'group-footer');
+    const save = movieButton('Save new regex', 'btn btn-primary btn-sm movie-replace-save', () => saveMovieRegexReplace(group, regexInput.value, rename.input.value, save));
+    footer.appendChild(save);
+    card.appendChild(footer);
+
+    const refreshCheck = () => {
+        const check = checkMovieRegex(regexInput.value, group.files);
+        list.querySelectorAll('.group-file').forEach((row, i) => {
+            const badge = row.querySelector('.badge');
+            badge.textContent = check.perFile[i].match ? 'match' : 'no match';
+            badge.className = `badge ${check.perFile[i].match ? 'badge-success' : 'badge-danger'}`;
+        });
+        let text;
+        let kind;
+        if (group.loading) { text = ''; kind = 'muted'; }
+        else if (!group.files.length) { text = '⚠ No file of the watched folder matches this rule. VMSAM checks the new regex on a real file name: add one with "+ Add files" to save.'; kind = 'warning'; }
+        else if (check.syntaxError) { text = '⚠ Invalid regex: ' + check.syntaxError; kind = 'danger'; }
+        else if (!check.allMatch) {
+            const failing = check.perFile.filter(f => !f.match).length;
+            text = `⚠ ${failing} file${failing > 1 ? 's' : ''} not matched`;
+            kind = 'warning';
+        } else if (check.hasGroup) { text = '⚠ A movie rule needs no episode group'; kind = 'warning'; }
+        else if (regexInput.value === rule.regex_pattern && !group.saved && rename.input.value !== (rule.rename_pattern || '')) { text = 'The regex is unchanged: a rename pattern alone is changed in the Rules tab'; kind = 'warning'; }
+        else if (regexInput.value === rule.regex_pattern) { text = group.saved ? '✓ Saved' : 'Unchanged: edit the regex'; kind = group.saved ? 'success' : 'muted'; }
+        else { text = `✓ Matches every file of the card (VMSAM checks it on ${group.files[0]})`; kind = 'success'; }
+        regexMsg.textContent = text;
+        regexMsg.className = `mt-1 text-xs text-${kind} validation-msg`;
+        save.disabled = group.loading || !group.files.length || !check.allMatch || regexInput.value === rule.regex_pattern || !!rename.problem();
+    };
+    regexInput.oninput = () => { group.regexManual = regexInput.value; group.saved = false; refreshCheck(); };
+    refreshCheck();
+    return card;
+}
+
+async function saveMovieRegexReplace(group, pattern, renamePattern, button) {
+    const old = group.rule.regex_pattern;
+    if (!group.files.length) { showToast('Add a real file name first: VMSAM checks the regex on it', 'error'); return; }
+    if (!checkMovieRegex(pattern, group.files).allMatch) { showToast('The new regex must match every file of the card', 'error'); return; }
+    const problem = movieRenameProblem(renamePattern);
+    if (problem) { showToast('Rename pattern ' + problem, 'error'); return; }
+    const payload = { regex_pattern: old, new_regex_pattern: pattern, example_filename: group.files[0] };
+    const renameEdited = renamePattern !== (group.rule.rename_pattern || '');
+    if (renameEdited) payload.rename_pattern = renamePattern || null;
+    button.disabled = true;
+    try {
+        const result = await movieApi.post('regex_replace', payload);
+        group.saved = true;
+        group.error = null;
+        group.regexManual = pattern;
+        group.rule = { ...group.rule, regex_pattern: pattern, rename_pattern: renameEdited ? (renamePattern || null) : group.rule.rename_pattern };
+        group.result = `${result.message || 'Regex replaced'}${result.final_file_name ? ' → ' + result.final_file_name : ''}`;
+        showToast(group.result, 'success', 5000);
+        movieRegexTab.rulesByMovie.delete(group.rule.movie_id);
+        // files listed under the old rule: kept under the new one when it
+        // still matches them, back on the board otherwise
+        const lost = [];
+        movieRegexTab.covered = movieRegexTab.covered.filter(entry => {
+            if (entry.rule.regex_pattern !== old) return true;
+            if (movieRegexMatches(pattern, entry.name)) { entry.rule = { ...entry.rule, regex_pattern: pattern }; return true; }
+            lost.push(entry.name);
+            return false;
+        });
+        if (lost.length) groupByNamePattern(lost).forEach(files => movieRegexTab.groups.push(newMovieRegexGroup(files)));
+        renderMovieRegexCovered();
+    } catch (e) {
+        group.saved = false;
+        group.error = e.message;
+        showToast('Regex not replaced: ' + e.message, 'error', 8000);
     } finally {
         renderMovieRegexBoard();
     }
@@ -952,11 +1414,12 @@ async function saveMovieRegexGroup(group, pattern, button) {
 let movieIndexTab = null;
 
 function initMovieIndexTab() {
-    if (movieIndexTab) { if (movieIndexTab.movie) showIndexMovie(movieIndexTab.movie.id); return; }
+    if (movieIndexTab) { if (movieIndexTab.movie) showIndexMovie(movieIndexTab.movie.movie_id); return; }
     movieIndexTab = { movie: null, picker: null, dirPicker: null };
-    movieIndexTab.picker = createMoviePicker(document.getElementById('movie-index-picker'), (movie) => showIndexMovie(movie.id), clearIndexMovie);
+    movieIndexTab.picker = createMoviePicker(document.getElementById('movie-index-picker'), (movie) => showIndexMovie(movie.movie_id), clearIndexMovie);
     movieIndexTab.dirPicker = createMovieFolderPicker(document.getElementById('movie-index-dir-picker'), showIndexDirMovies, () => { document.getElementById('movie-index-dir-movies').innerHTML = ''; });
-    document.getElementById('movie-index-reload').onclick = () => { if (movieIndexTab.movie) showIndexMovie(movieIndexTab.movie.id); };
+    document.getElementById('movie-index-browse').onclick = () => openMovieFolderModal('Directory holding the movie', folder => movieIndexTab.dirPicker.select(folder), movieParentDir(movieIndexTab.dirPicker.selected));
+    document.getElementById('movie-index-reload').onclick = () => { if (movieIndexTab.movie) showIndexMovie(movieIndexTab.movie.movie_id); };
     document.getElementById('movie-index-run').onclick = runIndexMovie;
     fetchUiConfig().catch(e => showToast('Cannot read the library root: ' + e.message, 'error'));
 }
@@ -1002,12 +1465,12 @@ async function showIndexMovie(movieId) {
         filesBox.appendChild(el('div', 'text-danger text-sm', e.message));
         return;
     }
-    if (!movieIndexTab.picker.selected || movieIndexTab.picker.selected.id === movie.id) movieIndexTab.picker.select(movie, true);
+    if (!movieIndexTab.picker.selected || movieIndexTab.picker.selected.movie_id === movie.movie_id) movieIndexTab.picker.select(movie, true);
 
     info.innerHTML = '';
     [
         ['Directory', movieRel(movie.destination_path)],
-        ['Final name', movieFileName(movie, '.<ext>')],
+        ['Suffix', movie.suffix ? `"${movie.suffix}"` : '(none)'],
         ['Registered file', movie.file_path ? `${movieBaseName(movie.file_path)} (weight ${movie.file_weight})` : 'none']
     ].forEach(([key, value]) => {
         const line = el('div');
@@ -1019,7 +1482,9 @@ async function showIndexMovie(movieId) {
     rulesBox.appendChild(el('div', 'text-xs text-muted uppercase mt-2', rules.length ? `Rules of this movie (${rules.length}, heaviest first)` : 'This movie has no rule yet: add one from a file below'));
     rules.forEach(rule => {
         const row = el('div', 'rule-row');
-        row.append(el('div', 'font-mono text-accent rule-row-patterns', rule.regex_pattern), el('div', 'badge', `W: ${rule.weight}`));
+        const left = el('div', 'rule-row-patterns');
+        left.append(el('div', 'font-mono text-accent', rule.regex_pattern), el('div', 'text-muted text-xs font-mono movie-rule-rename', rule.rename_pattern ? `rename: ${rule.rename_pattern} → ${movieRenamedName(rule.rename_pattern, movie.suffix, '')}` : 'no rename pattern: the name is kept'));
+        row.append(left, el('div', 'badge', `W: ${rule.weight}`));
         rulesBox.appendChild(row);
     });
 
@@ -1043,12 +1508,14 @@ async function showIndexMovie(movieId) {
         const actionCell = el('td', 'movie-actions-cell');
         const owner = registered.get(normalizePath(`${movie.destination_path}/${file.name}`));
         const rule = rules.find(r => movieRegexMatches(r.regex_pattern, file.name));
-        if (owner && owner.id === movie.id) statusCell.appendChild(el('span', 'badge badge-success', 'registered file of this movie'));
-        else if (owner) statusCell.appendChild(el('span', 'badge', `file of movie #${owner.id} ${movieLabel(owner)}`));
+        if (owner && owner.movie_id === movie.movie_id) statusCell.appendChild(el('span', 'badge badge-success', 'registered file of this movie'));
+        else if (owner) statusCell.appendChild(el('span', 'badge', `file of movie #${owner.movie_id} ${movieLabel(owner)}`));
         else if (rule) {
             statusCell.appendChild(el('span', 'badge badge-success', `matched (W ${rule.weight})`));
             if (!isVideoName(file.name)) statusCell.appendChild(el('span', 'badge badge-danger', 'not a video'));
             statusCell.appendChild(el('div', 'font-mono text-xs text-muted', rule.regex_pattern));
+            const renamed = movieRenamedName(rule.rename_pattern, movie.suffix, file.name);
+            statusCell.appendChild(el('div', 'font-mono text-xs text-success movie-index-new-name', renamed === file.name ? 'name kept' : `→ ${renamed}`));
         } else {
             statusCell.appendChild(el('span', 'badge badge-danger', isVideoName(file.name) ? 'no rule' : 'no rule, not a video'));
         }
@@ -1061,7 +1528,7 @@ async function showIndexMovie(movieId) {
             formRow.appendChild(formCell);
             actionCell.appendChild(movieButton('+ Rule', 'btn btn-secondary btn-sm movie-index-add-rule', () => {
                 formRow.classList.toggle('hidden');
-                if (!formCell.children.length) formCell.appendChild(renderInlineMovieRule(movie, file.name, () => showIndexMovie(movie.id)));
+                if (!formCell.children.length) formCell.appendChild(renderInlineMovieRule(movie, file.name, () => showIndexMovie(movie.movie_id)));
             }, 'Add a rule of this movie matching this file'));
             table.appendChild(formRow);
         }
@@ -1069,7 +1536,8 @@ async function showIndexMovie(movieId) {
     filesBox.appendChild(table);
 }
 
-// Inline form: a rule of `movie` built from one file name.
+// Inline form: a rule of `movie` built from one file name, with its rename
+// pattern (the name with {<suffix>} before the extension).
 function renderInlineMovieRule(movie, fileName, onSaved) {
     const box = el('div', 'movie-inline-rule');
     const input = movieInput('text', 'input font-mono pattern-input movie-inline-pattern', movieRegexFor([fileName]));
@@ -1077,10 +1545,18 @@ function renderInlineMovieRule(movie, fileName, onSaved) {
     weight.min = 1;
     const message = el('div', 'text-xs mt-1');
     const error = el('div', 'movie-message hidden');
+    let check = () => {};
+    const rename = createMovieRenameField({
+        value: movieRenameFor([fileName]),
+        files: () => [fileName],
+        movie: () => movie,
+        onInput: () => check(),
+        repropose: () => movieRenameFor([fileName])
+    });
     const save = movieButton('Save rule', 'btn btn-primary btn-sm movie-inline-save', async () => {
         save.disabled = true;
         try {
-            const result = await movieApi.post('regex', { regex_pattern: input.value, movie_id: movie.id, weight: parseInt(weight.value, 10) || 1, example_filename: fileName });
+            const result = await movieApi.post('regex', { regex_pattern: input.value, movie_id: movie.movie_id, rename_pattern: rename.input.value || null, weight: parseInt(weight.value, 10) || 1, example_filename: fileName });
             showToast(`${result.message || 'Regex saved'} → ${result.final_file_name}`, 'success', 5000);
             onSaved();
         } catch (e) {
@@ -1089,16 +1565,16 @@ function renderInlineMovieRule(movie, fileName, onSaved) {
             save.disabled = false;
         }
     });
-    const check = () => {
+    check = () => {
         const ok = checkMovieRegex(input.value, [fileName]).allMatch;
         message.textContent = ok ? '✓ Matches the file' : '⚠ Does not match the file';
         message.className = `text-xs mt-1 ${ok ? 'text-success' : 'text-warning'}`;
-        save.disabled = !ok;
+        save.disabled = !ok || !!rename.problem();
     };
     input.oninput = check;
     const row = el('div', 'flex items-center movie-inline-row');
     row.append(input, weight, save);
-    box.append(el('label', 'label', `New rule of ${movieLabel(movie)} (pattern, weight)`), row, message, error);
+    box.append(el('label', 'label', `New rule of ${movieLabel(movie)} (pattern, weight)`), row, message, rename.box, error);
     check();
     return box;
 }
@@ -1109,7 +1585,8 @@ const MOVIE_SKIP_REASONS = {
     not_selected: 'another file was taken (heavier rule or larger file)',
     target_exists: 'the final name already exists on disk',
     target_registered: 'the final name is another movie\'s file',
-    rename_failed: 'the rename failed'
+    rename_failed: 'the rename failed',
+    invalid_rename_pattern: 'the rule\'s rename pattern gives no valid file name with this suffix'
 };
 
 async function runIndexMovie() {
@@ -1119,7 +1596,7 @@ async function runIndexMovie() {
     const report = document.getElementById('movie-index-report');
     button.disabled = true;
     try {
-        const result = await movieApi.post('index_movie', { movie_id: movie.id });
+        const result = await movieApi.post('index_movie', { movie_id: movie.movie_id });
         showToast(result.message || 'Indexed', (result.indexed || []).length ? 'success' : 'info', 5000);
         report.innerHTML = '';
         report.classList.remove('hidden');
@@ -1153,7 +1630,7 @@ async function runIndexMovie() {
         }
         report.appendChild(el('div', 'text-sm text-muted mt-2', `Files already registered to a movie: ${result.already_indexed}`));
         invalidateMovies();
-        await showIndexMovie(movie.id);
+        await showIndexMovie(movie.movie_id);
     } catch (e) {
         showToast('Indexing refused: ' + e.message, 'error', 8000);
     } finally {
@@ -1166,7 +1643,7 @@ async function runIndexMovie() {
 let movieMoveTab = null;
 
 function initMovieMoveTab() {
-    if (movieMoveTab) { movieMoveTab.browser.load(movieMoveTab.browser.dir, true); return; }
+    if (movieMoveTab) return;
     const picker = createMovieFolderPicker(document.getElementById('movie-move-picker'), (folder) => { movieMoveTab.shown = showMovieMoveFolder(folder); }, () => {
         movieMoveTab.folder = null;
         movieMoveTab.relative = null;
@@ -1175,20 +1652,13 @@ function initMovieMoveTab() {
         document.getElementById('movie-move-path').value = '';
         updateMovieMovePreview();
     });
-    const browser = createMovieDirBrowser({
-        containerId: 'movie-move-browser',
-        filterId: 'movie-move-filter',
-        hereText: 'Move here',
-        hereTitle: 'Move the directory directly inside this one',
-        onPick: setMovieMoveInside,
-        markRows: markMovieMoveRows
-    });
-    movieMoveTab = { picker, browser, folder: null, relative: null, keepReport: false, shown: null };
+    movieMoveTab = { picker, folder: null, relative: null, keepReport: false, shown: null };
+    document.getElementById('movie-move-source-browse').onclick = () => openMovieFolderModal('Directory to move', folder => picker.select(folder), movieParentDir(movieMoveTab.folder));
+    document.getElementById('movie-move-browse').onclick = openMovieMoveBrowser;
     document.getElementById('movie-move-path').addEventListener('input', updateMovieMovePreview);
     document.getElementById('movie-move-btn').onclick = moveMovieFolder;
     fetchUiConfig().then(config => { document.getElementById('movie-move-root').textContent = config.create_root; })
         .catch(e => showToast('Cannot read the library root: ' + e.message, 'error'));
-    browser.load('');
     updateMovieMovePreview();
 }
 
@@ -1213,7 +1683,6 @@ async function showMovieMoveFolder(folder) {
         input.value = relative;
     }
     updateMovieMovePreview();
-    markMovieMoveRows();
     const moviesBox = document.getElementById('movie-move-movies');
     moviesBox.innerHTML = '';
     try {
@@ -1222,7 +1691,7 @@ async function showMovieMoveFolder(folder) {
         if (movieMoveTab.folder !== folder) return;
         moviesBox.appendChild(el('div', 'text-muted', `Movies moved with it (${movies.length}):`));
         const list = el('ul', 'movie-plain-list');
-        movies.forEach(m => list.appendChild(el('li', 'font-mono', `#${m.id} ${movieLabel(m)}${normalizePath(m.destination_path) !== own ? ' — in ' + movieRel(m.destination_path) : ''}`)));
+        movies.forEach(m => list.appendChild(el('li', 'font-mono', `#${m.movie_id} ${movieLabel(m)}${normalizePath(m.destination_path) !== own ? ' — in ' + movieRel(m.destination_path) : ''}`)));
         moviesBox.appendChild(list);
     } catch (e) { moviesBox.appendChild(el('div', 'text-danger', e.message)); }
 }
@@ -1236,18 +1705,30 @@ function setMovieMoveInside(dir) {
     if (!movieMoveTab.folder) { showToast('Select the directory to move first', 'error'); return; }
     const name = movieMoveName();
     document.getElementById('movie-move-path').value = dir ? `${dir}/${name}` : name;
-    document.querySelectorAll('#movie-move-browser .dir-item[data-path]').forEach(row => row.classList.toggle('selected', row.dataset.path === dir));
     updateMovieMovePreview();
 }
 
-function markMovieMoveRows() {
-    if (!movieMoveTab) return;
-    document.querySelectorAll('#movie-move-browser .dir-item[data-path]').forEach(row => {
-        const isCurrent = movieMoveTab.relative !== null && row.dataset.path === movieMoveTab.relative;
-        row.classList.toggle('dir-registered', isCurrent);
-        const badge = row.querySelector('.register-badge');
-        if (isCurrent && !badge) row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this directory'));
-        if (!isCurrent && badge) badge.remove();
+// The destination picker: the directory chosen receives the moved one under
+// its current name; the directory itself is marked and cannot be its own
+// destination.
+function openMovieMoveBrowser() {
+    const tab = movieMoveTab;
+    if (!tab.folder || tab.relative === null) { showToast('Select the directory to move first', 'error'); return; }
+    const own = tab.relative;
+    const name = movieMoveName();
+    const typed = cleanRelativePath(document.getElementById('movie-move-path').value);
+    movieDirPicker({
+        title: `Move "${name}" into…`,
+        hint: 'Select the directory to move it into: it keeps its name, and the path can be edited afterwards.',
+        start: typed.split('/').slice(0, -1).join('/') || own.split('/').slice(0, -1).join('/'),
+        chooseLabel: 'Move inside this one',
+        blocked: dir => (own && (dir === own || dir.startsWith(own + '/'))) ? 'A directory cannot move inside itself' : null,
+        decorate: (row, item) => {
+            if (item.path !== own) return;
+            row.classList.add('dir-registered');
+            row.querySelector('.dir-name').appendChild(el('span', 'badge badge-success register-badge', 'this directory'));
+        },
+        onPick: setMovieMoveInside
     });
 }
 
@@ -1281,12 +1762,12 @@ async function moveMovieFolder() {
         const result = await movieApi.post('folders_move', { destination_path: tab.relative, new_destination_path: newPath });
         invalidateMovies();
         const movies = await fetchMovies(true);
-        const moved = (result.movies_updated || []).map(id => movies.find(m => m.id === id)).filter(Boolean);
+        const moved = (result.movies_updated || []).map(id => movies.find(m => m.movie_id === id)).filter(Boolean);
         showToast(`${result.message || 'Folder moved'}: ${moved.length} movie${moved.length === 1 ? '' : 's'}, ${result.files_updated} file path${result.files_updated === 1 ? '' : 's'} updated`, 'success', 6000);
         report.innerHTML = '';
         report.appendChild(el('div', 'text-muted', 'Moved movies:'));
         const list = el('ul', 'font-mono move-removed-list movie-move-moved');
-        moved.forEach(m => list.appendChild(el('li', null, `#${m.id} ${movieLabel(m)} → ${movieRel(m.destination_path)}`)));
+        moved.forEach(m => list.appendChild(el('li', null, `#${m.movie_id} ${movieLabel(m)} → ${movieRel(m.destination_path)}`)));
         report.appendChild(list);
         const removed = result.removed_directories || [];
         if (removed.length) {
@@ -1301,7 +1782,6 @@ async function moveMovieFolder() {
             tab.picker.select({ destination_path: result.new_destination_path, movies_count: moved.length });
             await tab.shown;
         } finally { tab.keepReport = false; }
-        tab.browser.load(tab.browser.dir, true);
     } catch (e) {
         showToast('Move refused: ' + e.message, 'error', 8000);
     } finally {
@@ -1336,10 +1816,10 @@ async function loadMovieList() {
 }
 
 function movieSearchText(movie) {
-    return [movie.id, movie.title, movie.suffix, movie.destination_path, movie.file_path || '', ...Object.entries(movie.metadata_ids || {}).map(([k, v]) => `${k} ${v}`)].join(' ').toLowerCase();
+    return [movie.movie_id, movie.title, movie.suffix, movie.destination_path, movie.file_path || '', ...Object.entries(movie.metadata_ids || {}).map(([k, v]) => `${k} ${v}`)].join(' ').toLowerCase();
 }
 
-function renderMetadataChips(ids) {
+function renderMovieMetadataChips(ids) {
     const box = el('div', 'movie-chips');
     const entries = Object.entries(ids || {});
     if (!entries.length) box.appendChild(el('span', 'text-muted', '—'));
@@ -1360,16 +1840,16 @@ function renderMovieList() {
     table.appendChild(head);
     movies.forEach(movie => {
         const row = el('tr');
-        row.dataset.movieId = String(movie.id);
+        row.dataset.movieId = String(movie.movie_id);
         const idsCell = el('td');
-        idsCell.appendChild(renderMetadataChips(movie.metadata_ids));
+        idsCell.appendChild(renderMovieMetadataChips(movie.metadata_ids));
         const actions = el('td', 'movie-actions-cell');
         actions.append(
             movieButton('Edit', 'btn btn-secondary btn-sm movie-edit-btn', () => openMovieEdit(movie)),
             movieButton('Delete', 'btn btn-secondary btn-sm movie-delete-btn', () => deleteMovie(movie))
         );
         row.append(
-            el('td', 'text-muted', String(movie.id)),
+            el('td', 'text-muted', String(movie.movie_id)),
             el('td', 'movie-cell-title', movie.title),
             el('td', 'font-mono', movie.suffix || ''),
             el('td', 'font-mono text-muted', movieRel(movie.destination_path)),
@@ -1383,88 +1863,196 @@ function renderMovieList() {
     box.appendChild(table);
 }
 
-function openMovieEdit(movie) {
+// Edit. The title is the movie's key (`movies` creates or updates by title):
+// read-only here, renaming a movie = delete it and create it again. The
+// other fields are posted to `movies` with the title (database only). A new
+// directory for a movie that has a file is a move first (`movie_move`,
+// confirmed: VMSAM moves the file, same name, and deletes the old
+// directories left empty), then the other changes through `movies`. The
+// directory is relative to CREATE_ROOT (the relay prefixes it), typed or
+// chosen in the directory picker. Shown: the current file and, per rule, the
+// name its rename pattern gives with the suffix being edited (a file already
+// in place is not renamed: it applies to the next integration or merge).
+function openMovieEdit(movie, notice) {
     const card = document.getElementById('movie-edit');
     card.innerHTML = '';
     card.classList.remove('hidden');
-    card.dataset.movieId = String(movie.id);
+    card.dataset.movieId = String(movie.movie_id);
     const header = el('div', 'flex flex-between items-center');
-    header.append(el('h2', 'section-title', `Edit movie #${movie.id}`), movieButton('✕', 'btn-icon', () => card.classList.add('hidden'), 'Close'));
+    header.append(el('h2', 'section-title', `Edit movie #${movie.movie_id}`), movieButton('✕', 'btn-icon', () => card.classList.add('hidden'), 'Close'));
     card.appendChild(header);
-    card.appendChild(el('div', 'text-sm text-muted mb-2', `Directory: ${movieRel(movie.destination_path)} (moving it is the Move Folder tab)`));
-    const title = movieInput('text', 'input movie-edit-title', movie.title);
+    const notes = el('div', 'movie-edit-notice movie-message hidden');
+    card.appendChild(notes);
+    if (notice) {
+        movieMessage(notes, notice, 'success');
+        notes.classList.add('movie-edit-notice');
+    }
+
+    const titleBox = el('div', 'form-group movie-edit-title-box');
+    titleBox.appendChild(el('label', 'label', 'Title (name in VMSAM, the key of the movie)'));
+    titleBox.appendChild(el('div', 'movie-edit-title text-main', movie.title));
+    titleBox.appendChild(el('div', 'text-muted text-xs mt-1', 'Read-only: the title identifies the movie (it is not the file name). Renaming a movie = delete it and create it again under the new title (its rules must be deleted first).'));
+
+    const root = uiConfigCache ? uiConfigCache.create_root : null;
+    const currentDir = root ? relativeToRoot(root, movie.destination_path) : null;
+    const dest = movieInput('text', 'input font-mono movie-edit-dest', currentDir === null ? '' : currentDir);
+    dest.placeholder = 'Directory, relative to the library root';
+    const browse = movieButton('Browse…', 'btn btn-secondary movie-edit-browse', () => movieDirPicker({
+        title: `Directory of ${movieLabel(movie)}`,
+        hint: movie.file_path ? 'Select the directory the movie goes in. On save, VMSAM moves its file there (same name) and deletes the old directories left empty; a directory that does not exist yet can be typed: VMSAM creates it.' : 'Select the directory the movie goes in (no file registered yet: only the database changes).',
+        start: dest.value,
+        chooseLabel: 'Use this directory',
+        onPick: path => { dest.value = path; updatePreview(); }
+    }), 'Choose the directory in the library');
+    const destRow = el('div', 'flex items-center movie-inline-row');
+    destRow.append(dest, browse);
+    const destBox = movieLabelled('Directory (relative to the library root)', destRow);
+    if (currentDir === null) destBox.appendChild(el('div', 'text-warning text-xs mt-1', `Stored outside the library root (${movie.destination_path}): choose a directory under the root to save.`));
+
     const suffix = movieInput('text', 'input font-mono movie-edit-suffix', movie.suffix || '');
     const lang = movieInput('text', 'input movie-edit-lang', movie.original_language);
     const cut = movieInput('number', 'input movie-edit-cut', movie.number_cut);
     const ratio = movieInput('number', 'input movie-edit-ratio', movie.cut_file_to_get_delay_second_method);
     ratio.step = '0.1';
-    const grid = el('div', 'grid-2');
-    grid.append(movieLabelled('Title', title), movieLabelled('Suffix', suffix));
+    const suffixBox = movieLabelled(`Suffix (replaces ${MOVIE_SUFFIX_PLACEHOLDER} in the rename patterns)`, suffix);
     const grid3 = el('div', 'grid-3');
     grid3.append(movieLabelled('Original Language', lang), movieLabelled('Number Cut', cut), movieLabelled('Cut Ratio (1/N)', ratio));
     const metaHost = el('div', 'movie-edit-meta');
-    const preview = el('div', 'text-sm mt-2 font-mono movie-edit-preview');
-    const error = el('div', 'movie-message hidden');
-    card.append(grid, grid3, el('div', 'label mt-2', 'Metadata ids'), metaHost, preview, error);
+    const preview = el('div', 'text-sm mt-2 movie-edit-preview');
+    const rulesBox = el('div', 'text-sm mt-1 movie-edit-rules');
+    const report = el('div', 'hidden text-sm mt-2 movie-edit-removed');
+    const error = el('div', 'movie-message hidden movie-edit-error');
+    card.append(titleBox, destBox, suffixBox, grid3, el('div', 'label mt-2', 'Metadata ids'), metaHost, preview, rulesBox, report, error);
+
+    let rules = null;
+    let save = null;
     const updatePreview = () => {
+        const dir = cleanRelativePath(dest.value);
+        const moved = currentDir === null || dir !== currentDir;
+        const problems = [];
+        if (/\//.test(suffix.value)) problems.push('the suffix cannot hold a / (it goes in a file name)');
+        if (dir.split('/').includes('..')) problems.push('".." is refused in the directory');
+        if (currentDir === null && !dir) problems.push('choose a directory under the library root');
         preview.innerHTML = '';
-        const next = `${title.value}${suffix.value}`;
-        const changed = next !== movieLabel(movie);
-        if (movie.file_path) {
-            preview.append(el('span', 'text-muted', 'File: '), el('span', null, movieBaseName(movie.file_path)));
-            if (changed) preview.append(el('span', 'text-muted', ' → '), el('span', 'text-success', next + movieFileExtension(movie.file_path)), el('span', 'text-muted', ' (renamed on disk)'));
-        } else {
-            preview.append(el('span', 'text-muted', 'Final name: '), el('span', changed ? 'text-success' : null, next + '.<ext>'), el('span', 'text-muted', ' (no file registered yet)'));
+        const shownDir = d => (d || '(library root)') + '/';
+        const fileLine = el('div', 'movie-edit-from');
+        if (movie.file_path) fileLine.append(el('span', 'text-muted', 'Current file: '), el('span', 'font-mono text-muted', shownDir(currentDir === null ? movie.destination_path : currentDir)), el('span', 'font-mono movie-edit-file', movieBaseName(movie.file_path)));
+        else fileLine.append(el('span', 'text-muted', 'Current file: '), el('span', 'text-muted movie-edit-file', 'none registered yet'));
+        preview.appendChild(fileLine);
+        if (moved) {
+            const toLine = el('div', 'movie-edit-to');
+            toLine.append(el('span', 'text-muted', '→ '), el('span', 'font-mono text-success', shownDir(dir)), el('span', 'text-muted', movie.file_path ? ` (the file is moved there, same name: ${movieBaseName(movie.file_path)})` : ' (database only: no file yet)'));
+            preview.appendChild(toLine);
         }
+        rulesBox.innerHTML = '';
+        if (rules === null) rulesBox.appendChild(el('div', 'text-muted text-xs', 'Loading the rules…'));
+        else if (!rules.length) rulesBox.appendChild(el('div', 'text-muted text-xs', 'No rule yet: the names its files will take come from the rules\' rename patterns (Bulk Regex).'));
+        else {
+            rulesBox.appendChild(el('div', 'text-xs text-muted uppercase mt-1', `Names given by its rules with this suffix (${rules.length})`));
+            const list = el('ul', 'movie-plain-list movie-edit-rule-names');
+            rules.forEach(rule => {
+                const item = el('li', 'font-mono text-xs');
+                item.dataset.pattern = rule.regex_pattern;
+                item.append(el('span', 'text-accent', rule.regex_pattern), el('span', 'text-muted', ' → '));
+                if (rule.rename_pattern) item.append(el('span', 'text-success movie-edit-rule-name', movieRenamedName(rule.rename_pattern, suffix.value, '')));
+                else item.append(el('span', 'text-muted movie-edit-rule-name', 'name kept (no rename pattern)'));
+                list.appendChild(item);
+            });
+            rulesBox.appendChild(list);
+            if (movie.file_path && suffix.value !== (movie.suffix || '')) rulesBox.appendChild(el('div', 'text-warning text-xs', 'A new suffix does not rename the file already in place: it applies to the next integration or merge.'));
+        }
+        if (problems.length) preview.appendChild(el('div', 'text-warning text-xs mt-1', '⚠ ' + problems.join('; ')));
+        if (save) save.disabled = problems.length > 0;
     };
+    fetchMovieRules(movie.movie_id).then(found => { rules = found; updatePreview(); }).catch(e => { rules = []; rulesBox.appendChild(el('div', 'text-danger text-xs', 'Rules not loaded: ' + e.message)); });
     const meta = createMovieMetadataGenerator(metaHost, [
         { text: 'Use as suffix', use: tags => { suffix.value = ' ' + tags; updatePreview(); } },
-        { text: 'Append to suffix', use: tags => { suffix.value = appendMovieTags(suffix.value, tags); updatePreview(); } }
+        { text: 'Append to suffix', use: tags => { suffix.value = appendMovieTags(suffix.value, tags); updatePreview(); } },
+        { text: 'Append to the directory name', title: 'Adds the tags at the end of the last directory of the destination', use: tags => { dest.value = appendMovieTags(cleanRelativePath(dest.value), tags).trim(); updatePreview(); } }
     ]);
     meta.setIds(movie.metadata_ids || {});
-    [title, suffix].forEach(input => input.addEventListener('input', updatePreview));
-    updatePreview();
-    const save = movieButton('Save changes', 'btn btn-primary movie-edit-save', async () => {
-        const payload = { movie_id: movie.id };
-        if (title.value !== movie.title) payload.title = title.value;
-        if (suffix.value !== (movie.suffix || '')) payload.suffix = suffix.value;
-        if (lang.value.trim() && lang.value.trim() !== movie.original_language) payload.original_language = lang.value.trim();
-        if (cut.value !== '' && parseInt(cut.value, 10) !== movie.number_cut) payload.number_cut = parseInt(cut.value, 10);
-        if (ratio.value !== '' && parseFloat(ratio.value) !== movie.cut_file_to_get_delay_second_method) payload.cut_file_to_get_delay_second_method = parseFloat(ratio.value);
+    [dest, suffix].forEach(input => input.addEventListener('input', updatePreview));
+
+    save = movieButton('Save changes', 'btn btn-primary movie-edit-save', async () => {
+        const dir = cleanRelativePath(dest.value);
+        const number = (input, current, parse) => { const v = parse(input.value); return isNaN(v) ? current : v; };
         const ids = meta.getIds();
-        const sortedJson = obj => JSON.stringify(Object.keys(obj).sort().map(k => [k, obj[k]]));
-        if (sortedJson(ids) !== sortedJson(movie.metadata_ids || {})) payload.metadata_ids = ids;
-        if (Object.keys(payload).length === 1) { showToast('Nothing changed', 'info'); return; }
+        const payload = {
+            title: movie.title,
+            destination_path: dir,
+            suffix: suffix.value,
+            original_language: lang.value.trim() || movie.original_language,
+            number_cut: number(cut, movie.number_cut, v => parseInt(v, 10)),
+            cut_file_to_get_delay_second_method: number(ratio, movie.cut_file_to_get_delay_second_method, parseFloat),
+            metadata_ids: Object.keys(ids).length ? ids : null
+        };
+        const sortedJson = obj => JSON.stringify(Object.keys(obj || {}).sort().map(k => [k, obj[k]]));
+        const moved = currentDir === null || dir !== currentDir;
+        const othersChanged = payload.suffix !== (movie.suffix || '')
+            || payload.original_language !== movie.original_language || payload.number_cut !== movie.number_cut
+            || payload.cut_file_to_get_delay_second_method !== movie.cut_file_to_get_delay_second_method
+            || sortedJson(ids) !== sortedJson(movie.metadata_ids);
+        if (!moved && !othersChanged) { showToast('Nothing changed', 'info'); return; }
+        const moveFile = moved && !!movie.file_path;
+        if (moveFile) {
+            const confirmed = await confirmDialog(`${movieBaseName(movie.file_path)}\n${currentDir === null ? movie.destination_path : (currentDir || '(library root)')}\n→ ${dir || '(library root)'}${othersChanged ? '\nThen the other changes are saved.' : ''}`, { title: 'Move this movie\'s file on disk?', okText: 'Move and save' });
+            if (!confirmed) return;
+        }
         save.disabled = true;
         movieMessage(error, '');
+        const parts = [];
+        let current = movie;
         try {
-            const result = await movieApi.post('movies_update', payload);
-            const renamed = result.file_renamed ? ` — file renamed to ${movieBaseName(result.file_path)}` : '';
-            showToast(`${result.message || 'Movie updated'}${renamed}`, 'success', 6000);
+            if (moveFile) {
+                const result = await movieApi.post('movie_move', { movie_id: movie.movie_id, new_destination_path: dir });
+                current = result;
+                parts.push(result.message || 'Movie moved');
+                if (result.file_moved) parts.push(`file moved to ${movieRel(result.destination_path)}`);
+                showRemovedDirectories(report, result.removed_directories, root);
+            }
+            if (othersChanged || (moved && !moveFile)) {
+                const result = await movieApi.post('movies', payload);
+                current = result;
+                parts.push(result.message || 'Movie updated');
+            }
+            const text = parts.join(' — ');
+            showToast(text, 'success', 6000);
             invalidateMovies();
             await loadMovieList();
-            openMovieEdit(result);
+            const removed = report.classList.contains('hidden') ? null : report;
+            openMovieEdit(current, text);
+            if (removed) document.getElementById('movie-edit').querySelector('.movie-edit-removed').replaceWith(removed);
         } catch (e) {
-            movieMessage(error, e.message, 'danger');
             showToast('Not saved: ' + e.message, 'error', 8000);
-            save.disabled = false;
+            if (!parts.length) {
+                movieMessage(error, e.message, 'danger');
+                save.disabled = false;
+                return;
+            }
+            // the move went through, the other changes did not: the card
+            // reopens on the moved movie, with VMSAM's refusal
+            invalidateMovies();
+            await loadMovieList();
+            openMovieEdit(current, parts.join(' — '));
+            movieMessage(document.getElementById('movie-edit').querySelector('.movie-edit-error'), 'Other changes not saved: ' + e.message, 'danger');
         }
     });
     const footer = el('div', 'movie-actions mt-2');
     footer.append(movieButton('Cancel', 'btn btn-secondary', () => card.classList.add('hidden')), save);
     card.appendChild(footer);
+    updatePreview();
     card.scrollIntoView({ block: 'start' });
 }
 
 async function deleteMovie(movie) {
-    const confirmed = await confirmDialog(`#${movie.id} ${movieLabel(movie)}\n${movieRel(movie.destination_path)}${movie.file_path ? '\nIts file stays on disk: ' + movieBaseName(movie.file_path) : ''}`, { title: 'Delete this movie?', okText: 'Delete' });
+    const confirmed = await confirmDialog(`#${movie.movie_id} ${movieLabel(movie)}\n${movieRel(movie.destination_path)}${movie.file_path ? '\nIts file stays on disk: ' + movieBaseName(movie.file_path) : ''}`, { title: 'Delete this movie?', okText: 'Delete' });
     if (!confirmed) return;
     try {
-        const result = await movieApi.post('movies_delete', { movie_id: movie.id });
+        const result = await movieApi.post('movies_delete', { movie_id: movie.movie_id });
         showToast(result.message || 'Movie deleted', 'success', 6000);
         invalidateMovies();
         const card = document.getElementById('movie-edit');
-        if (card.dataset.movieId === String(movie.id)) card.classList.add('hidden');
+        if (card.dataset.movieId === String(movie.movie_id)) card.classList.add('hidden');
         loadMovieList();
     } catch (e) {
         showToast('Not deleted: ' + e.message, 'error', 10000);
@@ -1503,7 +2091,7 @@ function renderMovieRules() {
     const query = document.getElementById('movie-rules-search').value.trim().toLowerCase();
     const testName = document.getElementById('movie-rules-test').value;
     const all = movieRulesTab.rules;
-    const rules = all.filter(r => !query || [r.regex_pattern, r.title, r.suffix, r.destination_path, '#' + r.movie_id].join(' ').toLowerCase().includes(query));
+    const rules = all.filter(r => !query || [r.regex_pattern, r.title, r.suffix, r.rename_pattern || '', r.destination_path, '#' + r.movie_id].join(' ').toLowerCase().includes(query));
     document.getElementById('movie-rules-count').textContent = query ? `${rules.length} / ${all.length}` : String(all.length);
     const testResult = document.getElementById('movie-rules-test-result');
     testResult.innerHTML = '';
@@ -1516,19 +2104,21 @@ function renderMovieRules() {
     if (!rules.length) { box.appendChild(el('div', 'text-muted text-sm', all.length ? 'No rule matches the filter' : 'No movie rule yet')); return; }
     const table = el('table', 'report-table movie-table');
     const head = el('tr');
-    ['Pattern', 'Movie', 'Directory', 'W', ''].forEach(h => head.appendChild(el('th', null, h)));
+    ['Pattern', 'Movie (title)', 'Rename pattern', 'Directory', 'W', ''].forEach(h => head.appendChild(el('th', null, h)));
     table.appendChild(head);
     rules.forEach(rule => {
         const row = el('tr', testName && movieRegexMatches(rule.regex_pattern, testName) ? 'movie-row-hit' : null);
         row.dataset.pattern = rule.regex_pattern;
         const actions = el('td', 'movie-actions-cell');
         actions.append(
-            movieButton('Edit', 'btn btn-secondary btn-sm movie-rule-edit', () => { movieRulesTab.editing = movieRulesTab.editing === rule.regex_pattern ? null : rule.regex_pattern; renderMovieRules(); }),
+            movieButton('Edit', 'btn btn-secondary btn-sm movie-rule-edit', () => { movieRulesTab.editing = movieRulesTab.editing === rule.regex_pattern ? null : rule.regex_pattern; renderMovieRules(); }, 'Change the weight, the movie or the rename pattern of this rule'),
+            movieButton('Edit regex in Bulk Regex', 'btn btn-secondary btn-sm movie-rule-to-bulk', () => startMovieRegexReplace(rule, []), 'The regex is changed in Bulk Regex, checked on the real files of the watched folder'),
             movieButton('Delete', 'btn btn-secondary btn-sm movie-rule-delete', () => deleteMovieRule(rule))
         );
         row.append(
             el('td', 'font-mono text-accent', rule.regex_pattern),
-            el('td', null, `#${rule.movie_id} ${movieLabel(rule)}`),
+            el('td', 'movie-cell-title', `${movieLabel(rule)} (#${rule.movie_id})`),
+            el('td', rule.rename_pattern ? 'font-mono movie-rule-rename-cell' : 'text-muted movie-rule-rename-cell', rule.rename_pattern || 'none: name kept'),
             el('td', 'font-mono text-muted', movieRel(rule.destination_path)),
             el('td', null, String(rule.weight)),
             actions
@@ -1537,7 +2127,7 @@ function renderMovieRules() {
         if (movieRulesTab.editing === rule.regex_pattern) {
             const formRow = el('tr', 'movie-inline-form-row');
             const cell = el('td');
-            cell.colSpan = 5;
+            cell.colSpan = 6;
             cell.appendChild(renderMovieRuleEditor(rule, testName));
             formRow.appendChild(cell);
             table.appendChild(formRow);
@@ -1546,30 +2136,56 @@ function renderMovieRules() {
     box.appendChild(table);
 }
 
+// Weight, movie and rename pattern of a rule, posted to `regex` with full
+// data (the pattern unchanged); VMSAM checks the rule on an example file
+// name: one built from the regex (movieSampleFromRegex), the tested name when
+// the rule matches it, or a real name typed in. The regex itself is edited in
+// Bulk Regex. A new rename pattern does not rename a file already in place.
 function renderMovieRuleEditor(rule, testName) {
     const box = el('div', 'movie-inline-rule movie-rule-editor');
-    const pattern = movieInput('text', 'input font-mono pattern-input movie-rule-pattern', rule.regex_pattern);
+    const pattern = el('div', 'font-mono text-accent movie-rule-pattern-ro', rule.regex_pattern);
+    const toBulk = movieButton('Edit regex in Bulk Regex', 'btn btn-secondary btn-sm movie-rule-to-bulk', () => startMovieRegexReplace(rule, []), 'The regex is changed in Bulk Regex, on the real files it matches');
+    const patternRow = el('div', 'flex items-center movie-inline-row movie-rule-pattern-row');
+    patternRow.append(pattern, toBulk);
     const weight = movieInput('number', 'input text-center small-number movie-rule-weight', rule.weight);
     weight.min = 1;
-    const example = movieInput('text', 'input font-mono movie-rule-example', testName && movieRegexMatches(rule.regex_pattern, testName) ? testName : '');
-    example.placeholder = 'Example file name the rule must match (required by VMSAM)';
+    const tested = testName && movieRegexMatches(rule.regex_pattern, testName) ? testName : '';
+    const example = movieInput('text', 'input font-mono movie-rule-example', tested || movieSampleFromRegex(rule.regex_pattern) || '');
+    example.placeholder = 'A file name the rule matches (VMSAM checks the rule on it)';
     const check = el('div', 'text-xs mt-1');
     const error = el('div', 'movie-message hidden');
-    let target = { id: rule.movie_id, title: rule.title, suffix: rule.suffix, destination_path: rule.destination_path };
+    let target = { movie_id: rule.movie_id, title: rule.title, suffix: rule.suffix, destination_path: rule.destination_path };
     const pickerHost = el('div');
-    const picker = createMoviePicker(pickerHost, (movie) => { target = movie; }, () => { target = null; });
+    let refresh = () => {};
+    const rename = createMovieRenameField({
+        value: rule.rename_pattern || '',
+        files: () => (example.value ? [example.value] : []),
+        movie: () => target,
+        onInput: () => refresh()
+    });
+    const picker = createMoviePicker(pickerHost, (movie) => { target = movie; rename.refresh(); refresh(); }, () => { target = null; rename.refresh(); refresh(); });
     picker.select(target, true);
+    // the linked movie as VMSAM has it now (its suffix for the preview)
+    fetchMovies().then(movies => {
+        const found = movies.find(m => m.movie_id === rule.movie_id);
+        if (found && target && target.movie_id === found.movie_id) { target = found; rename.refresh(); }
+    }).catch(() => null);
     const save = movieButton('Save', 'btn btn-primary btn-sm movie-rule-save', async () => {
         if (!target) { showToast('Choose the movie', 'error'); return; }
-        const payload = { regex_pattern: rule.regex_pattern, example_filename: example.value };
-        if (pattern.value !== rule.regex_pattern) payload.new_regex_pattern = pattern.value;
-        if (target.id !== rule.movie_id) payload.movie_id = target.id;
+        const problem = rename.problem();
+        if (problem) { showToast('Rename pattern ' + problem, 'error'); return; }
         const w = parseInt(weight.value, 10);
-        if (!isNaN(w) && w !== rule.weight) payload.weight = w;
+        const renamePattern = rename.input.value || null;
+        const payload = { regex_pattern: rule.regex_pattern, movie_id: target.movie_id, rename_pattern: renamePattern, weight: isNaN(w) ? rule.weight : w, example_filename: example.value };
+        if (payload.movie_id === rule.movie_id && payload.weight === rule.weight && renamePattern === (rule.rename_pattern || null)) { showToast('Nothing changed', 'info'); return; }
+        if (payload.movie_id !== rule.movie_id) {
+            const confirmed = await confirmDialog(`${rule.regex_pattern}\n#${rule.movie_id} ${movieLabel(rule)}\n→ #${target.movie_id} ${movieLabel(target)}`, { title: 'Link this rule to another movie?', okText: 'Relink' });
+            if (!confirmed) return;
+        }
         save.disabled = true;
         try {
-            const result = await movieApi.post('regex_update', payload);
-            showToast(`${result.message || 'Regex updated'} → ${result.final_file_name}`, 'success', 5000);
+            const result = await movieApi.post('regex', payload);
+            showToast(`${result.message || 'Regex updated'}${result.final_file_name ? ' → ' + result.final_file_name : ''}`, 'success', 5000);
             movieRulesTab.editing = null;
             if (movieRegexTab) movieRegexTab.rulesByMovie.clear();
             loadMovieRules();
@@ -1579,21 +2195,19 @@ function renderMovieRuleEditor(rule, testName) {
             save.disabled = false;
         }
     });
-    const refresh = () => {
-        const result = checkMovieRegex(pattern.value, example.value ? [example.value] : []);
-        if (result.syntaxError) { check.textContent = '⚠ Invalid regex: ' + result.syntaxError; check.className = 'text-xs mt-1 text-danger'; }
-        else if (!example.value) { check.textContent = 'Type an example file name: VMSAM checks the rule against it'; check.className = 'text-xs mt-1 text-muted'; }
-        else if (result.allMatch) { check.textContent = '✓ Matches the example'; check.className = 'text-xs mt-1 text-success'; }
-        else { check.textContent = '⚠ Does not match the example'; check.className = 'text-xs mt-1 text-warning'; }
-        save.disabled = !(result.allMatch && example.value);
+    refresh = () => {
+        const name = example.value;
+        if (!name) { check.textContent = 'No example could be built from this regex: type a real file name it matches'; check.className = 'text-xs mt-1 text-warning'; }
+        else if (movieRegexMatches(rule.regex_pattern, name)) { check.textContent = '✓ The rule matches the example'; check.className = 'text-xs mt-1 text-success'; }
+        else { check.textContent = '⚠ The rule does not match this example'; check.className = 'text-xs mt-1 text-warning'; }
+        save.disabled = !(name && movieRegexMatches(rule.regex_pattern, name) && target) || !!rename.problem();
     };
-    pattern.oninput = refresh;
-    example.oninput = refresh;
+    example.oninput = () => { rename.refresh(); refresh(); };
     const fields = el('div', 'movie-rule-fields');
-    fields.append(movieLabelled('Pattern', pattern), movieLabelled('Weight', weight));
+    fields.append(movieLabelled('Movie', pickerHost), movieLabelled('Weight', weight));
     const footer = el('div', 'movie-actions');
     footer.append(movieButton('Cancel', 'btn btn-secondary btn-sm', () => { movieRulesTab.editing = null; renderMovieRules(); }), save);
-    box.append(fields, movieLabelled('Movie', pickerHost), movieLabelled('Example file name', example), check, error, footer);
+    box.append(movieLabelled('Regex (read-only here)', patternRow), fields, rename.box, movieLabelled('Example file name', example), check, error, footer);
     refresh();
     return box;
 }
@@ -1618,9 +2232,14 @@ const MOVIE_FUSION_POLL_MS = 5000;
 
 function initMovieErrorsTab() {
     if (!movieErrorsTab) {
-        movieErrorsTab = { timer: null };
+        movieErrorsTab = { timer: null, errors: [], movies: [], collapsed: new Set() };
         document.getElementById('movie-errors-reload').onclick = () => loadMovieErrors();
+        document.getElementById('movie-errors-search').addEventListener('input', renderMovieErrors);
+        document.getElementById('movie-errors-expand').onclick = () => setMovieErrorGroups(false);
+        document.getElementById('movie-errors-collapse').onclick = () => setMovieErrorGroups(true);
     }
+    // everything listed and expanded on arrival
+    movieErrorsTab.collapsed.clear();
     loadMovieErrors();
     pollMovieFusion();
     if (!movieErrorsTab.timer) movieErrorsTab.timer = setInterval(pollMovieFusion, MOVIE_FUSION_POLL_MS);
@@ -1659,52 +2278,86 @@ async function pollMovieFusion() {
 
 async function loadMovieErrors() {
     const box = document.getElementById('movie-errors-list');
-    let errors, movies;
     try {
         await fetchUiConfig();
         const response = await movieApi.get('errors');
-        errors = (response && response.incompatible_files) || [];
-        movies = await fetchMovies(true);
+        movieErrorsTab.errors = (response && response.incompatible_files) || [];
+        movieErrorsTab.movies = await fetchMovies(true);
     } catch (e) {
         box.innerHTML = '';
         box.appendChild(el('div', 'text-danger text-sm', e.message));
         return;
     }
-    document.getElementById('movie-errors-count').textContent = String(errors.length);
-    box.innerHTML = '';
-    if (!errors.length) { box.appendChild(el('div', 'text-muted text-sm', 'No incompatible file')); return; }
+    renderMovieErrors();
+}
+
+// Collapses (true) or expands (false) every group, the hidden ones too.
+function setMovieErrorGroups(collapsed) {
+    movieErrorsTab.collapsed = new Set(collapsed ? movieErrorsTab.errors.map(item => item.movie_id) : []);
+    renderMovieErrors();
+}
+
+// One collapsible group per movie. The search keeps a group whose title,
+// suffix or directory contains the text (all its files), or the files whose
+// path contains it; case-insensitive, no regex.
+function renderMovieErrors() {
+    const box = document.getElementById('movie-errors-list');
+    const { errors, movies, collapsed } = movieErrorsTab;
+    const query = document.getElementById('movie-errors-search').value.trim().toLowerCase();
     const byMovie = new Map();
     errors.forEach(item => {
         if (!byMovie.has(item.movie_id)) byMovie.set(item.movie_id, []);
         byMovie.get(item.movie_id).push(item);
     });
-    byMovie.forEach((items, movieId) => {
-        const first = items[0];
-        const movie = movies.find(m => m.id === movieId);
-        const group = el('div', 'card movie-error-group');
+    box.innerHTML = '';
+    let shownFiles = 0;
+    byMovie.forEach((all, movieId) => {
+        const first = all[0];
+        const movie = movies.find(m => m.movie_id === movieId);
+        const groupText = [movieLabel(first), first.destination_path, movieRel(first.destination_path), '#' + movieId].join(' ').toLowerCase();
+        const items = !query || groupText.includes(query) ? all : all.filter(item => item.file_path.toLowerCase().includes(query));
+        if (!items.length) return;
+        shownFiles += items.length;
+        const isCollapsed = collapsed.has(movieId);
+        const group = el('div', `card movie-error-group${isCollapsed ? ' collapsed' : ''}`);
         group.dataset.movieId = String(movieId);
-        const header = el('div', 'flex flex-between items-center');
-        header.append(el('h3', 'movie-error-title', `#${movieId} ${movieLabel(first)}`), el('span', 'badge', `${items.length} file${items.length > 1 ? 's' : ''}`));
-        group.append(
-            header,
-            el('div', 'text-sm text-muted font-mono', movieRel(first.destination_path)),
-            el('div', 'text-sm mb-2', movie && movie.file_path ? `Registered file: ${movieBaseName(movie.file_path)} (weight ${movie.file_weight})` : 'No registered file: a fusion has nothing to merge with')
-        );
-        const table = el('table', 'report-table');
-        items.forEach(item => {
-            const row = el('tr');
-            row.dataset.path = item.file_path;
-            const actions = el('td', 'movie-actions-cell');
-            actions.append(
-                movieButton('Relaunch fusion', 'btn btn-secondary btn-sm movie-error-fusion', () => relaunchMovieFusion(item)),
-                movieButton('Delete', 'btn btn-secondary btn-sm movie-error-delete', () => deleteMovieError(item))
-            );
-            row.append(el('td', 'font-mono', item.file_path), el('td', null, `W ${item.file_weight}`), actions);
-            table.appendChild(row);
-        });
-        group.appendChild(table);
+        const header = el('div', 'flex flex-between items-center movie-error-header');
+        header.setAttribute('role', 'button');
+        header.tabIndex = 0;
+        header.setAttribute('aria-expanded', String(!isCollapsed));
+        const titleBox = el('div', 'movie-error-heading');
+        titleBox.append(el('span', 'movie-error-icon', isCollapsed ? '▶' : '▼'), el('h3', 'movie-error-title', `#${movieId} ${movieLabel(first)}`));
+        header.append(titleBox, el('span', 'badge', items.length === all.length ? `${all.length} file${all.length > 1 ? 's' : ''}` : `${items.length} / ${all.length} files`));
+        const toggle = () => {
+            if (collapsed.has(movieId)) collapsed.delete(movieId); else collapsed.add(movieId);
+            renderMovieErrors();
+        };
+        header.onclick = toggle;
+        header.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+        group.append(header, el('div', 'text-sm text-muted font-mono', movieRel(first.destination_path)));
+        if (!isCollapsed) {
+            const body = el('div', 'movie-error-body');
+            body.appendChild(el('div', 'text-sm mb-2', movie && movie.file_path ? `Registered file: ${movieBaseName(movie.file_path)} (weight ${movie.file_weight})` : 'No registered file: a fusion has nothing to merge with'));
+            const table = el('table', 'report-table');
+            items.forEach(item => {
+                const row = el('tr');
+                row.dataset.path = item.file_path;
+                const actions = el('td', 'movie-actions-cell');
+                actions.append(
+                    movieButton('Relaunch fusion', 'btn btn-secondary btn-sm movie-error-fusion', () => relaunchMovieFusion(item)),
+                    movieButton('Delete', 'btn btn-secondary btn-sm movie-error-delete', () => deleteMovieError(item))
+                );
+                row.append(el('td', 'font-mono', item.file_path), el('td', null, `W ${item.file_weight}`), actions);
+                table.appendChild(row);
+            });
+            body.appendChild(table);
+            group.appendChild(body);
+        }
         box.appendChild(group);
     });
+    document.getElementById('movie-errors-count').textContent = query ? `${shownFiles} / ${errors.length}` : String(errors.length);
+    if (!errors.length) box.appendChild(el('div', 'text-muted text-sm', 'No incompatible file'));
+    else if (!box.children.length) box.appendChild(el('div', 'text-muted text-sm', 'Nothing matches the search'));
 }
 
 async function relaunchMovieFusion(item) {
@@ -1718,13 +2371,13 @@ async function relaunchMovieFusion(item) {
 }
 
 async function deleteMovieError(item) {
-    const confirmed = await confirmDialog(`${item.file_path}\nThe file, its logs and the row are deleted, then its directory if no video is left in it.`, { title: 'Delete this incompatible file?', okText: 'Delete' });
+    const confirmed = await confirmDialog(`${item.file_path}\nThe file, its .log.error and the row are deleted, then its error directory if only .error files are left in it.`, { title: 'Delete this incompatible file?', okText: 'Delete' });
     if (!confirmed) return;
     try {
         const result = await movieApi.post('errors_delete', { error_file_path: item.file_path });
         const parts = [`${(result.deleted_files || []).length} file(s) deleted`];
         if (result.file_was_missing) parts.push('the file was already missing');
-        if ((result.removed_directories || []).length) parts.push(`directories removed: ${result.removed_directories.join(', ')}`);
+        if ((result.removed_directories || []).length) parts.push(`directories removed: ${result.removed_directories.map(movieRel).join(', ')}`);
         showToast(`${result.message || 'Error deleted'}: ${parts.join('; ')}`, 'success', 7000);
         (result.warnings || []).forEach(w => showToast(w, 'error', 8000));
         loadMovieErrors();
@@ -1746,4 +2399,4 @@ Object.assign(TAB_INIT, {
 });
 
 // Pure helpers, exposed for tests.
-window.vmsamMovie = { movieRegexFor, checkMovieRegex, guessMovieTitle, appendMovieTags };
+window.vmsamMovie = { movieRegexFor, checkMovieRegex, guessMovieTitle, appendMovieTags, movieSampleFromRegex, movieRenameFor, movieRenameProblem, movieRenamedName };

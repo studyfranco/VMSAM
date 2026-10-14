@@ -216,13 +216,13 @@ fn has_parent_component(body: &str, field: &str) -> bool {
         .unwrap_or(false)
 }
 
-// Proxy for creating folder with absolute path enforcement
+// Create or update a folder (POST /folder/, full data): path relative to CREATE_ROOT
 #[handler]
 async fn proxy_create_folder(body: String) -> impl IntoResponse {
     if has_parent_component(&body, "destination_path") {
         return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
     }
-    proxy_post("/folders/", absolutise_field(&body, "destination_path")).await
+    proxy_post("/folder/", absolutise_field(&body, "destination_path")).await
 }
 
 // Proxy for moving/renaming a folder: same root enforcement on the target
@@ -241,7 +241,8 @@ async fn proxy_move_folder(body: String) -> impl IntoResponse {
 // Upstream routes with a fixed path: /api/vmsam/<name> -> VMSAM /<path>.
 // One table per method, so adding a VMSAM route is one line here.
 const GET_ROUTES: &[(&str, &str)] = &[
-    ("folders_list", "/folders_list/"),
+    ("folders_list", "/folders/"),
+    ("folders_like", "/folders/destination_like/"),
     ("regex_list", "/regex_folder/"),
     ("incrementaller_list", "/incrementaller_list/"),
     ("episodes_folder", "/episodes_folder/"),
@@ -256,8 +257,7 @@ const POST_ROUTES: &[(&str, &str)] = &[
     ("incrementaller", "/incrementaller/"),
     ("index_folder", "/index_folder/"),
     ("episodes_rename", "/episodes/rename/"),
-    ("folders_update", "/folders/update/"),
-    ("regex_update", "/regex/update/"),
+    ("regex_replace", "/regex/replace/"),
     ("regex_delete", "/regex/delete/"),
     ("errors_delete", "/errors/delete/"),
     ("fusion", "/fusion"),
@@ -265,11 +265,13 @@ const POST_ROUTES: &[(&str, &str)] = &[
 
 // Movie API routes: /api/movie/<name> -> VMSAM movie instance /<path>.
 const MOVIE_GET_ROUTES: &[(&str, &str)] = &[
-    ("movies_list", "/movies_list/"),
+    ("movies_list", "/movies/"),
+    ("movies_like", "/movies/destination_like/"),
+    ("movies_title_like", "/movies/title_like/"),
     ("movie", "/movie/"),
     ("regex_movie", "/regex_movie/"),
     ("regex_list", "/regex_list/"),
-    ("folders_list", "/folders_list/"),
+    ("folders_list", "/folders/"),
     ("errors", "/errors"),
     ("fusion_status", "/fusion"),
     ("health", "/health"),
@@ -277,10 +279,9 @@ const MOVIE_GET_ROUTES: &[(&str, &str)] = &[
 ];
 
 const MOVIE_POST_ROUTES: &[(&str, &str)] = &[
-    ("movies_update", "/movies/update/"),
     ("movies_delete", "/movies/delete/"),
     ("regex", "/regex/"),
-    ("regex_update", "/regex/update/"),
+    ("regex_replace", "/regex/replace/"),
     ("regex_delete", "/regex/delete/"),
     ("index_movie", "/index_movie/"),
     ("errors_delete", "/errors/delete/"),
@@ -344,7 +345,7 @@ async fn proxy_movie_create(body: String) -> impl IntoResponse {
     }
     proxy_post_to(
         &get_vmsam_movie_host(),
-        "/movies/",
+        "/movie/",
         absolutise_field(&body, "destination_path"),
     )
     .await
@@ -362,6 +363,20 @@ async fn proxy_movie_move(body: String) -> impl IntoResponse {
     proxy_post_to(
         &get_vmsam_movie_host(),
         "/folders/move/",
+        absolutise_field(&body, "new_destination_path"),
+    )
+    .await
+}
+
+// Move one movie's file to another directory: new path relative to CREATE_ROOT.
+#[handler]
+async fn proxy_movie_file_move(body: String) -> impl IntoResponse {
+    if has_parent_component(&body, "new_destination_path") {
+        return detail_response(StatusCode::BAD_REQUEST, "Invalid path".to_string());
+    }
+    proxy_post_to(
+        &get_vmsam_movie_host(),
+        "/movie/move/",
         absolutise_field(&body, "new_destination_path"),
     )
     .await
@@ -395,6 +410,7 @@ pub fn routes() -> Route {
         .at("/vmsam/folders_move", poem::post(proxy_move_folder))
         .at("/movie/movies", poem::post(proxy_movie_create))
         .at("/movie/folders_move", poem::post(proxy_movie_move))
+        .at("/movie/movie_move", poem::post(proxy_movie_file_move))
         .at(
             "/movie/:name",
             poem::get(proxy_movie_get_route).post(proxy_movie_post_route),
