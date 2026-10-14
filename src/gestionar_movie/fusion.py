@@ -15,8 +15,8 @@ The execution mode comes from VMSAM_MODE (anything but `production` is test):
 
 The result is named like the daemon's (and the show fusion's): the movie file's
 path when it weighs at least as much as the rejected file, else the name given
-by the rejected file's regex (rename pattern + suffix, or its own name). A merge
-produces Matroska, so that name gets the .mkv extension.
+by the rejected file's regex (rename pattern + suffix, or its own name), with
+the extension the rename pattern writes.
 """
 
 import os
@@ -249,9 +249,8 @@ def run_fusion_job(database_url, error_file_path):
                 new_file_path = os.path.join(current_movie.destination_path,
                                              build_file_name(matched_regex.rename_pattern, current_movie.suffix, os.path.basename(incompatible_file.file_path)))
             new_file_weight = incompatible_file.file_weight
-        # A merge always produces a .mkv. When the chosen name has another
-        # extension, the final name is a different file that must not exist.
-        new_file_path = os.path.splitext(new_file_path)[0]+'.mkv'
+        # The name is used as the rename pattern writes it, extension included
+        # (the owner's choice). Another file under that name must not exist.
         if os.path.abspath(new_file_path) != os.path.abspath(current_movie.file_path) and os.path.lexists(new_file_path):
             raise Exception(f"{new_file_path} already exists and is not the movie's file")
 

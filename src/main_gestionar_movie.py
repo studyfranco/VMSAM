@@ -116,10 +116,6 @@ def process_rejected_files(file, current_movie, session, data_rejected):
             log.write(f"\n\n{rejected_file['error']}\n{rejected_file['traceback']}\n\nMerged errors:\n{"\n".join(rejected_file['merged_errors'])}\n\nLogs:\n{"\n".join(rejected_file['merged_logs'])}\n\n")
         log.write("\n")
 
-def merged_file_path_for(file_path):
-    """A merge always produces Matroska: the chosen name with the .mkv extension."""
-    return os.path.splitext(file_path)[0]+'.mkv'
-
 def process_movie(files, movie_id, database_url):
     """Integrate every file of one movie, heaviest first (regex weight, then size). Runs in a pool process.
 
@@ -130,9 +126,9 @@ def process_movie(files, movie_id, database_url):
     - movie with a file: both are merged, the heavier as the forced best video
       (the registered file wins a tie). When the registered file weighs at
       least as much, the result keeps the registered file's path; otherwise it
-      takes the name given by the new file's regex. A merge produces Matroska,
-      so that name gets the .mkv extension, and a previous file under another
-      name is removed. On failure the lighter file goes to the error
+      takes the name given by the new file's regex, extension included as the
+      rename pattern writes it (the owner's choice), and a previous file under
+      another name is removed. On failure the lighter file goes to the error
       directory; when it is the registered one, the new file is then moved
       in as if the movie had no file.
     A final name already taken by another file stops the movie for this round,
@@ -173,12 +169,12 @@ def process_movie(files, movie_id, database_url):
                     raise Exception(f"The registered file {previous_file_path} is missing on disk, {file['nom']} left in the watch folder")
                 if previous_file_weight >= file['weight']:
                     tools.special_params["forced_best_video"] = previous_file_path
-                    new_file_path = merged_file_path_for(previous_file_path)
+                    new_file_path = previous_file_path
                     new_file_weight = previous_file_weight
                 else:
                     tools.special_params["forced_best_video"] = file['chemin']
-                    new_file_path = merged_file_path_for(os.path.join(current_movie.destination_path,
-                                                                      build_file_name(file['rename_pattern'], current_movie.suffix, file['nom'])))
+                    new_file_path = os.path.join(current_movie.destination_path,
+                                                                      build_file_name(file['rename_pattern'], current_movie.suffix, file['nom']))
                     new_file_weight = file['weight']
                 if os.path.abspath(new_file_path) != os.path.abspath(previous_file_path) and os.path.lexists(new_file_path):
                     raise Exception(f"{new_file_path} already exists and is not the movie's file, {file['nom']} left in the watch folder")
