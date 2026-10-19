@@ -122,6 +122,22 @@ def raise_first_thread_error(jobs):
             if thread.error is not None:
                 raise thread.error
 
+class get_mediadata_thread(Thread):
+    def __init__(self, video_obj):
+        Thread.__init__(self)
+        self.video_obj = video_obj
+        self.error = None
+
+    def run(self):
+        """get_mediadata() runs cross-file (defined in video.py); an exception it
+        raises (e.g. more than one real video stream) is kept in self.error for
+        the caller instead of dying silently in this thread, mirroring
+        get_delay_fidelity_thread below."""
+        try:
+            self.video_obj.get_mediadata()
+        except Exception as e:
+            self.error = e
+
 class get_delay_fidelity_thread(Thread):
     def __init__(self, video_obj_1_tmp_file,video_obj_2_tmp_file,lenghtTime):
         Thread.__init__(self)
@@ -2120,7 +2136,7 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
     forced_best_video = None
     md5_threads = []
     for videoObj in videosObj:
-        process_mediadata_thread = Thread(target=videoObj.get_mediadata)
+        process_mediadata_thread = get_mediadata_thread(videoObj)
         process_mediadata_thread.start()
         dict_file_path_obj[videoObj.filePath] = videoObj
         if tools.special_params["forced_best_video"] != "":
@@ -2130,6 +2146,11 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
             elif videoObj.fileName  == tools.special_params["forced_best_video"] or videoObj.filePath == tools.special_params["forced_best_video"]:
                 forced_best_video = videoObj.filePath
         process_mediadata_thread.join()
+        if process_mediadata_thread.error is not None:
+            # get_mediadata() died partway through the track loop (e.g. more than one
+            # real video stream): re-raise here, in the main thread, before any
+            # downstream code reads this videoObj's half-populated audios/subtitles.
+            raise process_mediadata_thread.error
         process_md5_thread = Thread(target=videoObj.calculate_md5_streams)
         process_md5_thread.start()
         md5_threads.append(process_md5_thread)
