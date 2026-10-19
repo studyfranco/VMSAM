@@ -165,11 +165,11 @@ def worker_loop():
             if result == database_unavailable:
                 stderr.write(f"Fusion job dropped for {job}: the database answers but the job kept losing it, resubmit it with POST /fusion\n")
         except BrokenProcessPool as e:
-	            # A dead child (OOM, segfault, kill -9) breaks the pool for good, so every
-	            # later submit would fail too: rebuild it. The job is not replayed.
-	            stderr.write(f"Fusion job failed for {job}: {e}\n")
-	            parrallel_jobs.shutdown(wait=False)
-	            parrallel_jobs = ProcessPoolExecutor(max_workers=1, mp_context=get_context("fork"))
+                # A dead child (OOM, segfault, kill -9) breaks the pool for good, so every
+                # later submit would fail too: rebuild it. The job is not replayed.
+                stderr.write(f"Fusion job failed for {job}: {e}\n")
+                parrallel_jobs.shutdown(wait=False)
+                parrallel_jobs = ProcessPoolExecutor(max_workers=1, mp_context=get_context("fork"))
         except Exception as e:
             stderr.write(f"Fusion job failed for {job}: {e}\n")
         finally:
