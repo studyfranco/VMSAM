@@ -358,6 +358,7 @@ def load_merge_runtime_from_env():
     global tmpFolder_original, tmpFolder, core_to_use, folder_error, software
     global mergeRules, group_title_sub, language_to_keep
     global language_to_completely_remove, language_to_try_to_keep, special_params
+    global configuration
 
     tmp_original = os.environ.get("VMSAM_TMP_FOLDER_ORIGINAL", "").strip()
     if len(tmp_original):
@@ -389,6 +390,27 @@ def load_merge_runtime_from_env():
 """
 BEGIN: AGENT modification ok
 """
+
+# A consumer reading tools.configuration before load_merge_runtime_from_env
+# (or the __main__/tests that load config.json directly) ran would otherwise
+# hit an AttributeError. The strict minimum: an empty table, read the same
+# way a loaded one would be, via .get(..., default).
+configuration = {}
+
+# The Matroska/stream tag a lossy re-encode writes to record what the track
+# was before. One name, here, so audio_reencode, video and mergeVideo never
+# spell it out as a literal.
+ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
+
+
+def dev_log(message):
+    """Write one line to stderr and `logs`, only when `dev` is set.
+
+    `message` carries its own prefix and trailing newline.
+    """
+    if dev:
+        sys.stderr.write(message)
+        logs.append(message)
 
 """
 END: AGENT modification
