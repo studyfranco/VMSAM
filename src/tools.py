@@ -233,6 +233,7 @@ sub_type_near_srt = set([
     "text",                                                      # raw timed text
     "mpl2", "pjs", "subviewer", "subviewer1", "vplayer",         # plain, no styling
 ])
+video_extensions = ('.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.webm', '.wmv', '.ogg')
 to_convert_ffmpeg_type = {
     "webvtt": ["webvtt","srt"],
     "s_text/webvtt": ["webvtt","srt"]

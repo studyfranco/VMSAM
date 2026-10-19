@@ -143,11 +143,13 @@ RUN install -d -m 0755 /etc/apt/keyrings \
 ARG VMSAM_GIT_COMMIT="IDK"
 
 RUN mkdir -p /home/vmsam/gestionar_show/ \
-    && mkdir -p /home/vmsam/gestionar_movie/
+    && mkdir -p /home/vmsam/gestionar_movie/ \
+    && mkdir -p /home/vmsam/gestionar_common/
 COPY init.sh /
-COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json run-claude.sh /home/vmsam/
+COPY --chown=vmsam:vmsam src/*.ini src/*.py run.sh src/titles_subs_group.json src/config.json src/metadata_providers.json src/metadata_brackets.json run-claude.sh /home/vmsam/
 COPY --chown=vmsam:vmsam src/gestionar_show /home/vmsam/gestionar_show/
 COPY --chown=vmsam:vmsam src/gestionar_movie /home/vmsam/gestionar_movie/
+COPY --chown=vmsam:vmsam src/gestionar_common /home/vmsam/gestionar_common/
 COPY --from=builder --chown=vmsam:vmsam /usr/src/app/target/release/audio_sync /home/vmsam/audio_sync
 RUN chmod +x /init.sh \
     && chmod +x /home/vmsam/run.sh \

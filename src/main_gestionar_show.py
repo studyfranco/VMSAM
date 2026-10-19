@@ -1,13 +1,11 @@
-import argparse
 import os
-from datetime import datetime
-from multiprocessing import Pool, Process, set_start_method, get_context
+from multiprocessing import Pool, get_context
 from concurrent.futures import ProcessPoolExecutor
 from threading import Thread
 from sys import stderr,stdout
 from time import sleep,time
 import tools
-from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data, get_all_special_rename
+from gestionar_show.model import setup_database, get_folder_data, get_all_regex, get_episode_data, get_regex_data, insert_episode, get_all_incrementaller, insert_incompatible_file, get_incompatible_files_data
 from gestionar_show.api import episode_pattern_insert
 import re
 import mergeVideo
@@ -366,41 +364,6 @@ def incrementaller(folder_files,database_url):
                     except Exception as e:
                         stderr.write(f"Error processing {fichier_match['nom']}: {e}\n")
 
-def special_renamer(folder_files,database_url):
-    """Renomme les speciaux declares par leur nom exact, avant l'incrementaller.
-
-    Un special n'a pas de numero exploitable dans le nom recu: le nom final est
-    declare une fois (table special_renames) et c'est la regex ordinaire du
-    dossier qui integre ensuite le fichier renomme. Rien n'est deplace hors du
-    dossier surveille.
-    """
-    fichiers = [
-            {'nom': fichier, 'chemin': os.path.join(folder_files, fichier)}
-            for fichier in os.listdir(folder_files)
-            if os.path.isfile(os.path.join(folder_files, fichier))
-        ]
-
-    if not fichiers:
-        return
-
-    with setup_database(database_url) as session:
-        stderr.write("Start Special Renamer !\n")
-        special_by_name = {special.file_name: special.new_file_name for special in get_all_special_rename(session)}
-
-    if not special_by_name:
-        return
-
-    for fichier in fichiers:
-        if fichier['nom'] in special_by_name:
-            new_file_path = os.path.join(folder_files, special_by_name[fichier['nom']])
-            try:
-                if os.path.exists(new_file_path):
-                    raise Exception(f"{os.path.basename(new_file_path)} already exists")
-                shutil.move(fichier['chemin'], new_file_path)
-                stderr.write(f'\tSpecial {fichier['nom']} rename in {os.path.basename(new_file_path)}\n')
-            except Exception as e:
-                stderr.write(f"Error processing special {fichier['nom']}: {e}\n")
-
 def write_api_env_file(env_path, database_url, with_merge_runtime=False):
     """Écrit le .env lu par uvicorn au démarrage d'une instance.
 
@@ -449,86 +412,3 @@ def run_uvicorn_internal(database_url, tmpFolder):
     if tools.dev:
         stderr.write(f"The tmpFolder_original = {tools.tmpFolder_original}\n")
     uvicorn.run("gestionar_show.internal_api:app", host="127.0.0.1", port=tools.internal_api_port, env_file=env_path, workers=1, log_level="error")
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='This script is the wrapper to process mkv,mp4 file to generate best file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--folder", metavar='folder', type=str,
-                       required=True, help="Folder to watch for new files to process")
-    parser.add_argument("-e","--error", metavar='error', type=str, default=".", help="Folder where send files with errors")
-    parser.add_argument("--tmp", metavar='tmpdir', type=str,
-                        default="/tmp", help="Folder where send temporar files")
-    parser.add_argument("-c","--core", metavar='core', type=int, default=1, help="number of core the merge software can use")
-    parser.add_argument("-w","--wait", metavar='wait', type=int, default=600, help="Time in second between folder check")
-    parser.add_argument("--config", metavar='configFile', type=str,
-                        default="config.ini", help="Path to the config file, by default use the config in the software folder. This config is for configure the path to your softwares")
-    parser.add_argument("--database_url_file", metavar='database_url_file', type=str,
-                        help="Database URL to connect to the gestionar_show database in a file.")
-    parser.add_argument("--pwd", metavar='pwd', type=str,
-                        default=".", help="Path to the software, put it if you use the folder from another folder")
-    parser.add_argument("--dev", dest='dev', default=False, action='store_true', help="Print more errors and write all logs")
-    args = parser.parse_args()
-    try:
-        set_start_method('fork', force=True)
-        if (not os.access(args.error, os.W_OK)):
-            raise Exception(f"{args.error} not writable")
-        if (not os.access(args.folder, os.W_OK)):
-            raise Exception(f"{args.folder} not writable")
-        if (not os.access(args.tmp, os.W_OK)):
-            raise Exception(f"{args.tmp} not writable")
-        os.chdir(args.pwd)
-        tools.dev = args.dev
-        tools.config_file = args.config
-        tools.software = tools.config_loader(args.config, "software")
-        tools.core_to_use = max(1, args.core-1)
-        tools.folder_error = args.error
-        tools.tmpFolder = args.tmp
-        tools.tmpFolder_original = os.path.join(args.tmp,"gestionar_show_"+str(datetime.now().strftime("%Y-%m-%d_%H:%M:%S")))
-        tools.mergeRules = tools.config_loader(args.config,"mergerules")
-        import json
-        with open("titles_subs_group.json") as titles_subs_group_file:
-            tools.group_title_sub = json.load(titles_subs_group_file)
-        
-        with open("config.json") as config_file:
-            config = json.load(config_file)
-        tools.configuration = config
-        tools.language_to_keep = config["language_to_keep"]
-        tools.language_to_completely_remove = set(config["language_to_completely_remove"])
-        tools.language_to_try_to_keep = config["language_to_try_to_keep"]
-
-        tools.special_params = {"change_all_und":True, "remove_commentary":True, "remove_descriptive":True, "forced_best_video_contain":False}
-        with open(args.database_url_file) as database_url_file:
-            database_url_param = json.load(database_url_file)
-        stderr.write("Setup database\n")
-        with setup_database(database_url_param["database_url"], create_tables=True) as session:
-            pass
-
-        internal_uvicorn_process = Process(target=run_uvicorn_internal, args=(database_url_param["database_url"], tools.tmpFolder))
-        internal_uvicorn_process.start()
-
-        uvicorn_process = Process(target=run_uvicorn_public, args=(database_url_param["database_url"], tools.tmpFolder))
-        uvicorn_process.start()
-        
-        stderr.write("Start !\n")
-        while True:
-            begin = time()
-            try:
-                special_renamer(args.folder,database_url_param["database_url"])
-                incrementaller(args.folder,database_url_param["database_url"])
-                process_files_in_folder(args.folder,database_url_param["database_url"])
-            except Exception as e:
-                stderr.write(f"Error: {e}\n")
-            import gc
-            gc.collect()
-            stderr.write("\n\n\n\nPOSO !!!!!!!\n\n\n\n\n")
-            waiting_time = int(args.wait-(time()-begin))
-            if waiting_time > 0:
-                sleep(waiting_time)
-        
-        uvicorn_process.terminate()
-        uvicorn_process.join()
-        internal_uvicorn_process.terminate()
-        internal_uvicorn_process.join()
-    except:
-        traceback.print_exc()
-        exit(1)
-    exit(0)

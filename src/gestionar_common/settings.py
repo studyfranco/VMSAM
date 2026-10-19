@@ -1,6 +1,6 @@
-"""Database settings shared by both uvicorn instances.
+"""Database settings shared by every uvicorn instance, show and movie.
 
-Kept in its own module so the internal worker does not have to import the public
+Kept in its own module so an internal worker does not have to import a public
 app just to read DATABASE_URL, which would build a second unused FastAPI object
 and register routes the internal instance never serves.
 """
