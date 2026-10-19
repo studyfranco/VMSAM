@@ -524,6 +524,134 @@ def _declined(hole, cause_detail, evidence=None, **extra):
     return outcome
 
 
+# Neighbour shifts re-checked by raw luma MAD after an anchor seats: a fade (a luma ramp)
+# barely separates two adjacent lags on pHash -- `frame_hash.ALIGN_MARGIN` can pass at a
+# margin as thin as 0.058 -- while the raw picture does not share that blindness.
+ANCHOR_MAD_REACH = 1
+# A neighbour lag must read lower by at least this many luma levels, averaged over the
+# anchor window, to override the shift pHash picked.
+ANCHOR_MAD_MARGIN_LEVELS = 2.0
+# The raw-MAD re-check only applies where pHash is known to be blind: a fade (a luma ramp
+# moving gradually over most of the window), never a window that merely spans a wide range
+# because of one hard step followed by a near-flat run (a cut, not a fade: CASE id 695 --
+# 183.5 171.6 171.7 171.6 169.9 ... one -11.9 step then noise of a few tenths of a level).
+# A frame-to-frame step must reach this many luma levels to count as part of the ramp.
+ANCHOR_FADE_MIN_STEP_LEVELS = 2.0
+# ...and at least this fraction of the window's steps must clear it (gradual, not a single
+# cut); the overall window must also cover at least this many levels end to end.
+ANCHOR_FADE_MIN_GRADUAL_FRACTION = 0.7
+ANCHOR_FADE_MIN_RANGE_LEVELS = 10.0
+
+
+def _is_fade_window(master_luma):
+    """True when `master_luma` (one float per frame, in frame order) reads as a fade: most
+    of its frame-to-frame steps move by at least ANCHOR_FADE_MIN_STEP_LEVELS, in the same
+    direction with at most one reversal (a fade-out into a fade-in, 747's shape, still
+    counts), over a window spanning at least ANCHOR_FADE_MIN_RANGE_LEVELS end to end. This
+    is the signature pHash is blind to (CASE_fade_anchor_shift_off_by_one) -- a single hard
+    step followed by a near-flat run is a cut, not a fade, however wide its own range."""
+    if len(master_luma) < 3:
+        return False
+    if max(master_luma) - min(master_luma) < ANCHOR_FADE_MIN_RANGE_LEVELS:
+        return False
+    diffs = [b - a for a, b in zip(master_luma[:-1], master_luma[1:])]
+    gradual = [d for d in diffs if abs(d) >= ANCHOR_FADE_MIN_STEP_LEVELS]
+    if len(gradual) < len(diffs) * ANCHOR_FADE_MIN_GRADUAL_FRACTION:
+        return False
+    signs = [1 if d > 0 else -1 for d in gradual]
+    reversals = sum(1 for a, b in zip(signs[:-1], signs[1:]) if a != b)
+    return reversals <= 1
+
+
+def _anchor_mad_confirmed_shift(domain, master_obj, candidate_obj, first, count, shift):
+    """Confirm one anchor's shift against its immediate neighbours on raw luma MAD, but
+    only over a fade window (`_is_fade_window`) -- pHash's known blind spot. Elsewhere the
+    pHash shift is kept untouched: raw MAD has no such blindness to correct, and overriding
+    it there risks trading a right shift for a wrong one (CASE id 695, master luma flat at
+    ~169-184, no ramp: a 1.1-level noise order was read as a confident MAD "winner").
+
+    Reads [first, first + count) master frames against the candidate at shift -
+    ANCHOR_MAD_REACH, shift and shift + ANCHOR_MAD_REACH (`_grey_frames`, the same raw
+    decode `_pixel_readings` uses -- never a hand-rolled transform). Returns (shift,
+    means): shift unchanged, and means None, when the window cannot be read or is not a
+    fade; otherwise the neighbour with the lowest mean absolute luma difference, kept only
+    when it beats shift's own mean by at least ANCHOR_MAD_MARGIN_LEVELS -- else unchanged.
+    """
+    import numpy as np
+    import frame_compare
+    shifts = [shift - ANCHOR_MAD_REACH, shift, shift + ANCHOR_MAD_REACH]
+    rate = domain["master_rate"]
+    scale = domain.get("time_scale")
+    comparer = frame_compare.FrameComparer(
+        master_obj.filePath, candidate_obj.filePath, 0.0, 1.0, rate.numerator,
+        rate.denominator,
+        time_scales=None if scale is None else {candidate_obj.filePath: scale})
+    try:
+        master = _grey_frames(comparer, master_obj.filePath, first, count, rate)
+        low = first + min(shifts)
+        if first < 0 or low < 0 or not len(master):
+            return shift, None
+        master_luma = [float(frame.mean()) for frame in master]
+        if not _is_fade_window(master_luma):
+            return shift, None
+        candidate = _grey_frames(comparer, candidate_obj.filePath, low,
+                                 len(master) + max(shifts) - min(shifts), rate)
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: anchor_mad_unread ({type(error).__name__}: {error})\n")
+        return shift, None
+    means = {}
+    for probed_shift in shifts:
+        values = []
+        for index in range(len(master)):
+            other = index + probed_shift - min(shifts)
+            if other < len(candidate):
+                values.append(float(np.abs(master[index] - candidate[other]).mean()))
+        if values:
+            means[probed_shift] = statistics.mean(values)
+    if shift not in means:
+        return shift, means
+    best = min(means, key=means.get)
+    if best != shift and means[shift] - means[best] >= ANCHOR_MAD_MARGIN_LEVELS:
+        return best, means
+    return shift, means
+
+
+def _anchor_shifts_mad_confirmed(result, domain, master_obj, candidate_obj):
+    """Re-check each seated anchor's shift against raw luma MAD, correcting
+    `before_shift_frames` / `after_shift_frames` when a neighbour reads clearly lower.
+
+    Anchor A's window ends at its seed (the backward side); anchor B's starts at its seed
+    (the forward side) -- the same windows `scene_anchor._anchor_window` builds.
+    """
+    import scene_anchor
+    anchor_a, anchor_b = result.get("anchor_a_frame"), result.get("anchor_b_frame")
+    before, after = result.get("before_shift_frames"), result.get("after_shift_frames")
+    updates = {}
+    if anchor_a is not None and before is not None:
+        first = max(0, anchor_a - scene_anchor.ANCHOR_WINDOW_FRAMES)
+        confirmed, means = _anchor_mad_confirmed_shift(
+            domain, master_obj, candidate_obj, first, anchor_a - first, before)
+        if confirmed != before:
+            tools.log_always(
+                f"repair: anchor_shift_mad_corrected side=A anchor={anchor_a} "
+                f"phash_shift={before} mad_shift={confirmed} means={means} "
+                f"for {candidate_obj.filePath}\n")
+            updates["before_shift_frames"] = confirmed
+    if anchor_b is not None and after is not None:
+        confirmed, means = _anchor_mad_confirmed_shift(
+            domain, master_obj, candidate_obj, anchor_b, scene_anchor.ANCHOR_WINDOW_FRAMES,
+            after)
+        if confirmed != after:
+            tools.log_always(
+                f"repair: anchor_shift_mad_corrected side=B anchor={anchor_b} "
+                f"phash_shift={after} mad_shift={confirmed} means={means} "
+                f"for {candidate_obj.filePath}\n")
+            updates["after_shift_frames"] = confirmed
+    if not updates:
+        return result
+    return dict(result, **updates)
+
+
 def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                      offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
                      resolve_shift=True, accept_step_disagreement=False):
@@ -557,6 +685,8 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
+    if not result["declined"]:
+        result = _anchor_shifts_mad_confirmed(result, domain, master_obj, candidate_obj)
     _orch().step_result("two_anchor", candidate=candidate_obj.filePath, probe=probe,
                 declined=result["declined"], reason=result.get("reason"),
                 anchor_a=result.get("anchor_a_frame"), anchor_b=result.get("anchor_b_frame"),
