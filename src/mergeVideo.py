@@ -1241,6 +1241,18 @@ def clean_forced_title(sub):
 def test_if_forced(sub):
     if "Title" in sub and (re.match(r".*forced.*", sub["Title"].lower()) or re.match(r".*forcé.*", sub["Title"].lower())):
         return True
+    """
+    BEGIN: AGENT modification ok
+    """
+    # The title regex misses an untitled forced track: fall back to the measured
+    # mkvmerge disposition bit, the same property test_if_hearing_impaired already
+    # reads for "flag_hearing_impaired" a few lines above.
+    # CASE_forced_flag_lost_chimeric_id270_20261013.md
+    if "properties" in sub and sub["properties"].get("forced_track"):
+        return True
+    """
+    END: AGENT modification
+    """
     return False
 
 def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_track_list):
@@ -1325,17 +1337,55 @@ def not_keep_ass_converted_in_srt(file_path,keep_sub_ass,keep_sub_srt):
                 tools.logs.append(f"\t\tThe sub stream {sub['StreamOrder']} is a ASS converted SRT for language {sub['Language']}.\n")
             sub['keep'] = False
 
+"""
+BEGIN: AGENT modification ok
+"""
+def sub_is_master_track(sub):
+    # The VMSAM_TMP tag generate_new_file writes on every subtitle it forwards
+    # survives the mux and is re-probed by ffprobe into sub['ffprobe']['tags'].
+    # CASE_sub_md5_dedupe_drops_master_id76_20261013.md
+    try:
+        tags = sub.get('ffprobe', {}).get('tags') or {}
+        vmsam_tmp_str = tags.get('VMSAM_TMP')
+        if vmsam_tmp_str:
+            return bool(json.loads(vmsam_tmp_str).get('is_master', False))
+    except Exception:
+        pass
+    return False
+"""
+END: AGENT modification
+"""
 def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_sub_track_list,md5_sub_already_added,list_track_order=[]):
     track_to_remove = set()
     number_track_sub = 0
     dic_language_list_track_ID = {}
-    for language,subs in video_sub_track_list.items():
-        for sub in subs:
+    """
+    BEGIN: AGENT modification ok
+    """
+    # Walk master subtitle tracks before candidate tracks: whichever track reaches
+    # an md5 first claims it, so a mistagged candidate duplicate of a correctly
+    # tagged master track must never evict the master.
+    # CASE_sub_md5_dedupe_drops_master_id76_20261013.md
+    ordered_subs = [(language, sub) for language, subs in video_sub_track_list.items() for sub in subs]
+    ordered_subs.sort(key=lambda item: 0 if sub_is_master_track(item[1]) else 1)
+    md5_master_claim = {}
+    """
+    END: AGENT modification
+    """
+    for language, sub in ordered_subs:
             if (sub['keep'] and sub['MD5'] not in md5_sub_already_added):
                 number_track_sub += 1
                 if sub['MD5'] != '':
                     md5_sub_already_added.add(sub['MD5'])
-                
+                    """
+                    BEGIN: AGENT modification ok
+                    """
+                    if sub_is_master_track(sub):
+                        md5_master_claim[sub['MD5']] = (sub["StreamOrder"], language)
+                    """
+                    END: AGENT modification
+                    """
+
                 codec = sub['ffprobe']["codec_name"].lower()
                 if codec in tools.sub_type_not_encodable:
                     type_sub = '_uncodable'
@@ -1377,7 +1427,17 @@ def generate_merge_command_insert_ID_sub_track_set_not_default(merge_cmd,video_s
                 track_to_remove.add(sub["StreamOrder"])
                 if tools.dev:
                     if sub['MD5'] in md5_sub_already_added:
-                        tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
+                        """
+                        BEGIN: AGENT modification ok
+                        """
+                        if sub['MD5'] in md5_master_claim:
+                            master_order, master_lang = md5_master_claim[sub['MD5']]
+                            tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}: same text as master track {master_order} ({master_lang}).\n")
+                        else:
+                            tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It have the same md5 as other track added.\n")
+                        """
+                        END: AGENT modification
+                        """
                     else:
                         tools.logs.append(f"\t\tTrack {sub["StreamOrder"]} with md5 {sub['MD5']} not added for {language}. It is not keep.\n")
     if len(track_to_remove):
@@ -1650,7 +1710,15 @@ def get_relative_id_track(track):
     else:
         return ":0"
 
-def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+"""
+BEGIN: AGENT modification ok
+"""
+# is_master defaults False so every existing call site is unaffected; only the
+# one caller that mux the actual best_video passes True (CASE_sub_md5_dedupe_drops_master_id76_20261013.md).
+"""
+END: AGENT modification
+"""
+def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video,is_master=False):
     if video_obj.und_in_default:
         del video_obj.audios[tools.default_language_for_undetermine]
 
@@ -1720,6 +1788,15 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 codec = sub["Format"].lower()
                 if codec in tools.sub_type_not_encodable:
                     have_sub_pgs = True
+                # BEGIN: AGENT modification ok
+                # Already SubRip or ASS/SSA: stream-copy instead of re-encoding, so
+                # markup the srt/ass encoders do not understand (e.g. <ruby><rt>)
+                # ships unchanged. Only a format that truly needs conversion (e.g.
+                # mov_text, WebVTT) still goes through the srt/ass encoder below.
+                # CASE_sub_ruby_lost_in_mux_id200_20261013.md
+                elif codec in ("subrip", "utf-8", "ass", "ssa"):
+                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "copy"])
+                # END: AGENT modification
                 elif codec in tools.sub_type_near_srt:
                     cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
                 else:
@@ -1729,6 +1806,16 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                     "original_position": int(sub.get('StreamOrder', '0')),
                     "original_delay": float(sub.get('Delay', '0'))
                 }
+                """
+                BEGIN: AGENT modification ok
+                """
+                # Carry the master/candidate origin through the mux so the final
+                # dedupe can tell them apart once every stream is re-probed from the
+                # single merged file. CASE_sub_md5_dedupe_drops_master_id76_20261013.md
+                data_to_save["is_master"] = is_master
+                """
+                END: AGENT modification
+                """
                 data_to_save_string = json.dumps(data_to_save)
 
                 cmd_first_pass.extend([f"-metadata:s:s:{sub_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
@@ -1802,7 +1889,16 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'merge_cmd' : [],
                        'metadata_cmd' : []}
     
-    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
+    """
+    BEGIN: AGENT modification ok
+    """
+    # best_video is the master file: mark it so the final subtitle dedupe can give
+    # it priority over a candidate carrying the same text.
+    # CASE_sub_md5_dedupe_drops_master_id76_20261013.md
+    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'],is_master=True)
+    """
+    END: AGENT modification
+    """
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
