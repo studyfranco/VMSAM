@@ -20,7 +20,8 @@ import shutil
 import threading
 import traceback
 from collections import deque
-from concurrent.futures import ProcessPoolExecutor,BrokenProcessPool
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 from multiprocessing import Pool, get_context
 from sys import stderr
