@@ -738,7 +738,8 @@ def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts, com
     start or after its end). `common` lists (master indices, shift) pairs already known to
     show the same picture: the candidate's tone curve is fitted on them (`candidate_tone_map`).
     The key "candidate_change" holds (first candidate frame read, per-frame mean luma change
-    from the frame before). Returns None on any read failure."""
+    from the frame before); "master_shot" the master shot of each frame (`master_shots`).
+    Returns None on any read failure."""
     import numpy as np
     rate = domain["master_rate"]
     import frame_compare
@@ -773,6 +774,9 @@ def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts, com
     changes = (np.abs(np.diff(candidate, axis=0)).mean(axis=(1, 2)) if len(candidate) > 1
                else np.zeros(0))
     readings["candidate_change"] = (low, [0.0] + [float(value) for value in changes])
+    master_changes = (np.abs(np.diff(master, axis=0)).mean(axis=(1, 2)) if len(master) > 1
+                      else np.zeros(0))
+    readings["master_shot"] = master_shots([0.0] + [float(value) for value in master_changes])
     return readings
 
 
@@ -822,26 +826,95 @@ def candidate_change_at(readings, index, shift, first):
     return changes[other] if 0 < other < len(changes) else None
 
 
-def _same_flags(row, reference):
+def level_bound(reading):
+    """Largest level departure from the steady difference that still reads the same picture."""
+    return max(PIXEL_FADE_FLOOR, min(PIXEL_FADE_LEVELS, PIXEL_FADE_SHARE * reading[3]))
+
+
+def change_limit(changes):
+    """Luma change above which a frame opens a new shot against `changes` around it:
+    BLIND_PICTURE_CHANGE_RATIO x their median, never under PIXEL_FADE_FLOOR."""
+    return max(BLIND_PICTURE_CHANGE_RATIO * statistics.median(changes) if changes else 0.0,
+               PIXEL_FADE_FLOOR)
+
+
+def opens_new_shot(changes, index):
+    """Whether frame `index` of a per-frame mean luma change list opens a new shot against the
+    PIXEL_STEADY_FRAMES frames before it (`change_limit`)."""
+    if index <= 0 or index >= len(changes):
+        return False
+    return changes[index] > change_limit(changes[max(1, index - PIXEL_STEADY_FRAMES):index])
+
+
+def master_shots(changes):
+    """Shot number of each master frame from its per-frame mean luma change: a shot opens on a
+    frame whose change passes `change_limit` against the PIXEL_STEADY_FRAMES frames on each
+    side (a cut is a spike; a moving shot or a shot that moves more than the one before is
+    not)."""
+    shots, shot = [], 0
+    for index in range(len(changes)):
+        after = changes[index + 1:index + 1 + PIXEL_STEADY_FRAMES]
+        if opens_new_shot(changes, index) and changes[index] > change_limit(after):
+            shot += 1
+        shots.append(shot)
+    return shots
+
+
+def shot_seed(row, frames):
+    """First PIXEL_TRUST_RUN_FRAMES consecutive frames of one shot that read the same picture
+    under a steady level (departing share under PIXEL_DIFF_FRACTION, centred correlation from
+    PIXEL_FADE_CORR, every level within `level_bound` of the run's median), or []."""
+    for start in range(len(frames) - PIXEL_TRUST_RUN_FRAMES + 1):
+        run = frames[start:start + PIXEL_TRUST_RUN_FRAMES]
+        if any(row[i] is None or row[i][1] >= PIXEL_DIFF_FRACTION
+               or row[i][7] < PIXEL_FADE_CORR for i in run):
+            continue
+        median = statistics.median(row[i][0] for i in run)
+        if all(abs(row[i][0] - median) <= level_bound(row[i]) for i in run):
+            return run
+    return []
+
+
+def _same_flags(row, reference, shots=None):
     """Per-frame "same picture" flags of one reading row (`_pixel_readings`).
 
     The two files' own steady level difference (a regrade, a different transfer curve, which
-    varies from scene to scene) is the median over the PIXEL_STEADY_FRAMES common frames
-    nearest each frame: first those of `reference` (known common), then, once more, every
-    frame the first pass read as the same picture, so a shot far from `reference` is judged
-    against its own steady difference. A frame differs when its local fraction reaches
-    PIXEL_DIFF_FRACTION or its level leaves the steady difference by more than
-    PIXEL_FADE_LEVELS, or by more than PIXEL_FADE_SHARE of the master's own level on a dark
-    picture (a fade or a dim frame), never less than PIXEL_FADE_FLOOR. A dark frame (either
-    side under `frame_compare.FLAT_STD`) is judged on contrast (`dark_contrast_same`); two
-    noise-flat frames (black against black) are the same picture at near levels.
+    varies from shot to shot) is the median over the PIXEL_STEADY_FRAMES common frames of the
+    same master shot (`shots`, one shot when None) nearest each frame. Common frames start as
+    `reference` (known common) plus, in a shot holding none of them, its `shot_seed`; every
+    frame read as the same picture joins them until nothing changes, so trust spreads shot by
+    shot. A shot with neither borrows the nearest common frames of the others. A frame differs
+    when its local fraction reaches PIXEL_DIFF_FRACTION or its level leaves the steady
+    difference by more than `level_bound` (a fade or a dim frame). A dark frame (either side
+    under `frame_compare.FLAT_STD`) is judged on contrast (`dark_contrast_same`); two
+    noise-flat frames (black against black) are the same picture at near levels
+    (decision: steady-level-per-master-shot).
     """
     import bisect
+    if shots is None or len(shots) != len(row):
+        shots = [0] * len(row)
+    members = {}
+    for index, shot in enumerate(shots):
+        members.setdefault(shot, []).append(index)
+
+    def is_common(index):
+        return (row[index] is not None and row[index][1] < PIXEL_DIFF_FRACTION
+                and abs(row[index][0]) <= PIXEL_DIFF_LEVELS)
+
+    def steady_of(index, common, by_shot):
+        pool = by_shot.get(shots[index]) or common
+        if not pool:
+            return 0.0
+        at = bisect.bisect_left(pool, index)
+        near = pool[max(0, at - PIXEL_STEADY_FRAMES):at + PIXEL_STEADY_FRAMES]
+        near = sorted(near, key=lambda i: abs(i - index))[:PIXEL_STEADY_FRAMES]
+        return statistics.median(row[i][0] for i in near)
 
     def judge(known):
-        common = sorted(i for i in known if row[i] is not None
-                        and row[i][1] < PIXEL_DIFF_FRACTION
-                        and abs(row[i][0]) <= PIXEL_DIFF_LEVELS)
+        common = sorted(i for i in known if is_common(i))
+        by_shot = {}
+        for index in common:
+            by_shot.setdefault(shots[index], []).append(index)
         flags = []
         for index, reading in enumerate(row):
             if reading is None or reading[1] >= PIXEL_DIFF_FRACTION:
@@ -855,18 +928,20 @@ def _same_flags(row, reference):
                     and abs(reading[0]) <= PIXEL_FADE_LEVELS):
                 flags.append(True)
                 continue
-            steady = 0.0
-            if common:
-                at = bisect.bisect_left(common, index)
-                near = common[max(0, at - PIXEL_STEADY_FRAMES):at + PIXEL_STEADY_FRAMES]
-                near = sorted(near, key=lambda i: abs(i - index))[:PIXEL_STEADY_FRAMES]
-                steady = statistics.median(row[i][0] for i in near)
-            bound = max(PIXEL_FADE_FLOOR, min(PIXEL_FADE_LEVELS, PIXEL_FADE_SHARE * reading[3]))
-            flags.append(abs(reading[0] - steady) <= bound)
+            flags.append(abs(reading[0] - steady_of(index, common, by_shot))
+                         <= level_bound(reading))
         return flags
 
-    first = judge(reference)
-    return judge(sorted(set(reference) | {i for i, flag in enumerate(first) if flag}))
+    known = {i for i in reference if 0 <= i < len(row)}
+    for shot, frames in members.items():
+        if not any(is_common(i) for i in frames if i in known):
+            known.update(shot_seed(row, frames))
+    while True:
+        flags = judge(known)
+        grown = known | {i for i, flag in enumerate(flags) if flag}
+        if grown == known:
+            return flags
+        known = grown
 
 
 def dark_contrast_same(reading):
@@ -887,7 +962,8 @@ def dark_contrast_same(reading):
 def _tolerant_flags(readings, shift, reference):
     """`_same_flags` at `shift`, a frame also counting as the same picture when it matches at
     shift - 1 or shift + 1: two releases can cut or fade the same shot one frame apart."""
-    rows = [_same_flags(readings[shift + delta], reference) for delta in (-1, 0, 1)
+    rows = [_same_flags(readings[shift + delta], reference, readings.get("master_shot"))
+            for delta in (-1, 0, 1)
             if shift + delta in readings]
     return [any(flags) for flags in zip(*rows)]
 
@@ -900,17 +976,12 @@ def tolerance_only_at_new_shot(readings, shift, index, first, reference):
     the tolerance must not decide a front."""
     if index < 0 or index >= len(readings[shift]):
         return False
-    if _same_flags(readings[shift], reference)[index]:
+    if _same_flags(readings[shift], reference, readings.get("master_shot"))[index]:
         return False
-    change = candidate_change_at(readings, index, shift, first)
-    if change is None:
+    if candidate_change_at(readings, index, shift, first) is None:
         return False
     low, changes = readings["candidate_change"]
-    other = first + index + shift - low
-    earlier = changes[max(1, other - PIXEL_STEADY_FRAMES):other]
-    limit = max(BLIND_PICTURE_CHANGE_RATIO * statistics.median(earlier) if earlier else 0.0,
-                PIXEL_FADE_FLOOR)
-    return change > limit
+    return opens_new_shot(changes, first + index + shift - low)
 
 
 def _front_forward(same, front):
@@ -2042,7 +2113,8 @@ def collapsed_cut_frame(domain, master_obj, candidate_obj, before, after, sweep,
         row = readings[shift]
         return [flag or (reading is not None and reading[7] >= PIXEL_FADE_CORR
                          and min(reading[5], reading[6]) >= PIXEL_NOISE_STD)
-                for flag, reading in zip(_same_flags(row, range(count)), row)]
+                for flag, reading in zip(_same_flags(row, range(count),
+                                                     readings.get("master_shot")), row)]
     match_before, match_after = matching(before), matching(after)
     scores = [sum(match_before[:index]) + sum(match_after[index:]) for index in range(count + 1)]
     best = [low + index for index, score in enumerate(scores) if score == max(scores)]
@@ -2806,6 +2878,52 @@ def _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj, walk):
     return point
 
 
+def edge_silent_join(kind, outcome, domain, walk, candidate_path):
+    """Rule 2 at an edge: move the join of a master edge fill onto the candidate's silence.
+
+    The master fills the edge's differing frames whatever their count; the candidate then
+    resumes (head) or stops (tail) on its first frame, at the edge's shift, that is silent on
+    every deliverable track (`_candidate_silent` over the whole frame), searched over at most
+    PIXEL_STEADY_FRAMES frames past the picture's boundary. Returns the new boundary frame
+    (head: first candidate frame kept; tail: first filled frame), or None to keep the
+    picture's own (decision: steady-level-per-master-shot).
+    """
+    import numpy as np
+    shift = outcome.get("shift_frames")
+    if walk is None or shift is None:
+        return None
+    last = outcome["master_last_frame"]
+    if kind == "head":
+        edge = outcome["master_end_frame"]
+        if edge <= 0:
+            return None
+        frames = range(edge, min(last + 1, edge + PIXEL_STEADY_FRAMES + 1))
+    else:
+        edge = outcome["master_start_frame"]
+        if edge > last or edge <= 0:
+            return None
+        frames = [frame + 1 for frame in range(edge - 1, max(-1, edge - PIXEL_STEADY_FRAMES - 2),
+                                                -1)]
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    shift_s = shift * frame_s
+
+    def silent(frame):
+        start = frame * frame_s
+        times = np.arange(start, start + frame_s - BLIND_SILENCE_WIN_S + 1e-9,
+                          BLIND_SILENCE_HOP_S)
+        return bool(_candidate_silent(walk, times, shift_s).all())
+    for join in frames:
+        if silent(join if kind == "head" else join - 1):
+            break
+    else:
+        return None
+    if join == edge:
+        return None
+    tools.log_always(f"repair: edge_silent_join edge={kind} picture_boundary={edge} "
+                     f"shift_frames={shift} placed_at_frame={join} for {candidate_path}\n")
+    return join
+
+
 # Seconds read on each side of a tail level edge to tell whether both tracks are silent there.
 TAIL_EDGE_SILENCE_S = 0.1
 
@@ -2944,10 +3062,12 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                     tools.dev_log(f"repair: edge_blind_span_unread ({type(error).__name__}: "
                                   f"{error})\n")
                     moved = None
+                if moved is None:
+                    moved = edge_silent_join(kind, outcome, domain, walk, candidate_path)
                 if moved is not None:
                     outcome = dict(outcome, **({"master_end_frame": moved} if kind == "head"
                                                else {"master_start_frame": moved}))
-                video_s = _frame_s(outcome["master_end_frame"] if kind == "head"
+                video_s =_frame_s(outcome["master_end_frame"] if kind == "head"
                                    else outcome["master_start_frame"], domain)
                 video_concluded = True
             elif (by_kind[kind][1].get("master_span_seconds") is not None
@@ -3613,8 +3733,9 @@ def _picture_side(domain, master_obj, candidate_obj, frame, before, after):
     if readings is None or not len(readings[before]):
         return None
     count = len(readings[before])
-    same_before = sum(_same_flags(readings[before], range(count)))
-    same_after = sum(_same_flags(readings[after], range(count)))
+    shots = readings.get("master_shot")
+    same_before = sum(_same_flags(readings[before], range(count), shots))
+    same_after = sum(_same_flags(readings[after], range(count), shots))
     if 3 * same_before >= 2 * count and 3 * same_after < count:
         return "before"
     if 3 * same_after >= 2 * count and 3 * same_before < count:
