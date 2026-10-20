@@ -8,6 +8,12 @@ its results. Read it before the first edit, not after a review.
 This file says **what may be changed and why**. It says nothing about what to
 build — that is `SPEC_ZONE_A.MD` and the campaign's own task documents.
 
+**The intent behind this file.** Code written by agents is meant to stay open: that
+is the whole point of having agents write it. Code that predates them — historical
+code — is frozen because the owner prefers to validate it himself before it moves.
+A change to frozen code is not refused outright: it is proposed, on its own branch,
+for the owner to review.
+
 Two rules govern everything below:
 
 1. **Default is frozen.** A path that is not listed as open is closed. Silence is
@@ -25,6 +31,10 @@ Two rules govern everything below:
 | `src/main_gestionar_show.py` | the daemon, its loop and its two uvicorn instances |
 | `src/audioCorrelation.py` | the delay measurement the whole pipeline trusts |
 | `src/main.py`, `src/infinite_wrapper.py` | the other entry points |
+| `src/main_gestionar.py` | the combined gestionar entry point |
+| `src/main_gestionar_movie.py` | the movie manager daemon |
+| `src/gestionar_common/` (all of it) | shared database and settings |
+| `src/gestionar_movie/` (all of it) | the movie manager API, model and fusion |
 | `src/tools/` | the database module |
 | `src/video.py` | **except the two tagged functions below** — media handling, ffmpeg pools, MD5 threads: the part that touches disk and processes |
 | `init.sh`, `run.sh` | production entry points |
@@ -66,7 +76,7 @@ Existing zones:
 | `tools.py` | module level | shared helpers for the above |
 | `video.py` | `get_best_quality_video` | the quality vote that names the reference — verify it really returns the best video |
 | `video.py` | `get_good_frame` | PSNR frame scan; already carries a `float()` coercion fix, see below |
-| `mergeVideo.py` | `keep_best_audio` | the `fabricated` rule — inert until the repair sets the key (`SPEC_ZONE_A.MD` §4) |
+| `mergeVideo.py` | `keep_best_audio` | the `fabricated` rule — inert until the repair sets the key (`SPEC_ZONE_A.MD` §4). Zone listed but markers absent in the code — owner decision pending. |
 
 Adding a new zone is an owner decision, not an agent one.
 
@@ -134,7 +144,7 @@ before the edit.
 ## 4. Open
 
 `src/frame_compare.py`, `src/get_cut_time.py`, `src/merge_video_unused.py`,
-`src/folder_generator.py`, `src/gestionar_movie/`, and **new runtime modules** —
+`src/folder_generator.py`, and **new runtime modules** —
 code that ships and runs in production.
 
 ### What does not go in the repository
