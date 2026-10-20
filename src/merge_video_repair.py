@@ -756,7 +756,8 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
     without it races on the normal codec rules. Commentary tracks are kept. Other tracks are compared with each intact master track of the
     same language (`measure_same_content`): same content (or unmeasurable) -> raced through
     `mergeVideo.keep_best_audio` with the configured audio rules, a re-encoded track
-    compared by its ORIGINAL_ENCODE; different content or no intact
+    compared by its ORIGINAL_ENCODE: dropped when it loses, else kept (`kept_cause`) for the
+    final merge's keep_best_audio to choose between it and the master track; different content or no intact
     track -> compared with the intact tracks of the other languages, and dropped as a duplicate
     (`cross_lang=<declared>-><matched>`) if one measures as the same content, else kept.
     `content_probe` replaces the comparison; `kept` collects kept-track decisions; past
@@ -843,6 +844,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                 lost_to = None
                 measures = []
                 verdicts = []
+                won_over = []
                 track_started = time.monotonic()
                 for intact in opponents:
                     same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
@@ -857,6 +859,8 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     if not audio["keep"]:
                         lost_to = (intact, same)
                         break
+                    if not rival["keep"]:
+                        won_over.append(intact.get("StreamOrder"))
                 cross_lang = None
                 # Only a track every same-language measure called "different" is looked up
                 # under the other languages: one that won a same-content race stays as it was.
@@ -871,16 +875,32 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                 say(f"repair: gate_cost {where} opponents={len(opponents)} "
                     f"seconds={round(time.monotonic() - track_started, 2)}")
                 if lost_to is None:
-                    say(f"repair: fabricated_kept cause=different_version {where} "
-                        f"{' '.join(measures)} reason=its fingerprint matches no "
-                        f"intact {language} master track: another version, "
-                        f"delivered with its own tags")
-                    _note_kept(kept, audio, language, holder, "different_version")
+                    cause, reason = kept_cause(verdicts, won_over, language)
+                    say(f"repair: fabricated_kept cause={cause} {where} "
+                        f"{' '.join(measures)} reason={reason}")
+                    _note_kept(kept, audio, language, holder, cause)
                     continue
                 intact, same = lost_to
                 _drop_duplicate(dropped, say, holder, language, audio, marker, where, intact,
                                 same, measures, cross_lang)
     return dropped
+
+
+def kept_cause(verdicts, won_over, language):
+    """Return (cause, reason) for a kept rebuilt track from its same-language verdicts and the masters it demoted.
+
+        kept_cause([True], ["3"], "ja")[0] == "won_keep_best_audio"
+    """
+    if all(same is False for same in verdicts):
+        return "different_version", (f"its fingerprint matches no intact {language} master "
+                                     f"track: another version, delivered with its own tags")
+    if won_over:
+        return "won_keep_best_audio", (f"same content as the intact {language} master track "
+                                       f"{won_over}, which keep_best_audio ranks below it "
+                                       f"(a re-encoded track compared by its ORIGINAL_ENCODE)")
+    return "keep_best_audio_tie", (f"same content as an intact {language} master track and "
+                                   f"keep_best_audio demotes neither: the final merge's "
+                                   f"keep_best_audio decides")
 
 
 def _cross_language_match(probe, master_obj, master_intact, language, repaired_obj, audio,

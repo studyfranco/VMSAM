@@ -3823,6 +3823,11 @@ def render_human_summary(job, geometry, merge_log=None):
                                   "langue",
         "commentary_tagged": "piste de commentaire",
         "different_version": "version différente de celle du maître",
+        "won_keep_best_audio": "même contenu qu'une piste intacte du maître, "
+                               "mieux classée par keep_best_audio (encodage "
+                               "d'origine)",
+        "keep_best_audio_tie": "même contenu qu'une piste intacte du maître, "
+                               "keep_best_audio ne départage pas",
     }
     grouped = {}
     for gate in delivery:
