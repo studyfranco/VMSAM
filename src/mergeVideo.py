@@ -17,6 +17,7 @@ from threading import Thread,RLock
 import tools
 import video
 import audio_reencode
+import merge_video_track_jobs
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -1565,85 +1566,14 @@ def check_delay_retention(new_video, original_video_path,sentence):
         for audio in audios:
             check_delay_retention_sub(audio, original_video_path,sentence)
 
-def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
-    cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
-                            "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_first_pass, 2, 3600)
+def generate_new_file_launch_cmd(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_prefix):
+    for tmp_file in merge_video_track_jobs.generate_track_files(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_prefix):
+        new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
+        new_video.need_one_audio_track = False
+        new_video.get_mediadata()
 
-    stderr_text = stderror.decode("utf-8", errors="ignore")
-
-    keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
-    any_error = []
-    for line in stderr_text.splitlines():
-        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
-            any_error.append(line)
-
-    if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
-        sys.stderr.write(f"{cmd_first_pass}\n")
-        for line in any_error:
-            sys.stderr.write(f"  {line}\n")
-
-    #sys.stderr.write(f"[FFmpeg] First pass for {video_obj.filePath}\n{stderr_text}\n")
-
-
-    new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
-    new_video.need_one_audio_track = False
-    new_video.get_mediadata()
-
-    if tools.dev:
-        check_delay_retention(new_video,video_obj.filePath,"First pass")
-
-    base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
-                    "-analyzeduration", "1000M", "-probesize", "1000M",
-                    "-threads", "5", "-vn"]
-
-    if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", tmp_file_first_pass])
-    elif delay_to_put < 0:
-        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{delay_to_put/Decimal('1000')*Decimal(-1):.6f}"])
-    else:
-        base_cmd.extend(["-i", tmp_file_first_pass])
-
-    base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
-    
-    for language,audios in new_video.audios.items():
-        for audio in audios:
-            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)
-
-    for language,audios in new_video.commentary.items():
-        for audio in audios:
-            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)
-   
-    for language,audios in new_video.audiodesc.items():
-        for audio in audios:
-            audio_reencode.generate_audio_ffmpeg_conversion_cmd(base_cmd,audio,delay_to_put,path=new_video.filePath)    
-
-    base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file])
-
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(base_cmd,5,3600)
-    tools.file_remove(tmp_file_first_pass)
-
-    stderr_text = stderror.decode("utf-8", errors="ignore")
-
-    any_error = []
-    for line in stderr_text.splitlines():
-        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
-            any_error.append(line)
-
-    if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}\n")
-        sys.stderr.write(f"{base_cmd}\n")
-        for line in any_error:
-            sys.stderr.write(f"  {line}\n")
-
-    new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
-    new_video.need_one_audio_track = False
-    new_video.get_mediadata()
-
-    if tools.dev:
-        check_delay_retention(new_video,video_obj.filePath,"Second pass")
+        if tools.dev:
+            check_delay_retention(new_video,video_obj.filePath,"Track jobs")
 
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
@@ -1669,12 +1599,6 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     if video_obj.und_in_default:
         del video_obj.audios[tools.default_language_for_undetermine]
 
-    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
-                            "-analyzeduration", "1000M", "-probesize", "1000M",
-                            "-threads", "5", "-vn", "-i", video_obj.filePath,
-                            "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown", "-copyts",
-                            "-movflags", "use_metadata_tags", "-c", "copy"]
-    
     number_track = 0
     sub_track_to_remove = []
     sub_track_to_convert_or_keep = []
@@ -1727,56 +1651,10 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     
     if number_track:
-        if len(sub_track_to_convert_or_keep):
-            have_sub_pgs = False
-            sub_relative_index = 0
-            sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-            for sub in sub_track_to_convert_or_keep:
-                codec = sub["Format"].lower()
-                if codec in tools.sub_type_not_encodable:
-                    have_sub_pgs = True
-                elif codec in tools.sub_type_near_srt:
-                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
-                else:
-                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "ass"])
+        tmp_prefix = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp")
 
-                data_to_save = {
-                    "original_position": int(sub.get('StreamOrder', '0')),
-                    "original_delay": float(sub.get('Delay', '0'))
-                }
-                data_to_save_string = json.dumps(data_to_save)
-
-                cmd_first_pass.extend([f"-metadata:s:s:{sub_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
-                sub_relative_index += 1
-            
-            if have_sub_pgs:
-                cmd_first_pass.extend(["-avoid_negative_ts", "disabled"])
-                cmd_first_pass.remove("-fflags")
-                cmd_first_pass.remove("+genpts+igndts")
-
-        if len(audio_track_to_convert_or_keep):
-            audio_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-            audio_relative_index = 0
-            for audio in audio_track_to_convert_or_keep:
-                data_to_save = {
-                    "original_position": int(audio.get('StreamOrder', '0')),
-                    "original_delay": float(audio.get('Delay', '0'))
-                }
-                data_to_save_string = json.dumps(data_to_save)
-                cmd_first_pass.extend([f"-metadata:s:a:{audio_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
-                audio_relative_index += 1
-
-        for audio in audio_track_to_remove:
-            cmd_first_pass.extend(["-map", f"-0:{audio["StreamOrder"]}"])
-            
-        for sub in sub_track_to_remove:
-            cmd_first_pass.extend(["-map", f"-0:{sub["StreamOrder"]}"])
-
-        tmp_file_first_pass = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_first_pass.mkv")
-        tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
-
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file)))
-        ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
+        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_prefix)))
+        ffmpeg_cmd_dict['merge_cmd'].extend(merge_video_track_jobs.merge_cmd_for_track_files(merge_video_track_jobs.track_file_paths(audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, tmp_prefix)))
     
     return number_track
 
@@ -1829,8 +1707,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name_split]
     merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
 
-    for convert_process in ffmpeg_cmd_dict['convert_process']:
-        convert_process.get()
+    merge_video_track_jobs.wait_track_jobs(ffmpeg_cmd_dict['convert_process'])
 
     try:
         tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
