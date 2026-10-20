@@ -1099,21 +1099,37 @@ def keep_best_audio(list_audio_metadata,audioRules):
             # marquera ses pistes.
             elif (_fabricated_verdict := tools.keep_best_audio_fabricated_trace(audio_1, audio_2)) == "side1_fabricated_loses":
                 audio_1['keep'] = False
+                tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                              f"fabricated track loses to an intact track {video.describe_audio_track(real_audio_2)}\n")
             elif _fabricated_verdict == "side2_fabricated_loses":
                 audio_2['keep'] = False
+                tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                              f"fabricated track loses to an intact track {video.describe_audio_track(real_audio_1)}\n")
             elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
                         if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) >= int(video.get_bitrate(audio_2)):
                             audio_2['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                          f"same format and channel count, lower sample rate or bitrate than "
+                                          f"{video.describe_audio_track(real_audio_1)}\n")
                         elif int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1)):
                             audio_1['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                          f"same format and channel count, lower sample rate or bitrate than "
+                                          f"{video.describe_audio_track(real_audio_2)}\n")
                     elif float(audio_1['Channels']) > float(audio_2['Channels']):
                         if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and (float(video.get_bitrate(audio_1))/float(audio_1['Channels'])) > ((float(video.get_bitrate(audio_2))/float(audio_2['Channels']))*0.90):
                             audio_2['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                          f"same format, fewer channels and not enough per-channel bitrate margin "
+                                          f"against {video.describe_audio_track(real_audio_1)}\n")
                     elif float(audio_2['Channels']) > float(audio_1['Channels']):
                         if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])) > ((float(video.get_bitrate(audio_1))/float(audio_1['Channels']))*0.90):
                             audio_1['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                          f"same format, fewer channels and not enough per-channel bitrate margin "
+                                          f"against {video.describe_audio_track(real_audio_2)}\n")
                     #else: # No winner nothing change.
                     #    audio_2['keep'] = audio_2['keep']
                     #    audio_2['keep'] = audio_1['keep']
@@ -1128,21 +1144,35 @@ def keep_best_audio(list_audio_metadata,audioRules):
                                 if isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], bool):
                                     if audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
                                         audio_2['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                                      f"config.ini audio rule {audio_1['Format'].lower()}>{audio_2['Format'].lower()} "
+                                                      f"against {video.describe_audio_track(real_audio_1)}\n")
                                 elif isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], float):
                                     if int(video.get_bitrate(audio_1)) > int(video.get_bitrate(audio_2))*audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
                                         audio_2['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                                      f"config.ini audio rule {audio_1['Format'].lower()}>{audio_2['Format'].lower()}"
+                                                      f"*{audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]} "
+                                                      f"against {video.describe_audio_track(real_audio_1)}\n")
                         except Exception as e:
                             sys.stderr.write(str(e))
                             tools.logs.append(str(e))
-                        
+
                         try:
                             if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and float(audio_2['Channels']) >= float(audio_1['Channels']):
                                 if isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], bool):
                                     if audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
                                         audio_1['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                                      f"config.ini audio rule {audio_2['Format'].lower()}>{audio_1['Format'].lower()} "
+                                                      f"against {video.describe_audio_track(real_audio_2)}\n")
                                 elif isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], float):
                                     if int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1))*audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
                                         audio_1['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                                      f"config.ini audio rule {audio_2['Format'].lower()}>{audio_1['Format'].lower()}"
+                                                      f"*{audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]} "
+                                                      f"against {video.describe_audio_track(real_audio_2)}\n")
                         except Exception as e:
                             sys.stderr.write(str(e))
                             tools.logs.append(str(e))

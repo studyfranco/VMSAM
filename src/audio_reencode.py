@@ -2,44 +2,57 @@
 Audio conversion options for ffmpeg, and the view of a re-encoded track that
 keep_best_audio compares.
 
-One entry point, generate_audio_ffmpeg_conversion_cmd, decides for one audio
-track whether to copy or convert it, and appends the per-stream options:
-
-- lossless source -> the `lossless` codec of the table (FLAC);
-- negative delay or forced conversion -> the target of the source codec in
-  the table (a codec absent from `sources` takes `default`: its own codec at
-  the source bitrate);
+generate_audio_ffmpeg_conversion_cmd appends, for one audio track:
+- lossless source (MediaInfo Compression_Mode) -> FLAC, unless
+  config.json's encode_lossless_in_flac is false;
+- negative delay, a forced conversion or an extra filter -> pick_target's
+  answer for the source codec (which may itself be FLAC, when the matched
+  leaf says so);
 - otherwise -> copy.
 
-The table is the `audio_reencode` key of config.json, read from
-tools.configuration (set by the loaders). Layout:
+config.json's `audio_reencode` table:
 
     "audio_reencode": {
-        "lossless": {"codec": "flac", "args": [...]},
-        "sources": {
-            "<ffprobe codec_name>": {"target": "<encoder>", "args": [...], "rules": [
-                {"channels": [min, max], "source_bitrate": ["min", "max"],
-                 "bitrate": "192k" | "source" | {"floor": "160k", "ceiling": "192k"},
-                 "args": [...], "filters": {"<ffprobe channel_layout>": "<filter>"}}]}},
-        "default": {"target": "same", "rules": [{"bitrate": "source"}]}
+        "encode_lossless_in_flac": true,
+        "flac_args": ["-compression_level", "12", "-exact_rice_parameters", "1"],
+        "targets": {"<encoder>": {
+            "sample_rates": [8000, 12000, 16000, 24000, 48000],
+            "filters": {"<channel count>": "<ffmpeg filter>"}
+        }},
+        "sources": {"<ffprobe codec_name>": {
+            "target": "<encoder>",
+            "bitrate": {"<threshold>": {
+                "sample_rate": {"<threshold>": {
+                    "channels": {"<threshold>": {
+                        "target": "<encoder, optional, overrides the source's>",
+                        "bitrate": "192k" | "source",
+                        "args": [...]
+                    }}
+                }}
+            }}
+        }}
     }
 
-`channels` is inclusive; `source_bitrate` is min inclusive, max exclusive,
-null max = no limit; a missing bound = no limit. The first matching rule wins.
-`{"floor", "ceiling"}` clamps the source bitrate (an unknown one takes the
-floor, else the ceiling). The rules of a source must cover 1 to 8 channels and
-0 to infinity; a track no rule covers keeps the source bitrate.
+Four stages per lossy source: codec, bitrate, sample rate, channel count.
+Each stage is a {"threshold": ...} dict: the rule picked is the one under
+the highest threshold at or below the measured value, the lowest threshold
+when the measurement is missing (select_by_threshold never raises).
+
+`sample_rates` on a target names the rates its encoder accepts without a
+resample; a measured rate outside that list gets one `aresample=<rate>`
+filter (ffmpeg's default resampler -- soxr precision 28 measured worse on a
+real null test, see AUDIO_FLAC_VS_OPUS_20261019.md). A channel-count-keyed
+filter cannot tell two layouts of the same count apart (e.g. "5.1" from
+"5.1(side)"); measured safe on real 5.1(side) tracks, see the commit log.
 '''
 
-import math
 import sys
 
 import tools
 import video
 
-LOSSLESS_FORMATS = ("flac", "pcm")
+DEFAULT_FLAC_ARGS = ["-compression_level", "12", "-exact_rice_parameters", "1"]
 NEGATIVE_DELAY_FILTER = "aresample=async=1:first_pts=0"
-ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
 
 _checked_table = None
 
@@ -54,140 +67,164 @@ def parse_bitrate(value):
         number = int(float(text.rstrip("km")) * scale)
     except ValueError:
         return None
-    if number < 0:
+    return number if number >= 0 else None
+
+
+def select_by_threshold(stage, measured):
+    '''Return the entry of `stage` (a {"threshold": entry} dict) whose key is
+    the highest number at or below `measured`, or the lowest key's entry
+    when `measured` is missing or below every key. None for an empty stage.
+    '''
+    if not stage:
         return None
-    return number
-
-
-def _bounds(rule):
-    '''Return ((min, max) channels, (min, max) source bitrate) of a rule.'''
-    low_ch, high_ch = rule.get("channels", [1, None])
-    low_br, high_br = rule.get("source_bitrate", [0, None])
-    if high_ch is None:
-        high_ch = math.inf
-    if high_br is None:
-        high_br = math.inf
-    else:
-        high_br = parse_bitrate(high_br)
-    return (int(low_ch), high_ch), (parse_bitrate(low_br), high_br)
-
-
-def _check_coverage(name, rules):
-    '''Raise ValueError when `rules` leave a gap over 1-8 channels and 0-infinity.'''
-    spans = [_bounds(rule) for rule in rules]
-    for channels in range(1, 9):
-        reach = 0
-        for low, high in sorted(br for ch, br in spans if ch[0] <= channels <= ch[1]):
-            if low is None or high is None or low > reach:
-                break
-            reach = max(reach, high)
-        if reach != math.inf:
-            raise ValueError(f"audio_reencode: source {name}: {channels} channels "
-                             f"not covered from {reach} bit/s")
+    try:
+        measured_value = float(measured)
+    except (TypeError, ValueError):
+        measured_value = None
+    best_key, best_entry = None, None
+    if measured_value is not None:
+        for key, entry in stage.items():
+            try:
+                threshold = float(key)
+            except (TypeError, ValueError):
+                continue
+            if threshold <= measured_value and (best_key is None or threshold > float(best_key)):
+                best_key, best_entry = key, entry
+    if best_key is None:
+        best_key = min(stage, key=lambda k: float(k))
+        best_entry = stage[best_key]
+    return best_entry
 
 
 def audio_rules():
-    """Return the `audio_reencode` table of tools.configuration, its coverage checked once.
-
-    Without a configuration or a table, every codec keeps its own.
-    """
+    """Return the `audio_reencode` table of tools.configuration ({} when unset)."""
     global _checked_table
     table = (getattr(tools, "configuration", None) or {}).get("audio_reencode") or {}
-    if table is not _checked_table:
-        for name, entry in table.get("sources", {}).items():
-            _check_coverage(name, entry.get("rules", []))
-        if "default" in table:
-            _check_coverage("default", table["default"].get("rules", []))
-        _checked_table = table
+    _checked_table = table
     return table
 
 
 def is_lossless(audio):
-    '''Return True for a FLAC or PCM track, or a MediaInfo Compression_Mode "Lossless".'''
-    if str(audio.get("Format", "")).lower() in LOSSLESS_FORMATS:
-        return True
+    '''Return True when the source stream is lossless.
+
+    A track already carrying an ORIGINAL_ENCODE tag went through a lossy
+    re-encode and can never be lossless again. Otherwise, MediaInfo's
+    Compression_Mode decides. A track with neither reads as not lossless.
+    '''
+    if original_encode_tag(audio) is not None:
+        return False
     return audio.get("Compression_Mode") == "Lossless"
+
+
+def build_resample_filter(target, measured_rate):
+    '''Return an `aresample=<rate>` filter when `measured_rate` is outside
+    `target`'s "sample_rates", else None.'''
+    allowed = target.get("sample_rates")
+    if not allowed or measured_rate is None:
+        return None
+    try:
+        measured_rate = int(float(measured_rate))
+    except (TypeError, ValueError):
+        return None
+    if measured_rate in allowed:
+        return None
+    higher = sorted(rate for rate in allowed if rate >= measured_rate)
+    target_rate = higher[0] if higher else max(allowed)
+    return f"aresample={target_rate}"
+
+
+def resolve_rule_stages(stage, measurements):
+    '''Recursively resolve a nested {"threshold": {...}} table and return the
+    leaf parameter dict.
+
+    `measurements` is the ordered list of (measured value, next stage's key)
+    still to resolve, e.g. [(bitrate, "sample_rate"), (rate, "channels"),
+    (channels, None)]. select_by_threshold resolves this level; a next-stage
+    name recurses into it, None means this level already is the leaf.
+    '''
+    measured, next_name = measurements[0]
+    entry = select_by_threshold(stage, measured) or {}
+    if next_name is None:
+        return entry
+    return resolve_rule_stages(entry.get(next_name, {}), measurements[1:])
 
 
 def pick_target(audio, path=None):
     '''Return (codec, bitrate, extra args, filter) to convert a lossy track.
 
-    path is the file holding the track, to measure a bitrate the metadata lacks.
+    The single entry point for the table's codec -> bitrate -> sample rate
+    -> channels selection. The matched leaf's own "target" overrides the
+    source's usual one (e.g. a near-lossless DTS leaf naming "flac"). path
+    is the file holding the track, for video.get_bitrate.
 
-    bitrate is in bit/s, or None to let the encoder choose; filter is None
-    when the matching rule has none for this channel layout.
+    A codec absent from the table is returned unchanged:
+    (codec, source bitrate, [], None).
     '''
     table = audio_rules()
-    ffprobe = audio.get("ffprobe") or {}
-    codec = str(ffprobe.get("codec_name", "")).lower()
+    codec = video.get_codec(audio)
     try:
-        source = video.get_bitrate(audio, path)
-    except Exception as e:
-        tools.dev_log(f"audio_reencode: no source bitrate for track {audio.get('StreamOrder')}: {e}\n")
-        source = None
-    entry = table.get("sources", {}).get(codec, table.get("default", {}))
-    target = entry.get("target", "same")
-    if target == "same":
-        target = codec
+        source_bitrate = video.get_bitrate(audio, path)
+    except Exception:
+        source_bitrate = None
+    sample_rate = video.get_sample_rate(audio)
     channels = video.get_channel(audio)
-    # An unknown source bitrate matches the rule without upper bound.
-    compared = sys.maxsize if source is None else source
-    rule = {}
-    for candidate in entry.get("rules", []):
-        (low_ch, high_ch), (low_br, high_br) = _bounds(candidate)
-        if channels is not None and low_ch <= channels <= high_ch and low_br <= compared < high_br:
-            rule = candidate
-            break
-    bitrate = rule.get("bitrate", "source")
-    if bitrate == "source":
-        bitrate = source
-    elif isinstance(bitrate, dict):
-        floor = parse_bitrate(bitrate.get("floor"))
-        ceiling = parse_bitrate(bitrate.get("ceiling"))
-        bitrate = source
-        if bitrate is None:
-            bitrate = floor or ceiling
-        if floor is not None and bitrate is not None and bitrate < floor:
-            bitrate = floor
-        if ceiling is not None and bitrate is not None and bitrate > ceiling:
-            bitrate = ceiling
-    else:
-        bitrate = parse_bitrate(bitrate)
-    args = list(entry.get("args", [])) + list(rule.get("args", []))
-    rule_filter = rule.get("filters", {}).get(ffprobe.get("channel_layout"))
-    return target, bitrate, args, rule_filter
+    source_entry = table.get("sources", {}).get(codec)
+    if not source_entry:
+        return codec, source_bitrate, [], None
+
+    params = resolve_rule_stages(source_entry.get("bitrate", {}),
+                                 [(source_bitrate, "sample_rate"), (sample_rate, "channels"), (channels, None)])
+    encoder = params.get("target", source_entry.get("target"))
+    target = table.get("targets", {}).get(encoder, {})
+
+    bitrate = source_bitrate if params.get("bitrate", "source") == "source" else parse_bitrate(params.get("bitrate"))
+    args = list(params.get("args", []))
+    channel_filter = target.get("filters", {}).get(str(channels)) if channels is not None else None
+    resample_filter = build_resample_filter(target, sample_rate)
+    table_filter = ",".join(f for f in (channel_filter, resample_filter) if f) or None
+    return encoder, bitrate, args, table_filter
 
 
-def original_encode_tag(audio, path=None):
-    '''Return `codec:bitrate:sample_rate` of the track, or None when unknown.
+def original_encode_tag(audio):
+    '''Return the track's EXISTING ORIGINAL_ENCODE tag, or None.
 
-    A track already tagged keeps its first value.
+    Reads only a tag already on record, never derives one -- None means no
+    lossy re-encode has happened to this track yet. measured_encode_tag
+    derives the value a first lossy re-encode writes.
     '''
-    value = (audio.get("extra") or {}).get(ORIGINAL_ENCODE_TAG)
-    if value:
-        return value
+    return (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG) or None
+
+
+def measured_encode_tag(audio, path=None):
+    '''Return "codec:bitrate:sample_rate" from the track's current measured
+    stream, or None when codec or sample rate cannot be measured.'''
     try:
-        codec = audio["ffprobe"]["codec_name"].lower()
-        sample_rate = audio.get("SamplingRate") or audio["ffprobe"]["sample_rate"]
-        return f"{codec}:{video.get_bitrate(audio, path)}:{int(float(sample_rate))}"
+        codec = video.get_codec(audio)
+        sample_rate = video.get_sample_rate(audio)
+        bitrate = video.get_bitrate(audio, path)
+        if not codec or sample_rate is None:
+            raise ValueError(f"codec={codec!r} sample_rate={sample_rate!r}")
+        return f"{codec}:{int(bitrate)}:{int(sample_rate)}"
     except Exception as e:
         sys.stderr.write(f"No ORIGINAL_ENCODE for track {audio.get('StreamOrder')}: {e}\n")
-        tools.logs.append(f"No ORIGINAL_ENCODE for track {audio.get('StreamOrder')}: {e}\n")
         return None
 
 
 def audio_for_keep(audio):
     """Return the audio dict keep_best_audio compares.
 
-    A track tagged ORIGINAL_ENCODE=<codec>:<bitrate>:<sample_rate> is returned as a
-    copy with the Format, bitrate and SamplingRate of its original encoding, the
-    bitrate multiplied by `reencode_keep_handicap` of config.json (1.0 when
-    unset) and the Format named by `original_encode_formats`. Any other track is
-    returned unchanged.
+    A tagged track is returned as a copy carrying its original Format,
+    bitrate (scaled by config.json's reencode_keep_handicap, 1.0 when unset)
+    and SamplingRate. A lossless or untagged track is returned unchanged.
     """
+    if is_lossless(audio):
+        return audio
     configuration = getattr(tools, "configuration", None) or {}
+    tag = original_encode_tag(audio)
+    if tag is None:
+        return audio
     try:
-        codec, bitrate, sampling_rate = str((audio.get("extra") or {})[ORIGINAL_ENCODE_TAG]).split(":")
+        codec, bitrate, sampling_rate = str(tag).split(":")
         handicap = float(configuration.get("reencode_keep_handicap", 1.0))
         bitrate = str(int(round(int(float(bitrate)) * handicap)))
         sampling_rate = str(int(float(sampling_rate)))
@@ -206,10 +243,55 @@ def audio_for_keep(audio):
     compared["SamplingRate"] = sampling_rate
     if isinstance(audio.get("ffprobe"), dict):
         compared["ffprobe"] = dict(audio["ffprobe"], bit_rate=bitrate)
-    # video.get_bitrate reads its cache first.
     compared["BitRate_resolved"] = int(bitrate)
-    compared["BitRate_source"] = ORIGINAL_ENCODE_TAG
+    compared["BitRate_source"] = tools.ORIGINAL_ENCODE_TAG
     return compared
+
+
+def default_stream_specifier(audio):
+    """Return the output stream specifier of an audio track (":a:N")."""
+    return f":a:{int(audio.get('@typeorder', 1)) - 1}"
+
+
+def flac_options(audio, args):
+    '''Return the -c flac options for this track: compression args plus the
+    sample format its BitDepth requires.'''
+    sample_fmt = "s16" if audio.get("BitDepth") == "16" else "s32"
+    return ["-c", "flac", "-sample_fmt", sample_fmt] + list(args)
+
+
+def build_flac_conversion(audio, table):
+    '''Return (options, filter=None) to re-encode a lossless track to FLAC.
+    No ORIGINAL_ENCODE tag: no loss happens here.'''
+    return flac_options(audio, table.get("flac_args") or DEFAULT_FLAC_ARGS), None
+
+
+def build_lossy_conversion(audio, path):
+    '''Return (options, filter, tag) for pick_target's answer.
+
+    When the leaf names FLAC (a config override, e.g. near-lossless DTS),
+    this is a FLAC conversion and gets no tag either -- otherwise the
+    ORIGINAL_ENCODE tag is written (an existing one kept, else measured).
+    '''
+    codec, bitrate, args, rule_filter = pick_target(audio, path)
+    if codec == "flac":
+        return flac_options(audio, args), rule_filter, None
+    options = ["-c", codec] + (["-b", str(bitrate)] if bitrate else []) + args
+    tag = original_encode_tag(audio) or measured_encode_tag(audio, path)
+    return options, rule_filter, tag
+
+
+def stream_qualify(options, stream):
+    '''Return `options` with every "-flag" token suffixed by `stream`
+    ("-c" -> "-c:a:0"); a plain value token is left alone.'''
+    return [f"{token}{stream}" if str(token).startswith("-") else str(token) for token in options]
+
+
+def build_filter_chain(rule_filter, delay_to_put, other_filter_param):
+    '''Return the comma-joined filter chain (table filter, the negative-delay
+    aresample, the caller's own filter), or None when all three are empty.'''
+    filters = [rule_filter, NEGATIVE_DELAY_FILTER if delay_to_put < 0 else None, other_filter_param]
+    return ",".join(f for f in filters if f) or None
 
 
 def generate_audio_ffmpeg_conversion_cmd(base_cmd, audio, delay_to_put, other_filter_param="",
@@ -217,50 +299,34 @@ def generate_audio_ffmpeg_conversion_cmd(base_cmd, audio, delay_to_put, other_fi
                                          filters_inline=True, stream=None, path=None):
     """Append to base_cmd the options that copy or convert one audio track.
 
-    Lossless -> the lossless codec; negative delay, force_conversion or a
-    filter -> the target of the source codec; otherwise nothing (copy). Every
-    conversion gets the ORIGINAL_ENCODE tag. other_param (str or list) is
-    appended as given. stream is the output stream specifier,
-    ":a:<@typeorder - 1>" by default. path is the file holding the track: a
-    bitrate the metadata lacks is measured there, so the target and
-    ORIGINAL_ENCODE always get one.
+    other_param (str or list) is appended as given. stream is the output
+    stream specifier, ":a:<@typeorder - 1>" by default. path is the file
+    holding the track, for a bitrate the metadata lacks.
 
     filters_inline=True appends the filter chain as one -filter<stream> and
     returns True when the track is converted. filters_inline=False (for a
     filtergraph output, which refuses -filter) leaves it out and returns
-    (args, filter_string): the options appended to base_cmd, and the chain for
-    the caller to put at the end of its filtergraph (None when empty).
+    (args, filter_string) instead: the options appended to base_cmd, and the
+    chain for the caller's own filtergraph (None when empty).
     """
-    if stream is None:
-        stream = f":a:{int(audio.get('@typeorder', 1)) - 1}"
-    lossless = audio_rules().get("lossless")
-    if lossless and is_lossless(audio):
-        sample_fmt = "s16" if audio.get("BitDepth") == "16" else "s32"
-        options = ["-c", lossless["codec"], "-sample_fmt", sample_fmt] + list(lossless.get("args", []))
-        rule_filter = None
+    stream = stream or default_stream_specifier(audio)
+    table = audio_rules()
+    tag = None
+    if is_lossless(audio) and table.get("encode_lossless_in_flac", True):
+        options, rule_filter = build_flac_conversion(audio, table)
     elif delay_to_put < 0 or force_conversion or other_filter_param:
-        codec, bitrate, args, rule_filter = pick_target(audio, path)
-        options = ["-c", codec]
-        if bitrate:
-            options.extend(["-b", str(bitrate)])
-        options.extend(args)
+        options, rule_filter, tag = build_lossy_conversion(audio, path)
     elif filters_inline:
         return False
     else:
         return [], None
-    args = []
-    for token in options:
-        if str(token).startswith("-"):
-            args.append(f"{token}{stream}")
-        else:
-            args.append(str(token))
-    filters = [rule_filter, NEGATIVE_DELAY_FILTER if delay_to_put < 0 else None, other_filter_param]
-    joined = ",".join(f for f in filters if f) or None
+
+    args = stream_qualify(options, stream)
+    joined = build_filter_chain(rule_filter, delay_to_put, other_filter_param)
     if joined and filters_inline:
         args.extend([f"-filter{stream}", joined])
-    tag = original_encode_tag(audio, path)
     if tag:
-        args.extend([f"-metadata:s{stream}", f"{ORIGINAL_ENCODE_TAG}={tag}"])
+        args.extend([f"-metadata:s{stream}", f"{tools.ORIGINAL_ENCODE_TAG}={tag}"])
     if isinstance(other_param, str):
         args.extend(other_param.split())
     elif other_param:

@@ -995,14 +995,14 @@ def get_channel(audio):
     # MediaInfo "L R C LFE Ls Rs": one position per channel
     return len(layout.split())
 
-def _bitrate_from_stream_size(data):
+def bitrate_from_stream_size(data):
     """Return StreamSize * 8 / Duration in bit/s, or None when a value is missing."""
     try:
         return int(data['StreamSize']) * 8 / float(data['Duration'])
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return None
 
-def _bitrate_from_copy_pass(data, path):
+def bitrate_from_copy_pass(data, path):
     """Return the bitrate measured by summing the packet sizes of the stream (-c copy to null), or None."""
     try:
         duration = float(data['Duration'])
@@ -1020,6 +1020,14 @@ def _bitrate_from_copy_pass(data, path):
     return sum(int(number) * scale[unit] for number, unit in sizes) * 8 / duration
 
 def get_bitrate(data, path=None):
+    """Return the bitrate (bit/s, int) of a track, or raise when no source gives one.
+
+    Sources in order: ffprobe bit_rate, BitRate, BitRate_Nominal,
+    StreamSize * 8 / Duration, the BPS tag, a -c copy pass on `path` (the file
+    holding the track) when given, then BitRate_Maximum (it over-estimates).
+    The value and its source are cached in `data` (BitRate_resolved,
+    BitRate_source) so the copy pass runs once per track.
+    """
     if data.get('BitRate_resolved'):
         return data['BitRate_resolved']
     ffprobe = data.get('ffprobe') or {}
@@ -1030,11 +1038,11 @@ def get_bitrate(data, path=None):
     if not bitrate:
         bitrate, source = data.get('BitRate_Nominal'), "BitRate_Nominal"
     if not bitrate:
-        bitrate, source = _bitrate_from_stream_size(data), "StreamSize"
+        bitrate, source = bitrate_from_stream_size(data), "StreamSize"
     if not bitrate:
         bitrate, source = tags.get('BPS', tags.get('BPS-eng')), "BPS"
     if not bitrate and path is not None:
-        bitrate, source = _bitrate_from_copy_pass(data, path), "copy_pass"
+        bitrate, source = bitrate_from_copy_pass(data, path), "copy_pass"
     if not bitrate:
         bitrate, source = data.get('BitRate_Maximum'), "BitRate_Maximum"
     if not bitrate:
@@ -1044,6 +1052,57 @@ def get_bitrate(data, path=None):
     if source != "BitRate_Maximum" or path is not None:
         data['BitRate_resolved'], data['BitRate_source'] = bitrate, source
     return bitrate
+
+def get_codec(data):
+    """Return the stream's codec, lowercased, or "" when truly unknown.
+
+    Owner-review addition (audio-conversion-master): tried in order --
+    ffprobe codec_name (when present and not "none"/"unknown"), else the
+    MediaInfo Format field, normalised through config.json's
+    `original_encode_formats` table (codec -> MediaInfo name, read
+    backwards here: name -> codec) when that table lists the name, kept as
+    given (lowercased) otherwise. Two codecs sharing one MediaInfo name
+    (mp2/mp3 both "MPEG Audio") resolve to whichever config.json lists last.
+    """
+    ffprobe_codec = str((data.get('ffprobe') or {}).get('codec_name', '')).strip().lower()
+    if ffprobe_codec and ffprobe_codec not in ('none', 'unknown'):
+        return ffprobe_codec
+    media_format = str(data.get('Format', '')).strip()
+    if not media_format:
+        return ''
+    formats = (getattr(tools, 'configuration', None) or {}).get('original_encode_formats') or {}
+    reverse = {str(name).strip().lower(): codec for codec, name in formats.items()}
+    return reverse.get(media_format.lower(), media_format.lower())
+
+def get_sample_rate(audio):
+    """Return an audio track's measured sample rate in Hz, or None when unknown."""
+    for value in ((audio.get('ffprobe') or {}).get('sample_rate'), audio.get('SamplingRate')):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+def describe_audio_track(audio):
+    """Return a short, log-safe description of an audio track.
+
+    Owner-review addition (audio-conversion-master): codec (get_codec),
+    channel count (get_channel), sample rate, bitrate (get_bitrate, best
+    effort -- a copy pass is never run just to log), language and, when the
+    track carries one, its ORIGINAL_ENCODE tag. Never a filename or a path
+    (AGENT.MD privacy rule): this is measured stream properties only.
+    """
+    try:
+        bitrate = get_bitrate(audio)
+    except Exception:
+        bitrate = "?"
+    description = (f"{get_codec(audio) or audio.get('Format', '?')} "
+                   f"{get_channel(audio)}ch {audio.get('SamplingRate', '?')}Hz "
+                   f"{bitrate}bps lang={audio.get('Language', '?')}")
+    tag = (audio.get('extra') or {}).get(tools.ORIGINAL_ENCODE_TAG)
+    if tag:
+        description += f" {tools.ORIGINAL_ENCODE_TAG}={tag}"
+    return description
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:

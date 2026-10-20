@@ -418,6 +418,18 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
+# A consumer reading tools.configuration before load_merge_runtime_from_env
+# (or the __main__/tests that load config.json directly) ran would otherwise
+# hit an AttributeError. The strict minimum: an empty table, read the same
+# way a loaded one would be, via .get(..., default).
+configuration = {}
+
+# The Matroska/stream tag a lossy re-encode writes to record what the track
+# was before. One name, here, so audio_reencode, video and mergeVideo never
+# spell it out as a literal.
+ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
+
+
 # Line prefixes that get a UTC timestamp; other lines (read by prefix-based parsers) stay unchanged.
 STAMPED_PREFIXES = ("orchestrator: ", "chimeric: ", "scene_anchor: ")
 

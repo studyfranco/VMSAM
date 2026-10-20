@@ -713,7 +713,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
         bitrate = encoder_arguments[encoder_arguments.index("-b:a") + 1]
     original_encode = None
     for argument in encoder_arguments:
-        if argument.startswith(audio_reencode.ORIGINAL_ENCODE_TAG + "="):
+        if argument.startswith(tools.ORIGINAL_ENCODE_TAG + "="):
             original_encode = argument.split("=", 1)[1]
     # Per-region report: master-filled regions, cut candidate regions, and used
     # candidate regions with their offset.
