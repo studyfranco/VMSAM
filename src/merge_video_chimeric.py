@@ -697,7 +697,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # `-map_chapters -1`: chapters are added later, retimed, by `mux_chapters`.
     command.extend(["-filter_complex", filtergraph, "-map", "[aout]", "-map_chapters", "-1"])
     command.extend(encoder_arguments)
-    if "-ar:a" not in encoder_arguments:
+    # The table's aresample (a rate the encoder accepts, e.g. 48 kHz for Opus) sets the output rate.
+    if "-ar:a" not in encoder_arguments and "aresample=" not in (encoder_filter or ""):
         command.extend(["-ar", sample_rate])
     # The same-codec rule can name an experimental encoder (opus, vorbis).
     command.extend(["-strict", "-2", "-vn", "-sn", "-dn",
