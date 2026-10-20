@@ -390,6 +390,43 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
+def log_line(message):
+    """Append a line to `logs` (picture-merge route logging; minimum helper the ported
+    dev-AI repair modules call -- no `stamp`/`STAMPED_PREFIXES` here, master carries neither)."""
+    logs.append(message)
+
+
+def log_always(message):
+    """Write one line to stderr and `logs` regardless of `dev`."""
+    sys.stderr.write(message)
+    logs.append(message)
+
+
+def dev_log(message):
+    """Write one trace line to stderr and `logs`, only when `dev` is set."""
+    if dev:
+        sys.stderr.write(message)
+        logs.append(message)
+
+
+class decoder_timeout(Exception):
+    """An external decoder (ffmpeg, PySceneDetect) ran past its time bound."""
+
+    def __init__(self, tool, seconds, detail=""):
+        super().__init__(f"{tool} ran past its {round(seconds, 1)} s bound {detail}".strip())
+        self.tool = tool
+        self.seconds = seconds
+
+
+# Time bound of one decode: max(120 s, 1 s per second of media), generous enough for a loaded host.
+DECODER_TIMEOUT_BASE_S = 120.0
+DECODER_TIMEOUT_PER_MEDIA_S = 1.0
+
+
+def decoder_timeout_for(media_seconds):
+    """Return the timeout in seconds for decoding `media_seconds` of media."""
+    return max(DECODER_TIMEOUT_BASE_S, DECODER_TIMEOUT_PER_MEDIA_S * max(0.0, float(media_seconds)))
+
 """
 END: AGENT modification
 """

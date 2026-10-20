@@ -907,7 +907,10 @@ def get_delay_and_best_video(videosObj,language,audioRules,dict_file_path_obj):
                 already_compared[nameInList[0]] = {nameInList[1]: is_the_best_video}
             
         shuffle(compareObjs)
-    
+
+    if not compareObjs:
+        raise Exception(f"video_tournament_empty: every video file was removed as not "
+                        f"compatible for language {language} (removed: {list_not_compatible_video})")
     remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,compareObjs[0])
     return already_compared
 
@@ -2016,6 +2019,29 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
 
         most_frequent_language = max(audio_counts, key=audio_counts.get)
         if audio_counts[most_frequent_language] == 1:
+            if len(videosObj) == 2:
+                import merge_video_picture
+                video_a, video_b = videosObj[0], videosObj[1]
+                before_a = len(video_a.sameAudioMD5UseForCalculation)
+                before_b = len(video_b.sameAudioMD5UseForCalculation)
+                if forced_best_video == video_a.filePath:
+                    winner = merge_video_picture.picture_merge(video_a, video_b, True)
+                elif forced_best_video == video_b.filePath:
+                    winner = merge_video_picture.picture_merge(video_b, video_a, True)
+                else:
+                    winner = merge_video_picture.picture_merge(video_a, video_b, False)
+                before_winner = before_a if winner is video_a else before_b
+                merged = len(winner.sameAudioMD5UseForCalculation) > before_winner
+                if merged:
+                    loser = video_b if winner is video_a else video_a
+                    videosObj.remove(loser)
+                    del dict_file_path_obj[loser.filePath]
+                    # The winner's own single surviving language, not "und": the output's
+                    # audio track still carries whichever language the winner itself had.
+                    delay_language = next(iter(winner.audios), "und")
+                    generate_launch_merge_command({winner.filePath: {}}, dict_file_path_obj,
+                                                  out_folder, delay_language, audioRules)
+                    return
             raise Exception(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}")
         else:
             commonLanguages.add(most_frequent_language)
