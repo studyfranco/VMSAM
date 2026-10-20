@@ -732,10 +732,14 @@ PIXEL_FRONT_MARGIN_FRAMES = 96
 PIXEL_FRONT_MAX_FRAMES = 2400
 
 
-def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts):
-    """{shift: [(level difference, local fraction, master std, master level) or None] * n} for
-    [first, first + n) against the candidate at each shift (`_pixel_reading`); None marks a
-    candidate frame that does not exist. Returns None on any read failure."""
+def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts, common=None):
+    """{shift: [`_pixel_reading` tuple or None] * n} for master [first, first + n) against the
+    candidate at each shift; None marks a candidate frame that does not exist (before its
+    start or after its end). `common` lists (master indices, shift) pairs already known to
+    show the same picture: the candidate's tone curve is fitted on them (`candidate_tone_map`).
+    The key "candidate_change" holds (first candidate frame read, per-frame mean luma change
+    from the frame before). Returns None on any read failure."""
+    import numpy as np
     rate = domain["master_rate"]
     import frame_compare
     scale = domain.get("time_scale")
@@ -744,20 +748,78 @@ def _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts):
         rate.denominator,
         time_scales=None if scale is None else {candidate_obj.filePath: scale})
     master = _grey_frames(comparer, master_obj.filePath, first, count, rate)
-    low = first + min(shifts)
-    if first < 0 or low < 0 or not len(master):
+    if first < 0 or not len(master):
         return None
+    low = max(0, first + min(shifts))
     candidate = _grey_frames(comparer, candidate_obj.filePath, low,
-                             len(master) + max(shifts) - min(shifts), rate)
+                             first + len(master) + max(shifts) - low, rate)
+
+    def candidate_index(index, shift):
+        other = first + index + shift - low
+        return other if 0 <= other < len(candidate) else None
+    pairs = [(index, candidate_index(index, shift)) for indices, shift in (common or [])
+             for index in indices if 0 <= index < len(master)]
+    tone = candidate_tone_map(master, candidate,
+                              [(index, other) for index, other in pairs if other is not None])
+    if tone is not None:
+        candidate = np.interp(candidate, tone[0], tone[1])
     readings = {}
     for shift in shifts:
         row = []
         for index in range(len(master)):
-            other = index + shift - min(shifts)
-            row.append(_pixel_reading(master[index], candidate[other])
-                       if other < len(candidate) else None)
+            other = candidate_index(index, shift)
+            row.append(None if other is None else _pixel_reading(master[index], candidate[other]))
         readings[shift] = row
+    changes = (np.abs(np.diff(candidate, axis=0)).mean(axis=(1, 2)) if len(candidate) > 1
+               else np.zeros(0))
+    readings["candidate_change"] = (low, [0.0] + [float(value) for value in changes])
     return readings
+
+
+# Quantiles of the tone curve fitted between two releases graded differently.
+TONE_QUANTILES = 101
+
+
+def candidate_tone_map(master, candidate, pairs):
+    """(candidate levels, master levels) of a monotone map putting the candidate's tone curve
+    on the master's, or None when the frames known common already read the same picture.
+
+    Fitted by quantile matching over the (master index, candidate index) `pairs`, and kept only
+    when it brings their median departing-pixel share under PIXEL_DIFF_FRACTION.
+    """
+    import numpy as np
+    if not pairs:
+        return None
+
+    def median_departing(mapped):
+        return statistics.median(_pixel_reading(master[index], mapped[other])[1]
+                                 for index, other in pairs)
+    identity = median_departing(candidate)
+    if identity < PIXEL_DIFF_FRACTION:
+        return None
+    quantiles = np.linspace(0.0, 100.0, TONE_QUANTILES)
+    source = np.percentile(np.concatenate([candidate[other].ravel() for _index, other in pairs]),
+                           quantiles)
+    target = np.percentile(np.concatenate([master[index].ravel() for index, _other in pairs]),
+                           quantiles)
+    source, kept = np.unique(source, return_index=True)
+    target = np.maximum.accumulate(target[kept])
+    if len(source) < 2:
+        return None
+    sample = {other: np.interp(candidate[other], source, target) for _index, other in pairs}
+    mapped = median_departing(sample)
+    tools.log_always(f"repair: pixel_tone_map frames={len(pairs)} departing_identity="
+                     f"{round(identity, 4)} departing_mapped={round(mapped, 4)} "
+                     f"kept={mapped < PIXEL_DIFF_FRACTION}\n")
+    return (source, target) if mapped < PIXEL_DIFF_FRACTION else None
+
+
+def candidate_change_at(readings, index, shift, first):
+    """Mean luma change of the candidate frame read against master `first + index` at `shift`
+    from the frame before it, or None when that frame or the one before was not read."""
+    low, changes = readings["candidate_change"]
+    other = first + index + shift - low
+    return changes[other] if 0 < other < len(changes) else None
 
 
 def _same_flags(row, reference):
@@ -770,11 +832,11 @@ def _same_flags(row, reference):
     against its own steady difference. A frame differs when its local fraction reaches
     PIXEL_DIFF_FRACTION or its level leaves the steady difference by more than
     PIXEL_FADE_LEVELS, or by more than PIXEL_FADE_SHARE of the master's own level on a dark
-    picture (a fade or a dim frame), never less than PIXEL_FADE_FLOOR. Flat frames on both
-    sides at near levels (black against black) are the same picture.
+    picture (a fade or a dim frame), never less than PIXEL_FADE_FLOOR. A dark frame (either
+    side under `frame_compare.FLAT_STD`) is judged on contrast (`dark_contrast_same`); two
+    noise-flat frames (black against black) are the same picture at near levels.
     """
     import bisect
-    import frame_compare
 
     def judge(known):
         common = sorted(i for i in known if row[i] is not None
@@ -785,7 +847,11 @@ def _same_flags(row, reference):
             if reading is None or reading[1] >= PIXEL_DIFF_FRACTION:
                 flags.append(False)
                 continue
-            if (reading[2] < frame_compare.FLAT_STD and reading[4] < frame_compare.FLAT_STD
+            contrast = dark_contrast_same(reading)
+            if contrast is not None:
+                flags.append(contrast)
+                continue
+            if (max(reading[5], reading[6]) < PIXEL_NOISE_STD
                     and abs(reading[0]) <= PIXEL_FADE_LEVELS):
                 flags.append(True)
                 continue
@@ -803,12 +869,48 @@ def _same_flags(row, reference):
     return judge(sorted(set(reference) | {i for i, flag in enumerate(first) if flag}))
 
 
+def dark_contrast_same(reading):
+    """Whether a dark frame pair shows the same picture, judged on its contrast; None when
+    neither frame is dark or both are noise-flat (left to the level rules).
+
+    A level offset measured on a brighter shot says nothing about black against the first frame
+    of a fade-in, so a dark pair is the same picture only when the std ratio of the pixels that
+    do not depart lies within 1 / PIXEL_DARK_STD_RATIO .. PIXEL_DARK_STD_RATIO.
+    """
+    import frame_compare
+    low, high = sorted((reading[5], reading[6]))
+    if low >= frame_compare.FLAT_STD or high < PIXEL_NOISE_STD:
+        return None
+    return high <= PIXEL_DARK_STD_RATIO * low
+
+
 def _tolerant_flags(readings, shift, reference):
     """`_same_flags` at `shift`, a frame also counting as the same picture when it matches at
     shift - 1 or shift + 1: two releases can cut or fade the same shot one frame apart."""
     rows = [_same_flags(readings[shift + delta], reference) for delta in (-1, 0, 1)
             if shift + delta in readings]
     return [any(flags) for flags in zip(*rows)]
+
+
+def tolerance_only_at_new_shot(readings, shift, index, first, reference):
+    """Whether the frame deciding a front reads the same picture only through the one-frame
+    tolerance while the candidate frame at the exact shift opens a new shot (its luma change
+    from the frame before above BLIND_PICTURE_CHANGE_RATIO x the median change of the
+    PIXEL_STEADY_FRAMES frames before it, and above PIXEL_FADE_FLOOR): such a frame differs,
+    the tolerance must not decide a front."""
+    if index < 0 or index >= len(readings[shift]):
+        return False
+    if _same_flags(readings[shift], reference)[index]:
+        return False
+    change = candidate_change_at(readings, index, shift, first)
+    if change is None:
+        return False
+    low, changes = readings["candidate_change"]
+    other = first + index + shift - low
+    earlier = changes[max(1, other - PIXEL_STEADY_FRAMES):other]
+    limit = max(BLIND_PICTURE_CHANGE_RATIO * statistics.median(earlier) if earlier else 0.0,
+                PIXEL_FADE_FLOOR)
+    return change > limit
 
 
 def _front_forward(same, front):
@@ -859,25 +961,33 @@ def _pixel_refined(result, domain, master_obj, candidate_obj):
     before, after = result["before_shift_frames"], result["after_shift_frames"]
     if anchor_b - anchor_a <= 0 or anchor_b - anchor_a > PIXEL_FRONT_MAX_FRAMES:
         return None
-    first = max(0, anchor_a - PIXEL_FRONT_MARGIN_FRAMES, 1 - min(before, after))
+    first = max(0, anchor_a - PIXEL_FRONT_MARGIN_FRAMES, -min(before, after))
     count = anchor_b + PIXEL_FRONT_MARGIN_FRAMES - first
+    # The steady level difference (and a regrade's tone curve) is first read where the pHash
+    # walks found common picture, kept clear of their fronts: pHash walks into a fade it
+    # cannot see.
+    guard = 2 * PIXEL_STEADY_FRAMES
+
+    def common_sides(count):
+        front = min(max(result["pre_collapse_start_master"] - first, 0), count)
+        back = min(max(result["pre_collapse_end_master"] - first, 0), count)
+        return front, back, range(0, max(1, front - guard)), range(min(count - 1, back + guard),
+                                                                   count)
+    _front, _back, common_before, common_after = common_sides(count)
     try:
         readings = _pixel_readings(domain, master_obj, candidate_obj, first, count,
                                    sorted({shift + delta for shift in (before, after)
-                                           for delta in (-1, 0, 1)}))
+                                           for delta in (-1, 0, 1)}),
+                                   common=[(common_before, before), (common_after, after)])
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"repair: pixel_fronts_unread ({type(error).__name__}: {error})\n")
         return None
     if readings is None:
         return None
     count = len(readings[before])
-    front = min(max(result["pre_collapse_start_master"] - first, 0), count)
-    back = min(max(result["pre_collapse_end_master"] - first, 0), count)
-    # The steady level difference is first read where the pHash walks found common picture,
-    # kept clear of their fronts: pHash walks into a fade it cannot see.
-    guard = 2 * PIXEL_STEADY_FRAMES
-    same_before = _tolerant_flags(readings, before, range(0, max(1, front - guard)))
-    same_after = _tolerant_flags(readings, after, range(min(count - 1, back + guard), count))
+    front, back, common_before, common_after = common_sides(count)
+    same_before = _tolerant_flags(readings, before, common_before)
+    same_after = _tolerant_flags(readings, after, common_after)
     trusted = (_longest_run(same_before[:max(front, anchor_a - first + 1)])
                >= PIXEL_TRUST_RUN_FRAMES
                and _longest_run(same_after[min(back, anchor_b - first - 1):])
@@ -890,7 +1000,31 @@ def _pixel_refined(result, domain, master_obj, candidate_obj):
     # (a flash, a single-frame match inside a fade) never stops it.
     front = _front_forward(same_before, front)
     back = _front_backward(same_after, back)
+    moved = []
+    if front > 0 and tolerance_only_at_new_shot(readings, before, front - 1, first, common_before):
+        front -= 1
+        moved.append(f"forward_to={first + front}")
+    if back < count and tolerance_only_at_new_shot(readings, after, back, first, common_after):
+        back += 1
+        moved.append(f"backward_to={first + back}")
+    if moved:
+        tools.log_always(f"repair: pixel_front_exact_shift {' '.join(moved)} "
+                         f"for {candidate_obj.filePath}\n")
     crossed = back < front
+    gap = before - after
+    phash_front, phash_back = result["pre_collapse_start_master"], result["pre_collapse_end_master"]
+    if gap > 0 and phash_back - phash_front == gap and (crossed or back - front < gap):
+        # A master insert lacks at least the shift gap: narrower pixel fronts come from the
+        # one-frame tolerance, never from a blind span (decision: pixel-front-gap-floor).
+        tools.log_always(
+            f"repair: pixel_fronts_narrower_than_gap anchors=[{anchor_a}, {anchor_b}] "
+            f"shifts=[{before}, {after}] phash_fronts=[{phash_front}, {phash_back}] "
+            f"pixel_fronts=[{first + front}, {first + back}] crossed={crossed} kept=phash "
+            f"for {candidate_obj.filePath}\n")
+        return dict(result, sweep_crossed=False, pixel_fronts=False,
+                    master_start_frame=phash_front, master_end_frame=phash_back,
+                    candidate_start_frame=phash_front + before,
+                    candidate_end_frame=phash_back + after)
     blind_before = blind_after = 0
     if not crossed:
         while front - blind_before - 1 >= 0 and same_after[front - blind_before - 1]:
@@ -1287,12 +1421,20 @@ def _window_levels(samples, times, shift_s, peak=False):
     return np.maximum(np.array(rows), BLIND_LEVEL_FLOOR_DB)
 
 
-def _candidate_silent(walk, times, shift_s):
-    """Whether the candidate is silent in each 20 ms window: its peak under the audibility
-    floor the audio walk itself uses (`audio_walk.AUDIBLE_DB`), so a fading sting tail still
-    counts as sound."""
+def _candidate_silent(walk, times, shift_s, picture_shift_s=None):
+    """Whether the candidate is silent in each 20 ms window: the peak of the comparison track
+    at `shift_s` and of every other track that can be delivered (`walk["silence_tracks"]`) at
+    `picture_shift_s` (the offset the delivery places them with; `shift_s` when None) under
+    the audibility floor the audio walk itself uses (`audio_walk.AUDIBLE_DB`), so a fading
+    sting tail still counts as sound."""
+    import numpy as np
     import audio_walk
-    return _window_levels(walk["candidate"], times, shift_s, peak=True) < audio_walk.AUDIBLE_DB
+    if picture_shift_s is None:
+        picture_shift_s = shift_s
+    tracks = walk.get("silence_tracks") or [walk["candidate"]]
+    return np.logical_and.reduce([_window_levels(track, times, shift_s if index == 0
+                                                 else picture_shift_s, peak=True)
+                                  < audio_walk.AUDIBLE_DB for index, track in enumerate(tracks)])
 
 
 def _centre_of_longest(flags, low):
@@ -1335,8 +1477,10 @@ def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
     width = abs(gap)
     hop = BLIND_SILENCE_HOP_S
     try:
-        t_lo = max(0.0, (low - width) * frame_s)
-        t_hi = high * frame_s
+        # A removal keeps one frame of silence on each side of the removed candidate span.
+        margin = 1 if gap > 0 else 0
+        t_lo = max(0.0, (low - width - margin) * frame_s)
+        t_hi = (high + margin) * frame_s
         times = np.arange(t_lo, max(t_lo + hop, t_hi - BLIND_SILENCE_WIN_S) + 1e-9, hop)
         candidate_after = _window_levels(walk["candidate"], times, after * frame_s)
         points = range(low, high + 1)
@@ -1350,8 +1494,8 @@ def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
             silent = _candidate_silent(walk, times, after * frame_s)
             flags = []
             for point in points:
-                first = index_of((point - width) * frame_s)
-                last = last_index(point * frame_s - BLIND_SILENCE_WIN_S)
+                first = index_of((point - width - margin) * frame_s)
+                last = last_index((point + margin) * frame_s - BLIND_SILENCE_WIN_S)
                 flags.append(last >= first and bool(silent[first:last + 1].all()))
             found = _centre_of_longest(flags, low)
             return None if found is None else found + ("candidate_silence",)
@@ -1393,6 +1537,37 @@ def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
         tools.dev_log(f"repair: blind_span_audio_probe_failed "
                       f"({type(error).__name__}: {error})\n")
         return None
+
+
+def quietest_removal_point(domain, gap, after, low, high, walk, candidate_path):
+    """The removal frame in [low, high] whose removed candidate audio (every track that can be
+    delivered) carries the least energy, when no placement is silent; None without `walk`.
+
+    Returns:
+        (frame, [frame, frame], "lowest_candidate_energy") or None.
+    """
+    import numpy as np
+    if walk is None or gap <= 0 or high < low:
+        return None
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    tracks = walk.get("silence_tracks") or [walk["candidate"]]
+    energies = []
+    for point in range(low, high + 1):
+        times = np.arange((point - gap - 1) * frame_s,
+                          (point + 1) * frame_s - BLIND_SILENCE_WIN_S + 1e-9, BLIND_SILENCE_HOP_S)
+        times = times[times >= 0.0]
+        if not len(times):
+            energies.append(float("inf"))
+            continue
+        energies.append(sum(float(np.mean(10.0 ** (_window_levels(track, times, after * frame_s)
+                                                   / 10.0))) for track in tracks))
+    best = int(np.argmin(energies))
+    point = low + best
+    tools.log_always(f"repair: removal_without_silence frames=[{low}, {high}] "
+                     f"placed_at_frame={point} energy_db="
+                     f"{round(10.0 * math.log10(max(energies[best], 1e-12)), 1)} "
+                     f"tracks={len(tracks)} for {candidate_path}\n")
+    return point, [point, point], "lowest_candidate_energy"
 
 
 def _blind_span_bounds(blind, gap):
@@ -1476,10 +1651,20 @@ def _blind_span_outcome(hole, domain, blind, candidate_path, walk=None, master_o
     anchor_b = blind["anchor_b_frame"]
     frame_ms = float(domain["frame_ms"])
     low, high = _blind_span_bounds(blind, gap)
-    found = _blind_span_audio_point(domain, gap, before, after, low, high, walk)
     anchor = None
-    if found is None and gap < 0 and master_obj is not None:
+    if gap < 0 and master_obj is not None:
         anchor = _right_anchor_frame(domain, master_obj, low, high, -gap)
+    # A fill ends at the right anchor when that picture change is where the after shift starts
+    # to read the same picture (a picture identity at the backward front); the audio places a
+    # fill only when both sides are picture-blind (decision: picture-before-audio-fill).
+    back = blind.get("pre_collapse_end_master")
+    identity = (anchor is not None and back is not None
+                and abs(anchor - back) <= PIXEL_RUN_FRAMES)
+    found = None
+    if not identity:
+        found = _blind_span_audio_point(domain, gap, before, after, low, high, walk)
+    if found is None and anchor is None:
+        found = quietest_removal_point(domain, gap, after, low, high, walk, candidate_path)
     if found is not None:
         point, frames, placement = found
         placement_evidence = f"placement_frames={frames}"
@@ -1744,7 +1929,8 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
         outcome["pin_route"] = "sweep_fronts"
         return outcome
     if verdict == _orch().HOLE_RESOLVED:
-        return _differing_span_outcome(hole, domain, result, candidate_obj.filePath, walk=walk)
+        return _differing_span_outcome(hole, domain, result, candidate_obj.filePath, walk=walk,
+                                       master_obj=master_obj, candidate_obj=candidate_obj)
     return _interior_outcome(hole, domain, result, verdict)
 
 
@@ -1783,18 +1969,19 @@ def _audio_continuous_span(hole, domain, sweep, before, after, walk):
         # nothing there to bound, only the silence below is read.
         first, last = max(front, edge_first), min(back, edge_last)
 
-    def common_silence(frame, offset_ms):
+    def common_silence(frame, offset_ms, shift):
         start = frame * frame_s
         times = np.arange(start, start + frame_s - BLIND_SILENCE_WIN_S + 1e-9,
                           BLIND_SILENCE_HOP_S)
         if not len(times):
             times = np.array([start])
         return bool(_master_quiet(walk, times).all()
-                    and _candidate_silent(walk, times, offset_ms / 1000.0).all())
+                    and _candidate_silent(walk, times, offset_ms / 1000.0,
+                                          shift * frame_s).all())
     try:
-        while last > first and common_silence(last - 1, hole["offset_after_ms"]):
+        while last > first and common_silence(last - 1, hole["offset_after_ms"], after):
             last -= 1
-        while first < last and common_silence(first, hole["offset_before_ms"]):
+        while first < last and common_silence(first, hole["offset_before_ms"], before):
             first += 1
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"repair: audio_continuous_probe_failed ({type(error).__name__}: "
@@ -1807,7 +1994,80 @@ def _audio_continuous_span(hole, domain, sweep, before, after, walk):
     return first, last
 
 
-def _differing_span_outcome(hole, domain, result, candidate_path, walk=None):
+def join_levels(walk, domain, positions, before, after):
+    """Loudest 20 ms peak (dB) of every deliverable candidate track around the two joins of a
+    cut at each master frame of `positions`: the frame before and after it, at the before
+    shift (where the candidate stops) and at the after shift (where it resumes), the offsets
+    the delivery places the tracks with."""
+    import numpy as np
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    tracks = walk.get("silence_tracks") or [walk["candidate"]]
+    levels = []
+    for position in positions:
+        times = np.arange(max(0.0, (position - 1) * frame_s),
+                          (position + 1) * frame_s - BLIND_SILENCE_WIN_S + 1e-9,
+                          BLIND_SILENCE_HOP_S)
+        if not len(times):
+            times = np.array([max(0.0, position * frame_s)])
+        levels.append(max(float(_window_levels(track, times, shift * frame_s, peak=True).max())
+                          for track in tracks for shift in (before, after)))
+    return levels
+
+
+def collapsed_cut_frame(domain, master_obj, candidate_obj, before, after, sweep, collapsed,
+                        walk, candidate_path):
+    """Master frame where a differing span that common silence emptied is cut, or None.
+
+    Frames before the cut should show the candidate's picture at the before shift and frames
+    from it on at the after shift (`_same_flags`, or a fade of the same shot: centred
+    correlation from PIXEL_FADE_CORR); the cut keeps the most of them. The frame the silence
+    collapsed onto (`collapsed`) stays when it is one of those positions with silent joins on
+    every deliverable track (`join_levels`), or when none of them has silent joins; else the
+    first such position (decision: collapsed-cut-keeps-matching-frames).
+    """
+    low, high = sweep
+    if high <= low:
+        return None
+    try:
+        readings = _pixel_readings(domain, master_obj, candidate_obj, low, high - low,
+                                   sorted({before, after}))
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: collapsed_cut_unread ({type(error).__name__}: {error})\n")
+        return None
+    if readings is None or not len(readings[before]):
+        return None
+    count = len(readings[before])
+
+    def matching(shift):
+        row = readings[shift]
+        return [flag or (reading is not None and reading[7] >= PIXEL_FADE_CORR
+                         and min(reading[5], reading[6]) >= PIXEL_NOISE_STD)
+                for flag, reading in zip(_same_flags(row, range(count)), row)]
+    match_before, match_after = matching(before), matching(after)
+    scores = [sum(match_before[:index]) + sum(match_after[index:]) for index in range(count + 1)]
+    best = [low + index for index, score in enumerate(scores) if score == max(scores)]
+    first, last = best[0], best[-1]
+    point, placement = first, "picture"
+    if walk is not None:
+        import audio_walk
+        joins = join_levels(walk, domain, best, before, after)
+        silent = [position for position, level in zip(best, joins)
+                  if level < audio_walk.AUDIBLE_DB]
+        if collapsed in silent:
+            point, placement = collapsed, "silence_collapse_point"
+        elif silent:
+            point, placement = silent[0], "silent_joins"
+        else:
+            point, placement = collapsed, "audio_fallback"
+    tools.log_always(
+        f"repair: collapsed_span_cut sweep_frames=[{low}, {high}] shifts=[{before}, {after}] "
+        f"matching_frames={max(scores)}/{count} picture_frames=[{first}, {last}] "
+        f"placement={placement} placed_at_frame={point} for {candidate_path}\n")
+    return point
+
+
+def _differing_span_outcome(hole, domain, result, candidate_path, walk=None, master_obj=None,
+                            candidate_obj=None):
     """Resolve a cut whose sweep fronts did not cross: fill every unmatched master frame.
 
     Frames that differ between the files (a candidate fade, dim or black frame against master
@@ -1825,12 +2085,18 @@ def _differing_span_outcome(hole, domain, result, candidate_path, walk=None):
     Differing frames whose audio is continuous with the candidate are findings only, never
     filled (`_audio_continuous_span`): the span is first bounded by the hole's own audio edges,
     when they overlap it, then its ends lose every frame of silence common to the master and
-    the candidate at that side's audio offset.
+    the candidate at that side's audio offset. A span that this leaves empty is cut where the
+    picture keeps the most matching frames (`collapsed_cut_frame`).
     """
     before, after = result["before_shift_frames"], result["after_shift_frames"]
     gap = after - before
     sweep = (result["master_start_frame"], result["master_end_frame"])
     front, back = _audio_continuous_span(hole, domain, sweep, before, after, walk)
+    if front == back and (front, back) != sweep and master_obj is not None:
+        placed = collapsed_cut_frame(domain, master_obj, candidate_obj, before, after, sweep,
+                                     front, walk, candidate_path)
+        if placed is not None:
+            front = back = placed
     if (front, back) != sweep:
         tools.log_always(
             f"repair: differing_frames_audio_continuous sweep_frames=[{sweep[0]}, {sweep[1]}] "
@@ -2048,16 +2314,21 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
         count = master_last + 1 - first
     if count <= 0 or count > PIXEL_FRONT_MAX_FRAMES or first + shift < 0 and edge == "tail":
         return None
+    # Every master frame whose candidate frame exists at the exact shift is read: a missing
+    # one-frame tolerance neighbour (candidate frame -1) leaves that reading to the shift.
     read_first = max(first, -shift)
-    read_first = max(read_first, 1 - shift)
-    readings = _pixel_readings(domain, master_obj, candidate_obj, read_first,
-                               first + count - read_first, [shift - 1, shift, shift + 1])
+    read_count = first + count - read_first
+
+    def common_side(length):
+        return (range(min(length, EDGE_PIXEL_MARGIN_FRAMES)) if edge == "tail"
+                else range(max(0, length - EDGE_PIXEL_MARGIN_FRAMES), length))
+    readings = _pixel_readings(domain, master_obj, candidate_obj, read_first, read_count,
+                               [shift - 1, shift, shift + 1],
+                               common=[(common_side(read_count), shift)])
     if readings is None:
         return None
     row = readings[shift]
-    common_side = (range(min(len(row), EDGE_PIXEL_MARGIN_FRAMES)) if edge == "tail"
-                   else range(max(0, len(row) - EDGE_PIXEL_MARGIN_FRAMES), len(row)))
-    same = _tolerant_flags(readings, shift, common_side)
+    same = _tolerant_flags(readings, shift, common_side(len(row)))
     # Candidate frames that do not exist (before its start, after its end) read as absent.
     candidate_frames = domain.get("candidate_equivalent_duration_ms")
     candidate_last = (None if candidate_frames is None
@@ -2400,6 +2671,9 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
         if getattr(error, "cause", None) == "repair_budget_exceeded":
             raise
         return None, f"the comparison tracks could not be read ({type(error).__name__}: {error})"
+    silence_tracks = [candidate] + added_language_tracks(
+        master_obj, candidate_obj, candidate_audio, speed_ratio, engine, scale, envelope,
+        deadline, candidate_path)
     rows = audio_walk.walk(master, candidate, seeds)
     found, outliers = audio_walk.levels(rows)
     points = audio_walk.change_points(master, candidate, found, frame_ms=frame_ms)
@@ -2416,8 +2690,39 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
     return {"master": master, "candidate": candidate, "rows": rows, "levels": found,
             "points": points, "seeds": seeds, "master_audio": master_audio,
             "candidate_audio": candidate_audio, "master_stream": master_stream,
-            "candidate_stream": candidate_stream,
+            "candidate_stream": candidate_stream, "silence_tracks": silence_tracks,
             "master_audio_end_s": len(master) / audio_walk.WALK_RATE}, None
+
+
+def added_language_tracks(master_obj, candidate_obj, comparison_audio, speed_ratio, engine,
+                          scale, envelope, deadline, candidate_path):
+    """The candidate's audio tracks in a language the master lacks, read like the comparison
+    track: a removal or a fill boundary must not cut into any track that can be delivered.
+
+    A track that cannot be read is logged and left out; the deadline still re-raises.
+    """
+    import audio_walk
+    master_languages = set((master_obj.audios or {}).keys())
+    tracks = []
+    for language, audios in (candidate_obj.audios or {}).items():
+        if language in master_languages:
+            continue
+        for audio in audios:
+            if audio is comparison_audio:
+                continue
+            try:
+                tracks.append(audio_walk.read_on_file_clock(
+                    candidate_obj, audio, _speed_chain(audio, speed_ratio, engine), scale,
+                    deadline=deadline, envelope=envelope))
+            except Exception as error:                                   # noqa: BLE001
+                if getattr(error, "cause", None) == "repair_budget_exceeded":
+                    raise
+                tools.log_always(f"repair: added_language_track_unread language={language} "
+                                 f"stream={audio.get('StreamOrder')} ({type(error).__name__}: "
+                                 f"{error}) for {candidate_path}\n")
+    tools.log_always(f"repair: silence_tracks added_languages={len(tracks)} "
+                     f"for {candidate_path}\n")
+    return tracks
 
 
 def _frame_s(frame, domain):
@@ -2693,7 +2998,29 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     tail_start = decisions["tail"]
     if tail_start is not None and tail_start >= float(domain["master_timeline_ms"]) / 1000.0 - frame:
         tail_start = None
+    log_edge_fill_sound(walk, head_end, tail_start, candidate_path)
     return head_end, tail_start, None
+
+
+def log_edge_fill_sound(walk, head_end, tail_start, candidate_path):
+    """Log, as a finding, an edge fill that carries audible master sound while the candidate
+    brings tracks in a language the master lacks: that sound lands in those tracks."""
+    import numpy as np
+    import audio_walk
+    added = len(walk.get("silence_tracks") or []) - 1
+    if added <= 0:
+        return
+    end_s = walk.get("master_audio_end_s") or 0.0
+    for edge, start_s, stop_s in (("head", 0.0, head_end), ("tail", tail_start, end_s)):
+        if start_s is None or stop_s is None or stop_s - start_s < BLIND_SILENCE_WIN_S:
+            continue
+        times = np.arange(start_s, stop_s - BLIND_SILENCE_WIN_S + 1e-9, BLIND_SILENCE_HOP_S)
+        peak = float(_window_levels(walk["master"], times, 0.0, peak=True).max())
+        if peak > audio_walk.AUDIBLE_DB:
+            tools.log_always(f"repair: edge_fill_carries_master_sound edge={edge} "
+                             f"fill_s=[{round(start_s, 4)}, {round(stop_s, 4)}] "
+                             f"master_peak_db={round(peak, 1)} added_language_tracks={added} "
+                             f"for {candidate_path}\n")
 
 
 def _cp_hole(point, reference, index):
@@ -3503,6 +3830,15 @@ PIXEL_FADE_FLOOR = 0.75
 PIXEL_STEADY_FRAMES = 12
 # Consecutive frames that settle a front (see `_front_forward`).
 PIXEL_RUN_FRAMES = 3
+# Dark frames (std under frame_compare.FLAT_STD) are the same picture when their contrast ratio
+# stays within 1.5 (measured: a matched fade-in frame pair 1.55 / 1.80 = 1.16; black 0.15
+# against a first fade frame 1.8 = 12). Under PIXEL_NOISE_STD on both sides a frame is flat
+# noise (black) and the ratio means nothing.
+PIXEL_DARK_STD_RATIO = 1.5
+PIXEL_NOISE_STD = 1.0
+# A candidate fade of the master's own shot keeps its structure: centred correlation from
+# 0.95 (measured: a shared shot fading out over 23 frames reads 1.00).
+PIXEL_FADE_CORR = 0.95
 
 
 def _grey_frames(comparer, path, first, count, rate):
@@ -3523,9 +3859,24 @@ def _grey_frames(comparer, path, first, count, rate):
 
 def _pixel_reading(master_frame, candidate_frame):
     """(mean level difference, fraction of pixels departing from it by > PIXEL_DIFF_LEVELS,
-    master std, master level, candidate std) of one grey frame pair."""
+    master std, master level, candidate std, master std and candidate std over the pixels that
+    do not depart, centred correlation) of one grey frame pair; the kept-pixel stds leave out
+    a logo or a burnt-in title."""
     import numpy as np
     diff = master_frame - candidate_frame
     level = float(diff.mean())
-    return (level, float((np.abs(diff - level) > PIXEL_DIFF_LEVELS).mean()),
-            float(master_frame.std()), float(master_frame.mean()), float(candidate_frame.std()))
+    departing = np.abs(diff - level) > PIXEL_DIFF_LEVELS
+    kept = ~departing
+    if kept.any():
+        master_kept, candidate_kept = float(master_frame[kept].std()), float(
+            candidate_frame[kept].std())
+    else:
+        master_kept, candidate_kept = float(master_frame.std()), float(candidate_frame.std())
+    master_std, candidate_std = float(master_frame.std()), float(candidate_frame.std())
+    centred = 0.0
+    if master_std > 0.0 and candidate_std > 0.0:
+        centred = float(((master_frame - master_frame.mean())
+                         * (candidate_frame - candidate_frame.mean())).mean()
+                        / (master_std * candidate_std))
+    return (level, float(departing.mean()), master_std, float(master_frame.mean()),
+            candidate_std, master_kept, candidate_kept, centred)
