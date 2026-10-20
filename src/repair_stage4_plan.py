@@ -87,8 +87,53 @@ def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
     return zones, fills, None
 
 
-def zone_picture_offsets_from_hole_anchors(zones, transitions, domain):
-    """Read each zone's own picture offset off the pHash anchors already measured resolving
+def zone_picture_offsets_from_hole_anchors(zones, transitions, domain, lag_pairs=None,
+                                           start_delta_ms=0, candidate_path=""):
+    """Each zone's picture offset in ms on the files' own clocks.
+
+    A zone's lag is the majority picture lag over the scene changes inside it
+    (`zone_picture_lag.zone_majority` over `lag_pairs`, both whole files' matched changes),
+    used when it agrees within one frame with a bounding anchor; otherwise, and when the zone
+    holds too few changes, the anchors' reading
+    (`zone_anchor_lags`). Two lags each holding more than 15 % of a zone's changes are logged
+    (`picture_lag_jitter`); the zone still takes the majority.
+
+    The lag is a count of decoded frames; the offset adds the candidate's video start minus
+    the master's (`start_delta_ms`), since both files' first frames sit at their own start
+    times.
+
+    Returns:
+        {zone_index: {"picture_ms": Fraction, "cuts": 1, 2 or "scene_changes:<n>"}}.
+    """
+    import zone_picture_lag
+    frame_ms = domain["frame_ms"]
+    delta = Fraction(start_delta_ms)
+    anchors = zone_anchor_lags(zones, transitions)
+    offsets = {}
+    for zone in zones:
+        index = zone["zone"]
+        anchor = anchors.get(index)
+        lag, counts = zone_picture_lag.zone_majority(
+            lag_pairs, zone["master_start_ms"], zone["master_end_ms"], frame_ms)
+        spread = zone_picture_lag.jitter(counts)
+        if spread is not None:
+            tools.log_always(
+                f"repair: picture_lag_jitter zone={index} counts="
+                f"{dict(counts.most_common(4))} majority={lag} for {candidate_path}\n")
+        bounds = [] if anchor is None else anchor["bounds"]
+        # A zone no cut bounds keeps its audio offset, as before: only the anchors' one-shot
+        # reading is replaced by the zone's own majority.
+        if lag is not None and any(abs(lag - b) <= 1 for b in bounds):
+            offsets[index] = {"picture_ms": Fraction(lag) * frame_ms + delta,
+                              "cuts": f"scene_changes:{counts[lag]}"}
+        elif anchor is not None and anchor["lag"] is not None:
+            offsets[index] = {"picture_ms": Fraction(anchor["lag"]) * frame_ms + delta,
+                              "cuts": anchor["cuts"]}
+    return offsets
+
+
+def zone_anchor_lags(zones, transitions):
+    """Read each zone's picture lag (frames) off the pHash anchors already measured resolving
     its bounding change point(s), instead of a separate scan.
 
     `zones[k]` (`plan_geometry`'s own numbering) sits between `transitions[k-1]` (its left
@@ -104,25 +149,24 @@ def zone_picture_offsets_from_hole_anchors(zones, transitions, domain):
     a species of its own to express; until then this zone keeps the audio offset it already has).
 
     Returns:
-        {zone_index: {"picture_ms": Fraction, "cuts": 1 or 2}} for every zone at least one
-        bounding change point resolved a frame shift for; a zone absent from this dict has no
-        anchors in reach.
+        {zone_index: {"lag": frames, "cuts": 1 or 2, "bounds": [anchor lags]}} for every zone
+        at least one bounding change point resolved a frame shift for (`bounds` also lists the
+        readings of a zone whose two anchors disagree, which then has no "lag").
     """
-    frame_ms = domain["frame_ms"]
-    offsets = {}
+    lags = {}
     for index, zone in enumerate(zones):
         left = transitions[index - 1].get("after_shift_frames") if index > 0 else None
         right = (transitions[index].get("before_shift_frames") if index < len(transitions)
                 else None)
+        bounds = [value for value in (left, right) if value is not None]
         if left is not None and right is not None:
             if abs(left - right) > 1:
+                lags[zone["zone"]] = {"lag": None, "cuts": 2, "bounds": bounds}
                 continue
-            offsets[zone["zone"]] = {"picture_ms": Fraction(left) * frame_ms, "cuts": 2}
-        elif left is not None:
-            offsets[zone["zone"]] = {"picture_ms": Fraction(left) * frame_ms, "cuts": 1}
-        elif right is not None:
-            offsets[zone["zone"]] = {"picture_ms": Fraction(right) * frame_ms, "cuts": 1}
-    return offsets
+            lags[zone["zone"]] = {"lag": left, "cuts": 2, "bounds": bounds}
+        elif bounds:
+            lags[zone["zone"]] = {"lag": bounds[0], "cuts": 1, "bounds": bounds}
+    return lags
 
 
 def written_edge_seconds(fills, master_audio_end_s):

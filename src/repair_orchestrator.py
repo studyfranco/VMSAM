@@ -40,6 +40,7 @@ from repair_stage1_resample import (ALIGNMENT_COULD_NOT_MEASURE_VERDICTS,
                                     MASTER_AXIS_COVERAGE_FLOOR, _drop_rate_wav,
                                     ensemble_similarity_gate, rate_arm, rate_resample_routing)
 from repair_stage3_chimeric import (_budget_terminal, _speed_chain, _video_duration_ms,
+                                    align_transitions_to_zone_lags,
                                     audio_edges, audio_transitions, classify_holes,
                                     coalesce_same_offset_zones, couple_start_delta_ms,
                                     edge_addition_seconds, frame_domain,
@@ -885,6 +886,21 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
+    # Both whole files are decoded for their scene changes once the holes are resolved (never
+    # alongside them: the holes' own decodes run under a fixed time bound): each zone's picture
+    # lag is the majority over its own changes (`zone_picture_lag`).
+    import zone_picture_lag
+    zone_lag_job = zone_picture_lag.ZoneLagJob(master_obj, candidate_obj, domain,
+                                               deadline=repair_deadline)
+    frame_ms_float = float(domain["frame_ms"])
+    zone_lag_pairs, zone_lag_reason = zone_lag_job.pairs(
+        [t.get(key) for t in transitions for key in ("before_shift_frames", "after_shift_frames")]
+        + [round(float(level["off_ms"]) / frame_ms_float) for level in walk["levels"]])
+    tools.log_always(f"repair: zone_picture_lags scene_changes_matched="
+                     f"{None if zone_lag_pairs is None else len(zone_lag_pairs)} "
+                     f"reason={zone_lag_reason} for {candidate_path}\n")
+    transitions = align_transitions_to_zone_lags(transitions, zone_lag_pairs, domain, walk,
+                                                 master_obj, candidate_path)
     transitions = picture_steps_in_continuous_zones(transitions, walk, reference, domain,
                                                     master_obj, candidate_obj, work_dir,
                                                     candidate_path)
@@ -919,7 +935,10 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     # candidate's video does not reach are filled from the master; a plan that does not give
     # back the master's count is replaced by the picture-only plan, or declined.
     import frame_count_check
-    zone_picture_offsets_ms = zone_picture_offsets_from_hole_anchors(zones, transitions, domain)
+    zone_picture_offsets_ms = zone_picture_offsets_from_hole_anchors(
+        zones, transitions, domain, lag_pairs=zone_lag_pairs,
+        start_delta_ms=zone_picture_lag.video_start_delta_ms(master_obj, candidate_obj),
+        candidate_path=candidate_path)
     picture_edges_ms = {index: (measured["picture_ms"], measured["picture_ms"])
                         for index, measured in zone_picture_offsets_ms.items()}
     try:
