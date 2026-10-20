@@ -525,7 +525,7 @@ def _declined(hole, cause_detail, evidence=None, **extra):
 
 
 # Neighbour shifts re-checked by raw luma MAD after an anchor seats: a fade (a luma ramp)
-# barely separates two adjacent lags on pHash -- `frame_hash.ALIGN_MARGIN` can pass at a
+# barely separates two adjacent lags on pHash -- `frame_compare.ALIGN_MARGIN` can pass at a
 # margin as thin as 0.058 -- while the raw picture does not share that blindness.
 ANCHOR_MAD_REACH = 1
 # A neighbour lag must read lower by at least this many luma levels, averaged over the
@@ -774,7 +774,7 @@ def _same_flags(row, reference):
     sides at near levels (black against black) are the same picture.
     """
     import bisect
-    import frame_hash
+    import frame_compare
 
     def judge(known):
         common = sorted(i for i in known if row[i] is not None
@@ -785,7 +785,7 @@ def _same_flags(row, reference):
             if reading is None or reading[1] >= PIXEL_DIFF_FRACTION:
                 flags.append(False)
                 continue
-            if (reading[2] < frame_hash.FLAT_STD and reading[4] < frame_hash.FLAT_STD
+            if (reading[2] < frame_compare.FLAT_STD and reading[4] < frame_compare.FLAT_STD
                     and abs(reading[0]) <= PIXEL_FADE_LEVELS):
                 flags.append(True)
                 continue
@@ -2282,7 +2282,7 @@ def _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj, walk):
     no candidate sound is cut off over the master's fill. Returns the new boundary frame
     (head: first common frame; tail: first filled frame), or None to keep the walk's own.
     """
-    import frame_hash
+    import frame_compare
     import numpy as np
     shift = outcome.get("shift_frames")
     if walk is None or shift is None:
@@ -2302,7 +2302,7 @@ def _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj, walk):
     order = range(len(row)) if kind == "head" else range(len(row) - 1, -1, -1)
     run = 0
     for index in order:
-        if not (same[index] and row[index][2] < frame_hash.FLAT_STD):
+        if not (same[index] and row[index][2] < frame_compare.FLAT_STD):
             break
         run += 1
     if run == 0:

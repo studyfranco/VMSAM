@@ -9,7 +9,7 @@ distances and alignment from `frame_hash`.
 
 An anchor window lies entirely on one side of its seed and never holds a scene cut. It needs
 both cross-scene discrimination (the same content as the candidate) and within-scene
-distinctiveness (`frame_hash.align`'s margin over lags a few frames away); solid-colour or
+distinctiveness (`frame_compare.align`'s margin over lags a few frames away); solid-colour or
 static shots have only the first and are refused.
 """
 import bisect
@@ -21,6 +21,7 @@ import time
 import numpy as np
 
 import frame_hash
+import frame_compare
 import tools
 import repair_log
 from frame_compare import (FrameComparer, _extract_hashes, _on_comparer_grid, mask_frames,
@@ -46,7 +47,7 @@ MIN_VALIDATION_FRAMES = 3
 # Anchor window: at most ANCHOR_WINDOW_FRAMES master frames on one side of the seed, cut short
 # at the nearest scene cut; a window under ANCHOR_WINDOW_MIN_FRAMES is not used.
 ANCHOR_WINDOW_FRAMES = 12
-ANCHOR_WINDOW_MIN_FRAMES = frame_hash.ALIGN_MIN_FRAMES
+ANCHOR_WINDOW_MIN_FRAMES = frame_compare.ALIGN_MIN_FRAMES
 
 # Lags scanned on each side of the nominal shift: they give the margin gate its rivals (a
 # self-similar shot matches several of them).
@@ -317,7 +318,7 @@ def _frames_match(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame):
     mi, ci = m_frame - m_base, c_frame - c_base
     if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
         return None
-    return bool(frame_hash.same_picture(m_hashes[mi], c_hashes[ci])[0])
+    return bool(frame_compare.same_picture(m_hashes[mi], c_hashes[ci])[0])
 
 
 def _flat_vs_content_mismatch(m_hashes, m_base, m_frame, c_hashes, c_base, c_frame):
@@ -333,7 +334,7 @@ def _flat_vs_content_mismatch(m_hashes, m_base, m_frame, c_hashes, c_base, c_fra
     mi, ci = m_frame - m_base, c_frame - c_base
     if not (0 <= mi < len(m_hashes)) or not (0 <= ci < len(c_hashes)):
         return False
-    return bool(m_hashes.std[mi] < frame_hash.FLAT_STD) != bool(c_hashes.std[ci] < frame_hash.FLAT_STD)
+    return bool(m_hashes.std[mi] < frame_compare.FLAT_STD) != bool(c_hashes.std[ci] < frame_compare.FLAT_STD)
 
 
 def _span_matches(m_hashes, m_base, c_hashes, c_base, first, stop, shift):
@@ -343,7 +344,7 @@ def _span_matches(m_hashes, m_base, c_hashes, c_base, first, stop, shift):
     ok = (m_idx >= 0) & (m_idx < len(m_hashes)) & (c_idx >= 0) & (c_idx < len(c_hashes))
     if not ok.any():
         return 0, 0
-    same = frame_hash.same_picture(m_hashes[m_idx[ok]], c_hashes[c_idx[ok]])
+    same = frame_compare.same_picture(m_hashes[m_idx[ok]], c_hashes[c_idx[ok]])
     return int(same.sum()), int(ok.sum())
 
 
@@ -367,8 +368,8 @@ def _span_classes(m_hashes, m_base, c_hashes, c_base, first, stop, before, after
                 readable = ok
             if ok.any():
                 mh, ch = m_hashes[m_idx[ok]], c_hashes[c_idx[ok]]
-                flat = (mh.std < frame_hash.FLAT_STD) != (ch.std < frame_hash.FLAT_STD)
-                same[ok] |= frame_hash.same_picture(mh, ch) & ~flat
+                flat = (mh.std < frame_compare.FLAT_STD) != (ch.std < frame_compare.FLAT_STD)
+                same[ok] |= frame_compare.same_picture(mh, ch) & ~flat
         flags[label] = (same, readable)
     out = []
     for index in range(len(m_idx)):
@@ -411,7 +412,7 @@ def _try_anchor(m_hashes, m_base, c_hashes, c_base, seed, nominal_shift, directi
     '''Align the anchor window at seed against the candidate around nominal_shift.
 
     Lags nominal +/- max(search_frames, ANCHOR_LAG_REACH) are scanned by
-    `frame_hash.align`; the window anchors when the minimum passes the margin gate, lies
+    `frame_compare.align`; the window anchors when the minimum passes the margin gate, lies
     within search_frames of nominal (one frame when search_frames is 0: the shift is then
     kept, as a frame-exact offset only needs the content confirmed) and shows the same
     content (SAME_CONTENT_MAX). With picture_reach (and search_frames > 0), a minimum that
@@ -428,22 +429,22 @@ def _try_anchor(m_hashes, m_base, c_hashes, c_base, seed, nominal_shift, directi
     first, stop = window
     ref = m_hashes[first - m_base:stop - m_base]
     reach = max(search_frames, ANCHOR_LAG_REACH)
-    alignment = frame_hash.align(ref, c_hashes,
+    alignment = frame_compare.align(ref, c_hashes,
                                  range(nominal_shift - reach, nominal_shift + reach + 1),
                                  start=first - c_base)
     out = {"window": window, "alignment": alignment, "content": None}
     if alignment.best is None:
         return {**out, "verdict": "unreadable"}
-    content = frame_hash.window_content_distance(ref, c_hashes,
+    content = frame_compare.window_content_distance(ref, c_hashes,
                                                  first - c_base + alignment.best)
     out["content"] = content
-    if not content <= frame_hash.SAME_CONTENT_MAX:
+    if not content <= frame_compare.SAME_CONTENT_MAX:
         return {**out, "verdict": "mismatch"}
     tolerance = max(search_frames, 1)
     if not alignment.ok:
         low = alignment.curve[alignment.best]
         near = sorted(lag for lag, value in alignment.curve.items()
-                      if value - low < frame_hash.ALIGN_MARGIN)
+                      if value - low < frame_compare.ALIGN_MARGIN)
         if any(abs(lag - nominal_shift) <= tolerance for lag in near):
             # the shot looks the same at the nominal shift and at others: self-similar
             return {**out, "verdict": "uninformative", "static_lags": near}
@@ -1359,12 +1360,12 @@ def _overlay_median_distance(m_frames, c_frames, box):
     m_hashes = frame_hash.hash_frames(m_frames)
     c_hashes = frame_hash.hash_frames(c_frames)
     reach = OVERLAY_PROBE_LAG_REACH
-    rows = np.array([k for k in np.nonzero(m_hashes.std >= frame_hash.FLAT_STD)[0]
+    rows = np.array([k for k in np.nonzero(m_hashes.std >= frame_compare.FLAT_STD)[0]
                      if reach <= k < len(m_hashes) - reach and k + reach < len(c_hashes)],
                     dtype=np.int64)
-    if len(rows) < frame_hash.ALIGN_MIN_FRAMES:
+    if len(rows) < frame_compare.ALIGN_MIN_FRAMES:
         return None
-    return min(float(np.median(frame_hash.frame_distance(m_hashes[rows],
+    return min(float(np.median(frame_compare.frame_distance(m_hashes[rows],
                                                          c_hashes[rows + lag])))
                for lag in range(-reach, reach + 1))
 
@@ -1375,7 +1376,7 @@ def _probe_overlay(comparer, master_path, candidate_path, first_frame, n_frames,
     Returns:
         (box or None, evidence string).
     """
-    if n_frames < frame_hash.ALIGN_MIN_FRAMES + 2 * OVERLAY_PROBE_LAG_REACH:
+    if n_frames < frame_compare.ALIGN_MIN_FRAMES + 2 * OVERLAY_PROBE_LAG_REACH:
         return None, f"probe_frames={n_frames}"
     m_frames = _grid_frames(comparer, master_path, first_frame, n_frames)
     c_frames = _grid_frames(comparer, candidate_path, first_frame + shift_frames, n_frames)
@@ -1389,13 +1390,13 @@ def _probe_overlay(comparer, master_path, candidate_path, first_frame, n_frames,
     evidence = (f"unmasked={unmasked} "
                 + " ".join(f"{name}={'none' if v is None else round(v, 4)}"
                            for name, v in scores.items()))
-    if unmasked is None or unmasked <= frame_hash.SAME_FRAME_MAX:
+    if unmasked is None or unmasked <= frame_compare.SAME_FRAME_MAX:
         return None, evidence
     readable = {name: v for name, v in scores.items() if v is not None}
     if not readable:
         return None, evidence
     best = min(readable, key=readable.get)
-    if readable[best] > frame_hash.SAME_FRAME_MAX:
+    if readable[best] > frame_compare.SAME_FRAME_MAX:
         return None, evidence
     return _overlay_corner_boxes(comparer.width, comparer.height)[best], f"corner={best} {evidence}"
 
@@ -1461,17 +1462,17 @@ class _ChunkedFrames:
                 hi = lo + EDGE_WALK_CHUNK_OVERLAP_FRAMES
             else:
                 lo = hi - EDGE_WALK_CHUNK_OVERLAP_FRAMES
-        if hi - lo < frame_hash.ALIGN_MIN_FRAMES:
+        if hi - lo < frame_compare.ALIGN_MIN_FRAMES:
             return None, f"overlap={hi - lo}"
         held = self.hashes[lo - self.base:hi - self.base]
         reach = EDGE_WALK_SEAM_SEARCH_FRAMES
-        alignment = frame_hash.align(held, new_hashes, range(-reach, reach + 1),
+        alignment = frame_compare.align(held, new_hashes, range(-reach, reach + 1),
                                      start=lo - new_base)
         delta = alignment.lag if alignment.ok else (0 if alignment.best is not None else None)
         if delta is None:
             return None, alignment.reason
-        content = frame_hash.window_content_distance(held, new_hashes, lo - new_base + delta)
-        if not content <= frame_hash.SAME_CONTENT_MAX:
+        content = frame_compare.window_content_distance(held, new_hashes, lo - new_base + delta)
+        if not content <= frame_compare.SAME_CONTENT_MAX:
             return None, f"{alignment.reason} content={content:.4f}"
         return delta, round(content, 4)
 
@@ -1584,8 +1585,8 @@ def _edge_walk(master_frames, candidate_frames, first_confirmed, shift_frames,
         # flat side against content is a real difference. Two dim, non-flat frames (a fade)
         # are too noisy to tell apart: they neither confirm nor break the walk.
         m_std, c_std = float(m_hash.std[0]), float(c_hash.std[0])
-        m_flat, c_flat = m_std < frame_hash.FLAT_STD, c_std < frame_hash.FLAT_STD
-        if (m_flat and c_flat) or frame_hash.same_picture(m_hash, c_hash)[0]:
+        m_flat, c_flat = m_std < frame_compare.FLAT_STD, c_std < frame_compare.FLAT_STD
+        if (m_flat and c_flat) or frame_compare.same_picture(m_hash, c_hash)[0]:
             boundary_frame = frame
             mismatch_run = 0
         elif not (m_flat or c_flat) and max(m_std, c_std) < EDGE_WALK_DIM_STD:
@@ -1939,7 +1940,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
         tools.log_line(
             f"scene_anchor: edge_overlay_probe edge={edge} stop_frame={stop} "
             f"probe=[{probe_first},+{probe_frames}) shift={shift_frames} "
-            f"overlay={overlay} same_frame_max={frame_hash.SAME_FRAME_MAX} "
+            f"overlay={overlay} same_frame_max={frame_compare.SAME_FRAME_MAX} "
             f"{overlay_evidence}\n")
     if overlay is not None:
         # Same seek arguments as the first extraction, so the labels (and the shift) hold.
@@ -2018,7 +2019,7 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
         f"max_mismatch_run={walk['max_mismatch_run']} "
         f"termination={termination} net_kind={net_kind} "
         f"addition_frames={addition_frames} addition_ms={addition_ms} "
-        f"same_frame_max={frame_hash.SAME_FRAME_MAX} "
+        f"same_frame_max={frame_compare.SAME_FRAME_MAX} "
         f"n_sustained={EDGE_WALK_SUSTAINED_MISMATCH_FRAMES} "
         f"geometry_normalised={geometry.get('normalised')} overlay_mask={overlay}\n")
 

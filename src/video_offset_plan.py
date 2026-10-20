@@ -46,6 +46,7 @@ from decimal import Decimal
 import numpy as np
 
 import frame_hash
+import frame_compare
 import merge_video_resample
 import rate_direction
 import repair_pool
@@ -83,7 +84,7 @@ COLOUR_REACH = SIDE_FRAMES + 1
 
 # A side shows the same content as the candidate when its mean `frame_hash.content_distance`
 # is at most this (fraction of the bits).
-PAIR_CONTENT_MAX = frame_hash.SAME_CONTENT_MAX
+PAIR_CONTENT_MAX = frame_compare.SAME_CONTENT_MAX
 
 # The search bound when no audio delay is supplied: +-SEARCH_BOUND_DEFAULT_S, widened to the
 # duration difference plus SEARCH_BOUND_DURATION_MARGIN_S when the two files differ more.
@@ -507,7 +508,7 @@ def match_changes(m_hashes, m_cuts, c_hashes, c_cuts, lo, hi, m_coloured=None,
         votes = []
         for _, first, length in sides:
             side = m_hashes[first:first + length]
-            alignment = frame_hash.align(side, c_hashes, lags, start=first)
+            alignment = frame_compare.align(side, c_hashes, lags, start=first)
             if alignment.ok:
                 votes.append((alignment.lag, first, length))
         if not votes:
@@ -524,7 +525,7 @@ def match_changes(m_hashes, m_cuts, c_hashes, c_cuts, lo, hi, m_coloured=None,
             if ((m_coloured is not None and not m_coloured[rows].all())
                     or (c_coloured is not None and not c_coloured[rows + d].all())):
                 break
-            dists.append(frame_hash.window_content_distance(m_hashes[first:first + length],
+            dists.append(frame_compare.window_content_distance(m_hashes[first:first + length],
                                                             c_hashes, first + d))
         if len(dists) != len(votes) or not max(dists) <= PAIR_CONTENT_MAX:
             continue
@@ -1089,8 +1090,8 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
     in_range = (cand >= 0) & (cand < n_c)
     diverges = np.ones(len(rows), dtype=bool)
     if in_range.any():
-        dist = frame_hash.frame_distance(m_hashes[rows[in_range]], c_hashes[cand[in_range]])
-        diverges[in_range] = dist > frame_hash.SAME_FRAME_MAX
+        dist = frame_compare.frame_distance(m_hashes[rows[in_range]], c_hashes[cand[in_range]])
+        diverges[in_range] = dist > frame_compare.SAME_FRAME_MAX
     spans = []
     i = 0
     while i < len(rows):
@@ -1104,12 +1105,12 @@ def find_divergent_spans_in_zone(m_hashes, c_hashes, m_lo, m_hi, d, min_frames=D
         m_first, m_last = int(rows[start]), int(rows[i - 1])
         c_first, c_last = m_first + int(d), m_last + int(d)
         master_std = float(np.mean(m_hashes[m_first:m_last + 1].std))
-        master_flat = master_std < frame_hash.FLAT_STD
+        master_flat = master_std < frame_compare.FLAT_STD
         c_lo_clip, c_hi_clip = max(c_first, 0), min(c_last, n_c - 1)
         candidate_clipped = c_hi_clip < c_lo_clip
         candidate_std = (0.0 if candidate_clipped
                         else float(np.mean(c_hashes[c_lo_clip:c_hi_clip + 1].std)))
-        candidate_flat = candidate_clipped or candidate_std < frame_hash.FLAT_STD
+        candidate_flat = candidate_clipped or candidate_std < frame_compare.FLAT_STD
         flat_vs_content = master_flat != candidate_flat
         if not flat_vs_content:
             if length < min_frames:

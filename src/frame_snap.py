@@ -9,7 +9,7 @@ over the common span it decodes 2G frames of the first video from `t`, keeps the
 first G of them that hold no scene cut (so no window straddles a cut), and
 decodes G + 4 frames of the second around that group's time + delay (small RGB,
 one ffmpeg call each). Each candidate offset (rounded frame -2..+2) is a sliding
-G-frame window of the second group, scored by `frame_hash.align` (mean grey
+G-frame window of the second group, scored by `frame_compare.align` (mean grey
 pHash distance; a position counts only when its minimum is clear of the lags two
 frames away). -1/0/+1 vote; +-2 is only a guard, logged and never selected.
 
@@ -43,6 +43,7 @@ import numpy as np
 from PIL import Image
 
 import frame_hash
+import frame_compare
 import tools
 
 # -- tunables ----------------------------------------------------------------
@@ -65,10 +66,10 @@ BLACK_MEAN = 18.0
 BLACK_STD = 6.0
 # ContentDetector threshold for a cut inside a first-video group (its default).
 GROUP_CUT_THRESHOLD = 27.0
-# A position whose best window is this far (`frame_hash.content_distance`,
+# A position whose best window is this far (`frame_compare.content_distance`,
 # fraction of the bits, mean over the group) shows other content: the delay does
 # not hold there (a step, a recap cut), so it votes for nothing.
-UNMATCHED_DISTANCE = frame_hash.SAME_CONTENT_MAX
+UNMATCHED_DISTANCE = frame_compare.SAME_CONTENT_MAX
 # Required relative margin of the winner's total over the runner-up's, so a
 # marginal winner is not mistaken for a clear one.
 MARGIN_MIN = 0.20
@@ -248,7 +249,7 @@ def group_is_usable(frames):
 # -- distance ----------------------------------------------------------------
 
 def score_offsets(ref_hashes, ref_times, other_hashes, other_times, base_frames, frame_s):
-    '''Score offsets -2..+2 at one position with `frame_hash.align`.
+    '''Score offsets -2..+2 at one position with `frame_compare.align`.
 
     Offset `o` is the G-frame window of the second group starting at
     `anchor + REACH + o`, where `anchor` is located from the decoded frame
@@ -267,7 +268,7 @@ def score_offsets(ref_hashes, ref_times, other_hashes, other_times, base_frames,
     anchor = int(np.argmin(np.abs(other_times - target)))
     if abs(other_times[anchor] - target) > frame_s / 2.0:
         return {}, None
-    alignment = frame_hash.align(ref_hashes, other_hashes, VOTE_OFFSETS + GUARD_OFFSETS,
+    alignment = frame_compare.align(ref_hashes, other_hashes, VOTE_OFFSETS + GUARD_OFFSETS,
                                  start=anchor + REACH)
     return dict(alignment.curve), alignment
 
@@ -386,7 +387,7 @@ def measure(first_path, first_stream, second_path, second_stream, rate, delay_ms
             if alignment.best is None:
                 notes.append(f"{t:.1f}:{alignment.reason}")
                 continue
-            content = frame_hash.window_content_distance(ref_hashes, other_hashes,
+            content = frame_compare.window_content_distance(ref_hashes, other_hashes,
                                                          alignment.start + alignment.best)
             if not content <= UNMATCHED_DISTANCE:
                 notes.append(f"{t:.1f}:unmatched:{content:.3f}")
@@ -549,7 +550,7 @@ def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_s
 
     At each position a cut-free, usable group of master frames is decoded, then for every
     mapping the candidate frames around the mapped instant. A mapping's score at a position is
-    the smallest `frame_hash.window_content_distance` within +-REACH frames: a right mapping
+    the smallest `frame_compare.window_content_distance` within +-REACH frames: a right mapping
     reads near 0 everywhere, a wrong speed ratio drifts away from the picture along the file.
 
     Args:
@@ -594,7 +595,7 @@ def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_s
                     candidate_path, candidate_stream,
                     target - (REACH + 0.5) * candidate_frame_s, GROUP_FRAMES + 2 * REACH)
                 other_hashes = frame_hash.hash_frames(other_frames, colour=True)
-                distances = [frame_hash.window_content_distance(ref_hashes, other_hashes, offset)
+                distances = [frame_compare.window_content_distance(ref_hashes, other_hashes, offset)
                              for offset in range(2 * REACH + 1)]
                 distances = [d for d in distances if d == d]
                 if distances:
