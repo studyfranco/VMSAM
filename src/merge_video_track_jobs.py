@@ -11,6 +11,7 @@ from os import path
 import tools
 import video
 import audio_reencode
+import audio_integrity
 
 TRACK_JOB_TIMEOUT = 3600
 WARNING_KEYWORDS = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
@@ -121,12 +122,13 @@ def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_vi
     for audio, out_path in zip(sorted(audios, key=lambda x: int(x["StreamOrder"])), out_paths):
         output_args = ["-map", f"0:{int(audio['StreamOrder'])}", "-map_metadata", "0", "-copy_unknown",
                        "-copyts", "-movflags", "use_metadata_tags", "-c", "copy"]
-        audio_reencode.generate_audio_ffmpeg_conversion_cmd(output_args, audio, delay_to_put, stream=":a:0",
-                                                            path=video_obj.filePath)
+        reencoded = audio_reencode.generate_audio_ffmpeg_conversion_cmd(output_args, audio, delay_to_put, stream=":a:0",
+                                                                        path=video_obj.filePath)
         output_args.extend(vmsam_tmp_metadata(audio, "a:0"))
         cmd = ffmpeg_job(not have_pgs, delay_input_args(delay_to_put, video_obj.filePath), output_args, have_pgs,
                          duration_best_video, out_path)
-        jobs.append((f"audio track {audio['StreamOrder']} of {video_obj.filePath}", [cmd]))
+        jobs.append((f"audio track {audio['StreamOrder']} of {video_obj.filePath}", [cmd], out_path,
+                     audio if reencoded else None))
     if len(subs):
         subs = sorted(subs, key=lambda x: int(x["StreamOrder"]))
         convert_path = out_paths[-1] + ".convert"
@@ -149,11 +151,17 @@ def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_vi
                            ["-map", "0", "-map_metadata", "0", "-copy_unknown", "-movflags", "use_metadata_tags",
                             "-c", "copy", "-copyts"], False, duration_best_video, out_paths[-1])
         jobs.append((f"subtitle tracks {[int(sub['StreamOrder']) for sub in subs]} of {video_obj.filePath}",
-                     [convert, shift]))
+                     [convert, shift], out_paths[-1], None))
     try:
-        submitted = [video.ffmpeg_pool_audio_convert.apply_async(run_track_job, (label, cmds)) for label, cmds in jobs]
-        for result in submitted:
+        submitted = [(out_path, audio, video.ffmpeg_pool_audio_convert.apply_async(run_track_job, (label, cmds)))
+                     for label, cmds, out_path, audio in jobs]
+        for out_path, audio, result in submitted:
             result.get()
+            if audio is not None:
+                try:
+                    audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), out_path, delay_to_put)
+                except audio_integrity.AudioReencodeIntegrityError as e:
+                    raise TrackJobError(str(e)) from e
     except TrackJobError:
         remove_files(out_paths)
         raise
