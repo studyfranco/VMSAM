@@ -396,11 +396,36 @@ configuration = {}
 ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
 
 
+# Line prefixes that get a UTC timestamp; other lines (read by prefix-based parsers) stay unchanged.
+STAMPED_PREFIXES = ("orchestrator: ", "chimeric: ", "scene_anchor: ")
+
+
+def stamp(message):
+    import datetime
+    for prefix in STAMPED_PREFIXES:
+        if message.startswith(prefix):
+            now = datetime.datetime.now(datetime.timezone.utc)
+            return (f"{prefix}utc={now.strftime('%Y-%m-%dT%H:%M:%S')}."
+                    f"{now.microsecond // 1000:03d}Z {message[len(prefix):]}")
+    return message
+
+
 def dev_log(message):
-    """Write one line, carrying its own newline, to stderr and `logs` when `dev` is set."""
+    """Write one trace line to stderr and `logs`, only when `dev` is set.
+
+    `message` carries its own prefix and trailing newline; the line is stamped."""
     if dev:
+        message = stamp(message)
         sys.stderr.write(message)
         logs.append(message)
+
+def log_always(message):
+    """Write one line to stderr and `logs` regardless of `dev`.
+
+    Reserved for terminal verdicts (DECLINED, FAILED, per-candidate outcome), since stderr is capped."""
+    message = stamp(message)
+    sys.stderr.write(message)
+    logs.append(message)
 
 """
 END: AGENT modification
