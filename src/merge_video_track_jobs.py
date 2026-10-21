@@ -6,6 +6,8 @@ import threading
 from decimal import Decimal
 from os import path
 
+import pysubs2
+
 import tools
 import video
 import audio_reencode
@@ -79,6 +81,17 @@ def remove_files(paths):
             tools.file_remove(file_path)
 
 
+def read_subtitle_events(label, file_path, stream):
+    text = run_track_cmd(label, [tools.software["ffmpeg"], "-v", "error", "-nostdin", "-i", file_path,
+                                 "-map", f"0:{stream}", "-c:s", "srt", "-f", "srt", "pipe:1"]).decode("utf-8", errors="ignore")
+    if not text.strip():
+        return []
+    try:
+        return pysubs2.SSAFile.from_string(text).events
+    except pysubs2.exceptions.FormatAutodetectionError as e:
+        raise TrackJobError(f"Track job failed for {label}: stream {stream} of {file_path} is not readable by pysubs2: {e}") from e
+
+
 def audio_track_job(file_path, audio, delay_to_put, duration_best_video, have_pgs, is_master, out_path):
     label = f"audio track {audio['StreamOrder']} of {file_path}"
     output_args = ["-map", f"0:{int(audio['StreamOrder'])}", "-map_metadata", "0", "-copy_unknown",
@@ -118,11 +131,24 @@ def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_p
                                         False, duration_best_video, out_path))
     finally:
         remove_files([convert_path])
-    if codec not in tools.sub_type_not_encodable:
-        source_md5 = video.subtitle_text_srt_md5(file_path, sub["StreamOrder"])[1]
-        produced_md5 = video.subtitle_text_srt_md5(out_path, 0)[1]
-        if source_md5 != produced_md5:
-            raise TrackJobError(f"Track job failed for {label}: text md5 {source_md5} became {produced_md5}")
+    if codec in tools.sub_type_not_encodable:
+        return
+    # Measured on ffmpeg 9.0.2: the trim keeps exactly the cues whose shifted start is in [0, duration),
+    # a kept cue is not clipped, and a shifted time is rounded to the millisecond (hence 1 ms of tolerance).
+    shift_ms = float(delay_to_put)
+    duration_ms = float(duration_best_video) * 1000
+    expected = [(event.start + shift_ms, event.end + shift_ms, event.text)
+                for event in read_subtitle_events(label, file_path, sub["StreamOrder"])
+                if 0 <= event.start + shift_ms < duration_ms]
+    produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, out_path, 0)]
+    if len(expected) == 0 or len(produced) == 0:
+        matches = len(expected) == len(produced)
+    else:
+        matches = all(want[2] == got[2] and abs(want[0] - got[0]) <= 1 and abs(want[1] - got[1]) <= 1
+                      for want, got in ((expected[0], produced[0]), (expected[-1], produced[-1])))
+    if not matches:
+        raise TrackJobError(f"Track job failed for {label}: first/last cues expected "
+                            f"{expected[:1] + expected[-1:]}, produced {produced[:1] + produced[-1:]}")
 
 
 def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_video, tmp_file, is_master=False):
