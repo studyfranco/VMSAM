@@ -25,6 +25,7 @@ from concurrent.futures.process import BrokenProcessPool
 from datetime import datetime, timezone
 from multiprocessing import Pool, get_context
 from sys import stderr
+import signal
 
 import tools
 
@@ -217,6 +218,8 @@ def run_fusion_job(database_url, error_file_path):
     import mergeVideo
     import video
 
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     tools.dev = tools.get_dev_env_var()
     test_mode = is_test_mode()
     session = setup_database(database_url)
@@ -374,15 +377,15 @@ def apply_test_outcome(current_folder, incompatible_file, new_file_path,
         raise Exception(f"Cannot create the test output folder {out_folder_final}")
 
     if job_error == None and merged_file_path != None:
-        published = os.path.join(out_folder_final, os.path.basename(new_file_path))
+        published = os.path.join(out_folder_final, str(incompatible_file.id) + '_' + os.path.basename(new_file_path))
         shutil.move(merged_file_path, published)
         write_log_file(published+".log",
-                       f"Merged {incompatible_file.file_path} with the master into {published}\n\n"
+                       f"Commit:{tools.get_git_commit()}\nMerged {incompatible_file.file_path} with the master into {published}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
                        f"Logs:\n{chr(10).join(tools.logs)}\n")
     else:
-        write_log_file(os.path.join(out_folder_final, os.path.basename(incompatible_file.file_path))+".log.error",
-                       f"Error processing file {os.path.basename(incompatible_file.file_path)}: "
+        write_log_file(os.path.join(out_folder_final, str(incompatible_file.id) + '_' + os.path.basename(incompatible_file.file_path))+".log.error",
+                       f"Commit:{tools.get_git_commit()}\nError processing file {os.path.basename(incompatible_file.file_path)}: "
                        f"{job_error['error']}\n{job_error['traceback']}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
                        f"Logs:\n{chr(10).join(tools.logs)}\n")
