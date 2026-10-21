@@ -395,6 +395,13 @@ configuration = {}
 
 ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
 
+
+def dev_log(message):
+    """Write one line, carrying its own newline, to stderr and `logs` when `dev` is set."""
+    if dev:
+        sys.stderr.write(message)
+        logs.append(message)
+
 """
 END: AGENT modification
 """

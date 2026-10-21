@@ -1033,6 +1033,20 @@ def get_sample_rate(audio):
             pass
     return None
 
+def describe_audio_track(audio):
+    """Return a short description of an audio track's measured properties, never a file name."""
+    try:
+        bitrate = get_bitrate(audio)
+    except Exception:
+        bitrate = "?"
+    description = (f"{get_codec(audio) or audio.get('Format', '?')} "
+                   f"{get_channel(audio)}ch {audio.get('SamplingRate', '?')}Hz "
+                   f"{bitrate}bps lang={audio.get('Language', '?')}")
+    tag = (audio.get('extra') or {}).get(tools.ORIGINAL_ENCODE_TAG)
+    if tag:
+        description += f" {tools.ORIGINAL_ENCODE_TAG}={tag}"
+    return description
+
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:
         return float(base[get_birate_key(base)]) < float(challenger[get_birate_key(challenger)])*(1+(0.05*(float(challenger['Format_Level'])-float(base['Format_Level']))))
