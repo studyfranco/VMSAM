@@ -969,12 +969,7 @@ def get_birate_key(data):
         raise Exception(f"No video bitrate {data}")
     
 def get_channel(audio):
-    """Return the number of channels of an audio track, or None when unknown.
-
-    Tried in order: MediaInfo Channels, Channel(s), Channels_Original, ffprobe
-    channels, then the channel layout (MediaInfo ChannelLayout, else ffprobe
-    channel_layout) with its positions counted: "5.1(side)" -> 6, "stereo" -> 2.
-    """
+    """Return the channel count of an audio track from its MediaInfo/ffprobe fields or its layout, or None."""
     ffprobe = audio.get('ffprobe') or {}
     for value in (audio.get('Channels'), audio.get('Channel(s)'), audio.get('Channels_Original'), ffprobe.get('channels')):
         try:
@@ -984,50 +979,16 @@ def get_channel(audio):
     layout = audio.get('ChannelLayout') or ffprobe.get('channel_layout')
     if not layout:
         return None
-    # "5.1(side)" -> "5.1"
     layout = str(layout).split('(')[0].strip().lower()
     named = {'mono': 1, 'stereo': 2, 'downmix': 2, 'quad': 4, 'hexagonal': 6, 'octagonal': 8}
     if layout in named:
         return named[layout]
     if re.fullmatch(r"\d+(\.\d+)+", layout):
-        # ffprobe "5.1", "7.1.4": the numbers add up
         return sum(int(number) for number in layout.split('.'))
-    # MediaInfo "L R C LFE Ls Rs": one position per channel
     return len(layout.split())
 
-def bitrate_from_stream_size(data):
-    """Return StreamSize * 8 / Duration in bit/s, or None when a value is missing."""
-    try:
-        return int(data['StreamSize']) * 8 / float(data['Duration'])
-    except (KeyError, TypeError, ValueError, ZeroDivisionError):
-        return None
-
-def bitrate_from_copy_pass(data, path):
-    """Return the bitrate measured by summing the packet sizes of the stream (-c copy to null), or None."""
-    try:
-        duration = float(data['Duration'])
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-            [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", path,
-             "-map", f"0:{int(data['StreamOrder'])}", "-c", "copy", "-f", "null", "-"], 1, 1800)
-    except Exception as e:
-        stderr.write(f"Copy pass failed on track {data.get('StreamOrder')}: {e}\n")
-        tools.logs.append(f"Copy pass failed on track {data.get('StreamOrder')}: {e}\n")
-        return None
-    scale = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
-    sizes = re.findall(r"\b(?:audio|video):\s*(\d+)\s*([kmg])i?b", stderror.decode("utf-8", errors="ignore").lower())
-    if not sizes or duration <= 0:
-        return None
-    return sum(int(number) * scale[unit] for number, unit in sizes) * 8 / duration
-
 def get_bitrate(data, path=None):
-    """Return the bitrate (bit/s, int) of a track, or raise when no source gives one.
-
-    Sources in order: ffprobe bit_rate, BitRate, BitRate_Nominal,
-    StreamSize * 8 / Duration, the BPS tag, a -c copy pass on `path` (the file
-    holding the track) when given, then BitRate_Maximum (it over-estimates).
-    The value and its source are cached in `data` (BitRate_resolved,
-    BitRate_source) so the copy pass runs once per track.
-    """
+    """Return the bitrate (bit/s, int) of a track, cached on the track, or raise when no source gives one."""
     if data.get('BitRate_resolved'):
         return data['BitRate_resolved']
     ffprobe = data.get('ffprobe') or {}
@@ -1038,39 +999,44 @@ def get_bitrate(data, path=None):
     if not bitrate:
         bitrate, source = data.get('BitRate_Nominal'), "BitRate_Nominal"
     if not bitrate:
-        bitrate, source = bitrate_from_stream_size(data), "StreamSize"
+        try:
+            bitrate = int(data['StreamSize']) * 8 / float(data['Duration'])
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            bitrate = None
+        source = "StreamSize"
     if not bitrate:
         bitrate, source = tags.get('BPS', tags.get('BPS-eng')), "BPS"
     if not bitrate and path is not None:
-        bitrate, source = bitrate_from_copy_pass(data, path), "copy_pass"
+        bitrate, source = None, "copy_pass"
+        try:
+            duration = float(data['Duration'])
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", path,
+                 "-map", f"0:{int(data['StreamOrder'])}", "-c", "copy", "-f", "null", "-"], 1, 1800)
+            sizes = re.findall(r"\b(?:audio|video):\s*(\d+)\s*([kmg])i?b", stderror.decode("utf-8", errors="ignore").lower())
+            if sizes and duration > 0:
+                scale = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+                bitrate = sum(int(number) * scale[unit] for number, unit in sizes) * 8 / duration
+        except Exception as e:
+            stderr.write(f"Copy pass failed on track {data.get('StreamOrder')}: {e}\n")
     if not bitrate:
         bitrate, source = data.get('BitRate_Maximum'), "BitRate_Maximum"
     if not bitrate:
         raise Exception(f"No bitrate {data}")
     bitrate = int(float(bitrate))
-    # Without a path a later call may still measure, so a maximum is not cached.
     if source != "BitRate_Maximum" or path is not None:
         data['BitRate_resolved'], data['BitRate_source'] = bitrate, source
     return bitrate
 
 def get_codec(data):
-    """Return the stream's codec, lowercased, or "" when truly unknown.
-
-    Owner-review addition (audio-conversion-master): tried in order --
-    ffprobe codec_name (when present and not "none"/"unknown"), else the
-    MediaInfo Format field, normalised through config.json's
-    `original_encode_formats` table (codec -> MediaInfo name, read
-    backwards here: name -> codec) when that table lists the name, kept as
-    given (lowercased) otherwise. Two codecs sharing one MediaInfo name
-    (mp2/mp3 both "MPEG Audio") resolve to whichever config.json lists last.
-    """
+    """Return the stream's codec, lowercased: ffprobe codec_name, else MediaInfo Format mapped back through original_encode_formats."""
     ffprobe_codec = str((data.get('ffprobe') or {}).get('codec_name', '')).strip().lower()
     if ffprobe_codec and ffprobe_codec not in ('none', 'unknown'):
         return ffprobe_codec
     media_format = str(data.get('Format', '')).strip()
     if not media_format:
         return ''
-    formats = (getattr(tools, 'configuration', None) or {}).get('original_encode_formats') or {}
+    formats = (tools.configuration or {}).get('original_encode_formats') or {}
     reverse = {str(name).strip().lower(): codec for codec, name in formats.items()}
     return reverse.get(media_format.lower(), media_format.lower())
 
@@ -1084,14 +1050,7 @@ def get_sample_rate(audio):
     return None
 
 def describe_audio_track(audio):
-    """Return a short, log-safe description of an audio track.
-
-    Owner-review addition (audio-conversion-master): codec (get_codec),
-    channel count (get_channel), sample rate, bitrate (get_bitrate, best
-    effort -- a copy pass is never run just to log), language and, when the
-    track carries one, its ORIGINAL_ENCODE tag. Never a filename or a path
-    (AGENT.MD privacy rule): this is measured stream properties only.
-    """
+    """Return a short description of an audio track's measured properties, never a file name."""
     try:
         bitrate = get_bitrate(audio)
     except Exception:

@@ -264,6 +264,21 @@
                         }
                     }
                 }
+            },
+            "opus": {
+                "target": "libopus",
+                "bitrate": {
+                    "0": {
+                        "sample_rate": {
+                            "0": {
+                                "channels": {
+                                    "0": {"bitrate": "source"},
+                                    "3": {"bitrate": "source", "args": ["-mapping_family", "1"]}
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     },
