@@ -3543,7 +3543,8 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                                                if len(pieces) == 1 else None),
                                 "video_span_frames": (
                                     outcome["master_end_frame"] - outcome["master_start_frame"]
-                                    if video_decided and len(pieces) == 1 else None)})
+                                    if video_decided and len(pieces) == 1 else None),
+                                **anchor_reading(outcome)})
         tools.dev_log(
             f"repair: audio_transition "
             f"change_point={index} a_ms={point['a_ms']} b_ms={point['b_ms']} "
@@ -3597,6 +3598,107 @@ def _blind_point_in_audio_interval(outcome, domain, interval):
     return None if best is None else best[1]
 
 
+def anchor_reading(outcome):
+    """Return the anchor facts a transition keeps for the zone-lag rules: frames, crossing, ambiguity.
+
+    >>> anchor_reading({"anchor_a_frame": 10, "anchor_b_frame": 30, "sweep_crossed": True})
+    {'anchor_frames': [10, 30], 'sweep_crossed': True, 'ambiguous_sides': []}
+    """
+    sides = [side for side, key in (("before", "anchor_a_ambiguous"), ("after", "anchor_b_ambiguous"))
+             if outcome.get(key)]
+    return {"anchor_frames": [outcome.get("anchor_a_frame"), outcome.get("anchor_b_frame")],
+            "sweep_crossed": bool(outcome.get("sweep_crossed")), "ambiguous_sides": sides}
+
+
+# A zone majority this strong beats an anchor read on a fade, a black span or a crossed window,
+# however far apart (decision: zone-majority-beats-unreliable-anchor).
+ZONE_LAG_DECISIVE_EVENTS = 20
+ZONE_LAG_DECISIVE_SHARE = 0.9
+
+
+def zone_lag_decisive(lag, counts):
+    """Whether `lag` holds at least ZONE_LAG_DECISIVE_EVENTS changes and ZONE_LAG_DECISIVE_SHARE of them.
+
+    >>> from collections import Counter
+    >>> zone_lag_decisive(43, Counter({43: 104, 48: 3, 42: 2}))
+    True
+    """
+    if lag is None:
+        return False
+    total = sum(counts.values())
+    return counts[lag] >= ZONE_LAG_DECISIVE_EVENTS and counts[lag] >= ZONE_LAG_DECISIVE_SHARE * total
+
+
+def flat_window(master_frames):
+    """Whether every grey master frame is flat (std under frame_compare.FLAT_STD): black or a plain field."""
+    import frame_compare
+    return len(master_frames) > 0 and all(float(frame.std()) < frame_compare.FLAT_STD
+                                          for frame in master_frames)
+
+
+def unreliable_anchor_cause(transition, domain, master_obj):
+    """Name why a cut's anchor shifts cannot outvote a zone majority ("crossed", "fade", "black"), or None.
+
+    A blind span or a crossed sweep is "crossed". Otherwise the master is read over each
+    anchor's own window (the ANCHOR_WINDOW_FRAMES before anchor A and from anchor B on): a
+    luma ramp (`_is_fade_window`) is "fade", flat frames throughout are "black". None also
+    when the windows cannot be read.
+    """
+    import frame_compare
+    import scene_anchor
+    if transition.get("blind_span") is not None or transition.get("sweep_crossed"):
+        return "crossed"
+    anchor_a, anchor_b = transition.get("anchor_frames") or [None, None]
+    if master_obj is None or anchor_a is None or anchor_b is None:
+        return None
+    width = scene_anchor.ANCHOR_WINDOW_FRAMES
+    rate = domain["master_rate"]
+    comparer = frame_compare.FrameComparer(master_obj.filePath, master_obj.filePath, 0.0, 1.0,
+                                           rate.numerator, rate.denominator)
+    for first in (max(0, anchor_a - width), anchor_b):
+        try:
+            frames = _grey_frames(comparer, master_obj.filePath, first, width, rate)
+        except Exception as error:                                           # noqa: BLE001
+            tools.dev_log(f"repair: anchor_window_unread ({type(error).__name__}: {error})\n")
+            return None
+        if _is_fade_window([float(frame.mean()) for frame in frames]):
+            return "fade"
+        if flat_window(frames):
+            return "black"
+    return None
+
+
+def zone_lags_over_anchor(before, after, left, left_counts, right, right_counts, cause):
+    """Return the (left, right) shifts a cut takes from its zones, or None to keep its anchors.
+
+    The rule of `align_transitions_to_zone_lags`: a side takes its zone's majority when it is
+    within one frame of the anchor; when the anchor was read on a fade, a black span or a
+    crossed window (`cause`), a decisive majority (`zone_lag_decisive`) wins at any distance
+    and a side whose zone has no majority keeps its anchor.
+
+    >>> from collections import Counter
+    >>> zone_lags_over_anchor(19, 41, 18, Counter({18: 180}), 43, Counter({43: 104}), "crossed")
+    (18, 43)
+    >>> zone_lags_over_anchor(19, 41, 18, Counter({18: 180}), 43, Counter({43: 104}), None) is None
+    True
+    """
+    shifts = []
+    for anchor, lag, counts in ((before, left, left_counts), (after, right, right_counts)):
+        if cause is not None and zone_lag_decisive(lag, counts):
+            shifts.append(lag)
+        elif lag is not None and abs(lag - anchor) <= 1:
+            shifts.append(lag)
+        elif lag is None and cause is not None:
+            shifts.append(anchor)
+        else:
+            return None
+    decisive = cause is not None and (zone_lag_decisive(left, left_counts)
+                                      or zone_lag_decisive(right, right_counts))
+    if (left is None or right is None) and not decisive:
+        return None
+    return tuple(shifts)
+
+
 def _zone_bounds_s(transitions, index, domain):
     """Master seconds (start, end) of the zones left and right of transition `index`."""
     end_s = float(domain["master_timeline_ms"]) / 1000.0
@@ -3618,8 +3720,10 @@ def align_transitions_to_zone_lags(transitions, pairs, domain, walk, master_obj,
       then the audio interval, as `_blind_span_outcome` and `audio_transitions` do);
     - a resolved cut keeps its frames and fills at least the corrected shift gap;
     - a cut the picture read as continuous (one shift) takes the zone lag when both zones agree.
-    A side whose majority is unknown, or more than one frame from the anchor, keeps the anchor.
-    Each correction is logged (`zone_lag_correction`).
+    A side whose majority is unknown, or more than one frame from the anchor, keeps the anchor,
+    unless the anchor was read on a fade, a black span or a crossed window and a zone majority
+    is decisive (`zone_lags_over_anchor`). Each correction is logged (`zone_lag_correction`); an
+    anchor kept against both zones is marked `zone_lag_disagrees_anchor`.
 
     Returns:
         the transitions (updated in place where corrected).
@@ -3638,15 +3742,27 @@ def align_transitions_to_zone_lags(transitions, pairs, domain, walk, master_obj,
                                                            left_hi * 1000.0, frame_ms)
         right, right_counts = zone_picture_lag.zone_majority(pairs, right_lo * 1000.0,
                                                              right_hi * 1000.0, frame_ms)
-        if left is None or right is None or (left, right) == (before, after):
+        if (left, right) == (before, after):
             continue
-        if abs(left - before) > 1 or abs(right - after) > 1:
-            tools.log_always(
-                f"repair: zone_lag_disagrees_anchor change_point={transition['change_point']} "
-                f"anchor_shifts=[{before}, {after}] zone_lags=[{left}, {right}] "
-                f"left_counts={dict(left_counts.most_common(3))} "
-                f"right_counts={dict(right_counts.most_common(3))} decision=anchor_kept "
-                f"for {candidate_path}\n")
+        cause = None
+        lags = zone_lags_over_anchor(before, after, left, left_counts, right, right_counts, None)
+        if lags is None and (zone_lag_decisive(left, left_counts)
+                             or zone_lag_decisive(right, right_counts)):
+            cause = unreliable_anchor_cause(transition, domain, master_obj)
+            lags = zone_lags_over_anchor(before, after, left, left_counts, right, right_counts,
+                                         cause)
+        if lags is None:
+            if left is not None and right is not None:
+                transition["zone_lag_disagrees_anchor"] = True
+                tools.log_always(
+                    f"repair: zone_lag_disagrees_anchor change_point={transition['change_point']} "
+                    f"anchor_shifts=[{before}, {after}] zone_lags=[{left}, {right}] "
+                    f"left_counts={dict(left_counts.most_common(3))} "
+                    f"right_counts={dict(right_counts.most_common(3))} anchor_reading={cause} "
+                    f"decision=anchor_kept for {candidate_path}\n")
+            continue
+        left, right = lags
+        if (left, right) == (before, after):
             continue
         old = (transition["at_s"], transition["fill_s"])
         blind = transition.get("blind_span")
@@ -3681,9 +3797,11 @@ def align_transitions_to_zone_lags(transitions, pairs, domain, walk, master_obj,
         elif transition.get("video_span_frames") is not None and before != after:
             transition["fill_s"] = max(0, left - right, transition["video_span_frames"]) * frame_s
         transition["before_shift_frames"], transition["after_shift_frames"] = left, right
+        transition["ambiguous_sides"] = []
         tools.log_always(
             f"repair: zone_lag_correction change_point={transition['change_point']} "
             f"anchor_shifts=[{before}, {after}] zone_lags=[{left}, {right}] "
+            f"anchor_reading={cause} "
             f"left_counts={dict(left_counts.most_common(3))} "
             f"right_counts={dict(right_counts.most_common(3))} "
             f"at_s={round(old[0], 4)}->{round(transition['at_s'], 4)} "
@@ -3789,6 +3907,76 @@ def _locate_picture_step(domain, master_obj, candidate_obj, low, high, before, a
     return low, high
 
 
+# A window whose frames match one shift on this share of its readable frames holds no frame-count
+# step (measured on id 741: 209 of 213 frames at one shift over a fade and two static shots).
+WHOLE_WINDOW_SINGLE_SHIFT_SHARE = 0.9
+
+
+def window_single_shift(domain, master_obj, candidate_obj, window, shift, quantum_ms):
+    """Return the one shift matching WHOLE_WINDOW_SINGLE_SHIFT_SHARE of the window's frames, or None.
+
+    The span test `_span_no_cut_outcome` runs (`scene_anchor.island_match`), searched around
+    `shift`; None as well when the window cannot be read.
+    """
+    import scene_anchor
+    if master_obj is None or candidate_obj is None:
+        return None
+    frame_ms = float(domain["frame_ms"])
+    try:
+        reading = scene_anchor.island_match(
+            master_obj.filePath, candidate_obj.filePath,
+            domain["master_rate"].numerator, domain["master_rate"].denominator,
+            window[0] * frame_ms, window[1] * frame_ms, shift * frame_ms,
+            candidate_time_scale=domain["time_scale"],
+            shift_search_frames=_shift_search_frames(domain, quantum_ms))
+    except Exception as error:                                           # noqa: BLE001
+        tools.dev_log(f"repair: window_single_shift_unread ({type(error).__name__}: {error})\n")
+        return None
+    if (reading.get("verdict") == "same"
+            and reading["matched"] >= WHOLE_WINDOW_SINGLE_SHIFT_SHARE * reading["readable"]):
+        return reading["shift_frames"]
+    return None
+
+
+def whole_window_refusal(left, right, window, domain, master_obj, candidate_obj, before,
+                         quantum_ms):
+    """Name why a frame-count window may not be taken whole from the master, or None.
+
+    The bounding shifts must come from unambiguous reads (no ambiguous anchor on the zone's
+    side, no anchor kept against its zone majority), and the window must not read as the same
+    picture at a single shift (`window_single_shift`) (decision: no-whole-window-without-step).
+    """
+    if ("after" in left.get("ambiguous_sides", ()) or left.get("zone_lag_disagrees_anchor")
+            or "before" in right.get("ambiguous_sides", ())
+            or right.get("zone_lag_disagrees_anchor")):
+        return "bounding_shift_ambiguous"
+    shift = window_single_shift(domain, master_obj, candidate_obj, window, before, quantum_ms)
+    if shift is not None:
+        return f"window_reads_single_shift:{shift}"
+    return None
+
+
+def zone_lag_read_after(transitions, master_s):
+    """Return the picture lag stage 4 reads for the zone opening at master second `master_s`, or None.
+
+    Zones are laid as `repair_stage4_plan.plan_geometry` lays them (an empty zone is dropped)
+    and read by `repair_stage4_plan.zone_anchor_lags`.
+    """
+    import repair_stage4_plan
+    bounds, cursor = [], 0.0
+    for transition in transitions:
+        if transition["at_s"] > cursor:
+            bounds.append((cursor, transition["at_s"]))
+        cursor = transition["at_s"] + transition["fill_s"]
+    bounds.append((cursor, math.inf))
+    zones = [{"zone": number} for number in range(len(bounds))]
+    lags = repair_stage4_plan.zone_anchor_lags(zones, transitions)
+    for number, (start, stop) in enumerate(bounds):
+        if start - 1e-9 <= master_s < stop:
+            return (lags.get(number) or {}).get("lag")
+    return None
+
+
 def picture_steps_in_continuous_zones(transitions, walk, reference, domain, master_obj,
                                       candidate_obj, work_dir, candidate_path):
     """Apply the frame-count rule to every span the audio sees as continuous.
@@ -3800,9 +3988,11 @@ def picture_steps_in_continuous_zones(transitions, walk, reference, domain, mast
     - Another count (frames more or fewer in the candidate): that part is taken from the
       master. The step is located by a pixel bisection inside the span and resolved
       frame-exact like any hole; when the frames between the probes read either shift (a fade,
-      a black or static run), the whole window between the probes is taken from the master.
+      a black or static run), the whole window between the probes is taken from the master,
+      unless `whole_window_refusal` names a reason not to.
       The audio offset of the span is kept on both sides.
-    A step the probes cannot locate stays a finding.
+    A step the probes cannot locate stays a finding, and a fill after which the zone does not
+    read the claimed shift (`zone_lag_read_after`) is refused.
 
     Returns:
         the transitions, with the master takes in master order.
@@ -3850,6 +4040,12 @@ def picture_steps_in_continuous_zones(transitions, walk, reference, domain, mast
         if exact:
             start, end = outcome["master_start_frame"], outcome["master_end_frame"]
         else:
+            refusal = whole_window_refusal(left, right, window, domain, master_obj,
+                                           candidate_obj, before, quantum_ms)
+            if refusal is not None:
+                tools.log_always(f"repair: frame_count_differs_unlocated window={list(window)} "
+                                 f"whole_window_refused={refusal} {finding}")
+                continue
             # The frames between the probes read either shift: the window is taken whole.
             start, end = window
         removal_s = None
@@ -3857,14 +4053,26 @@ def picture_steps_in_continuous_zones(transitions, walk, reference, domain, mast
             removal_s = _frame_s(outcome["removal_frame"], domain)
         at = _frame_s(start, domain)
         fill = max(0, before - after, end - start) * frame_ms / 1000.0
-        for piece_at, piece_fill, a_ms, b_ms, decision, left_shift, right_shift in (
-                _transition_pieces(at, fill, level, level, "frame_count_differs_from_master",
-                                   before, after, removal_s)):
-            added.append({"at_s": piece_at, "fill_s": piece_fill, "a_ms": a_ms, "b_ms": b_ms,
-                          "decision": decision, "interval": None, "edges": None,
-                          "video_status": status, "video_s": at,
-                          "change_point": left["change_point"],
-                          "before_shift_frames": left_shift, "after_shift_frames": right_shift})
+        pieces = [{"at_s": piece_at, "fill_s": piece_fill, "a_ms": a_ms, "b_ms": b_ms,
+                   "decision": decision, "interval": None, "edges": None,
+                   "video_status": status, "video_s": at,
+                   "change_point": left["change_point"],
+                   "before_shift_frames": left_shift, "after_shift_frames": right_shift}
+                  for piece_at, piece_fill, a_ms, b_ms, decision, left_shift, right_shift in (
+                      _transition_pieces(at, fill, level, level,
+                                         "frame_count_differs_from_master", before, after,
+                                         removal_s))]
+        planned = sorted(transitions + added + pieces, key=lambda t: t["at_s"])
+        delivered = zone_lag_read_after(planned, at + fill)
+        if delivered != after:
+            # (decision: frame-count-fill-moves-the-zone)
+            tools.log_always(
+                f"repair: frame_count_fill_refused at_s={round(at, 4)} "
+                f"fill_ms={round(fill * 1000.0, 3)} master_frames=[{start}, {end}] "
+                f"claimed_shifts=[{before}, {after}] delivered_zone_shift={delivered} "
+                f"reason=zone_shift_unchanged {finding}")
+            continue
+        added += pieces
         tools.log_always(
             f"repair: frame_count_differs_from_master at_s={round(at, 4)} "
             f"fill_ms={round(fill * 1000.0, 3)} master_frames=[{start}, {end}] "
