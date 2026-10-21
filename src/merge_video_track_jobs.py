@@ -73,6 +73,7 @@ def run_track_cmd(label, cmd):
         sys.stderr.write(f"[FFmpeg WARN] Track job for {label}\n{cmd}\n")
         for line in warnings:
             sys.stderr.write(f"  {line}\n")
+    return stdout
 
 
 def remove_files(paths):
@@ -161,37 +162,21 @@ def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_p
                             f"{expected[:1] + expected[-1:]}, produced {produced[:1] + produced[-1:]}")
 
 
-def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_video, tmp_file, is_master=False):
-    """Run one pool job per kept track, then mkvmerge their files into tmp_file; raise TrackJobError on the first failure."""
-    have_pgs = any(sub["Format"].lower() in tools.sub_type_not_encodable for sub in subs)
-    jobs = []
-    merge_cmd = [tools.software["mkvmerge"], "-o", tmp_file]
-    for track_type, tracks, track_job, extension in (("audio", audios, audio_track_job, "mka"),
-                                                     ("subtitle", subs, subtitle_track_job, "mks")):
-        for track in sorted(tracks, key=lambda x: int(x["StreamOrder"])):
-            merge_cmd.extend(["--no-global-tags", "-M", "-B"] + (["--no-chapters"] if jobs else []))
-            if is_already_done(track, delay_to_put, is_master):
-                out_path = None
-                merge_cmd.extend(["-D", "-S" if track_type == "audio" else "-A", f"--{track_type}-tracks",
-                                  str(int(track["StreamOrder"])), video_obj.filePath])
-            else:
-                out_path = f"{tmp_file}_track_{int(track['StreamOrder'])}.{extension}"
-                merge_cmd.append(out_path)
-            jobs.append((track_job, (video_obj.filePath, track, delay_to_put, duration_best_video, have_pgs, is_master,
-                                     out_path)))
-    if not jobs:
+def generate_track_files(file_path, track_jobs, merge_cmd, tmp_file):
+    """Run the pool jobs of one candidate, then its prepared mkvmerge into tmp_file; raise TrackJobError on the first failure."""
+    if not track_jobs:
         return
-    out_paths = [args[-1] for target, args in jobs]
+    out_paths = [args[-1] for target, args in track_jobs]
     try:
-        submitted = [video.ffmpeg_pool_audio_convert.apply_async(target, args) for target, args in jobs]
+        submitted = [video.ffmpeg_pool_audio_convert.apply_async(target, args) for target, args in track_jobs]
         for result in submitted:
             result.get()
         try:
             tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
         except Exception as e:
             if not str(e).rstrip().endswith("Return code: 1"):
-                raise TrackJobError(f"mkvmerge of the track files of {video_obj.filePath} failed: {e}") from e
-            sys.stderr.write(f"[mkvmerge WARN] track files of {video_obj.filePath}: {e}\n")
+                raise TrackJobError(f"mkvmerge of the track files of {file_path} failed: {e}") from e
+            sys.stderr.write(f"[mkvmerge WARN] track files of {file_path}: {e}\n")
     except TrackJobError:
         remove_files([tmp_file])
         raise
