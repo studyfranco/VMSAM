@@ -1562,8 +1562,8 @@ def check_delay_retention(new_video, source_tracks, original_video_path,sentence
         for audio in audios:
             check_delay_retention_sub(audio, source_tracks, original_video_path,sentence)
 
-def generate_new_file_launch_cmd(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file):
-    merge_video_track_jobs.generate_track_files(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file)
+def generate_new_file_launch_cmd(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file, is_master):
+    merge_video_track_jobs.generate_track_files(video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file, is_master)
     new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
     new_video.need_one_audio_track = False
     new_video.get_mediadata()
@@ -1592,7 +1592,7 @@ def get_relative_id_track(track):
     else:
         return ":0"
 
-def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video,is_master=False):
     if video_obj.und_in_default:
         del video_obj.audios[tools.default_language_for_undetermine]
 
@@ -1650,7 +1650,7 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
     if number_track:
         tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
 
-        ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.ResultThread(generate_new_file_launch_cmd, (video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file)))
+        ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.ResultThread(generate_new_file_launch_cmd, (video_obj, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, tmp_file, is_master)))
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
     
     return number_track
@@ -1692,7 +1692,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'merge_cmd' : [],
                        'metadata_cmd' : []}
     
-    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
+    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'],is_master=True)
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])

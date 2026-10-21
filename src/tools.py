@@ -394,6 +394,7 @@ BEGIN: AGENT modification ok
 configuration = {}
 
 ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
+MASTER_PASS_TAG = "VMSAM_MASTER_PASS"
 
 
 # Line prefixes that get a UTC timestamp; other lines (read by prefix-based parsers) stay unchanged.

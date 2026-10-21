@@ -79,12 +79,15 @@ def remove_files(paths):
             tools.file_remove(file_path)
 
 
-def audio_track_job(file_path, audio, delay_to_put, duration_best_video, have_pgs, out_path):
+def audio_track_job(file_path, audio, delay_to_put, duration_best_video, have_pgs, is_master, out_path):
     label = f"audio track {audio['StreamOrder']} of {file_path}"
     output_args = ["-map", f"0:{int(audio['StreamOrder'])}", "-map_metadata", "0", "-copy_unknown",
                    "-copyts", "-movflags", "use_metadata_tags", "-c", "copy"]
-    reencoded = audio_reencode.generate_audio_ffmpeg_conversion_cmd(output_args, audio, delay_to_put, stream=":a:0",
-                                                                    path=file_path)
+    already_passed = is_master and (audio.get("extra") or {}).get(tools.MASTER_PASS_TAG)
+    reencoded = (not already_passed) and audio_reencode.generate_audio_ffmpeg_conversion_cmd(
+        output_args, audio, delay_to_put, stream=":a:0", path=file_path)
+    if reencoded and is_master:
+        output_args.extend(["-metadata:s:a:0", f"{tools.MASTER_PASS_TAG}={duration_best_video}"])
     run_track_cmd(label, ffmpeg_job(not have_pgs, delay_input_args(delay_to_put, file_path), output_args, have_pgs,
                                     duration_best_video, out_path))
     if reencoded:
@@ -122,12 +125,12 @@ def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_p
             raise TrackJobError(f"Track job failed for {label}: text md5 {source_md5} became {produced_md5}")
 
 
-def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_video, tmp_file):
+def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_video, tmp_file, is_master=False):
     """Run one pool job per kept track, then mkvmerge their files into tmp_file; raise TrackJobError on the first failure."""
     have_pgs = any(sub["Format"].lower() in tools.sub_type_not_encodable for sub in subs)
     jobs = []
     for audio in sorted(audios, key=lambda x: int(x["StreamOrder"])):
-        jobs.append((audio_track_job, (video_obj.filePath, audio, delay_to_put, duration_best_video, have_pgs,
+        jobs.append((audio_track_job, (video_obj.filePath, audio, delay_to_put, duration_best_video, have_pgs, is_master,
                                        f"{tmp_file}_track_{int(audio['StreamOrder'])}.mka")))
     for sub in sorted(subs, key=lambda x: int(x["StreamOrder"])):
         jobs.append((subtitle_track_job, (video_obj.filePath, sub, delay_to_put, duration_best_video, have_pgs,
