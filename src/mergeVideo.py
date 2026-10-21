@@ -1950,6 +1950,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(["-D", out_path_tmp_file_name_split])
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
+    """
+    BEGIN: AGENT modification ok
+    """
+    import font_attachments
+    font_attachments.restrict_final_attachments(final_insert, best_video.filePath, ffmpeg_cmd_dict['metadata_cmd'], out_path_tmp_file_name_split, out_video_metadata.subtitles)
+    """
+    END: AGENT modification
+    """
     tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
