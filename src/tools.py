@@ -358,6 +358,7 @@ def load_merge_runtime_from_env():
     global tmpFolder_original, tmpFolder, core_to_use, folder_error, software
     global mergeRules, group_title_sub, language_to_keep
     global language_to_completely_remove, language_to_try_to_keep, special_params
+    global configuration
 
     tmp_original = os.environ.get("VMSAM_TMP_FOLDER_ORIGINAL", "").strip()
     if len(tmp_original):
@@ -389,6 +390,10 @@ def load_merge_runtime_from_env():
 """
 BEGIN: AGENT modification ok
 """
+
+configuration = {}
+
+ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
 
 """
 END: AGENT modification
