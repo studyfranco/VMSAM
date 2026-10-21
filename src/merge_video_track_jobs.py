@@ -77,8 +77,15 @@ def run_track_cmd(label, cmd):
 
 def remove_files(paths):
     for file_path in paths:
-        if path.exists(file_path):
+        if file_path and path.exists(file_path):
             tools.file_remove(file_path)
+
+
+def is_already_done(track, delay_to_put, is_master):
+    """True when a master track with no delay to apply already carries MASTER_PASS_TAG: no ffmpeg runs on it."""
+    if delay_to_put != 0 or not is_master:
+        return False
+    return bool((track.get("extra") or {}).get(tools.MASTER_PASS_TAG))
 
 
 def read_subtitle_events(label, file_path, stream):
@@ -93,14 +100,14 @@ def read_subtitle_events(label, file_path, stream):
 
 
 def audio_track_job(file_path, audio, delay_to_put, duration_best_video, have_pgs, is_master, out_path):
+    if is_already_done(audio, delay_to_put, is_master):
+        return
     label = f"audio track {audio['StreamOrder']} of {file_path}"
     output_args = ["-map", f"0:{int(audio['StreamOrder'])}", "-map_metadata", "0", "-copy_unknown",
                    "-copyts", "-movflags", "use_metadata_tags", "-c", "copy"]
-    already_passed = is_master and (audio.get("extra") or {}).get(tools.MASTER_PASS_TAG)
-    reencoded = (not already_passed) and audio_reencode.generate_audio_ffmpeg_conversion_cmd(
-        output_args, audio, delay_to_put, stream=":a:0", path=file_path)
-    if reencoded and is_master:
-        output_args.extend(["-metadata:s:a:0", f"{tools.MASTER_PASS_TAG}={duration_best_video}"])
+    reencoded = audio_reencode.generate_audio_ffmpeg_conversion_cmd(output_args, audio, delay_to_put, stream=":a:0",
+                                                                    path=file_path)
+    output_args.extend(["-metadata:s:a:0", f"{tools.MASTER_PASS_TAG}={duration_best_video}"])
     run_track_cmd(label, ffmpeg_job(not have_pgs, delay_input_args(delay_to_put, file_path), output_args, have_pgs,
                                     duration_best_video, out_path))
     if reencoded:
@@ -110,7 +117,9 @@ def audio_track_job(file_path, audio, delay_to_put, duration_best_video, have_pg
             raise TrackJobError(str(e)) from e
 
 
-def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_pgs, out_path):
+def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_pgs, is_master, out_path):
+    if is_already_done(sub, delay_to_put, is_master):
+        return
     label = f"subtitle track {sub['StreamOrder']} of {file_path}"
     convert_path = out_path + ".convert"
     output_args = ["-map", f"0:{int(sub['StreamOrder'])}", "-map_metadata", "0", "-copy_unknown", "-copyts",
@@ -127,7 +136,8 @@ def subtitle_track_job(file_path, sub, delay_to_put, duration_best_video, have_p
                                         Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000)), convert_path))
         run_track_cmd(label, ffmpeg_job(False, delay_input_args(delay_to_put, convert_path),
                                         ["-map", "0", "-map_metadata", "0", "-copy_unknown", "-movflags",
-                                         "use_metadata_tags", "-c", "copy", "-copyts"],
+                                         "use_metadata_tags", "-c", "copy", "-copyts",
+                                         "-metadata:s:s:0", f"{tools.MASTER_PASS_TAG}={duration_best_video}"],
                                         False, duration_best_video, out_path))
     finally:
         remove_files([convert_path])
@@ -155,18 +165,23 @@ def generate_track_files(video_obj, audios, subs, delay_to_put, duration_best_vi
     """Run one pool job per kept track, then mkvmerge their files into tmp_file; raise TrackJobError on the first failure."""
     have_pgs = any(sub["Format"].lower() in tools.sub_type_not_encodable for sub in subs)
     jobs = []
-    for audio in sorted(audios, key=lambda x: int(x["StreamOrder"])):
-        jobs.append((audio_track_job, (video_obj.filePath, audio, delay_to_put, duration_best_video, have_pgs, is_master,
-                                       f"{tmp_file}_track_{int(audio['StreamOrder'])}.mka")))
-    for sub in sorted(subs, key=lambda x: int(x["StreamOrder"])):
-        jobs.append((subtitle_track_job, (video_obj.filePath, sub, delay_to_put, duration_best_video, have_pgs,
-                                          f"{tmp_file}_sub_{int(sub['StreamOrder'])}.mks")))
+    merge_cmd = [tools.software["mkvmerge"], "-o", tmp_file]
+    for track_type, tracks, track_job, extension in (("audio", audios, audio_track_job, "mka"),
+                                                     ("subtitle", subs, subtitle_track_job, "mks")):
+        for track in sorted(tracks, key=lambda x: int(x["StreamOrder"])):
+            merge_cmd.extend(["--no-global-tags", "-M", "-B"] + (["--no-chapters"] if jobs else []))
+            if is_already_done(track, delay_to_put, is_master):
+                out_path = None
+                merge_cmd.extend(["-D", "-S" if track_type == "audio" else "-A", f"--{track_type}-tracks",
+                                  str(int(track["StreamOrder"])), video_obj.filePath])
+            else:
+                out_path = f"{tmp_file}_track_{int(track['StreamOrder'])}.{extension}"
+                merge_cmd.append(out_path)
+            jobs.append((track_job, (video_obj.filePath, track, delay_to_put, duration_best_video, have_pgs, is_master,
+                                     out_path)))
     if not jobs:
         return
     out_paths = [args[-1] for target, args in jobs]
-    merge_cmd = [tools.software["mkvmerge"], "-o", tmp_file]
-    for index, out_path in enumerate(out_paths):
-        merge_cmd.extend(["--no-global-tags", "-M", "-B"] + (["--no-chapters"] if index else []) + [out_path])
     try:
         submitted = [video.ffmpeg_pool_audio_convert.apply_async(target, args) for target, args in jobs]
         for result in submitted:
