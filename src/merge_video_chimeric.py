@@ -2120,6 +2120,39 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                 tools.log_line(f"chimeric: subtitle track {subtitle['StreamOrder']} failed: {error}\n")
             index += 1
 
+    if subtitle_reports:
+        import merge_video_subtitle_sync as subtitle_sync
+        zones = [(float(p["master_start_ms"]), float(p["master_end_ms"]))
+                 for p in reference_pieces if p["source"] == "candidate"]
+        languages = {report["language"] for report in subtitle_reports}
+        master_tracks = subtitle_sync.read_text_tracks(
+            master_obj.filePath,
+            [(language, subtitle) for language, subtitles in (getattr(master_obj, "subtitles", None) or {}).items()
+             if language in languages for subtitle in subtitles],
+            work_dir, build_bound())
+        decisions = subtitle_sync.sync_decisions(
+            {report["stream_order"]: (report["language"], subtitle_sync.read_cues(report["path"]))
+             for report in subtitle_reports}, master_tracks, zones, frame_ms)
+        kept_reports = []
+        for report in subtitle_reports:
+            decision = decisions[report["stream_order"]]
+            tools.log_always(
+                f"chimeric: subtitle_sync stream_order={report['stream_order']} "
+                f"language={report['language']} action={decision['action']} "
+                f"reason={decision['reason']} shifts_ms={decision['shifts']} "
+                f"zones={decision['zones']}\n")
+            if decision["action"] in ("drop", "duplicate"):
+                declined.append({"kind": "subtitle", "stream_order": report["stream_order"],
+                                 "language": report["language"],
+                                 "reason": f"subtitle {decision['action']}: {decision['reason']}"})
+                continue
+            if decision["action"] == "shift":
+                report["kept_cues"] = subtitle_sync.shift_cues(
+                    report["path"], zones, decision["shifts"], float(master_duration_ms))
+                report["sync_shifts_ms"] = decision["shifts"]
+            kept_reports.append(report)
+        subtitle_reports = kept_reports
+
     if max_silence_fraction != None:
         kept = []
         for report in audio_reports:

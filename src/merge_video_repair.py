@@ -967,6 +967,10 @@ def _subtitle_decline_token(reason):
         return "source_carries_no_cue"
     if "every cue fell outside" in text:
         return "no_cue_on_master_timeline"
+    if text.startswith("subtitle duplicate:"):
+        return "duplicate_of_master_subtitle"
+    if text.startswith("subtitle drop:"):
+        return "subtitle_out_of_sync"
     return "build_declined"
 
 
