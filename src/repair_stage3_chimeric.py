@@ -2928,73 +2928,60 @@ def edge_silent_join(kind, outcome, domain, walk, candidate_path):
 TAIL_EDGE_SILENCE_S = 0.1
 
 
-def _silent_tail_edge_covered(walk, offset_ms, edge_s, domain, candidate_obj, candidate_path):
-    """Whether a tail audio edge is no edge at all and the candidate covers the master's end.
-
-    An audio level edge where both tracks are silent on both sides (peak under
-    `audio_walk.AUDIBLE_DB` over TAIL_EDGE_SILENCE_S around it, the candidate read at the
-    level's offset) separates nothing. The tail then needs no master fill when the candidate,
-    at that offset, reaches the master's end: its video end within one frame of the master
-    timeline and its audio end at or past it.
-    """
+# (decision: silent-edge-span-no-fill)
+def silent_edge_covered(walk, kind, offset_ms, span_s, domain, candidate_obj, candidate_path):
     import numpy as np
     import audio_walk
     import frame_count_check
     try:
-        times = np.arange(max(0.0, edge_s - TAIL_EDGE_SILENCE_S),
-                          edge_s + TAIL_EDGE_SILENCE_S, BLIND_SILENCE_HOP_S)
+        times = np.arange(span_s[0], max(span_s[0] + BLIND_SILENCE_HOP_S / 2, span_s[1]),
+                          BLIND_SILENCE_HOP_S)
         offset_s = float(offset_ms) / 1000.0
-        master_peak = _window_levels(walk["master"], times, 0.0, peak=True)
-        candidate_peak = _window_levels(walk["candidate"], times, offset_s, peak=True)
-        if (master_peak > audio_walk.AUDIBLE_DB).any() or (
-                candidate_peak > audio_walk.AUDIBLE_DB).any():
-            return False
-        extent = frame_count_check.candidate_extent_ms(domain, domain.get("time_scale"),
-                                                       candidate_obj)
-        if extent is None:
-            return False
+        master_peak = float(_window_levels(walk["master"], times, 0.0, peak=True).max())
+        candidate_peak = float(_window_levels(walk["candidate"], times, offset_s,
+                                              peak=True).max())
+        silent = max(master_peak, candidate_peak) < audio_walk.AUDIBLE_DB
+        extent = (frame_count_check.candidate_extent_ms(domain, domain.get("time_scale"),
+                                                        candidate_obj) if silent else None)
         frame_ms = float(domain["frame_ms"])
-        video_end_ms = float(extent[1]) - float(offset_ms)
-        audio_end_s = len(walk["candidate"]) / audio_walk.WALK_RATE - offset_s
         timeline_ms = float(domain["master_timeline_ms"])
-        covered = (video_end_ms >= timeline_ms - frame_ms
-                   and audio_end_s * 1000.0 >= timeline_ms)
+        if extent is None:
+            video_on_master_ms = audio_on_master_s = None
+            covered = False
+        elif kind == "head":
+            video_on_master_ms = float(extent[0]) - float(offset_ms)
+            audio_on_master_s = -offset_s
+            covered = video_on_master_ms <= frame_ms and audio_on_master_s <= 0.0
+        else:
+            video_on_master_ms = float(extent[1]) - float(offset_ms)
+            audio_on_master_s = len(walk["candidate"]) / audio_walk.WALK_RATE - offset_s
+            covered = (video_on_master_ms >= timeline_ms - frame_ms
+                       and audio_on_master_s * 1000.0 >= timeline_ms)
     except Exception as error:                                           # noqa: BLE001
-        tools.dev_log(f"repair: tail_edge_silence_unread ({type(error).__name__}: {error})\n")
+        tools.dev_log(f"repair: edge_silence_unread edge={kind} "
+                      f"({type(error).__name__}: {error})\n")
         return False
     tools.log_always(
-        f"repair: tail_edge_in_silence edge_s={edge_s} offset_ms={offset_ms} "
-        f"candidate_video_end_on_master_ms={round(video_end_ms, 3)} "
-        f"candidate_audio_end_on_master_s={round(audio_end_s, 3)} "
-        f"master_timeline_ms={round(float(domain['master_timeline_ms']), 3)} "
-        f"master_audio_end_s={round(walk['master_audio_end_s'], 3)} "
-        f"decision={'no_tail_fill' if covered else 'tail_fill_kept'} for {candidate_path}\n")
+        f"repair: edge_span_silence edge={kind} span_s=[{round(span_s[0], 4)}, "
+        f"{round(span_s[1], 4)}] offset_ms={offset_ms} master_peak_db={round(master_peak, 1)} "
+        f"candidate_peak_db={round(candidate_peak, 1)} "
+        f"candidate_video_edge_on_master_ms="
+        f"{None if video_on_master_ms is None else round(video_on_master_ms, 3)} "
+        f"candidate_audio_edge_on_master_s="
+        f"{None if audio_on_master_s is None else round(audio_on_master_s, 3)} "
+        f"master_timeline_ms={round(timeline_ms, 3)} "
+        f"decision={'no_fill' if covered else 'fill_kept'} for {candidate_path}\n")
     return covered
 
 
 def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path,
                 shift_hints=None):
-    """Place the head and tail fill edges from the audio walk, pinned to a video frame if close.
-
-    `audio_walk.single_edge` walks outward from the first/last level at 20 ms: a witness only,
-    to tell the resolver where to search and to confirm its answer in the dev log. Where the
-    one-anchor walk (`scene_anchor.locate_edge_boundary`, via `_resolve_edge`) concludes, its own
-    frame is delivered unconditionally -- never nudged onto the audio edge, never raised for the
-    candidate's lead-in, which was itself an audio placement. Only where no such hole was raised
-    for this edge (nothing flagged it as needing a frame-exact search) does the walk's own edge
-    stand, with the lead-in floor still applied to it. A one-anchor walk that could not conclude
-    declines by name instead of falling back to the audio's edge.
-
-    `shift_hints` ({"head"|"tail": frames}) carries the picture shift of the nearest resolved
-    cut, used when the edge's own anchor cannot be seated (`_pixel_edge_walk`).
-
-    Returns:
-        (head_end_s, tail_start_s, refusal); an edge is None when no fill is needed there.
-    """
+    """Return (head_end_s, tail_start_s, refusal) from the edge walks; None edge = no fill."""
     import audio_walk
     master, candidate = walk["master"], walk["candidate"]
     first, last = walk["levels"][0], walk["levels"][-1]
     frame = float(domain["frame_ms"]) / 1000.0
+    timeline_s = float(domain["master_timeline_ms"]) / 1000.0
     reach = audio_walk.WALK_WINDOW_S + audio_walk.WALK_HOP_S + _orch().HOLE_MERGE_WINDOW_SECONDS
     # Start inside the level's measured window: a window mid-point can lie in silence.
     window = audio_walk.WALK_WINDOW_S
@@ -3076,7 +3063,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                 # bracket: the candidate simply runs past the master's own end here, or starts
                 # before its own beginning. There is nothing of the master's own left to search
                 # for, so this is a trim at the master's own edge, not a decline.
-                video_s = 0.0 if kind == "head" else float(domain["master_timeline_ms"]) / 1000.0
+                video_s = 0.0 if kind == "head" else timeline_s
                 video_concluded = True
             else:
                 # The one-anchor walk could not establish a boundary here: a named decline,
@@ -3091,12 +3078,30 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                                 f"boundary nor confirm there is none ({decline_reason})")
         if video_concluded:
             placed, decision = video_s, "video_edge_boundary"
+            span_s = (0.0, video_s) if kind == "head" else (video_s, timeline_s)
+            shift = outcome.get("shift_frames")
+            picture_ms = None if shift is None else shift * frame * 1000.0
+            one_offset = (picture_ms is not None
+                          and abs(picture_ms - level["off_ms"]) <= frame * 1000.0)
+            if one_offset and span_s[1] - span_s[0] >= frame:
+                if silent_edge_covered(walk, kind, picture_ms,
+                                       (span_s[0], span_s[1] - BLIND_SILENCE_WIN_S), domain,
+                                       candidate_obj, candidate_path):
+                    placed, decision = None, "edge_span_silent_candidate_covers"
+                elif edge_source[kind] == "audio_edge" and (
+                        audio_s > video_s if kind == "tail" else audio_s < video_s):
+                    index = (math.ceil(audio_s / frame - 1e-6) if kind == "tail"
+                             else math.floor(audio_s / frame + 1e-6))
+                    placed = _frame_s(index, domain) if index > 0 else None
+                    decision = "video_edge_boundary_audio_common"
         else:
             placed, decision = audio_s, edge_source[kind]
             if kind == "head":
                 placed, decision = head_content_edge(placed, decision, frame, lead)
-            elif decision == "audio_edge" and _silent_tail_edge_covered(
-                    walk, level["off_ms"], audio_s, domain, candidate_obj, candidate_path):
+            elif decision == "audio_edge" and silent_edge_covered(
+                    walk, kind, level["off_ms"],
+                    (max(0.0, audio_s - TAIL_EDGE_SILENCE_S), audio_s + TAIL_EDGE_SILENCE_S),
+                    domain, candidate_obj, candidate_path):
                 placed, decision = None, "tail_edge_in_silence_candidate_covers_end"
         decisions[kind] = placed
         summary.append(f"{kind}_placed_s={placed} {kind}_decision={decision}")
@@ -3116,7 +3121,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
     # Past the tail edge nothing proves the candidate's content is common, so the master fills
     # up to the timeline even where its own audio has already ended.
     tail_start = decisions["tail"]
-    if tail_start is not None and tail_start >= float(domain["master_timeline_ms"]) / 1000.0 - frame:
+    if tail_start is not None and tail_start >= timeline_s - frame:
         tail_start = None
     log_edge_fill_sound(walk, head_end, tail_start, candidate_path)
     return head_end, tail_start, None
