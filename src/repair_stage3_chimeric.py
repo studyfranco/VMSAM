@@ -968,20 +968,14 @@ def _tolerant_flags(readings, shift, reference):
     return [any(flags) for flags in zip(*rows)]
 
 
-def tolerance_only_at_new_shot(readings, shift, index, first, reference):
-    """Whether the frame deciding a front reads the same picture only through the one-frame
-    tolerance while the candidate frame at the exact shift opens a new shot (its luma change
-    from the frame before above BLIND_PICTURE_CHANGE_RATIO x the median change of the
-    PIXEL_STEADY_FRAMES frames before it, and above PIXEL_FADE_FLOOR): such a frame differs,
-    the tolerance must not decide a front."""
-    if index < 0 or index >= len(readings[shift]):
-        return False
-    if _same_flags(readings[shift], reference, readings.get("master_shot"))[index]:
-        return False
-    if candidate_change_at(readings, index, shift, first) is None:
-        return False
+def tolerance_only_at_new_shot(readings, shift, first, reference):
+    """Per master frame, whether it differs at the exact shift where the candidate frame opens
+    a new shot (`opens_new_shot`): the one-frame tolerance must not count it as the same."""
+    exact = _same_flags(readings[shift], reference, readings.get("master_shot"))
     low, changes = readings["candidate_change"]
-    return opens_new_shot(changes, first + index + shift - low)
+    return [not same and candidate_change_at(readings, index, shift, first) is not None
+            and opens_new_shot(changes, first + index + shift - low)
+            for index, same in enumerate(exact)]
 
 
 def _front_forward(same, front):
@@ -1072,10 +1066,10 @@ def _pixel_refined(result, domain, master_obj, candidate_obj):
     front = _front_forward(same_before, front)
     back = _front_backward(same_after, back)
     moved = []
-    if front > 0 and tolerance_only_at_new_shot(readings, before, front - 1, first, common_before):
+    if front > 0 and tolerance_only_at_new_shot(readings, before, first, common_before)[front - 1]:
         front -= 1
         moved.append(f"forward_to={first + front}")
-    if back < count and tolerance_only_at_new_shot(readings, after, back, first, common_after):
+    if back < count and tolerance_only_at_new_shot(readings, after, first, common_after)[back]:
         back += 1
         moved.append(f"backward_to={first + back}")
     if moved:
@@ -2400,7 +2394,10 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
     if readings is None:
         return None
     row = readings[shift]
-    same = _tolerant_flags(readings, shift, common_side(len(row)))
+    reference = common_side(len(row))
+    same = [tolerant and not new_shot for tolerant, new_shot in
+            zip(_tolerant_flags(readings, shift, reference),
+                tolerance_only_at_new_shot(readings, shift, read_first, reference))]
     # Candidate frames that do not exist (before its start, after its end) read as absent.
     candidate_frames = domain.get("candidate_equivalent_duration_ms")
     candidate_last = (None if candidate_frames is None
