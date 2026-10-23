@@ -43,7 +43,7 @@ from repair_stage3_chimeric import (_speed_chain, _video_duration_ms,
                                     align_transitions_to_zone_lags,
                                     audio_edges, audio_transitions, classify_holes,
                                     coalesce_same_offset_zones, couple_start_delta_ms,
-                                    edge_addition_seconds, frame_domain,
+                                    edge_addition_seconds, edge_zones, frame_domain,
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
                                     log_holes_against_walk, log_partial_plan,
                                     max_holes_per_couple, picture_steps_in_continuous_zones,
@@ -892,7 +892,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     head_end_s, tail_start_s, refusal = audio_edges(
         walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path,
         shift_hints=({"head": picture_shifts[0][0], "tail": picture_shifts[-1][1]}
-                     if picture_shifts else None))
+                     if picture_shifts else None),
+        zones=edge_zones(transitions, zone_lag_pairs, domain))
     if refusal is not None:
         return False, refusal[0], refusal[1], None
     zones, fills, geometry_failure = plan_geometry(transitions, head_end_s, tail_start_s,

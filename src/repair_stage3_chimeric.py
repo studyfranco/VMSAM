@@ -2228,9 +2228,12 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
         low_ms = min(float(hole["master_ms"][0]), timeline_ms - frame_ms)
         high_ms = timeline_ms
     candidate_duration_ms = domain["candidate_equivalent_duration_ms"]
+    zone_bound_ms = hole.get("zone_bound_ms")
+    zone_lag = hole.get("zone_picture_lag_frames")
     _orch().step_launch("edge_walk", candidate=candidate_obj.filePath, edge=edge,
                 bracket_ms=[round(low_ms, 2), round(high_ms, 2)],
                 offset_ms=round(offset_ms, 3), master_timeline_ms=timeline_ms,
+                zone_bound_ms=zone_bound_ms, zone_picture_lag_frames=zone_lag,
                 candidate_equivalent_duration_ms=(None if candidate_duration_ms is None
                                                   else float(candidate_duration_ms)))
     try:
@@ -2240,10 +2243,23 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
             low_ms, high_ms, float(offset_ms), edge, timeline_ms,
             None if candidate_duration_ms is None else float(candidate_duration_ms),
             quantum_ms=float(quantum_ms), candidate_time_scale=domain["time_scale"],
-            shift_search_frames=_shift_search_frames(domain, quantum_ms))
+            shift_search_frames=_shift_search_frames(domain, quantum_ms),
+            zone_bound_ms=zone_bound_ms)
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
+    anchor_shift = None if result["declined"] else result["shift_frames"]
+    if anchor_shift is not None and not (
+            (zone_lag is not None and abs(anchor_shift - zone_lag) <= 1)
+            or abs(anchor_shift - round(float(offset_ms) / frame_ms)) <= 1):
+        # (decision: edge-search-own-zone)
+        tools.log_always(
+            f"repair: edge_anchor_shift_disagrees edge={edge} anchor={result.get('anchor_frame')} "
+            f"shift_frames={result['shift_frames']} zone_picture_lag_frames={zone_lag} "
+            f"level_offset_ms={round(float(offset_ms), 3)} for {candidate_obj.filePath}\n")
+        return _declined(hole, EDGE_ANCHOR_SHIFT_DISAGREES,
+                         f"anchor shift {result['shift_frames']} frames vs zone picture lag "
+                         f"{zone_lag} and audio offset {offset_ms} ms")
     _orch().step_result("edge_walk", candidate=candidate_obj.filePath, edge=edge,
                 declined=result["declined"], reason=result.get("reason"),
                 termination=result.get("termination"), anchor=result.get("anchor_frame"),
@@ -2254,7 +2270,7 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
                 addition_frames=result.get("addition_frames"),
                 evidence=result.get("evidence"))
     if result["declined"] and result.get("reason") in EDGE_PIXEL_FALLBACK_REASONS:
-        shift = hole.get("picture_shift_frames")
+        shift = zone_lag if zone_lag is not None else hole.get("picture_shift_frames")
         if shift is None:
             shift = int(round(float(offset_ms) / frame_ms))
         try:
@@ -2269,12 +2285,14 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
         return _declined(hole, result.get("reason"), result.get("evidence"))
     if result.get("method") != "pixel_edge_walk":
         # pHash cannot see a fade and stops on a few odd frames: the boundary is re-read on
-        # pixels at the anchor's own shift, from the common side of the pHash boundary.
+        # pixels from the common side of the pHash boundary (decision: edge-search-own-zone).
         boundary_ms = float(result["boundary_frame"]) * frame_ms
         bracket = [0.0, boundary_ms] if edge == "head" else [boundary_ms, timeline_ms]
+        walk_shift = (zone_lag if zone_lag is not None and abs(zone_lag - anchor_shift) <= 1
+                      else anchor_shift)
         try:
             refined = _pixel_edge_walk(dict(hole, master_ms=bracket), domain, master_obj,
-                                       candidate_obj, result["shift_frames"])
+                                       candidate_obj, walk_shift)
         except Exception as error:                                       # noqa: BLE001
             tools.dev_log(f"repair: pixel_edge_walk_failed ({type(error).__name__}: "
                           f"{error})\n")
@@ -2346,33 +2364,29 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
 # Reasons for which a one-anchor edge search found only self-similar (static/black) content:
 # the picture cannot seat an anchor there, so the edge is read on pixels at a known shift.
 EDGE_PIXEL_FALLBACK_REASONS = ("edge_anchor_uninformative", "search_window_ceiling_reached")
+# An edge anchor more than one frame from both its zone's picture lag and its audio offset.
+EDGE_ANCHOR_SHIFT_DISAGREES = "edge_anchor_shift_disagrees"
 # Frames read on the common side of an edge bracket before the walk outward begins.
 EDGE_PIXEL_MARGIN_FRAMES = 48
 
 
 def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
-    """Walk an edge on pixels at a known shift when no anchor could be seated, or None.
-
-    A static or black edge the anchor search cannot seat is never a reason to decline. The
-    shift comes from the picture next to the edge (the nearest resolved
-    cut's own shift, `hole["picture_shift_frames"]`), else the zone's audio offset. From the
-    common side of the bracket the walk goes outward one master frame at a time and stops on
-    EDGE_WALK_SUSTAINED_MISMATCH_FRAMES differing frames (rule 2: they are filled from the
-    master), or where either file ends. The common side must first show
-    PIXEL_TRUST_RUN_FRAMES frames reading the same picture. Returns a
-    `scene_anchor.locate_edge_boundary`-shaped answer.
-    """
     import scene_anchor
     edge = hole["kind"]
     frame_ms = float(domain["frame_ms"])
     rate = domain["master_rate"]
     master_last = int(Fraction(str(domain["master_timeline_ms"])) / 1000 * rate) - 1
+    zone_bound_ms = hole.get("zone_bound_ms")
     if edge == "head":
         stop = min(master_last + 1,
                    int(math.ceil(float(hole["master_ms"][1]) / frame_ms)) + EDGE_PIXEL_MARGIN_FRAMES)
+        if zone_bound_ms is not None:
+            stop = min(stop, int(math.floor(float(zone_bound_ms) / frame_ms + 1e-6)))
         first, count = 0, stop
     else:
         first = max(0, int(float(hole["master_ms"][0]) / frame_ms) - EDGE_PIXEL_MARGIN_FRAMES)
+        if zone_bound_ms is not None:
+            first = max(first, int(math.ceil(float(zone_bound_ms) / frame_ms - 1e-6)))
         count = master_last + 1 - first
     if count <= 0 or count > PIXEL_FRONT_MAX_FRAMES or first + shift < 0 and edge == "tail":
         return None
@@ -2907,7 +2921,7 @@ def silent_edge_covered(walk, kind, offset_ms, span_s, domain, candidate_obj, ca
 
 
 def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candidate_path,
-                shift_hints=None):
+                shift_hints=None, zones=None):
     """Return (head_end_s, tail_start_s, refusal) from the edge walks; None edge = no fill."""
     import audio_walk
     master, candidate = walk["master"], walk["candidate"]
@@ -2953,6 +2967,9 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                        else {"offset_before_ms": level["off_ms"]})
             if (shift_hints or {}).get(kind) is not None:
                 offsets["picture_shift_frames"] = shift_hints[kind]
+            zone = (zones or {}).get(kind) or {}
+            offsets["zone_bound_ms"] = zone.get("bound_ms")
+            offsets["zone_picture_lag_frames"] = zone.get("lag")
             edge_jobs[kind] = (index, dict(hole, **offsets))
     edge_outcomes = dict(zip(
         edge_jobs.keys(),
@@ -2997,6 +3014,8 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
                 # for, so this is a trim at the master's own edge, not a decline.
                 video_s = 0.0 if kind == "head" else timeline_s
                 video_concluded = True
+            elif outcome.get("resolver_reason") == EDGE_ANCHOR_SHIFT_DISAGREES:
+                pass
             else:
                 # The one-anchor walk could not establish a boundary here: a named decline,
                 # never a silent fall back to the audio's own edge.
@@ -3497,39 +3516,33 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
 # Blind-span placements read off the master picture itself (its next shot change): the audio
 # interval does not move them.
 PICTURE_PLACEMENTS = ("right_anchor",)
+# An audio-alignment run of placements at most this wide (one frame each side of its centre)
+# places a blind fill as exactly as the walk's interval.
+BLIND_RUN_EXACT_FRAMES = 3
 
 
 def _blind_point_in_audio_interval(outcome, domain, interval):
-    """Right-edge frame of a blind-span gap moved inside the audio interval, or None.
-
-    Only for a blind-span master fill placed without audio evidence (`_blind_span_outcome`:
-    the picture bounds the gap to `allowed_frames` but did not place it, and the audio either
-    gave nothing or tied over a run wider than the fill; a candidate removal keeps its own
-    placement, inside the candidate's silence). Among the allowed right edges whose fill start
-    lies within one frame of `interval` (seconds, the
-    tolerance `video_pin` confirms a video frame at), the one whose start is nearest the
-    interval wins, then the one nearest the blind placement; None when the outcome is not
-    blind, was placed on the master picture (`PICTURE_PLACEMENTS`), or none fits.
-    """
     blind = outcome.get("blind_span")
     if not blind or blind["placement"] in PICTURE_PLACEMENTS or blind["gap_frames"] >= 0:
         return None
+    # (decision: blind-placement-not-picture)
     run = blind.get("run")
     if (blind["placement"] == "audio_alignment" and run is not None
-            and run[1] - run[0] + 1 <= -blind["gap_frames"]):
-        # The audio aligned the fill on a run no wider than the fill itself: audio evidence,
-        # kept. A run wider than the fill is a tie of noise (case 102), which is no evidence.
+            and run[1] - run[0] + 1 <= BLIND_RUN_EXACT_FRAMES):
         return None
+    import audio_walk
     low, high = blind["allowed_frames"]
     gap = blind["gap_frames"]
-    lo, hi = interval
+    # The interval's bounds are window starts: the instant a 20 ms window reads is its centre.
+    latest = interval[1] + audio_walk.FINE_WIN_S / 2.0
+    lo, hi = sorted(interval)
     frame_s = float(domain["frame_ms"]) / 1000.0
     best = None
-    for point in range(low, high + 1):
+    for point in range(low - 1, high + 2):
         start_s = _frame_s(point + min(0, gap), domain)
         if not lo - frame_s <= start_s <= hi + frame_s:
             continue
-        key = (max(0.0, lo - start_s, start_s - hi), abs(point - blind["point"]))
+        key = (start_s > latest + 1e-9, abs(latest - start_s))
         if best is None or key < best[0]:
             best = (key, point)
     return None if best is None else best[1]
@@ -3746,6 +3759,21 @@ def align_transitions_to_zone_lags(transitions, pairs, domain, walk, master_obj,
             f"placement={(transition.get('blind_span') or {}).get('placement')} "
             f"for {candidate_path}\n")
     return transitions
+
+
+def edge_zones(transitions, pairs, domain):
+    """Return the master bound (ms) and majority picture lag of the head and tail zones."""
+    import zone_picture_lag
+    frame_ms = float(domain["frame_ms"])
+    end_ms = float(domain["master_timeline_ms"])
+    head_end = min((t["at_s"] * 1000.0 for t in transitions), default=None)
+    tail_start = max(((t["at_s"] + t["fill_s"]) * 1000.0 for t in transitions), default=None)
+    zones = {}
+    for kind, low, high, bound in (("head", 0.0, end_ms if head_end is None else head_end, head_end),
+                                   ("tail", tail_start or 0.0, end_ms, tail_start)):
+        lag = zone_picture_lag.zone_majority(pairs, low, high, frame_ms)[0] if pairs else None
+        zones[kind] = {"bound_ms": bound, "lag": lag}
+    return zones
 
 
 def _transition_pieces(at, fill, a_ms, b_ms, decision, before, after, removal_s=None):

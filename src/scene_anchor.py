@@ -13,6 +13,7 @@ distinctiveness (`frame_compare.align`'s margin over lags a few frames away); so
 static shots have only the first and are refused.
 """
 import bisect
+import math
 from fractions import Fraction
 from decimal import Decimal
 
@@ -1622,21 +1623,9 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                          known_match_ms=None, step_ms=None, quantum_ms=None,
                          scene_search_window_sec=None, debug=False,
                          candidate_time_scale=None,
-                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
-    '''Locate an edge (head or tail) boundary: one anchor on the common side, then a walk.
-
-    Args:
-        edge: "head" or "tail", as classified by the caller from the bracket's edge field.
-        master_timeline_ms: the master's own timeline length (not min(master, candidate)).
-        offset_ms: the adjacent segment's offset (candidate_time = master_time + offset);
-            it nominates the shift, which the anchor resolves within shift_search_frames.
-        candidate_time_scale: optional rate relation, as in locate_scene_anchors.
-        shift_search_frames: shift search half-width; callers with offsets quantised to a
-            fingerprint hop pass a wider bound.
-
-    Returns:
-        The same dict shape as locate_scene_anchors (declined True or False).
-    '''
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
+                         zone_bound_ms=None):
+    '''Locate a head or tail boundary inside its zone: one anchor on the common side, then a walk.'''
     fps_num = int(fps_num)
     fps_den = int(fps_den)
     if fps_num <= 0 or fps_den <= 0:
@@ -1683,7 +1672,7 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                 crop_filters, geometry,
                 content_detector_threshold=rung_cd_threshold, debug=debug,
                 candidate_time_scale=candidate_time_scale,
-                shift_search_frames=shift_search_frames)
+                shift_search_frames=shift_search_frames, zone_bound_ms=zone_bound_ms)
         except progress_watchdog.step_stalled as error:
             return {"declined": True, "reason": "step_stalled", "edge": edge,
                     "geometry": geometry, "evidence": f"rung={rung} {error}"}
@@ -1748,7 +1737,8 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
                                     window_sec, crop_filters, geometry,
                                     content_detector_threshold=CONTENT_DETECTOR_THRESHOLD_DEFAULT,
                                     debug=False, candidate_time_scale=None,
-                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
+                                    shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
+                                    zone_bound_ms=None):
     '''Run one rung of locate_edge_boundary's ladder: seat the common-side anchor, then walk.
 
     Returns:
@@ -1784,6 +1774,11 @@ def _locate_edge_boundary_at_window(master_path, candidate_path, fps_num, fps_de
     # readable; only the seed filter restricts to the common side.
     m_win_start = max(0, m_bracket_first - window_frames)
     m_win_end = m_bracket_last + window_frames
+    # Every rung stays inside the edge's own zone (decision: edge-search-own-zone).
+    if zone_bound_ms is not None and edge == "tail":
+        m_win_start = max(m_win_start, math.ceil(float(zone_bound_ms) / frame_ms - 1e-6))
+    elif zone_bound_ms is not None:
+        m_win_end = min(m_win_end, math.floor(float(zone_bound_ms) / frame_ms + 1e-6))
     candidate_margin_frames = CANDIDATE_SEED_MARGIN_MULTIPLIER * window_frames
     c_win_start = max(0, m_win_start - candidate_margin_frames + shift_frames)
     c_win_end = m_win_end + candidate_margin_frames + shift_frames
