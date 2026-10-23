@@ -1664,6 +1664,8 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
     Returns:
         The list of candidate paths that were repaired and attached.
     """
+    tools.dev_log(f"repair: entered repair_not_compatible_videos "
+                  f"files={len(list_not_compatible_video)}\n")
     import repair_orchestrator
     import merge_video_chimeric
     del last_repair_report[:]
