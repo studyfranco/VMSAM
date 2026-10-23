@@ -2,7 +2,6 @@
 
 from decimal import Decimal, getcontext
 from fractions import Fraction
-import re
 import threading
 import time
 
@@ -63,9 +62,6 @@ def disagreement(first_path, second_path):
     '''
     with _SIGNALS_LOCK:
         return _SIGNALS.get((first_path, second_path))
-
-
-_PTS_RE = re.compile(r"pts_time:\s*(-?[0-9.]+)")
 
 
 # -- exact frame rate --------------------------------------------------------
@@ -148,7 +144,8 @@ def decode_group(path, stream_order, start_s, n_frames):
            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
     done = progress_watchdog.run(cmd, "frame_snap_decode")
     frames = frame_hash.frames_from_raw(done.stdout, WIDTH, HEIGHT, 3)
-    pts = [float(x) for x in _PTS_RE.findall(done.stderr.decode("utf-8", "replace"))]
+    pts = [float(x)
+           for x in frame_compare.PTS_TIME.findall(done.stderr.decode("utf-8", "replace"))]
     count = min(len(frames), len(pts))
     times = np.array([start_s + p for p in pts[:count]], dtype=np.float64)
     return frames[:count], times

@@ -24,7 +24,7 @@ import frame_compare
 import progress_watchdog
 import tools
 import repair_log
-from frame_compare import (FrameComparer, _extract_hashes, _on_comparer_grid, mask_frames,
+from frame_compare import (FrameComparer, _extract_hashes, mask_frames,
                            parse_positive_rate)
 from scenedetect import open_video, SceneManager, ContentDetector
 
@@ -98,10 +98,8 @@ EDGE_WALK_DIM_STD = 8.0
 # 80 s chunks amortise the fixed cost without excessive memory or latency.
 EDGE_WALK_CHUNK_SECONDS = 80.0
 
-# Chunk overlap used to re-align chunk seams. `_extract_hashes` labels element 0 with the
-# requested frame, but ffmpeg seeks to the first frame at or after T, so labels can differ by
-# one frame between seeks. Each chunk overlaps its predecessor and its base is corrected by
-# the delta that makes the overlap agree, keeping frame counts exact.
+# Chunk overlap used to re-align chunk seams. Each chunk overlaps its predecessor and its base
+# is corrected by the delta that makes the overlap agree, keeping frame counts exact.
 EDGE_WALK_CHUNK_OVERLAP_FRAMES = 48
 # Seam delta search range: +/-1 labelling error plus one frame of margin.
 EDGE_WALK_SEAM_SEARCH_FRAMES = 2
@@ -1336,17 +1334,6 @@ def _overlay_corner_boxes(width, height):
             "bottom_right": (height - bh, height, width - bw, width)}
 
 
-def _grid_frames(comparer, path, start_frame, n_frames):
-    """Decode n_frames grid frames of path from master grid frame start_frame (raw RGB)."""
-    blob = comparer._ffmpeg_raw_frames(path, start_frame * comparer.fps_den / comparer.fps_num,
-                                       n_frames * comparer.fps_den / comparer.fps_num)
-    frames = frame_hash.frames_from_raw(blob, comparer.width, comparer.height, 3)
-    picks, _ = _on_comparer_grid(comparer, path, list(range(len(frames))))
-    if not picks:
-        return frames[:0]
-    return frames[np.asarray(picks, dtype=np.int64)]
-
-
 def _overlay_median_distance(m_frames, c_frames, box):
     """Lowest median single-frame grey distance over the probe lags, or None when unreadable.
 
@@ -1375,8 +1362,9 @@ def _probe_overlay(comparer, master_path, candidate_path, first_frame, n_frames,
     """
     if n_frames < frame_compare.ALIGN_MIN_FRAMES + 2 * OVERLAY_PROBE_LAG_REACH:
         return None, f"probe_frames={n_frames}"
-    m_frames = _grid_frames(comparer, master_path, first_frame, n_frames)
-    c_frames = _grid_frames(comparer, candidate_path, first_frame + shift_frames, n_frames)
+    m_frames = frame_compare.grid_frames(comparer, master_path, first_frame, n_frames)[1]
+    c_frames = frame_compare.grid_frames(comparer, candidate_path, first_frame + shift_frames,
+                                         n_frames)[1]
     n = min(len(m_frames), len(c_frames))
     if n == 0:
         return None, f"decoded master={len(m_frames)} candidate={len(c_frames)}"

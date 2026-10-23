@@ -14,6 +14,8 @@ grey thumbnail instead (`pixel_distance`), stored only for frames near that case
 """
 
 from fractions import Fraction
+import json
+import re
 from sys import stderr
 import numpy as np
 import frame_hash
@@ -53,6 +55,12 @@ PIXEL_STD_FLOOR = 12.0
 # Same picture by pixels: `pixel_distance` at or below this. Keeps identical near-uniform frames
 # apart from frames that differ, including a redrawn shot of the same scene.
 SAME_PIXEL_MAX = 0.005
+
+# Video stream start minus file start, in seconds, per path (`grid_frames`).
+VIDEO_START_CACHE = {}
+
+# A decoded frame's own time in a showinfo line.
+PTS_TIME = re.compile(r"pts_time:\s*(-?[0-9.]+)")
 
 
 def hamming(a, b):
@@ -331,26 +339,32 @@ class FrameComparer:
         return self._round_frac(Fraction(seconds).limit_denominator(10**9) * self.fps_frac)
 
     def _ffmpeg_raw_frames(self, path, start_sec, dur_sec):
-        """Decode a window as raw small RGB frames at the native rate (bytes)."""
+        """Decode a window as raw small RGB frames at the native rate: (bytes, own times in s)."""
+        # The times are each decoded frame's own pts (showinfo) in reference seconds, never the
+        # seek time: ffmpeg starts at the first frame whose container pts is at or after the
+        # seek, and a millisecond-rounded Matroska pts puts that frame one past the seek's own
+        # frame on part of a file (measured: 24000/1001 frames 12000 and 15600 at their
+        # 2997/125 grid times decode frame k+1 first, 6800 and 15656 decode frame k).
         # No `fps=` filter: it would duplicate or drop frames.
         ffmpeg = tools.software["ffmpeg"]
         w, h = self.width, self.height
         # Crop before scaling so black bars do not contaminate the hash.
         crop = self.crop_filters.get(path)
-        scale = f"scale={w}:{h}:flags=area,format=rgb24"
+        scale = f"scale={w}:{h}:flags=area,format=rgb24,showinfo"
         vf = scale if not crop else f"{crop},{scale}"
         scale = self.time_scales.get(path)
+        native_start = start_sec
         if scale is not None:
-            start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
+            native_start = start_sec = float(Fraction(start_sec).limit_denominator(10**9) / scale)
             dur_sec = float(Fraction(dur_sec).limit_denominator(10**9) / scale)
         # A window of no length is never decoded: `-t 0.0` means "no limit" to
         # ffmpeg, so a clamped negative window would decode the whole file.
         if dur_sec <= 0:
             tools.dev_log(f"frame_compare: _ffmpeg_raw_frames window_empty file={path} "
                           f"start_sec={start_sec} dur_sec={dur_sec} -- not decoded\n")
-            return b""
+            return b"", []
         cmd = [
-            ffmpeg, "-v", "error", "-nostdin",
+            ffmpeg, "-hide_banner", "-nostats", "-nostdin",
             "-ss", f"{start_sec}",
             "-t", f"{dur_sec}",
             "-i", path,
@@ -368,11 +382,13 @@ class FrameComparer:
         if rc not in (0,):
             if self.debug:
                 stderr.write(f"[frame_compare] ffmpeg returned {rc}, partial data used\n")
-        return stdout
+        factor = 1 if scale is None else float(scale)
+        times = [(native_start + float(pts)) * factor
+                 for pts in PTS_TIME.findall(stderr_out.decode("utf-8", "replace"))]
+        return stdout, times
 
-    def _hash_frames(self, blob_bytes):
-        """Grey and colour hashes of each frame in a raw rgb24 buffer (frame_hashes)."""
-        frames = frame_hash.frames_from_raw(blob_bytes, self.width, self.height, 3)
+    def _hash_frames(self, frames):
+        """Grey and colour hashes of (n, h, w, 3) rgb24 frames (frame_hashes)."""
         if self.mask_box is not None:
             frames = mask_frames(frames, self.mask_box)
         hashes = frame_hash.hash_frames(frames, colour=True)
@@ -394,14 +410,9 @@ def _nominal_shift_frames(offset_ms, fps_num, fps_den):
     return int(round(offset_ms / frame_ms))
 
 
-# Native decode rate vs label grid: `_ffmpeg_raw_frames` decodes at the file's
-# own rate, but indices are on the comparer's grid. When the rates differ, each
-# decoded series is re-indexed onto the grid (`_on_comparer_grid`) so element
-# `k` is the frame playing `k` grid frames into the window.
-
-# Native rate per path; only successes are cached, so a transient ffprobe
-# failure is retried.
-_NATIVE_RATE_CACHE = {}
+# Two nominal rates closer than this (relative) are one frame grid: 2997/125 and 24000/1001 differ
+# by 1.0e-6, a 1001/1000 rate pair by 1e-3.
+SAME_GRID_TOLERANCE = Fraction(1, 100000)
 
 
 def parse_positive_rate(value):
@@ -420,90 +431,63 @@ def parse_positive_rate(value):
     return rate if rate > 0 else None
 
 
-def _native_frame_rate(path):
-    '''Native decode rate of the file from ffprobe `r_frame_rate`.
-
-    Returns `(Fraction, None)` on success, `(None, reason)` otherwise.
-    '''
-    cached = _NATIVE_RATE_CACHE.get(path)
-    if cached is not None:
-        return cached, None
-    try:
-        cmd = [tools.software["ffprobe"], "-v", "error",
-               "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
-               "-of", "default=noprint_wrappers=1:nokey=1", path]
-    except KeyError:
-        return None, "ffprobe_not_configured"
-    tools.dev_log(f"frame_compare: _native_frame_rate calling ffprobe "
-                  f"file={path}\n")
-    try:
-        with repair_log.announced("frame_compare", "ffprobe", path) as call:
-            stdout, stderror, exit_code = progress_watchdog.run_checked(cmd, "ffprobe_frame_rate")
-            call["exit"] = exit_code
-    except Exception as exc:
-        return None, f"ffprobe_raised:{type(exc).__name__}"
-    if exit_code != 0:
-        return None, f"ffprobe_exit:{exit_code}"
-    lines = stdout.decode("utf-8", "replace").strip().splitlines()
-    raw = lines[0].strip() if lines else ""
-    rate = parse_positive_rate(raw)
-    if rate is None:
-        return None, f"unparseable_r_frame_rate:{raw!r}"
-    _NATIVE_RATE_CACHE[path] = rate
-    return rate, None
-
-
-def _on_comparer_grid(comparer, path, values):
-    '''Re-index a natively decoded per-frame series onto the comparer's grid.
-
-    Element `k` is taken from native element `round(k * native_rate / grid_rate)`
-    on window-relative indices (an instant-based form would add `base`'s own
-    rounding residue). Returns `(values_on_grid, None)`, or `(None, reason)`
-    when the file's rate cannot be measured.
-    '''
-    if not len(values):
-        return values, None
-    native_rate, reason = _native_frame_rate(path)
-    if native_rate is None:
-        return None, reason
-    grid_rate = comparer.fps_frac
-    # A speed-changed path uses its corrected grid `grid_rate * r`.
-    scale = getattr(comparer, "time_scales", {}).get(path)
-    if scale is not None:
-        grid_rate = grid_rate * scale
-    if native_rate == grid_rate:
-        return values, None
-    ratio = native_rate / grid_rate
-    n_native = len(values)
-    picks = []
-    k = 0
-    while True:
-        j = FrameComparer._round_frac(Fraction(k) * ratio)
-        if j >= n_native:
-            break
-        picks.append(j)
-        k += 1
-    if isinstance(values, frame_hash.frame_hashes):
-        return values[np.asarray(picks, dtype=np.int64)], None
-    return [values[j] for j in picks], None
+def grid_frames(comparer, path, first, count):
+    '''(first frame read, rgb24 frames) of grid frames [first, first + count), each by its own pts.'''
+    # The seek starts half a frame early so frame `first` decodes even when its container pts is
+    # rounded after its grid time; each grid frame takes the decoded frame whose pts is nearest.
+    # Frame numbers count from the video stream's own first frame, as every whole-file decode
+    # does: the seek and the labels are shifted by its start inside the file (measured: a
+    # candidate whose video starts 21 ms after its audio, half a frame, read every label one
+    # high without it).
+    if path not in VIDEO_START_CACHE:
+        try:
+            cmd = [tools.software["ffprobe"], "-v", "error", "-select_streams", "v:0",
+                   "-show_entries", "stream=start_time:format=start_time", "-of", "json", path]
+            stdout, _err, exit_code = progress_watchdog.run_checked(cmd, "ffprobe_video_start")
+            probed = json.loads(stdout.decode("utf-8", "replace"))
+            VIDEO_START_CACHE[path] = (Fraction(probed["streams"][0]["start_time"])
+                                       - Fraction(probed["format"]["start_time"]))
+        except Exception as error:                                      # noqa: BLE001
+            tools.dev_log(f"frame_compare: grid_frames video_start_unread file={path} "
+                          f"({type(error).__name__}: {error}) -- read as 0\n")
+            VIDEO_START_CACHE[path] = Fraction(0)
+    scale = comparer.time_scales.get(path)
+    offset = VIDEO_START_CACHE[path] * (1 if scale is None else scale)
+    frame_s = Fraction(comparer.fps_den, comparer.fps_num)
+    start = max(Fraction(0), offset + (Fraction(first) - Fraction(1, 2)) * frame_s)
+    end = offset + (Fraction(first) + count) * frame_s
+    empty = np.zeros((0, comparer.height, comparer.width, 3), dtype=np.uint8)
+    if count <= 0 or end <= start:
+        return first, empty
+    blob, times = comparer._ffmpeg_raw_frames(path, float(start), float(end - start))
+    frames = frame_hash.frames_from_raw(blob, comparer.width, comparer.height, 3)
+    decoded = min(len(frames), len(times))
+    if decoded < len(frames) or decoded < len(times):
+        tools.dev_log(f"frame_compare: grid_frames pts_count_mismatch file={path} "
+                      f"frames={len(frames)} pts={len(times)}\n")
+    if not decoded:
+        return first, empty
+    positions = (np.asarray(times[:decoded], dtype=np.float64) - float(offset)) * float(
+        comparer.fps_frac)
+    low = max(first, int(np.floor(positions[0] + 0.5)))
+    high = min(first + count, int(np.floor(positions[-1] + 0.5)) + 1)
+    if high <= low:
+        return first, empty
+    grid = np.arange(low, high, dtype=np.float64)
+    after = np.clip(np.searchsorted(positions, grid), 0, decoded - 1)
+    before = np.clip(after - 1, 0, decoded - 1)
+    picks = np.where(np.abs(positions[before] - grid) <= np.abs(positions[after] - grid),
+                     before, after)
+    return low, frames[picks]
 
 
 def _extract_hashes(comparer, path, start_s, dur_s):
-    """Return (base frame index, frame_hashes on the comparer's grid) for a window.
-
-    The hashes are empty when the window is empty or the file's rate is unknown.
-    """
-    start_s = max(0.0, start_s)
+    """(first frame read, frame_hashes labelled by their own pts) of a window; empty on no frame."""
+    first = comparer._frame_index(max(0.0, start_s))
     if dur_s <= 0:
-        return comparer._frame_index(start_s), frame_hash.frame_hashes.empty(colour=True)
-    blob = comparer._ffmpeg_raw_frames(path, start_s, dur_s)
-    hashes = comparer._hash_frames(blob)
-    base = comparer._frame_index(start_s)
-    on_grid, reason = _on_comparer_grid(comparer, path, hashes)
-    if on_grid is None:
-        # Never guess the grid: an empty series makes every caller decline.
-        tools.dev_log(f"frame_compare: _extract_hashes declining "
-                      f"file={path} reason=native_rate_unmeasured:{reason} "
-                      f"start_sec={start_s} decoded_frames={len(hashes)}\n")
+        return first, frame_hash.frame_hashes.empty(colour=True)
+    count = comparer._round_frac(Fraction(dur_s).limit_denominator(10**9) * comparer.fps_frac)
+    base, frames = grid_frames(comparer, path, first, count)
+    if not len(frames):
         return base, frame_hash.frame_hashes.empty(colour=True)
-    return base, on_grid
+    return base, comparer._hash_frames(frames)

@@ -909,9 +909,9 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     # candidate's video does not reach are filled from the master; a plan that does not give
     # back the master's count is replaced by the picture-only plan, or declined.
     import frame_count_check
+    start_delta_ms = zone_picture_lag.video_start_delta_ms(master_obj, candidate_obj)
     zone_picture_offsets_ms = zone_picture_offsets_from_hole_anchors(
-        zones, transitions, domain, lag_pairs=zone_lag_pairs,
-        start_delta_ms=zone_picture_lag.video_start_delta_ms(master_obj, candidate_obj),
+        zones, transitions, domain, lag_pairs=zone_lag_pairs, start_delta_ms=start_delta_ms,
         candidate_path=candidate_path)
     picture_edges_ms = {index: (measured["picture_ms"], measured["picture_ms"])
                         for index, measured in zone_picture_offsets_ms.items()}
@@ -925,9 +925,13 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     except Exception as error:                                           # noqa: BLE001
         tools.log_always(f"repair: plan_edges_closed skipped={type(error).__name__}:{error} "
                          f"for {candidate_path}\n")
-    frame_count = frame_count_check.check_audio_plan(zones, fills, walk, domain, factor,
-                                                     master_obj, candidate_obj, candidate_path,
-                                                     picture_edges_ms=picture_edges_ms)
+    frame_count = frame_count_check.check_audio_plan(
+        zones, fills, walk, domain, factor, master_obj, candidate_obj, candidate_path,
+        picture_edges_ms=picture_edges_ms,
+        zone_lags={zone["zone"]: zone_picture_lag.zone_majority(
+            zone_lag_pairs, zone["master_start_ms"], zone["master_end_ms"], domain["frame_ms"])[0]
+            for zone in zones},
+        start_delta_ms=start_delta_ms)
     if frame_count.get("ok") is False:
         master_stream, candidate_stream = reference["couple"].split("x")
         return frame_count_check.visual_fallback(frame_count, master_obj, candidate_obj, walk,

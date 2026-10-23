@@ -238,14 +238,13 @@ def probe_video(path):
 
 
 def check_fps(m_info, c_info):
-    '''Precondition: both videos CFR at the same exact rate. `(Fraction, None)` or
-    `(None, reason)`.'''
+    '''Both videos CFR on one grid (`frame_compare.SAME_GRID_TOLERANCE`): `(master rate, None)` or `(None, reason)`.'''
     for side, info in (("master", m_info), ("candidate", c_info)):
         if info["r_rate"] is None or info["avg_rate"] is None:
             return None, f"{side}_rate_unmeasured"
         if info["r_rate"] != info["avg_rate"]:
             return None, (f"{side}_not_cfr:r={info['r_rate']},avg={info['avg_rate']}")
-    if m_info["r_rate"] != c_info["r_rate"]:
+    if abs(m_info["r_rate"] / c_info["r_rate"] - 1) >= frame_compare.SAME_GRID_TOLERANCE:
         return None, f"rates_differ:{m_info['r_rate']}!={c_info['r_rate']}"
     return m_info["r_rate"], None
 
