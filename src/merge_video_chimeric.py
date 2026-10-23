@@ -23,10 +23,10 @@ from decimal import Decimal
 from fractions import Fraction
 from os import path, replace as replace_file
 import re
-import subprocess
 import sys
 import time
 
+import progress_watchdog
 import tools
 import audio_reencode
 import repair_log
@@ -562,7 +562,7 @@ def clip_master_spans(provenance, fill_source_ms):
 
 
 def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
-                          out_path, timeout, speed_ratio=None,
+                          out_path, speed_ratio=None,
                           reference_stream=None, comparison_language=None,
                           track_bound_ms=None, speed_engine="asetrate"):
     '''Build one chimeric audio track. Returns a report dict.
@@ -706,7 +706,7 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     tools.dev_log(f"chimeric: build_one_audio_track ffmpeg build call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
     with repair_log.announced("chimeric", "ffmpeg", candidate_obj.filePath) as call:
-        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        progress_watchdog.run_checked(command, "audio_track_build")
         call["exit"] = 0
 
     bitrate = None
@@ -1107,7 +1107,7 @@ def splice_cue_hygiene(events, meta):
 
 
 def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir,
-                             index, timeout, speed_ratio=None):
+                             index, speed_ratio=None):
     '''Extract and retime one subtitle track; return its report dict or raise `chimeric_error`.'''
     tools.dev_log(f"chimeric: build_one_subtitle_track starting "
                   f"candidate={candidate_obj.filePath} "
@@ -1129,7 +1129,7 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
     tools.dev_log(f"chimeric: build_one_subtitle_track ffmpeg extract call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
     with repair_log.announced("chimeric", "ffmpeg", candidate_obj.filePath) as call:
-        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        progress_watchdog.run_checked(command, "subtitle_track_extract")
         call["exit"] = 0
     if not path.getsize(out_path):
         # Empty at the source; checked before pysubs2, which cannot load an empty file.
@@ -1178,7 +1178,7 @@ def log_prediction_outcome(predicted, would_refuse):
 
 
 def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      timeout, job_start_utc, chapters_path=None):
+                      job_start_utc, chapters_path=None):
     '''Mux the produced tracks and set the VMSAM_EDITED, VMSAM_FABRICATED, VMSAM_ERA and VMSAM tags.
 
     This is the only mux site of the repair path. Every track carries VMSAM_EDITED
@@ -1232,16 +1232,16 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
     tools.dev_log(f"chimeric: mux_repaired_file ffmpeg mux call "
                   f"out_path={out_path}\n")
     with repair_log.announced("chimeric", "ffmpeg", out_path) as call:
-        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        progress_watchdog.run_checked(command, "repaired_file_mux")
         call["exit"] = 0
     if chapters_path is not None:
-        mux_chapters(out_path, chapters_path, timeout)
+        mux_chapters(out_path, chapters_path)
     # The mux copies each built track whole and unmoved.
     track_integrity.check_tracks(out_path, {i: (report["path"], 0, 0) for i, report in
                                             enumerate(audio_reports + subtitle_reports)}, float("inf"))
 
 
-def mux_chapters(out_path, chapters_path, timeout):
+def mux_chapters(out_path, chapters_path):
     '''Set a chapters XML on the produced file with a `mkvmerge --chapters` copy remux.
 
     mkvmerge exit 1 is a warning and counts as success; any other failure raises
@@ -1253,7 +1253,7 @@ def mux_chapters(out_path, chapters_path, timeout):
     tools.dev_log(f"chimeric: mux_chapters mkvmerge call out_path={out_path} "
                   f"chapters={chapters_path}\n")
     with repair_log.announced("chimeric", "mkvmerge", out_path) as call:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        completed = progress_watchdog.run(command, "chapters_mux", text=True)
         call["exit"] = completed.returncode
     if completed.returncode not in (0, 1) or not path.exists(remuxed):
         raise chimeric_error(
@@ -1262,14 +1262,10 @@ def mux_chapters(out_path, chapters_path, timeout):
     replace_file(remuxed, out_path)
 
 
-def extract_chapters_xml(file_path, out_path, timeout=120):
-    """Extract a file's chapters with mkvextract.
+def extract_chapters_xml(file_path, out_path):
+    """Extract a file's chapters with mkvextract: (ElementTree root or None, reason).
 
-    Returns:
-        (ElementTree root or None, reason). reason is `extracted`, `no_chapters`,
-        `mkvextract_not_configured`, `mkvextract_exit_<n>`, `timeout` or
-        `unparseable(<type>)`.
-    """
+    reason: extracted, no_chapters, mkvextract_not_configured, mkvextract_exit_<n>, stalled or unparseable(<type>)."""
     import xml.etree.ElementTree as ElementTree
     tool = tools.software.get("mkvextract")
     if not tool:
@@ -1279,11 +1275,10 @@ def extract_chapters_xml(file_path, out_path, timeout=120):
                   f"out={out_path}\n")
     try:
         with repair_log.announced("chimeric", "mkvextract", file_path) as call:
-            completed = subprocess.run(command, capture_output=True, text=True,
-                                       timeout=timeout)
+            completed = progress_watchdog.run(command, "chapters_extract", text=True)
             call["exit"] = completed.returncode
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
+    except progress_watchdog.step_stalled:
+        return None, "stalled"
     if completed.returncode not in (0, 1):
         return None, f"mkvextract_exit_{completed.returncode}"
     if not path.exists(out_path) or not path.getsize(out_path):
@@ -1444,7 +1439,7 @@ def build_delivered_chapters(master_path, candidate_path, reference_pieces, time
     return out_path, decisions
 
 
-def probe_delivered_durations(file_path, timeout=300):
+def probe_delivered_durations(file_path):
     """Probe the produced file's durations with ffprobe.
 
     Returns a dict with the container duration, each stream's duration and the
@@ -1457,7 +1452,7 @@ def probe_delivered_durations(file_path, timeout=300):
                "-of", "json", file_path]
     tools.dev_log(f"chimeric: probe_delivered_durations ffprobe call file={file_path}\n")
     with repair_log.announced("chimeric", "ffprobe", file_path) as call:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+        completed = progress_watchdog.run(command, "ffprobe_delivered", text=True)
         call["exit"] = completed.returncode
     data = _json.loads(completed.stdout or "{}")
     try:
@@ -1484,8 +1479,7 @@ def probe_delivered_durations(file_path, timeout=300):
                    "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0",
                    file_path]
         with repair_log.announced("chimeric", "ffprobe", file_path) as call:
-            completed = subprocess.run(command, capture_output=True, text=True,
-                                       timeout=timeout)
+            completed = progress_watchdog.run(command, "ffprobe_delivered_cues", text=True)
             call["exit"] = completed.returncode
         last = None
         for line in completed.stdout.splitlines():
@@ -1568,16 +1562,10 @@ def get_track_audio_length_ms(audio):
     return Decimal(str(audio["Duration"])) * Decimal("1000")
 
 
-def measure_track_extent_ms(file_path, stream_order, timeout=300):
-    '''Measure a track's real extent from its last packet end.
+def measure_track_extent_ms(file_path, stream_order):
+    '''Measure a track's real extent from its last packet end (the declared Duration can be ~120 ms short).
 
-    The declared `Duration` can understate the stream by up to ~120 ms; this is
-    run only after the declared bound has refused.
-
-    Returns:
-        (extent_ms or None, reason), reason being `measured`, `binary-absent`,
-        `probe-exit-<code>`, `timeout`, `probe-failed(<type>)` or `no-packets`.
-    '''
+    Returns (extent_ms or None, reason): measured, binary-absent, probe-exit-<code>, stalled, probe-failed or no-packets.'''
     try:
         probe = tools.software["ffprobe"]
     except Exception:
@@ -1589,11 +1577,10 @@ def measure_track_extent_ms(file_path, stream_order, timeout=300):
                   f"file={file_path} stream_order={stream_order}\n")
     try:
         with repair_log.announced("chimeric", "ffprobe", file_path) as call:
-            result = subprocess.run(command, capture_output=True, text=True,
-                                    timeout=timeout)
+            result = progress_watchdog.run(command, "ffprobe_track_extent", text=True)
             call["exit"] = result.returncode
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
+    except progress_watchdog.step_stalled:
+        return None, "stalled"
     except Exception as error:
         return None, f"probe-failed({type(error).__name__})"
     if result.returncode != 0:
@@ -1699,7 +1686,7 @@ SUBTITLE_CUE_LOOKBACK_S = 30
 SUBTITLE_CLEAR_PACKET_BYTES = 64
 
 
-def read_master_subtitle_cues(master_obj, filled_spans, timeout=600):
+def read_master_subtitle_cues(master_obj, filled_spans):
     """Read the master's subtitle cues near the filled spans: `[{"language", "stream", "cues"}]`.
 
     Cues are `(start_ms, end_ms)` on the master's clock, read with `ffprobe -show_packets`
@@ -1725,7 +1712,7 @@ def read_master_subtitle_cues(master_obj, filled_spans, timeout=600):
                        "-show_entries", "packet=pts_time,duration_time,size", "-of", "json",
                        master_obj.filePath]
             try:
-                stdout, _, code = tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+                stdout, _, code = progress_watchdog.run_checked(command, "ffprobe_master_cues")
                 packets = json.loads(stdout.decode("utf-8", "replace") or "{}").get("packets") or []
             except Exception as error:
                 tools.log_line(f"chimeric: master_subtitle_cues stream={entry['stream']} "
@@ -1899,41 +1886,17 @@ def compose_marker(base_marker, factor, engine="asetrate"):
 
 def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, reference_pieces,
                                 work_dir, out_path, marker_value, job_start_utc,
-                                timeout=3600, verify=True, verify_tolerance_ms=15,
+                                verify=True, verify_tolerance_ms=15,
                                 verify_search_ms=30000, max_silence_fraction=None,
                                 speed_ratio=None, reference_stream=None,
                                 comparison_language=None, chapters_path=None,
-                                deadline=None, speed_engine="asetrate",
+                                speed_engine="asetrate",
                                 comparison_tolerance_extra_ms=None,
                                 picture_audio_residual_by_zone=None,
                                 reference_candidate_stream=None):
-    '''Build the repaired file on the master timeline from per-track plans; measures nothing.
+    '''Build the repaired file on the master timeline from per-track plans (`track_plans`); measures nothing.
 
-    Args:
-        track_plans: `{StreamOrder: {"pieces", "extent_ms", "extent_source",
-            "offset_measured", "borrow_reason", "offset_sources"}}`; each track
-            has its own pieces because it has its own offset.
-        reference_pieces: the comparison track's pieces, used for subtitles and
-            by the verifier.
-        chapters_path: retimed chapters XML to set at mux, or None.
-        job_start_utc: job start time, written into the VMSAM_ERA tag.
-        comparison_tolerance_extra_ms: the plan's own already-logged, file-wide
-            audio-vs-picture finding for the comparison language (the picture
-            decides the delivered geometry), added to `verify_tolerance_ms` only for
-            that language's own plan-wide check below -- the same, expected
-            residual its own delivered geometry caused, not a new defect.
-        picture_audio_residual_by_zone: {zone: signed picture_ms - audio_ms}
-            of a picture-led plan, passed to the verifier.
-        reference_candidate_stream: the candidate stream the plan was measured
-            on, passed to the verifier.
-
-    Returns:
-        A report of built, declined and failed tracks.
-
-    Raises:
-        chimeric_error: the plan or master is unusable, nothing could be built,
-            or the repair budget ran out.
-    '''
+    Raises chimeric_error (unusable plan or master, nothing built) or step_stalled; returns the build report.'''
     tools.dev_log(f"chimeric: assemble_on_master_timeline starting "
                   f"candidate={candidate_obj.filePath} "
                   f"master={master_obj.filePath} work_dir={work_dir} "
@@ -1995,39 +1958,13 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     declined = []
     failed = []
 
-    # The track build counts against the repair budget: the deadline is checked
-    # before each track and bounds each ffmpeg call; a half-built set is never muxed.
-    import time as _time
+    # A stalled step stops the whole build: a half-built set is never muxed.
     timeline_s = float(master_duration_ms) / 1000.0
-    built = []
-
-    def build_bound():
-        bound = min(float(timeout), tools.decoder_timeout_for(timeline_s))
-        if deadline is not None:
-            left = deadline - _time.monotonic()
-            if left <= 0:
-                tools.log_always(
-                    f"repair: partial_plan cause=repair_budget_exceeded placed={built} "
-                    f"-- the repair's budget ran out during the track build, nothing is muxed "
-                    f"for {candidate_obj.filePath}\n")
-                raise chimeric_error(
-                    f"the repair's budget ran out during the track build after {len(built)} "
-                    f"track(s) {built} -- nothing is muxed; declined, retried at the next run",
-                    cause="repair_budget_exceeded")
-            bound = min(bound, left)
-        return bound
-
-    def budget_stopped(error):
-        """A build that failed because the budget's bound cut it is the budget's refusal."""
-        if deadline is not None and _time.monotonic() >= deadline:
-            build_bound()                    # raises repair_budget_exceeded with the partial plan
-        return error
 
     index = 0
     for language, audio in iterate_candidate_audios(candidate_obj):
         track_path = path.join(work_dir, f"audio_{index}.mka")
         index += 1
-        bound = build_bound()
         try:
             stream_order = int(audio["StreamOrder"])
             track_plan = track_plans.get(stream_order)
@@ -2044,10 +1981,9 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                                       candidate_obj.filePath, media_s=timeline_s) as call:
                 report = build_one_audio_track(
                     candidate_obj, master_obj, audio, language, track_plan["pieces"],
-                    track_path, bound, speed_ratio, reference_stream, comparison_language,
+                    track_path, speed_ratio, reference_stream, comparison_language,
                     track_bound_ms, speed_engine)
                 call["exit"] = 0
-            built.append(f"audio:{stream_order}")
             report["extraction_bound_ms"] = str(track_bound_ms)
             report["extraction_bound_source"] = track_plan["extent_source"]
             report["extraction_bound_track"] = track_label
@@ -2060,13 +1996,13 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             attach_track_tags(report, "audio", master_duration_ms, frame_ms, speed_ratio,
                               speed_engine)
             audio_reports.append(report)
+        except progress_watchdog.step_stalled:
+            raise
         except chimeric_error as error:
-            budget_stopped(error)
             declined.append({"kind": "audio",
                              "stream_order": int(audio["StreamOrder"]),
                              "language": language, "reason": str(error)})
         except Exception as error:
-            budget_stopped(error)
             failed.append({"kind": "audio",
                            "stream_order": int(audio["StreamOrder"]),
                            "language": language, "reason": str(error)})
@@ -2090,30 +2026,27 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                     f"reason={subtitle['dropped_duplicate']}\n")
                 index += 1
                 continue
-            bound = build_bound()
             try:
                 with repair_log.announced(
                         "chimeric", f"track_build:subtitle:{subtitle['StreamOrder']}",
                         candidate_obj.filePath) as call:
                     report = build_one_subtitle_track(
                         candidate_obj, subtitle, language, reference_pieces, work_dir, index,
-                        bound, speed_ratio)
+                        speed_ratio)
                     call["exit"] = 0
-                built.append(f"subtitle:{subtitle['StreamOrder']}")
                 if master_subtitles is None:
-                    master_subtitles = read_master_subtitle_cues(master_obj, filled_spans,
-                                                                 build_bound())
+                    master_subtitles = read_master_subtitle_cues(master_obj, filled_spans)
                 attach_track_tags(report, "subtitle", master_duration_ms, frame_ms,
                                   speed_ratio, speed_engine, filled_spans=filled_spans,
                                   master_subtitles=master_subtitles)
                 subtitle_reports.append(report)
+            except progress_watchdog.step_stalled:
+                raise
             except chimeric_error as error:
-                budget_stopped(error)
                 declined.append({"kind": "subtitle",
                                  "stream_order": int(subtitle["StreamOrder"]),
                                  "language": language, "reason": str(error)})
             except Exception as error:
-                budget_stopped(error)
                 failed.append({"kind": "subtitle",
                                "stream_order": int(subtitle["StreamOrder"]),
                                "language": language, "reason": str(error)})
@@ -2129,7 +2062,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
             master_obj.filePath,
             [(language, subtitle) for language, subtitles in (getattr(master_obj, "subtitles", None) or {}).items()
              if language in languages for subtitle in subtitles],
-            work_dir, build_bound())
+            work_dir)
         decisions = subtitle_sync.sync_decisions(
             {report["stream_order"]: (report["language"], subtitle_sync.read_cues(report["path"]))
              for report in subtitle_reports}, master_tracks, zones, frame_ms)
@@ -2192,9 +2125,8 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
     file_marker = compose_marker(
         marker_value, Decimal(str(speed_ratio)) if speed_ratio is not None else None,
         speed_engine)
-    mux_bound = build_bound()
     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                      mux_bound, job_start_utc, chapters_path=chapters_path)
+                      job_start_utc, chapters_path=chapters_path)
 
     # The duration check runs before alignment: alignment probes on a truncated
     # track would still read "aligned". A refused output is kept on disk, renamed
@@ -2212,7 +2144,7 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
         if verify:
             verification = verify_on_master_timeline(
                 out_path, master_obj, audio_reports, reference_pieces, verify_tolerance_ms,
-                verify_search_ms, reference_stream, deadline=deadline,
+                verify_search_ms, reference_stream,
                 envelope=(speed_engine == "atempo" and speed_ratio is not None),
                 comparison_language=comparison_language,
                 comparison_tolerance_extra_ms=comparison_tolerance_extra_ms,
@@ -2233,20 +2165,20 @@ def assemble_on_master_timeline(candidate_obj, master_obj, track_plans, referenc
                                     if r["stream_order"] not in dropped_orders]
                 if audio_reports or subtitle_reports:
                     mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
-                                      build_bound(), job_start_utc, chapters_path=chapters_path)
+                                      job_start_utc, chapters_path=chapters_path)
                 else:
                     raise chimeric_error(
                         f"nothing could be rebuilt: every candidate track was dropped at "
                         f"verification ({sorted(dropped_orders)})")
 
-        # Fill-content verification always runs and only records; only a budget
-        # refusal propagates.
+        # Fill-content verification always runs and only records; only a stalled step
+        # propagates.
         fill_content = []
         try:
             fill_content = verify_fill_content(
-                out_path, master_obj, audio_reports, master_duration_ms, deadline=deadline)
+                out_path, master_obj, audio_reports, master_duration_ms)
         except Exception as error:
-            if getattr(error, "cause", None) == "repair_budget_exceeded":
+            if isinstance(error, progress_watchdog.step_stalled):
                 raise
             tools.log_line(
                 f"chimeric: fill_content_verification_failed "
@@ -2369,36 +2301,10 @@ def _mono_command(file_path, stream_specifier, input_seek_s, output_seek_s, dura
                       "-ar", str(rate), "-"]
 
 
-def _run_bounded(command, media_seconds, deadline, file_path, stream_specifier):
-    """Run one ffmpeg reader call under the decoder timeout and the repair deadline.
-
-    `deadline` is a `time.monotonic()` instant or None. Raises `chimeric_error`
-    (`repair_budget_exceeded`) when the budget stops the call, else
-    `tools.decoder_timeout` on timeout.
-    """
-    timeout = tools.decoder_timeout_for(media_seconds)
-    budget_bound = False
-    if deadline is not None:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise chimeric_error(
-                f"the repair's budget ran out before the reader could decode {stream_specifier} "
-                f"of {path.basename(file_path)}", cause="repair_budget_exceeded")
-        if remaining < timeout:
-            timeout, budget_bound = remaining, True
-    try:
-        with repair_log.announced("chimeric", "ffmpeg", file_path,
-                                  media_s=media_seconds) as call:
-            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     timeout=timeout)
-            call["exit"] = process.returncode
-    except subprocess.TimeoutExpired:
-        if budget_bound:
-            raise chimeric_error(
-                f"the repair's budget ran out while the reader decoded {stream_specifier} of "
-                f"{path.basename(file_path)}", cause="repair_budget_exceeded")
-        raise tools.decoder_timeout("read_mono_samples", timeout,
-                                    f"file={file_path} stream={stream_specifier}")
+def run_reader(command, media_seconds, file_path):
+    with repair_log.announced("chimeric", "ffmpeg", file_path, media_s=media_seconds) as call:
+        process = progress_watchdog.run(command, "read_mono_samples")
+        call["exit"] = process.returncode
     return process
 
 
@@ -2427,8 +2333,8 @@ def read_splice_window(file_path, stream_specifier, start_s, duration_s, audio_f
     command += ["-ss", f"{preroll * scale:.6f}", "-t", f"{duration_s:.6f}", "-f", "f32le",
                 "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(splice_hygiene.MEASURE_RATE), "-"]
     try:
-        process = _run_bounded(command, preroll + duration_s, None, file_path, stream_specifier)
-    except tools.decoder_timeout:
+        process = run_reader(command, preroll + duration_s, file_path)
+    except progress_watchdog.step_stalled:
         return None
     if process.returncode != 0 or not process.stdout:
         return None
@@ -2547,7 +2453,7 @@ def plan_candidate_joins(candidate_obj, audio, pieces, speed_chain, speed_ratio)
     return joins
 
 
-def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, deadline=None):
+def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate):
     """Mono samples of one window, mean removed.
 
     Uses the hybrid seek (input seek `PROBE_PREROLL_S` before, output seek for
@@ -2564,24 +2470,16 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, 
                   f"duration_ms={duration_ms}\n")
     hybrid = _mono_command(file_path, stream_specifier, start_s - preroll, preroll, duration_s,
                            rate)
-    try:
-        process = _run_bounded(hybrid, float(preroll + duration_s), deadline, file_path,
-                               stream_specifier)
-    except tools.decoder_timeout:
-        # One retry: host load can make a short read overrun once.
-        tools.dev_log(f"chimeric: read_mono_samples retry=decoder_timeout file={file_path} "
-                      f"stream={stream_specifier} start_ms={start_ms}\n")
-        process = _run_bounded(hybrid, float(preroll + duration_s), deadline, file_path,
-                               stream_specifier)
+    process = run_reader(hybrid, float(preroll + duration_s), file_path)
     expected = int(duration_s * rate) - rate // 100
     if preroll > 0 and (process.returncode != 0 or len(process.stdout) // 4 < expected):
         tools.dev_log(f"chimeric: read_mono_samples seek=output_fallback file={file_path} "
                       f"stream={stream_specifier} start_ms={start_ms} hybrid_samples="
                       f"{len(process.stdout) // 4} expected={expected}\n")
         # Bounded by what it decodes: from the file's start to the window's end.
-        process = _run_bounded(
+        process = run_reader(
             _mono_command(file_path, stream_specifier, Decimal(0), start_s, duration_s, rate),
-            float(start_s + duration_s), deadline, file_path, stream_specifier)
+            float(start_s + duration_s), file_path)
     # A tool failure is reported as such, not as missing audio.
     if process.returncode != 0:
         raise chimeric_error(
@@ -2598,7 +2496,7 @@ def read_mono_samples(file_path, stream_specifier, start_ms, duration_ms, rate, 
     return samples - samples.mean()
 
 
-def read_reference_window(video_obj, audio, start_ms, duration_ms, rate, deadline=None):
+def read_reference_window(video_obj, audio, start_ms, duration_ms, rate):
     """A master window on the master's sample clock, resampled to `rate`, mean removed.
 
     Sliced from the shared whole-track read (`audio_walk.read_on_file_clock`), the
@@ -2608,7 +2506,7 @@ def read_reference_window(video_obj, audio, start_ms, duration_ms, rate, deadlin
     import numpy
     import scipy.signal
     import audio_walk
-    samples = audio_walk.read_on_file_clock(video_obj, audio, deadline=deadline)
+    samples = audio_walk.read_on_file_clock(video_obj, audio)
     ratio = Fraction(int(audio_walk.WALK_RATE), int(rate))
     # Start on an output-grid sample: a sub-sample shift lowers the correlation peak.
     first = int(round(round(float(start_ms) * int(rate) / 1000.0) * ratio))
@@ -2624,25 +2522,11 @@ def read_reference_window(video_obj, audio, start_ms, duration_ms, rate, deadlin
     return window - window.mean()
 
 
-def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout=900,
-                       deadline=None):
-    """Decode a whole track once as mono float32 samples at `rate` Hz.
+def read_track_samples(file_path, stream_order, rate, audio_filter=None):
+    """Decode a whole track once as mono float32 at `rate` Hz; sample i is at start_time + i / rate.
 
-    Sample `i` is at stream time `start_time + i / rate`; with `audio_filter`
-    (a speed chain) times are on the corrected timeline. With `deadline` (a
-    `time.monotonic()` instant) the remaining budget replaces `timeout`.
-
-    Raises:
-        chimeric_error: ffmpeg failed or timed out (`repair_budget_exceeded`
-            when the budget stopped it).
-    """
+    `audio_filter` puts times on the corrected timeline; raises chimeric_error on a failure, step_stalled on a stall."""
     import numpy
-    if deadline is not None:
-        timeout = deadline - time.monotonic()
-        if timeout <= 0:
-            raise chimeric_error(
-                f"the repair's budget ran out before the whole-track read of stream "
-                f"{stream_order} of {path.basename(file_path)}", cause="repair_budget_exceeded")
     command = [tools.software["ffmpeg"], "-v", "error", "-nostdin",
                "-i", file_path, "-map", f"0:{int(stream_order)}", "-vn", "-sn", "-dn"]
     if audio_filter:
@@ -2651,20 +2535,9 @@ def read_track_samples(file_path, stream_order, rate, audio_filter=None, timeout
                     "-ar", str(rate), "-"])
     tools.dev_log(f"chimeric: read_track_samples starting file={file_path} "
                   f"stream_order={stream_order} rate={rate} filter={audio_filter}\n")
-    try:
-        with repair_log.announced("chimeric", "ffmpeg", file_path) as call:
-            process = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                     timeout=timeout)
-            call["exit"] = process.returncode
-    except subprocess.TimeoutExpired:
-        if deadline is not None:
-            raise chimeric_error(
-                f"the repair's budget ran out during the whole-track read of stream "
-                f"{stream_order} of {path.basename(file_path)} ({round(timeout, 1)} s were left)",
-                cause="repair_budget_exceeded")
-        raise chimeric_error(
-            f"the whole-track read of stream {stream_order} did not finish in "
-            f"{timeout} s: a statement about the tool, not about the media")
+    with repair_log.announced("chimeric", "ffmpeg", file_path) as call:
+        process = progress_watchdog.run(command, "whole_track_read")
+        call["exit"] = process.returncode
     if process.returncode != 0:
         raise chimeric_error(
             f"the whole-track read of stream {stream_order} FAILED: ffmpeg exited "
@@ -2723,8 +2596,7 @@ def probe_output_streams(file_path):
                "-of", "json", file_path]
     tools.dev_log(f"chimeric: probe_output_streams starting file={file_path}\n")
     with repair_log.announced("chimeric", "ffprobe", file_path) as call:
-        data = _json.loads(subprocess.run(command, check=True, stdout=subprocess.PIPE,
-                                          timeout=tools.DECODER_TIMEOUT_BASE_S).stdout)
+        data = _json.loads(progress_watchdog.run_checked(command, "ffprobe_output_streams")[0])
         call["exit"] = 0
     ends = None
     streams = []
@@ -2777,8 +2649,7 @@ def last_audio_packet_ms(file_path):
     tools.dev_log(f"chimeric: last_audio_packet_ms starting file={file_path}\n")
     try:
         with repair_log.announced("chimeric", "ffprobe", file_path) as call:
-            output = subprocess.run(command, check=True, stdout=subprocess.PIPE,
-                                    timeout=tools.DECODER_TIMEOUT_BASE_S).stdout.decode()
+            output = progress_watchdog.run_checked(command, "ffprobe_last_audio_packet")[0].decode()
             call["exit"] = 0
     except Exception:
         return {}
@@ -3112,7 +2983,7 @@ def log_track_finding(result):
 
 
 def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                              tolerance_ms, search_ms, reference_stream=None, deadline=None,
+                              tolerance_ms, search_ms, reference_stream=None,
                               envelope=False, comparison_language=None,
                               comparison_tolerance_extra_ms=None,
                               picture_audio_residual_by_zone=None,
@@ -3153,7 +3024,7 @@ def verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
                   f"out_path={out_path} master={master_obj.filePath}\n")
     started = time.monotonic()
     results = _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces,
-                                         tolerance_ms, search_ms, reference_stream, deadline,
+                                         tolerance_ms, search_ms, reference_stream,
                                          envelope, comparison_language,
                                          comparison_tolerance_extra_ms,
                                          picture_audio_residual_by_zone,
@@ -3173,7 +3044,7 @@ def _speech_envelopes(reference, produced):
 
 
 def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tolerance_ms,
-                               search_ms, reference_stream, deadline, envelope=False,
+                               search_ms, reference_stream, envelope=False,
                                comparison_language=None, comparison_tolerance_extra_ms=None,
                                picture_audio_residual_by_zone=None,
                                reference_candidate_stream=None):
@@ -3226,10 +3097,9 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
                     continue
             start = probe_start
             reference = read_reference_window(master_obj, master_audio, start, window_ms,
-                                              verify_probe_rate, deadline=deadline)
+                                              verify_probe_rate)
             produced = read_mono_samples(out_path, f"0:a:{produced_index}",
-                                         start, window_ms, verify_probe_rate,
-                                         deadline=deadline)
+                                         start, window_ms, verify_probe_rate)
             reference_rms = get_rms(reference)
             produced_rms = get_rms(produced)
             if min(reference_rms, produced_rms) < verify_min_rms:
@@ -3393,7 +3263,7 @@ def _verify_on_master_timeline(out_path, master_obj, audio_reports, pieces, tole
     for pending in deferred:
         resolved = master_intertrack_explains(master_obj, pending, results, master_tracks,
                                               reference_stream, window_ms, search_ms,
-                                              tolerance_ms, deadline, envelope)
+                                              tolerance_ms, envelope)
         if resolved is None:
             reference_known = reference_candidate_stream is not None or comparison_language is not None
             if reference_known and not carries_plan(pending["entry"], reference_candidate_stream,
@@ -3513,7 +3383,7 @@ def _fill_control_window_ms(start_ms, span_ms, master_duration_ms):
 
 
 def master_intertrack_explains(master_obj, pending, results, master_tracks, reference_stream,
-                               window_ms, search_ms, tolerance_ms, deadline, envelope=False):
+                               window_ms, search_ms, tolerance_ms, envelope=False):
     """Check whether a piece's disagreeing probes come from a step between the master's own tracks.
 
     An aligned sibling track gives, per probe, the master's relation between that
@@ -3552,9 +3422,9 @@ def master_intertrack_explains(master_obj, pending, results, master_tracks, refe
             return None
         start = Decimal(probe["master_position_ms"])
         theirs = read_mono_samples(master_obj.filePath, f"0:{int(sibling_audio['StreamOrder'])}",
-                                   start, window_ms, verify_probe_rate, deadline=deadline)
+                                   start, window_ms, verify_probe_rate)
         ours = read_mono_samples(master_obj.filePath, f"0:{int(own['StreamOrder'])}",
-                                 start, window_ms, verify_probe_rate, deadline=deadline)
+                                 start, window_ms, verify_probe_rate)
         if min(get_rms(theirs), get_rms(ours)) < verify_min_rms:
             tools.log_line(f"chimeric: verify track {entry['track']} ({entry['language']}) "
                            f"master_intertrack_step not_testable reason=no_signal "
@@ -3600,17 +3470,10 @@ def master_intertrack_explains(master_obj, pending, results, master_tracks, refe
             "probes": entry["probes"]}
 
 
-def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms,
-                        deadline=None):
-    '''Check that each master-filled region of the output carries the master's content there.
+def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms):
+    '''Record whether each master-filled region carries the master's content (log-mel NCC against a control window).
 
-    Only records; raises nothing except a budget refusal. Each region's log-mel
-    NCC against the master at the same position is compared with a mismatched
-    control window, using `fill_content_ncc_floor`:
-    control >= floor -> `content_indiscriminate`; reading >= floor ->
-    `content_verified`; otherwise `content_mismatch`. Failures give
-    `skipped_unmeasurable`, silence `skipped_silent`.
-    '''
+    Outcomes: content_verified, content_mismatch, content_indiscriminate, skipped_*; only a stalled read raises.'''
     tools.dev_log(f"chimeric: verify_fill_content starting out_path={out_path} "
                   f"master={master_obj.filePath}\n")
     results = []
@@ -3643,16 +3506,15 @@ def verify_fill_content(out_path, master_obj, audio_reports, master_duration_ms,
                     "fill_source_class": region.get("fill_source_class")}
             try:
                 produced_samples = read_mono_samples(
-                    out_path, f"0:a:{produced_index}", start_ms, span_ms, verify_probe_rate,
-                    deadline=deadline)
+                    out_path, f"0:a:{produced_index}", start_ms, span_ms, verify_probe_rate)
                 reading_samples = read_mono_samples(
                     master_obj.filePath, f"0:{fill_stream_order}", start_ms, span_ms,
-                    verify_probe_rate, deadline=deadline)
+                    verify_probe_rate)
                 control_samples = read_mono_samples(
                     master_obj.filePath, f"0:{fill_stream_order}", control_start_ms, span_ms,
-                    verify_probe_rate, deadline=deadline)
+                    verify_probe_rate)
             except Exception as error:
-                if getattr(error, "cause", None) == "repair_budget_exceeded":
+                if isinstance(error, progress_watchdog.step_stalled):
                     raise
                 entry.update({"outcome": "skipped_unmeasurable",
                              "reason": f"extraction failed: {type(error).__name__}"})

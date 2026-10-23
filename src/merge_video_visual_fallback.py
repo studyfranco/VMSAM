@@ -158,6 +158,7 @@ from decimal import Decimal
 from os import path
 from time import gmtime, strftime
 
+import progress_watchdog
 import tools
 import video
 import video_offset_plan
@@ -198,7 +199,7 @@ def _extract_subtitle_text(file_path, stream_order, codec_name, work_dir, tag):
                "-i", file_path, "-map", f"0:{int(stream_order)}", "-map_chapters", "-1",
                "-c:s", target, out_path]
     try:
-        tools.launch_cmdExt_with_timeout_reload(command, 1, 120)
+        progress_watchdog.run_checked(command, "subtitle_dedup_convert")
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception:                                                    # noqa: BLE001
@@ -295,7 +296,7 @@ def _pick_quality_winner(video_a, video_b):
     return video_b, video_a
 
 
-def _decode_hashes_for_divergence(winner, loser, result_fps, work_root, repair_deadline):
+def _decode_hashes_for_divergence(winner, loser, result_fps, work_root):
     '''Redecode (cache hit: same path/fps/work_dir `measure_video_offset` already used) the
     whole-file grey pHash of both sides, for `video_offset_plan.carve_divergent_fills`.
 
@@ -312,9 +313,9 @@ def _decode_hashes_for_divergence(winner, loser, result_fps, work_root, repair_d
         cache_dir = path.join(work_root, "measure")
         tools.make_dirs(cache_dir)
         _, m_hashes, _, _ = video_offset_plan.decode_scenes_and_hashes(
-            winner.filePath, result_fps, m_info["duration_s"], cache_dir, repair_deadline)
+            winner.filePath, result_fps, m_info["duration_s"], cache_dir)
         _, c_hashes, _, _ = video_offset_plan.decode_scenes_and_hashes(
-            loser.filePath, result_fps, c_info["duration_s"], cache_dir, repair_deadline)
+            loser.filePath, result_fps, c_info["duration_s"], cache_dir)
         return m_hashes, c_hashes, video_offset_plan.Fraction(1000) / result_fps
     except (KeyboardInterrupt, SystemExit):
         raise
@@ -324,19 +325,18 @@ def _decode_hashes_for_divergence(winner, loser, result_fps, work_root, repair_d
         return None, None, None
 
 
-def _carve_divergence(winner, loser, result_fps, zones, fills, work_root, repair_deadline):
+def _carve_divergence(winner, loser, result_fps, zones, fills, work_root):
     """Run `find_divergent_spans_in_zone`/`carve_divergent_fills` over `zones`; on any failure
     (including no usable decode), return `(zones, fills)` unchanged."""
     m_hashes, c_hashes, frame_ms = _decode_hashes_for_divergence(
-        winner, loser, result_fps, work_root, repair_deadline)
+        winner, loser, result_fps, work_root)
     if m_hashes is None:
         return zones, fills
     return video_offset_plan.carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms,
                                                     log=tools.log_always)
 
 
-def _apply_zoned_plan(winner, loser, zones, fills, fps, trigger, language, repair_deadline,
-                      work_root):
+def _apply_zoned_plan(winner, loser, zones, fills, fps, trigger, language, work_root):
     """Build and deliver a multi-zone video-anchored plan from already-built `zones`/`fills`
     (one zone per stable picture offset, or more once `carve_divergence` has split out any
     picture-divergent span); return a repaired object or None.
@@ -391,7 +391,6 @@ def _apply_zoned_plan(winner, loser, zones, fills, fps, trigger, language, repai
         "track_plans": track_plans, "reference_pieces": reference_pieces,
         "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
         "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
-        "repair_deadline": repair_deadline,
         "video_anchored": {"offset_frames": None, "n_zones": len(zones),
                            # `merge_video_repair.build_repaired_video_object` reads this key
                            # unconditionally whenever `video_anchored` is set, constant or
@@ -424,7 +423,7 @@ def _apply_zoned_plan(winner, loser, zones, fills, fps, trigger, language, repai
     return repaired_obj
 
 
-def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_root):
+def _apply_constant_plan(winner, loser, result, language, work_root):
     """Build and deliver the one-zone video-anchored plan; return a repaired object or None.
 
     When a picture-divergent span is found inside that single zone, the
@@ -444,12 +443,11 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
 
     zones = [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
              "offset_ms": offset_ms, "offset_frames": result.offset_frames, "zone": 0}]
-    zones, fills = _carve_divergence(winner, loser, result.fps, zones, [], work_root,
-                                     repair_deadline)
+    zones, fills = _carve_divergence(winner, loser, result.fps, zones, [], work_root)
     if len(zones) > 1 or fills:
         return _apply_zoned_plan(winner, loser, zones, fills, result.fps,
                                  "visual_fallback_no_common_language_divergent", language,
-                                 repair_deadline, work_root)
+                                 work_root)
 
     work_dir = path.join(work_root, merge_video_chimeric.stable_case_key(candidate_path))
     tools.make_dirs(work_dir)
@@ -489,7 +487,6 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
         "track_plans": track_plans, "reference_pieces": reference_pieces,
         "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
         "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
-        "repair_deadline": repair_deadline,
         "video_anchored": {"offset_frames": result.offset_frames, "shift_frames": shift,
                            "offset_ms": offset_ms, "fps": str(result.fps),
                            "trigger": "visual_fallback_no_common_language"},
@@ -513,7 +510,7 @@ def _apply_constant_plan(winner, loser, result, language, repair_deadline, work_
     return repaired_obj
 
 
-def _apply_speed_plan(winner, loser, speed_result, language, repair_deadline, work_root):
+def _apply_speed_plan(winner, loser, speed_result, language, work_root):
     """Build and deliver a one-zone video-anchored plan with a constant-ratio speed correction
     applied to every candidate track first; return a repaired object or None.
 
@@ -580,7 +577,6 @@ def _apply_speed_plan(winner, loser, speed_result, language, repair_deadline, wo
         "speed_ratio": str(Decimal(ratio.numerator) / Decimal(ratio.denominator)),
         "speed_ratio_exact": f"{ratio.numerator}/{ratio.denominator}",
         "rate_source": video_offset_plan.RATE_SOURCE_VISUAL, "resample_gate": resample_gate,
-        "repair_deadline": repair_deadline,
         "video_anchored": {"offset_frames": None, "residual_frames": speed_result.residual_frames,
                            "shift_frames": shift, "offset_ms": offset_ms,
                            "fps": str(speed_result.candidate_fps),
@@ -608,7 +604,7 @@ def _apply_speed_plan(winner, loser, speed_result, language, repair_deadline, wo
     return repaired_obj
 
 
-def _apply_multizone_plan(winner, loser, result, groups, language, repair_deadline, work_root):
+def _apply_multizone_plan(winner, loser, result, groups, language, work_root):
     """Build and deliver a multi-zone video-anchored plan; return a repaired object or None.
 
     Laid out by `video_offset_plan.video_zone_plan`: one candidate zone per stable picture
@@ -626,15 +622,14 @@ def _apply_multizone_plan(winner, loser, result, groups, language, repair_deadli
     timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(winner)
     zones, fills = video_offset_plan.video_zone_plan(groups, result.frame_ms, timeline_ms,
                                                       start_delta_ms)
-    zones, fills = _carve_divergence(winner, loser, result.fps, zones, fills, work_root,
-                                     repair_deadline)
+    zones, fills = _carve_divergence(winner, loser, result.fps, zones, fills, work_root)
     return _apply_zoned_plan(winner, loser, zones, fills, result.fps,
                              "visual_fallback_no_common_language_multizone", language,
-                             repair_deadline, work_root)
+                             work_root)
 
 
 def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
-                          repair_deadline=None, work_root=None):
+                          work_root=None):
     '''Merge two files sharing no common audio language by their picture alone.
 
     Args:
@@ -644,8 +639,6 @@ def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
             `forced_best_video`); the video-quality vote only runs when this is falsy.
         language: comparison language forwarded to the chimeric builder for head/tail fill
             only (borrowed master audio vs. silence); may be None.
-        repair_deadline: an optional `time.monotonic()` deadline, forwarded to the measurement
-            and the build like `repair_orchestrator`'s own repair budget.
         work_root: scratch directory for the measurement cache and the build; defaults under
             `tools.tmpFolder`.
 
@@ -690,14 +683,14 @@ def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
             and m_info["r_rate"] != c_info["r_rate"])
         if is_speed_pair:
             speed_result = video_offset_plan.detect_speed_ratio(
-                winner.filePath, loser.filePath, cache_dir, deadline=repair_deadline)
+                winner.filePath, loser.filePath, cache_dir)
             if speed_result.status != video_offset_plan.STATUS_SPEED_OK:
                 _log_decline(speed_result.status, video_a, video_b,
                             f"reason={speed_result.reason}")
                 return video_a
         else:
             result = video_offset_plan.measure_video_offset(
-                winner.filePath, loser.filePath, cache_dir, deadline=repair_deadline)
+                winner.filePath, loser.filePath, cache_dir)
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:                                           # noqa: BLE001
@@ -713,11 +706,9 @@ def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
 
     try:
         if speed_result is not None:
-            repaired_obj = _apply_speed_plan(winner, loser, speed_result, language,
-                                             repair_deadline, work_root)
+            repaired_obj = _apply_speed_plan(winner, loser, speed_result, language, work_root)
         elif result.status == video_offset_plan.STATUS_OK:
-            repaired_obj = _apply_constant_plan(winner, loser, result, language,
-                                                repair_deadline, work_root)
+            repaired_obj = _apply_constant_plan(winner, loser, result, language, work_root)
         else:
             groups = video_offset_plan.group_video_zones(result.pairs or [],
                                                           float(result.frame_ms))
@@ -730,7 +721,7 @@ def visual_fallback_merge(video_a, video_b, forced_best_video, language=None,
                 + ",".join(f"{d:+d}x{len(m)}" for d, m in groups)
                 + f" for {loser.filePath}\n")
             repaired_obj = _apply_multizone_plan(winner, loser, result, groups, language,
-                                                 repair_deadline, work_root)
+                                                 work_root)
     except (KeyboardInterrupt, SystemExit):
         raise
     except Exception as error:                                           # noqa: BLE001

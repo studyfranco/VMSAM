@@ -24,6 +24,7 @@ import json
 import sys
 import time
 
+import progress_watchdog
 import tools
 import repair_log
 import video
@@ -314,8 +315,7 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
     Returns (repaired video object, assembly).
     """
     import merge_video_chimeric
-    dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan,
-                                                    deadline=plan.get("repair_deadline"))
+    dropped_corrupt = drop_corrupt_candidate_tracks(candidate_obj, plan)
     assembly = assemble_or_log_the_decline(
         candidate_obj, plan, Decimal("0"),
         candidate_obj, master_obj, plan["track_plans"], plan["reference_pieces"],
@@ -327,7 +327,6 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
         comparison_language=plan.get("language"),
         chapters_path=plan.get("chapters_path"),
         verify=video_anchored is None, verify_tolerance_ms=verify_tolerance_ms,
-        deadline=plan.get("repair_deadline"),
         speed_engine=plan.get("speed_engine") or "asetrate",
         comparison_tolerance_extra_ms=plan.get("picture_audio_worst_diff_ms"),
         picture_audio_residual_by_zone=plan.get("picture_audio_residual_by_zone"),
@@ -338,8 +337,7 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
     if video_anchored is not None:
         verification, refusal = verify_video_anchored(
             assembly["path"], candidate_obj, assembly.get("audios") or [],
-            Decimal(str(video_anchored["offset_ms"])), plan["track_plans"],
-            deadline=plan.get("repair_deadline"))
+            Decimal(str(video_anchored["offset_ms"])), plan["track_plans"])
         assembly["verification"] = verification
         if refusal is not None:
             try:
@@ -366,25 +364,20 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
     # Fabricated-track gate; its `keep=False` is read by `generate_new_file_audio_config`.
     assembly["gate_kept"] = []
     assembly["fabricated_dropped"] = gate_fabricated_delivery(
-        repaired_obj, master_obj, work_dir=work_dir, deadline=plan.get("repair_deadline"),
-        kept=assembly["gate_kept"])
+        repaired_obj, master_obj, work_dir=work_dir, kept=assembly["gate_kept"])
     # Drop delivered tracks with a silence the master lacks inside the master video's bounds.
     assembly["silence_dropped"] = gate_delivered_silences(
-        repaired_obj, master_obj, plan.get("reference_stream"),
-        deadline=plan.get("repair_deadline"))
+        repaired_obj, master_obj, plan.get("reference_stream"))
     return repaired_obj, assembly
 
 
 DROP_CORRUPT_JOBS = 3
 
 
-def drop_corrupt_candidate_tracks(candidate_obj, plan, deadline=None):
+def drop_corrupt_candidate_tracks(candidate_obj, plan):
     """Strictly decode each rebuilt candidate audio track and mark failing ones `dropped_corrupt`.
 
-    Tracks in `plan["strictly_decoded_streams"]` are skipped; a timed-out decode keeps the
-    track. `deadline` is checked before each batch of DROP_CORRUPT_JOBS; past it the repair
-    declines `repair_budget_exceeded`. Returns the dropped tracks.
-    """
+    `plan['strictly_decoded_streams']` are skipped; a stalled decode keeps the track. Returns the dropped tracks."""
     import concurrent.futures
     import integrity
     import merge_video_chimeric
@@ -403,26 +396,13 @@ def drop_corrupt_candidate_tracks(candidate_obj, plan, deadline=None):
     with concurrent.futures.ThreadPoolExecutor(max_workers=DROP_CORRUPT_JOBS) as pool:
         for start in range(0, len(todo), DROP_CORRUPT_JOBS):
             batch = todo[start:start + DROP_CORRUPT_JOBS]
-            if deadline is not None and time.monotonic() > deadline:
-                nxt = [f"{language}:{audio['StreamOrder']}" for language, audio in batch]
-                judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
-                tools.log_always(
-                    f"repair: partial_plan cause=repair_budget_exceeded stage=corrupt_track_gate "
-                    f"checked_so_far={checked} dropped_so_far={judged} next={nxt} -- the "
-                    f"repair's budget ran out while the rebuilt tracks were "
-                    f"strictly decoded\n")
-                raise merge_video_chimeric.chimeric_error(
-                    f"the repair's budget ran out in the corrupt-track gate, before {nxt} "
-                    f"(checked so far {checked}, dropped {judged}) -- declined, retried at "
-                    f"the next run",
-                    cause="repair_budget_exceeded")
             for (language, audio), result, error in pool.map(check, batch):
                 order = audio["StreamOrder"]
                 checked.append(f"{language}:{order}")
-                if result is None or result["verdict"] == "decoder_timeout":
+                if result is None or result["verdict"] == "step_stalled":
                     tools.log_always(f"repair: track_integrity unmeasured stream={order} "
                                      f"language={language} cause="
-                                     f"{'decoder_timeout' if result else type(error).__name__} -- "
+                                     f"{'step_stalled' if result else type(error).__name__} -- "
                                      f"no verdict, the track stays, for {candidate_obj.filePath}\n")
                     continue
                 if result["verdict"] != "corrupt":
@@ -439,16 +419,10 @@ def drop_corrupt_candidate_tracks(candidate_obj, plan, deadline=None):
     return dropped
 
 
-def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline=None,
-                            report=None):
-    """Drop delivered audio tracks that are silent where the master's comparison track is not.
+def gate_delivered_silences(repaired_obj, master_obj, reference_stream, report=None):
+    """Drop (keep=False) delivered tracks silent where the master's `reference_stream` is not; return them.
 
-    Each kept track is compared with `reference_stream` via
-    `integrity.delivered_silence_report`. A silence entirely outside the master video's bounds,
-    or a trailing one of at most `integrity.TAIL_SILENCE_TOLERANCE_S`, keeps the track; any other
-    sets `keep=False`. A failed measurement keeps the track. Past `deadline` the repair declines
-    `repair_budget_exceeded`. `report` replaces the measurement. Returns the dropped tracks.
-    """
+    Kept: a silence outside the video bounds, a short trailing one, or a failed measurement; `report` replaces it."""
     import integrity
     measure = report or integrity.delivered_silence_report
     tracks = [(holder, language, audio) for holder in AUDIO_HOLDERS
@@ -463,17 +437,6 @@ def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline
     for holder, language, audio in tracks:
         order = audio["StreamOrder"]
         where = f"stream={order} language={language} holder={holder}"
-        if deadline is not None and time.monotonic() > deadline:
-            import merge_video_chimeric
-            judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
-            tools.log_always(
-                f"repair: partial_plan cause=repair_budget_exceeded stage=silence_gate "
-                f"dropped_so_far={judged} next={where} -- the repair's budget ran out while "
-                f"the delivered tracks' silences were compared with the master's\n")
-            raise merge_video_chimeric.chimeric_error(
-                f"the repair's budget ran out in the silence gate, before {where} "
-                f"(dropped so far {judged}) -- declined, retried at the next run",
-                cause="repair_budget_exceeded")
         try:
             r = measure(master_obj, reference_stream, repaired_obj, order, 0,
                         video_bounds_s_=bounds)
@@ -509,8 +472,7 @@ def gate_delivered_silences(repaired_obj, master_obj, reference_stream, deadline
 VIDEO_ANCHORED_PROBE_FRACTIONS = (0.2, 0.5, 0.8)
 
 
-def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, track_plans,
-                          deadline=None):
+def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, track_plans):
     '''Verify each delivered video-anchored track against its own original.
 
     At master time `t` the product must carry what the candidate track carries at `t +
@@ -537,10 +499,9 @@ def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, tra
         for fraction in VIDEO_ANCHORED_PROBE_FRACTIONS:
             master_ms = piece["master_start_ms"] + max(Decimal(0), span) * Decimal(str(fraction))
             original = mvc.read_mono_samples(candidate_obj.filePath, f"0:{int(order)}",
-                                             master_ms + offset_ms, window_ms, rate,
-                                             deadline=deadline)
+                                             master_ms + offset_ms, window_ms, rate)
             produced = mvc.read_mono_samples(out_path, f"0:a:{produced_index}", master_ms,
-                                             window_ms, rate, deadline=deadline)
+                                             window_ms, rate)
             if min(mvc.get_rms(original), mvc.get_rms(produced)) < mvc.verify_min_rms:
                 entry["probes"].append({"master_position_ms": str(master_ms),
                                         "outcome": "no_signal"})
@@ -638,8 +599,7 @@ def same_content_windows(duration):
             for i in range(video.number_cut)]
 
 
-def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir,
-                         deadline=None):
+def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir):
     """Tell whether a fabricated track is the same version as an intact master track.
 
     Uses `same_content_windows` and `same_content_verdict` on slices of each track's whole
@@ -654,10 +614,9 @@ def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir
         hop_s = SAME_CONTENT_HOP_S
         m_order, f_order = int(master_audio["StreamOrder"]), int(audio["StreamOrder"])
         master = once.fingerprints(master_obj.filePath, [m_order], {m_order: need}, work_dir,
-                                   deadline=deadline,
                                    pads_ms={m_order: _start_ms(master_audio)})[m_order]
         fab = once.fingerprints(repaired_obj.filePath, [f_order], {f_order: need}, work_dir,
-                                deadline=deadline, pads_ms={f_order: _start_ms(audio)})[f_order]
+                                pads_ms={f_order: _start_ms(audio)})[f_order]
         if master is None or fab is None:
             return None, (f"unmeasured=fingerprint_unreadable "
                           f"master={master is not None} fabricated={fab is not None}")
@@ -695,7 +654,7 @@ SAME_CONTENT_FPCALC_TAIL_POINTS = 21
 SAME_CONTENT_PREFETCH_JOBS = 2
 
 
-def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, deadline, say):
+def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, say):
     """Decode ahead the fingerprints `gate_fabricated_delivery` will compare, both files at once.
 
     A failure here is only logged; the gate then decodes the missing tracks itself.
@@ -731,7 +690,7 @@ def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, de
     try:
         with ThreadPoolExecutor(max_workers=SAME_CONTENT_PREFETCH_JOBS) as pool:
             list(pool.map(lambda job: once.fingerprints(job[0], sorted(job[1]), job[1], work_dir,
-                                                        deadline=deadline, pads_ms=job[2]),
+                                                        pads_ms=job[2]),
                           jobs))
     except Exception as error:                                           # noqa: BLE001
         say(f"repair: gate_prefetch failed={type(error).__name__}: {str(error)[:200]}")
@@ -749,21 +708,10 @@ def merge_audio_rules():
 
 
 def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
-                             content_probe=None, deadline=None, kept=None):
-    """Judge every rebuilt audio track of the repaired file before delivery; only sets `keep`.
+                             content_probe=None, kept=None):
+    """Judge every rebuilt audio track before delivery (sets `keep` only); return the dropped tracks.
 
-    Only a track carrying `VMSAM_FABRICATED` is demoted in the race; a rebuilt track
-    without it races on the normal codec rules. Commentary tracks are kept. Other tracks are compared with each intact master track of the
-    same language (`measure_same_content`): same content (or unmeasurable) -> raced through
-    `mergeVideo.keep_best_audio` with the configured audio rules, a re-encoded track
-    compared by its ORIGINAL_ENCODE: dropped when it loses, else kept (`kept_cause`) for the
-    final merge's keep_best_audio to choose between it and the master track; different content or no intact
-    track -> compared with the intact tracks of the other languages, and dropped as a duplicate
-    (`cross_lang=<declared>-><matched>`) if one measures as the same content, else kept.
-    `content_probe` replaces the comparison; `kept` collects kept-track decisions; past
-    `deadline` the repair declines `repair_budget_exceeded`.
-    Returns the dropped tracks.
-    """
+    Same content as an intact master track -> raced by keep_best_audio; else dropped only as a cross-language duplicate."""
     import mergeVideo
     import merge_video_chimeric
     probe = content_probe or measure_same_content
@@ -784,7 +732,7 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
 
     # Only the default probe reads the prefetched fingerprints.
     if content_probe is None:
-        _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, deadline, say)
+        _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, say)
 
     for holder in AUDIO_HOLDERS:
         for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
@@ -814,11 +762,9 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     _note_kept(kept, audio, language, holder, "commentary_tagged")
                     continue
                 opponents = master_intact.get(language, [])
-                past_deadline = deadline is not None and time.monotonic() > deadline
                 if not len(opponents):
-                    cross = (None if past_deadline else
-                             _cross_language_match(probe, master_obj, master_intact, language,
-                                                   repaired_obj, audio, work_dir, ()))
+                    cross = _cross_language_match(probe, master_obj, master_intact, language,
+                                                  repaired_obj, audio, work_dir, ())
                     if cross is None or cross[0] is None:
                         cross_measures = " ".join(cross[2]) if cross else ""
                         say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
@@ -830,17 +776,6 @@ def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
                     _drop_duplicate(dropped, say, holder, language, audio, marker, where,
                                     cross[0], True, cross[2], cross[1])
                     continue
-                if past_deadline:
-                    import merge_video_chimeric
-                    judged = [f"{d['language']}:{d['stream_order']}" for d in dropped]
-                    tools.log_always(
-                        f"repair: partial_plan cause=repair_budget_exceeded stage=delivery_gate "
-                        f"dropped_so_far={judged} next={where} -- the repair's budget ran out "
-                        f"while the rebuilt tracks were raced against the master's\n")
-                    raise merge_video_chimeric.chimeric_error(
-                        f"the repair's budget ran out in the delivery gate, before {where} "
-                        f"(dropped so far {judged}) -- declined, retried at the next run",
-                        cause="repair_budget_exceeded")
                 lost_to = None
                 measures = []
                 verdicts = []
@@ -1640,23 +1575,28 @@ def _drain_audio_pools(objs, site):
                           f"{site} raised {type(error).__name__}: {error}\n")
 
 
-def retire_ffmpeg_pools(grace_seconds=300):
-    '''Shut down video's ffmpeg pools with close() and join(), never terminate().
+def retire_ffmpeg_pools():
+    '''Shut down video's ffmpeg pools with close() and join(), never terminate() (it can deadlock on `inqueue._rlock`).
 
-    terminate() can deadlock on `inqueue._rlock`; workers still busy after `grace_seconds` are
-    SIGKILLed. The pools are left closed: any later `apply_async` raises ValueError.
-    '''
-    import multiprocessing.pool, video, signal, time, os
+    Workers (and children) with no progress for `progress_watchdog.STALL_S` are SIGKILLed; the pools stay closed.'''
+    import multiprocessing.pool, video, signal, threading, time, os
     for name in ("ffmpeg_pool_audio_convert", "ffmpeg_pool_big_job"):
         pool = getattr(video, name, None)
         if pool == None:
             continue
         try:
             pool.close()
-            deadline = time.monotonic() + grace_seconds
-            while (time.monotonic() < deadline
-                   and any(p.is_alive() for p in pool._pool)):
-                time.sleep(0.1)
+            stalled = threading.Event()
+            try:
+                with progress_watchdog.watch(
+                        f"retire_{name}",
+                        lambda: [progress_watchdog.tree_progress(p.pid) for p in pool._pool
+                                 if p.is_alive()],
+                        stalled.set):
+                    while not stalled.is_set() and any(p.is_alive() for p in pool._pool):
+                        time.sleep(0.1)
+            except progress_watchdog.step_stalled:
+                pass
             survivors = [p for p in pool._pool if p.is_alive()]
             if len(survivors):
                 # A killed worker's task stays in `pool._cache`, so the handler threads would
@@ -1666,7 +1606,8 @@ def retire_ffmpeg_pools(grace_seconds=300):
                 pool._change_notifier.put(None)
                 for p in survivors:
                     tools.log_always(f"repair: retiring {name}: worker {p.pid} "
-                                     f"outlived {grace_seconds}s, SIGKILL\n")
+                                     f"made no progress for {progress_watchdog.STALL_S} s, "
+                                     f"SIGKILL\n")
                     os.kill(p.pid, signal.SIGKILL)
             pool.join()
             if len(survivors):
@@ -1760,10 +1701,10 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
                 master_intertrack_cache=master_intertrack_by_language)
         except Exception as error:
             _close_repair_seam(candidate_obj)
-            # Never let one candidate's exception abort the others: decoder timeouts and
+            # Never let one candidate's exception abort the others: a stalled step and
             # chimeric_error are declines, anything else a failure.
-            if isinstance(error, tools.decoder_timeout):
-                cause = "decoder_timeout"
+            if isinstance(error, progress_watchdog.step_stalled):
+                cause = "step_stalled"
                 repair_orchestrator.log_measurement_class(candidate_path, cause)
                 record(candidate_path, "declined", str(error), cause=cause)
             elif isinstance(error, merge_video_chimeric.chimeric_error):

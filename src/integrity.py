@@ -31,6 +31,7 @@ import zlib
 import numpy as np
 
 import file_conformity as fc
+import progress_watchdog
 
 try:
     import tools
@@ -110,17 +111,6 @@ def _bin(name):
     return tools.software[name]
 
 
-def _bound(media_s):
-    """Return the decoder timeout for a given media length in seconds."""
-    if tools is not None and hasattr(tools, "decoder_timeout_for"):
-        return tools.decoder_timeout_for(media_s or 0.0)
-    return max(120.0, float(media_s or 0.0))
-
-
-def _timeout_error(seconds, detail):
-    if tools is not None and hasattr(tools, "decoder_timeout"):
-        return tools.decoder_timeout("ffmpeg", seconds, detail)
-    return TimeoutError(f"ffmpeg ran past its {round(seconds, 1)} s bound {detail}")
 
 
 def _path_of(video_obj):
@@ -218,16 +208,15 @@ def _fr(x, nd=1):
     return "?" if x is None else f"{x:.{nd}f}"
 
 
-def _run_capture(cmd, timeout):
-    """Run a command and return (rc, stderr_text, timed_out, seconds)."""
+def _run_capture(cmd):
+    """Run a command and return (rc, stderr_text, stalled, seconds)."""
     t0 = time.time()
     try:
-        p = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                           stdin=subprocess.DEVNULL, timeout=timeout)
+        p = progress_watchdog.run(cmd, "strict_decode", stdout=subprocess.DEVNULL,
+                                  stdin=subprocess.DEVNULL)
         return p.returncode, p.stderr.decode("utf-8", "replace"), False, time.time() - t0
-    except subprocess.TimeoutExpired as e:
-        err = (e.stderr or b"").decode("utf-8", "replace")
-        return -9, err, True, time.time() - t0
+    except progress_watchdog.step_stalled as stall:
+        return -9, str(stall), True, time.time() - t0
 
 
 def _error_lines(stderr_text):
@@ -245,34 +234,24 @@ def decode_error_lines(stderr_text):
 
 # ---------------------------------------------------------------- strict decode
 
-def _strict(path, index, start, dur, threads, timeout):
+def _strict(path, index, start, dur, threads):
     """Strict-decode one stream (optionally one window) and return its result dict."""
     cmd = [_bin("ffmpeg"), "-nostdin", "-hide_banner", "-v", "error"] + STRICT_FLAGS + [
         "-threads", str(threads)]
     if start is not None:
         cmd += ["-ss", f"{start:.3f}", "-t", f"{dur:.3f}"]
     cmd += ["-i", path, "-map", f"0:{index}", "-f", "null", "-"]
-    rc, err, timed_out, sec = _run_capture(cmd, timeout)
-    lines = _error_lines(err)
-    return dict(start=start, dur=dur, rc=rc, timeout=timed_out, bound_s=round(timeout, 1),
-                seconds=round(sec, 1), n_lines=len(lines), lines=lines[:20])
+    rc, err, stalled, sec = _run_capture(cmd)
+    lines = [] if stalled else _error_lines(err)
+    return dict(start=start, dur=dur, rc=rc, stalled=stalled, seconds=round(sec, 1),
+                n_lines=len(lines), lines=lines[:20])
 
 
 def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads=THREADS,
                 windows=VIDEO_WINDOWS, seed=None, jobs=None):
-    """Strict-decode one stream and return its numbers.
+    """Strict-decode one stream (audio whole, video by seeded windows; whole results cached) and return its numbers.
 
-    Audio is decoded whole (one corrupt frame breaks a track); video by seeded
-    windows. Whole-track results are cached; `cached=True` marks a reuse.
-
-    Args:
-        full: None for the per-type default, True for whole, False for windows.
-
-    Returns:
-        dict with path, stream_index, codec_type, codec, mode, sound
-        (True/False/None), verdict ('sound', 'corrupt' or 'decoder_timeout'),
-        rc, error_lines, n_error_lines, windows, seed and cost_s.
-    """
+    `verdict` is 'sound', 'corrupt' or 'step_stalled' (never cached); `full` None picks the per-type default."""
     t0 = time.time()
     path, s = resolve_stream(video_obj, stream_id, kind)
     info = _probe(path)
@@ -290,18 +269,17 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
         starts = fc.integrity_windows(media, windows, seed, WINDOW_S)
     if starts is None:
         mode = "full"
-        runs = [_strict(path, idx, None, None, threads, _bound(media))]
+        runs = [_strict(path, idx, None, None, threads)]
     else:
         mode = "sampled"
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs or len(starts))) as ex:
-            runs = list(ex.map(lambda st: _strict(path, idx, st, WINDOW_S, threads, _bound(WINDOW_S)),
-                               starts))
-    failed = [r for r in runs if not r["timeout"] and (r["rc"] != 0 or r["n_lines"] > 0)]
-    timed = [r for r in runs if r["timeout"]]
+            runs = list(ex.map(lambda st: _strict(path, idx, st, WINDOW_S, threads), starts))
+    failed = [r for r in runs if not r["stalled"] and (r["rc"] != 0 or r["n_lines"] > 0)]
+    stalled = [r for r in runs if r["stalled"]]
     if failed:
         verdict, sound = "corrupt", False
-    elif timed:
-        verdict, sound = "decoder_timeout", None
+    elif stalled:
+        verdict, sound = "step_stalled", None
     else:
         verdict, sound = "sound", True
     first = failed[0] if failed else (runs[0] if runs else {})
@@ -315,10 +293,10 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
                seed=seed, media_s=media, cost_s=round(time.time() - t0, 1))
     msg = (f"track_check path={path} stream={idx} codec={res['codec']} lang={res['lang']} "
            f"mode={mode} verdict={verdict} rc={res['rc']} error_lines={res['n_error_lines']} "
-           f"processes={len(runs)} failed={len(failed)} timeouts={len(timed)} seed={seed} "
+           f"processes={len(runs)} failed={len(failed)} stalled={len(stalled)} seed={seed} "
            f"cost_s={res['cost_s']}" + (f" first=«{lines[0][:200]}»" if lines else ""))
     _log(msg, always=(verdict != "sound"))
-    if key is not None and verdict != "decoder_timeout":
+    if key is not None and verdict != "step_stalled":
         with _cache_lock:
             if len(_check_cache) >= _CACHE_MAX:
                 _check_cache.clear()
@@ -327,34 +305,22 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
 
 
 def track_is_sound(video_obj, stream_id, full=None, **kw):
-    """Return True when the track's strict decode is clean, False on any decoder error.
+    """Return True when the track's strict decode is clean, False on any decoder error (keywords: `track_check`).
 
-    Keywords: see `track_check`.
-
-    Raises:
-        tools.decoder_timeout: a decode ran past its bound (a host problem).
-    """
+    Raises progress_watchdog.step_stalled when a decode made no progress (a host problem)."""
     r = track_check(video_obj, stream_id, full, **kw)
-    if r["verdict"] == "decoder_timeout":
-        w = next(x for x in r["windows"] if x["timeout"])
-        raise _timeout_error(w["bound_s"], f"strict decode of {r['path']} stream {r['stream_index']}")
+    if r["verdict"] == "step_stalled":
+        raise progress_watchdog.step_stalled(
+            "strict_decode", "no_progress", f"file={r['path']} stream={r['stream_index']}")
     return r["sound"]
 
 
 # ---------------------------------------------------------------- silence maps
 
-def _decode_blocks(path, index, timeline, threads, timeout, span_s=None,
-                   block_s=SILENCE_BLOCK_S):
-    """Decode one stream to 8 kHz mono, reduced on the fly to `block_s` mean-square blocks.
+def _decode_blocks(path, index, timeline, threads, span_s=None, block_s=SILENCE_BLOCK_S):
+    """Decode one stream (or `span_s`) to 8 kHz mono `block_s` mean-square blocks: (blocks, n_samples, rc, stderr_tail).
 
-    The 'timestamps' timeline fills gaps from packet timestamps (aresample
-    async=1, without first_pts, which would pad from 0 on a filter rebuild);
-    'samples' concatenates decoded samples, as mkvmerge re-times a track.
-    `span_s` = (start, length) in seconds decodes only that span.
-
-    Returns:
-        (mean-square blocks, n_samples, rc, stderr_tail, timed_out).
-    """
+    'timestamps' fills gaps from packet times (aresample async=1); 'samples' concatenates, as mkvmerge re-times."""
     af = f"aresample={ENV_SR}:async=1" if timeline == "timestamps" else f"aresample={ENV_SR}"
     seek = ([] if span_s is None else
             ["-ss", f"{span_s[0]:.6f}", "-t", f"{span_s[1]:.6f}"])
@@ -366,41 +332,36 @@ def _decode_blocks(path, index, timeline, threads, timeout, span_s=None,
     err_chunks = []
     t_err = threading.Thread(target=lambda: err_chunks.append(p.stderr.read()), daemon=True)
     t_err.start()
-    killed = []
-
-    def _kill():
-        killed.append(True)
-        p.kill()
-    timer = threading.Timer(timeout, _kill)
-    timer.start()
     block = max(1, int(round(ENV_SR * block_s)))
     bbytes = block * 2
     rest = b""
     out, n = [], 0
     try:
-        while True:
-            b = p.stdout.read(1 << 18)
-            if not b:
-                break
-            rest += b
-            m = (len(rest) // bbytes) * bbytes
-            if m:
-                x = np.frombuffer(rest[:m], dtype="<i2").astype(np.float64) / 32768.0
-                out.append((x.reshape(-1, block) ** 2).mean(axis=1))
-                n += m // 2
-                rest = rest[m:]
-        if len(rest) >= 2:
-            x = np.frombuffer(rest[: len(rest) // 2 * 2], dtype="<i2").astype(np.float64) / 32768.0
-            out.append(np.array([(x ** 2).mean()]))
-            n += x.size
+        with progress_watchdog.watch("silence_map_decode",
+                                     lambda: (progress_watchdog.process_progress(p.pid), n),
+                                     p.kill, detail=f"file={path} stream={index}"):
+            while True:
+                b = p.stdout.read(1 << 18)
+                if not b:
+                    break
+                rest += b
+                m = (len(rest) // bbytes) * bbytes
+                if m:
+                    x = np.frombuffer(rest[:m], dtype="<i2").astype(np.float64) / 32768.0
+                    out.append((x.reshape(-1, block) ** 2).mean(axis=1))
+                    n += m // 2
+                    rest = rest[m:]
+            if len(rest) >= 2:
+                x = np.frombuffer(rest[: len(rest) // 2 * 2], dtype="<i2").astype(np.float64) / 32768.0
+                out.append(np.array([(x ** 2).mean()]))
+                n += x.size
     finally:
         p.stdout.close()
         p.wait()
-        timer.cancel()
         t_err.join(timeout=5)
     err = b"".join(c for c in err_chunks if c).decode("utf-8", "replace")
     ms = np.concatenate(out) if out else np.zeros(0)
-    return ms, n, p.returncode, err.strip()[-400:], bool(killed)
+    return ms, n, p.returncode, err.strip()[-400:]
 
 
 def span_block_s(length_s):
@@ -410,25 +371,9 @@ def span_block_s(length_s):
 
 def silence_map(video_obj, stream_id, *, kind="stream_order", timeline="timestamps",
                 threads=THREADS, span_ms=None):
-    """Return the silence map of one audio track (cached per file, stream, timeline and span).
+    """Return the silence map (>= 2 s at or under SILENCE_DB; digital under DIGITAL_DB) of one audio track, cached.
 
-    A silence is >= 2 s of blocks at or under SILENCE_DB, flagged digital when
-    no block exceeds DIGITAL_DB.
-
-    `span_ms` = (start_ms, length_ms) decodes only that span of the track, with
-    blocks scaled to it (`span_block_s`) and a silence as short as the span;
-    without it the whole track is mapped in 400 ms blocks.
-
-    Returns:
-        dict with path, stream_index, timeline, start_s, length_s, end_s,
-        block_s, silences [[start, end, digital]], clicks, content_first_s,
-        content_last_s, last_silence_start_s, rc, cost_s, db (per block) and
-        max_db (the loudest block, None when nothing was decoded).
-
-    Raises:
-        ValueError: the stream is not audio.
-        tools.decoder_timeout: the decode ran past its bound.
-    """
+    `span_ms` maps only that span in scaled blocks; raises ValueError on a non-audio stream, step_stalled on a stall."""
     if timeline not in ("timestamps", "samples"):
         raise ValueError(f"timeline must be 'timestamps' or 'samples', not {timeline!r}")
     path, s = resolve_stream(video_obj, stream_id, kind)
@@ -446,12 +391,7 @@ def silence_map(video_obj, stream_id, *, kind="stream_order", timeline="timestam
         if key in _map_cache:
             return _map_cache[key]
     t0 = time.time()
-    info = _probe(path)
-    media = span_s[1] if span_s else (_declared_end(info, s) or 0.0)
-    ms, n, rc, err, timed_out = _decode_blocks(path, s["index"], timeline, threads,
-                                               _bound(max(media, 1.0) * 1.5), span_s, block_s)
-    if timed_out:
-        raise _timeout_error(_bound(max(media, 1.0) * 1.5), f"silence map of {path} stream {s['index']}")
+    ms, n, rc, err = _decode_blocks(path, s["index"], timeline, threads, span_s, block_s)
     start = span_s[0] if span_s else (fc._num(s.get("start_time")) or 0.0)
     db = 10.0 * np.log10(np.maximum(ms, 1e-14)) if ms.size else np.zeros(0)
     m = dict(path=path, stream_index=s["index"], codec=s.get("codec_name"),
@@ -710,12 +650,12 @@ def delivered_track_keeps_its_place(reference_video, reference_stream, delivered
 
 # ---------------------------------------------------------------- video
 
-def _frame_probe(path, index, start, n=12, timeout=120):
+def _frame_probe(path, index, start, n=12):
     """Return (width, height, timestamp) of n frames from `start`."""
     cmd = [_bin("ffprobe"), "-v", "error", "-select_streams", str(index), "-read_intervals",
            f"{start:.3f}%+#{n}", "-show_entries", "frame=width,height,best_effort_timestamp_time",
            "-of", "csv=p=0", path]
-    rc, out, err = fc._run(cmd, timeout=timeout)
+    rc, out, err = fc._run(cmd)
     rows = []
     for line in out.decode("ascii", "replace").splitlines():
         p = [v for v in line.strip().split(",") if v != ""]
@@ -808,7 +748,7 @@ def video_check(video_obj, full=False, *, windows=VIDEO_WINDOWS, seed=None, jobs
     if integ["verdict"] == "corrupt":
         reasons.insert(0, f"strict_decode rc={integ['rc']} first=«"
                           f"{(integ['error_lines'] or ['?'])[0][:160]}»")
-    verdict = "corrupt" if reasons else ("decoder_timeout" if integ["verdict"] == "decoder_timeout"
+    verdict = "corrupt" if reasons else ("step_stalled" if integ["verdict"] == "step_stalled"
                                          else "sound")
     res = dict(path=path, stream_index=vs["index"], sound={"sound": True, "corrupt": False}.get(verdict),
                verdict=verdict, reasons=reasons, integrity=integ, consistency=facts,
@@ -821,25 +761,24 @@ def video_check(video_obj, full=False, *, windows=VIDEO_WINDOWS, seed=None, jobs
 def video_is_sound(video_obj, full=False, **kw):
     """Return True when the video decodes cleanly and its frame properties are consistent.
 
-    Raises:
-        tools.decoder_timeout: a window ran past its bound and nothing failed.
-    """
+    Raises progress_watchdog.step_stalled when a window made no progress and nothing failed."""
     r = video_check(video_obj, full, **kw)
-    if r["verdict"] == "decoder_timeout":
-        raise _timeout_error(_bound(WINDOW_S), f"strict video probe of {r['path']}")
+    if r["verdict"] == "step_stalled":
+        raise progress_watchdog.step_stalled("strict_video_probe", "no_progress",
+                                             f"file={r['path']}")
     return r["sound"]
 
 
 # ---------------------------------------------------------------- conversion
 
-def _packet_extent(path, index, timeout):
+def _packet_extent(path, index):
     """Return (first pts, last pts + duration, sum of durations) from one packet pass.
 
     The sum is the length mkvmerge gives the track when it re-times it from its frames.
     """
     cmd = [_bin("ffprobe"), "-v", "error", "-select_streams", str(index), "-show_entries",
            "packet=pts_time,duration_time", "-of", "csv=p=0", path]
-    rc, out, err = fc._run(cmd, timeout=timeout)
+    rc, out, err = fc._run(cmd)
     first, last, total = None, None, 0.0
     for line in out.decode("ascii", "replace").splitlines():
         p = line.strip().split(",")
@@ -861,7 +800,7 @@ def _wav(path, index, start_abs, dur, out, threads=THREADS):
     cmd = [_bin("ffmpeg"), "-nostdin", "-v", "error", "-y", "-threads", str(threads),
            "-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", path, "-map", f"0:{index}",
            "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", out]
-    rc, _, _ = fc._run(cmd, timeout=_bound(dur))
+    rc, _, _ = fc._run(cmd)
     return rc == 0 and os.path.exists(out) and os.path.getsize(out) > 44 + 16000
 
 
@@ -912,8 +851,8 @@ def conversion_report(original_video_obj, original_stream, produced_path, produc
     op, os_ = resolve_stream(original_video_obj, original_stream, kind)
     pp, ps = resolve_stream(produced_path, produced_stream, produced_kind)
     d = float(delay_ms) / 1000.0
-    o_first, o_last, _ = _packet_extent(op, os_["index"], _bound(_declared_end(_probe(op), os_)))
-    p_first, p_last, p_sum = _packet_extent(pp, ps["index"], _bound(_declared_end(_probe(pp), ps)))
+    o_first, o_last, _ = _packet_extent(op, os_["index"])
+    p_first, p_last, p_sum = _packet_extent(pp, ps["index"])
     o_end = o_last if o_last is not None else (_declared_end(_probe(op), os_) or 0.0)
     expected = o_end + d
     if expected_duration_s is not None:

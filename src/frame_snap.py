@@ -1,40 +1,7 @@
-'''Snap an audio delay to the video frame the pictures agree on.
-
-Plain rounding, `round(delay / frame_ms)`, can land one frame off when the
-audio delay sits near a half frame; this module checks the pictures instead.
-
-It only moves the rounded frame by -1, 0 or +1, and only when both videos are
-constant-frame-rate at the same rate (within RATE_TOLERANCE). At K positions
-over the common span it decodes 2G frames of the first video from `t`, keeps the
-first G of them that hold no scene cut (so no window straddles a cut), and
-decodes G + 4 frames of the second around that group's time + delay (small RGB,
-one ffmpeg call each). Each candidate offset (rounded frame -2..+2) is a sliding
-G-frame window of the second group, scored by `frame_compare.align` (mean grey
-pHash distance; a position counts only when its minimum is clear of the lags two
-frames away). -1/0/+1 vote; +-2 is only a guard, logged and never selected.
-
-Decision (every outcome on ONE `log_always` line, `frame_snap ...`):
-  * the offset with the lowest total over the valid positions, IF it wins at a
-    strict majority of them AND beats the runner-up's total by more than
-    `MARGIN_MIN` (relative) -> chosen;
-  * winners that change monotonically along the file (e.g. -1 early, +1 late)
-    are not a constant delay -> `frame_snap_drift`, rounding kept (the rate arm
-    owns drift);
-  * otherwise -> `frame_snap_no_consensus`, rounding kept.
-Anything this module cannot establish (other rate, VFR, unreadable rate, too few
-usable positions, a decoder that fails or runs out of budget, any exception)
-keeps the plain rounding, bit for bit, and says why.
-
-Delay convention: the second video shows at `t + delay` (ms) what the first
-shows at `t`.
-
-Entry points: `snap_for_merge` (from `adjust_delay_to_frame`) and
-`probe_disagreement` / `disagreement` (repair path).
-'''
+'''Snap an audio delay to the video frame the pictures agree on (decision: no-budget-watchdog, appendix frame_snap).'''
 
 from decimal import Decimal, getcontext
 from fractions import Fraction
-import subprocess
 import re
 import threading
 import time
@@ -44,6 +11,7 @@ from PIL import Image
 
 import frame_hash
 import frame_compare
+import progress_watchdog
 import tools
 
 # -- tunables ----------------------------------------------------------------
@@ -79,7 +47,6 @@ MIN_VALID_POSITIONS = 5
 # container timestamps (18965/791 vs 24000/1001) but keeps 1001/1000 pairs
 # apart, which belong to the rate-change path.
 RATE_TOLERANCE = Fraction(1, 10000)
-BUDGET_S = 20.0          # wall-clock budget for one pair
 
 # Last `audio_video_offset_disagree` signal per {(first_path, second_path): dict},
 # written by `snap_for_merge`/`probe_disagreement`, read through `disagreement`.
@@ -179,11 +146,7 @@ def decode_group(path, stream_order, start_s, n_frames):
            # (the default constant-rate output may duplicate the first one)
            "-fps_mode", "passthrough",
            "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
-    timeout = tools.decoder_timeout_for(n_frames / 10.0)
-    try:
-        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise tools.decoder_timeout("frame_snap_decode", timeout, f"file={path} start_s={start_s}")
+    done = progress_watchdog.run(cmd, "frame_snap_decode")
     frames = frame_hash.frames_from_raw(done.stdout, WIDTH, HEIGHT, 3)
     pts = [float(x) for x in _PTS_RE.findall(done.stderr.decode("utf-8", "replace"))]
     count = min(len(frames), len(pts))
@@ -346,7 +309,7 @@ def positions(first_duration_s, second_duration_s, delay_s):
 
 
 def measure(first_path, first_stream, second_path, second_stream, rate, delay_ms,
-            first_duration_s, second_duration_s, budget_s=BUDGET_S):
+            first_duration_s, second_duration_s):
     '''Score every position.
 
     Returns:
@@ -359,9 +322,6 @@ def measure(first_path, first_stream, second_path, second_stream, rate, delay_ms
     rows, notes = [], []
     for instants in positions(first_duration_s, second_duration_s, delay_s):
         for t in instants:
-            if time.monotonic() - started > budget_s:
-                notes.append("budget")
-                return base_frames, rows, notes, time.monotonic() - started
             # decode starts half a frame early so the frame AT t is the first one
             frames, times = decode_group(first_path, first_stream, t - frame_s / 2.0,
                                          REF_DECODE_FRAMES)
@@ -480,7 +440,7 @@ def snap_for_merge(video_obj_1, video_obj_2, best_video_obj, delay):
         return delay
 
 
-def probe_disagreement(video_obj_1, video_obj_2, delay_ms, budget_s=BUDGET_S):
+def probe_disagreement(video_obj_1, video_obj_2, delay_ms):
     '''Check whether the pictures sit more than one frame from this audio delay.
 
     Same measurement as `snap_for_merge`, for pairs that reach the repair path
@@ -505,7 +465,7 @@ def probe_disagreement(video_obj_1, video_obj_2, delay_ms, budget_s=BUDGET_S):
         delay = Decimal(str(delay_ms))
         base, rows, notes, elapsed = measure(video_obj_1.filePath, track_1["StreamOrder"],
                                              video_obj_2.filePath, track_2["StreamOrder"],
-                                             rate_1, delay, dur_1, dur_2, budget_s=budget_s)
+                                             rate_1, delay, dur_1, dur_2)
         offset, reason, detail = decide(rows)
         frame_ms = Decimal(1000) * Decimal(rate_1.denominator) / Decimal(rate_1.numerator)
         signal = None
@@ -545,7 +505,7 @@ RATIO_MIN_VALID_POSITIONS = 3
 
 
 def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_stream,
-                         candidate_rate, mappings, master_span_s, budget_s=BUDGET_S):
+                         candidate_rate, mappings, master_span_s):
     '''Score how well each master -> candidate time mapping lands on the same picture.
 
     At each position a cut-free, usable group of master frames is decoded, then for every
@@ -568,12 +528,8 @@ def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_s
         return rows, ["empty_span"]
     low, high = low + span * EDGE_FRACTION, high - span * EDGE_FRACTION
     slot = (high - low) / RATIO_POSITIONS
-    started = time.monotonic()
     for index in range(RATIO_POSITIONS):
         for fraction in (0.5, 0.25, 0.75):
-            if time.monotonic() - started > budget_s:
-                notes.append("budget")
-                return rows, notes
             t = low + (index + fraction) * slot
             frames, times = decode_group(master_path, master_stream, t, REF_DECODE_FRAMES)
             start = cut_free_start(frames) if len(frames) >= GROUP_FRAMES else None

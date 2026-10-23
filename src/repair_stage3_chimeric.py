@@ -19,6 +19,7 @@ import time
 
 import banded_seed_alignment
 import repair_pool
+import progress_watchdog
 import tools
 
 
@@ -657,10 +658,6 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                      resolve_shift=True, accept_step_disagreement=False):
     """Run the interior resolver once as a logged step; an exception becomes a named decline."""
     import scene_anchor
-    deadline = hole.get("deadline")
-    if deadline is not None and time.monotonic() > deadline:
-        return {"declined": True, "reason": "hole_budget_exceeded",
-                "evidence": f"probe={probe} not launched: the hole's budget is spent"}
     _orch().step_launch("two_anchor", candidate=candidate_obj.filePath, probe=probe,
                 resolve_shift=resolve_shift, cluster=hole.get("cluster_id"),
                 shared_scan_windows_cached=(None if hole.get("scan_cache") is None
@@ -681,7 +678,7 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
             normalise_geometry=True, resolve_shift=resolve_shift,
             shift_search_frames=_shift_search_frames(domain, quantum_ms),
             cluster_window=hole.get("cluster_window"), scan_cache=hole.get("scan_cache"),
-            deadline=deadline, accept_step_disagreement=accept_step_disagreement)
+            accept_step_disagreement=accept_step_disagreement)
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
@@ -2243,8 +2240,7 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
             low_ms, high_ms, float(offset_ms), edge, timeline_ms,
             None if candidate_duration_ms is None else float(candidate_duration_ms),
             quantum_ms=float(quantum_ms), candidate_time_scale=domain["time_scale"],
-            shift_search_frames=_shift_search_frames(domain, quantum_ms),
-            deadline=hole.get("deadline"))
+            shift_search_frames=_shift_search_frames(domain, quantum_ms))
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
@@ -2453,34 +2449,18 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
 
 
 def resolve_hole(hole, master_obj, candidate_obj, work_dir, walk=None):
-    """Resolve one hole to exact frames.
+    """Resolve one hole to exact frames (interior: `_resolve_interior`, head/tail: `_resolve_edge`), with no time limit.
 
-    Interior holes go to `_resolve_interior`, head and tail holes to `_resolve_edge`. The hole
-    must carry `frame_domain` and `quantum_ms`; it gets HOLE_BUDGET_S, capped by the repair's
-    deadline. `work_dir` is unused (the resolvers decode through pipes). `walk` (the pair's
-    already-decoded audio, when the caller has it) is forwarded to `_resolve_interior` only,
-    to place a blind span inside a shared silence.
-    """
+    The hole carries `frame_domain` and `quantum_ms`; `walk` places a blind interior span inside a shared silence."""
     domain = hole.get("frame_domain")
     if domain is None:
         return _declined(hole, "frame_domain_absent")
-    repair_deadline = domain.get("repair_deadline")
-    if repair_deadline is not None and time.monotonic() > repair_deadline:
-        return _declined(hole, "repair_budget_exceeded")
-    deadline = time.monotonic() + _orch().HOLE_BUDGET_S
-    hole = dict(hole, deadline=(deadline if repair_deadline is None
-                                else min(deadline, repair_deadline)))
     if hole["kind"] == "interior":
         outcome = _resolve_interior(hole, domain, master_obj, candidate_obj, walk=walk)
     elif hole["kind"] in ("head", "tail"):
         outcome = _resolve_edge(hole, domain, master_obj, candidate_obj)
     else:
         outcome = _declined(hole, f"no_resolver_for_kind:{hole['kind']}")
-    # An over-budget hole declines even if its last call answered.
-    if outcome["status"] != _orch().HOLE_DECLINED and time.monotonic() > hole["deadline"]:
-        outcome = _declined(hole, "hole_budget_exceeded",
-                            evidence=f"answered {outcome['status']} past the "
-                                     f"{_orch().HOLE_BUDGET_S} s budget")
     outcome["audio_master_frames"] = [_master_frame_of_ms(hole["master_ms"][0], domain),
                                       _master_frame_of_ms(hole["master_ms"][1], domain)]
     outcome["audio_candidate_frames"] = [
@@ -2636,27 +2616,8 @@ def hole_sanity(holes, domain, candidate_path):
     return None
 
 
-# The resolver reasons that are a time bound, not a reading.
-BUDGET_REASONS = ("repair_budget_exceeded", "hole_budget_exceeded", "decoder_timeout")
-
-
-def budget_cause(outcome, domain):
-    """Return the time bound that stopped this video call, or None.
-
-    The repair's budget takes precedence over the hole's, then a decoder timeout.
-    """
-    reason = outcome.get("resolver_reason")
-    if reason not in BUDGET_REASONS:
-        return None
-    deadline = domain.get("repair_deadline")
-    if reason == "repair_budget_exceeded" or (deadline is not None
-                                              and time.monotonic() > deadline):
-        return "repair_budget_exceeded"
-    return reason
-
-
 def log_partial_plan(candidate_path, cause, placed):
-    """Log the partial plan placed before a budget overrun; `placed` holds (what, decision, where)."""
+    """Log the partial plan placed before a stop; `placed` holds (what, decision, where)."""
     tools.log_always(f"repair: partial_plan cause={cause} placed={placed} for {candidate_path}\n")
 
 
@@ -2665,27 +2626,11 @@ def started_slices(video_s, slice_s):
     return max(1, math.ceil((video_s or 0.0) / slice_s))
 
 
-def repair_budget_seconds(master_obj):
-    """Return (budget_s, video_s): REPAIR_BUDGET_PER_SLICE_S per started slice, capped."""
-    video_ms = _video_duration_ms(master_obj)
-    video_s = None if video_ms is None else float(video_ms) / 1000.0
-    slices = started_slices(video_s, _orch().REPAIR_BUDGET_SLICE_S)
-    return min(slices * _orch().REPAIR_BUDGET_PER_SLICE_S, _orch().REPAIR_BUDGET_CAP_S), video_s
-
-
 def max_holes_per_couple(master_obj):
     """Return the hole cap per couple: MAX_HOLES_PER_COUPLE per started HOLE_BUDGET_SLICE_S."""
     video_ms = _video_duration_ms(master_obj)
     video_s = None if video_ms is None else float(video_ms) / 1000.0
     return started_slices(video_s, _orch().HOLE_BUDGET_SLICE_S) * _orch().MAX_HOLES_PER_COUPLE
-
-
-def _budget_terminal(candidate_path, step, budget_s):
-    """Decline the candidate because the repair's budget ran out between two steps."""
-    _orch()._plan_line("none", candidate_path, step=step, cause="repair_budget_exceeded")
-    return _orch()._terminal(candidate_path, "no_plan", "repair_budget_exceeded",
-                     f"the repair's {budget_s} s budget ran out after the {step} step -- a "
-                     f"statement about this run's cost; declined, retried at the next run")
 
 
 def _speed_chain(audio, speed_ratio, engine="asetrate"):
@@ -2698,17 +2643,10 @@ def _speed_chain(audio, speed_ratio, engine="asetrate"):
 
 
 def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_ratio,
-                   candidate_path, deadline=None, engine="asetrate", frame_ms=None):
-    """Run the millisecond audio walk on the reference couple, on the file clock.
+                   candidate_path, engine="asetrate", frame_ms=None):
+    """Run the millisecond audio walk on the reference couple on the file clock: (walk, None) or (None, reason).
 
-    Seeded by every alignment offset of the reference couple's zones and the union's holes.
-    A whole-track read stopped by `deadline` re-raises (cause `repair_budget_exceeded`).
-    `frame_ms` (the pair's own `domain['frame_ms']`, when measured) is passed to
-    `audio_walk.change_points` so a sub-frame step can be placed in a shared silence.
-
-    Returns:
-        (walk, None) or (None, reason); the walk keeps both decoded tracks.
-    """
+    Seeded by the couple's zone offsets and the holes'; a stalled read re-raises step_stalled."""
     import audio_walk
     master_stream, candidate_stream = reference["couple"].split("x")
     master_audio = _audio_entry(master_obj, language, master_stream)
@@ -2731,18 +2669,17 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
         scale = speed_ratio if speed_ratio is not None else Decimal(1)
         # atempo pairs are walked on speech envelopes.
         envelope = engine == "atempo" and speed_ratio is not None
-        master = audio_walk.read_on_file_clock(master_obj, master_audio, deadline=deadline,
-                                               envelope=envelope)
+        master = audio_walk.read_on_file_clock(master_obj, master_audio, envelope=envelope)
         candidate = audio_walk.read_on_file_clock(
             candidate_obj, candidate_audio, _speed_chain(candidate_audio, speed_ratio, engine),
-            scale, deadline=deadline, envelope=envelope)
+            scale, envelope=envelope)
     except Exception as error:                                           # noqa: BLE001
-        if getattr(error, "cause", None) == "repair_budget_exceeded":
+        if isinstance(error, progress_watchdog.step_stalled):
             raise
         return None, f"the comparison tracks could not be read ({type(error).__name__}: {error})"
     silence_tracks = [candidate] + added_language_tracks(
         master_obj, candidate_obj, candidate_audio, speed_ratio, engine, scale, envelope,
-        deadline, candidate_path)
+        candidate_path)
     rows = audio_walk.walk(master, candidate, seeds)
     found, outliers = audio_walk.levels(rows)
     points = audio_walk.change_points(master, candidate, found, frame_ms=frame_ms)
@@ -2764,12 +2701,10 @@ def reference_walk(reference, holes, master_obj, candidate_obj, language, speed_
 
 
 def added_language_tracks(master_obj, candidate_obj, comparison_audio, speed_ratio, engine,
-                          scale, envelope, deadline, candidate_path):
-    """The candidate's audio tracks in a language the master lacks, read like the comparison
-    track: a removal or a fill boundary must not cut into any track that can be delivered.
+                          scale, envelope, candidate_path):
+    """The candidate's audio tracks in a language the master lacks, read like the comparison track.
 
-    A track that cannot be read is logged and left out; the deadline still re-raises.
-    """
+    A track that cannot be read is logged and left out; a stalled read re-raises."""
     import audio_walk
     master_languages = set((master_obj.audios or {}).keys())
     tracks = []
@@ -2782,9 +2717,9 @@ def added_language_tracks(master_obj, candidate_obj, comparison_audio, speed_rat
             try:
                 tracks.append(audio_walk.read_on_file_clock(
                     candidate_obj, audio, _speed_chain(audio, speed_ratio, engine), scale,
-                    deadline=deadline, envelope=envelope))
+                    envelope=envelope))
             except Exception as error:                                   # noqa: BLE001
-                if getattr(error, "cause", None) == "repair_budget_exceeded":
+                if isinstance(error, progress_watchdog.step_stalled):
                     raise
                 tools.log_always(f"repair: added_language_track_unread language={language} "
                                  f"stream={audio.get('StreamOrder')} ({type(error).__name__}: "
@@ -3030,14 +2965,14 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
         video_s, video_concluded, decline_reason = None, False, None
         if kind in by_kind:
             outcome = edge_outcomes[kind]
-            budget = budget_cause(outcome, domain)
-            if budget is not None:
-                log_partial_plan(candidate_path, budget,
+            if outcome.get("resolver_reason") == "step_stalled":
+                log_partial_plan(candidate_path, "step_stalled",
                                  [(edge, "placed", value) for edge, value in decisions.items()]
                                  + [(kind, "stopped", audio_s)])
-                return None, None, (budget, f"the video on the {kind} edge stopped on a time "
-                                            f"bound ({outcome.get('evidence')}) -- the partial "
-                                            f"plan is logged; declined, retried at the next run")
+                return None, None, ("step_stalled", f"the video on the {kind} edge made no "
+                                                    f"progress ({outcome.get('evidence')}) -- the "
+                                                    f"partial plan is logged; declined, retried at "
+                                                    f"the next run")
             if outcome["status"] in _orch().EDGE_TERMINATIONS or outcome["status"] == _orch().HOLE_NO_CUT_CONFIRMED:
                 try:
                     moved = _edge_blind_point(kind, outcome, domain, master_obj, candidate_obj,
@@ -3406,15 +3341,15 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
         jump = point["b_ms"] - point["a_ms"]
         sub_quantum = abs(jump) < hole["quantum_ms"]
         outcome = hole_outcomes[index]
-        budget = budget_cause(outcome, domain)
-        if budget is not None:
-            log_partial_plan(candidate_path, budget,
+        if outcome.get("resolver_reason") == "step_stalled":
+            log_partial_plan(candidate_path, "step_stalled",
                              [(f"change_point_{t['change_point']}", t["decision"], t["at_s"],
                                t["fill_s"]) for t in transitions]
                              + [(f"change_point_{index}", "stopped", lo, hi)])
-            return None, (budget, f"the video on change point {index} ({lo}-{hi} s) stopped on "
-                                  f"a time bound ({outcome.get('evidence')}) -- the partial plan "
-                                  f"is logged; declined, retried at the next run")
+            return None, ("step_stalled", f"the video on change point {index} ({lo}-{hi} s) made "
+                                          f"no progress ({outcome.get('evidence')}) -- the "
+                                          f"partial plan is logged; declined, retried at the "
+                                          f"next run")
         status = outcome["status"]
         replaced = addition_replacement(point, union, walk)
         if replaced is not None:

@@ -23,13 +23,13 @@ from fractions import Fraction
 import math
 from os import path, remove
 import statistics
-import subprocess
 import time
 
 import audioCorrelation
 import alignment_diagnostics
 import audio_extract
 import banded_seed_alignment
+import progress_watchdog
 import repair_log
 import repair_pool
 import tools
@@ -39,7 +39,7 @@ import video_offset_plan
 from repair_stage1_resample import (ALIGNMENT_COULD_NOT_MEASURE_VERDICTS,
                                     MASTER_AXIS_COVERAGE_FLOOR, _drop_rate_wav,
                                     ensemble_similarity_gate, rate_arm, rate_resample_routing)
-from repair_stage3_chimeric import (_budget_terminal, _speed_chain, _video_duration_ms,
+from repair_stage3_chimeric import (_speed_chain, _video_duration_ms,
                                     align_transitions_to_zone_lags,
                                     audio_edges, audio_transitions, classify_holes,
                                     coalesce_same_offset_zones, couple_start_delta_ms,
@@ -47,7 +47,7 @@ from repair_stage3_chimeric import (_budget_terminal, _speed_chain, _video_durat
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
                                     log_holes_against_walk, log_partial_plan,
                                     max_holes_per_couple, picture_steps_in_continuous_zones,
-                                    reference_walk, repair_budget_seconds, union_holes)
+                                    reference_walk, union_holes)
 from repair_stage4_plan import (ZONE_EDGE_MARGIN_S, _track_timing, apply_picture_offsets,
                                 apply_plan, plan_geometry, remeasure_at_other_levels,
                                 track_offsets, track_pieces, written_edge_seconds,
@@ -74,16 +74,8 @@ except Exception:                                                        # noqa:
 INTERCOUPLE_STEP_TOLERANCE_QUANTA = 1
 INTERCOUPLE_STEP_TOLERANCE_SLACK = 1.5
 
-# Time budgets: an overrun is a named decline, never a blocked worker.
-ALIGNMENT_BUDGET_S = 120.0          # one couple's b2_align (`alignment_budget_exceeded`)
-# One hole's frame-exact search (`hole_budget_exceeded`). Set well above the search time actually
-# needed: a slow-but-resolvable search under load must not be mistaken for a stuck one.
-HOLE_BUDGET_S = 900.0
-# One candidate's whole repair (`repair_budget_exceeded`): 40 min per started 30-min slice of the
-# master's video, capped at 4 h, so no file is declined for its length alone.
-REPAIR_BUDGET_PER_SLICE_S = 2400.0
-REPAIR_BUDGET_SLICE_S = 1800.0
-REPAIR_BUDGET_CAP_S = 14400.0
+# No time limit anywhere in the repair: only the progress watchdogs stop a step
+# (decision: no-budget-watchdog).
 # Hole sanity bound: an interior hole wider than this is not searched (real holes stay under ~30 s).
 INTERIOR_HOLE_MAX_SPAN_S = 300.0
 
@@ -134,7 +126,8 @@ DECLINE_CAUSES = {
     "alignment_no_anchored_runs": CLASS_COULD_NOT_RUN,
     "alignment_all_seeds_refused": CLASS_COULD_NOT_RUN,
     "alignment_segments_below_duration_floor": CLASS_COULD_NOT_RUN,
-    # A budget limit, not a measurement about the pair (see MAX_HOLES_PER_COUPLE):
+    # A structural bound on the problem size, not a measurement about the pair (see
+    # MAX_HOLES_PER_COUPLE):
     "hole_count_exceeds_resolver_budget": CLASS_COULD_NOT_RUN,
     # Every couple falls under MASTER_AXIS_COVERAGE_FLOOR:
     "alignment_coverage_below_floor": CLASS_COULD_NOT_RUN,
@@ -142,11 +135,9 @@ DECLINE_CAUSES = {
     "rate_resample_unbuildable": CLASS_COULD_NOT_RUN,
     # step 4: the frame-exact search could not establish a boundary on at least one hole.
     "hole_resolution_declined": CLASS_COULD_NOT_RUN,
-    # Budgets and hole sanity bounds: facts about this run or the alignment, not the pair.
-    "alignment_budget_exceeded": CLASS_COULD_NOT_RUN,
-    "hole_budget_exceeded": CLASS_COULD_NOT_RUN,
-    "repair_budget_exceeded": CLASS_COULD_NOT_RUN,
-    "decoder_timeout": CLASS_COULD_NOT_RUN,
+    # A watchdog stopped a step that made no progress, and hole sanity bounds: facts about this
+    # run or the alignment, not the pair.
+    "step_stalled": CLASS_COULD_NOT_RUN,
     "hole_outside_master_timeline": CLASS_COULD_NOT_RUN,
     "hole_step_exceeds_duration": CLASS_COULD_NOT_RUN,
     "interior_hole_exceeds_budget": CLASS_COULD_NOT_RUN,
@@ -202,16 +193,17 @@ DECLINE_CAUSES = {
     "precondition_failed": CLASS_CONCLUSIVE,
     "plan_invariant_broken": CLASS_COULD_NOT_RUN,
     "video_route_unresolved": CLASS_COULD_NOT_RUN,
+    "watchdog_stopped": CLASS_COULD_NOT_RUN,
 }
 
 # Surfaced vocabulary: detailed causes that share one meaning are reported under one family
 # token, the detailed cause kept in a named field (`cause=<family> <field>=<detailed>`).
 # Internal decisions still read the detailed cause.
 CAUSE_FAMILIES = {
-    # A time or size budget stopped the run: a fact about this run, not the pair.
-    "repair_budget_exceeded": ("checkpoint", (
-        "alignment_budget_exceeded", "hole_budget_exceeded", "decoder_timeout",
-        "hole_count_exceeds_resolver_budget", "interior_hole_exceeds_budget")),
+    # A step made no progress, or the problem passed a structural bound: a fact about this run,
+    # not the pair.
+    "watchdog_stopped": ("checkpoint", (
+        "step_stalled", "hole_count_exceeds_resolver_budget", "interior_hole_exceeds_budget")),
     # The picture could not seat a frame-exact boundary.
     "boundary_unresolved": ("kind", (
         "hole_resolution_declined", "video_cut_undetermined",
@@ -392,10 +384,10 @@ def _track_duration_seconds(video_obj, language, stream_order):
                   f"stream_order={stream_order}\n")
     try:
         with repair_log.announced("orchestrator", "ffprobe", video_obj.filePath) as call:
-            completed = subprocess.run(
+            completed = progress_watchdog.run(
                 [tools.software["ffprobe"], "-v", "error", "-show_entries",
                  "format=duration", "-of", "default=nw=1:nk=1", video_obj.filePath],
-                capture_output=True, text=True, timeout=120)
+                "ffprobe_duration", text=True)
             call["exit"] = completed.returncode
         return float(completed.stdout.strip())
     except Exception as error:                                           # noqa: BLE001
@@ -472,7 +464,7 @@ def fingerprint_track(video_obj, language, stream_order, side, work_dir, sample_
                 {"points": list(points), "duration_s": float(output_duration_seconds)})
         if measures is not None:
             measures["content_end_s"] = wav_content_end_s(wav)
-    except (tools.decoder_timeout, audio_extract.StrictDecodeFailed):
+    except (progress_watchdog.step_stalled, audio_extract.StrictDecodeFailed):
         # A corrupt source is handled by the caller's policy, not as a fingerprint failure.
         raise
     except Exception as error:                                           # noqa: BLE001
@@ -682,7 +674,7 @@ def _decimal(value):
                         lambda factor, language, master_obj, candidate_obj, *a, **k:
                         candidate_obj.filePath)
 def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
-             sweep_gate=None, resample_routing=None, repair_deadline=None):
+             sweep_gate=None, resample_routing=None):
     """Build the chimeric plan from primed couples and apply it.
 
     Receives ready fingerprints and alignments (already speed-corrected at a confirmed
@@ -848,7 +840,6 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
             f"the pair carries no hole, but its frame domain could not be measured "
             f"({domain_reason}): the plan's timeline end and its grid are unknown, so no "
             f"piece can be placed"), None
-    domain["repair_deadline"] = repair_deadline
     insane = hole_sanity(holes, domain, candidate_path)
     if insane is not None:
         return False, insane[0], insane[1], None
@@ -858,40 +849,30 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     try:
         walk, walk_reason = reference_walk(reference, holes, master_obj, candidate_obj,
                                            language, speed_ratio, candidate_path,
-                                           deadline=repair_deadline,
                                            engine=(resample_routing or {}).get("filter_name",
                                                                                "asetrate"),
                                            frame_ms=float(domain["frame_ms"]))
-    except Exception as error:                                           # noqa: BLE001
-        if getattr(error, "cause", None) != "repair_budget_exceeded":
-            raise
-        log_partial_plan(candidate_path, "repair_budget_exceeded",
+    except progress_watchdog.step_stalled as error:
+        log_partial_plan(candidate_path, "step_stalled",
                          [("holes", "b2", [(h["kind"], h["master_ms"]) for h in holes]),
-                          ("audio_walk", "stopped_by_budget", str(error)[:200])])
-        return False, "repair_budget_exceeded", (
-            f"the repair's budget ran out during the audio walk ({error}) -- the partial plan "
+                          ("audio_walk", "stalled", str(error)[:200])])
+        return False, "step_stalled", (
+            f"the audio walk made no progress ({error}) -- the partial plan "
             f"is logged; declined, retried at the next run"), None
     if walk is None:
         return False, "audio_walk_unavailable", (
             f"the millisecond walk on the reference couple {reference['couple']} could not "
             f"measure the pair ({walk_reason}) -- no offset, step or fill can be placed "
             f"without it"), None
-    if repair_deadline is not None and time.monotonic() > repair_deadline:
-        log_partial_plan(candidate_path, "repair_budget_exceeded",
-                         [("audio_walk", "levels", [lv["off_ms"] for lv in walk["levels"]])])
-        return False, "repair_budget_exceeded", (
-            f"the repair's budget ran out after the audio walk -- the "
-            f"partial plan is logged; declined, retried at the next run"), None
     transitions, refusal = audio_transitions(walk, reference, domain, master_obj, candidate_obj,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
     # Both whole files are decoded for their scene changes once the holes are resolved (never
-    # alongside them: the holes' own decodes run under a fixed time bound): each zone's picture
+    # alongside them: both compete for the same decoders): each zone's picture
     # lag is the majority over its own changes (`zone_picture_lag`).
     import zone_picture_lag
-    zone_lag_job = zone_picture_lag.ZoneLagJob(master_obj, candidate_obj, domain,
-                                               deadline=repair_deadline)
+    zone_lag_job = zone_picture_lag.ZoneLagJob(master_obj, candidate_obj, domain)
     frame_ms_float = float(domain["frame_ms"])
     zone_lag_pairs, zone_lag_reason = zone_lag_job.pairs(
         [t.get(key) for t in transitions for key in ("before_shift_frames", "after_shift_frames")]
@@ -923,14 +904,6 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
         return False, "plan_reads_no_candidate_content", (
             "the audio edges leave no candidate content on the master timeline -- a plan that "
             "reads nothing from the candidate is the master, not a repair"), None
-    if repair_deadline is not None and time.monotonic() > repair_deadline:
-        log_partial_plan(candidate_path, "repair_budget_exceeded",
-                         [(f"change_point_{t['change_point']}", t["decision"], t["at_s"],
-                           t["fill_s"]) for t in transitions]
-                         + [("head", "placed", head_end_s), ("tail", "placed", tail_start_s)])
-        return False, "repair_budget_exceeded", (
-            f"the repair's budget ran out before the plan's application -- "
-            f"the partial plan is logged; declined, retried at the next run"), None
     # Whole-file frame count at the delivered (picture) offsets, after the head and tail the
     # candidate's video does not reach are filled from the master; a plan that does not give
     # back the master's count is replaced by the picture-only plan, or declined.
@@ -1003,8 +976,7 @@ def _video_route_terminal(status, cause, reason, candidate_path, trigger):
                    trigger=trigger)
         return True
     _plan_line("none", candidate_path, step="video_anchored", trigger=trigger, cause=cause)
-    return _terminal(candidate_path,
-                     "no_plan" if cause == "repair_budget_exceeded" else "declined",
+    return _terminal(candidate_path, "no_plan" if cause == "step_stalled" else "declined",
                      cause, reason)
 
 
@@ -1015,23 +987,21 @@ COMPARISON_TRACK_CORRUPT = "comparison_track_corrupt"
 
 
 def _video_unreliable(video_obj):
-    """Return (unreliable, source) for a file's picture.
+    """Return (unreliable, source) for a file's picture: its `video_unreliable` tag, else `integrity.video_is_sound`.
 
-    Uses the object's `video_unreliable` tag if set, else `integrity.video_is_sound`;
-    (None, "decoder_timeout") when the probe timed out.
-    """
+    (None, 'step_stalled') when the probe made no progress."""
     tag = getattr(video_obj, "video_unreliable", None)
     if tag is not None:
         return bool(tag), "tag"
     import integrity
     try:
         return (not integrity.video_is_sound(video_obj)), "video_is_sound"
-    except tools.decoder_timeout:
-        return None, "decoder_timeout"
+    except progress_watchdog.step_stalled:
+        return None, "step_stalled"
 
 
 def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, prime_reason,
-                                   candidate_path, repair_deadline):
+                                   candidate_path):
     """Route a pair whose comparison track failed its strict decode at the prime.
 
     If both pictures are sound, the video arbitrates (video-anchored route); otherwise the pair
@@ -1049,9 +1019,9 @@ def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, 
                 candidate_video_unreliable=videos["candidate"][0],
                 candidate_source=videos["candidate"][1])
     if any(unreliable is None for unreliable, _ in videos.values()):
-        _plan_line("none", candidate_path, step="comparison_track_corrupt", cause="decoder_timeout")
-        return _terminal(candidate_path, "no_plan", "decoder_timeout", (
-            f"{prime_reason}; the video probe that decides the route ran past its bound "
+        _plan_line("none", candidate_path, step="comparison_track_corrupt", cause="step_stalled")
+        return _terminal(candidate_path, "no_plan", "step_stalled", (
+            f"{prime_reason}; the video probe that decides the route made no progress "
             f"({videos}) -- a statement about the tool on this host"))
     bad = [side for side, (unreliable, _) in videos.items() if unreliable]
     if bad:
@@ -1064,8 +1034,7 @@ def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, 
     tools.log_always(f"repair: comparison_track_corrupt route=video_anchored "
                      f"language={language} evidence={evidence} for {candidate_path}\n")
     status, cause, reason = video_offset_plan.video_anchored_route(
-        COMPARISON_TRACK_CORRUPT, evidence, master_obj, candidate_obj, language, [],
-        repair_deadline)
+        COMPARISON_TRACK_CORRUPT, evidence, master_obj, candidate_obj, language, [])
     # No audio fallback: the comparison track itself is corrupt.
     return _video_route_terminal("declined" if status == "fallback" else status, cause, reason,
                                  candidate_path, COMPARISON_TRACK_CORRUPT)
@@ -1075,28 +1044,20 @@ def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, 
 # Language tag vs content (`language_content_check`)
 # ---------------------------------------------------------------------------
 def _language_content_route(master_obj, candidate_obj, language, primed, work_dir, work_root,
-                            repair_deadline, master_intertrack_cache, repair_budget_s):
+                            master_intertrack_cache):
     """Check by content whether a candidate track carries the comparison language.
 
-    Returns:
-        None when the check has nothing to say; else the repair's result: a
-        `no_common_language_after_tag_check` decline, a budget decline, or, on
-        `audio_tag_conflict`, `repair()` re-run once on the re-tagged candidate within the same
-        deadline.
-    """
+    None when it has nothing to say, else a decline or, on `audio_tag_conflict`, `repair()` re-run once."""
     import language_content_check as lcc
     candidate_path = candidate_obj.filePath
     if getattr(candidate_obj, "tag_checked", False):
         return None
     step_launch("content_check", candidate=candidate_path, language=language)
-    check = lcc.content_check(master_obj, candidate_obj, language, primed, work_dir,
-                              deadline=repair_deadline)
+    check = lcc.content_check(master_obj, candidate_obj, language, primed, work_dir)
     best = check.get("best") or {}
     step_result("content_check", candidate=candidate_path, verdict=check["verdict"],
                 best_similarity=best.get("similarity"), best_candidate=best.get("candidate"),
                 best_candidate_tag=best.get("candidate_tag"), cost_s=check.get("cost_s"))
-    if check["verdict"] == "repair_budget_exceeded":
-        return _budget_terminal(candidate_path, "content_check", repair_budget_s)
     if check["verdict"] == lcc.NO_COMMON_LANGUAGE:
         _drop_rate_wav(primed)
         _plan_line("none", candidate_path, step="content_check", cause=lcc.NO_COMMON_LANGUAGE)
@@ -1113,7 +1074,6 @@ def _language_content_route(master_obj, candidate_obj, language, primed, work_di
     lcc.apply_correction(candidate_obj, check)
     return repair(master_obj, candidate_obj, language, work_root=work_root,
                   master_intertrack_cache=master_intertrack_cache,
-                  _carried_deadline=repair_deadline,
                   _carried_prime={"fingerprints": primed.get("fingerprints"),
                                   "content_end": primed.get("content_end"),
                                   "sample_rate": primed.get("sample_rate"),
@@ -1142,7 +1102,7 @@ ROUTING_SIGNALS = {
 @repair_log.timed_phase("orchestrator", "repair",
                         lambda master_obj, candidate_obj, *a, **k: candidate_obj.filePath)
 def repair(master_obj, candidate_obj, comparison_language, work_root=None,
-           master_intertrack_cache=None, _carried_deadline=None, _carried_prime=None):
+           master_intertrack_cache=None, _carried_prime=None):
     """Repair one refused candidate against the master; returns True when a plan was applied.
 
     Runs `_repair` inside one `merge_video_decode_once` scope, so no track is decoded twice; a
@@ -1161,13 +1121,13 @@ def repair(master_obj, candidate_obj, comparison_language, work_root=None,
                                   label=path.basename(candidate_obj.filePath))
     try:
         return _repair(master_obj, candidate_obj, comparison_language, work_root,
-                       master_intertrack_cache, _carried_deadline, _carried_prime)
+                       master_intertrack_cache, _carried_prime)
     finally:
         merge_video_decode_once.end()
 
 
 def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
-            master_intertrack_cache=None, _carried_deadline=None, _carried_prime=None):
+            master_intertrack_cache=None, _carried_prime=None):
     """Run the repair steps in order; each step returns a result and none calls another.
 
     0. Master conformity check; failure declines.
@@ -1176,14 +1136,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
     3. Chimeric plan at the chosen factor, then plan application.
     """
     candidate_path = candidate_obj.filePath
-    repair_budget_s, budget_video_s = repair_budget_seconds(master_obj)
-    repair_deadline = time.monotonic() + repair_budget_s
-    if _carried_deadline is not None:
-        # A re-run after a language re-tag stays inside the first run's budget.
-        repair_deadline = _carried_deadline
-    tools.log_always(f"orchestrator: repair_budget budget_s={repair_budget_s} "
-                     f"per_slice_s={REPAIR_BUDGET_PER_SLICE_S} slice_s={REPAIR_BUDGET_SLICE_S} "
-                     f"cap_s={REPAIR_BUDGET_CAP_S} master_video_s={budget_video_s} "
+    tools.log_always(f"orchestrator: no time budget, stall_s={progress_watchdog.STALL_S} "
                      f"for {candidate_path}\n")
     if master_intertrack_cache is None:
         master_intertrack_cache = {}
@@ -1247,7 +1200,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                          f"for {candidate_path}\n")
         status, cause, reason = video_offset_plan.video_anchored_route(
             video_offset_plan.TRIGGER_MASTER_DESYNC, evidence, master_obj, candidate_obj, comparison_language,
-            [], repair_deadline)
+            [])
         return _video_route_terminal(status, cause, reason, candidate_path,
                                      video_offset_plan.TRIGGER_MASTER_DESYNC)
     if verdict is not None and verdict.get("verdict") is not None:
@@ -1279,8 +1232,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
             master_obj, candidate_obj, comparison_language)
         primed["couples"] = []
         routed = _language_content_route(master_obj, candidate_obj, comparison_language,
-                                         primed, work_dir, work_root, repair_deadline,
-                                         master_intertrack_cache, repair_budget_s)
+                                         primed, work_dir, work_root, master_intertrack_cache)
         if routed is not None:
             return routed
         primed["couples"] = None
@@ -1293,23 +1245,18 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
     if not prime_ok and prime_cause == COMPARISON_TRACK_CORRUPT:
         _drop_rate_wav(primed)
         return comparison_track_corrupt_route(master_obj, candidate_obj, comparison_language,
-                                              primed, prime_reason, candidate_path,
-                                              repair_deadline)
+                                              primed, prime_reason, candidate_path)
     if not prime_ok:
         _drop_rate_wav(primed)
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
-    if time.monotonic() > repair_deadline:
-        _drop_rate_wav(primed)
-        return _budget_terminal(candidate_path, "prime", repair_budget_s)
 
     # ---- step 1b: audio self-contradiction -> video route --------------------
     trigger, evidence, delay_rows = video_offset_plan.detect_audio_contradiction(
         master_obj, candidate_obj, comparison_language, primed, candidate_path)
     if trigger is not None:
         status, cause, reason = video_offset_plan.video_anchored_route(
-            trigger, evidence, master_obj, candidate_obj, comparison_language, delay_rows,
-            repair_deadline)
+            trigger, evidence, master_obj, candidate_obj, comparison_language, delay_rows)
         if status != "fallback":
             _drop_rate_wav(primed)
             return _video_route_terminal(status, cause, reason, candidate_path, trigger)
@@ -1317,9 +1264,6 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                          f"offset is not one constant from head to tail (a drift or an interior "
                          f"edit): the ordinary audio path continues "
                          f"for {candidate_path}\n")
-        if time.monotonic() > repair_deadline:
-            _drop_rate_wav(primed)
-            return _budget_terminal(candidate_path, "video_anchored", repair_budget_s)
 
     step_launch("similarity_gate", candidate=candidate_path, n_couples=len(couples))
     should_sweep, gate_prose, observations = ensemble_similarity_gate(primed, candidate_path)
@@ -1355,8 +1299,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
         step_launch("rate_arm", candidate=candidate_path, language=comparison_language,
                     armed_by=armed_by)
         winner, engine, sweep_gate, sweep_cause = rate_arm(
-            primed, first_ratios, work_dir, candidate_path, deadline=repair_deadline,
-            videos=(master_obj, candidate_obj))
+            primed, first_ratios, work_dir, candidate_path, videos=(master_obj, candidate_obj))
         step_result("rate_arm", candidate=candidate_path, armed_by=armed_by,
                     factor=(None if winner is None
                             else f"{winner.numerator}/{winner.denominator}"),
@@ -1365,10 +1308,6 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                     margin=sweep_gate.get("margin"),
                     finalists=[(row["ratio"], row["engine"], row["span_coverage"], row["zones"],
                                 row["ladder"]) for row in sweep_gate["rows"]])
-        if sweep_cause == "repair_budget_exceeded":
-            log_partial_plan(candidate_path, "repair_budget_exceeded",
-                             [("rate_arm", "stopped_by_budget", len(sweep_gate["rows"]))])
-            return _budget_terminal(candidate_path, "rate_arm", repair_budget_s)
         # Only low similarity with every ratio refused is terminal; other arms are hints and
         # continue at factor 1 on the alignment already measured.
         terminal = (winner is None and armed_by == "similarity_gate"
@@ -1382,8 +1321,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                 return _terminal(candidate_path, "declined", refusal[0], refusal[1])
             # Rule out a wrong language tag before concluding on low similarity.
             routed = _language_content_route(master_obj, candidate_obj, comparison_language,
-                                             primed, work_dir, work_root, repair_deadline,
-                                             master_intertrack_cache, repair_budget_s)
+                                             primed, work_dir, work_root, master_intertrack_cache)
             if routed is not None:
                 return routed
             _plan_line("none", candidate_path, step="rate_arm", cause=sweep_cause)
@@ -1444,8 +1382,6 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
         if not prime_ok:
             _plan_line("none", candidate_path, step="rate_reprime", cause=prime_cause)
             return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
-    if time.monotonic() > repair_deadline:
-        return _budget_terminal(candidate_path, "rate_decision", repair_budget_s)
 
     # ---- step 3: chimeric ----------------------------------------------------
     step_launch("chimeric", candidate=candidate_path, language=comparison_language,
@@ -1454,8 +1390,7 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
     ok, cause, reason, detail = chimeric(factor, comparison_language, master_obj,
                                          candidate_obj, work_dir, primed,
                                          sweep_gate=sweep_gate,
-                                         resample_routing=resample_routing,
-                                         repair_deadline=repair_deadline)
+                                         resample_routing=resample_routing)
     step_result("chimeric", candidate=candidate_path, ok=ok, cause=cause)
     if ok:
         # `apply_plan` already recorded the `repaired` terminal.
@@ -1479,8 +1414,7 @@ def align_fingerprints(fp_master, quantum_master, duration_master, fp_candidate,
         candidate_quantum_ms=quantum_candidate,
         duration_diff_ms=abs(duration_master - duration_candidate) * 1000.0,
         signed_duration_diff_ms=(duration_candidate - duration_master) * 1000.0,
-        shorter_duration_ms=min(duration_master, duration_candidate) * 1000.0,
-        deadline=time.monotonic() + ALIGNMENT_BUDGET_S)
+        shorter_duration_ms=min(duration_master, duration_candidate) * 1000.0)
 
 
 def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resample_routing=None):
@@ -1556,9 +1490,9 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
                     video_obj, language, stream, side, work_dir, sample_rate, duration,
                     audio_filter=track_filter, output_duration_seconds=corrected_duration,
                     measures=measures, keep_wav=keep)
-            except tools.decoder_timeout as error:
-                return (False, "decoder_timeout",
-                        f"the {side} {language} stream {stream} extraction ran past its bound "
+            except progress_watchdog.step_stalled as error:
+                return (False, "step_stalled",
+                        f"the {side} {language} stream {stream} extraction made no progress "
                         f"({error}) -- a statement about the tool on this host")
             except audio_extract.StrictDecodeFailed as error:
                 # The fingerprint extraction is a strict decode; it failed on this track.
@@ -1606,17 +1540,6 @@ def prime_couples(master_obj, candidate_obj, language, work_dir, primed, resampl
         alignment = align_fingerprints(fp_master, quantum_master, duration_master,
                                        fp_candidate, quantum_candidate, duration_candidate)
         alignment["alignment_seconds"] = time.time() - started
-        if alignment["verdict"] == banded_seed_alignment.VERDICT_ALIGNMENT_BUDGET_EXCEEDED:
-            step_result("align", candidate=candidate_path, couple=name,
-                        verdict=alignment["verdict"],
-                        seeds_extended=alignment.get("seeds_extended"),
-                        seeds_total=alignment.get("seeds_total"),
-                        seconds=round(alignment["alignment_seconds"], 2))
-            return (False, "alignment_budget_exceeded",
-                    f"couple {name} did not align within {ALIGNMENT_BUDGET_S} s: "
-                    f"{alignment.get('seeds_extended')} of {alignment.get('seeds_total')} seeds "
-                    f"extended ({len(fp_master)} x {len(fp_candidate)} points) -- a statement "
-                    f"about this run's cost; declined, retried at the next run")
         primed["alignments"][name] = alignment
         step_result("align", candidate=candidate_path, couple=name,
                     verdict=alignment["verdict"], n_zones=len(alignment.get("zones") or []),

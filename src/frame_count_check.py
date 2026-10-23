@@ -29,6 +29,7 @@ from fractions import Fraction
 from os import path
 import statistics
 
+import progress_watchdog
 import tools
 
 FRAME_COUNT_MISMATCH = "frame_count_mismatch"
@@ -352,7 +353,7 @@ def _refine_with_audio(zones, walk, candidate_path):
     return refined
 
 
-def visual_plan(master_obj, candidate_obj, walk, work_dir, repair_deadline, candidate_path):
+def visual_plan(master_obj, candidate_obj, walk, work_dir, candidate_path):
     """Build the plan from the pictures alone, the master as the reference.
 
     Returns:
@@ -364,8 +365,7 @@ def visual_plan(master_obj, candidate_obj, walk, work_dir, repair_deadline, cand
     work_root = path.join(work_dir, "frame_count_visual")
     tools.make_dirs(path.join(work_root, "measure"))
     result = video_offset_plan.measure_video_offset(
-        master_obj.filePath, candidate_obj.filePath, path.join(work_root, "measure"),
-        deadline=repair_deadline)
+        master_obj.filePath, candidate_obj.filePath, path.join(work_root, "measure"))
     timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(master_obj)
     if result.status == video_offset_plan.STATUS_OK:
         zones = [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
@@ -384,7 +384,7 @@ def visual_plan(master_obj, candidate_obj, walk, work_dir, repair_deadline, cand
     else:
         return None, None, f"{result.status}:{result.reason}"
     zones, fills = visual._carve_divergence(master_obj, candidate_obj, result.fps, zones, fills,
-                                            work_root, repair_deadline)
+                                            work_root)
     for index, zone in enumerate(zones):
         zone["zone"] = index
     return _refine_with_audio(zones, walk, candidate_path), fills, None
@@ -422,7 +422,7 @@ def visual_fallback(audio_count, master_obj, candidate_obj, walk, domain, factor
         return decline("visual", "does_not_measure_a_rate_pair")
     try:
         zones, fills, cause = visual_plan(master_obj, candidate_obj, walk, context["work_dir"],
-                                          domain.get("repair_deadline"), candidate_path)
+                                          candidate_path)
         if zones is None:
             return decline("visual", f"failed:{cause}")
         # Counted at the picture's offsets, the ones delivered; the audio refinement only
@@ -443,9 +443,9 @@ def visual_fallback(audio_count, master_obj, candidate_obj, walk, domain, factor
             factor, master_obj, candidate_obj,
             context)
     except Exception as error:                                           # noqa: BLE001
-        if getattr(error, "cause", None) == "repair_budget_exceeded":
-            return False, "repair_budget_exceeded", (
-                f"the repair's budget ran out during the picture-only route ({error})"), None
+        if isinstance(error, progress_watchdog.step_stalled):
+            return False, "step_stalled", (
+                f"the picture-only route made no progress ({error})"), None
         return decline("visual", f"raised:{type(error).__name__}:{str(error)[:200]}")
     if not ok:
         return decline("visual", f"build_declined:{cause}")

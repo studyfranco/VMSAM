@@ -12,9 +12,9 @@ This module is the pure half (`first_finalists`, `finalist_reading`, `choose_win
 '''
 from fractions import Fraction
 import json
-import subprocess
 
 import merge_video_resample
+import progress_watchdog
 import tools
 import repair_log
 
@@ -55,10 +55,10 @@ def _name(ratio):
 def _declared_rates(file_path):
     """Return the first video stream's declared r_frame_rate/avg_frame_rate as Fractions."""
     with repair_log.announced("rate_direction", "ffprobe", file_path) as call:
-        completed = subprocess.run(
+        completed = progress_watchdog.run(
             [tools.software["ffprobe"], "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "json", file_path],
-            capture_output=True, text=True, timeout=120)
+            "ffprobe_declared_rates", text=True)
         call["exit"] = completed.returncode
     streams = json.loads(completed.stdout or "{}").get("streams") or [{}]
     rates = {}

@@ -15,6 +15,7 @@ from os import path
 import statistics
 import time
 
+import progress_watchdog
 import repair_log
 import tools
 
@@ -225,7 +226,7 @@ def remeasure_at_other_levels(zones, readings, measure, searched_ms):
 
 
 def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio, scale,
-                  deadline=None, engine="asetrate"):
+                  engine="asetrate"):
     """Measure each candidate track's own offset per zone, at the millisecond.
 
     The reference track takes the walk's zone offsets. Other tracks are measured against the
@@ -281,12 +282,12 @@ def track_offsets(zones, walk, master_obj, candidate_obj, language, speed_ratio,
             envelope = engine == "atempo" and speed_ratio is not None
             if master_order not in master_cache:
                 master_cache[master_order] = audio_walk.read_on_file_clock(
-                    master_obj, master_audio, deadline=deadline, envelope=envelope)
+                    master_obj, master_audio, envelope=envelope)
             samples = audio_walk.read_on_file_clock(
                 candidate_obj, audio, _orch()._speed_chain(audio, speed_ratio, engine), scale,
-                deadline=deadline, envelope=envelope)
+                envelope=envelope)
         except Exception as error:                                       # noqa: BLE001
-            if getattr(error, "cause", None) == "repair_budget_exceeded":
+            if isinstance(error, progress_watchdog.step_stalled):
                 raise
             entry["own_reason"] = f"track_unreadable({type(error).__name__})"
             for reading in readings:
@@ -583,8 +584,7 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
     # ---- 3. per-track sub-frame offsets --------------------------------------
     engine = (context.get("resample_routing") or {}).get("filter_name", "asetrate")
     tracks, offset_failure = track_offsets(zones, plan_spec["walk"], master_obj, candidate_obj,
-                                           language, speed_ratio, scale,
-                                           deadline=domain.get("repair_deadline"), engine=engine)
+                                           language, speed_ratio, scale, engine=engine)
     if tracks is None:
         _orch().step_result("apply_plan", candidate=candidate_path, ok=False,
                     cause="plan_offset_unmeasurable")
@@ -683,7 +683,6 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "speed_ratio_exact": (None if speed_ratio is None else rate_text),
         "rate_source": (None if speed_ratio is None else "rate_arm"),
         "resample_gate": context.get("sweep_gate"),
-        "repair_deadline": domain.get("repair_deadline"),
         "picture_audio_worst_diff_ms": picture_audio_worst_diff_ms,
         "picture_audio_residual_by_zone": picture_audio_residual_by_zone,
     }

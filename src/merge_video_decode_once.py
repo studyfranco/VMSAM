@@ -12,13 +12,13 @@ Outside a scope (`begin` not called) nothing is cached and every request is a
 import hashlib
 import json
 import os
-import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
+import progress_watchdog
 import tools
 
 LOG_PREFIX = "decode_once: "
@@ -170,7 +170,7 @@ def _covers(need_s):
     return lambda value: value.get("duration_s", 0.0) + 1e-6 >= need_s
 
 
-def fingerprints(file_path, streams, need_s, work_dir, rate=None, deadline=None, pads_ms=None):
+def fingerprints(file_path, streams, need_s, work_dir, rate=None, pads_ms=None):
     '''Whole-track fingerprints of several streams of one file, on the file clock.
 
     Uncached streams are decoded in one ffmpeg pass and fingerprinted two at a time.
@@ -181,7 +181,6 @@ def fingerprints(file_path, streams, need_s, work_dir, rate=None, deadline=None,
         need_s: {stream: minimum seconds covered}.
         work_dir: directory for temporary WAVs.
         rate: sample rate (default: the scope's comparison rate, else DEFAULT_RATE).
-        deadline: monotonic time after which nothing new is decoded.
         pads_ms: {stream: container start_time}, padded with silence or trimmed.
 
     Returns:
@@ -201,15 +200,10 @@ def fingerprints(file_path, streams, need_s, work_dir, rate=None, deadline=None,
             todo.append(stream)
     if not todo:
         return out
-    if deadline is not None and time.monotonic() > deadline:
-        for stream in todo:
-            out[stream] = None
-        return out
     private = os.path.join(work_dir or tools.tmpFolder, f"decode_once_{os.getpid()}_"
                            f"{threading.get_ident()}_{int(time.monotonic() * 1000)}")
     os.makedirs(private, exist_ok=True)
     wavs = {stream: os.path.join(private, f"s{stream}.wav") for stream in todo}
-    length = max(need_s[s] for s in todo)
     cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin", "-threads",
            str(DECODE_THREADS), "-i", file_path]
     for stream in todo:
@@ -220,18 +214,14 @@ def fingerprints(file_path, streams, need_s, work_dir, rate=None, deadline=None,
         elif pad < -0.5:
             cmd += ["-af", f"atrim=start={-pad / 1000.0:.6f},asetpts=PTS-STARTPTS"]
         cmd += ["-acodec", "pcm_s16le", wavs[stream]]
-    timeout = tools.decoder_timeout_for(length * max(1, len(todo)))
-    if deadline is not None:
-        timeout = max(1.0, min(timeout, deadline - time.monotonic()))
     started = time.monotonic()
     try:
         tools.dev_log(f"{LOG_PREFIX}ffmpeg pass file={file_path} streams={todo} rate={rate}\n")
-        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              timeout=timeout)
+        done = progress_watchdog.run(cmd, "fingerprint_decode")
         decoded = done.returncode == 0
         decode_error = (done.stderr or b"").decode("utf-8", "replace").strip()[-200:]
-    except subprocess.TimeoutExpired:
-        decoded, decode_error = False, f"decoder_timeout after {round(timeout, 1)} s"
+    except progress_watchdog.step_stalled as stall:
+        decoded, decode_error = False, str(stall)
     decode_s = time.monotonic() - started
 
     def one(stream):

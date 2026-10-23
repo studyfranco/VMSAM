@@ -451,28 +451,6 @@ def log_line(message):
     logs.append(stamp(message))
 
 
-class decoder_timeout(Exception):
-    """An external decoder (ffmpeg, PySceneDetect) ran past its time bound.
-
-    Describes the tool on this host, not the media, so the file can be retried later.
-    """
-
-    def __init__(self, tool, seconds, detail=""):
-        super().__init__(f"{tool} ran past its {round(seconds, 1)} s bound {detail}".strip())
-        self.tool = tool
-        self.seconds = seconds
-
-
-# Time bound of one decode: max(120 s, 1 s per second of media), generous enough for a loaded host.
-DECODER_TIMEOUT_BASE_S = 120.0
-DECODER_TIMEOUT_PER_MEDIA_S = 1.0
-
-
-def decoder_timeout_for(media_seconds):
-    """Return the timeout in seconds for decoding `media_seconds` of media."""
-    return max(DECODER_TIMEOUT_BASE_S, DECODER_TIMEOUT_PER_MEDIA_S * max(0.0, float(media_seconds)))
-
-
 def dev_log(message):
     """Write one trace line to stderr and `logs`, only when `dev` is set.
 

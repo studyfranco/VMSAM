@@ -30,11 +30,10 @@ ZONE_LAG_JITTER_SHARE = 0.15
 class ZoneLagJob:
     """Decode both files in a background thread; match their scene changes on demand."""
 
-    def __init__(self, master_obj, candidate_obj, domain, deadline=None):
+    def __init__(self, master_obj, candidate_obj, domain):
         self.master_path = master_obj.filePath
         self.candidate_path = candidate_obj.filePath
         self.domain = domain
-        self.deadline = deadline
         self.decoded = None
         self.reason = None
         self._thread = threading.Thread(target=self._decode, daemon=True)
@@ -65,7 +64,7 @@ class ZoneLagJob:
             for side, path, info in (("master", self.master_path, m_info),
                                      ("candidate", self.candidate_path, c_info)):
                 cuts, hashes, coloured, _cached = video_offset_plan.decode_scenes_and_hashes(
-                    path, fps, info["duration_s"], cache_root, self.deadline, crops.get(path))
+                    path, fps, info["duration_s"], cache_root, crops.get(path))
                 decoded[side] = (cuts, hashes, coloured)
             self.decoded = decoded
         except Exception as error:                                       # noqa: BLE001

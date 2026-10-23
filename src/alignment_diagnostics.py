@@ -162,11 +162,10 @@ def attach_drift_trace(result, fp_master, fp_candidate):
 
 
 def align(fp_master, fp_candidate, quantum_ms, candidate_quantum_ms=None, duration_diff_ms=None,
-          signed_duration_diff_ms=None, shorter_duration_ms=None, deadline=None):
+          signed_duration_diff_ms=None, shorter_duration_ms=None):
     """Run `b2_align`, then the duration budget and the drift trace on its result."""
     result = banded_seed_alignment.b2_align(fp_master, fp_candidate, quantum_ms,
-                                            candidate_quantum_ms=candidate_quantum_ms,
-                                            deadline=deadline)
+                                            candidate_quantum_ms=candidate_quantum_ms)
     apply_duration_budget(result, duration_diff_ms, signed_duration_diff_ms,
                           shorter_duration_ms)
     return attach_drift_trace(result, fp_master, fp_candidate)

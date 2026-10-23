@@ -14,10 +14,10 @@ grey thumbnail instead (`pixel_distance`), stored only for frames near that case
 """
 
 from fractions import Fraction
-import subprocess
 from sys import stderr
 import numpy as np
 import frame_hash
+import progress_watchdog
 import tools
 import repair_log
 
@@ -359,17 +359,11 @@ class FrameComparer:
             "-fps_mode", "passthrough",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"
         ]
-        timeout = tools.decoder_timeout_for(dur_sec)
         tools.dev_log(f"frame_compare: _ffmpeg_raw_frames starting file={path} "
-                      f"start_sec={start_sec} dur_sec={dur_sec} timeout_s={timeout}\n")
-        try:
-            with repair_log.announced("frame_compare", "ffmpeg", path, media_s=dur_sec) as call:
-                done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      timeout=timeout)
-                call["exit"] = done.returncode
-        except subprocess.TimeoutExpired:
-            raise tools.decoder_timeout("ffmpeg_raw_frames", timeout,
-                                        f"file={path} start_sec={start_sec} dur_sec={dur_sec}")
+                      f"start_sec={start_sec} dur_sec={dur_sec}\n")
+        with repair_log.announced("frame_compare", "ffmpeg", path, media_s=dur_sec) as call:
+            done = progress_watchdog.run(cmd, "ffmpeg_raw_frames")
+            call["exit"] = done.returncode
         stdout, stderr_out, rc = done.stdout, done.stderr, done.returncode
         if rc not in (0,):
             if self.debug:
@@ -444,8 +438,7 @@ def _native_frame_rate(path):
                   f"file={path}\n")
     try:
         with repair_log.announced("frame_compare", "ffprobe", path) as call:
-            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-                cmd, max_restart=3, timeout=60)
+            stdout, stderror, exit_code = progress_watchdog.run_checked(cmd, "ffprobe_frame_rate")
             call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"

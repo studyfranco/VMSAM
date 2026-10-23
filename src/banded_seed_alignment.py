@@ -18,7 +18,6 @@ trace and the duration-budget check read its result and live in `alignment_diagn
 """
 import math
 import statistics
-import time
 
 # Verdicts. The first five mean "could not measure" and must not be read as a negative result.
 VERDICT_DEGENERATE_INPUT = "unreliable_degenerate_input"
@@ -37,9 +36,6 @@ COULD_NOT_MEASURE_VERDICTS = (
     VERDICT_ALL_SEGMENTS_BELOW_DURATION_FLOOR,
 )
 MEASURED_VERDICTS = (VERDICT_SINGLE_SEGMENT_NO_CUT, VERDICT_SEGMENTS_FOUND)
-# The time budget ran out: a statement about cost, not about the pair, so in neither tuple.
-VERDICT_ALIGNMENT_BUDGET_EXCEEDED = "alignment_budget_exceeded"
-DEADLINE_CHECK_EVERY_SEEDS = 256
 
 # Note: VERDICT_SINGLE_SEGMENT_NO_CUT means "no offset step found", not "the tracks align";
 # always read `master_axis_coverage_fraction` beside it.
@@ -176,7 +172,7 @@ def _segment_evidence(segment):
 
 def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
              min_run_points=MIN_RUN_POINTS, local_baseline_min=LOCAL_BASELINE_MIN,
-             candidate_quantum_ms=None, deadline=None):
+             candidate_quantum_ms=None):
     """Align two whole-track fingerprints into constant-offset zones.
 
     Pipeline: degeneracy screen, seeding, extension, minimum-run anchor, local-baseline guard,
@@ -186,8 +182,6 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         quantum_ms: master fingerprint point duration.
         band: optional (offset_lo, offset_hi) in points to restrict seeding.
         candidate_quantum_ms: optional candidate point duration, used only for ms bounds.
-        deadline: optional time.monotonic() instant; past it the verdict is
-            `alignment_budget_exceeded`.
 
     Returns:
         dict with every key present (None when not measured), notably: verdict (a VERDICT_*
@@ -231,14 +225,7 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
     extended = []
     seen_seed_offsets = set()
     self_evident_points = math.ceil(LOCAL_BASELINE_SELF_EVIDENT_SECONDS * 1000.0 / quantum_ms)
-    for number, (i, j) in enumerate(seeds):
-        # Seed extension is the super-linear part, so the deadline is checked here.
-        if (deadline is not None and number % DEADLINE_CHECK_EVERY_SEEDS == 0
-                and time.monotonic() > deadline):
-            result["verdict"] = VERDICT_ALIGNMENT_BUDGET_EXCEEDED
-            result["seeds_extended"] = number
-            result["seeds_total"] = len(seeds)
-            return result
+    for i, j in seeds:
         offset = j - i
         if (i, offset) in seen_seed_offsets:
             continue

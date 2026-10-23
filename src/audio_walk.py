@@ -100,27 +100,22 @@ def speech_envelope(samples, rate):
     return np.interp(np.arange(len(x)), centres, rms).astype(np.float32)
 
 
-def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), deadline=None,
-                       envelope=False):
-    """Read one track as mono float32 at WALK_RATE on the file clock.
+def read_on_file_clock(video_obj, audio, audio_filter=None, scale=Decimal(1), envelope=False):
+    """Read one track as mono float32 at WALK_RATE on the file clock, start_time prepended as zeros.
 
-    The stream's container start_time (times `scale` on a rate pair) is prepended as zeros; a
-    negative start drops samples. `deadline` bounds the decode; `envelope` returns the speech
-    envelope instead of the waveform. Results are cached per repair
-    (`merge_video_decode_once.file_clock`) and shared read-only."""
+    `envelope` returns the speech envelope; cached per repair (`merge_video_decode_once.file_clock`), shared read-only."""
     import merge_video_decode_once
     return merge_video_decode_once.file_clock(
         video_obj, audio, lambda: _read_on_file_clock(video_obj, audio, audio_filter, scale,
-                                                      deadline, envelope),
+                                                      envelope),
         audio_filter=audio_filter, scale=scale, envelope=envelope)
 
 
-def _read_on_file_clock(video_obj, audio, audio_filter, scale, deadline, envelope):
+def _read_on_file_clock(video_obj, audio, audio_filter, scale, envelope):
     """Uncached decode behind `read_on_file_clock`."""
     import merge_video_chimeric
     samples = merge_video_chimeric.read_track_samples(
-        video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter,
-        deadline=deadline)
+        video_obj.filePath, int(audio["StreamOrder"]), WALK_RATE, audio_filter=audio_filter)
     if envelope:
         samples = speech_envelope(samples, WALK_RATE)
     start_ms = merge_video_chimeric.get_stream_start_ms(audio) * Decimal(scale)

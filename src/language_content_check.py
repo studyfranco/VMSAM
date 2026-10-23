@@ -99,14 +99,11 @@ def _remove(path_):
         pass
 
 
-def fingerprint_every_track(video_obj, side, primed, work_dir, deadline, fingerprint=None,
+def fingerprint_every_track(video_obj, side, primed, work_dir, fingerprint=None,
                             keep_if=None):
-    """Fingerprint every audio track of `video_obj`, reusing the prime's fingerprints.
+    """Fingerprint every audio track, reusing the prime's: `({stream_order: points}, unmeasured)`.
 
-    Returns `(fingerprints, unmeasured, ran_out)`: `{stream_order: points}`, the tracks that
-    could not be fingerprinted, and whether the deadline passed. With `keep_if(points) ->
-    score|None`, the WAV of the best-scoring track is kept in `primed["tag_check_wav"]` for
-    reuse; every other WAV is deleted."""
+    With `keep_if(points) -> score|None` the best-scoring track's WAV stays in `primed['tag_check_wav']`."""
     import repair_orchestrator as ro
     fingerprint = fingerprint or ro.fingerprint_track
     fps, unmeasured = {}, []
@@ -116,8 +113,6 @@ def fingerprint_every_track(video_obj, side, primed, work_dir, deadline, fingerp
         if key in primed.get("fingerprints", {}):
             fps[str(order)] = primed["fingerprints"][key][0]
             continue
-        if deadline is not None and time.monotonic() > deadline:
-            return fps, unmeasured, True
         duration = ro._track_duration_seconds(video_obj, language, order)
         if duration is None:
             unmeasured.append((str(order), "no_duration"))
@@ -153,24 +148,19 @@ def fingerprint_every_track(video_obj, side, primed, work_dir, deadline, fingerp
             # Stored in the prime's shape so a re-run reuses it.
             primed.setdefault("fingerprints", {})[key] = (points, quantum_ms, duration)
             primed.setdefault("content_end", {})[key] = measures.get("content_end_s")
-    return fps, unmeasured, False
+    return fps, unmeasured
 
 
-def content_check(master_obj, candidate_obj, language, primed, work_dir, deadline=None,
-                  fingerprint=None):
-    """Compare audio track contents to check the language tags.
+def content_check(master_obj, candidate_obj, language, primed, work_dir, fingerprint=None):
+    """Compare audio track contents to check the language tags: a dict with `verdict` and `reason`.
 
-    Returns:
-        dict with `verdict` and `reason`. Verdict is AUDIO_TAG_CONFLICT (with
-        `track`, `tag`, `master_stream`, `similarity`, `moves`), NO_COMMON_LANGUAGE
-        (with `best`), 'tags_consistent', 'repair_budget_exceeded' or 'unmeasured'.
-    """
+    Verdict AUDIO_TAG_CONFLICT, NO_COMMON_LANGUAGE (with `best`), 'tags_consistent' or 'unmeasured'."""
     import repair_orchestrator as ro
     t0 = time.time()
     hop = ro.CHROMAPRINT_HOP_MS
     path = candidate_obj.filePath
-    master_fp, m_un, m_out = fingerprint_every_track(master_obj, "master", primed, work_dir,
-                                                     deadline, fingerprint)
+    master_fp, m_un = fingerprint_every_track(master_obj, "master", primed, work_dir,
+                                              fingerprint)
     refs0 = [str(m) for m, _ in (primed.get("couples") or [])]
 
     def keep_if(points):
@@ -178,13 +168,8 @@ def content_check(master_obj, candidate_obj, language, primed, work_dir, deadlin
                 for m in refs0]
         sims = [x for x in sims if x is not None]
         return max(sims) if sims and max(sims) >= SAME_CONTENT else None
-    cand_fp, c_un, c_out = (({}, [], True) if m_out else fingerprint_every_track(
-        candidate_obj, "candidate", primed, work_dir, deadline, fingerprint, keep_if=keep_if))
-    if m_out or c_out:
-        drop_kept_wav(primed)
-        return {"verdict": "repair_budget_exceeded",
-                "reason": "the repair's budget ran out while every audio track was fingerprinted "
-                          "for the content check"}
+    cand_fp, c_un = fingerprint_every_track(candidate_obj, "candidate", primed, work_dir,
+                                            fingerprint, keep_if=keep_if)
     master_tracks = tracks_of(master_obj)
     cand_tracks = tracks_of(candidate_obj)
     references = [str(m) for m, _ in (primed.get("couples") or [])]

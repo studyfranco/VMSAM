@@ -5,6 +5,7 @@ import re
 import statistics
 from os import path
 
+import progress_watchdog
 import tools
 import merge_video_chimeric
 
@@ -33,7 +34,7 @@ def read_cues(subtitle_path):
     return sorted(cues)
 
 
-def read_text_tracks(file_path, subtitles, work_dir, timeout):
+def read_text_tracks(file_path, subtitles, work_dir):
     """Read the text tracks of `subtitles` [(language, dict)] in one ffmpeg pass: {StreamOrder: (language, cues)}."""
     command = [tools.software["ffmpeg"], "-y", "-nostdin", "-analyzeduration", "1000M",
                "-probesize", "1000M", "-i", file_path]
@@ -49,7 +50,7 @@ def read_text_tracks(file_path, subtitles, work_dir, timeout):
     if not outputs:
         return {}
     try:
-        tools.launch_cmdExt_with_timeout_reload(command, 1, timeout)
+        progress_watchdog.run_checked(command, "subtitle_reference_extract")
     except Exception as error:
         tools.log_always(f"chimeric: subtitle_sync reference_unread file={file_path} "
                          f"error={type(error).__name__}\n")

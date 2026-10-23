@@ -15,13 +15,12 @@ static shots have only the first and are refused.
 import bisect
 from fractions import Fraction
 from decimal import Decimal
-import threading
-import time
 
 import numpy as np
 
 import frame_hash
 import frame_compare
+import progress_watchdog
 import tools
 import repair_log
 from frame_compare import (FrameComparer, _extract_hashes, _on_comparer_grid, mask_frames,
@@ -175,10 +174,10 @@ def _media_duration_s(path):
         value = None
         try:
             with repair_log.announced("scene_anchor", "ffprobe", path) as call:
-                stdout, _stderr, _code = tools.launch_cmdExt_with_timeout_reload(
+                stdout, _stderr, _code = progress_watchdog.run_checked(
                     [tools.software["ffprobe"], "-v", "error", "-show_entries",
                      "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path],
-                    max_restart=1, timeout=60)
+                    "ffprobe_duration")
                 call["exit"] = _code
             value = float(stdout.decode().strip())
         except Exception:                                                # noqa: BLE001
@@ -217,8 +216,7 @@ def _probe_frame_rate(path):
                   f"file={path}\n")
     try:
         with repair_log.announced("scene_anchor", "ffprobe", path) as call:
-            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-                cmd, max_restart=3, timeout=60)
+            stdout, stderror, exit_code = progress_watchdog.run_checked(cmd, "ffprobe_video")
             call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"
@@ -257,10 +255,8 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
     '''
     if n_frames <= 0:
         return [], None
-    # PySceneDetect runs in-process, so a timer calls `SceneManager.stop()`; a timer stop raises
-    # `tools.decoder_timeout`. The bound assumes 24 fps, the slowest expected rate.
-    timeout = tools.decoder_timeout_for(n_frames / 24.0)
-    fired = []
+    # PySceneDetect runs in-process: the watchdog calls `SceneManager.stop()` once no new frame
+    # was decoded for `progress_watchdog.STALL_S`, and that stop raises `step_stalled`.
     try:
         # `open_video`'s default ("opencv") backend hands AV1 to OpenCV's own FFmpeg build,
         # which picks a hardware-only AV1 decoder on this host and reads 0 frames without
@@ -273,22 +269,16 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
             video.seek(start_frame)
         sm = SceneManager()
         sm.add_detector(ContentDetector(threshold=threshold))
-        timer = threading.Timer(timeout, lambda: (fired.append(True), sm.stop()))
         tools.dev_log(f"scene_anchor: _scene_cut_frames calling "
                       f"detect_scenes file={path} start_frame={start_frame} "
-                      f"n_frames={n_frames} timeout_s={timeout}\n")
-        timer.start()
-        try:
-            with repair_log.announced("scene_anchor", "pyscenedetect", path,
-                                      media_s=n_frames / 24.0) as call:
+                      f"n_frames={n_frames}\n")
+        with repair_log.announced("scene_anchor", "pyscenedetect", path,
+                                  media_s=n_frames / 24.0) as call:
+            with progress_watchdog.watch("pyscenedetect", lambda: video.frame_number, sm.stop,
+                                         detail=f"file={path} start_frame={start_frame} "
+                                                f"n_frames={n_frames}"):
                 sm.detect_scenes(video, duration=n_frames)
-                call["exit"] = "stopped_by_timer" if fired else 0
-        finally:
-            timer.cancel()
-        if fired:
-            raise tools.decoder_timeout("pyscenedetect", timeout,
-                                        f"file={path} start_frame={start_frame} "
-                                        f"n_frames={n_frames}")
+            call["exit"] = 0
         if video.frame_number == 0:
             # A 0-frame read is a decoder failure, never "no cut": returning `([], None)` here
             # would read as a legitimate scene-less clip and feed a false "no anchor" decline
@@ -298,7 +288,7 @@ def _scene_cut_frames(path, start_frame, n_frames, threshold, debug=False):
         if len(scene_list) < 2:
             return [], None
         return [scene.frame_num for scene, _ in scene_list[1:]], None
-    except tools.decoder_timeout:
+    except progress_watchdog.step_stalled:
         raise
     except Exception as exc:
         reason = f"scene_detector_failed:{type(exc).__name__}"
@@ -643,6 +633,16 @@ def _scan_memo(cache, key, compute):
     return cache[key]
 
 
+def ladder_rung_is_new(guard, window_sec, cd_threshold):
+    # A rung with an earlier rung's window and threshold reads the same frames the same way.
+    try:
+        guard.visit((window_sec, cd_threshold))
+    except progress_watchdog.step_stalled as stall:
+        tools.log_line(f"scene_anchor: window_ladder_rung_skipped {stall}\n")
+        return False
+    return True
+
+
 def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          bracket_low_ms, bracket_high_ms,
                          offset_before_ms, offset_after_ms,
@@ -651,7 +651,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          candidate_time_scale=None, normalise_geometry=False,
                          resolve_shift=False,
                          shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
-                         cluster_window=None, scan_cache=None, deadline=None,
+                         cluster_window=None, scan_cache=None,
                          accept_step_disagreement=False):
     '''Locate Anchor A (before) and Anchor B (after) an interior bracket and cross-sweep.
 
@@ -663,8 +663,6 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                             of nominal, for offsets quantised coarser than a frame.
       cluster_window /      shared scan window for a cluster of nearby holes;
       scan_cache            scan_cache memoises decoded hashes and cuts per window.
-      deadline              time.monotonic() limit checked between rungs
-                            (declines hole_budget_exceeded).
       accept_step_disagreement  both anchors were found and the cross-sweep ran (an
                             ambiguous span never reaches this gate), but the frame gap it
                             counted does not match the caller's nominal step within
@@ -704,16 +702,15 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
     def ladder(picture_reach):
         result = None
         rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
+        guard = progress_watchdog.search_watch("window_ladder", WINDOW_LADDER_MAX_RUNGS)
         for rung in range(WINDOW_LADDER_MAX_RUNGS):
-            if deadline is not None and time.monotonic() > deadline:
-                return {"declined": True, "reason": "hole_budget_exceeded",
-                        "evidence": f"rungs_run={rung} last_reason="
-                                    f"{(result or {}).get('reason')}"}
             rung_window_sec = (window_sec if window_sec is None
                                else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
             # Clamped in case the two ladders' lengths differ.
             rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
                 min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
+            if not ladder_rung_is_new(guard, rung_window_sec, rung_cd_threshold):
+                continue
             try:
                 result = _locate_scene_anchors_at_window(
                     master_path, candidate_path, fps_num, fps_den,
@@ -726,8 +723,8 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                     shift_search_frames=shift_search_frames,
                     accept_step_disagreement=accept_step_disagreement,
                     picture_reach=picture_reach)
-            except tools.decoder_timeout as error:
-                return {"declined": True, "reason": "decoder_timeout",
+            except progress_watchdog.step_stalled as error:
+                return {"declined": True, "reason": "step_stalled",
                         "evidence": f"rung={rung} {error}"}
             if geometry is not None:
                 result["geometry"] = geometry
@@ -1213,8 +1210,7 @@ def _probe_video_geometry(path):
                   f"file={path}\n")
     try:
         with repair_log.announced("scene_anchor", "ffprobe", path) as call:
-            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
-                cmd, max_restart=3, timeout=60)
+            stdout, stderror, exit_code = progress_watchdog.run_checked(cmd, "ffprobe_video")
             call["exit"] = exit_code
     except Exception as exc:
         return None, f"ffprobe_raised:{type(exc).__name__}"
@@ -1626,7 +1622,7 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                          known_match_ms=None, step_ms=None, quantum_ms=None,
                          scene_search_window_sec=None, debug=False,
                          candidate_time_scale=None,
-                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES, deadline=None):
+                         shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES):
     '''Locate an edge (head or tail) boundary: one anchor on the common side, then a walk.
 
     Args:
@@ -1637,7 +1633,6 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
         candidate_time_scale: optional rate relation, as in locate_scene_anchors.
         shift_search_frames: shift search half-width; callers with offsets quantised to a
             fingerprint hop pass a wider bound.
-        deadline: optional time.monotonic() limit checked between rungs.
 
     Returns:
         The same dict shape as locate_scene_anchors (declined True or False).
@@ -1672,16 +1667,14 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
     result = None
     rung_window_sec = window_sec
     rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[0]
+    guard = progress_watchdog.search_watch("edge_window_ladder", WINDOW_LADDER_MAX_RUNGS)
     for rung in range(WINDOW_LADDER_MAX_RUNGS):
-        if deadline is not None and time.monotonic() > deadline:
-            return {"declined": True, "reason": "hole_budget_exceeded", "edge": edge,
-                    "geometry": geometry,
-                    "evidence": f"rungs_run={rung} last_reason="
-                                f"{(result or {}).get('reason')}"}
         rung_window_sec = (window_sec if window_sec is None
                            else window_sec * (WINDOW_LADDER_GROWTH_FACTOR ** rung))
         rung_cd_threshold = CONTENT_DETECTOR_THRESHOLD_LADDER[
             min(rung, len(CONTENT_DETECTOR_THRESHOLD_LADDER) - 1)]
+        if not ladder_rung_is_new(guard, rung_window_sec, rung_cd_threshold):
+            continue
         try:
             result = _locate_edge_boundary_at_window(
                 master_path, candidate_path, fps_num, fps_den,
@@ -1691,8 +1684,8 @@ def locate_edge_boundary(master_path, candidate_path, fps_num, fps_den,
                 content_detector_threshold=rung_cd_threshold, debug=debug,
                 candidate_time_scale=candidate_time_scale,
                 shift_search_frames=shift_search_frames)
-        except tools.decoder_timeout as error:
-            return {"declined": True, "reason": "decoder_timeout", "edge": edge,
+        except progress_watchdog.step_stalled as error:
+            return {"declined": True, "reason": "step_stalled", "edge": edge,
                     "geometry": geometry, "evidence": f"rung={rung} {error}"}
         matched = not result["declined"]
         tools.log_line(

@@ -48,6 +48,7 @@ import numpy as np
 import frame_hash
 import frame_compare
 import merge_video_resample
+import progress_watchdog
 import rate_direction
 import repair_pool
 import tools
@@ -63,7 +64,7 @@ CACHE_DIRNAME = "video_offset_cache"
 # scale-free); the pHash reads the same pictures.
 DECODE_WIDTH = 128
 DECODE_HEIGHT = 72
-# Decoder threads per file, kept low to fit the repair's budget.
+# Decoder threads per file, kept low: both files decode at once on the shared repair pool.
 DECODE_THREADS = 2
 BATCH_FRAMES = 512
 
@@ -106,9 +107,7 @@ STATUS_COVERAGE = "video_offset_coverage_incomplete"
 STATUS_UNMATCHED = "video_offset_unmatched"
 STATUS_PROBE_FAILED = "video_probe_failed"
 STATUS_DECODE_FAILED = "video_decode_failed"
-STATUS_DECODER_TIMEOUT = "decoder_timeout"
-# The decode was stopped by the repair's deadline, not by its own bound.
-STATUS_BUDGET = "repair_budget_exceeded"
+STATUS_STALLED = "step_stalled"
 
 LOG_PREFIX = "video_offset: "
 
@@ -216,9 +215,9 @@ def probe_video(path):
            "-show_entries", "stream=r_frame_rate,avg_frame_rate,start_time:format=duration",
            "-of", "json", path]
     try:
-        done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-    except subprocess.TimeoutExpired:
-        return None, "ffprobe_timeout"
+        done = progress_watchdog.run(cmd, "ffprobe_video")
+    except progress_watchdog.step_stalled:
+        return None, "ffprobe_stalled"
     if done.returncode != 0:
         return None, f"ffprobe_exit:{done.returncode}"
     try:
@@ -277,10 +276,6 @@ def _cache_path(work_dir, path, crop_filter=None):
     return os.path.join(work_dir, CACHE_DIRNAME, f"{digest}.npz")
 
 
-class BudgetExceeded(Exception):
-    '''The decode was stopped by the repair's `time.monotonic()` deadline; says nothing about the media.'''
-
-
 def _decode_vf(crop_filter):
     '''The ffmpeg `-vf` chain for `decode_scenes_and_hashes`: an optional measured geometry crop
     (from `geometry_crop_filters`) ahead of the unconditional aspect-preserving fit into the
@@ -313,16 +308,10 @@ def geometry_crop_filters(master_path, candidate_path, log=None):
     return crop_filters
 
 
-def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, crop_filter=None):
-    '''Decode a whole video once and return `(cuts, hashes, coloured, from_cache)`.
+def decode_scenes_and_hashes(path, fps, duration_s, work_dir, crop_filter=None):
+    '''Decode a whole video once: (scene cuts, frame_hashes, coloured rows near changes, from_cache).
 
-    `cuts` are ContentDetector scene starts (frame indices); `hashes` is a frame_hashes of every
-    frame whose colour rows are filled only where `coloured` (bool per frame) is set, near the
-    changes. `crop_filter`, when given (an ffmpeg `"crop=w:h:x:y"`, from `geometry_crop_filters`),
-    is applied before the scale, reconciling a measured active-picture geometry mismatch between
-    the two files being compared. Raises `tools.decoder_timeout`, `BudgetExceeded` when
-    `deadline` comes first, or RuntimeError on a failed decode.
-    '''
+    `crop_filter` crops a measured geometry mismatch first; raises step_stalled on a stall, RuntimeError on a failure.'''
     cache = _cache_path(work_dir, path, crop_filter) if work_dir else None
     if cache and os.path.exists(cache):
         with np.load(cache) as data:
@@ -356,28 +345,8 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, cro
            "-map", "0:v:0", "-an", "-sn", "-dn", "-fps_mode", "passthrough",
            "-vf", vf, "-pix_fmt", "bgr24",
            "-f", "rawvideo", "pipe:1"]
-    timeout = tools.decoder_timeout_for(duration_s or 0.0)
-    budget_bound = False
-    if deadline is not None:
-        left = deadline - time.monotonic()
-        if left <= 0:
-            raise BudgetExceeded(f"no budget left before the decode of {path}")
-        if left < timeout:
-            timeout, budget_bound = left, True
-    tools.dev_log(f"{LOG_PREFIX}decode starting file={path} timeout_s={round(timeout, 1)} "
-                  f"bound_by={'repair_budget' if budget_bound else 'decoder_bound'}\n")
+    tools.dev_log(f"{LOG_PREFIX}decode starting file={path}\n")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    fired = []
-
-    def _kill():
-        fired.append(True)
-        try:
-            proc.kill()
-        except OSError:
-            pass
-
-    timer = threading.Timer(timeout, _kill)
-    timer.start()
     stderr_chunks = []
     drain = threading.Thread(target=lambda: stderr_chunks.append(proc.stderr.read()), daemon=True)
     drain.start()
@@ -395,40 +364,38 @@ def decode_scenes_and_hashes(path, fps, duration_s, work_dir, deadline=None, cro
                     colour[int(row)] = one.colour[0]
 
     try:
-        while True:
-            blob = proc.stdout.read(frame_bytes * BATCH_FRAMES)
-            if not blob:
-                break
-            usable = len(blob) - len(blob) % frame_bytes
-            frames = np.frombuffer(blob[:usable], dtype=np.uint8).reshape(
-                -1, DECODE_HEIGHT, DECODE_WIDTH, 3)
-            first = index
-            for frame in frames:
-                for tc in detector.process_frame(FrameTimecode(index, fps=fps), frame):
+        with progress_watchdog.watch(
+                "ffmpeg_scene_decode",
+                lambda: (progress_watchdog.process_progress(proc.pid), index), proc.kill,
+                detail=f"file={path}"):
+            while True:
+                blob = proc.stdout.read(frame_bytes * BATCH_FRAMES)
+                if not blob:
+                    break
+                usable = len(blob) - len(blob) % frame_bytes
+                frames = np.frombuffer(blob[:usable], dtype=np.uint8).reshape(
+                    -1, DECODE_HEIGHT, DECODE_WIDTH, 3)
+                first = index
+                for frame in frames:
+                    for tc in detector.process_frame(FrameTimecode(index, fps=fps), frame):
+                        cuts.append(int(tc.frame_num))
+                    index += 1
+                rgb = frames[..., ::-1]
+                hash_parts.append(frame_hash.hash_frames(rgb))
+                held = (held + [(first, rgb)])[-2:]
+                _colour_near_changes()
+                if usable != len(blob):
+                    break
+            if index:
+                for tc in detector.post_process(FrameTimecode(index - 1, fps=fps)):
                     cuts.append(int(tc.frame_num))
-                index += 1
-            rgb = frames[..., ::-1]
-            hash_parts.append(frame_hash.hash_frames(rgb))
-            held = (held + [(first, rgb)])[-2:]
-            _colour_near_changes()
-            if usable != len(blob):
-                break
-        if index:
-            for tc in detector.post_process(FrameTimecode(index - 1, fps=fps)):
-                cuts.append(int(tc.frame_num))
-            _colour_near_changes()
-        proc.wait()
+                _colour_near_changes()
+            proc.wait()
     finally:
-        timer.cancel()
         if proc.poll() is None:
             proc.kill()
             proc.wait()
     drain.join(timeout=5)
-    if fired and budget_bound:
-        raise BudgetExceeded(f"the repair's deadline stopped the scene decode of {path} "
-                             f"after {round(timeout, 1)} s")
-    if fired:
-        raise tools.decoder_timeout("ffmpeg_scene_decode", timeout, f"file={path}")
     if proc.returncode != 0 or index == 0:
         err = b"".join(c for c in stderr_chunks if c).decode("utf-8", "replace")[-300:]
         raise RuntimeError(f"decode_exit:{proc.returncode} frames={index} {err.strip()}")
@@ -669,12 +636,10 @@ def _log_line(result, bound):
 
 
 def measure_video_offset(master_path, candidate_path, work_dir, log=None,
-                         audio_delay_hints_ms=None, deadline=None):
-    '''Measure the constant frame offset between two videos.
+                         audio_delay_hints_ms=None):
+    '''Measure the constant frame offset between two videos as a `VideoOffsetResult`, logged on one line.
 
-    Never raises for a media reason: every failure is a named status on the returned
-    `VideoOffsetResult`, logged on one line. A decode stopped by `deadline` returns `STATUS_BUDGET`.
-    '''
+    Never raises for a media reason; a decode that stopped producing frames returns `STATUS_STALLED`.'''
     t0 = time.monotonic()
     bound = None
 
@@ -699,20 +664,17 @@ def measure_video_offset(master_path, candidate_path, work_dir, log=None,
     # Both files are decoded concurrently on the shared repair pool: decoding dominates the cost.
     pool = repair_pool.get_pool()
     futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
-                           deadline, crop_filters.get(path))
+                           crop_filters.get(path))
                for path, info in ((master_path, m_info), (candidate_path, c_info))]
     errors, outcomes = [], []
     for future in futures:
         try:
             outcomes.append(future.result())
-        except BudgetExceeded as exc:
-            errors.append((STATUS_BUDGET, str(exc)))
-        except tools.decoder_timeout as exc:
-            errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
+        except progress_watchdog.step_stalled as exc:
+            errors.append((STATUS_STALLED, str(exc)))
         except (RuntimeError, OSError) as exc:
             errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
     if errors:
-        errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
         return done(VideoOffsetResult(errors[0][0], reason=errors[0][1], **common))
     (m_cuts, m_hashes, m_coloured, m_cached), (c_cuts, c_hashes, c_coloured, c_cached) = outcomes
 
@@ -962,23 +924,13 @@ def video_alignment_from_zones(groups, n_master, n_candidate, frame_ms):
 
 
 def measure_video_zones(master_path, candidate_path, work_dir, log=None,
-                        audio_delay_hints_ms=None, deadline=None,
+                        audio_delay_hints_ms=None,
                         merge_window_s=ZONE_HOLE_MERGE_SECONDS):
-    '''Build video-only zones when the offset is not one constant.
+    '''Regroup `measure_video_offset`'s matched pairs into video-only zones: (status, groups, result).
 
-    Reuses `measure_video_offset` unchanged (same decode, same `match_changes`, same disk
-    cache); only its matched pairs are regrouped, never remeasured. Accepted only on top of
-    `STATUS_NOT_CONSTANT` or `STATUS_COVERAGE` -- any other status (fps mismatch, no match,
-    a probe/decode failure, a budget or a timeout) is returned unchanged: the video gave no
-    gap sequence to group.
-
-    Returns:
-        `(status, groups, result)`. `status` is `STATUS_ZONES_OK` or a named decline;
-        `groups` is `None` unless `status == STATUS_ZONES_OK`; `result` is the underlying
-        `VideoOffsetResult`, kept for its numbers (fps, frame counts, wall time).
-    '''
+    Only on STATUS_NOT_CONSTANT or STATUS_COVERAGE; any other status is returned unchanged with groups None.'''
     result = measure_video_offset(master_path, candidate_path, work_dir, log,
-                                  audio_delay_hints_ms, deadline)
+                                  audio_delay_hints_ms)
     if result.status not in (STATUS_NOT_CONSTANT, STATUS_COVERAGE):
         return result.status, None, result
     groups = group_video_zones(result.pairs, float(result.frame_ms), merge_window_s)
@@ -1319,7 +1271,7 @@ def _speed_log_line(result):
     return " ".join(parts)
 
 
-def detect_speed_ratio(master_path, candidate_path, work_dir, log=None, deadline=None):
+def detect_speed_ratio(master_path, candidate_path, work_dir, log=None):
     '''Detect a constant-ratio speed change between two individually-CFR videos at different
     declared exact rates, from their matched scene cuts alone -- frames, never time: the same
     frames, nothing added or dropped, just declared (and played) at two different rates, so the
@@ -1363,21 +1315,18 @@ def detect_speed_ratio(master_path, candidate_path, work_dir, log=None, deadline
     crop_filters = geometry_crop_filters(master_path, candidate_path, log)
     pool = repair_pool.get_pool()
     futures = [pool.submit(decode_scenes_and_hashes, path, fps, info["duration_s"], work_dir,
-                           deadline, crop_filters.get(path))
+                           crop_filters.get(path))
                for path, fps, info in ((master_path, fps_m, m_info),
                                        (candidate_path, fps_c, c_info))]
     errors, outcomes = [], []
     for future in futures:
         try:
             outcomes.append(future.result())
-        except BudgetExceeded as exc:
-            errors.append((STATUS_BUDGET, str(exc)))
-        except tools.decoder_timeout as exc:
-            errors.append((STATUS_DECODER_TIMEOUT, str(exc)))
+        except progress_watchdog.step_stalled as exc:
+            errors.append((STATUS_STALLED, str(exc)))
         except (RuntimeError, OSError) as exc:
             errors.append((STATUS_DECODE_FAILED, str(exc)[:200]))
     if errors:
-        errors.sort(key=lambda error: error[0] != STATUS_BUDGET)
         return done(VideoSpeedResult(errors[0][0], reason=errors[0][1],
                                      master_fps=fps_m, candidate_fps=fps_c,
                                      ratio_declared=ratio_declared))
@@ -1645,8 +1594,7 @@ def video_status_cause(status, trigger):
         vop.STATUS_UNMATCHED: "video_content_mismatch",
         vop.STATUS_PROBE_FAILED: "video_probe_failed",
         vop.STATUS_DECODE_FAILED: "video_decode_failed",
-        vop.STATUS_DECODER_TIMEOUT: "decoder_timeout",
-        vop.STATUS_BUDGET: "repair_budget_exceeded",
+        vop.STATUS_STALLED: "step_stalled",
     }.get(status, "video_decode_failed")
 
 
@@ -1662,8 +1610,7 @@ def video_anchored_pieces(offset_ms, extent_ms, timeline_ms):
                         timeline_ms)
 
 
-def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language, rows,
-                         repair_deadline):
+def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language, rows):
     """Run the video-anchored route; return `(status, cause, reason)`.
 
     Status is repaired, declined or fallback. Every candidate track and the chapters are moved
@@ -1679,8 +1626,7 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
     cache_root = os.path.join(tools.tmpFolder, "repair")
     tools.make_dirs(cache_root)
     result = video_offset_plan.measure_video_offset(
-        master_obj.filePath, candidate_path, cache_root, audio_delay_hints_ms=hints,
-        deadline=repair_deadline)
+        master_obj.filePath, candidate_path, cache_root, audio_delay_hints_ms=hints)
     numbers = (f"fps={result.fps} scenes master={result.master_scenes} "
                f"candidate={result.candidate_scenes} paired={result.paired}/{result.total} "
                f"matched={result.matched} ambiguous={result.ambiguous} "
@@ -1740,14 +1686,6 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
                      f"picture_delay_ms={float(picture_ms):.3f} gaps_ms={gaps} "
                      f"constant=yes same_files=yes marker={marker} {numbers} "
                      f"for {candidate_path}\n")
-    if repair_deadline is not None and time.monotonic() > repair_deadline:
-        orch.log_partial_plan(candidate_path, "repair_budget_exceeded",
-                         [("video_anchored", "measured", result.offset_frames)])
-        orch.step_result("video_anchored", candidate=candidate_path, status="declined",
-                    cause="repair_budget_exceeded")
-        return "declined", "repair_budget_exceeded", (
-            "the repair's budget ran out after the video measurement -- the partial plan is "
-            "logged; declined, retried at the next run")
     import frame_count_check
     count = frame_count_check.check_constant_plan(master_obj, candidate_obj,
                                                   orch._decimal(picture_ms), candidate_path)
@@ -1808,7 +1746,6 @@ def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language,
         "track_plans": track_plans, "reference_pieces": reference_pieces,
         "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
         "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
-        "repair_deadline": repair_deadline,
         "video_anchored": {"offset_frames": result.offset_frames, "shift_frames": shift,
                            "offset_ms": offset_ms, "fps": str(result.fps),
                            "trigger": trigger},

@@ -14,12 +14,12 @@ call time, so this module can be imported on its own.
 from decimal import Decimal
 from fractions import Fraction
 from os import path, remove
-import subprocess
 import time
 
 import audioCorrelation
 import audio_extract
 import banded_seed_alignment
+import progress_watchdog
 import repair_log
 import tools
 
@@ -352,7 +352,7 @@ def _finalist_row(ratio, engine, alignment, shared_ms, seconds, candidate_path):
     return row
 
 
-def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, videos=None):
+def rate_arm(primed, first_ratios, work_dir, candidate_path, videos=None):
     """Find which named speed ratio and engine, if any, best aligns the candidate.
 
     The prime's kept candidate WAV is resampled at each (ratio, engine), fingerprinted and
@@ -390,8 +390,6 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, vide
         def run_round(ratios):
             for ratio in ratios:
                 for engine in merge_video_resample.SPEED_ENGINES:
-                    if deadline is not None and time.monotonic() > deadline:
-                        return "repair_budget_exceeded"
                     started = time.time()
                     try:
                         chain, effective = merge_video_resample.build_transform_chain(
@@ -409,9 +407,7 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, vide
                     try:
                         with repair_log.announced("orchestrator", "ffmpeg", wav["path"],
                                                   media_s=wav["duration_s"]) as call:
-                            done = subprocess.run(command, capture_output=True,
-                                                  timeout=tools.decoder_timeout_for(
-                                                      wav["duration_s"]))
+                            done = progress_watchdog.run(command, "rate_arm_resample")
                             call["exit"] = done.returncode
                         if done.returncode != 0:
                             continue
@@ -419,7 +415,7 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, vide
                             points = audioCorrelation.calculate_fingerprints(
                                 out, length=corrected)
                             call["exit"] = 0
-                    except (subprocess.TimeoutExpired, Exception) as error:  # noqa: BLE001
+                    except Exception as error:                           # noqa: BLE001
                         tools.dev_log(f"orchestrator: rate_arm {ratio} {engine} unmeasured "
                                       f"({type(error).__name__})\n")
                         continue
@@ -438,7 +434,6 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, vide
                                               min(master_duration_ms, corrected * 1000.0),
                                               time.time() - started, candidate_path))
                 tried.add(ratio)
-            return None
 
         rounds = [list(first_ratios),
                   [r for r in merge_video_resample.build_rate_ratio_vocabulary()]]
@@ -448,13 +443,10 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, deadline=None, vide
             if not ratios and number > 1:
                 break
             gate["rounds"] = number
-            stopped = run_round(ratios)
+            run_round(ratios)
             break_tie = (None if videos is None else
                          lambda tied: picture_tie_break(tied, mappings, videos, candidate_path))
             winner = rate_direction.choose_winner(rows, break_tie=break_tie)
-            if stopped:
-                gate["cause"] = stopped
-                break
             if winner is not None:
                 break
         gate["rows"] = [{**row, "ratio": f"{row['ratio'].numerator}/{row['ratio'].denominator}"}

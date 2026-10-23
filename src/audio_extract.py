@@ -7,8 +7,8 @@ decode; streams_for lists every audio stream of a language.
 """
 from os import stat as os_stat
 
-import subprocess
 
+import progress_watchdog
 import tools
 import repair_log
 
@@ -57,23 +57,9 @@ class ExtractProducedNothing(Exception):
 
 def extract_audio_window(source_path, stream_order, start_seconds, length_seconds, out_path,
                           sample_rate, audio_filter=None):
-    """Extract an audio window of one stream to a mono 16-bit PCM WAV.
+    """Extract one stream's window to a mono 16-bit WAV at `sample_rate` (`audio_filter` changes its length).
 
-    Args:
-        source_path: media file to read.
-        stream_order: absolute stream index (ffmpeg map 0:<n>).
-        start_seconds, length_seconds: window read from the source.
-        out_path: WAV file to write.
-        sample_rate: output rate; no default, so every caller passes the pair's rate.
-        audio_filter: optional -af filtergraph (e.g. a speed correction); the output
-            length then differs from length_seconds.
-
-    Raises:
-        StrictDecodeFailed: the decode condemns the source.
-        Exception: any other non-zero ffmpeg exit.
-        tools.decoder_timeout: ffmpeg exceeded its timeout.
-        ExtractProducedNothing: under one second of audio was written.
-    """
+    Raises StrictDecodeFailed, ExtractProducedNothing (under 1 s written), step_stalled, or Exception on another exit."""
     cmd = [tools.software["ffmpeg"], "-v", "error", "-y", "-nostdin"] + STRICT_DECODE_FLAGS + [
            "-ss", f"{start_seconds:.6f}", "-t", f"{length_seconds:.6f}",
            "-i", source_path, "-map", f"0:{stream_order}",
@@ -85,16 +71,10 @@ def extract_audio_window(source_path, stream_order, start_seconds, length_second
     tools.dev_log(f"audio_extract: extract_audio_window ffmpeg call file={source_path} "
                   f"stream_order={stream_order} out_path={out_path}"
                   + (f" audio_filter={audio_filter}" if audio_filter else "") + "\n")
-    timeout = tools.decoder_timeout_for(length_seconds)
-    try:
-        with repair_log.announced("audio_extract", "ffmpeg", source_path,
-                                  media_s=length_seconds) as call:
-            done = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  timeout=timeout)
-            call["exit"] = done.returncode
-    except subprocess.TimeoutExpired:
-        raise tools.decoder_timeout("extract_audio_window", timeout,
-                                    f"file={source_path} stream_order={stream_order}")
+    with repair_log.announced("audio_extract", "ffmpeg", source_path,
+                              media_s=length_seconds) as call:
+        done = progress_watchdog.run(cmd, "extract_audio_window")
+        call["exit"] = done.returncode
     stderr_text = done.stderr.decode("utf-8", "replace")
     corrupt = strict_decode_verdict(done.returncode, stderr_text)
     if corrupt is not None:

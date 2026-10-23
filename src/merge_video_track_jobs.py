@@ -8,12 +8,12 @@ from os import path
 
 import pysubs2
 
+import progress_watchdog
 import tools
 import video
 import audio_reencode
 import audio_integrity
 
-TRACK_JOB_TIMEOUT = 3600
 WARNING_KEYWORDS = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
 
 
@@ -61,7 +61,7 @@ def ffmpeg_job(genpts, input_args, output_args, avoid_negative_ts, duration, out
 
 def run_track_cmd(label, cmd):
     try:
-        stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(cmd, 2, TRACK_JOB_TIMEOUT)
+        stdout, stderror, exit_code = progress_watchdog.run_checked(cmd, "track_job")
     except Exception as e:
         message = f"Track job failed for {label}: {e}"
         sys.stderr.write(f"[FFmpeg ERROR] {message}\n")
@@ -172,7 +172,7 @@ def generate_track_files(file_path, track_jobs, merge_cmd, tmp_file):
         for result in submitted:
             result.get()
         try:
-            tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
+            progress_watchdog.run_checked(merge_cmd, "track_files_mkvmerge")
         except Exception as e:
             if not str(e).rstrip().endswith("Return code: 1"):
                 raise TrackJobError(f"mkvmerge of the track files of {file_path} failed: {e}") from e

@@ -31,6 +31,7 @@ import threading
 import time
 import zlib
 
+import progress_watchdog
 import tools
 from dataclasses import dataclass, field, asdict
 
@@ -185,13 +186,13 @@ def _bin(name):
     return tools.software[name]
 
 
-def _run(cmd, timeout=None):
+def _run(cmd):
     try:
-        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           stdin=subprocess.DEVNULL, timeout=timeout)
+        p = progress_watchdog.run(cmd, f"conformity_{os.path.basename(cmd[0])}",
+                                  stdin=subprocess.DEVNULL)
         return p.returncode, p.stdout, p.stderr.decode("utf-8", "replace")
-    except subprocess.TimeoutExpired as e:
-        return -9, e.stdout or b"", "timeout after %s s" % timeout
+    except progress_watchdog.step_stalled as stall:
+        return -9, b"", str(stall)
 
 
 def _parse_hms(s):
@@ -225,7 +226,7 @@ def probe(path):
         RuntimeError: ffprobe failed.
     """
     rc, out, err = _run([_bin("ffprobe"), "-v", "error", "-show_streams", "-show_format",
-                         "-show_chapters", "-of", "json", path], timeout=300)
+                         "-show_chapters", "-of", "json", path])
     if rc != 0:
         raise RuntimeError(f"ffprobe rc={rc}: {err.strip()[:300]}")
     return json.loads(out.decode("utf-8", "replace"))
@@ -238,7 +239,7 @@ def _track_label(s):
 
 # ---------------------------------------------------------------- packet ends
 
-def _packet_scan(path, select=None, interval=None, gaps=False, timeout=None):
+def _packet_scan(path, select=None, interval=None, gaps=False):
     """Scan packets for each stream's end and, optionally, its timestamp jumps.
 
     Returns:
@@ -255,7 +256,6 @@ def _packet_scan(path, select=None, interval=None, gaps=False, timeout=None):
     ends, last, jumps = {}, {}, {}
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                          stdin=subprocess.DEVNULL)
-    t0 = time.time()
     for raw in p.stdout:
         parts = raw.decode("ascii", "replace").strip().split(",")
         if len(parts) < 4:
@@ -277,9 +277,6 @@ def _packet_scan(path, select=None, interval=None, gaps=False, timeout=None):
                 n, mx, first = jumps.get(idx, (0, 0.0, t))
                 jumps[idx] = (n + 1, max(mx, t - prev), first)
             last[idx] = max(e, prev or -1e18)
-        if timeout and time.time() - t0 > timeout:
-            p.kill()
-            break
     p.stdout.close()
     p.wait()
     return ends, jumps
@@ -434,7 +431,7 @@ def _extract_windows(path, audio_positions, start, dur, workdir, tag, threads):
     for k in audio_positions:
         cmd += ["-map", f"0:a:{k}", "-af", f"aresample={WIN_SR}:async=1", "-ac", "1",
                 "-c:a", "pcm_s16le", "-y", outs[k]]
-    _run(cmd, timeout=600)
+    _run(cmd)
     res = {}
     for k, f in outs.items():
         if os.path.exists(f) and os.path.getsize(f) > 44 + WIN_SR:
@@ -450,7 +447,7 @@ def _extract_windows(path, audio_positions, start, dur, workdir, tag, threads):
 
 def _fpcalc(wav, length):
     """Return the raw chromaprint fingerprint of a wav, or None."""
-    rc, out, _ = _run([_bin("fpcalc"), "-raw", "-length", str(int(length) + 1), wav], timeout=120)
+    rc, out, _ = _run([_bin("fpcalc"), "-raw", "-length", str(int(length) + 1), wav])
     if rc != 0:
         return None
     for line in out.decode("ascii", "replace").splitlines():
@@ -529,7 +526,7 @@ def _rms_db(x):
 
 # ---------------------------------------------------------------- integrity
 
-def _strict_decode(path, start, dur, threads, timeout, maps=None):
+def _strict_decode(path, start, dur, threads, maps=None):
     """Strict-decode one window (or the whole file); return rc, timing and error lines.
 
     Args:
@@ -547,7 +544,7 @@ def _strict_decode(path, start, dur, threads, timeout, maps=None):
             cmd += ["-map", f"0:{m}"]
     cmd += ["-f", "null", "-"]
     t0 = time.time()
-    rc, _, err = _run(cmd, timeout=timeout)
+    rc, _, err = _run(cmd)
     lines = [l for l in err.splitlines()
              if l.strip() and not any(s in l for s in IGNORED_ERROR_SUBSTRINGS)]
     return dict(start=start, dur=dur, maps=maps, rc=rc, seconds=round(time.time() - t0, 1),
@@ -968,7 +965,7 @@ def _check_integrity(a, rep, mode, windows, seed, threads, jobs, log):
         return a.ends.get(s["index"], (None,))[0] or a.declared_end(s)[0] or vend
 
     if starts is None:
-        runs = [_strict_decode(a.path, None, None, threads, timeout=None)]
+        runs = [_strict_decode(a.path, None, None, threads)]
         how = "décodage strict complet"
     else:
         tasks = []
@@ -983,7 +980,7 @@ def _check_integrity(a, rep, mode, windows, seed, threads, jobs, log):
             f"processes={len(tasks)} jobs={n_jobs} threads={threads}")
         with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, n_jobs)) as ex:
             runs = list(ex.map(lambda t: _strict_decode(a.path, t[0], INTEGRITY_WINDOW_S, threads,
-                                                        timeout=1800, maps=t[1]), tasks))
+                                                        maps=t[1]), tasks))
         how = (f"décodage strict de {len(starts)} fenêtres de {INTEGRITY_WINDOW_S:.0f} s "
                f"({len(runs)} processus vidéo/audio, graine {seed})")
     # Fail on any decoder message, not only rc: corrupt files rarely hit a fatal packet.
