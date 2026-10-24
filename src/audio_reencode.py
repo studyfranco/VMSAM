@@ -9,6 +9,7 @@ DEFAULT_FLAC_ARGS = ["-compression_level", "12", "-exact_rice_parameters", "1"]
 NEGATIVE_DELAY_FILTER = "aresample=async=1:first_pts=0"
 LOSSLESS_CODECS = {"truehd", "mlp", "flac", "alac"}
 
+audio_encode_parameters = (tools.configuration or {}).get("audio_reencode") or {}
 
 def is_lossless(audio):
     if (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG):
@@ -20,23 +21,31 @@ def is_lossless(audio):
         return True
     return audio.get("Compression_Mode") == "Lossless"
 
+def get_orginal_encode_data(audio):
+    original_encode_param = []
+    try:
+        original_encode = (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG, '')
+        if original_encode:
+            codec, bitrate, sampling_rate = str(original_encode).split(":")
+            original_encode_param = [codec, int(float(bitrate)), int(float(sampling_rate))]
+    except Exception as e:
+        tools.log_always(f"Error during get_orginal_encode_data: {e}")
+    return original_encode_param
+    
 
 def audio_for_keep(audio):
     """Return the audio dict keep_best_audio compares: a re-encoded track as its original encoding."""
-    if is_lossless(audio):
-        return audio
     configuration = tools.configuration or {}
-    tag = (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG)
-    if not tag:
+    original_encode_param = get_orginal_encode_data(audio)
+    if not original_encode_param:
         return audio
     try:
-        codec, bitrate, sampling_rate = str(tag).split(":")
         handicap = float(configuration.get("reencode_keep_handicap", 1.0))
-        bitrate = str(int(round(int(float(bitrate)) * handicap)))
-        sampling_rate = str(int(float(sampling_rate)))
+        bitrate = str(int(round(int(float(original_encode_param[1]) * handicap))))
+        sampling_rate = str(int(float(original_encode_param[2])))
     except (KeyError, ValueError, TypeError):
         return audio
-    codec = codec.strip().lower()
+    codec = original_encode_param[0].strip().lower()
     if not codec:
         return audio
     compared = dict(audio)
@@ -147,3 +156,104 @@ def generate_audio_ffmpeg_conversion_cmd(base_cmd, audio, delay_to_put, other_fi
     if filters_inline:
         return True
     return args, joined
+
+def get_parameters_lossless(audio_position):
+    parameters = [f"-c:a:{audio_position}", "flac", f"-compression_level:a{audio_position}", "12"]
+    # impossible to use because: parameters.extend(table.get("flac_args") or DEFAULT_FLAC_ARGS) can't have a proper way to find audio. We have to create a way to specify the stream.
+    if "BitDepth" in audio:
+        if audio["BitDepth"] == "16":
+            parameters.extend([f"-sample_fmt:a{audio_position}", "s16"])
+        else:
+            parameters.extend([f"-sample_fmt:a{audio_position}", "s32"])
+    else:
+        parameters.extend([f"-sample_fmt:a{audio_position}", "s32"])
+    parameters.extend([f"-exact_rice_parameters:a{audio_position}", "1"])
+    return parameters
+
+def all_lossless_in_flac():
+    return audio_encode_parameters.get("encode_lossless_in_flac", True)
+
+# This case is when we don't want reencode lossless in flac 
+def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_param_to_add=''):
+    param_to_send = []
+    original_encode_param = get_orginal_encode_data(audio)
+    if original_encode_param:
+        encoder = original_encode_param[0]
+        bitrate = original_encode_param[1]
+        sample_rate = original_encode_param[2]
+    else:
+        encoder = video.get_codec(audio)
+        try:
+            bitrate = video.get_bitrate(audio, file_path)
+        except Exception:
+            bitrate = 0
+        sample_rate = video.get_sample_rate(audio)
+    channels = video.get_channel(audio)
+
+    param_reencode = reencode_rules_writed_in_table(encoder,bitrate,sample_rate,channels)
+
+    if param_reencode:
+        """ Example:
+        {"target": "libopus","bitrate": "source", "filter": "my_special_arg", "args": {"-mapping_family": "1", "-compression_level": "12"}}
+        """
+        param_to_send.extend([f"-c:a{audio_position_in_file}", param_reencode["target"]]) # The encoder must be set. Raise an error if it missing.
+
+        param_to_send.extend([f"-metadata:s:a:{audio_position_in_file}", f"{tools.ORIGINAL_ENCODE_TAG}={encoder}:{int(bitrate)}:{int(sample_rate)}"])
+
+        bitrate_param = str(param_reencode.get("bitrate", "source"))
+        if bitrate_param != "source":
+            bitrate_param = bitrate_param.strip().lower()
+            bitrate = int(float(text.rstrip("km")) * {"k": 1000, "m": 1000000}.get(text[-1:], 1))
+        param_to_send.extend([f"-b:a{audio_position_in_file}", str(bitrate)])
+
+        filter_param = param_reencode.get("filter", "")
+        filter_param = filter_param + filter_param_to_add
+        if filter_param:
+            param_to_send.extend([f"-filter:a{audio_position_in_file}", filter_param])
+        
+        # ADD args and sample rate.
+    else:
+        param_to_send.extend([f"-c:a{audio_position_in_file}", audio["ffprobe"]["codec_name"]])
+        if filter_param_to_add:
+            param_to_send.extend([f"-filter:a{audio_position_in_file}", filter_param_to_add])
+        if bitrate != 0:
+            param_to_send.extend([f"-b:a{audio_position_in_file}", str(bitrate)])
+
+    return param_to_send
+
+def reencode_rules_writed_in_table(encoder,bitrate,sample_rate,channels):
+    """ Example:
+    "aac": {
+        "bitrate": {
+            "0": {
+                "sample_rate": {
+                    "0": {
+                        "channels": {
+                            "0": {"target": "libopus","bitrate": "source"},
+                            "2": {"target": "libopus","bitrate": "160k"},
+                            "3": {"target": "libopus","bitrate": "source", "filter": "my_special_arg", "args": {"-mapping_family": "1", "-compression_level": "12"}},
+                            "6": {"target": "libopus","bitrate": "640k", "args": ["-mapping_family", "1"]},
+                            "7": {"target": "libopus","bitrate": "source", "args": ["-mapping_family", "1"]}
+                        }
+                    }
+                }
+            },
+    """
+    param_find = {}
+    source_entry = audio_encode_parameters.get("sources", {}).get(encoder)
+    if source_entry:
+        bitrate_map = source_entry.get("bitrate", {})
+        if bitrate_map:
+            sample_rate_map = select_lowest_value(bitrate_map, bitrate).get("sample_rate", {})
+            if sample_rate_map:
+                channels_map = select_lowest_value(sample_rate_map, sample_rate).get("channels", {})
+                if channels_map:
+                    param_find = select_lowest_value(channels_map, channels)
+    return param_find
+
+def select_lowest_value(mapping, target):
+    valid_keys = [int(k) for k in mapping.keys() if int(k) <= target]
+    if valid_keys:
+        return mapping[str(max(valid_keys))]
+    else:
+        return {}

@@ -1674,31 +1674,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_video_track_jobs.wait_track_jobs(ffmpeg_cmd_dict['convert_process'])
 
     try:
-        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
+        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 2400)
     except Exception as e:
-        lined_error = str(e).splitlines()
-        if re.match('Return code: 1', lined_error[-1]) != None:
-            only_UID_warning = True
-            i = 0
-            while only_UID_warning and i < len(lined_error):
-                if re.match('^Warning:.*', lined_error[i]) != None:
-                    if re.match(r"^Warning:.+Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
-                        only_UID_warning = False
-                i += 1
-            if (not only_UID_warning):
-                raise e
-            else:
-                sys.stderr.write(str(e))
-                tools.logs.append(str(e))
-        else:
-            raise e
+        tools.mkv_merge_error_detections(e, out_path_tmp_file_name_split)
 
     if tools.dev:
         tools.logs.append(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
-    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
-                         "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
-                         "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 360)
+    integrity.test_video_file_have_no_big_error(out_path_tmp_file_name_split)
     
     if tools.dev:
         tools.logs.append(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
