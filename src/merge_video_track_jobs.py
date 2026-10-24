@@ -11,6 +11,7 @@ import pysubs2
 import tools
 import video
 import audio_reencode
+import integrity
 import audio_integrity
 
 
@@ -32,7 +33,6 @@ class finalTransformations(Thread):
 
     def run(self):
         file_base_name = path.splitext(path.basename(self.tmp_file))[0]
-        list_track = self.audio_track_to_convert_or_keep + self.sub_track_to_convert_or_keep
         list_convert_process = []
         list_file_to_merge = []
         try:
@@ -57,11 +57,10 @@ class finalTransformations(Thread):
             cmd_merge = [tools.software["mkvmerge"], "-o", self.tmp_file]
             cmd_merge.extend(list_file_to_merge)
             try:
-                tools.launch_cmdExt_with_timeout_reload(cmd_merge, 2, 3600)
+                tools.launch_cmdExt_with_timeout_reload(cmd_merge, 2, 2400)
             except Exception as e:
-                if not str(e).rstrip().endswith("Return code: 1"):
-                    raise TrackJobError(f"mkvmerge of the track files of {self.video_obj.filePath} failed: {e}") from e
-                sys.stderr.write(f"[mkvmerge WARN] track files of {self.video_obj.filePath}: {e}\n")
+                tools.mkv_merge_error_detections(e,self.video_obj.filePath)
+
             remove_files(list_file_to_merge)
 
             self.new_video = video.video(path.dirname(self.tmp_file), path.basename(self.tmp_file))
@@ -69,6 +68,7 @@ class finalTransformations(Thread):
             self.new_video.get_mediadata()
 
             list_new_track = [new_track for new_track in self.new_video.mediadata['media']['track'] if 'StreamOrder' in new_track]
+            list_track = self.audio_track_to_convert_or_keep + self.sub_track_to_convert_or_keep
             if len(list_new_track) != len(list_track):
                 raise TrackJobError(f"{self.tmp_file} of {self.video_obj.filePath} has {len(list_new_track)} tracks, {len(list_track)} expected")
             for new_track in list_new_track:
@@ -111,7 +111,10 @@ def extract_stream(video_obj, type_stream, id_stream, out_file):
         cmd_extract.extend(["-S","-A","--no-global-tags", "-M", "-B", "--no-chapters",
                             "--video-tracks", f"{id_stream}"])
     cmd_extract.extend([video_obj.filePath])
-    tools.launch_cmdExt(cmd_extract)
+    try:
+        tools.launch_cmdExt_with_timeout_reload(cmd_extract, 2, 2400)
+    except Exception as e:
+        tools.mkv_merge_error_detections(e,video_obj.filePath)
 
 def print_ffmpeg_message(stderror, video_obj, cmd):
     stderr_text = stderror.decode("utf-8", errors="ignore")
@@ -133,21 +136,19 @@ def delay_input_args(delay_to_put, file_path):
         return ["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", file_path]
     elif delay_to_put < 0:
         return ["-i", file_path, "-ss", f"{delay_to_put/Decimal('1000')*Decimal(-1):.6f}"]
-    return ["-i", file_path]
-
+    else:
+        return ["-i", file_path]
 
 def remove_files(paths):
     for file_path in paths:
         if file_path and path.exists(file_path):
             tools.file_remove(file_path)
 
-
 def is_already_converted(track, delay_to_put, on_master):
     """True when a master track with no delay to apply already carries NOT_MY_FIRST_TAG: no ffmpeg runs on it."""
     if delay_to_put != 0 or not on_master:
         return False
     return bool((track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG))
-
 
 def read_subtitle_events(label, file_path, stream):
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-v", "error", "-nostdin", "-i", file_path,
@@ -164,9 +165,11 @@ def read_subtitle_events(label, file_path, stream):
 def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_best_video, on_master):
     tmp_file_extract = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tmp_extr.mkv")
     tmp_file_convert = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tmp.mkv")
+
+    label = f"audio track {audio['StreamOrder']} of {video_obj.filePath}"
     try:
         extract_stream(video_obj, "audio", audio['StreamOrder'], tmp_file_extract)
-
+        integrity.test_video_file_have_no_big_error(tmp_file_extract)
         if is_already_converted(audio, delay_to_put, on_master):
             rename(tmp_file_extract,tmp_file_convert)
 
@@ -179,29 +182,34 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             cmd_convert.extend(["-map", "0:a?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
 
-            is_reencoded = audio_reencode.generate_audio_ffmpeg_conversion_cmd(cmd_convert, audio, delay_to_put, stream=":a:0", path=video_obj.filePath)
-
+            if audio_reencode.is_lossless(audio) and audio_reencode.all_lossless_in_flac():
+                cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
+                if delay_to_put < 0:
+                    cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
+            elif delay_to_put < 0:
+                cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
+            
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
 
-            cmd_convert.extend(["-t", str(duration_best_video), "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_convert])
+            cmd_convert.extend(["-strict", "-2", "-t", str(duration_best_video), "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_convert])
             stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_convert, 2, 3600)
 
             print_ffmpeg_message(stderror, video_obj, cmd_convert)
 
             tools.file_remove(tmp_file_extract)
 
-            if is_reencoded:
-                audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
+            audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
             raise
-        raise TrackJobError(f"Track job failed for audio track {audio['StreamOrder']} of {video_obj.filePath}: {e}") from e
+        raise TrackJobError(f"Track job failed for {label}: {e}") from e
 
 
 def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_best_video, on_master):
     tmp_file_extract = path.join(tools.tmpFolder,f"{file_base_name}_{sub['StreamOrder']}_tmp_extr.mkv")
     tmp_file_convert = path.join(tools.tmpFolder,f"{file_base_name}_{sub['StreamOrder']}_tmp.mkv")
+
     label = f"subtitle track {sub['StreamOrder']} of {video_obj.filePath}"
     try:
         extract_stream(video_obj, "subtitle", sub['StreamOrder'], tmp_file_extract)
@@ -222,7 +230,7 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
             cmd_convert.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy"])
 
-            codec = sub["Format"].lower()
+            codec = video.get_codec(sub)
             if 'ffmpeg_to_convert' in sub:
                 cmd_convert.append(f"-c:s")
                 cmd_convert.append(sub['ffmpeg_to_convert'][1])

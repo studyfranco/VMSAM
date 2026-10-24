@@ -1036,6 +1036,7 @@ def get_codec(data):
     media_format = str(data.get('Format', '')).strip()
     if not media_format:
         return ''
+    # Why not just return data["Format"].lower() ?
     formats = (tools.configuration or {}).get('original_encode_formats') or {}
     reverse = {str(name).strip().lower(): codec for codec, name in formats.items()}
     return reverse.get(media_format.lower(), media_format.lower())

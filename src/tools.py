@@ -5,6 +5,7 @@ Created on 23 Apr 2022
 '''
 import fcntl
 import os
+import re
 import shutil
 import sys
 from subprocess import Popen, PIPE, TimeoutExpired
@@ -203,6 +204,24 @@ def extract_ffmpeg_type_dict_all(filePath):
     for data in data_sub_codec["streams"]:
         dic_index_data_sub_codec[data["index"]] = data
     return dic_index_data_sub_codec
+
+def mkv_merge_error_detections(e, file_name):
+    lined_error = str(e).splitlines()
+    if re.match('Return code: 1', lined_error[-1]) != None:
+        only_UID_warning = True
+        i = 0
+        while only_UID_warning and i < len(lined_error):
+            if re.match('^Warning:.*', lined_error[i]) != None:
+                if re.match(r"^Warning:.+Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
+                    only_UID_warning = False
+            i += 1
+        if (not only_UID_warning):
+            log_always(f"[mkvmerge ERROR] track files of {file_name}: {e}\n")
+            raise e
+        else:
+            log_always(f"[mkvmerge WARN] track files of {file_name}: {e}\n")
+    else:
+        raise e
 
 tmpFolder_original = "/tmp"
 tmpFolder = "/tmp"

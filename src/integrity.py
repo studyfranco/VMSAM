@@ -93,6 +93,10 @@ _CACHE_MAX = 64
 _probe_cache, _map_cache, _check_cache = {}, {}, {}
 _cache_lock = threading.Lock()
 
+def test_video_file_have_no_big_error(file_to_test):
+    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
+                        "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "2",
+                        "-i", file_to_test, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 1200)
 
 # ---------------------------------------------------------------- helpers
 
