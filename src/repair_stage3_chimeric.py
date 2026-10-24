@@ -1462,6 +1462,9 @@ BLIND_SILENCE_WIN_S = 0.02
 BLIND_SILENCE_HOP_S = 0.005
 # Placements whose audio misfit is within this fraction of the misfit's whole range tie.
 BLIND_MISFIT_TIE = 0.02
+FADE_LEVEL_DIFFER_DB = 6.0
+FADE_GAP_SPAN_S = 20.0
+FADE_GAP_MIN_FRAMES = 10
 
 
 def _window_levels(samples, times, shift_s, peak=False):
@@ -2000,21 +2003,10 @@ def _master_quiet(walk, times):
 
 
 def _audio_continuous_span(hole, domain, sweep, before, after, walk):
-    """Master frames [front, back) of a differing span the audio does not already carry.
-
-    The audio walk places the step between the hole's edges (`hole["master_ms"]`): before the
-    first the candidate plays at the before offset, after the second at the after offset, so
-    differing frames outside them (a frame belongs to the side holding most of it) sit in an
-    audio-continuous zone. Inside, a frame at either end where the master is quiet and the
-    candidate, at that side's audio offset (not the picture shift: the candidate's audio may
-    lag its own picture), is silent is common silence: nothing of the master is missing there
-    either. A master fill keeps at least the shift gap (before - after frames). Without
-    `walk` the sweep span is returned unchanged.
-
-    Returns:
-        (front, back) master frames, front <= back.
-    """
+    """Master frames (front, back) of a differing span the candidate's audio does not carry, the
+    sweep itself without `walk`."""
     import numpy as np
+    import audio_walk
     front, back = sweep
     if walk is None or back <= front:
         return front, back
@@ -2028,6 +2020,24 @@ def _audio_continuous_span(hole, domain, sweep, before, after, walk):
         # nothing there to bound, only the silence below is read.
         first, last = max(front, edge_first), min(back, edge_last)
 
+    def frame_levels(samples, frames, shift):
+        width = int(round(frame_s * audio_walk.WALK_RATE))
+        starts = [int(round((frame + shift) * frame_s * audio_walk.WALK_RATE)) for frame in frames]
+        return np.array([audio_walk.rms_db(samples[max(0, start):max(0, start + width)])
+                         for start in starts])
+
+    def candidate_quieter(shift, gap_frames):
+        gap_master = frame_levels(walk["master"], gap_frames, 0)
+        gap_candidate = frame_levels(walk["candidate"], gap_frames, shift)
+        loud = (gap_master > BLIND_SILENCE_DB) & (gap_candidate > BLIND_SILENCE_DB)
+        if int(loud.sum()) < FADE_GAP_MIN_FRAMES:
+            return np.zeros(back - front, dtype=bool)
+        usual_gap = float(np.median(gap_candidate[loud] - gap_master[loud]))
+        master = frame_levels(walk["master"], range(front, back), 0)
+        relative = frame_levels(walk["candidate"], range(front, back), shift) - master - usual_gap
+        return (relative <= -FADE_LEVEL_DIFFER_DB) & (master > BLIND_SILENCE_DB)
+    gap_count = int(round(FADE_GAP_SPAN_S / frame_s))
+
     def common_silence(frame, offset_ms, shift):
         start = frame * frame_s
         times = np.arange(start, start + frame_s - BLIND_SILENCE_WIN_S + 1e-9,
@@ -2038,10 +2048,18 @@ def _audio_continuous_span(hole, domain, sweep, before, after, walk):
                     and _candidate_silent(walk, times, offset_ms / 1000.0,
                                           shift * frame_s).all())
     try:
+        clamped = (first, last) != (front, back)
         while last > first and common_silence(last - 1, hole["offset_after_ms"], after):
             last -= 1
         while first < last and common_silence(first, hole["offset_before_ms"], before):
             first += 1
+        if clamped and first < last:
+            quieter_before = candidate_quieter(before, range(max(0, front - gap_count), front))
+            quieter_after = candidate_quieter(after, range(back, back + gap_count))
+            while first > front and quieter_before[first - 1 - front]:
+                first -= 1
+            while last < back and quieter_after[last - front]:
+                last += 1
     except Exception as error:                                           # noqa: BLE001
         tools.dev_log(f"repair: audio_continuous_probe_failed ({type(error).__name__}: "
                       f"{error})\n")
