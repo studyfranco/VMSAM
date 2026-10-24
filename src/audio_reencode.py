@@ -157,17 +157,17 @@ def generate_audio_ffmpeg_conversion_cmd(base_cmd, audio, delay_to_put, other_fi
         return True
     return args, joined
 
-def get_parameters_lossless(audio_position):
-    parameters = [f"-c:a:{audio_position}", "flac", f"-compression_level:a{audio_position}", "12"]
+def get_parameters_lossless(audio, audio_position):
+    parameters = [f"-c:a:{audio_position}", "flac", f"-compression_level:a:{audio_position}", "12"]
     # impossible to use because: parameters.extend(table.get("flac_args") or DEFAULT_FLAC_ARGS) can't have a proper way to find audio. We have to create a way to specify the stream.
     if "BitDepth" in audio:
         if audio["BitDepth"] == "16":
-            parameters.extend([f"-sample_fmt:a{audio_position}", "s16"])
+            parameters.extend([f"-sample_fmt:a:{audio_position}", "s16"])
         else:
-            parameters.extend([f"-sample_fmt:a{audio_position}", "s32"])
+            parameters.extend([f"-sample_fmt:a:{audio_position}", "s32"])
     else:
-        parameters.extend([f"-sample_fmt:a{audio_position}", "s32"])
-    parameters.extend([f"-exact_rice_parameters:a{audio_position}", "1"])
+        parameters.extend([f"-sample_fmt:a:{audio_position}", "s32"])
+    parameters.extend([f"-exact_rice_parameters:a:{audio_position}", "1"])
     return parameters
 
 def all_lossless_in_flac():
@@ -196,28 +196,54 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
         """ Example:
         {"target": "libopus","bitrate": "source", "filter": "my_special_arg", "args": {"-mapping_family": "1", "-compression_level": "12"}}
         """
-        param_to_send.extend([f"-c:a{audio_position_in_file}", param_reencode["target"]]) # The encoder must be set. Raise an error if it missing.
+        target_map = audio_encode_parameters.get("targets", {}).get(param_reencode["target"], {}) # The encoder must be set. Raise an error if it missing.
+        if param_reencode["target"] == "flac":
+            param_to_send.extend(get_parameters_lossless(audio, audio_position_in_file))
+        else:
+            param_to_send.extend([f"-c:a:{audio_position_in_file}", param_reencode["target"]])
 
-        param_to_send.extend([f"-metadata:s:a:{audio_position_in_file}", f"{tools.ORIGINAL_ENCODE_TAG}={encoder}:{int(bitrate)}:{int(sample_rate)}"])
+            if bitrate != 0:
+                param_to_send.extend([f"-metadata:s:a:{audio_position_in_file}", f"{tools.ORIGINAL_ENCODE_TAG}={encoder}:{int(bitrate)}:{int(sample_rate)}"])
+            else:
+                tools.log_always(f"No {tools.ORIGINAL_ENCODE_TAG} for audio track {audio.get('StreamOrder')} of {file_path}: no bitrate\n")
 
-        bitrate_param = str(param_reencode.get("bitrate", "source"))
-        if bitrate_param != "source":
-            bitrate_param = bitrate_param.strip().lower()
-            bitrate = int(float(text.rstrip("km")) * {"k": 1000, "m": 1000000}.get(text[-1:], 1))
-        param_to_send.extend([f"-b:a{audio_position_in_file}", str(bitrate)])
+            bitrate_param = str(param_reencode.get("bitrate", "source"))
+            if bitrate_param != "source":
+                bitrate_param = bitrate_param.strip().lower()
+                bitrate = int(float(bitrate_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(bitrate_param[-1:], 1))
+            if bitrate > 0:
+                param_to_send.extend([f"-b:a:{audio_position_in_file}", str(bitrate)])
 
-        filter_param = param_reencode.get("filter", "")
-        filter_param = filter_param + filter_param_to_add
+        sample_rates_allowed = target_map.get("sample_rates", [])
+        input_sample_rate = video.get_sample_rate(audio)
+        if sample_rates_allowed and input_sample_rate and input_sample_rate not in sample_rates_allowed:
+            higher_sample_rates = sorted([rate for rate in sample_rates_allowed if rate >= input_sample_rate])
+            if higher_sample_rates:
+                param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(higher_sample_rates[0])])
+            else:
+                param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(max(sample_rates_allowed))])
+
+        args_param = param_reencode.get("args", [])
+        if isinstance(args_param, dict):
+            for option, value in args_param.items():
+                param_to_send.extend([f"{option}:a:{audio_position_in_file}", str(value)])
+        else:
+            for arg in args_param:
+                if str(arg).startswith("-"):
+                    param_to_send.append(f"{arg}:a:{audio_position_in_file}")
+                else:
+                    param_to_send.append(str(arg))
+
+        list_filter = [target_map.get("filters", {}).get(str(channels), ""), param_reencode.get("filter", ""), filter_param_to_add]
+        filter_param = ",".join([filter_one for filter_one in list_filter if filter_one])
         if filter_param:
-            param_to_send.extend([f"-filter:a{audio_position_in_file}", filter_param])
-        
-        # ADD args and sample rate.
+            param_to_send.extend([f"-filter:a:{audio_position_in_file}", filter_param])
     else:
-        param_to_send.extend([f"-c:a{audio_position_in_file}", audio["ffprobe"]["codec_name"]])
+        param_to_send.extend([f"-c:a:{audio_position_in_file}", audio["ffprobe"]["codec_name"]])
         if filter_param_to_add:
-            param_to_send.extend([f"-filter:a{audio_position_in_file}", filter_param_to_add])
+            param_to_send.extend([f"-filter:a:{audio_position_in_file}", filter_param_to_add])
         if bitrate != 0:
-            param_to_send.extend([f"-b:a{audio_position_in_file}", str(bitrate)])
+            param_to_send.extend([f"-b:a:{audio_position_in_file}", str(bitrate)])
 
     return param_to_send
 

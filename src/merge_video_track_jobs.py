@@ -114,7 +114,7 @@ def extract_stream(video_obj, type_stream, id_stream, out_file):
     try:
         tools.launch_cmdExt_with_timeout_reload(cmd_extract, 2, 2400)
     except Exception as e:
-        tools.mkv_merge_error_detections(e,self.video_obj.filePath)
+        tools.mkv_merge_error_detections(e,video_obj.filePath)
 
 def print_ffmpeg_message(stderror, video_obj, cmd):
     stderr_text = stderror.decode("utf-8", errors="ignore")
@@ -166,7 +166,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
     tmp_file_extract = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tmp_extr.mkv")
     tmp_file_convert = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tmp.mkv")
 
-    label = f"audio track {sub['StreamOrder']} of {video_obj.filePath}"
+    label = f"audio track {audio['StreamOrder']} of {video_obj.filePath}"
     try:
         extract_stream(video_obj, "audio", audio['StreamOrder'], tmp_file_extract)
         integrity.test_video_file_have_no_big_error(tmp_file_extract)
@@ -183,11 +183,11 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
 
             if audio_reencode.is_lossless(audio) and audio_reencode.all_lossless_in_flac():
-                cmd_convert.extend(get_parameters_lossless("0"))
+                cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
                 if delay_to_put < 0:
                     cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
             elif delay_to_put < 0:
-                cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
+                cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
             
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
 
