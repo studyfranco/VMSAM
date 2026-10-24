@@ -1538,39 +1538,6 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def check_delay_retention_sub(track, source_tracks, original_video_path,sentence):
-    source = source_tracks[int(track['StreamOrder'])]
-    sys.stderr.write(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {source['StreamOrder']}: delay {source.get('Delay', '0')} -> {track.get('Delay', '0')}\n")
-    if Decimal(str(source.get('Delay', '0'))) != Decimal(str(track.get('Delay', '0'))):
-        sys.stderr.write(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {source['StreamOrder']}: original delay {source.get('Delay', '0')}, new delay {track.get('Delay', '0')}\n")
-
-# source_tracks must be in the produced file's stream order
-def check_delay_retention(new_video, source_tracks, original_video_path,sentence):
-    for language,audios in new_video.audios.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, source_tracks, original_video_path,sentence)
-
-    for language,subtitles in new_video.subtitles.items():
-        for subtitle in subtitles:
-            check_delay_retention_sub(subtitle, source_tracks, original_video_path,sentence)
-
-    for language,audios in new_video.commentary.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, source_tracks, original_video_path,sentence)
-   
-    for language,audios in new_video.audiodesc.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, source_tracks, original_video_path,sentence)
-
-def generate_new_file_launch_cmd(video_obj, track_jobs, cmd_merge_tracks, tmp_file, source_tracks):
-    merge_video_track_jobs.generate_track_files(video_obj.filePath, track_jobs, cmd_merge_tracks, tmp_file)
-    new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
-    new_video.need_one_audio_track = False
-    new_video.get_mediadata()
-
-    if tools.dev:
-        check_delay_retention(new_video, source_tracks, video_obj.filePath, "Track jobs")
-
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
@@ -1647,29 +1614,10 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     
     if number_track:
-        file_hash = hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]
-        tmp_file = path.join(tools.tmpFolder,f"{file_hash}_tmp.mkv")
-        have_sub_pgs = any(sub["Format"].lower() in tools.sub_type_not_encodable for sub in sub_track_to_convert_or_keep)
-        audio_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-        sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
+        tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
 
-        track_jobs = []
-        cmd_merge_tracks = [tools.software["mkvmerge"], "-o", tmp_file]
-        for track_type, tracks, track_job, extension in (("audio", audio_track_to_convert_or_keep, merge_video_track_jobs.audio_track_job, "mka"),
-                                                         ("subtitle", sub_track_to_convert_or_keep, merge_video_track_jobs.subtitle_track_job, "mks")):
-            for track in tracks:
-                cmd_merge_tracks.extend(["--no-global-tags", "-M", "-B"])
-                if len(track_jobs):
-                    cmd_merge_tracks.append("--no-chapters")
-                if merge_video_track_jobs.is_already_done(track, delay_to_put, is_master):
-                    out_path = None
-                    cmd_merge_tracks.extend(["-D", "-S" if track_type == "audio" else "-A", f"--{track_type}-tracks", str(int(track["StreamOrder"])), video_obj.filePath])
-                else:
-                    out_path = path.join(tools.tmpFolder,f"{file_hash}_{int(track['StreamOrder'])}.{extension}")
-                    cmd_merge_tracks.append(out_path)
-                track_jobs.append((track_job, (video_obj.filePath, track, delay_to_put, duration_best_video, have_sub_pgs, is_master, out_path)))
-
-        ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.ResultThread(generate_new_file_launch_cmd, (video_obj, track_jobs, cmd_merge_tracks, tmp_file, audio_track_to_convert_or_keep + sub_track_to_convert_or_keep)))
+        ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.finalTransformations(video_obj, tmp_file, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, is_master))
+        ffmpeg_cmd_dict['convert_process'][-1].start()
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
     
     return number_track
