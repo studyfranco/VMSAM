@@ -3290,34 +3290,33 @@ def video_cut_instant(outcome, domain, extra_s, interval, quantum_ms):
     return None, note
 
 
+# Picture lags searched each side of a level's own lag: a candidate's audio can sit a few frames
+# off its picture (measured: 2 frames on a 23.976 fps pair).
+LEVEL_GAP_SHIFT_FRAMES = 3
+
+
+def level_lag_reading(domain, master_obj, candidate_obj, first, count, centre):
+    shifts = list(range(centre - LEVEL_GAP_SHIFT_FRAMES, centre + LEVEL_GAP_SHIFT_FRAMES + 1))
+    readings = _pixel_readings(domain, master_obj, candidate_obj, first, count, shifts)
+    if readings is None:
+        return f"master frames {first}-{first + count} could not be read"
+    flags = {shift: _same_flags(readings[shift], (), readings["master_shot"]) for shift in shifts}
+    counts = {shift: sum(flags[shift]) for shift in shifts}
+    shift = max(shifts, key=lambda value: (counts[value], -abs(value - centre)))
+    if _longest_run(flags[shift]) < PIXEL_TRUST_RUN_FRAMES:
+        return f"no lag near {centre} frames holds {PIXEL_TRUST_RUN_FRAMES} frames"
+    tied = [value for value in shifts if value != shift and counts[value] == counts[shift]]
+    return shift, flags[shift], counts, tied
+
+
 def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
                       candidate_path, language=None, union=None):
-    """Place every walk change point on the master timeline.
-
-    The video decides: its anchor and cross-sweep search (`_resolve_logged` ->
-    `_resolve_interior`) gives the exact cut frames, and the audio walk is the witness that
-    confirms them, within one frame at the pair's own rational rate (`video_pin`'s tolerance,
-    `domain["frame_ms"]`) -- the natural unit a frame-exact cut can miss by, never `int(fps)`
-    nor a fixed millisecond figure tuned on one grid. The audio still fixes the step, the fill
-    width (max(0, a - b)) and the interval a video cut must fall in to be confirmed.
-
-    Three measured outcomes, never a silent fourth: a video cut confirmed within tolerance
-    wins; a video cut the audio witness does not confirm (wrong width or wrong location) is a
-    disagreement, logged with both positions, and the video is followed; a video
-    that could neither place a cut nor rule one out (no compatible anchor, a static/black span,
-    a geometry mismatch) declines the whole plan by name (`video_cut_undetermined` or, under
-    the alignment's own resolution floor, `sub_quantum_step_video_ambiguous`) instead of
-    delivering the audio's own instant unverified. Only when the video itself confirms there is
-    no cut (`no_cut_confirmed`) does a sub-quantum step resolve as a slip at the quietest
-    instant. Unreadable edges are borrowed from the union (`union_hole_edges`). Additions with
-    master-only audio in a union hole become replacements.
-
-    Returns:
-        (transitions, None) or (None, (cause, reason)).
+    """Place every walk change point on the master timeline: (transitions, None) or (None, (cause, reason)).
     """
     import audio_walk
     points = [p for p in walk["points"] if p["kind"] == "change_point"]
     holes, frame = [], float(domain["frame_ms"]) / 1000.0
+    hole_quantum_ms = reference["alignment"]["quantum_ms"]
     for index, point in enumerate(points):
         edges = point.get("edges") or {}
         if edges.get("status") != "ok":
@@ -3332,25 +3331,98 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                     f"interval_s={fallback['interval']} walk_edges={edges.get('status')} "
                     f"for {candidate_path}\n")
                 point["edges"] = edges = fallback
-        if edges.get("status") != "ok":
-            return None, ("audio_step_unlocalised",
-                          f"the walk measured a {point['jump_ms']} ms step between levels "
-                          f"{point['a_ms']} and {point['b_ms']} ms (t {point['level_before']['t_last']}"
-                          f" -> {point['level_after']['t_first']} s) but its edges could not be "
-                          f"read at 20 ms or 100 ms, and no cross-verified union hole carries "
-                          f"that step there")
-        holes.append(_cp_hole(point, reference, index))
+        holes.append(_cp_hole(point, reference, index) if edges.get("status") == "ok" else None)
     # Nearby change points share one scene pass.
-    cluster_holes(holes)
+    cluster_holes([hole for hole in holes if hole is not None])
     # Every hole's exact-frame search is independent (holes under the merge window share only
     # a read-through decode cache, never a decision), so they run together on the shared pool
     # instead of one change point at a time.
-    hole_outcomes = repair_pool.run_parallel([
-        (lambda i=index, h=hole: _resolve_logged(candidate_path, f"change_point_{i}", h, domain,
-                                                 master_obj, candidate_obj, work_dir, walk=walk))
-        for index, hole in enumerate(holes)])
+    localised = [index for index, hole in enumerate(holes) if hole is not None]
+    hole_outcomes = dict(zip(localised, repair_pool.run_parallel([
+        (lambda i=index, h=holes[index]: _resolve_logged(
+            candidate_path, f"change_point_{i}", h, domain, master_obj, candidate_obj, work_dir,
+            walk=walk))
+        for index in localised])))
     transitions = []
     for index, (point, hole) in enumerate(zip(points, holes)):
+        if hole is None:
+            # (decision: level-gap-picture-step)
+            before, after = point["level_before"], point["level_after"]
+            level_ms = point["a_ms"]
+            for earlier in reversed(transitions):
+                if earlier["decision"] != "audio_only_step_picture_continuous":
+                    break
+                level_ms = earlier["a_ms"]
+            frame_ms, rate = float(domain["frame_ms"]), domain["master_rate"]
+            first = max(0, math.floor((before["t_last"] - audio_walk.WALK_HOP_S) * rate))
+            last = math.ceil((after["t_first"] + audio_walk.WALK_WINDOW_S + audio_walk.WALK_HOP_S)
+                             * rate)
+            placed, sides = None, []
+            if min(before["n"], after["n"]) < audio_walk.LEVEL_PERSIST:
+                reading = f"a level holds fewer than {audio_walk.LEVEL_PERSIST} windows"
+            elif last - first > PIXEL_FRONT_MAX_FRAMES:
+                reading = f"the gap between the levels spans {last - first} frames"
+            else:
+                sides = [level_lag_reading(domain, master_obj, candidate_obj, first, last - first,
+                                           round(level_ms / frame_ms)),
+                         level_lag_reading(domain, master_obj, candidate_obj, first, last - first,
+                                           round(point["b_ms"] / frame_ms))]
+                reading = next((side for side in sides if isinstance(side, str)), None)
+            if reading is None:
+                (left, left_flags, left_counts, left_tied), (right, right_flags, right_counts,
+                                                             right_tied) = sides
+                common = {"a_ms": point["a_ms"], "b_ms": point["b_ms"],
+                          "video_status": _orch().HOLE_RESOLVED, "before_shift_frames": left,
+                          "after_shift_frames": right, "blind_span": None, "sweep_crossed": False,
+                          "change_point": index}
+                opening = next((at for at in range(len(right_flags) - PIXEL_TRUST_RUN_FRAMES + 1)
+                                if all(right_flags[at:at + PIXEL_TRUST_RUN_FRAMES])), None)
+                closing = (None if opening is None
+                           else next((at for at in range(opening - 1, -1, -1) if left_flags[at]),
+                                     None))
+                if left == right and not left_tied and not right_tied:
+                    at = _frame_s(first + (last - first) // 2, domain)
+                    reading = (f"lag {left} frames on both sides (counts {left_counts} / "
+                               f"{right_counts}): the picture holds one offset")
+                    placed = dict(common, at_s=at, fill_s=0.0, interval=[at, at], edges=[at, at],
+                                  decision="audio_only_step_picture_continuous", video_s=at,
+                                  video_span_frames=None, anchor_frames=[None, None],
+                                  ambiguous_sides=[])
+                elif closing is None:
+                    reading = f"no frame matches lag {left} before the first run at lag {right}"
+                else:
+                    fill_frames = opening - closing - 1
+                    removed_frames = fill_frames + right - left
+                    picture_step_ms = (right - left) * frame_ms
+                    audio_step_ms = point["b_ms"] - level_ms
+                    reading = (f"lags {left}/{right} frames (counts {left_counts} / "
+                               f"{right_counts}), master frames {first + closing}|"
+                               f"{first + opening}, fill {fill_frames} frames, candidate removal "
+                               f"{removed_frames} frames, picture step "
+                               f"{round(picture_step_ms, 3)} ms against the audio's "
+                               f"{round(audio_step_ms, 3)} ms")
+                    if (removed_frames >= 0 and abs(picture_step_ms - audio_step_ms)
+                            <= frame_ms + hole_quantum_ms):
+                        at = _frame_s(first + closing + 1, domain)
+                        placed = dict(common, at_s=at, fill_s=fill_frames * frame_ms / 1000.0,
+                                      interval=[at, at], decision="level_gap_picture_step",
+                                      edges=[at, _frame_s(first + opening, domain)], video_s=at,
+                                      video_span_frames=fill_frames,
+                                      anchor_frames=[first + closing, first + opening],
+                                      ambiguous_sides=[side for side, tied in (
+                                          ("before", left_tied), ("after", right_tied)) if tied])
+            tools.log_always(
+                f"repair: level_gap_picture_step change_point={index} a_ms={point['a_ms']} "
+                f"b_ms={point['b_ms']} levels_s=[{before['t_last']}, {after['t_first']}] "
+                f"placed={placed is not None} {reading} for {candidate_path}\n")
+            if placed is None:
+                return None, ("video_cut_undetermined",
+                              f"the walk measured a {point['jump_ms']} ms step between levels "
+                              f"{point['a_ms']} and {point['b_ms']} ms (t {before['t_last']} -> "
+                              f"{after['t_first']} s) whose audio edges could not be read, and "
+                              f"the picture between the levels does not place it ({reading})")
+            transitions.append(placed)
+            continue
         edges = point["edges"]
         lo, hi = edges["interval"]
         extra = edges["extra_s"]
