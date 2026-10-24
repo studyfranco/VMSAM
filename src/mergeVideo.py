@@ -23,6 +23,7 @@ import json
 import gc
 import hashlib
 from decimal import *
+import integrity
 
 max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment

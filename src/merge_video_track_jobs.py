@@ -119,7 +119,7 @@ def extract_stream(video_obj, type_stream, id_stream, out_file):
 def print_ffmpeg_message(stderror, video_obj, cmd):
     stderr_text = stderror.decode("utf-8", errors="ignore")
 
-    keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
+    keywords = ["error", "invalid", "corrupt", "pts", "non monoton", "discarding", "out of order"]
     any_error = []
     for line in stderr_text.splitlines():
         if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
@@ -186,6 +186,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                 cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
                 if delay_to_put < 0:
                     cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
+            # elif audio["offset"] + delay_to_put > 0: # A possibility is to remove a part of the offset. To explore.
             elif delay_to_put < 0:
                 cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
             
