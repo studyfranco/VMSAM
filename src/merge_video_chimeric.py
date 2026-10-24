@@ -577,9 +577,15 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     codec_name = audio.get("ffprobe", {}).get("codec_name", "").lower()
     # The rebuilt track is always converted; its filter chain ends the filtergraph,
     # since a filtergraph output takes no -filter. ORIGINAL_ENCODE is in the arguments.
-    encoder_arguments, encoder_filter = audio_reencode.generate_audio_ffmpeg_conversion_cmd(
-        [], audio, 0, force_conversion=True, filters_inline=False, stream=":a",
-        path=candidate_obj.filePath)
+    if audio_reencode.is_lossless(audio) and audio_reencode.all_lossless_in_flac():
+        encoder_arguments = audio_reencode.get_parameters_lossless(audio, "0")
+    else:
+        encoder_arguments = audio_reencode.get_parameters_in_reencode(audio, "0", candidate_obj.filePath)
+    encoder_filter = None
+    if "-filter:a:0" in encoder_arguments:
+        filter_position = encoder_arguments.index("-filter:a:0")
+        encoder_filter = encoder_arguments[filter_position + 1]
+        del encoder_arguments[filter_position:filter_position + 2]
     family = "lossless" if audio_reencode.is_lossless(audio) else "lossy"
     sample_rate, channels, layout, tool_disagreements = get_audio_stream_parameters(audio)
 
@@ -697,8 +703,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # `-map_chapters -1`: chapters are added later, retimed, by `mux_chapters`.
     command.extend(["-filter_complex", filtergraph, "-map", "[aout]", "-map_chapters", "-1"])
     command.extend(encoder_arguments)
-    # The table's aresample (a rate the encoder accepts, e.g. 48 kHz for Opus) sets the output rate.
-    if "-ar:a" not in encoder_arguments and "aresample=" not in (encoder_filter or ""):
+    # The table's -ar:a:0 (a rate the encoder accepts, e.g. 48 kHz for Opus) sets the output rate.
+    if "-ar:a:0" not in encoder_arguments and "aresample=" not in (encoder_filter or ""):
         command.extend(["-ar", sample_rate])
     # The same-codec rule can name an experimental encoder (opus, vorbis).
     command.extend(["-strict", "-2", "-vn", "-sn", "-dn",
@@ -710,8 +716,8 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
         call["exit"] = 0
 
     bitrate = None
-    if "-b:a" in encoder_arguments:
-        bitrate = encoder_arguments[encoder_arguments.index("-b:a") + 1]
+    if "-b:a:0" in encoder_arguments:
+        bitrate = encoder_arguments[encoder_arguments.index("-b:a:0") + 1]
     original_encode = None
     for argument in encoder_arguments:
         if argument.startswith(tools.ORIGINAL_ENCODE_TAG + "="):
