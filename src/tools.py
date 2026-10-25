@@ -447,6 +447,24 @@ def log_always(message):
     sys.stderr.write(message)
     logs.append(message)
 
+def index_list_by_key_value(the_list, key, raise_an_error=True):
+    indexed_list = {}
+    for elem in the_list:
+        if key in elem:
+            if elem[key] in indexed_list:
+                raise_or_log(raise_an_error, f"Multiple {key} in the same list for element {elem} and {indexed_list[elem[key]]}")
+            else:
+                indexed_list[elem[key]] = elem
+        else:
+            raise_or_log(raise_an_error, f"Missing key {key} for element {elem}")
+    return indexed_list
+
+def raise_or_log(raise_an_error,message):
+    if raise_an_error:
+        raise message
+    else:
+        log_always(message)
+
 """
 END: AGENT modification
 """

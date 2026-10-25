@@ -14,6 +14,8 @@ import audio_reencode
 import integrity
 import audio_integrity
 
+ORIGINAL_TAG="ORIGINAL_FILE_STREAM"
+PREVIOUS_STREAM_ID="VMSAM_PREVIOUS_STREAM_ID"
 
 class TrackJobError(Exception):
     pass
@@ -71,17 +73,23 @@ class finalTransformations(Thread):
             list_track = self.audio_track_to_convert_or_keep + self.sub_track_to_convert_or_keep
             if len(list_new_track) != len(list_track):
                 raise TrackJobError(f"{self.tmp_file} of {self.video_obj.filePath} has {len(list_new_track)} tracks, {len(list_track)} expected")
-            for new_track in list_new_track:
-                track = list_track[int(new_track['StreamOrder'])]
-                label = f"{track['@type'].lower()} track {track['StreamOrder']} of {self.video_obj.filePath}"
-                if new_track['@type'] != track['@type'] or new_track.get('Language', 'und') != track.get('Language', 'und'):
-                    raise TrackJobError(f"Final check failed for {label}: produced {new_track['@type']} in {new_track.get('Language', 'und')}, expected {track['@type']} in {track.get('Language', 'und')}")
-                if not (new_track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG):
-                    raise TrackJobError(f"Final check failed for {label}: the produced track has no {tools.NOT_MY_FIRST_TAG} tag")
-                if new_track['@type'] == 'Audio':
-                    if Decimal(str(new_track.get('Duration', '0'))) > Decimal(str(self.duration_best_video)) + Decimal("1"):
-                        raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {self.duration_best_video} s")
-                    check_delay_retention_sub(new_track, track, self.video_obj.filePath, self.delay_to_put, "Track jobs")
+
+            for language,audios in self.new_video.audios.items():
+                for audio in audios:
+                    check_track(audio, self.video_obj.filePath, list_track, self.delay_to_put)
+
+            for language,subtitles in new_video.subtitles.items():
+                for subtitle in subtitles:
+                    check_track(subtitle, self.video_obj.filePath, list_track, self.delay_to_put)
+
+            for language,audios in self.new_video.commentary.items():
+                for audio in audios:
+                    check_track(audio, self.video_obj.filePath, list_track, self.delay_to_put)
+        
+            for language,audios in self.new_video.audiodesc.items():
+                for audio in audios:
+                    check_track(audio, self.video_obj.filePath, list_track, self.delay_to_put)
+        
         except Exception as e:
             remove_files(list_file_to_merge + [self.tmp_file])
             self.new_video = None
@@ -92,12 +100,24 @@ class finalTransformations(Thread):
         if self.error is not None:
             raise self.error
 
-def check_delay_retention_sub(new_track, original_tracks, original_video_path, delay_to_put, sentence):
-    expected_delay = max(Decimal(0), Decimal(str(original_tracks.get('Delay', '0'))) + Decimal(str(delay_to_put))/Decimal(1000))
-    tools.dev_log(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {original_tracks['StreamOrder']}: delay {original_tracks.get('Delay', '0')} + {delay_to_put} ms -> {new_track.get('Delay', '0')}\n")
-    if abs(expected_delay - Decimal(str(new_track.get('Delay', '0')))) > Decimal("0.001"):
-        tools.dev_log(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {original_tracks['StreamOrder']}: original delay {original_tracks.get('Delay', '0')}, delay put {delay_to_put} ms, expected delay {expected_delay}, new delay {new_track.get('Delay', '0')}\n")
+def check_track(new_track, original_video_path, track_to_convert_or_keep, delay_to_put):
+    old_track = track_to_convert_or_keep[int(new_track['StreamOrder'])]
+    label = f"{new_track['@type'].lower()} track {old_track['StreamOrder']} of {original_video_path}"
 
+    if not get_original_tag(track):
+        raise TrackJobError(f"Final check failed for {label}: the produced track has no {ORIGINAL_TAG} tag")
+
+    if new_track['@type'] != track['@type'] or new_track.get('Language', 'und') != track.get('Language', 'und'):
+        raise TrackJobError(f"Final check failed for {label}: produced {new_track['@type']} in {new_track.get('Language', 'und')}, expected {track['@type']} in {track.get('Language', 'und')}")
+
+    if not (new_track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG):
+        raise TrackJobError(f"Final check failed for {label}: the produced track has no {tools.NOT_MY_FIRST_TAG} tag")
+
+    integrity.check_delay_retention_sub(new_track, old_track, original_video_path, delay_to_put, "Track jobs")
+
+def get_original_tag(track):
+    global ORIGINAL_TAG
+    return track.get("extra", {}).get(ORIGINAL_TAG, {})
 
 def extract_stream(video_obj, type_stream, id_stream, out_file):
     cmd_extract = [tools.software["mkvmerge"], "-o", out_file]
@@ -172,7 +192,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
         integrity.test_video_file_have_no_big_error(tmp_file_extract)
         if is_already_converted(audio, delay_to_put, on_master):
             rename(tmp_file_extract,tmp_file_convert)
-
+            audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
         else:
             cmd_convert = [tools.software["ffmpeg"], "-y", "-nostdin", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -191,6 +211,8 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                 cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
             
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
+            if not get_original_tag(audio):
+                cmd_convert.extend(["-metadata:s:a:0", add_original_informations(audio,video_obj.filePath)])
 
             cmd_convert.extend(["-strict", "-2", "-t", str(duration_best_video), "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_convert])
             stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_convert, 2, 3600)
@@ -198,6 +220,13 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             print_ffmpeg_message(stderror, video_obj, cmd_convert)
 
             tools.file_remove(tmp_file_extract)
+
+            new_encode = video.video(path.dirname(tmp_file_convert), path.basename(tmp_file_convert))
+            new_encode.get_mediadata()
+
+            new_track = new_encode.mediadata['media']['track'][0]
+            if Decimal(str(new_track.get('Duration', '0'))) > Decimal(str(duration_best_video)) + Decimal("1"):
+                raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {duration_best_video} s")
 
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
     except Exception as e:
@@ -245,6 +274,8 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                 cmd_convert.extend(["-c:s", "ass"])
 
             cmd_convert.extend([f"-metadata:s:s:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
+            if not get_original_tag(sub):
+                cmd_convert.extend([f"-metadata:s:s:0", add_original_informations(sub,video_obj.filePath)])
 
             cmd_convert.extend(["-t", str(duration_best_video), "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_convert])
             stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_convert, 2, 3600)
@@ -283,3 +314,12 @@ def wait_track_jobs(convert_processes):
         except TrackJobError as e:
             tools.log_always(f"[FFmpeg ERROR] {e}\n")
             raise
+
+def add_original_informations(data,file_path):
+    global ORIGINAL_TAG
+    data_to_save = {
+        "original_position": int(data.get('StreamOrder', '0')),
+        "original_file": path.basename(file_path)
+    }
+    data_to_save_string = json.dumps(data_to_save)
+    return f"{ORIGINAL_TAG}={data_to_save_string}"

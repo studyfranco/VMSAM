@@ -276,3 +276,9 @@ def silence_report(path_a, stream_a, path_b, stream_b, delay_ms=0):
     else:
         tools.logs.append(line)
     return report
+
+def check_delay_retention_sub(new_track, original_tracks, original_video_path, delay_to_put, sentence):
+    expected_delay = max(Decimal(0), Decimal(str(original_tracks.get('Delay', '0'))) + Decimal(str(delay_to_put))/Decimal(1000))
+    tools.dev_log(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {original_tracks['StreamOrder']}: delay {original_tracks.get('Delay', '0')} + {delay_to_put} ms -> {new_track.get('Delay', '0')}\n")
+    if abs(expected_delay - Decimal(str(new_track.get('Delay', '0')))) > Decimal("0.001"):
+        tools.dev_log(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {original_tracks['StreamOrder']}: original delay {original_tracks.get('Delay', '0')}, delay put {delay_to_put} ms, expected delay {expected_delay}, new delay {new_track.get('Delay', '0')}\n")
