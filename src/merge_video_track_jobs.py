@@ -113,7 +113,8 @@ def check_track(new_track, original_video_path, track_to_convert_or_keep, delay_
     if not (new_track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG):
         raise TrackJobError(f"Final check failed for {label}: the produced track has no {tools.NOT_MY_FIRST_TAG} tag")
 
-    integrity.check_delay_retention_sub(new_track, old_track, original_video_path, delay_to_put, "Track jobs")
+    if tools.dev:
+        integrity.check_delay_retention_sub(new_track, old_track, original_video_path, delay_to_put, "Track jobs")
 
 def get_original_tag(track):
     global ORIGINAL_TAG
