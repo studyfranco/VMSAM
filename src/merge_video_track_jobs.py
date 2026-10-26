@@ -299,13 +299,13 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                             for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"])
                             if 0 <= event.start + shift_ms < duration_ms]
                 produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, tmp_file_convert, 0)]
-                matches = len(expected) == len(produced)
-                if matches and expected:
-                    matches = all(want[2] == got[2] and abs(want[0] - got[0]) <= 1 and abs(want[1] - got[1]) <= 1
-                                for want, got in ((expected[0], produced[0]), (expected[-1], produced[-1])))
-                if not matches:
-                    raise TrackJobError(f"Track job failed for {label}: {len(expected)} cues expected, {len(produced)} produced, first/last cues expected "
-                                        f"{expected[:1] + expected[-1:]}, produced {produced[:1] + produced[-1:]}")
+                first_mismatch = next((position for position, (want, got) in enumerate(zip(expected, produced))
+                                       if want[2] != got[2] or abs(want[0] - got[0]) > 1 or abs(want[1] - got[1]) > 1), None)
+                if first_mismatch is None and len(expected) != len(produced):
+                    first_mismatch = min(len(expected), len(produced))
+                if first_mismatch is not None:
+                    raise TrackJobError(f"Track job failed for {label}: {len(expected)} cues expected, {len(produced)} produced, first mismatching cue {first_mismatch}: "
+                                        f"expected {expected[first_mismatch:first_mismatch + 1]}, produced {produced[first_mismatch:first_mismatch + 1]}")
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
