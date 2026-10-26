@@ -3295,19 +3295,14 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
 # Blind-span placements read off the master picture itself (its next shot change): the audio
 # interval does not move them.
 PICTURE_PLACEMENTS = ("right_anchor",)
-# An audio-alignment run of placements at most this wide (one frame each side of its centre)
-# places a blind fill as exactly as the walk's interval.
+# An audio-alignment run of placements at most this wide that touches the walk's interval places a
+# blind fill as exactly as that interval.
 BLIND_RUN_EXACT_FRAMES = 3
 
 
 def _blind_point_in_audio_interval(outcome, domain, interval):
     blind = outcome.get("blind_span")
     if not blind or blind["placement"] in PICTURE_PLACEMENTS or blind["gap_frames"] >= 0:
-        return None
-    # (decision: blind-placement-not-picture)
-    run = blind.get("run")
-    if (blind["placement"] == "audio_alignment" and run is not None
-            and run[1] - run[0] + 1 <= BLIND_RUN_EXACT_FRAMES):
         return None
     import audio_walk
     low, high = blind["allowed_frames"]
@@ -3316,6 +3311,11 @@ def _blind_point_in_audio_interval(outcome, domain, interval):
     latest = interval[1] + audio_walk.FINE_WIN_S / 2.0
     lo, hi = sorted(interval)
     frame_s = float(domain["frame_ms"]) / 1000.0
+    run = blind.get("run") if blind["placement"] == "audio_alignment" else None
+    if (run is not None and run[1] - run[0] + 1 <= BLIND_RUN_EXACT_FRAMES
+            and any(lo - frame_s <= _frame_s(point + min(0, gap), domain) <= hi + frame_s
+                    for point in range(run[0], run[1] + 1))):
+        return None
     best = None
     for point in range(low - 1, high + 2):
         start_s = _frame_s(point + min(0, gap), domain)
