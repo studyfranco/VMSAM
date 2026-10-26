@@ -1058,6 +1058,16 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     list_audio_metadata_compatible = [fileid_audio[main]]
                     for id_audio in list_compatible:
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
+                    for audio_a in list_audio_metadata_compatible:
+                        for audio_b in list_audio_metadata_compatible:
+                            if audio_a is not audio_b and audio_a['keep'] and audio_b['keep']:
+                                try:
+                                    silence_compare = integrity.silence_report(video_obj.filePath, audio_a['StreamOrder'], video_obj.filePath, audio_b['StreamOrder'])
+                                    if silence_compare['result'] == "A":
+                                        audio_a['keep'] = False
+                                        tools.log_always(f"[keep WARN] {language} track {audio_a['StreamOrder']} of {video_obj.filePath} not kept: silent where the identical track {audio_b['StreamOrder']} plays ({silence_compare['a_only'][:3]})\n")
+                                except Exception as e:
+                                    tools.log_always(f"[silence WARN] {language} tracks {audio_a['StreamOrder']} and {audio_b['StreamOrder']} of {video_obj.filePath} not compared: {e}\n")
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
                     if tools.dev:
                         tools.logs.append(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
