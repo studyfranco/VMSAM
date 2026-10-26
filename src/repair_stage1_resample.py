@@ -1,23 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Stage 1/2 of the repair pipeline: similarity gate and resample sweep.
-
-When the native alignment of a couple is poor (the aligner could not measure, its zones cover
-too little of the master, or they form a rate ladder), every named speed ratio is tried in both
-engines (`rate_arm`) and the admissible finalist with the best fidelity is kept
-(`rate_direction.choose_winner`). A confirmed ratio is then turned into the routing that
-re-primes the candidate at that speed (`rate_resample_routing`, with the pitch layer as an
-observation).
-
-The step logging and the fingerprint alignment live in `repair_orchestrator`; they are read at
-call time, so this module can be imported on its own.
-"""
+"""Stage 1/2 of the repair: similarity gate, resample sweep and the re-prime routing."""
 from decimal import Decimal
 from fractions import Fraction
 from os import path, remove
 import time
 
 import audioCorrelation
-import audio_extract
 import banded_seed_alignment
 import progress_watchdog
 import repair_log
@@ -33,28 +21,6 @@ def _orch():
 # "aligned". Healthy couples read >= 0.50, rate-mismatched or wrong-episode couples <= 0.31; 0.40
 # sits in the empty band between them. Terminal when the rate arm cannot raise the coverage.
 MASTER_AXIS_COVERAGE_FLOOR = 0.40
-
-# Pitch probe window: `pal_pitch_confirmer.confirm_pitch`'s own default, the window its
-# NTSC_TOLERANCE was calibrated on.
-try:
-    import pal_pitch_confirmer as _pal_pitch_confirmer
-    PITCH_PROBE_WINDOW_SECONDS = float(
-        _pal_pitch_confirmer.confirm_pitch.__defaults__[0])
-    _PITCH_WINDOW_SOURCE = "pal_pitch_confirmer.confirm_pitch's own default"
-except Exception:                                                        # noqa: BLE001
-    PITCH_PROBE_WINDOW_SECONDS = 180.0
-    _PITCH_WINDOW_SOURCE = "literal fallback -- pal_pitch_confirmer unimportable"
-
-# Floor under a shortened pitch window (short pairs use half their usable span): a spectral ratio
-# over a shorter window has no useful frequency resolution.
-PITCH_PROBE_WINDOW_MINIMUM_SECONDS = 30.0
-
-# Rate-relation arm of the step-2 gate, read by `zone_ladder_signature`: a rate relation forces a
-# ladder of one-quantum steps all in one direction. The direction fraction is what separates
-# (drift has a sign, editing does not); a line fit of the drift trace
-# (`alignment_diagnostics.best_shift_trace`) does not. A false positive costs one rate sweep and
-# then continues on the alignment already measured.
-RATE_RELATION_SLOPE_GATE_CALIBRATED = True
 
 # Minimum rungs: a statistical-sufficiency floor for the fractions below, not a detector. At the
 # smallest named deviation (1001/1000) 8 rungs need ~16.5 min of aligned span; drift fast enough to
@@ -79,165 +45,6 @@ assert ALIGNMENT_COULD_NOT_MEASURE_VERDICTS, (
 assert not (set(ALIGNMENT_COULD_NOT_MEASURE_VERDICTS)
             & set(banded_seed_alignment.MEASURED_VERDICTS)), (
     "repair_stage1_resample: a verdict cannot be both a measurement and a could-not-measure")
-
-
-# ---------------------------------------------------------------------------
-# Rate re-prime: pitch layer and speed-corrected candidate
-# ---------------------------------------------------------------------------
-
-def _pitch_probe_window(master_obj, candidate_obj, language, master_stream, candidate_stream,
-                        speed_factor, work_dir, sample_rate):
-    """Extract content-aligned master and candidate WAVs for the pitch layer.
-
-    Pre-extracted with an explicit stream map, since `pal_pitch_confirmer` would otherwise read
-    ffmpeg's default stream. Master instant t maps to candidate instant t / speed_factor. The
-    candidate is not filtered: the pitch layer measures its original pitch.
-
-    Returns:
-        (master_wav, candidate_wav, window_seconds), or (None, None, None).
-    """
-    master_duration = _orch()._track_duration_seconds(master_obj, language, master_stream)
-    candidate_duration = _orch()._track_duration_seconds(candidate_obj, language, candidate_stream)
-    if master_duration is None or candidate_duration is None:
-        return None, None, None
-    ratio = float(speed_factor)
-    window = PITCH_PROBE_WINDOW_SECONDS
-    usable = min(master_duration, candidate_duration * ratio)
-    if usable <= window:
-        window = max(PITCH_PROBE_WINDOW_MINIMUM_SECONDS, usable / 2.0)
-        if usable <= window:
-            return None, None, None
-    master_start = max(0.0, (usable - window) / 2.0)
-    candidate_start = master_start / ratio
-    master_wav = path.join(work_dir, f"orch_pitch_master_{master_stream}.wav")
-    candidate_wav = path.join(work_dir, f"orch_pitch_candidate_{candidate_stream}.wav")
-    try:
-        audio_extract.extract_audio_window(master_obj.filePath, master_stream, master_start,
-                                           window, master_wav, sample_rate)
-        audio_extract.extract_audio_window(candidate_obj.filePath, candidate_stream,
-                                           candidate_start, window / ratio, candidate_wav,
-                                           sample_rate)
-    except Exception as error:                                           # noqa: BLE001
-        tools.dev_log(f"orchestrator: pitch probe windows unextractable "
-                      f"({type(error).__name__}: {error}) -- the pitch layer will not be asked, "
-                      f"and not asking is recorded as not asking\n")
-        for temporary in (master_wav, candidate_wav):
-            try:
-                remove(temporary)
-            except OSError:
-                pass
-        return None, None, None
-    return master_wav, candidate_wav, window
-
-
-def pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir, sample_rate):
-    """Read the pitch layer for a speed correction and choose the resample filter.
-
-    `asetrate` (undoes speed and pitch together) is routed on every reachable outcome: it
-    returned the pitch to 0 cents on every real PAL and NTSC sample. The measured ratio is
-    recorded for calibration; no detector exists for a source pitch-corrected at origin.
-
-    Returns:
-        A routing dict, never None; a pitch layer that could not run records its refusal.
-    """
-    routing = {
-        "filter_name": "asetrate",
-        "pitch_measured_ratio": None,
-        "pitch_peak": None,
-        "pitch_refusal": None,
-        "pitch_window_seconds": None,
-        "pitch_test_discriminating": None,
-        "pitch_tolerance_band": None,
-        "inverting_case_detector": "not_implemented",
-        "inverting_case_observation": None,
-    }
-    master_streams = audio_extract.streams_for(master_obj, language)
-    candidate_streams = audio_extract.streams_for(candidate_obj, language)
-    if not master_streams or not candidate_streams:
-        routing["pitch_refusal"] = "no_stream_to_probe"
-        routing["route_reason"] = (
-            "the pitch layer was not asked: there is no comparison-language stream pair to probe "
-            "it on. asetrate stands as the policy default (AUDIO_SPEED_POLICY 23/23 PAL, 6/6 "
-            "NTSC), and 'not asked' is recorded as not asked, never as 'pitch intact'")
-        return routing
-    master_wav, candidate_wav, window = _pitch_probe_window(
-        master_obj, candidate_obj, language, master_streams[0], candidate_streams[0],
-        speed_factor, work_dir, sample_rate)
-    if master_wav is None:
-        routing["pitch_refusal"] = "probe_window_unavailable"
-        routing["route_reason"] = (
-            "the pitch layer was not asked: no window could be taken inside both tracks. "
-            "asetrate stands as the policy default, and 'not asked' is not 'pitch intact'")
-        return routing
-    routing["pitch_window_seconds"] = round(window, 3)
-    try:
-        import pal_pitch_confirmer
-        tools.dev_log(f"orchestrator: calling pal_pitch_confirmer.confirm_pitch "
-                      f"master_wav={master_wav} candidate_wav={candidate_wav} "
-                      f"predicted_ratio={float(speed_factor)} window_seconds={window}\n")
-        reading = pal_pitch_confirmer.confirm_pitch(
-            master_wav, candidate_wav, 0.0, float(speed_factor), window_seconds=window)
-    except Exception as error:                                           # noqa: BLE001
-        routing["pitch_refusal"] = "pitch_layer_raised"
-        routing["route_reason"] = (
-            f"the pitch layer raised {type(error).__name__} -- the instrument did not run, which "
-            f"is not a reading about the pitch. asetrate stands as the policy default")
-        tools.dev_log(f"orchestrator: pal_pitch_confirmer raised "
-                      f"({type(error).__name__}: {error})\n")
-        return routing
-    finally:
-        for temporary in (master_wav, candidate_wav):
-            try:
-                remove(temporary)
-            except OSError:
-                pass
-    routing["pitch_measured_ratio"] = reading.get("measured_ratio")
-    routing["pitch_peak"] = reading.get("peak")
-    routing["pitch_refusal"] = reading.get("refusal")
-    measured = reading.get("measured_ratio")
-    if measured is not None:
-        # Recorded for a future inverting-case detector ("duration moved, pitch did not"
-        # reads `measured` near 1.0 while `speed_factor` is far from it).
-        routing["inverting_case_observation"] = {
-            "measured_from_unity": round(abs(measured - 1.0), 6),
-            "applied_from_unity": round(abs(float(speed_factor) - 1.0), 6),
-        }
-    # The pitch test discriminates only when its tolerance band (TOL_ARM * applied) excludes
-    # unity, i.e. TOL_ARM * applied < |applied - 1|: true at PAL, false at NTSC.
-    try:
-        import pal_pitch_confirmer as _confirmer
-        tolerance_arm = float(_confirmer.TOL_ARM)
-    except Exception:                                                    # noqa: BLE001
-        tolerance_arm = 0.0030
-    applied = float(speed_factor)
-    band_half_width = tolerance_arm * applied
-    discriminating = band_half_width < abs(applied - 1.0)
-    routing["pitch_test_discriminating"] = discriminating
-    routing["pitch_tolerance_band"] = round(band_half_width, 7)
-    if reading.get("refusal") is None and discriminating:
-        routing["route_reason"] = (
-            f"the pitch layer confirms the pitch moved with the speed (measured {measured}, "
-            f"applied {applied:.7f}, peak {reading.get('peak')}; its +/-{band_half_width:.6f} "
-            f"tolerance band excludes unity at this ratio, so agreement is informative): this "
-            f"is the naive-speedup family, and asetrate is its exact inverse -- it undoes speed "
-            f"AND pitch together")
-    elif reading.get("refusal") is None:
-        routing["route_reason"] = (
-            f"the pitch layer did not refuse (measured {measured}, applied {applied:.7f}, peak "
-            f"{reading.get('peak')}) BUT THAT IS NOT A CONFIRMATION AT THIS RATIO: its "
-            f"+/-{band_half_width:.6f} tolerance band is wider than the {abs(applied - 1.0):.6f} "
-            f"deviation being corrected, so the band contains unity and a completely unshifted "
-            f"pitch would have passed the same test. Nothing here says the pitch moved. asetrate "
-            f"stands on the policy default (AUDIO_SPEED_POLICY 23/23 PAL, 6/6 NTSC), not on this "
-            f"reading")
-    else:
-        routing["route_reason"] = (
-            f"the pitch layer returned {reading.get('refusal')} ({reading.get('reason')}). That "
-            f"is NOT the inverting case and must not be read as one -- the inverting-case "
-            f"detector is unimplemented in this tree (merge_video_repair:229-233), so routing "
-            f"to atempo stays disabled until it is. The existing routing stands: "
-            f"asetrate, on AUDIO_SPEED_POLICY's 23/23 PAL and 6/6 NTSC")
-    return routing
 
 
 def rate_resample_routing(speed_factor, engine, master_obj, candidate_obj, language, work_dir,
@@ -271,13 +78,9 @@ def rate_resample_routing(speed_factor, engine, master_obj, candidate_obj, langu
         tools.dev_log(f"orchestrator: build_speed_filter_chain refused "
                       f"({type(error).__name__}: {error})\n")
         return None, "rate_resample_unbuildable"
-    routing = pitch_routing(speed_factor, master_obj, candidate_obj, language, work_dir,
-                            sample_rate)
-    # The engine is the rate arm's measurement; the pitch reading stays as an observation.
-    routing["route_reason"] = (f"engine {engine} measured by the rate arm (the finalist that "
-                               f"aligned); pitch layer: {routing.get('route_reason')}")
-    routing["filter_name"] = engine
-    routing["inverting_case_detector"] = "rate_arm_engine_comparison"
+    routing = {"filter_name": engine,
+               "route_reason": f"engine {engine} measured by the rate arm (the finalist that "
+                               f"aligned)"}
     routing.update({
         "modality": _orch().MODALITY,
         "side": "candidate",
@@ -525,49 +328,6 @@ def picture_tie_break(tied, mappings, videos, candidate_path):
     return None if label is None else labels[label]
 
 
-def zone_offset_rate_signature(alignment):
-    """Fit the aligned zones' offsets against master position, for logging only.
-
-    Unlike the drift trace, zone offsets are absolute, so a large true offset does not blind
-    the fit. The residual (not the slope) separates a rate ramp from a staircase of edits.
-    Needs at least three zones (two fit any line exactly).
-
-    Returns:
-        A dict with every key present; None where nothing could be measured.
-    """
-    empty = {"n_zones": 0, "slope_points_per_point": None, "r_squared": None,
-             "residual_rms_ms": None, "residual_max_ms": None, "span_points": None,
-             "implied_total_drift_ms": None}
-    detail = alignment.get("zones_detail") or []
-    quantum_ms = alignment.get("quantum_ms")
-    if len(detail) < 3 or not quantum_ms:
-        empty["n_zones"] = len(detail)
-        return empty
-    xs = [(zone["master_points"][0] + zone["master_points"][1]) / 2.0 for zone in detail]
-    ys = [float(zone["offset_points"]) for zone in detail]
-    n = len(xs)
-    mean_x, mean_y = sum(xs) / n, sum(ys) / n
-    ss_xx = sum((x - mean_x) ** 2 for x in xs)
-    if ss_xx == 0:
-        empty["n_zones"] = n
-        return empty
-    slope = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / ss_xx
-    intercept = mean_y - slope * mean_x
-    residuals = [y - (slope * x + intercept) for x, y in zip(xs, ys)]
-    ss_res = sum(residual ** 2 for residual in residuals)
-    ss_tot = sum((y - mean_y) ** 2 for y in ys)
-    span = xs[-1] - xs[0]
-    return {
-        "n_zones": n,
-        "slope_points_per_point": slope,
-        "r_squared": (1 - ss_res / ss_tot) if ss_tot > 0 else None,
-        "residual_rms_ms": ((ss_res / n) ** 0.5) * quantum_ms,
-        "residual_max_ms": max(abs(residual) for residual in residuals) * quantum_ms,
-        "span_points": span,
-        "implied_total_drift_ms": slope * span * quantum_ms,
-    }
-
-
 def zone_ladder_signature(alignment):
     """Decide whether the alignment's zones form a rate ladder.
 
@@ -661,28 +421,10 @@ def similarity_gate(alignment):
     Returns:
         (should_sweep, reason, observations)
     """
-    drift_fit = alignment.get("drift_fit") or {}
-    zone_fit = zone_offset_rate_signature(alignment)
     observations = {
         "verdict": alignment.get("verdict"),
         "coverage": alignment.get("master_axis_coverage_fraction"),
         "residual_fraction": alignment.get("residual_fraction"),
-        "slope_points_per_point": drift_fit.get("slope_points_per_point"),
-        "r_squared": drift_fit.get("r_squared"),
-        "implied_step_count": drift_fit.get("implied_step_count"),
-        "trace_fit_degenerate": drift_fit.get("fit_degenerate"),
-        "trace_residual_rms_ms": (None if drift_fit.get("residual_rms_ms") is None
-                                  else round(drift_fit["residual_rms_ms"], 4)),
-        "zone_n": zone_fit["n_zones"],
-        "zone_slope_points_per_point": zone_fit["slope_points_per_point"],
-        "zone_r_squared": zone_fit["r_squared"],
-        "zone_residual_rms_ms": (None if zone_fit["residual_rms_ms"] is None
-                                 else round(zone_fit["residual_rms_ms"], 3)),
-        "zone_residual_max_ms": (None if zone_fit["residual_max_ms"] is None
-                                 else round(zone_fit["residual_max_ms"], 3)),
-        "zone_implied_total_drift_ms": (None if zone_fit["implied_total_drift_ms"] is None
-                                        else round(zone_fit["implied_total_drift_ms"], 1)),
-        "rate_arm_calibrated": RATE_RELATION_SLOPE_GATE_CALIBRATED,
     }
     if alignment.get("verdict") in ALIGNMENT_COULD_NOT_MEASURE_VERDICTS:
         observations["gate_arm"] = "alignment_could_not_measure"
@@ -699,7 +441,7 @@ def similarity_gate(alignment):
 
     ladder = zone_ladder_signature(alignment)
     observations.update({f"ladder_{key}": value for key, value in ladder.items()})
-    if RATE_RELATION_SLOPE_GATE_CALIBRATED and ladder["is_rate_ladder"]:
+    if ladder["is_rate_ladder"]:
         observations["gate_arm"] = "rate_relation_signature"
         return True, (f"the aligner aligned ({alignment.get('verdict')}) but its zones form a "
                       f"rate ladder: {ladder['reason']}"), observations

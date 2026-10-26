@@ -173,23 +173,7 @@ def _segment_evidence(segment):
 def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
              min_run_points=MIN_RUN_POINTS, local_baseline_min=LOCAL_BASELINE_MIN,
              candidate_quantum_ms=None):
-    """Align two whole-track fingerprints into constant-offset zones.
-
-    Pipeline: degeneracy screen, seeding, extension, minimum-run anchor, local-baseline guard,
-    merge into segments, short-fragment filter, overlap resolution, zones.
-
-    Args:
-        quantum_ms: master fingerprint point duration.
-        band: optional (offset_lo, offset_hi) in points to restrict seeding.
-        candidate_quantum_ms: optional candidate point duration, used only for ms bounds.
-
-    Returns:
-        dict with every key present (None when not measured), notably: verdict (a VERDICT_*
-        constant), segments, all_zones, cut_zones, zones ([[[m_lo, m_hi], [c_lo, c_hi]], ...]
-        in points, inclusive, increasing and non-overlapping), zones_detail,
-        master_axis_coverage_fraction. `drift_trace`, `drift_fit`, `residual_ms` and
-        `residual_fraction` stay None here; `alignment_diagnostics` fills them.
-    """
+    """Align two whole-track fingerprints into constant-offset zones (a dict, every key present)."""
     result = {
         "verdict": None,
         "modality": MODALITY,
@@ -207,7 +191,6 @@ def b2_align(fp_master, fp_candidate, quantum_ms, band=None, k=K, bits=B,
         "refused_by_local_baseline_guard": None, "admitted_self_evident": None,
         "segments_filtered_short_fragments": None,
         "segments_overlap_resolved": None,
-        "drift_trace": None, "drift_fit": None,
         "residual_ms": None, "residual_fraction": None,
     }
 

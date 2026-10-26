@@ -1370,14 +1370,6 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
                     asetrate_target=resample_routing["asetrate_target"],
                     intermediate_rate=resample_routing["intermediate_rate"],
                     filter_chain=resample_routing["filter_chain"],
-                    pitch_measured_ratio=resample_routing["pitch_measured_ratio"],
-                    pitch_peak=resample_routing["pitch_peak"],
-                    pitch_refusal=resample_routing["pitch_refusal"],
-                    pitch_window_s=resample_routing["pitch_window_seconds"],
-                    pitch_test_discriminating=resample_routing["pitch_test_discriminating"],
-                    pitch_tolerance_band=resample_routing["pitch_tolerance_band"],
-                    inverting_case_detector=resample_routing["inverting_case_detector"],
-                    inverting_case_observation=resample_routing["inverting_case_observation"],
                     rule=resample_routing["rule"])
         tools.dev_log(f"orchestrator: rate_reprime routing for {candidate_path}: "
                       f"{resample_routing['route_reason']}\n")
