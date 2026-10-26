@@ -258,6 +258,9 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                             "-analyzeduration", "1000M", "-probesize", "1000M",
                             "-threads", "1", "-vn"]
 
+            if 'ffmpeg_to_convert' in sub:
+                cmd_convert.extend(["-c:s:0", sub["ffmpeg_to_convert"][0]])
+
             cmd_convert.extend(delay_input_args(delay_to_put, tmp_file_extract))
             cmd_convert.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy"])
@@ -265,20 +268,15 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
             codec = video.get_codec(sub)
             sub_encoder = None
             if 'ffmpeg_to_convert' in sub:
-                sub_encoder = sub['ffmpeg_to_convert'][1]
+                cmd_convert.extend(["-c:s:0", sub["ffmpeg_to_convert"][1]])
             elif codec in tools.sub_type_not_encodable:
                 cmd_convert.extend(["-copyts", "-avoid_negative_ts", "disabled"])
                 cmd_convert.remove("-fflags")
                 cmd_convert.remove("+genpts+igndts")
-            elif codec in tools.sub_type_near_srt and codec != "subrip":
-                sub_encoder = "srt"
-            elif codec not in ("ass", "subrip"):
-                sub_encoder = "ass"
-
-            if sub_encoder:
-                cmd_convert.extend(["-c:s", sub_encoder])
-                if delay_to_put < 0:
-                    cmd_convert.extend(["-output_ts_offset", f"{delay_to_put/Decimal('1000'):.6f}"])
+            elif codec in tools.sub_type_near_srt:
+                cmd_convert.extend(["-c:s:0", "srt"])
+            else:
+                cmd_convert.extend(["-c:s:0", "ass"])
 
             cmd_convert.extend([f"-metadata:s:s:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(sub):

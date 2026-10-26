@@ -105,7 +105,7 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
 
     if param_reencode:
         """ Example:
-        {"target": "libopus","bitrate": "source", "sample_rate": "48000", "filter": "my_special_arg:my_second_special_param", "args": {"-mapping_family": "1", "-compression_level": "12"}}
+        {"target": "libopus","bitrate": "source", "sample_rate": "48000", "filter": "my_special_arg,my_second_special_param", "args": {"-mapping_family": "1", "-compression_level": "12"}}
         """
 
         param_to_send.extend([f"-c:a:{audio_position_in_file}", param_reencode["target"]]) # The encoder must be set. Raise an error if it missing.
@@ -125,7 +125,8 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
         if sample_rate_param:
             param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(int(float(sample_rate_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(sample_rate_param[-1:], 1)))])
 
-        filter_param = ",".join([filter_one for filter_one in [param_reencode.get("filter", ""), filter_param_to_add] if filter_one])
+        filter_param = param_reencode.get("filter", "")
+        filter_param = filter_param + "," + filter_param_to_add
         if filter_param:
             param_to_send.extend([f"-filter:a:{audio_position_in_file}", filter_param])
 

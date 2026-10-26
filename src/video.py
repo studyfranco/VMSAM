@@ -155,8 +155,8 @@ class video():
                     stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the compatible format {data.get("Format","").lower()}\n")
                 data["ffmpeg_compatible"] = True
 
-        if have_incompatible_ffmpeg_codec:
-            self.convert_problematic_stream_with_ffmpeg()
+        #if have_incompatible_ffmpeg_codec:
+        #    self.convert_problematic_stream_with_ffmpeg()
             
         if len(self.audios) == 0 and self.need_one_audio_track:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
