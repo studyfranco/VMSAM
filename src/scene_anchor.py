@@ -650,8 +650,7 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                          candidate_time_scale=None, normalise_geometry=False,
                          resolve_shift=False,
                          shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
-                         cluster_window=None, scan_cache=None,
-                         accept_step_disagreement=False):
+                         cluster_window=None, scan_cache=None):
     '''Locate Anchor A (before) and Anchor B (after) an interior bracket and cross-sweep.
 
     Optional keywords (all off by default):
@@ -662,14 +661,6 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                             of nominal, for offsets quantised coarser than a frame.
       cluster_window /      shared scan window for a cluster of nearby holes;
       scan_cache            scan_cache memoises decoded hashes and cuts per window.
-      accept_step_disagreement  both anchors were found and the cross-sweep ran (an
-                            ambiguous span never reaches this gate), but the frame gap it
-                            counted does not match the caller's nominal step within
-                            tolerance -- deliver the counted gap anyway, flagged
-                            (`step_plumbing_ok`), instead of declining
-                            `anchor_step_inconsistent`. Still declines when an anchor
-                            itself was never seated, or when the anchors' own order is
-                            refused.
 
     Runs _locate_scene_anchors_at_window up to WINDOW_LADDER_MAX_RUNGS times, growing the
     window by WINDOW_LADDER_GROWTH_FACTOR and lowering the detector threshold per
@@ -720,7 +711,6 @@ def locate_scene_anchors(master_path, candidate_path, fps_num, fps_den,
                     candidate_time_scale=candidate_time_scale,
                     crop_filters=crop_filters, resolve_shift=resolve_shift,
                     shift_search_frames=shift_search_frames,
-                    accept_step_disagreement=accept_step_disagreement,
                     picture_reach=picture_reach)
             except progress_watchdog.step_stalled as error:
                 return {"declined": True, "reason": "step_stalled",
@@ -775,17 +765,8 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                                     crop_filters=None, resolve_shift=False,
                                     shift_search_frames=EDGE_SHIFT_SEARCH_FRAMES,
                                     cluster_window=None, scan_cache=None,
-                                    accept_step_disagreement=False, picture_reach=True):
-    '''Run one rung of locate_scene_anchors' window ladder at a concrete window_sec.
-
-    offset_before_ms/offset_after_ms are the offset hypotheses on each side; this finds
-    the exact frame where each stops applying and classifies the gap (offset change,
-    deletion, addition, still image). step_ms/quantum_ms feed only
-    _check_step_plumbing, whose disagreement is fatal unless accept_step_disagreement
-    is set, in which case the counted gap is returned anyway with step_plumbing_ok=False.
-    Returns a dict with declined True or False (and reason, evidence when declined).
-    Head/tail edges use locate_edge_boundary instead.
-    '''
+                                    picture_reach=True):
+    '''One rung of locate_scene_anchors' window ladder: anchors A and B, cross-sweep, step check.'''
     fps_num = int(fps_num)
     fps_den = int(fps_den)
     if fps_num <= 0 or fps_den <= 0:
@@ -1119,7 +1100,7 @@ def _locate_scene_anchors_at_window(master_path, candidate_path, fps_num, fps_de
                "master_seed_count": len(master_cuts_seeds),
                "candidate_seed_count": len(candidate_cuts_seeds),
                "evidence": plumbing_evidence}
-    if not plumbing_ok and not accept_step_disagreement:
+    if not plumbing_ok:
         # Fires only on a plumbing or units bug, never on content.
         return {"declined": True, "reason": "anchor_step_inconsistent",
                "picture_reach_used": reach_used,

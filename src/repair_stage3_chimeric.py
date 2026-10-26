@@ -652,7 +652,7 @@ def _anchor_shifts_mad_confirmed(result, domain, master_obj, candidate_obj):
 
 def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                      offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                     resolve_shift=True, accept_step_disagreement=False):
+                     resolve_shift=True):
     """Run the interior resolver once as a logged step; an exception becomes a named decline."""
     import scene_anchor
     _orch().step_launch("two_anchor", candidate=candidate_obj.filePath, probe=probe,
@@ -674,8 +674,7 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
             candidate_time_scale=domain["time_scale"],
             normalise_geometry=True, resolve_shift=resolve_shift,
             shift_search_frames=_shift_search_frames(domain, quantum_ms),
-            cluster_window=hole.get("cluster_window"), scan_cache=hole.get("scan_cache"),
-            accept_step_disagreement=accept_step_disagreement)
+            cluster_window=hole.get("cluster_window"), scan_cache=hole.get("scan_cache"))
     except Exception as error:                                           # noqa: BLE001
         result = {"declined": True, "reason": f"resolver_raised:{type(error).__name__}",
                   "evidence": str(error)[:300]}
@@ -696,23 +695,6 @@ def _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                 step_plumbing_ok=result.get("step_plumbing_ok"),
                 evidence=result.get("evidence"))
     return result
-
-
-def _span_noise_reading(result):
-    """Return which shift ("before", "after", "both" or None) matches most of the unmatched span.
-
-    pHash noise inside common content can stop a sweep early; such a span matches the other
-    shift on ~90 % of its frames, while truly divergent spans match either on under ~10 %, so a
-    simple majority separates them. None means the span is genuinely divergent.
-    """
-    readings = []
-    for label in ("before", "after"):
-        matched, readable = result.get(f"unmatched_span_matches_{label}") or [0, 0]
-        if readable and 2 * matched > readable:
-            readings.append(label)
-    if len(readings) == 2:
-        return "both"
-    return readings[0] if readings else None
 
 
 # Pixel fronts are trusted only when each side shows a run of at least this many consecutive
@@ -1106,7 +1088,6 @@ def _pixel_refined(result, domain, master_obj, candidate_obj):
     refined = dict(result, pre_collapse_start_master=front, pre_collapse_end_master=back,
                    sweep_crossed=crossed, blind_before_front_frames=blind_before,
                    blind_after_front_frames=blind_after, pixel_fronts=True,
-                   span_majority_under_single_shift=False,
                    anchor_a_frame=min(anchor_a, front), anchor_b_frame=max(anchor_b, back))
     start, end = (anchor_b, anchor_b) if crossed else (front, back)
     refined.update(master_start_frame=start, master_end_frame=end,
@@ -1122,126 +1103,15 @@ def _pixel_refined(result, domain, master_obj, candidate_obj):
 
 def _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                         offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                        resolve_shift=True, accept_step_disagreement=False):
-    """Run `_two_anchor_call` and reject answers whose unmatched span is really common content.
-
-    When one shift claims the span, the front that stopped on noise is wrong, so the search is
-    repeated with its bracket collapsed onto the other front; that answer must pass the same
-    test. Otherwise a named decline, carrying `claimed_by` and `claimed_shift_frames` so the
-    caller can test the no-cut hypothesis at that shift.
-    """
-    def _with_claim(declined, reading, source):
-        shift = source["before_shift_frames"] if reading == "before" else source[
-            "after_shift_frames"]
-        return dict(declined, claimed_by=reading, claimed_shift_frames=shift,
-                    claimed_span_master=[source["pre_collapse_start_master"],
-                                         source["pre_collapse_end_master"]],
-                    claimed_matches=source[f"unmatched_span_matches_{reading}"])
-
+                        resolve_shift=True):
+    """Run `_two_anchor_call`, then re-read its fronts on pixels when they can be trusted."""
     result = _two_anchor_call(hole, domain, master_obj, candidate_obj, low_ms, high_ms,
                               offset_before_ms, offset_after_ms, step_ms, quantum_ms, probe,
-                              resolve_shift=resolve_shift,
-                              accept_step_disagreement=accept_step_disagreement)
+                              resolve_shift=resolve_shift)
     if result["declined"]:
         return result
     refined = _pixel_refined(result, domain, master_obj, candidate_obj)
-    if refined is not None:
-        return refined
-    reading = _span_noise_reading(result)
-    if reading is None:
-        return result
-    frame_ms = float(domain["frame_ms"])
-    _orch().step_result("sweep_front_inside_common_content", candidate=candidate_obj.filePath,
-                probe=probe, claimed_by=reading,
-                unmatched_master_frames=[result["pre_collapse_start_master"],
-                                         result["pre_collapse_end_master"]],
-                matches_before=result["unmatched_span_matches_before"],
-                matches_after=result["unmatched_span_matches_after"])
-    if reading == "both" and result["before_shift_frames"] == result["after_shift_frames"]:
-        # One shift on both sides matching the span: the walks stopped on pHash noise, so
-        # nothing differs between the anchors (read as `no_cut_confirmed`).
-        _orch().step_result("single_shift_claims_span", candidate=candidate_obj.filePath, probe=probe,
-                    shift=result["before_shift_frames"],
-                    matches=result["unmatched_span_matches_before"])
-        return dict(result, span_majority_under_single_shift=True)
-    if reading == "both":
-        claimed = _claimed_span_reading(result)
-        if claimed is not None:
-            _orch().step_result("span_claimed_by_both_shifts_read", candidate=candidate_obj.filePath,
-                        probe=probe, route=claimed["span_claimed_by_both_shifts"],
-                        shifts=[result["before_shift_frames"], result["after_shift_frames"]],
-                        fronts=[claimed["pre_collapse_start_master"],
-                                claimed["pre_collapse_end_master"]],
-                        blind_runs=[claimed["blind_before_front_frames"],
-                                    claimed["blind_after_front_frames"]],
-                        classes=result.get("anchor_span_classes"))
-            return claimed
-        return {"declined": True, "reason": "unmatched_span_claimed_by_both_shifts",
-                "evidence": (f"span {result['pre_collapse_start_master']}-"
-                             f"{result['pre_collapse_end_master']} before="
-                             f"{result['unmatched_span_matches_before']} after="
-                             f"{result['unmatched_span_matches_after']}")}
-    front = (result["pre_collapse_start_master"] if reading == "after"
-             else result["pre_collapse_end_master"])
-    narrowed = _two_anchor_call(hole, domain, master_obj, candidate_obj,
-                                front * frame_ms, (front + 1) * frame_ms,
-                                offset_before_ms, offset_after_ms, step_ms, quantum_ms,
-                                probe=f"{probe}_refront_{reading}", resolve_shift=resolve_shift,
-                                accept_step_disagreement=accept_step_disagreement)
-    if narrowed["declined"]:
-        return _with_claim(narrowed, reading, result)
-    if _span_noise_reading(narrowed) is not None:
-        return _with_claim(
-            {"declined": True, "reason": "sweep_front_inside_common_content",
-             "evidence": (f"first span {result['pre_collapse_start_master']}-"
-                          f"{result['pre_collapse_end_master']} claimed by {reading}; "
-                          f"re-fronted span {narrowed['pre_collapse_start_master']}-"
-                          f"{narrowed['pre_collapse_end_master']} still claimed "
-                          f"(before={narrowed['unmatched_span_matches_before']} "
-                          f"after={narrowed['unmatched_span_matches_after']})")},
-            reading, result)
-    return narrowed
-
-
-def _claimed_span_reading(result):
-    """Re-read a span that both shifts claim from its per-frame classes, or None.
-
-    `anchor_span_classes` holds one class per master frame between the anchors (before-only,
-    after-only, both, neither). Frames reading the same picture under neither shift are frames
-    that differ (a fade against a hard cut, black against a card): they bound the fill, and
-    the static frames that match both shifts next to it are blind runs where a candidate
-    excess is removed (`_differing_span_outcome`). With no differing frame the span is blind:
-    the gap goes where the blind-span rule puts it, between the last before-only frame and the
-    first after-only one. Any after-only frame left of a before-only one is a contradiction.
-    """
-    classes = result.get("anchor_span_classes")
-    anchor_a = result["anchor_a_frame"]
-    if not classes or "?" in classes:
-        return None
-    last_before, first_after = classes.rfind("b"), classes.find("a")
-    if first_after < 0:
-        first_after = len(classes)
-    differing = [index for index, value in enumerate(classes) if value == "0"]
-    if differing:
-        front, back = differing[0], differing[-1] + 1
-        if "a" in classes[:front] or "b" in classes[back:]:
-            return None
-        blind_before = front - len(classes[:front].rstrip("2"))
-        blind_after = len(classes[back:]) - len(classes[back:].lstrip("2"))
-        front, back = anchor_a + front, anchor_a + back
-        return dict(result, pre_collapse_start_master=front, pre_collapse_end_master=back,
-                    master_start_frame=front, master_end_frame=back,
-                    candidate_start_frame=front + result["before_shift_frames"],
-                    candidate_end_frame=back + result["after_shift_frames"],
-                    sweep_crossed=False, blind_before_front_frames=blind_before,
-                    blind_after_front_frames=blind_after,
-                    span_claimed_by_both_shifts="differing")
-    if last_before >= first_after:
-        return None
-    return dict(result, pre_collapse_start_master=anchor_a + first_after,
-                pre_collapse_end_master=anchor_a + last_before + 1, sweep_crossed=True,
-                blind_before_front_frames=0, blind_after_front_frames=0,
-                span_claimed_by_both_shifts="blind")
+    return result if refined is None else refined
 
 
 def _interior_verdict(result):
@@ -1258,8 +1128,7 @@ def _interior_verdict(result):
             return _orch().HOLE_PINNED_TO_AMBIGUOUS_ZONE_END
         return _orch().HOLE_DECLINED
     same_shift = result["before_shift_frames"] == result["after_shift_frames"]
-    if same_shift and (result["master_end_frame"] == result["master_start_frame"]
-                       or result.get("span_majority_under_single_shift")):
+    if same_shift and result["master_end_frame"] == result["master_start_frame"]:
         return _orch().HOLE_NO_CUT_CONFIRMED
     candidate_overlap = result["candidate_end_frame"] < result["candidate_start_frame"]
     if not same_shift and (result["sweep_crossed"] or candidate_overlap):
@@ -1445,7 +1314,6 @@ def _span_no_cut_outcome(hole, domain, master_obj, candidate_obj, low_ms, high_m
             "proposal_shifts": [result.get("before_shift_frames"),
                                 result.get("after_shift_frames")],
             "proposal_span_matches_before": None, "proposal_span_matches_after": None,
-            "claimed_span_matches": None,
             "span_test_matches": [reading["matched"], reading["readable"]],
             "surviving_shift_walk_frames": [None, None],
             "surviving_shift_span_frames": last - first},
@@ -1516,22 +1384,8 @@ def _centre_of_longest(flags, low):
 
 
 def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
-    """Right-edge frame of a gap the picture cannot place, chosen from the audio, or None.
-
-    `low`..`high` are the right-edge frames the picture allows (`_blind_span_bounds`).
-    - A candidate removal (gap > 0) goes inside the candidate's own silence: the removed
-      candidate audio must be silent, whatever the master plays there.
-    - A master fill (gap < 0) is located by aligning the audio inside the span: the candidate
-      is split where its audio before matches the master before the fill and its audio after
-      matches the master after. When the candidate gives no such evidence (silent), every
-      placement ties and the fill lands in the middle of the master's own silent stretch.
-    The longest run of best placements wins and the gap is centred in it. `walk` is the pair's
-    audio already decoded for the walk (`reference_walk`); no new decode is made.
-
-    Returns:
-        (frame, [first, last] frames of the winning run, how), or None when `walk` is absent,
-        the probe raises, or no placement qualifies.
-    """
+    """(frame, [first, last], how) placing a blind gap from the audio: a removal in the candidate's
+    silence, a fill where the candidate's audio before and after best matches the master; or None."""
     import numpy as np
     if walk is None or gap == 0 or high < low:
         return None
@@ -1584,15 +1438,7 @@ def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
         costs = np.array(costs)
         spread = float(costs.max() - costs.min())
         if spread <= 1e-9:
-            # No audio evidence at all: the master's own silent stretch decides.
-            silent = master < BLIND_SILENCE_DB
-            flags = []
-            for point in points:
-                first = index_of((point - width) * frame_s)
-                last = last_index(point * frame_s - BLIND_SILENCE_WIN_S)
-                flags.append(last >= first and bool(silent[first:last + 1].all()))
-            found = _centre_of_longest(flags, low)
-            return None if found is None else found + ("master_silence",)
+            return None
         found = _centre_of_longest(costs <= costs.min() + BLIND_MISFIT_TIE * spread, low)
         return None if found is None else found + ("audio_alignment",)
     except Exception as error:                                           # noqa: BLE001
@@ -1850,16 +1696,8 @@ def _single_shift_refutes(domain, master_obj, candidate_obj, result, shift):
 
 
 def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
-    """Resolve an interior hole with the two-anchor frame-exact search.
-
-    The audio proposes a step, the video decides. For a step under the aligner's resolution
-    floor, the video is also offered a single shift on both sides (anchor A's, then B's, or the
-    zones' audio offsets when no anchor resolved); the first that seats both anchors refutes
-    the step. A step at or above the floor is likewise re-tested at a shift that claims the
-    unmatched span. An ambiguous anchor leads to `_ambiguous_pin_outcome`, a sub-floor decline
-    to `_span_no_cut_outcome`. `walk` (the pair's own decoded audio, when the caller has it)
-    is only used to place a blind span inside a shared silence (`_blind_span_outcome`).
-    """
+    """Resolve an interior hole: the audio proposes a step, the anchors and cross-sweep decide;
+    sub-floor steps are offered a single-shift no-cut reading, ambiguous anchors the blind rule."""
     quantum_ms = hole["quantum_ms"]
     offset_before_ms = hole["offset_before_ms"]
     offset_after_ms = hole["offset_after_ms"]
@@ -1877,15 +1715,6 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
     proposal_single_shift = (not result["declined"]
                              and result["before_shift_frames"] == result["after_shift_frames"])
     hypotheses = []
-    if result["declined"] and result.get("claimed_by") in ("before", "after"):
-        hypotheses.append((f"no_cut_at_claimed_{result['claimed_by']}_shift",
-                           float(result["claimed_shift_frames"] * frame_ms), False))
-        _orch().step_result("video_refutes_audio_step", candidate=candidate_obj.filePath,
-                    audio_step_ms=round(step_ms, 3), claimed_by=result["claimed_by"],
-                    claimed_shift_frames=result["claimed_shift_frames"],
-                    claimed_span_master=result.get("claimed_span_master"),
-                    claimed_matches=result.get("claimed_matches"),
-                    next_probe="no_cut_hypothesis_at_the_claimed_shift")
     if below_floor and not proposal_single_shift:
         if result["declined"]:
             hypotheses += [("no_cut_at_offset_before", offset_before_ms, True),
@@ -1939,14 +1768,11 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
                        "video_verdict": verdict,
                        "proposal_shifts": ([result.get("before_shift_frames"),
                                             result.get("after_shift_frames")]
-                                           if not result["declined"] else
-                                           [result.get("claimed_by"),
-                                            result.get("claimed_shift_frames")]),
+                                           if not result["declined"] else None),
                        "proposal_span_matches_before": result.get(
                            "unmatched_span_matches_before"),
                        "proposal_span_matches_after": result.get(
                            "unmatched_span_matches_after"),
-                       "claimed_span_matches": result.get("claimed_matches"),
                        "surviving_shift_walk_frames": [probe.get("forward_walk_frames"),
                                                        probe.get("backward_walk_frames")],
                        "surviving_shift_span_frames": (probe["anchor_b_frame"]
@@ -1965,21 +1791,6 @@ def _resolve_interior(hole, domain, master_obj, candidate_obj, walk=None):
         if _interior_verdict(result) == _orch().HOLE_PINNED_TO_AMBIGUOUS_ZONE_END:
             return _ambiguous_pin_outcome(hole, domain, result, candidate_obj.filePath, walk=walk,
                                           master_obj=master_obj)
-        if not below_floor and result.get("reason") == "anchor_step_inconsistent":
-            # Both anchors seated and the cross-sweep ran, but the frame gap it counted
-            # disagreed with the audio's nominal step -- the usual sign of a blind span: a
-            # held black or static picture matches either offset, so each walk runs clean
-            # through the whole span and touches the far anchor (`sweep_crossed`). The
-            # picture is never read past the anchors in that case, so the anchors' own
-            # (frame-exact, scene-cut-seeded) shift difference is trusted over the nominal
-            # step instead of declining.
-            blind = _checked_two_anchor(hole, domain, master_obj, candidate_obj, low_ms,
-                                        high_ms, offset_before_ms, offset_after_ms, step_ms,
-                                        quantum_ms, probe="blind_span_anchor_gap",
-                                        accept_step_disagreement=True)
-            if not blind["declined"] and blind.get("sweep_crossed"):
-                return _blind_span_outcome(hole, domain, blind, candidate_obj.filePath, walk=walk,
-                                           master_obj=master_obj)
         return _declined(hole, result.get("reason"), result.get("evidence"),
                          no_cut_probe_run=bool(hypotheses))
     verdict = _interior_verdict(result)
@@ -2561,7 +2372,6 @@ def _resolve_logged(candidate_path, index, hole, domain, master_obj, candidate_o
             f"proposal_shifts={refuted['proposal_shifts']} "
             f"proposal_span_matches_before={refuted['proposal_span_matches_before']} "
             f"proposal_span_matches_after={refuted['proposal_span_matches_after']} "
-            f"claimed_span_matches={refuted['claimed_span_matches']} "
             f"span_test_matches={refuted.get('span_test_matches')} "
             f"surviving_shift={refuted['video_single_shift']} "
             f"surviving_shift_walk_frames={refuted['surviving_shift_walk_frames']} "
@@ -3136,79 +2946,6 @@ def _cp_hole(point, reference, index):
                          "step_ms": round(b - a, 3), "change_point": index}]}
 
 
-def union_hole_edges(point, union):
-    """Borrow edges for a change point from the cross-verified union when the walk could not read them.
-
-    The walk's edge probes need an NCC of 0.8, which some couples (e.g. 6 ch vs 2 ch) never
-    reach. Exactly one union interior hole must overlap the change point's search span with
-    the same step within the inter-couple tolerance. Its master bounds, clipped to the span,
-    become the edges; the walk's levels still set step and fill.
-
-    Returns:
-        An `edges` dict (`method` = `union_hole`), or None.
-    """
-    import audio_walk
-    before, after = point["level_before"], point["level_after"]
-    span_lo = before["t_last"] - audio_walk.WALK_HOP_S
-    span_hi = after["t_first"] + audio_walk.WALK_WINDOW_S + audio_walk.WALK_HOP_S
-    jump = point["b_ms"] - point["a_ms"]
-    matches = [hole for hole in union or []
-               if hole["kind"] == "interior" and hole.get("step_ms") is not None
-               and abs(hole["step_ms"] - jump) <= (_orch().INTERCOUPLE_STEP_TOLERANCE_QUANTA
-                                                   * _orch().INTERCOUPLE_STEP_TOLERANCE_SLACK
-                                                   * hole["quantum_ms"])
-               and hole["master_ms"][0] / 1000.0 < span_hi
-               and hole["master_ms"][1] / 1000.0 > span_lo]
-    if len(matches) != 1:
-        return None
-    hole = matches[0]
-    edge_a = max(hole["master_ms"][0] / 1000.0, span_lo)
-    edge_b = min(hole["master_ms"][1] / 1000.0, span_hi)
-    extra = max(0.0, (point["a_ms"] - point["b_ms"]) / 1000.0)
-    if extra > 0:
-        kind, lo, hi = "deletion", edge_a, edge_b - extra
-    else:
-        kind, lo, hi = "addition", edge_a, edge_b
-    if hi < lo:
-        return None
-    return {"method": "union_hole", "a_ms": point["a_ms"], "b_ms": point["b_ms"],
-            "step_ms": round(jump, 3), "status": "ok", "edge_A": round(edge_a, 4),
-            "edge_B": round(edge_b, 4), "extra_s": round(extra, 6), "master_only_audible": None,
-            "kind": kind, "interval": [round(lo, 4), round(hi, 4)], "feasible": True,
-            "union_hole_ms": [round(hole["master_ms"][0], 2), round(hole["master_ms"][1], 2)],
-            "union_step_ms": round(hole["step_ms"], 3),
-            "walk_edges": point.get("edges")}
-
-
-# A video-pinned span exceeding the audio fill by less than this is the candidate's own join
-# material (a crossfade dip, a silence) and is cut.
-REPLACEMENT_MAX_EXCESS_S = 1.0
-
-
-def replacement_hole(outcome, domain, edges, slack_s):
-    """Turn an infeasible deletion into a replacement when the video pins both edges.
-
-    Both cut frames must lie inside the audio edges (with `slack_s`) and the span must exceed
-    the audio fill by less than REPLACEMENT_MAX_EXCESS_S.
-
-    Returns:
-        {start_s, end_s, fill_s, cut_ms}, or None.
-    """
-    if outcome.get("status") != _orch().HOLE_RESOLVED:
-        return None
-    start_s = _frame_s(outcome["master_start_frame"], domain)
-    end_s = _frame_s(outcome["master_end_frame"], domain)
-    fill_s = end_s - start_s
-    excess = fill_s - edges["extra_s"]
-    first, last = min(edges["edge_A"], edges["edge_B"]), max(edges["edge_A"], edges["edge_B"])
-    if not (first - slack_s <= start_s and end_s <= last + slack_s):
-        return None
-    if not (0.0 <= excess < REPLACEMENT_MAX_EXCESS_S):
-        return None
-    return {"start_s": start_s, "end_s": end_s, "fill_s": fill_s,
-            "cut_ms": round(excess * 1000.0, 3)}
-
-
 def addition_replacement(point, union, walk):
     """Detect an addition change point that is really a replacement.
 
@@ -3337,18 +3074,6 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
     hole_quantum_ms = reference["alignment"]["quantum_ms"]
     for index, point in enumerate(points):
         edges = point.get("edges") or {}
-        if edges.get("status") != "ok":
-            fallback = union_hole_edges(point, union)
-            if fallback is not None:
-                tools.log_always(
-                    f"repair: edges_from_union_hole change_point={index} a_ms={point['a_ms']} "
-                    f"b_ms={point['b_ms']} walk_step_ms={fallback['step_ms']} "
-                    f"union_step_ms={fallback['union_step_ms']} "
-                    f"union_hole_ms={fallback['union_hole_ms']} "
-                    f"edges_s=[{fallback['edge_A']}, {fallback['edge_B']}] "
-                    f"interval_s={fallback['interval']} walk_edges={edges.get('status')} "
-                    f"for {candidate_path}\n")
-                point["edges"] = edges = fallback
         holes.append(_cp_hole(point, reference, index) if edges.get("status") == "ok" else None)
     # Nearby change points share one scene pass.
     cluster_holes([hole for hole in holes if hole is not None])
