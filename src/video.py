@@ -143,7 +143,7 @@ class video():
                 data["ffmpeg_compatible"] = False
                 have_incompatible_ffmpeg_codec = True
                 if tools.dev:
-                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['properties']['codec'].lower()}\n")
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['ffprobe']['codec_name'].lower()}\n")
             elif (data.get("Format","").lower() in tools.to_convert_ffmpeg_type):
                 data['ffmpeg_to_convert'] = tools.to_convert_ffmpeg_type[data.get("Format","").lower()]
                 data["ffmpeg_compatible"] = False

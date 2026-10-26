@@ -126,7 +126,10 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
             param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(int(float(sample_rate_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(sample_rate_param[-1:], 1)))])
 
         filter_param = param_reencode.get("filter", "")
-        filter_param = filter_param + "," + filter_param_to_add
+        if filter_param and filter_param_to_add:
+            filter_param = filter_param + "," + filter_param_to_add
+        elif filter_param_to_add:
+            filter_param = filter_param_to_add
         if filter_param:
             param_to_send.extend([f"-filter:a:{audio_position_in_file}", filter_param])
 

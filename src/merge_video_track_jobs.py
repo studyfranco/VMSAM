@@ -278,6 +278,9 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
             else:
                 cmd_convert.extend(["-c:s:0", "ass"])
 
+            if codec not in tools.sub_type_not_encodable and delay_to_put < 0:
+                cmd_convert.extend(["-output_ts_offset", f"{delay_to_put/Decimal('1000'):.6f}"])
+
             cmd_convert.extend([f"-metadata:s:s:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(sub):
                 cmd_convert.extend([f"-metadata:s:s:0", add_original_informations(sub,video_obj.filePath)])
