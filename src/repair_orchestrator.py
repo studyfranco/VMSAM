@@ -91,7 +91,7 @@ CLASS_COULD_NOT_RUN = "could_not_run"
 
 # Closed cause vocabulary with each token's class; an unknown token logs as `unclassified`.
 DECLINE_CAUSES = {
-    # step 1 (a self-contradicting master routes to `video_anchored_route`).
+    # step 1 (a self-contradicting master routes to the visual route).
     # No match between the two files' scene changes proves different content:
     "video_content_mismatch": CLASS_CONCLUSIVE,
     # The chimeric build itself refused with no cause of its own (apply_plan's default):
@@ -109,6 +109,7 @@ DECLINE_CAUSES = {
     "video_offset_coverage_incomplete": CLASS_COULD_NOT_RUN,
     "video_probe_failed": CLASS_COULD_NOT_RUN,
     "video_decode_failed": CLASS_COULD_NOT_RUN,
+    "visual_route_declined": CLASS_COULD_NOT_RUN,
     # The master's content ends >= 300 s before the candidate's and never resumes:
     "master_cut_short": CLASS_CONCLUSIVE,
     # Step 0: the master fails its own conformity check (error severity):
@@ -223,7 +224,7 @@ CAUSE_FAMILIES = {
     # The picture-only route could not run or could not conclude.
     "video_route_unresolved": ("reason", (
         "video_fps_mismatch", "video_offset_not_constant", "video_offset_coverage_incomplete",
-        "video_probe_failed", "video_decode_failed")),
+        "video_probe_failed", "video_decode_failed", "visual_route_declined")),
     # Our own plan builder produced an impossible shape: a defect of the plan, not the pair.
     "plan_invariant_broken": ("kind", (
         "plan_not_contiguous", "plan_piece_empty_or_inverted", "plan_end_not_master_timeline",
@@ -963,19 +964,27 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     return ok, cause, reason, None
 
 
-# ---------------------------------------------------------------------------
-# Video-anchored route (`video_offset_plan`)
-# ---------------------------------------------------------------------------
-
-def _video_route_terminal(status, cause, reason, candidate_path, trigger):
-    """Turn a non-fallback video-route outcome into the repair's boolean, writing the plan line."""
-    if status == "repaired":
-        _plan_line(video_offset_plan.VIDEO_ANCHORED_KIND, candidate_path, step="video_anchored",
-                   trigger=trigger)
+def visual_route(trigger, master_obj, candidate_obj, language, candidate_path):
+    import merge_video_repair
+    import merge_video_visual_fallback
+    merge_video_visual_fallback.visual_fallback_merge(
+        master_obj, candidate_obj, True, language,
+        path.join(tools.tmpFolder, "repair", "visual_fallback"))
+    seam = getattr(candidate_obj, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
+    repaired = seam is not None and seam.get("repaired_obj") is not None
+    tools.log_always(f"repair: visual_route trigger={trigger} repaired={repaired} "
+                     f"for {candidate_path}\n")
+    if repaired:
+        _plan_line("visual_fallback", candidate_path, step="visual_route", trigger=trigger)
         return True
-    _plan_line("none", candidate_path, step="video_anchored", trigger=trigger, cause=cause)
-    return _terminal(candidate_path, "no_plan" if cause == "step_stalled" else "declined",
-                     cause, reason)
+    _plan_line("none", candidate_path, step="visual_route", trigger=trigger,
+               cause=VISUAL_ROUTE_DECLINED)
+    return _terminal(candidate_path, "declined", VISUAL_ROUTE_DECLINED,
+                     f"the audio cannot place the candidate ({trigger}) and the pictures did not "
+                     f"repair it (visual_fallback_merge logged why)")
+
+
+VISUAL_ROUTE_DECLINED = "visual_route_declined"
 
 
 # ---------------------------------------------------------------------------
@@ -1031,11 +1040,9 @@ def comparison_track_corrupt_route(master_obj, candidate_obj, language, primed, 
             f"unreliable ({videos})"), detail={"corrupt_track": corrupt, "videos": videos})
     tools.log_always(f"repair: comparison_track_corrupt route=video_anchored "
                      f"language={language} evidence={evidence} for {candidate_path}\n")
-    status, cause, reason = video_offset_plan.video_anchored_route(
-        COMPARISON_TRACK_CORRUPT, evidence, master_obj, candidate_obj, language, [])
     # No audio fallback: the comparison track itself is corrupt.
-    return _video_route_terminal("declined" if status == "fallback" else status, cause, reason,
-                                 candidate_path, COMPARISON_TRACK_CORRUPT)
+    return visual_route(COMPARISON_TRACK_CORRUPT, master_obj, candidate_obj, language,
+                                 candidate_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1196,11 +1203,8 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
         tools.log_always(f"repair: master_intertrack_desync route=video_anchored "
                          f"language={comparison_language} evidence={evidence} "
                          f"for {candidate_path}\n")
-        status, cause, reason = video_offset_plan.video_anchored_route(
-            video_offset_plan.TRIGGER_MASTER_DESYNC, evidence, master_obj, candidate_obj, comparison_language,
-            [])
-        return _video_route_terminal(status, cause, reason, candidate_path,
-                                     video_offset_plan.TRIGGER_MASTER_DESYNC)
+        return visual_route(video_offset_plan.TRIGGER_MASTER_DESYNC, master_obj,
+                                     candidate_obj, comparison_language, candidate_path)
     if verdict is not None and verdict.get("verdict") is not None:
         _plan_line("none", candidate_path, step="master_self_check",
                    cause=verdict["verdict"])
@@ -1249,18 +1253,12 @@ def _repair(master_obj, candidate_obj, comparison_language, work_root=None,
         _plan_line("none", candidate_path, step="prime", cause=prime_cause)
         return _terminal(candidate_path, "no_plan", prime_cause, prime_reason)
 
-    # ---- step 1b: audio self-contradiction -> video route --------------------
+    # ---- step 1b: audio self-contradiction (logged; the audio path decides) ---
     trigger, evidence, delay_rows = video_offset_plan.detect_audio_contradiction(
         master_obj, candidate_obj, comparison_language, primed, candidate_path)
     if trigger is not None:
-        status, cause, reason = video_offset_plan.video_anchored_route(
-            trigger, evidence, master_obj, candidate_obj, comparison_language, delay_rows)
-        if status != "fallback":
-            _drop_rate_wav(primed)
-            return _video_route_terminal(status, cause, reason, candidate_path, trigger)
-        tools.log_always(f"repair: video_route_fallback trigger={trigger} video={cause} -- the "
-                         f"offset is not one constant from head to tail (a drift or an interior "
-                         f"edit): the ordinary audio path continues "
+        tools.log_always(f"repair: video_route_fallback trigger={trigger} evidence={evidence} "
+                         f"couples={delay_rows} -- the ordinary audio path continues "
                          f"for {candidate_path}\n")
 
     step_launch("similarity_gate", candidate=candidate_path, n_couples=len(couples))

@@ -38,7 +38,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 import threading
 import time
 from decimal import Decimal
@@ -975,11 +974,14 @@ def carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms, log=None):
         for span in spans:
             if span["master_first"] > cursor:
                 piece = dict(zone)
-                piece["master_start_ms"] = orch._decimal(cursor * frame_ms)
+                piece["master_start_ms"] = (zone["master_start_ms"] if cursor == m_lo
+                                            else orch._decimal(cursor * frame_ms))
                 piece["master_end_ms"] = orch._decimal(span["master_first"] * frame_ms)
                 out_zones.append(piece)
-            start_ms = orch._decimal(span["master_first"] * frame_ms)
-            end_ms = orch._decimal((span["master_last"] + 1) * frame_ms)
+            start_ms = (zone["master_start_ms"] if span["master_first"] == m_lo
+                        else orch._decimal(span["master_first"] * frame_ms))
+            end_ms = (zone["master_end_ms"] if span["master_last"] == m_hi
+                      else orch._decimal((span["master_last"] + 1) * frame_ms))
             out_fills.append({"master_start_ms": start_ms, "master_end_ms": end_ms,
                               "reason": orch.WHY_TOKEN["interior"],
                               "hole": f"divergent_{len(out_fills)}", "status": "video_divergent",
@@ -994,8 +996,8 @@ def carve_divergent_fills(zones, fills, m_hashes, c_hashes, frame_ms, log=None):
             cursor = span["master_last"] + 1
         if cursor <= m_hi:
             piece = dict(zone)
-            piece["master_start_ms"] = orch._decimal(cursor * frame_ms)
-            piece["master_end_ms"] = orch._decimal((m_hi + 1) * frame_ms)
+            piece["master_start_ms"] = (zone["master_start_ms"] if cursor == m_lo
+                                        else orch._decimal(cursor * frame_ms))
             out_zones.append(piece)
     out_zones.sort(key=lambda z: z["master_start_ms"])
     for i, zone in enumerate(out_zones):
@@ -1279,7 +1281,6 @@ orch = _Orchestrator()
 TRIGGER_MASTER_DESYNC = "master_intertrack_desync"          # (i)
 TRIGGER_CANDIDATE_DESYNC = "candidate_intertrack_desync"    # (ii)
 TRIGGER_PICTURE_DISAGREE = "audio_video_offset_disagree"    # (iii)
-VIDEO_ANCHORED_KIND = "orchestrator_video_anchored"
 # Per-couple delay: master_self_check's 30 s window cross-correlation, +-1 s around the coarse
 # offset, read at one instant (mid-file) for every couple so a drift affects them alike.
 COUPLE_DELAY_WINDOW_S = 30.0
@@ -1448,24 +1449,6 @@ def detect_audio_contradiction(master_obj, candidate_obj, language, primed, cand
     return trigger, evidence, rows
 
 
-def video_status_cause(status, trigger):
-    """Map a video status to (route status, cause).
-
-    A non-constant offset falls back to the chimeric route for triggers (ii)/(iii)
-    but declines for (i), where the couples themselves disagree.
-    """
-    vop = sys.modules[__name__]
-    if status in (vop.STATUS_NOT_CONSTANT, vop.STATUS_COVERAGE):
-        return ("declined" if trigger == TRIGGER_MASTER_DESYNC else "fallback"), status
-    return "declined", {
-        vop.STATUS_FPS_MISMATCH: "video_fps_mismatch",
-        vop.STATUS_UNMATCHED: "video_content_mismatch",
-        vop.STATUS_PROBE_FAILED: "video_probe_failed",
-        vop.STATUS_DECODE_FAILED: "video_decode_failed",
-        vop.STATUS_STALLED: "step_stalled",
-    }.get(status, "video_decode_failed")
-
-
 def video_anchored_pieces(offset_ms, extent_ms, timeline_ms):
     """Place one candidate track on the master timeline at the picture's offset.
 
@@ -1478,179 +1461,3 @@ def video_anchored_pieces(offset_ms, extent_ms, timeline_ms):
                         timeline_ms)
 
 
-def video_anchored_route(trigger, evidence, master_obj, candidate_obj, language, rows):
-    """Run the video-anchored route; return `(status, cause, reason)`.
-
-    Status is repaired, declined or fallback. Every candidate track and the chapters are moved
-    by the picture offset; the master is never touched; additions happen only at head and tail.
-    """
-    import merge_video_chimeric
-    import merge_video_repair
-    video_offset_plan = sys.modules[__name__]
-    candidate_path = candidate_obj.filePath
-    started = time.time()
-    orch.step_launch("video_anchored", candidate=candidate_path, trigger=trigger)
-    hints = [r["delay_ms"] for r in rows if r["delay_ms"] is not None] or None
-    cache_root = os.path.join(tools.tmpFolder, "repair")
-    tools.make_dirs(cache_root)
-    result = video_offset_plan.measure_video_offset(
-        master_obj.filePath, candidate_path, cache_root, audio_delay_hints_ms=hints)
-    numbers = (f"fps={result.fps} scenes master={result.master_scenes} "
-               f"candidate={result.candidate_scenes} paired={result.paired}/{result.total} "
-               f"matched={result.matched} ambiguous={result.ambiguous} "
-               f"mean_distance={None if result.mean_distance is None else round(result.mean_distance, 3)} "
-               f"covered_frames={result.covered_frames} thirds={result.thirds} "
-               f"regimes={result.regimes} trend_frames="
-               f"{None if result.trend_frames is None else round(result.trend_frames, 3)} "
-               f"best_d={result.extra.get('best_d')} wall_s="
-               f"{None if result.wall_s is None else round(result.wall_s, 1)}")
-    if result.status != video_offset_plan.STATUS_OK:
-        status, cause = video_status_cause(result.status, trigger)
-        if result.status in (video_offset_plan.STATUS_NOT_CONSTANT,
-                             video_offset_plan.STATUS_COVERAGE):
-            # The video gave a changing offset rather than nothing: regroup its already
-            # two-sided-confirmed matched cuts into zones (no second decode, no second match)
-            # and log whether they would clear the compatibility guard. Diagnostic only here --
-            # applying such a plan through the common path is the video-only route's next step.
-            groups = video_offset_plan.group_video_zones(result.pairs or [], float(result.frame_ms))
-            zone_cause = video_offset_plan.check_zone_compatibility(groups, result.master_frames)
-            tools.log_always(
-                f"repair: video_zones trigger={trigger} zone_cause={zone_cause} "
-                f"n_zones={len(groups)} offsets="
-                + ",".join(f"{d:+d}x{len(m)}" for d, m in groups)
-                + f" for {candidate_path}\n")
-        reason = (f"the audios contradict each other ({trigger}: {evidence}; per couple "
-                  f"{_rows_text(rows)}) and the video could not arbitrate: {result.status}"
-                  f"({result.reason}) -- {numbers}")
-        tools.log_always(f"repair: video_anchored_route trigger={trigger} status={status} "
-                         f"video={result.status} cause={cause} couples={_rows_text(rows)} "
-                         f"{numbers} for {candidate_path}\n")
-        orch.step_result("video_anchored", candidate=candidate_path, status=status, cause=cause)
-        return status, cause, reason
-
-    frame_ms = result.frame_ms
-    picture_ms = -result.candidate_track_delay_ms           # candidate file = master file + this
-    if not any(r["delay_ms"] is not None for r in rows):
-        # Trigger (i) from master_self_check has no prime: read every couple around the picture's delay.
-        couples = orch.enumerate_couples(master_obj, candidate_obj, language)
-        at_s = float(result.master_frames / result.fps) * COUPLE_DELAY_POSITION
-        rows = couple_fine_delays(master_obj, candidate_obj, couples,
-                                  {f"{m}x{c}": float(picture_ms) for m, c in couples}, at_s)
-    gaps = {r["couple"]: round(r["delay_ms"] - float(picture_ms), 3)
-            for r in rows if r["delay_ms"] is not None}
-    for row in rows:
-        if row["delay_ms"] is not None and abs(gaps[row["couple"]]) > float(frame_ms):
-            # Signal (iii) is logged only, never acted on here.
-            tools.log_always(
-                f"repair: audio_video_offset_disagree couple={row['couple']} "
-                f"audio_ms={row['delay_ms']} audio_frames="
-                f"{round(row['delay_ms'] / float(frame_ms), 2)} "
-                f"picture_frames={result.offset_frames:+d} picture_ms={float(picture_ms):.3f} "
-                f"gap_ms={gaps[row['couple']]} for {candidate_path}\n")
-    shift = -result.offset_frames
-    marker = f"video_anchored:{shift:+d}"
-    tools.log_always(f"repair: video_anchored_route trigger={trigger} status=anchored "
-                     f"couples={_rows_text(rows)} picture_offset_frames={result.offset_frames:+d} "
-                     f"picture_delay_ms={float(picture_ms):.3f} gaps_ms={gaps} "
-                     f"constant=yes same_files=yes marker={marker} {numbers} "
-                     f"for {candidate_path}\n")
-    import frame_count_check
-    count = frame_count_check.check_constant_plan(master_obj, candidate_obj,
-                                                  orch._decimal(picture_ms), candidate_path)
-    if count.get("ok") is False:
-        orch.step_result("video_anchored", candidate=candidate_path, status="declined",
-                         cause=frame_count_check.FRAME_COUNT_MISMATCH)
-        return "declined", frame_count_check.FRAME_COUNT_MISMATCH, (
-            f"the picture-anchored plan does not give back the master's frame count (expected "
-            f"{float(count['expected']):.3f}, obtained {float(count['obtained']):.3f}, route "
-            f"video_anchored)")
-
-    # ---- the plan: one zone per track at the picture's offset -----------------
-    work_dir = os.path.join(tools.tmpFolder, "repair", "video_anchored",
-                         merge_video_chimeric.stable_case_key(candidate_path))
-    tools.make_dirs(work_dir)
-    timeline_ms = merge_video_chimeric.get_master_timeline_length_ms(master_obj)
-    offset_ms = orch._decimal(picture_ms)
-    track_plans = {}
-    for track_language, audio in merge_video_chimeric.iterate_candidate_audios(candidate_obj):
-        order = int(audio["StreamOrder"])
-        _, extent_ms, extent_source = orch._track_timing(candidate_obj, audio, Decimal(1))
-        pieces, adjustments, _ = video_anchored_pieces(offset_ms, extent_ms, timeline_ms)
-        for adjustment in adjustments:
-            tools.log_line(f"repair: plan_edge_adjustment stream={order} zone=0 "
-                           f"kind={adjustment['kind']} "
-                           f"master_fill_ms={adjustment['master_fill_ms']}\n")
-        track_plans[order] = {
-            "pieces": pieces, "extent_ms": extent_ms, "extent_source": extent_source,
-            "offset_measured": True, "borrow_reason": None,
-            "offset_sources": [{"zone": 0, "offset_ms": str(offset_ms),
-                                "source": "video_anchored"}]}
-        orch.step_result("track_pieces", candidate=candidate_path, stream=order,
-                    language=track_language, n_pieces=len(pieces),
-                    pieces=[(p["source"][0], float(p["master_start_ms"]),
-                             float(p["master_end_ms"]), float(p["source_start_ms"]))
-                            for p in pieces])
-    reference_pieces, _, _ = video_anchored_pieces(offset_ms, None, timeline_ms)
-    chapters_path, chapter_decisions = merge_video_chimeric.build_delivered_chapters(
-        master_obj.filePath, candidate_path, reference_pieces, None, timeline_ms, work_dir)
-    for decision in chapter_decisions:
-        tools.log_line("repair: chapter " + " ".join(
-            f"{key}={str(value).replace(' ', '_')}" for key, value in decision.items()) + "\n")
-    master_tracks = (getattr(master_obj, "audios", None) or {}).get(language) or []
-    reference_stream = master_tracks[0].get("StreamOrder") if master_tracks else None
-    seam = getattr(candidate_obj, merge_video_repair.REPAIR_SEAM_ATTRIBUTE, None)
-    job_start_utc = ((seam or {}).get("job_start_utc")
-                     or "unstamped(no_repair_seam_standalone_run)")
-    plan = {
-        "kind": VIDEO_ANCHORED_KIND, "language": language, "reference_stream": reference_stream,
-        "quantum_ms": None, "master_path": master_obj.filePath,
-        "decided_by": "repair_orchestrator.video_anchored_route",
-        "segments_dropped_unusable": 0, "speed_margin": None, "speed_engine": None,
-        "speed_margin_absent_reason": "no_rate_relation",
-        "segments": [{"master_start_ms": Decimal(0), "master_end_ms": timeline_ms,
-                      "candidate_offset_ms": offset_ms,
-                      "candidate_offset_ms_by_stream": {order: str(offset_ms)
-                                                        for order in track_plans}}],
-        "track_plans": track_plans, "reference_pieces": reference_pieces,
-        "marker": marker, "chapters_path": chapters_path, "speed_ratio": None,
-        "speed_ratio_exact": None, "rate_source": None, "resample_gate": None,
-        "video_anchored": {"offset_frames": result.offset_frames, "shift_frames": shift,
-                           "offset_ms": offset_ms, "fps": str(result.fps),
-                           "trigger": trigger},
-    }
-    orch.step_launch("build", candidate=candidate_path, marker=marker, n_tracks=len(track_plans))
-    repaired_obj, assembly = merge_video_repair.build_repaired_video_object(
-        candidate_obj, master_obj, plan, os.path.join(tools.tmpFolder, "repair"), job_start_utc)
-    out_path = getattr(repaired_obj, "filePath", None)
-    exists = bool(out_path) and os.path.exists(out_path)
-    orch.step_result("build", candidate=candidate_path, ok=exists, out_path=out_path,
-                marker=assembly.get("marker"),
-                verification=[(v.get("track"), v.get("outcome"), v.get("worst_lag_ms"))
-                              for v in assembly.get("verification") or []])
-    if not exists:
-        return "declined", "plan_application_no_file", (
-            f"the build returned but the video-anchored file is not on disk ({out_path})")
-    delivered = merge_video_chimeric.probe_delivered_durations(out_path)
-    tools.log_line(
-        f"repair: DELIVERED_DURATIONS container_ms={delivered['container_ms']} "
-        f"master_video_ms={timeline_ms} video_ms=absent(the_repaired_file_carries_no_video) "
-        + " ".join(f"{stream['type']}_{stream['index']}_ms={stream['duration_ms']}"
-                   for stream in delivered["streams"])
-        + f" max_cue_end_ms={delivered['max_cue_end_ms']} for {candidate_path}\n")
-    if seam is not None:
-        seam["repaired_obj"] = repaired_obj
-        seam["assembly"] = assembly
-    reason = (f"video-anchored ({trigger}): every candidate track moved by the picture offset "
-              f"{result.offset_frames:+d} frame(s) = {float(picture_ms):.3f} ms on the file "
-              f"clock, marker '{marker}', {len(assembly.get('audios') or [])} audio and "
-              f"{len(assembly.get('subtitles') or [])} subtitle track(s) rebuilt, the master "
-              f"untouched, per-couple audio delays {_rows_text(rows)}, file {out_path}")
-    merge_video_repair.record(candidate_path, "repaired", reason, detail={
-        "out_path": out_path, "video_anchored": plan["video_anchored"],
-        "couples": rows, "gaps_ms": gaps,
-        "markers": {r["stream_order"]: r.get("marker") for r in assembly.get("audios") or []},
-        "delivered_durations": delivered,
-        "fabricated_dropped": assembly.get("fabricated_dropped")})
-    orch.step_result("video_anchored", candidate=candidate_path, status="repaired", out_path=out_path,
-                seconds=round(time.time() - started, 1))
-    return "repaired", None, reason

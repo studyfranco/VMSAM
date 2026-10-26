@@ -270,44 +270,6 @@ def check_audio_plan(zones, fills, walk, domain, factor, master_obj, candidate_o
     return count
 
 
-def check_constant_plan(master_obj, candidate_obj, offset_ms, candidate_path,
-                        route="video_anchored"):
-    """Count the one-zone plan of the picture-anchored route and log it.
-
-    The route fills from the master the head and tail the candidate has no content for
-    (`video_offset_plan.video_anchored_pieces`), so those fills are counted.
-
-    Returns the count dict, or {"unmeasured": reason}; never raises.
-    """
-    import merge_video_chimeric
-    import repair_orchestrator as orch
-    try:
-        domain, reason = orch.frame_domain(master_obj, candidate_obj, None)
-        if domain is None:
-            count = {"unmeasured": reason}
-        else:
-            offset = _fraction(offset_ms)
-            timeline = _fraction(merge_video_chimeric.get_master_timeline_length_ms(master_obj))
-            zones = [{"master_start_ms": Decimal(0), "offset_ms": offset_ms, "zone": 0,
-                      "master_end_ms": timeline}]
-            fills = []
-            extent = candidate_extent_ms(domain, 1, candidate_obj)
-            if extent is not None:
-                head_end = min(max(extent[0] - offset, Fraction(0)), timeline)
-                tail_start = max(min(extent[1] - offset, timeline), Fraction(0))
-                if head_end > 0:
-                    fills.append({"master_start_ms": Fraction(0), "master_end_ms": head_end})
-                if tail_start < timeline:
-                    fills.append({"master_start_ms": tail_start, "master_end_ms": timeline})
-            count = check(zones, fills, [{"start_ms": offset, "end_ms": offset, "n_ok": 0,
-                                          "source": "picture"}], domain, 1, master_obj,
-                          candidate_obj)
-    except Exception as error:                                           # noqa: BLE001
-        count = {"unmeasured": f"raised:{type(error).__name__}:{error}"}
-    log_count(candidate_path, route, count)
-    return count
-
-
 def _refine_with_audio(zones, walk, candidate_path):
     """Replace each picture zone's offset by the comparison track's own offset near it.
 

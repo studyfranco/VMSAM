@@ -336,8 +336,7 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
     assembly["dropped_corrupt"] = dropped_corrupt
     if video_anchored is not None:
         verification, refusal = verify_video_anchored(
-            assembly["path"], candidate_obj, assembly.get("audios") or [],
-            Decimal(str(video_anchored["offset_ms"])), plan["track_plans"])
+            assembly["path"], candidate_obj, assembly.get("audios") or [], plan["track_plans"])
         assembly["verification"] = verification
         if refusal is not None:
             try:
@@ -472,13 +471,8 @@ def gate_delivered_silences(repaired_obj, master_obj, reference_stream, report=N
 VIDEO_ANCHORED_PROBE_FRACTIONS = (0.2, 0.5, 0.8)
 
 
-def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, track_plans):
-    '''Verify each delivered video-anchored track against its own original.
-
-    At master time `t` the product must carry what the candidate track carries at `t +
-    offset_ms`; probed at VIDEO_ANCHORED_PROBE_FRACTIONS of the longest candidate piece, within
-    `verify_tolerance_ms`. Returns `(results, refusal)`, refusal None when all tracks align.
-    '''
+def verify_video_anchored(out_path, candidate_obj, audio_reports, track_plans):
+    '''Verify each delivered picture-placed track against its own original, at its longest piece's offset.'''
     import merge_video_chimeric as mvc
     window_ms = Decimal(str(mvc.verify_window_seconds)) * Decimal("1000")
     rate = mvc.verify_probe_rate
@@ -498,8 +492,9 @@ def verify_video_anchored(out_path, candidate_obj, audio_reports, offset_ms, tra
         span = piece["master_end_ms"] - piece["master_start_ms"] - window_ms
         for fraction in VIDEO_ANCHORED_PROBE_FRACTIONS:
             master_ms = piece["master_start_ms"] + max(Decimal(0), span) * Decimal(str(fraction))
-            original = mvc.read_mono_samples(candidate_obj.filePath, f"0:{int(order)}",
-                                             master_ms + offset_ms, window_ms, rate)
+            original = mvc.read_mono_samples(
+                candidate_obj.filePath, f"0:{int(order)}",
+                master_ms + piece["source_start_ms"] - piece["master_start_ms"], window_ms, rate)
             produced = mvc.read_mono_samples(out_path, f"0:a:{produced_index}", master_ms,
                                              window_ms, rate)
             if min(mvc.get_rms(original), mvc.get_rms(produced)) < mvc.verify_min_rms:
@@ -1745,5 +1740,6 @@ def repair_not_compatible_videos(list_not_compatible_video, dict_file_path_obj,
         sys.stdout.write(f"\tRepaired {candidate_path} as "
                          f"{getattr(repaired_obj, 'filePath', repaired_obj)}\n")
         repaired.append(candidate_path)
-        best_video.sameAudioMD5UseForCalculation.append(repaired_obj)
+        if repaired_obj not in best_video.sameAudioMD5UseForCalculation:
+            best_video.sameAudioMD5UseForCalculation.append(repaired_obj)
     return repaired
