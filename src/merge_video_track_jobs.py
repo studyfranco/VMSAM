@@ -208,8 +208,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                 cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
                 if delay_to_put < 0:
                     cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
-            # elif audio["offset"] + delay_to_put > 0: # A possibility is to remove a part of the offset. To explore.
-            elif delay_to_put < 0:
+            elif delay_to_put < 0 and Decimal(str(audio.get("Delay", "0"))) + delay_to_put/Decimal("1000") < 0:
                 cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
             
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
