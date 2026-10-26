@@ -1447,37 +1447,6 @@ def _blind_span_audio_point(domain, gap, before, after, low, high, walk):
         return None
 
 
-def quietest_removal_point(domain, gap, after, low, high, walk, candidate_path):
-    """The removal frame in [low, high] whose removed candidate audio (every track that can be
-    delivered) carries the least energy, when no placement is silent; None without `walk`.
-
-    Returns:
-        (frame, [frame, frame], "lowest_candidate_energy") or None.
-    """
-    import numpy as np
-    if walk is None or gap <= 0 or high < low:
-        return None
-    frame_s = float(domain["frame_ms"]) / 1000.0
-    tracks = walk.get("silence_tracks") or [walk["candidate"]]
-    energies = []
-    for point in range(low, high + 1):
-        times = np.arange((point - gap - 1) * frame_s,
-                          (point + 1) * frame_s - BLIND_SILENCE_WIN_S + 1e-9, BLIND_SILENCE_HOP_S)
-        times = times[times >= 0.0]
-        if not len(times):
-            energies.append(float("inf"))
-            continue
-        energies.append(sum(float(np.mean(10.0 ** (_window_levels(track, times, after * frame_s)
-                                                   / 10.0))) for track in tracks))
-    best = int(np.argmin(energies))
-    point = low + best
-    tools.log_always(f"repair: removal_without_silence frames=[{low}, {high}] "
-                     f"placed_at_frame={point} energy_db="
-                     f"{round(10.0 * math.log10(max(energies[best], 1e-12)), 1)} "
-                     f"tracks={len(tracks)} for {candidate_path}\n")
-    return point, [point, point], "lowest_candidate_energy"
-
-
 def _blind_span_bounds(blind, gap):
     """Right-edge frames [low, high] the picture allows for a blind gap.
 
@@ -1571,8 +1540,6 @@ def _blind_span_outcome(hole, domain, blind, candidate_path, walk=None, master_o
     found = None
     if not identity:
         found = _blind_span_audio_point(domain, gap, before, after, low, high, walk)
-    if found is None and anchor is None:
-        found = quietest_removal_point(domain, gap, after, low, high, walk, candidate_path)
     if found is not None:
         point, frames, placement = found
         placement_evidence = f"placement_frames={frames}"
