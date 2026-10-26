@@ -82,7 +82,7 @@ def get_parameters_lossless(audio, audio_position):
     return parameters
 
 def all_lossless_in_flac():
-    return get_audio_encode_parameters.get("encode_lossless_in_flac", True)
+    return get_audio_encode_parameters().get("encode_lossless_in_flac", True)
 
 # This case is when we don't want reencode lossless in flac 
 def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_param_to_add=''):
@@ -105,13 +105,13 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
 
     if param_reencode:
         """ Example:
-        {"target": "libopus","bitrate": "source", "sample_rate": "48000" "filter": "my_special_arg:my_second_special_param", "args": {"-mapping_family": "1", "-compression_level": "12"}}
+        {"target": "libopus","bitrate": "source", "sample_rate": "48000", "filter": "my_special_arg:my_second_special_param", "args": {"-mapping_family": "1", "-compression_level": "12"}}
         """
 
-        param_to_send.extend([f"-c:a{audio_position_in_file}", param_reencode["target"]]) # The encoder must be set. Raise an error if it missing.
+        param_to_send.extend([f"-c:a:{audio_position_in_file}", param_reencode["target"]]) # The encoder must be set. Raise an error if it missing.
 
         param_to_send.extend([f"-metadata:s:a:{audio_position_in_file}", f"{tools.ORIGINAL_ENCODE_TAG}={codec}:{int(bitrate)}:{int(sample_rate)}"])
-        if int(bitrate) = 0:
+        if int(bitrate) == 0:
             tools.log_always(f"No bitrate found for audio track {audio.get('StreamOrder')} of {file_path}. {tools.ORIGINAL_ENCODE_TAG} will be at 0. The stream will certainely remove.\n")
 
         bitrate_param = str(param_reencode.get("bitrate", "source"))
@@ -119,16 +119,15 @@ def get_parameters_in_reencode(audio, audio_position_in_file, file_path, filter_
             bitrate_param = bitrate_param.strip().lower()
             bitrate = int(float(bitrate_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(bitrate_param[-1:], 1))
         if int(bitrate) > 0 and param_reencode["target"] != "flac":
-            param_to_send.extend([f"-b:a{audio_position_in_file}", str(bitrate)])
+            param_to_send.extend([f"-b:a:{audio_position_in_file}", str(bitrate)])
 
-        sample_rates_param = param_reencode.get("sample_rates", "")
-        if sample_rates_param:
-            param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(int(float(sample_rates_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(sample_rates_param[-1:], 1)))])
+        sample_rate_param = str(param_reencode.get("sample_rate", "")).strip().lower()
+        if sample_rate_param:
+            param_to_send.extend([f"-ar:a:{audio_position_in_file}", str(int(float(sample_rate_param.rstrip("km")) * {"k": 1000, "m": 1000000}.get(sample_rate_param[-1:], 1)))])
 
-        filter_param = param_reencode.get("filter", "")
-        filter_param = filter_param + ":" + filter_param_to_add
+        filter_param = ",".join([filter_one for filter_one in [param_reencode.get("filter", ""), filter_param_to_add] if filter_one])
         if filter_param:
-            param_to_send.extend([f"-filter:a{audio_position_in_file}", filter_param])
+            param_to_send.extend([f"-filter:a:{audio_position_in_file}", filter_param])
 
         args_param = param_reencode.get("args", [])
         if args_param:
@@ -156,15 +155,15 @@ def reencode_rules_writed_in_table(encoder,bitrate,sample_rate,channels):
                             "0": {"target": "libopus","bitrate": "source"},
                             "2": {"target": "libopus","bitrate": "160k"},
                             "3": {"target": "libopus","bitrate": "source", "filter": "my_special_arg", "args": {"-mapping_family": "1", "-compression_level": "12"}},
-                            "6": {"target": "libopus","bitrate": "640k", "args": ["-mapping_family", "1"]},
-                            "7": {"target": "libopus","bitrate": "source", "args": ["-mapping_family", "1"]}
+                            "6": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                            "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                         }
                     }
                 }
             },
     """
     param_find = {}
-    source_entry = get_audio_encode_parameters.get("sources", {}).get(encoder)
+    source_entry = get_audio_encode_parameters().get("sources", {}).get(encoder)
     if source_entry:
         bitrate_map = source_entry.get("bitrate", {})
         if bitrate_map:

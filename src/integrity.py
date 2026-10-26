@@ -2,10 +2,12 @@
 
 import json
 import math
+from collections import OrderedDict
 import os
 import subprocess
 import threading
 import time
+from decimal import Decimal
 
 import numpy as np
 
@@ -23,7 +25,7 @@ CONTENT_DB = -50.0
 BAD_SILENCE_S = 5.0
 
 CACHE_MAX = 64
-probe_cache, map_cache = {}, {}
+probe_cache, map_cache = OrderedDict(), OrderedDict()
 cache_lock = threading.Lock()
 
 def test_video_file_have_no_big_error(file_to_test):
@@ -51,6 +53,7 @@ def probe(file_path):
     key = (os.path.abspath(file_path), stat.st_size, stat.st_mtime_ns)
     with cache_lock:
         if key in probe_cache:
+            probe_cache.move_to_end(key)
             return probe_cache[key]
     try:
         result = subprocess.run([tools.software["ffprobe"], "-v", "error", "-show_streams", "-show_format",
@@ -64,7 +67,7 @@ def probe(file_path):
     info = json.loads(out.decode("utf-8", "replace"))
     with cache_lock:
         if len(probe_cache) >= CACHE_MAX:
-            probe_cache.clear()
+            probe_cache.popitem(last=False)
         probe_cache[key] = info
     return info
 
@@ -106,6 +109,7 @@ def silence_map(file_path, stream_id):
     key = (os.path.abspath(file_path), stat.st_size, stat.st_mtime_ns, stream["index"], "timestamps")
     with cache_lock:
         if key in map_cache:
+            map_cache.move_to_end(key)
             return map_cache[key]
     started = time.time()
     timeout = max(120.0, max(declared_end(info, stream) or 0.0, 1.0) * 1.5)
@@ -125,22 +129,24 @@ def silence_map(file_path, stream_id):
     timer.start()
     block = int(ENV_SR * SILENCE_BLOCK_S)
     block_bytes = block * 2
-    rest = b""
+    pcm_buffer = bytearray((1 << 18) + block_bytes)
+    pcm_view = memoryview(pcm_buffer)
+    pcm_filled = 0
     mean_squares, samples = [], 0
     try:
-        while True:
-            chunk = process.stdout.read(1 << 18)
-            if not chunk:
-                break
-            rest += chunk
-            usable = (len(rest) // block_bytes) * block_bytes
+        read_size = process.stdout.readinto(pcm_view[pcm_filled:])
+        while read_size:
+            pcm_filled += read_size
+            usable = (pcm_filled // block_bytes) * block_bytes
             if usable:
-                x = np.frombuffer(rest[:usable], dtype="<i2").astype(np.float64) / 32768.0
+                x = np.frombuffer(pcm_buffer, dtype="<i2", count=usable // 2).astype(np.float64) / 32768.0
                 mean_squares.append((x.reshape(-1, block) ** 2).mean(axis=1))
                 samples += usable // 2
-                rest = rest[usable:]
-        if len(rest) >= 2:
-            x = np.frombuffer(rest[: len(rest) // 2 * 2], dtype="<i2").astype(np.float64) / 32768.0
+                pcm_view[:pcm_filled - usable] = pcm_view[usable:pcm_filled]
+                pcm_filled -= usable
+            read_size = process.stdout.readinto(pcm_view[pcm_filled:])
+        if pcm_filled >= 2:
+            x = np.frombuffer(pcm_buffer, dtype="<i2", count=pcm_filled // 2).astype(np.float64) / 32768.0
             mean_squares.append(np.array([(x ** 2).mean()]))
             samples += x.size
     finally:
@@ -189,7 +195,7 @@ def silence_map(file_path, stream_id):
                   f"rc={process.returncode} cost_s={m['cost_s']}\n")
     with cache_lock:
         if len(map_cache) >= CACHE_MAX:
-            map_cache.clear()
+            map_cache.popitem(last=False)
         map_cache[key] = m
     return m
 
@@ -197,7 +203,7 @@ def silence_map(file_path, stream_id):
 def runs(mask):
     if not mask.size:
         return []
-    edges = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    edges = np.diff(np.pad(mask.astype(np.int8), 1))
     return list(zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)))
 
 

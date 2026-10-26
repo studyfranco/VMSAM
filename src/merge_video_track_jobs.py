@@ -1,5 +1,6 @@
 '''One ffmpeg job per kept track of a candidate, run on the shared ffmpeg pool (decision: audio-reencode).'''
 
+import json
 import re
 import sys
 from threading import Thread
@@ -78,7 +79,7 @@ class finalTransformations(Thread):
                 for audio in audios:
                     check_track(audio, self.video_obj.filePath, list_track, self.delay_to_put)
 
-            for language,subtitles in new_video.subtitles.items():
+            for language,subtitles in self.new_video.subtitles.items():
                 for subtitle in subtitles:
                     check_track(subtitle, self.video_obj.filePath, list_track, self.delay_to_put)
 
@@ -104,11 +105,11 @@ def check_track(new_track, original_video_path, track_to_convert_or_keep, delay_
     old_track = track_to_convert_or_keep[int(new_track['StreamOrder'])]
     label = f"{new_track['@type'].lower()} track {old_track['StreamOrder']} of {original_video_path}"
 
-    if not get_original_tag(track):
+    if not get_original_tag(new_track):
         raise TrackJobError(f"Final check failed for {label}: the produced track has no {ORIGINAL_TAG} tag")
 
-    if new_track['@type'] != track['@type'] or new_track.get('Language', 'und') != track.get('Language', 'und'):
-        raise TrackJobError(f"Final check failed for {label}: produced {new_track['@type']} in {new_track.get('Language', 'und')}, expected {track['@type']} in {track.get('Language', 'und')}")
+    if new_track['@type'] != old_track['@type'] or new_track.get('Language', 'und') != old_track.get('Language', 'und'):
+        raise TrackJobError(f"Final check failed for {label}: produced {new_track['@type']} in {new_track.get('Language', 'und')}, expected {old_track['@type']} in {old_track.get('Language', 'und')}")
 
     if not (new_track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG):
         raise TrackJobError(f"Final check failed for {label}: the produced track has no {tools.NOT_MY_FIRST_TAG} tag")
@@ -225,7 +226,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             new_encode = video.video(path.dirname(tmp_file_convert), path.basename(tmp_file_convert))
             new_encode.get_mediadata()
 
-            new_track = new_encode.mediadata['media']['track'][0]
+            new_track = [track for track in new_encode.mediadata['media']['track'] if track['@type'] == 'Audio'][0]
             if Decimal(str(new_track.get('Duration', '0'))) > Decimal(str(duration_best_video)) + Decimal("1"):
                 raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {duration_best_video} s")
 
@@ -262,17 +263,22 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                     "-movflags", "use_metadata_tags", "-c", "copy"])
 
             codec = video.get_codec(sub)
+            sub_encoder = None
             if 'ffmpeg_to_convert' in sub:
-                cmd_convert.append(f"-c:s")
-                cmd_convert.append(sub['ffmpeg_to_convert'][1])
+                sub_encoder = sub['ffmpeg_to_convert'][1]
             elif codec in tools.sub_type_not_encodable:
                 cmd_convert.extend(["-copyts", "-avoid_negative_ts", "disabled"])
                 cmd_convert.remove("-fflags")
                 cmd_convert.remove("+genpts+igndts")
-            elif codec in tools.sub_type_near_srt:
-                cmd_convert.extend(["-c:s", "srt"])
-            else:
-                cmd_convert.extend(["-c:s", "ass"])
+            elif codec in tools.sub_type_near_srt and codec != "subrip":
+                sub_encoder = "srt"
+            elif codec not in ("ass", "subrip"):
+                sub_encoder = "ass"
+
+            if sub_encoder:
+                cmd_convert.extend(["-c:s", sub_encoder])
+                if delay_to_put < 0:
+                    cmd_convert.extend(["-output_ts_offset", f"{delay_to_put/Decimal('1000'):.6f}"])
 
             cmd_convert.extend([f"-metadata:s:s:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(sub):
@@ -292,13 +298,12 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                             for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"])
                             if 0 <= event.start + shift_ms < duration_ms]
                 produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, tmp_file_convert, 0)]
-                if len(expected) == 0 or len(produced) == 0:
-                    matches = len(expected) == len(produced)
-                else:
+                matches = len(expected) == len(produced)
+                if matches and expected:
                     matches = all(want[2] == got[2] and abs(want[0] - got[0]) <= 1 and abs(want[1] - got[1]) <= 1
                                 for want, got in ((expected[0], produced[0]), (expected[-1], produced[-1])))
                 if not matches:
-                    raise TrackJobError(f"Track job failed for {label}: first/last cues expected "
+                    raise TrackJobError(f"Track job failed for {label}: {len(expected)} cues expected, {len(produced)} produced, first/last cues expected "
                                         f"{expected[:1] + expected[-1:]}, produced {produced[:1] + produced[-1:]}")
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])

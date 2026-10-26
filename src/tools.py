@@ -461,9 +461,9 @@ def index_list_by_key_value(the_list, key, raise_an_error=True):
 
 def raise_or_log(raise_an_error,message):
     if raise_an_error:
-        raise message
+        raise ValueError(message)
     else:
-        log_always(message)
+        log_always(f"{message}\n")
 
 """
 END: AGENT modification
