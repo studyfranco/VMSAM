@@ -2002,7 +2002,7 @@ def _differing_span_outcome(hole, domain, result, candidate_path, walk=None, mas
     return outcome
 
 
-def _resolve_edge(hole, domain, master_obj, candidate_obj):
+def _resolve_edge(hole, domain, master_obj, candidate_obj, walk=None):
     """Resolve a head or tail hole with the one-anchor search and bounded outward walk.
 
     Calls `scene_anchor.locate_edge_boundary`. The bracket is clamped to at least one frame
@@ -2067,7 +2067,7 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
         if shift is None:
             shift = int(round(float(offset_ms) / frame_ms))
         try:
-            fallback = _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift)
+            fallback = _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift, walk)
         except Exception as error:                                       # noqa: BLE001
             tools.dev_log(f"repair: pixel_edge_walk_failed ({type(error).__name__}: "
                           f"{error})\n")
@@ -2085,7 +2085,7 @@ def _resolve_edge(hole, domain, master_obj, candidate_obj):
                       else anchor_shift)
         try:
             refined = _pixel_edge_walk(dict(hole, master_ms=bracket), domain, master_obj,
-                                       candidate_obj, walk_shift)
+                                       candidate_obj, walk_shift, walk)
         except Exception as error:                                       # noqa: BLE001
             tools.dev_log(f"repair: pixel_edge_walk_failed ({type(error).__name__}: "
                           f"{error})\n")
@@ -2163,7 +2163,8 @@ EDGE_ANCHOR_SHIFT_DISAGREES = "edge_anchor_shift_disagrees"
 EDGE_PIXEL_MARGIN_FRAMES = 48
 
 
-def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
+def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift, walk=None):
+    import audio_walk
     import scene_anchor
     edge = hole["kind"]
     frame_ms = float(domain["frame_ms"])
@@ -2214,9 +2215,11 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
     if start is None:
         return None
     boundary, run, termination, walked, max_run = None, 0, None, 0, 0
-    for index in order[start:]:
+    walk_shift, stepped = shift, []
+    edge_offset_ms = hole.get("offset_after_ms" if edge == "head" else "offset_before_ms")
+    for position, index in enumerate(order[start:], start):
         frame = read_first + index
-        if candidate_last is not None and frame + shift > candidate_last:
+        if candidate_last is not None and frame + walk_shift > candidate_last:
             termination = _orch().EDGE_CANDIDATE_EXHAUSTED
             break
         walked += 1
@@ -2226,8 +2229,25 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
         run += 1
         max_run = max(max_run, run)
         if run >= scene_anchor.EDGE_WALK_SUSTAINED_MISMATCH_FRAMES and boundary is not None:
-            termination = _orch().EDGE_SUSTAINED_MISMATCH
-            break
+            span = order[position - run + 1:position - run + 1 + PIXEL_TRUST_RUN_FRAMES]
+            step = None
+            for neighbour in ((shift - 1, shift + 1)
+                              if walk_shift == shift and walk and edge_offset_ms is not None else ()):
+                exact = _same_flags(readings[neighbour], reference, readings.get("master_shot"))
+                if step is None and all(exact[i] for i in span):
+                    centre_s = (read_first + min(span)) * frame_ms / 1000.0
+                    measured = audio_walk.zone_offset(
+                        walk["master"], walk["candidate"], centre_s - audio_walk.WALK_WINDOW_S / 2,
+                        centre_s + audio_walk.WALK_WINDOW_S / 2, float(edge_offset_ms))
+                    if (measured["offset_ms"] is not None
+                            and abs(measured["offset_ms"] - float(edge_offset_ms)) <= frame_ms / 2.0):
+                        step = (neighbour, exact)
+            if step is None:
+                termination = _orch().EDGE_SUSTAINED_MISMATCH
+                break
+            walk_shift, same = step
+            stepped.append((read_first + span[0], walk_shift))
+            boundary, run = frame, 0
     if boundary is None:
         return None
     if termination is None:
@@ -2243,7 +2263,8 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
                                                                        "master_replacement")
     tools.log_always(
         f"repair: pixel_edge_walk edge={edge} shift_frames={shift} boundary_frame={boundary} "
-        f"termination={termination} walked={walked} for {candidate_obj.filePath}\n")
+        f"termination={termination} walked={walked} picture_only_steps={stepped} "
+        f"for {candidate_obj.filePath}\n")
     return {"declined": False, "method": "pixel_edge_walk", "edge": edge,
             "grid": {"num": rate.numerator, "den": rate.denominator},
             "anchor_frame": None, "anchor_side": None, "anchor_n_frames": None,
@@ -2265,7 +2286,7 @@ def resolve_hole(hole, master_obj, candidate_obj, work_dir, walk=None):
     if hole["kind"] == "interior":
         outcome = _resolve_interior(hole, domain, master_obj, candidate_obj, walk=walk)
     elif hole["kind"] in ("head", "tail"):
-        outcome = _resolve_edge(hole, domain, master_obj, candidate_obj)
+        outcome = _resolve_edge(hole, domain, master_obj, candidate_obj, walk=walk)
     else:
         outcome = _declined(hole, f"no_resolver_for_kind:{hole['kind']}")
     outcome["audio_master_frames"] = [_master_frame_of_ms(hole["master_ms"][0], domain),
@@ -2767,7 +2788,7 @@ def audio_edges(walk, holes, domain, master_obj, candidate_obj, work_dir, candid
         edge_jobs.keys(),
         repair_pool.run_parallel([
             (lambda k=kind, idx=index, h=hole: _resolve_logged(
-                candidate_path, idx, h, domain, master_obj, candidate_obj, work_dir))
+                candidate_path, idx, h, domain, master_obj, candidate_obj, work_dir, walk=walk))
             for kind, (index, hole) in edge_jobs.items()]))) if edge_jobs else {}
     decisions, summary = {}, []
     for kind, audio_s, level in (("head", head_s, first), ("tail", tail_s, last)):
