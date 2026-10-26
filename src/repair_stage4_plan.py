@@ -707,8 +707,7 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
                 marker=assembly.get("marker"),
                 track_markers=[r.get("marker") for r in assembly.get("audios") or []],
                 verification=[(v.get("track"), v.get("outcome"), v.get("worst_lag_ms"))
-                              for v in assembly.get("verification") or []],
-                fabricated_dropped=len(assembly.get("fabricated_dropped") or []))
+                              for v in assembly.get("verification") or []])
     if not exists:
         return False, "plan_application_no_file", (
             f"the build returned but the temporary chimeric file is not on disk ({out_path}) -- "
@@ -721,11 +720,9 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         for language_, entries in (getattr(repaired_obj, holder, None) or {}).items()
         for audio in entries if audio.get("keep", True) is not False]
     if not delivered_tracks:
-        gate = [(d.get("stream_order"), d.get("cause")) if isinstance(d, dict) else d
-                for d in (assembly.get("fabricated_dropped") or [])]
         tools.log_always(f"repair: nothing_to_deliver informational=1 out_path={out_path} "
-                         f"gate_dropped={gate} -- no rebuilt track passes the delivery gate; the "
-                         f"merge runs and the master wins for {candidate_path}\n")
+                         f"-- no rebuilt track to deliver; the merge runs and the master wins "
+                         f"for {candidate_path}\n")
 
     # ---- 7. DELIVERED_DURATIONS ---------------------------------------------
     delivered = merge_video_chimeric.probe_delivered_durations(out_path)
@@ -753,15 +750,12 @@ def apply_plan(candidate_path, plan_spec, speed_factor, master_obj, candidate_ob
         "speed_ratio": plan["speed_ratio_exact"],
         "chapters": chapters_path is not None,
         "delivered_durations": delivered,
-        "fabricated_dropped": assembly.get("fabricated_dropped"),
     }
     reason = (f"plan applied: {len(zones)} candidate zone(s), {len(fills)} master fill(s) "
               f"(head {head_added} ms, interior {interior_filled} ms, tail {tail_added} ms), "
               f"{len(assembly.get('audios') or [])} audio and "
               f"{len(assembly.get('subtitles') or [])} subtitle track(s) rebuilt, marker "
-              f"'{assembly.get('marker')}', speed {rate_text}, "
-              f"{len(assembly.get('fabricated_dropped') or [])} fabricated track(s) dropped by the "
-              f"delivery gate, temporary chimeric file {out_path}")
+              f"'{assembly.get('marker')}', speed {rate_text}, temporary chimeric file {out_path}")
     merge_video_repair.record(candidate_path, "repaired", reason, detail=summary)
     _orch().step_result("apply_plan", candidate=candidate_path, ok=True, out_path=out_path,
                 seconds=round(time.time() - started, 1))

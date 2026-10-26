@@ -44,9 +44,6 @@ CLICK_S = fc.CLICK_S
 CLICK_GAP_S = fc.ISLAND_GAP_S
 CONTENT_DB = -50.0                            # "plays sound": 10 dB above the silence line
 BAD_SILENCE_S = 5.0
-# A trailing silence of a delivered track (reaching the track's own end) up to this length is
-# tolerated; longer, or interior, unmatched silences drop the track.
-TAIL_SILENCE_TOLERANCE_S = 30.0
 
 FRAME_COUNT_TOL = 0.001
 FRAME_COUNT_MIN_FRAMES = 2
@@ -528,79 +525,6 @@ def silence_report(video_1, stream_a, video_2, stream_b, delay_ms=0, *, kind="st
          f"a_only={len(a_only)}:{first(a_only)} b_only={len(b_only)}:{first(b_only)} "
          f"cost_s={rep['cost_s']}", always=result is not None)
     return rep
-
-
-# Delivered-track silences the reference lacks:
-#   * inside the master video's bounds -> dropped ('interior_silence');
-#   * entirely outside them -> kept ('outside_video_bounds');
-#   * trailing (reaching the track's end) and <= TAIL_SILENCE_TOLERANCE_S -> kept
-#     ('trailing_silence_tolerated').
-
-
-def video_bounds_s(video_obj):
-    """Return (first, last) instants of the video: its start_time (or 0) and `video_end_s`.
-
-    (None, None) without video.
-    """
-    end = video_end_s(video_obj)
-    if end is None:
-        return None, None
-    vs = _video_stream(_probe(_path_of(video_obj)))
-    start = fc._num((vs or {}).get("start_time")) or 0.0
-    return float(start), float(end)
-
-
-def delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
-                             delay_ms=0, *, video_bounds_s_=None, kind="stream_order",
-                             threads=THREADS):
-    """Decide whether a delivered track keeps its place given its silences.
-
-    Runs `silence_report` (A = reference, B = delivered track) and gives each
-    silence in b_only a rule: 'outside_video_bounds' or
-    'trailing_silence_tolerated' (kept), else 'interior_silence' (dropped).
-
-    Args:
-        video_bounds_s_: (first, last) of the master video; default read from
-            reference_video.
-
-    Returns:
-        dict with keep, verdict ('agree', 'kept' or 'dropped'), silences,
-        reference_only, video_bounds_s and report.
-    """
-    rep = silence_report(reference_video, reference_stream, delivered_video, stream, delay_ms,
-                         kind=kind, threads=threads)
-    d = float(delay_ms) / 1000.0
-    first, last = (video_bounds_s_ if video_bounds_s_ is not None
-                   else video_bounds_s(reference_video))
-    b_end_s, b_content_last_s = rep["b"]["end_s"], rep["b"]["content_last_s"]
-    judged = []
-    for s in rep["b_only"]:
-        outside = (first is not None and last is not None
-                   and (s["end_s"] <= first + d or s["start_s"] >= last + d))
-        if outside:
-            rule = "outside_video_bounds"
-        elif (b_content_last_s is not None
-              and s["end_s"] >= b_content_last_s - SILENCE_BLOCK_S):
-            # Trailing silence: the tolerance applies to its encoded length, not the
-            # padding `_play_silences` adds past B's end.
-            encoded_len = max(0.0, min(s["end_s"], b_end_s) - s["start_s"])
-            rule = ("trailing_silence_tolerated" if encoded_len <= TAIL_SILENCE_TOLERANCE_S
-                    else "interior_silence")
-        else:
-            rule = "interior_silence"
-        judged.append(dict(s, rule=rule))
-    verdict = ("agree" if not judged else
-               "kept" if all(j["rule"] in ("outside_video_bounds", "trailing_silence_tolerated")
-                             for j in judged) else "dropped")
-    out = dict(keep=verdict != "dropped", verdict=verdict, silences=judged,
-               reference_only=rep["a_only"], video_bounds_s=(first, last), report=rep)
-    if judged:
-        worst = next((j for j in judged if j["rule"] == "interior_silence"), judged[0])
-        _log(f"delivered_silence verdict={verdict} rule={worst['rule']} reference="
-             f"{rep['a']['path']}#{rep['a']['stream_index']} delivered={rep['b']['path']}#"
-             f"{rep['b']['stream_index']} silences={len(judged)} span={worst['start_s']}-"
-             f"{worst['end_s']}s video_bounds_s=({first}, {last})", always=True)
-    return out
 
 
 # ---------------------------------------------------------------- video

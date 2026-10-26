@@ -1,20 +1,4 @@
-"""Repair of a file rejected by mergeVideo, at the moment it is rejected.
-
-Entry point called from `mergeVideo.remove_not_compatible_video`: declines candidates without a
-video object, runs `repair_orchestrator.repair()` on each one and attaches the repaired object to
-the merge. Also holds helpers shared with the orchestrator (`record`,
-`master_intertrack_verdict`, `build_repaired_video_object`, `gate_fabricated_delivery`).
-
-The repaired video object must:
-
-1. have `delay_same_md5_audio = Decimal('0')` (mergeVideo adds a delay to it, and the repair has
-   already placed the file on the master's timeline);
-2. have run `get_mediadata()` (`generate_new_file` reads `audios` and `video['Duration']`);
-3. keep its temporary file, under `tools.tmpFolder/repair/`, until `mkvmerge` has run.
-
-Outcomes: `no_plan` (nothing measured, the rejection stands), `declined` (repair refused, with a
-reason), `repaired` (file attached), `failed` (the repair raised).
-"""
+"""Repair of a file rejected by mergeVideo: runs the orchestrator per candidate and attaches the repaired object."""
 
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -251,20 +235,14 @@ def delivered_plan(plan, assembly, repaired_obj):
             region["source"] = ("silence" if fill == "silence"
                                 else f"master/{fill_language}" if fill_language else "master")
         regions.append(region)
-    dropped = {}
-    for entry in ((assembly.get("fabricated_dropped") or [])
-                  + (assembly.get("silence_dropped") or [])):
-        if isinstance(entry, dict) and entry.get("stream_order") is not None:
-            dropped[str(entry["stream_order"])] = entry.get("cause") or "dropped"
     delivered = []
     for holder in AUDIO_HOLDERS + ("subtitles",):
         for language, tracks in (getattr(repaired_obj, holder, None) or {}).items():
             for track in tracks:
-                order = str(track.get("StreamOrder"))
-                kept = track.get("keep", True) is not False and order not in dropped
-                delivered.append({"holder": holder, "language": language, "stream": order,
-                                  "kept": kept,
-                                  "drop_cause": None if kept else dropped.get(order, "keep=False")})
+                kept = track.get("keep", True) is not False
+                delivered.append({"holder": holder, "language": language,
+                                  "stream": str(track.get("StreamOrder")), "kept": kept,
+                                  "drop_cause": None if kept else "keep=False"})
     built = ([{"type": "audio", "stream": report.get("stream_order"),
                "language": report.get("language"), "fill": report.get("gap_fill"),
                "offset": "measured" if report.get("offset_measured") else "borrowed"}
@@ -360,13 +338,6 @@ def _build_and_gate(candidate_obj, master_obj, plan, work_dir, out_path, job_sta
     # Already on the master's timeline (see module docstring).
     repaired_obj.delay_same_md5_audio = Decimal('0')
     mark_audio_dicts(repaired_obj)
-    # Fabricated-track gate; its `keep=False` is read by `generate_new_file_audio_config`.
-    assembly["gate_kept"] = []
-    assembly["fabricated_dropped"] = gate_fabricated_delivery(
-        repaired_obj, master_obj, work_dir=work_dir, kept=assembly["gate_kept"])
-    # Drop delivered tracks with a silence the master lacks inside the master video's bounds.
-    assembly["silence_dropped"] = gate_delivered_silences(
-        repaired_obj, master_obj, plan.get("reference_stream"))
     return repaired_obj, assembly
 
 
@@ -415,55 +386,6 @@ def drop_corrupt_candidate_tracks(candidate_obj, plan):
                                  f"language={language} codec={result['codec']} rc={result['rc']} "
                                  f"first=«{first}» cost_s={result['cost_s']} for "
                                  f"{candidate_obj.filePath}\n")
-    return dropped
-
-
-def gate_delivered_silences(repaired_obj, master_obj, reference_stream, report=None):
-    """Drop (keep=False) delivered tracks silent where the master's `reference_stream` is not; return them.
-
-    Kept: a silence outside the video bounds, a short trailing one, or a failed measurement; `report` replaces it."""
-    import integrity
-    measure = report or integrity.delivered_silence_report
-    tracks = [(holder, language, audio) for holder in AUDIO_HOLDERS
-              for language, audios in (getattr(repaired_obj, holder, None) or {}).items()
-              for audio in audios if audio.get("keep", True)]
-    if reference_stream is None:
-        tools.log_always(f"repair: track_silence unmeasured cause=no_reference_stream "
-                         f"tracks={len(tracks)} for {repaired_obj.filePath}\n")
-        return []
-    bounds = integrity.video_bounds_s(master_obj)
-    dropped = []
-    for holder, language, audio in tracks:
-        order = audio["StreamOrder"]
-        where = f"stream={order} language={language} holder={holder}"
-        try:
-            r = measure(master_obj, reference_stream, repaired_obj, order, 0,
-                        video_bounds_s_=bounds)
-        except Exception as error:                                       # noqa: BLE001
-            tools.log_always(f"repair: track_silence unmeasured {where} "
-                             f"cause={type(error).__name__}: {str(error)[:200]} -- no verdict, "
-                             f"the track stays, for {repaired_obj.filePath}\n")
-            continue
-        spans = " ".join(f"{s['start_s']}-{s['end_s']}s[{s['rule']}]"
-                         for s in r["silences"][:6])
-        if r["reference_only"]:
-            tools.log_always(f"repair: track_silence reference_only {where} "
-                             f"master_stream={reference_stream} n={len(r['reference_only'])} "
-                             f"first={r['reference_only'][0]['start_s']}-"
-                             f"{r['reference_only'][0]['end_s']}s -- the master's track is "
-                             f"silent where this one plays; not a reason to drop, for "
-                             f"{repaired_obj.filePath}\n")
-        if r["verdict"] == "kept":
-            tools.log_always(f"repair: track_kept_silence {where} master_stream="
-                             f"{reference_stream} video_bounds_s={r['video_bounds_s']} "
-                             f"silences={spans} for {repaired_obj.filePath}\n")
-        elif r["verdict"] == "dropped":
-            audio["keep"] = False
-            dropped.append({"stream_order": int(order), "language": language,
-                            "holder": holder, "silences": r["silences"]})
-            tools.log_always(f"repair: track_dropped_silence {where} master_stream="
-                             f"{reference_stream} video_bounds_s={r['video_bounds_s']} "
-                             f"silences={spans} for {repaired_obj.filePath}\n")
     return dropped
 
 
@@ -527,11 +449,7 @@ def verify_video_anchored(out_path, candidate_obj, audio_reports, track_plans):
 
 
 def mark_audio_dicts(repaired_obj):
-    """Set `fabricated` on the main and audio-description tracks that carry `VMSAM_FABRICATED`.
-
-    A rebuilt track without the tag was not demoted: the key is removed, so it races on
-    the normal codec rules. Commentary tracks are left to `gate_fabricated_delivery`.
-    """
+    """Set `fabricated` on main and audio-description tracks carrying `VMSAM_FABRICATED`, else remove it."""
     for holder in (repaired_obj.audios, repaired_obj.audiodesc):
         for language, audios in holder.items():
             for audio in audios:
@@ -553,339 +471,6 @@ def fabricated_marker_of(audio):
     """
     return str(audio.get("fabricated") or
                (audio.get("extra") or {}).get("VMSAM_FABRICATED") or "")
-
-
-def edited_marker_of(audio):
-    """Return the `VMSAM_EDITED` tag of a track, or an empty string."""
-    return str((audio.get("extra") or {}).get("VMSAM_EDITED") or audio.get("edited") or "")
-
-
-# Same thresholds as `mergeVideo.find_differences_and_keep_best_audio`, so the gate and the
-# grouping agree on what "the same track" is.
-SAME_CONTENT_MEAN_FIDELITY = 0.90
-SAME_CONTENT_MAX_DELAY_MS = 128
-
-
-def same_content_verdict(delay_fidelity_values):
-    """Apply the grouping's same-content rule to one pair of tracks.
-
-    `delay_fidelity_values`: one (fidelity, _, delay_ms) per window. Same content means mean
-    fidelity >= SAME_CONTENT_MEAN_FIDELITY and one or two delays, all under
-    SAME_CONTENT_MAX_DELAY_MS. Returns (bool, mean fidelity, set of delays).
-    """
-    from statistics import mean
-    fidelity = mean([fi[0] for fi in delay_fidelity_values])
-    delays = set(fi[2] for fi in delay_fidelity_values)
-    if fidelity < SAME_CONTENT_MEAN_FIDELITY:
-        return False, fidelity, delays
-    values = list(delays)
-    if len(values) == 1:
-        return abs(values[0]) < SAME_CONTENT_MAX_DELAY_MS, fidelity, delays
-    if len(values) == 2:
-        return (abs(values[0]) < SAME_CONTENT_MAX_DELAY_MS
-                and abs(values[1]) < SAME_CONTENT_MAX_DELAY_MS), fidelity, delays
-    return False, fidelity, delays
-
-
-def same_content_windows(duration):
-    """Return the grouping's comparison windows over `duration` seconds as (start_s, length_s)."""
-    begin, length_time = video.generate_begin_and_length_by_segment(duration)
-    return [(float(begin) + i * length_time, float(length_time * 2))
-            for i in range(video.number_cut)]
-
-
-def measure_same_content(master_obj, master_audio, repaired_obj, audio, work_dir):
-    """Tell whether a fabricated track is the same version as an intact master track.
-
-    Uses `same_content_windows` and `same_content_verdict` on slices of each track's whole
-    chromaprint fingerprint. Returns (verdict, detail); verdict None means not measured, not
-    "different".
-    """
-    import merge_video_decode_once as once
-    try:
-        duration = min(float(master_audio["Duration"]), float(audio["Duration"]))
-        windows = same_content_windows(duration)
-        need = max(start + length for start, length in windows)
-        hop_s = SAME_CONTENT_HOP_S
-        m_order, f_order = int(master_audio["StreamOrder"]), int(audio["StreamOrder"])
-        master = once.fingerprints(master_obj.filePath, [m_order], {m_order: need}, work_dir,
-                                   pads_ms={m_order: _start_ms(master_audio)})[m_order]
-        fab = once.fingerprints(repaired_obj.filePath, [f_order], {f_order: need}, work_dir,
-                                pads_ms={f_order: _start_ms(audio)})[f_order]
-        if master is None or fab is None:
-            return None, (f"unmeasured=fingerprint_unreadable "
-                          f"master={master is not None} fabricated={fab is not None}")
-        values = []
-        for start, length in windows:
-            first = int(round(start / hop_s))
-            # Point count fpcalc would return on the extracted window, so delays scale identically.
-            count = int(length / hop_s) - SAME_CONTENT_FPCALC_TAIL_POINTS
-            source = master["points"][first:first + count]
-            target = fab["points"][first:first + count]
-            if min(len(source), len(target)) <= 2 * SAME_CONTENT_MIN_OVERLAP:
-                return None, (f"unmeasured=window_past_the_fingerprint start_s={start} "
-                              f"points={len(source)}/{len(target)}")
-            values.append(once.correlate_points(source, target, length))
-        verdict, fidelity, delays = same_content_verdict(values)
-        return verdict, (f"mean_fidelity={fidelity:.4f} delays_ms={sorted(delays)} "
-                         f"windows={len(values)} instrument=fingerprint_slices")
-    except Exception as error:                                           # noqa: BLE001
-        return None, f"unmeasured={type(error).__name__}: {error}"
-
-
-def _start_ms(audio):
-    """Return the stream's container start time in ms, used to put fingerprints on the file clock."""
-    import merge_video_chimeric
-    return float(merge_video_chimeric.get_stream_start_ms(audio))
-
-
-# Chromaprint hop (same as `repair_orchestrator.CHROMAPRINT_HOP_MS`) and the correlation's
-# minimum overlap (`audioCorrelation.min_overlap`).
-SAME_CONTENT_HOP_S = (4096 // 3) / 11025.0
-SAME_CONTENT_MIN_OVERLAP = 32
-# fpcalc returns floor(seconds / hop) - 21 points for a window.
-SAME_CONTENT_FPCALC_TAIL_POINTS = 21
-# Parallel fingerprint decodes ahead of the gate's loop.
-SAME_CONTENT_PREFETCH_JOBS = 2
-
-
-def _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, say):
-    """Decode ahead the fingerprints `gate_fabricated_delivery` will compare, both files at once.
-
-    A failure here is only logged; the gate then decodes the missing tracks itself.
-    """
-    import merge_video_decode_once as once
-    from concurrent.futures import ThreadPoolExecutor
-    need = {"master": {}, "product": {}}
-    pads = {"master": {}, "product": {}}
-    for holder in AUDIO_HOLDERS:
-        if holder == "commentary":
-            continue
-        for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
-            for audio in audios:
-                if not audio.get("keep", True):
-                    continue
-                for intact in master_intact.get(language, []):
-                    try:
-                        duration = min(float(intact["Duration"]), float(audio["Duration"]))
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    end = max(a + b for a, b in same_content_windows(duration))
-                    m, f = int(intact["StreamOrder"]), int(audio["StreamOrder"])
-                    need["master"][m] = max(need["master"].get(m, 0.0), end)
-                    need["product"][f] = max(need["product"].get(f, 0.0), end)
-                    pads["master"][m] = _start_ms(intact)
-                    pads["product"][f] = _start_ms(audio)
-    jobs = [(master_obj.filePath, need["master"], pads["master"]),
-            (repaired_obj.filePath, need["product"], pads["product"])]
-    jobs = [job for job in jobs if job[1]]
-    if not jobs:
-        return
-    started = time.monotonic()
-    try:
-        with ThreadPoolExecutor(max_workers=SAME_CONTENT_PREFETCH_JOBS) as pool:
-            list(pool.map(lambda job: once.fingerprints(job[0], sorted(job[1]), job[1], work_dir,
-                                                        pads_ms=job[2]),
-                          jobs))
-    except Exception as error:                                           # noqa: BLE001
-        say(f"repair: gate_prefetch failed={type(error).__name__}: {str(error)[:200]}")
-    say(f"repair: gate_prefetch master_streams={sorted(need['master'])} "
-        f"product_streams={sorted(need['product'])} "
-        f"seconds={round(time.monotonic() - started, 2)}")
-
-
-def merge_audio_rules():
-    """Return the [mergerules] audio rules of the configuration, as keep_best_audio takes them."""
-    import mergeVideo
-    merge_rules = tools.mergeRules or tools.config_loader(
-        path.join(path.dirname(path.abspath(tools.__file__)), tools.config_file), "mergerules")
-    return mergeVideo.decript_merge_rules(merge_rules["audio"])
-
-
-def gate_fabricated_delivery(repaired_obj, master_obj, work_dir=None,
-                             content_probe=None, kept=None):
-    """Judge every rebuilt audio track before delivery (sets `keep` only); return the dropped tracks.
-
-    Same content as an intact master track -> raced by keep_best_audio; else dropped only as a cross-language duplicate."""
-    import mergeVideo
-    import merge_video_chimeric
-    probe = content_probe or measure_same_content
-    audio_rules = merge_audio_rules()
-    dropped = []
-    master_intact = {}
-    # Opponents: intact main and audio-description tracks, never a master commentary.
-    for holder in ("audios", "audiodesc"):
-        for language, audios in (getattr(master_obj, holder, None) or {}).items():
-            for audio in audios:
-                if not fabricated_marker_of(audio):
-                    master_intact.setdefault(language, []).append(audio)
-
-    def say(line, to_stderr=False):
-        tools.logs.append(line + "\n")
-        if to_stderr:
-            sys.stderr.write(line + "\n")
-
-    # Only the default probe reads the prefetched fingerprints.
-    if content_probe is None:
-        _prefetch_same_content(repaired_obj, master_obj, master_intact, work_dir, say)
-
-    for holder in AUDIO_HOLDERS:
-        for language, audios in (getattr(repaired_obj, holder, None) or {}).items():
-            for audio in audios:
-                if not audio.get("keep", True):
-                    continue
-                marker = fabricated_marker_of(audio)
-                if not edited_marker_of(audio):
-                    say(f"repair: unmarked_rebuilt_track lang={language} holder={holder} "
-                        f"stream={audio.get('StreamOrder')} format={audio.get('Format')} "
-                        f"reason=a track of the repaired file carried no VMSAM_EDITED",
-                        to_stderr=True)
-                where = (f"lang={language} holder={holder} "
-                         f"stream={audio.get('StreamOrder')} "
-                         f"format={audio.get('Format')} marker={marker or 'none'} "
-                         f"demoting={'yes' if marker else 'no'}")
-                if holder == "commentary":
-                    carrier = []
-                    if "commentary" in str(audio.get("Title", "")).lower():
-                        carrier.append(f"title={audio.get('Title')}")
-                    if (audio.get("properties") or {}).get("flag_commentary"):
-                        carrier.append("flag_commentary=true")
-                    say(f"repair: fabricated_kept cause=commentary_tagged {where} "
-                        f"tagged_by={'+'.join(carrier) or 'unknown'} "
-                        f"reason=a commentary is never raced against a main "
-                        f"track; delivered with --commentary-flag")
-                    _note_kept(kept, audio, language, holder, "commentary_tagged")
-                    continue
-                opponents = master_intact.get(language, [])
-                if not len(opponents):
-                    cross = _cross_language_match(probe, master_obj, master_intact, language,
-                                                  repaired_obj, audio, work_dir, ())
-                    if cross is None or cross[0] is None:
-                        cross_measures = " ".join(cross[2]) if cross else ""
-                        say(f"repair: fabricated_kept cause=no_intact_master_track {where} "
-                            f"{cross_measures + ' ' if cross_measures else ''}"
-                            f"reason=the master carries no intact {language} track "
-                            f"to race it against")
-                        _note_kept(kept, audio, language, holder, "no_intact_master_track")
-                        continue
-                    _drop_duplicate(dropped, say, holder, language, audio, marker, where,
-                                    cross[0], True, cross[2], cross[1])
-                    continue
-                lost_to = None
-                measures = []
-                verdicts = []
-                won_over = []
-                track_started = time.monotonic()
-                for intact in opponents:
-                    same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
-                    verdicts.append(same)
-                    measures.append(f"vs_master_stream={intact.get('StreamOrder')}"
-                                    f"[same_content={same} {detail}]")
-                    if same is False:
-                        continue
-                    rival = dict(intact)
-                    rival["keep"] = True
-                    mergeVideo.keep_best_audio([rival, audio], audio_rules)
-                    if not audio["keep"]:
-                        lost_to = (intact, same)
-                        break
-                    if not rival["keep"]:
-                        won_over.append(intact.get("StreamOrder"))
-                cross_lang = None
-                # Only a track every same-language measure called "different" is looked up
-                # under the other languages: one that won a same-content race stays as it was.
-                if lost_to is None and all(same is False for same in verdicts):
-                    raced = tuple(str(intact.get("StreamOrder")) for intact in opponents)
-                    intact, cross_lang, cross_measures = _cross_language_match(
-                        probe, master_obj, master_intact, language, repaired_obj, audio,
-                        work_dir, raced)
-                    measures.extend(cross_measures)
-                    if intact is not None:
-                        lost_to = (intact, True)
-                say(f"repair: gate_cost {where} opponents={len(opponents)} "
-                    f"seconds={round(time.monotonic() - track_started, 2)}")
-                if lost_to is None:
-                    cause, reason = kept_cause(verdicts, won_over, language)
-                    say(f"repair: fabricated_kept cause={cause} {where} "
-                        f"{' '.join(measures)} reason={reason}")
-                    _note_kept(kept, audio, language, holder, cause)
-                    continue
-                intact, same = lost_to
-                _drop_duplicate(dropped, say, holder, language, audio, marker, where, intact,
-                                same, measures, cross_lang)
-    return dropped
-
-
-def kept_cause(verdicts, won_over, language):
-    """Return (cause, reason) for a kept rebuilt track from its same-language verdicts and the masters it demoted.
-
-        kept_cause([True], ["3"], "ja")[0] == "won_keep_best_audio"
-    """
-    if all(same is False for same in verdicts):
-        return "different_version", (f"its fingerprint matches no intact {language} master "
-                                     f"track: another version, delivered with its own tags")
-    if won_over:
-        return "won_keep_best_audio", (f"same content as the intact {language} master track "
-                                       f"{won_over}, which keep_best_audio ranks below it "
-                                       f"(a re-encoded track compared by its ORIGINAL_ENCODE)")
-    return "keep_best_audio_tie", (f"same content as an intact {language} master track and "
-                                   f"keep_best_audio demotes neither: the final merge's "
-                                   f"keep_best_audio decides")
-
-
-def _cross_language_match(probe, master_obj, master_intact, language, repaired_obj, audio,
-                          work_dir, raced):
-    """Find the master's intact track of another language with the same content as `audio`.
-
-    `raced` lists the StreamOrders already compared; an unmeasured pair never matches.
-    Returns (intact or None, "<declared>-><matched>" or None, measure strings).
-    """
-    seen = set(raced)
-    measures = []
-    for other, intacts in master_intact.items():
-        if other == language:
-            continue
-        for intact in intacts:
-            order = str(intact.get("StreamOrder"))
-            if order in seen:
-                continue
-            seen.add(order)
-            same, detail = probe(master_obj, intact, repaired_obj, audio, work_dir)
-            measures.append(f"vs_master_stream={order}[lang={other} same_content={same} "
-                            f"{detail}]")
-            if same is True:
-                return intact, f"{language}->{other}", measures
-    return None, None, measures
-
-
-def _drop_duplicate(dropped, say, holder, language, audio, marker, where, intact, same,
-                    measures, cross_lang):
-    """Record and log a rebuilt track dropped as a duplicate of the master's `intact` track."""
-    entry = {"kind": "audio", "holder": holder, "language": language,
-             "stream_order": audio.get("StreamOrder"),
-             "format": audio.get("Format"), "marker": marker,
-             "cause": "intact_same_language_wins",
-             "kept_master_stream": intact.get("StreamOrder"),
-             "same_content": same}
-    if cross_lang:
-        audio["keep"] = False
-        entry["cross_lang"] = cross_lang
-    dropped.append(entry)
-    reason = ("same content as the master's intact track of another language: a duplicate "
-              "under a wrong language tag, intact wins" if cross_lang else
-              "same content (or unmeasured), raced by keep_best_audio, intact wins")
-    say(f"repair: fabricated_dropped cause=intact_same_language_wins {where} "
-        f"kept_master_stream={intact.get('StreamOrder')} "
-        f"kept_master_format={intact.get('Format')} "
-        f"{f'cross_lang={cross_lang} ' if cross_lang else ''}{' '.join(measures)} "
-        f"reason={reason}", to_stderr=True)
-
-
-def _note_kept(kept, audio, language, holder, cause):
-    """Append a kept-track decision to `kept` when a list was given."""
-    if kept is not None:
-        kept.append({"stream_order": audio.get("StreamOrder"), "language": language,
-                     "holder": holder, "cause": cause})
 
 
 def _subtitle_decline_token(reason):
@@ -952,17 +537,6 @@ def chimeric_keep_decisions(candidate_obj, plan, assembly=None, repaired_obj=Non
                 for verdict, entries in (("build_declined", assembly.get("declined") or []),
                                          ("build_failed", assembly.get("failed") or []))
                 for entry in entries}
-    gate_dropped = {str(entry.get("stream_order")): f"{entry.get('cause')}(master_stream="
-                                                     f"{entry.get('kept_master_stream')}"
-                                                     + (f",cross_lang={entry['cross_lang']}"
-                                                        if entry.get("cross_lang") else "")
-                                                     + ")"
-                    for entry in assembly.get("fabricated_dropped") or []
-                    if isinstance(entry, dict)}
-    for entry in assembly.get("silence_dropped") or []:
-        gate_dropped.setdefault(str(entry.get("stream_order")), "interior_silence")
-    gate_kept = {str(entry.get("stream_order")): entry.get("cause")
-                 for entry in assembly.get("gate_kept") or []}
     product_tracks = {}
     if repaired_obj is not None:
         for holder in AUDIO_HOLDERS + ("subtitles",):
@@ -1006,14 +580,11 @@ def chimeric_keep_decisions(candidate_obj, plan, assembly=None, repaired_obj=Non
             row["reason"] = (f"retimed(cues_kept={report.get('kept_cues')},"
                              f"cues_dropped={report.get('dropped_cues')})")
             continue
-        if row["product_stream"] in gate_dropped:
-            row["reason"] = gate_dropped[row["product_stream"]]
-            continue
         if product is not None and product.get("keep", True) is False:
             row["reason"] = "keep_false"
             continue
         row["kept"] = True
-        row["reason"] = gate_kept.get(row["product_stream"]) or "unjudged"
+        row["reason"] = "delivered_to_the_final_keep_best_audio"
     return rows
 
 
@@ -1480,8 +1051,7 @@ def detail_summary(detail):
         value = detail.get(key)
         if value != None:
             fields.append(f"{key}={value}")
-    for key in ("audios", "subtitles", "declined", "failed", "coarse_brackets",
-                "fabricated_dropped"):
+    for key in ("audios", "subtitles", "declined", "failed", "coarse_brackets"):
         value = detail.get(key)
         if isinstance(value, (list, tuple)):
             fields.append(f"{key}={len(value)}")
