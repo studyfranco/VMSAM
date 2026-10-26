@@ -1,21 +1,4 @@
-"""Track integrity checks: does a track hold what it claims, and does a conversion keep it?
-
-The module only measures and answers; the pipeline's hooks decide. Public checks:
-  track_is_sound          strict ffmpeg decode of one track (numbers: track_check)
-  silences_agree          which of two aligned tracks has unmatched silences
-  delivered_track_keeps_its_place
-                          keep or drop a delivered track given its silences
-  video_is_sound          strict decode and frame consistency of the video
-  conversion_preserved    a converted track keeps the original's end and sound
-  conversion_stderr_is_clean
-                          no fatal pattern in a conversion's stderr
-
-stream_id is the absolute ffprobe stream index (mediainfo StreamOrder); pass
-kind="audio_pos" (0-based, 0:a:N) or kind="typeorder" (1-based) otherwise.
-delay_ms in silences_agree is B's instant of a sound minus A's (the negation of
-the mkvmerge delay); in conversion_preserved it is the mkvmerge delay
-(produced instant = original instant + delay).
-"""
+"""Track integrity checks: strict decodes, silence maps and conversion stderr."""
 
 import concurrent.futures
 import math
@@ -23,9 +6,7 @@ from collections import OrderedDict
 from decimal import Decimal
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import zlib
@@ -67,10 +48,6 @@ BAD_SILENCE_S = 5.0
 # tolerated; longer, or interior, unmatched silences drop the track.
 TAIL_SILENCE_TOLERANCE_S = 30.0
 
-CONVERSION_DURATION_TOL_S = 0.5
-FIDELITY_MIN = 0.98
-FIDELITY_WINDOW_S = 60.0
-FIDELITY_FRACTIONS = (0.25, 0.5, 0.75)
 FRAME_COUNT_TOL = 0.001
 FRAME_COUNT_MIN_FRAMES = 2
 FPS_TOL = 0.02
@@ -310,17 +287,6 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
                 _check_cache.popitem(last=False)
             _check_cache[key] = res
     return res
-
-
-def track_is_sound(video_obj, stream_id, full=None, **kw):
-    """Return True when the track's strict decode is clean, False on any decoder error (keywords: `track_check`).
-
-    Raises progress_watchdog.step_stalled when a decode made no progress (a host problem)."""
-    r = track_check(video_obj, stream_id, full, **kw)
-    if r["verdict"] == "step_stalled":
-        raise progress_watchdog.step_stalled(
-            "strict_decode", "no_progress", f"file={r['path']} stream={r['stream_index']}")
-    return r["sound"]
 
 
 # ---------------------------------------------------------------- silence maps
@@ -564,16 +530,6 @@ def silence_report(video_1, stream_a, video_2, stream_b, delay_ms=0, *, kind="st
     return rep
 
 
-def silences_agree(video_1, stream_a, video_2, stream_b, delay_ms=0, **kw):
-    """Return (True, None) when the silence maps agree, else (False, 'A' | 'B' | 'AB').
-
-    'A' / 'B' names the track holding silences (>= 5 s) the other lacks; 'AB' when
-    each has some. Keywords and numbers: `silence_report`.
-    """
-    r = silence_report(video_1, stream_a, video_2, stream_b, delay_ms, **kw)
-    return (r["agree"], r["result"])
-
-
 # Delivered-track silences the reference lacks:
 #   * inside the master video's bounds -> dropped ('interior_silence');
 #   * entirely outside them -> kept ('outside_video_bounds');
@@ -645,18 +601,6 @@ def delivered_silence_report(reference_video, reference_stream, delivered_video,
              f"{rep['b']['stream_index']} silences={len(judged)} span={worst['start_s']}-"
              f"{worst['end_s']}s video_bounds_s=({first}, {last})", always=True)
     return out
-
-
-def delivered_track_keeps_its_place(reference_video, reference_stream, delivered_video, stream,
-                                    delay_ms=0, **kw):
-    """Return (keep, verdict) from `delivered_silence_report`.
-
-    (True, 'agree'), (True, 'kept') when every unmatched silence is tolerated, or
-    (False, 'dropped').
-    """
-    r = delivered_silence_report(reference_video, reference_stream, delivered_video, stream,
-                                 delay_ms, **kw)
-    return r["keep"], r["verdict"]
 
 
 # ---------------------------------------------------------------- video
@@ -781,161 +725,6 @@ def video_is_sound(video_obj, full=False, **kw):
 
 
 # ---------------------------------------------------------------- conversion
-
-def _packet_extent(path, index):
-    """Return (first pts, last pts + duration, sum of durations) from one packet pass.
-
-    The sum is the length mkvmerge gives the track when it re-times it from its frames.
-    """
-    cmd = [_bin("ffprobe"), "-v", "error", "-select_streams", str(index), "-show_entries",
-           "packet=pts_time,duration_time", "-of", "csv=p=0", path]
-    rc, out, err = fc._run(cmd)
-    first, last, total = None, None, 0.0
-    for line in out.decode("ascii", "replace").splitlines():
-        p = line.strip().split(",")
-        if len(p) < 2:
-            continue
-        t, du = fc._num(p[0]), fc._num(p[1]) or 0.0
-        total += du
-        if t is None:
-            continue
-        first = t if first is None else min(first, t)
-        last = t + du if last is None else max(last, t + du)
-    return first, last, total
-
-
-def _wav(path, index, start_abs, dur, out, threads=THREADS):
-    """Extract a 16 kHz mono wav window at an absolute instant; True on success."""
-    fmt_start = fc._num(_probe(path).get("format", {}).get("start_time")) or 0.0
-    ss = max(0.0, start_abs - fmt_start)
-    cmd = [_bin("ffmpeg"), "-nostdin", "-v", "error", "-y", "-threads", str(threads),
-           "-ss", f"{ss:.3f}", "-t", f"{dur:.3f}", "-i", path, "-map", f"0:{index}",
-           "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", out]
-    rc, _, _ = fc._run(cmd)
-    return rc == 0 and os.path.exists(out) and os.path.getsize(out) > 44 + 16000
-
-
-def _fidelity(orig_path, oi, prod_path, pi, d, lo, hi, m_orig):
-    """Chromaprint similarity of 60 s windows of the product and the original shifted by d."""
-    if not shutil.which(_bin("fpcalc")) and not os.path.exists(_bin("fpcalc")):
-        return None, []
-    tmp = tempfile.mkdtemp(prefix="integrity_fp_")
-    sims = []
-    try:
-        span = hi - lo
-        if span < FIDELITY_WINDOW_S + 1:
-            return None, []
-        for fr in FIDELITY_FRACTIONS:
-            t = lo + fr * (span - FIDELITY_WINDOW_S)
-            # Chromaprint of silence is noise: skip windows silent in the original.
-            lv = _levels_at(m_orig, np.arange(t - d, t - d + FIDELITY_WINDOW_S, SILENCE_BLOCK_S))
-            if np.nanmean(lv > CONTENT_DB) < 0.5:
-                continue
-            wp, wo = os.path.join(tmp, f"p{fr}.wav"), os.path.join(tmp, f"o{fr}.wav")
-            if not (_wav(prod_path, pi, t, FIDELITY_WINDOW_S, wp)
-                    and _wav(orig_path, oi, t - d, FIDELITY_WINDOW_S, wo)):
-                continue
-            fa, fb = fc._fpcalc(wp, FIDELITY_WINDOW_S), fc._fpcalc(wo, FIDELITY_WINDOW_S)
-            s, sh = fc._fp_similarity(fa, fb, max_shift=4, min_overlap=100)
-            if s is not None:
-                sims.append(dict(at_s=round(t, 1), similarity=round(s, 4), shift_items=sh))
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-    if not sims:
-        return None, sims
-    return float(np.median([x["similarity"] for x in sims])), sims
-
-
-def conversion_report(original_video_obj, original_stream, produced_path, produced_stream,
-                      delay_ms, expected_duration_s=None, *, kind="stream_order",
-                      produced_kind="stream_order", fidelity=True, threads=THREADS):
-    """Check a converted track against its original; the numbers behind `conversion_preserved`.
-
-    Checks the product's end (sum of frame durations and last packet) and the
-    chromaprint similarity of three 60 s windows; the silence maps explain a
-    failure, or are the check itself without fpcalc.
-
-    Args:
-        delay_ms: produced instant = original instant + delay_ms (mkvmerge style).
-    """
-    t0 = time.time()
-    op, os_ = resolve_stream(original_video_obj, original_stream, kind)
-    pp, ps = resolve_stream(produced_path, produced_stream, produced_kind)
-    d = float(delay_ms) / 1000.0
-    o_first, o_last, _ = _packet_extent(op, os_["index"])
-    p_first, p_last, p_sum = _packet_extent(pp, ps["index"])
-    o_end = o_last if o_last is not None else (_declared_end(_probe(op), os_) or 0.0)
-    expected = o_end + d
-    if expected_duration_s is not None:
-        expected = min(expected, float(expected_duration_s))
-    p_start = p_first if p_first is not None else 0.0
-    p_frames_end = p_start + p_sum
-    failures, explanation = [], []
-    if abs(p_frames_end - expected) > CONVERSION_DURATION_TOL_S:
-        failures.append(f"conversion_duration {p_frames_end:.3f} s expected {expected:.3f} s "
-                        f"(sum of the frames, as mkvmerge re-times the track)")
-    if p_last is not None and abs(p_last - expected) > CONVERSION_DURATION_TOL_S:
-        failures.append(f"conversion_duration {p_last:.3f} s expected {expected:.3f} s "
-                        f"(last packet)")
-    sim, sims, mo = None, [], None
-    have_fpcalc = bool(shutil.which(_bin("fpcalc")) or os.path.exists(_bin("fpcalc")))
-    if fidelity and have_fpcalc and not failures:
-        mo = silence_map(op, os_["index"], timeline="timestamps", threads=threads)
-        lo = max(p_start, mo["start_s"] + d)
-        hi = min(p_frames_end, mo["end_s"] + d)
-        sim, sims = _fidelity(op, os_["index"], pp, ps["index"], d, lo, hi, mo)
-        if sim is not None and sim < FIDELITY_MIN:
-            failures.append(f"conversion_fidelity {sim:.4f}")
-    created = []
-    if failures or not have_fpcalc or not fidelity or sim is None:
-        mo = mo or silence_map(op, os_["index"], timeline="timestamps", threads=threads)
-        mp = silence_map(pp, ps["index"], timeline="samples", threads=threads)
-        created = _unmatched(mp, mo, -d, None, None)
-        if created:
-            c = created[0]
-            line = (f"conversion_created_silence at {c['start_s']:.1f} s ({c['length_s']:.1f} s "
-                    f"of silence where the original plays {c['other_sound_s']:.1f} s of sound)")
-            (explanation if failures else failures).append(line)
-    reason = "; ".join(failures + explanation) if failures else (
-        f"conversion_preserved end {p_frames_end:.3f} s expected {expected:.3f} s"
-        + (f", fidelity {sim:.4f}" if sim is not None else ", fidelity unmeasured (silence map)"))
-    rep = dict(preserved=not failures, reason=reason, failures=failures, explanation=explanation,
-               original=dict(path=op, stream_index=os_["index"], end_s=o_end),
-               produced=dict(path=pp, stream_index=ps["index"], start_s=p_start,
-                             end_frames_s=p_frames_end, end_last_packet_s=p_last),
-               expected_end_s=expected, delay_ms=float(delay_ms), created_silences=created,
-               fidelity=sim, fidelity_windows=sims, cost_s=round(time.time() - t0, 1))
-    _log(f"conversion_preserved original={op}#{os_['index']} produced={pp}#{ps['index']} "
-         f"delay_ms={float(delay_ms):.3f} preserved={rep['preserved']} reason={rep['reason']} "
-         f"cost_s={rep['cost_s']}", always=not rep["preserved"])
-    return rep
-
-
-def conversion_preserved(original_video_obj, original_stream, produced_path, produced_stream,
-                         delay_ms, expected_duration_s=None, **kw):
-    """Return (preserved, reason) for a converted track.
-
-    Preserved when the product ends where the original + delay ends (within
-    500 ms, bounded by expected_duration_s) and sounds the same (fingerprint
-    median >= 0.98, or no new silence >= 5 s without fpcalc). Otherwise the
-    reason starts with conversion_duration, conversion_fidelity or
-    conversion_created_silence. Numbers: `conversion_report`.
-    """
-    r = conversion_report(original_video_obj, original_stream, produced_path, produced_stream,
-                          delay_ms, expected_duration_s, **kw)
-    return r["preserved"], r["reason"]
-
-
-def track_facts(video_obj, stream_id, **kw):
-    """Return a track's end, start, size, content end and trailing-silence start for data_to_save."""
-    path, s = resolve_stream(video_obj, stream_id, kw.pop("kind", "stream_order"))
-    m = silence_map(path, s["index"], **kw)
-    size = fc._num(fc._tag(s, "NUMBER_OF_BYTES"))
-    return dict(original_duration=round(m["end_s"], 3), original_start=round(m["start_s"], 3),
-                original_size=int(size) if size else None,
-                original_content_last=m["content_last_s"],
-                original_last_silence_start=round(m["last_silence_start_s"], 3))
-
 
 # ---------------------------------------------------------------- conversion stderr
 

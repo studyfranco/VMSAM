@@ -8,7 +8,6 @@ head and tail.
 Entry points:
 
     measure_video_offset(master_path, candidate_path, work_dir, log) -> VideoOffsetResult
-    build_candidate_plan(result, master_obj_like, candidate_obj_like) -> dict
 
 Convention: `offset_frames = d` means candidate frame `k + d` shows master frame `k`. A
 candidate track is delayed by
@@ -171,18 +170,6 @@ class VideoOffsetResult:
         if d is None or n_m is None or n_c is None:
             return None
         return (max(0, -d), max(0, n_m - (n_c - d)), max(0, d), max(0, (n_c - d) - n_m))
-
-    def as_dict(self):
-        """Return a JSON-friendly dict of the result."""
-        out = {k: v for k, v in self.__dict__.items() if k not in ("pairs", "extra")}
-        out.update(self.extra)
-        for key in ("fps", "master_start_s", "candidate_start_s"):
-            if out.get(key) is not None:
-                out[key] = str(out[key])
-        out["offset_ms"] = _ms_str(self.offset_ms)
-        out["candidate_track_delay_ms"] = _ms_str(self.candidate_track_delay_ms)
-        return out
-
 
 def _ms_str(value):
     return None if value is None else f"{float(value):.6f}"
@@ -699,78 +686,6 @@ def measure_video_offset(master_path, candidate_path, work_dir, log=None,
 # Entry point 2: the plan
 # --------------------------------------------------------------------------------------------
 
-def _get(obj, name, default=None):
-    if isinstance(obj, dict):
-        return obj.get(name, default)
-    return getattr(obj, name, default)
-
-
-def _tracks(obj, kind):
-    by_lang = _get(obj, kind) or {}
-    for lang, tracks in by_lang.items():
-        for track in tracks or []:
-            yield lang, track
-
-
-def build_candidate_plan(result, master_obj_like, candidate_obj_like, comparison_language=None):
-    '''Build the video-anchored plan.
-
-    Master tracks are untouched; every candidate track and the chapters are shifted by the
-    video offset. Head and tail gaps are filled from the master's comparison-language audio
-    when available, else silence.
-
-    `*_obj_like`: a `video.video` or any object/dict carrying `filePath` and the `audios` /
-    `commentary` / `audiodesc` / `subtitles` dicts (language -> list of track dicts).
-    '''
-    if result is None or result.status != STATUS_OK:
-        return {"status": "declined",
-                "cause": None if result is None else result.status,
-                "reason": None if result is None else result.reason}
-    shift = -result.offset_frames
-    delay = result.candidate_track_delay_ms
-    marker = f"video_anchored:{shift:+d}"
-    frame_ms = result.frame_ms
-    head_add, tail_add, head_trim, tail_trim = result.head_tail()
-    lang = comparison_language or tools.special_params.get("original_language")
-    master_audios = _get(master_obj_like, "audios") or {}
-    if lang and master_audios.get(lang):
-        track = master_audios[lang][0]
-        fill = {"source": "master_audio", "language": lang,
-                "stream": track.get("StreamOrder") if isinstance(track, dict) else None}
-    else:
-        fill = {"source": "silence", "language": None, "stream": None}
-
-    tracks = []
-    for kind in ("audios", "commentary", "audiodesc", "subtitles"):
-        for tlang, track in _tracks(candidate_obj_like, kind):
-            tracks.append({"kind": kind, "language": tlang,
-                           "stream": track.get("StreamOrder") if isinstance(track, dict) else None,
-                           "shift_frames": shift, "delay_ms": _ms_str(delay),
-                           "marker": marker})
-
-    def edge(frames, trim):
-        return {"add_frames": frames, "add_ms": _ms_str(frames * frame_ms),
-                "fill": dict(fill) if frames else None,
-                "trim_frames": trim, "trim_ms": _ms_str(trim * frame_ms)}
-
-    return {
-        "status": STATUS_OK,
-        "marker": marker,
-        "master": {"path": _get(master_obj_like, "filePath"), "tracks": "untouched"},
-        "candidate": {"path": _get(candidate_obj_like, "filePath"),
-                      "offset_frames": result.offset_frames,
-                      "shift_frames": shift,
-                      "delay_ms": _ms_str(delay),
-                      "delay_ms_exact": str(delay),
-                      "tracks": tracks,
-                      "chapters": {"shift_frames": shift, "delay_ms": _ms_str(delay)}},
-        "head": edge(head_add, head_trim),
-        "tail": edge(tail_add, tail_trim),
-        "interior": "none",
-        "fps": str(result.fps),
-    }
-
-
 # --------------------------------------------------------------------------------------------
 # Entry point 3: zones from a changing video offset (the video-only chimeric route)
 # --------------------------------------------------------------------------------------------
@@ -795,7 +710,6 @@ ZONE_HOLE_MERGE_SECONDS = 10.0
 # the sequence built from it.
 ZONE_COVERAGE_MIN_FRACTION = 0.5
 
-STATUS_ZONES_OK = "video_zones_anchored"
 DECLINE_ZONE_COVERAGE = "video_zone_coverage_incomplete"
 DECLINE_ZONE_CONTRADICTION = "video_zone_contradiction"
 DECLINE_ZONE_UNMATCHED = "video_zone_unmatched"
@@ -897,51 +811,6 @@ def check_zone_compatibility(groups, n_master):
         if groups[i][0] == groups[i + 1][0]:
             return DECLINE_ZONE_CONTRADICTION
     return None
-
-
-def video_alignment_from_zones(groups, n_master, n_candidate, frame_ms):
-    """Build a `zones`/`zones_detail` dict shaped exactly like an audio alignment's.
-
-    One quantum = one frame, so this is the only video-specific step: downstream,
-    `repair_orchestrator.classify_holes` / `coalesce_same_offset_zones` / `track_pieces` read
-    it unmodified, as they already do for an audio alignment.
-    """
-    zones, zones_detail = [], []
-    for d, members in groups:
-        m_lo, m_hi = members[0][0], members[-1][0]
-        c_lo, c_hi = m_lo + d, m_hi + d
-        zones.append([[m_lo, m_hi], [c_lo, c_hi]])
-        zones_detail.append({
-            "offset_points": d, "n_members": len(members),
-            "master_points": [m_lo, m_hi], "candidate_points": [c_lo, c_hi],
-            "master_ms": [float(m_lo * frame_ms), float((m_hi + 1) * frame_ms)],
-            "candidate_ms": [float(c_lo * frame_ms), float((c_hi + 1) * frame_ms)],
-        })
-    return {"zones": zones, "zones_detail": zones_detail, "quantum_ms": float(frame_ms),
-            "candidate_quantum_ms": float(frame_ms), "n_master": n_master,
-            "n_candidate": n_candidate, "modality": "video_scene_cuts"}
-
-
-def measure_video_zones(master_path, candidate_path, work_dir, log=None,
-                        audio_delay_hints_ms=None,
-                        merge_window_s=ZONE_HOLE_MERGE_SECONDS):
-    '''Regroup `measure_video_offset`'s matched pairs into video-only zones: (status, groups, result).
-
-    Only on STATUS_NOT_CONSTANT or STATUS_COVERAGE; any other status is returned unchanged with groups None.'''
-    result = measure_video_offset(master_path, candidate_path, work_dir, log,
-                                  audio_delay_hints_ms)
-    if result.status not in (STATUS_NOT_CONSTANT, STATUS_COVERAGE):
-        return result.status, None, result
-    groups = group_video_zones(result.pairs, float(result.frame_ms), merge_window_s)
-    cause = check_zone_compatibility(groups, result.master_frames)
-    numbers = (f"matched={len(result.pairs)}/{result.total} ambiguous={result.ambiguous} "
-              f"n_zones={len(groups)}")
-    if cause is not None:
-        _emit(log, f"{LOG_PREFIX}zones declined cause={cause} {numbers}")
-        return cause, None, result
-    _emit(log, f"{LOG_PREFIX}zones built {numbers} offsets="
-         + ",".join(f"{d:+d}x{len(m)}" for d, m in groups))
-    return STATUS_ZONES_OK, groups, result
 
 
 def video_zone_plan(groups, frame_ms, timeline_ms, start_delta_ms=Decimal(0)):

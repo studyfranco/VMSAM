@@ -73,12 +73,6 @@ def hamming(a, b):
     return np.bitwise_count(np.bitwise_xor(a, b)).sum(axis=-1, dtype=np.int64)
 
 
-def distance(a, b):
-    '''Per-frame raw grey pHash distance of two equal-length frame_hashes, as a fraction of the
-    bits. Comparisons go through `frame_distance`.'''
-    return hamming(a.grey, b.grey) / a.bits
-
-
 def pixel_distance(a, b):
     '''(1 - Pearson correlation) / 2 of grey thumbnails (..., h, w), each z-scored by its own
     mean and std (std floored at PIXEL_STD_FLOOR): 0 same, about 0.5 unrelated, 1 inverted.'''
@@ -403,11 +397,6 @@ def mask_frames(frames, box):
     out = np.array(frames, copy=True)
     out[:, y0:y1, x0:x1] = 0
     return out
-
-
-def _nominal_shift_frames(offset_ms, fps_num, fps_den):
-    frame_ms = 1000.0 * fps_den / fps_num
-    return int(round(offset_ms / frame_ms))
 
 
 # Two nominal rates closer than this (relative) are one frame grid: 2997/125 and 24000/1001 differ

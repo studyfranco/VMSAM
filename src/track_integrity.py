@@ -89,34 +89,3 @@ def check_tracks(produced_path, origins, duration_best_video_s):
         raise track_integrity_error("\n".join(findings))
 
 
-def _sound_streams(path):
-    return [s for s in fc.probe(path)["streams"] if s.get("codec_type") in ("audio", "subtitle")]
-
-
-def _original_index(stream):
-    return json.loads(fc._tag(stream, "VMSAM_TMP"))["original_position"]
-
-
-def check_rebuilt(original_path, produced_path, delay_ms, duration_best_video_s):
-    """Check a file rebuilt from original_path with delay_ms; its tracks carry VMSAM_TMP tags."""
-    check_tracks(produced_path, {s["index"]: (original_path, _original_index(s), delay_ms)
-                                 for s in _sound_streams(produced_path)}, duration_best_video_s)
-
-
-def check_merged(final_path, sources, track_order, duration_best_video_s):
-    """Check the final file of a merge.
-
-    sources: [(rebuilt file, original path, delay_ms)] in the order mkvmerge joined them; the
-    joined file holds every audio track, then every subtitle track, each in that order.
-    track_order: the joined file's track ids, in the order the final file carries its
-    audio and subtitle tracks. Each final track's VMSAM_TMP tag must agree with its source.
-    """
-    joined = sorted([(s["codec_type"], _original_index(s), original_path, delay_ms)
-                     for rebuilt, original_path, delay_ms in sources for s in _sound_streams(rebuilt)],
-                    key=lambda t: t[0] != "audio")
-    final = _sound_streams(final_path)
-    pinned = [(s, joined[int(t)]) for s, t in zip(final, track_order)]
-    if len(final) != len(track_order) or any((s["codec_type"], _original_index(s)) != j[:2] for s, j in pinned):
-        raise track_integrity_error(f"{final_path}: its audio and subtitle tracks do not match the merged "
-                                  f"sources in order {track_order}")
-    check_tracks(final_path, {s["index"]: (j[2], j[1], j[3]) for s, j in pinned}, duration_best_video_s)
