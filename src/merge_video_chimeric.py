@@ -23,6 +23,7 @@ from decimal import Decimal
 from fractions import Fraction
 from os import path, replace as replace_file
 import re
+from shlex import join as join_command
 import sys
 import time
 
@@ -703,14 +704,13 @@ def build_one_audio_track(candidate_obj, master_obj, audio, language, pieces,
     # `-map_chapters -1`: chapters are added later, retimed, by `mux_chapters`.
     command.extend(["-filter_complex", filtergraph, "-map", "[aout]", "-map_chapters", "-1"])
     command.extend(encoder_arguments)
-    # The table's -ar:a:0 (a rate the encoder accepts, e.g. 48 kHz for Opus) sets the output rate.
-    if "-ar:a:0" not in encoder_arguments and "aresample=" not in (encoder_filter or ""):
-        command.extend(["-ar", sample_rate])
     # The same-codec rule can name an experimental encoder (opus, vorbis).
     command.extend(["-strict", "-2", "-vn", "-sn", "-dn",
                     "-max_muxing_queue_size", "16384", out_path])
     tools.dev_log(f"chimeric: build_one_audio_track ffmpeg build call "
                   f"candidate={candidate_obj.filePath} out_path={out_path}\n")
+    tools.dev_log(f"chimeric: build_one_audio_track ffmpeg command stream_order={audio.get('StreamOrder')} "
+                  f"language={language} {join_command(command)}\n")
     with repair_log.announced("chimeric", "ffmpeg", candidate_obj.filePath) as call:
         progress_watchdog.run_checked(command, "audio_track_build")
         call["exit"] = 0

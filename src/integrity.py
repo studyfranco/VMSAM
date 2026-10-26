@@ -19,6 +19,8 @@ the mkvmerge delay); in conversion_preserved it is the mkvmerge delay
 
 import concurrent.futures
 import math
+from collections import OrderedDict
+from decimal import Decimal
 import os
 import re
 import shutil
@@ -90,7 +92,7 @@ FATAL_CONVERSION_PATTERNS = (
 NON_AUDIO_STREAM_PREFIXES = ("[sost#", "[vost#")
 
 _CACHE_MAX = 64
-_probe_cache, _map_cache, _check_cache = {}, {}, {}
+_probe_cache, _map_cache, _check_cache = OrderedDict(), OrderedDict(), OrderedDict()
 _cache_lock = threading.Lock()
 
 def test_video_file_have_no_big_error(file_to_test):
@@ -134,11 +136,12 @@ def _probe(path):
     key = _file_key(path)
     with _cache_lock:
         if key in _probe_cache:
+            _probe_cache.move_to_end(key)
             return _probe_cache[key]
     info = fc.probe(path)
     with _cache_lock:
         if len(_probe_cache) >= _CACHE_MAX:
-            _probe_cache.clear()
+            _probe_cache.popitem(last=False)
         _probe_cache[key] = info
     return info
 
@@ -265,6 +268,7 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
     key = _file_key(path) + (idx, "strict_full") if whole else None
     with _cache_lock:
         if key is not None and key in _check_cache:
+            _check_cache.move_to_end(key)
             return dict(_check_cache[key], cached=True)
     starts = None
     if not whole:
@@ -303,7 +307,7 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
     if key is not None and verdict != "step_stalled":
         with _cache_lock:
             if len(_check_cache) >= _CACHE_MAX:
-                _check_cache.clear()
+                _check_cache.popitem(last=False)
             _check_cache[key] = res
     return res
 
@@ -338,25 +342,27 @@ def _decode_blocks(path, index, timeline, threads, span_s=None, block_s=SILENCE_
     t_err.start()
     block = max(1, int(round(ENV_SR * block_s)))
     bbytes = block * 2
-    rest = b""
+    pcm_buffer = bytearray((1 << 18) + bbytes)
+    pcm_view = memoryview(pcm_buffer)
+    pcm_filled = 0
     out, n = [], 0
     try:
         with progress_watchdog.watch("silence_map_decode",
                                      lambda: (progress_watchdog.process_progress(p.pid), n),
                                      p.kill, detail=f"file={path} stream={index}"):
-            while True:
-                b = p.stdout.read(1 << 18)
-                if not b:
-                    break
-                rest += b
-                m = (len(rest) // bbytes) * bbytes
+            read_size = p.stdout.readinto(pcm_view[pcm_filled:])
+            while read_size:
+                pcm_filled += read_size
+                m = (pcm_filled // bbytes) * bbytes
                 if m:
-                    x = np.frombuffer(rest[:m], dtype="<i2").astype(np.float64) / 32768.0
+                    x = np.frombuffer(pcm_buffer, dtype="<i2", count=m // 2).astype(np.float64) / 32768.0
                     out.append((x.reshape(-1, block) ** 2).mean(axis=1))
                     n += m // 2
-                    rest = rest[m:]
-            if len(rest) >= 2:
-                x = np.frombuffer(rest[: len(rest) // 2 * 2], dtype="<i2").astype(np.float64) / 32768.0
+                    pcm_view[:pcm_filled - m] = pcm_view[m:pcm_filled]
+                    pcm_filled -= m
+                read_size = p.stdout.readinto(pcm_view[pcm_filled:])
+            if pcm_filled >= 2:
+                x = np.frombuffer(pcm_buffer, dtype="<i2", count=pcm_filled // 2).astype(np.float64) / 32768.0
                 out.append(np.array([(x ** 2).mean()]))
                 n += x.size
     finally:
@@ -393,6 +399,7 @@ def silence_map(video_obj, stream_id, *, kind="stream_order", timeline="timestam
     key = _file_key(path) + (s["index"], timeline, span_s)
     with _cache_lock:
         if key in _map_cache:
+            _map_cache.move_to_end(key)
             return _map_cache[key]
     t0 = time.time()
     ms, n, rc, err = _decode_blocks(path, s["index"], timeline, threads, span_s, block_s)
@@ -414,7 +421,7 @@ def silence_map(video_obj, stream_id, *, kind="stream_order", timeline="timestam
          f"silence_db={SILENCE_DB} rc={rc} cost_s={m['cost_s']}", always=span_s is not None)
     with _cache_lock:
         if len(_map_cache) >= _CACHE_MAX:
-            _map_cache.clear()
+            _map_cache.popitem(last=False)
         _map_cache[key] = m
     return m
 
@@ -423,7 +430,7 @@ def _runs(mask):
     """Return the [i0, i1) runs of True in a boolean array."""
     if not mask.size:
         return []
-    d = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    d = np.diff(np.pad(mask.astype(np.int8), 1))
     return list(zip(np.flatnonzero(d == 1), np.flatnonzero(d == -1)))
 
 
@@ -950,3 +957,11 @@ def conversion_stderr_is_clean(stderr_text, *, ignore_non_audio=True):
     if bad:
         _log(f"conversion_stderr fatal_lines={len(bad)} first=«{bad[0][:200]}»", always=True)
     return (not bad, bad[:50])
+
+
+def check_delay_retention_sub(new_track, original_tracks, original_video_path, delay_to_put, sentence):
+    if tools.dev:
+        expected_delay = max(Decimal(0), Decimal(str(original_tracks.get('Delay', '0'))) + Decimal(str(delay_to_put))/Decimal(1000))
+        tools.dev_log(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {original_tracks['StreamOrder']}: delay {original_tracks.get('Delay', '0')} + {delay_to_put} ms -> {new_track.get('Delay', '0')}\n")
+        if abs(expected_delay - Decimal(str(new_track.get('Delay', '0')))) > Decimal("0.001"):
+            tools.dev_log(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {original_tracks['StreamOrder']}: original delay {original_tracks.get('Delay', '0')}, delay put {delay_to_put} ms, expected delay {expected_delay}, new delay {new_track.get('Delay', '0')}\n")
