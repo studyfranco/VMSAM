@@ -172,6 +172,16 @@ def is_already_converted(track, delay_to_put, on_master):
         return False
     return bool((track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG))
 
+def read_subtitle_packets(file_path, stream):
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["ffprobe"], "-v", "error", "-select_streams", f"{stream}", "-show_data_hash", "MD5",
+                                                                          "-show_entries", "packet=pts_time,data_hash", "-of", "csv=p=0", file_path], 2, 3600)
+    list_packet = []
+    for line in stdout.decode("utf-8", errors="ignore").splitlines():
+        if line:
+            pts_time, data_hash = line.split(",")
+            list_packet.append((float(pts_time) * 1000, data_hash))
+    return list_packet
+
 def read_subtitle_events(label, file_path, stream):
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-v", "error", "-nostdin", "-i", file_path,
                                                                           "-map", f"0:{stream}", "-c:s", "srt", "-f", "srt", "pipe:1"], 2, 3600)
@@ -258,6 +268,9 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                             "-analyzeduration", "1000M", "-probesize", "1000M",
                             "-threads", "1", "-vn"]
 
+            if 'ffmpeg_to_convert' in sub:
+                cmd_convert.extend(["-c:s:0", sub["ffmpeg_to_convert"][0]])
+
             cmd_convert.extend(delay_input_args(delay_to_put, tmp_file_extract))
             cmd_convert.extend(["-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy"])
@@ -265,20 +278,18 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
             codec = video.get_codec(sub)
             sub_encoder = None
             if 'ffmpeg_to_convert' in sub:
-                sub_encoder = sub['ffmpeg_to_convert'][1]
+                cmd_convert.extend(["-c:s:0", sub["ffmpeg_to_convert"][1]])
             elif codec in tools.sub_type_not_encodable:
                 cmd_convert.extend(["-copyts", "-avoid_negative_ts", "disabled"])
                 cmd_convert.remove("-fflags")
                 cmd_convert.remove("+genpts+igndts")
-            elif codec in tools.sub_type_near_srt and codec != "subrip":
-                sub_encoder = "srt"
-            elif codec not in ("ass", "subrip"):
-                sub_encoder = "ass"
+            elif codec in tools.sub_type_near_srt:
+                cmd_convert.extend(["-c:s:0", "srt"])
+            else:
+                cmd_convert.extend(["-c:s:0", "ass"])
 
-            if sub_encoder:
-                cmd_convert.extend(["-c:s", sub_encoder])
-                if delay_to_put < 0:
-                    cmd_convert.extend(["-output_ts_offset", f"{delay_to_put/Decimal('1000'):.6f}"])
+            if codec not in tools.sub_type_not_encodable and delay_to_put < 0:
+                cmd_convert.extend(["-output_ts_offset", f"{delay_to_put/Decimal('1000'):.6f}"])
 
             cmd_convert.extend([f"-metadata:s:s:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(sub):
@@ -291,20 +302,27 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
 
             tools.file_remove(tmp_file_extract)
 
-            if codec not in tools.sub_type_not_encodable:
-                shift_ms = float(delay_to_put)
-                duration_ms = float(duration_best_video) * 1000
+            shift_ms = float(delay_to_put)
+            duration_ms = float(duration_best_video) * 1000
+            if codec in tools.sub_type_not_encodable:
+                expected = [(start + shift_ms, start + shift_ms, data_hash)
+                            for start, data_hash in read_subtitle_packets(video_obj.filePath, sub["StreamOrder"])
+                            if 0 <= start + shift_ms < duration_ms]
+                produced = []
+                if expected:
+                    produced = [(start, start, data_hash) for start, data_hash in read_subtitle_packets(tmp_file_convert, 0)]
+            else:
                 expected = [(event.start + shift_ms, event.end + shift_ms, event.text)
                             for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"])
                             if 0 <= event.start + shift_ms < duration_ms]
                 produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, tmp_file_convert, 0)]
-                matches = len(expected) == len(produced)
-                if matches and expected:
-                    matches = all(want[2] == got[2] and abs(want[0] - got[0]) <= 1 and abs(want[1] - got[1]) <= 1
-                                for want, got in ((expected[0], produced[0]), (expected[-1], produced[-1])))
-                if not matches:
-                    raise TrackJobError(f"Track job failed for {label}: {len(expected)} cues expected, {len(produced)} produced, first/last cues expected "
-                                        f"{expected[:1] + expected[-1:]}, produced {produced[:1] + produced[-1:]}")
+            first_mismatch = next((position for position, (want, got) in enumerate(zip(expected, produced))
+                                   if want[2] != got[2] or abs(want[0] - got[0]) > 1 or abs(want[1] - got[1]) > 1), None)
+            if first_mismatch is None and len(expected) != len(produced):
+                first_mismatch = min(len(expected), len(produced))
+            if first_mismatch is not None:
+                raise TrackJobError(f"Track job failed for {label}: {len(expected)} cues expected, {len(produced)} produced, first mismatching cue {first_mismatch}: "
+                                    f"expected {expected[first_mismatch:first_mismatch + 1]}, produced {produced[first_mismatch:first_mismatch + 1]}")
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
