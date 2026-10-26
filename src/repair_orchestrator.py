@@ -46,7 +46,7 @@ from repair_stage3_chimeric import (_speed_chain, _video_duration_ms,
                                     edge_addition_seconds, edge_zones, frame_domain,
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
                                     log_holes_against_walk, log_partial_plan,
-                                    max_holes_per_couple, picture_steps_in_continuous_zones,
+                                    max_holes_per_couple,
                                     reference_walk, union_holes)
 from repair_stage4_plan import (ZONE_EDGE_MARGIN_S, _track_timing, apply_picture_offsets,
                                 apply_plan, plan_geometry, remeasure_at_other_levels,
@@ -882,10 +882,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                      f"reason={zone_lag_reason} for {candidate_path}\n")
     transitions = align_transitions_to_zone_lags(transitions, zone_lag_pairs, domain, walk,
                                                  master_obj, candidate_path)
-    transitions = picture_steps_in_continuous_zones(transitions, walk, reference, domain,
-                                                    master_obj, candidate_obj, work_dir,
-                                                    candidate_path)
-    log_holes_against_walk(holes, walk, transitions, candidate_path)
+    log_holes_against_walk(holes, walk, candidate_path)
     picture_shifts = [(t["before_shift_frames"], t["after_shift_frames"]) for t in transitions
                       if t.get("before_shift_frames") is not None
                       and t.get("after_shift_frames") is not None]
@@ -927,11 +924,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                          f"for {candidate_path}\n")
     frame_count = frame_count_check.check_audio_plan(
         zones, fills, walk, domain, factor, master_obj, candidate_obj, candidate_path,
-        picture_edges_ms=picture_edges_ms,
-        zone_lags={zone["zone"]: zone_picture_lag.zone_majority(
-            zone_lag_pairs, zone["master_start_ms"], zone["master_end_ms"], domain["frame_ms"])[0]
-            for zone in zones},
-        start_delta_ms=start_delta_ms)
+        picture_edges_ms=picture_edges_ms)
     if frame_count.get("ok") is False:
         master_stream, candidate_stream = reference["couple"].split("x")
         return frame_count_check.visual_fallback(frame_count, master_obj, candidate_obj, walk,

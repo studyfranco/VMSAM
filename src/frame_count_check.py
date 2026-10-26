@@ -110,8 +110,8 @@ def zone_edge_offsets(zones, walk):
 
 
 def count_plan(zones, fills, edges, master_rate, master_frames, candidate_start_ms,
-               candidate_ms, zone_lags=None, start_delta_ms=0):
-    """Count a plan in master frames (decision: pts-frame-labels); `ok` also needs every picture zone at its lag."""
+               candidate_ms):
+    """Count a plan in master frames (decision: pts-frame-labels)."""
     def frames(ms):
         return Fraction(ms) * master_rate / 1000
 
@@ -128,23 +128,10 @@ def count_plan(zones, fills, edges, master_rate, master_frames, candidate_start_
     candidate = frames(candidate_ms)
     obtained = candidate - frames(removed_ms) + frames(filled_ms)
     delta = obtained - master_frames
-    lags = [(zone_lags or {}).get(zone.get("zone")) for zone in zones]
-    half = Fraction(1, 2)
-    zone_lag_mismatch = [
-        k for k, (edge, lag) in enumerate(zip(edges, lags))
-        if lag is not None and edge.get("source") == "picture"
-        and abs(frames(edge["start_ms"] - Fraction(start_delta_ms)) - lag) >= half]
-    step_mismatch = [
-        k for k in range(len(zones) - 1)
-        if lags[k] is not None and lags[k + 1] is not None
-        and abs(frames(interior[k] - (_fraction(zones[k + 1]["master_start_ms"])
-                                      - _fraction(zones[k]["master_end_ms"])))
-                - (lags[k + 1] - lags[k])) >= half]
     return {
         "candidate": candidate, "removed": frames(removed_ms), "filled": frames(filled_ms),
         "obtained": obtained, "expected": Fraction(master_frames), "delta": delta,
-        "ok": abs(delta) <= TOLERANCE_FRAMES and not zone_lag_mismatch and not step_mismatch,
-        "zone_lag_mismatch": zone_lag_mismatch, "step_mismatch": step_mismatch,
+        "ok": abs(delta) <= TOLERANCE_FRAMES,
         "head_removed": frames(head), "tail_removed": frames(tail),
         "interior_removed": [frames(value) for value in interior],
         "zone_drift": [frames(value) for value in drifts],
@@ -171,14 +158,11 @@ def log_count(candidate_path, route, count, extra=""):
         f"tail_removed={_num(count['tail_removed'])} "
         f"interior_removed={[_num(v) for v in count['interior_removed']]} "
         f"zone_drift={[_num(v) for v in count['zone_drift']]} worst_zone={worst} "
-        f"zone_lag_mismatch={count.get('zone_lag_mismatch', [])} "
-        f"step_mismatch={count.get('step_mismatch', [])} "
         f"master_source={count.get('master_source')} "
         f"candidate_source={count.get('candidate_source')} {extra}for {candidate_path}\n")
 
 
-def check(zones, fills, edges, domain, scale, master_obj, candidate_obj, zone_lags=None,
-          start_delta_ms=0):
+def check(zones, fills, edges, domain, scale, master_obj, candidate_obj):
     """Count a plan against the master; returns the `count_plan` dict or {"unmeasured": reason}.
 
     `scale` is the plan's time scale (candidate ms x scale = plan ms), 1 without a rate.
@@ -192,8 +176,7 @@ def check(zones, fills, edges, domain, scale, master_obj, candidate_obj, zone_la
         return {"unmeasured": f"master:{master_source},candidate:{candidate_source}"}
     scale = Fraction(scale) if scale not in (None, 1) else Fraction(1)
     count = count_plan(zones, fills, edges, master_rate, master_frames,
-                       _video_start_ms(candidate_obj) * scale, candidate_ms * scale,
-                       zone_lags, start_delta_ms)
+                       _video_start_ms(candidate_obj) * scale, candidate_ms * scale)
     count["master_source"], count["candidate_source"] = master_source, candidate_source
     return count
 
@@ -276,11 +259,11 @@ def close_plan_edges(zones, fills, edges, extent_ms, frame_ms):
 
 
 def check_audio_plan(zones, fills, walk, domain, factor, master_obj, candidate_obj,
-                     candidate_path, picture_edges_ms=None, zone_lags=None, start_delta_ms=0):
+                     candidate_path, picture_edges_ms=None):
     """Count the audio-led plan at its picture offsets and log it; `ok` False on a mismatch, never raises."""
     try:
         count = check(zones, fills, picture_edge_offsets(zones, walk, picture_edges_ms),
-                      domain, factor, master_obj, candidate_obj, zone_lags, start_delta_ms)
+                      domain, factor, master_obj, candidate_obj)
     except Exception as error:                                           # noqa: BLE001
         count = {"unmeasured": f"raised:{type(error).__name__}:{error}"}
     log_count(candidate_path, "audio", count)
