@@ -2426,7 +2426,7 @@ def _pixel_edge_walk(hole, domain, master_obj, candidate_obj, shift):
     # Candidate frames that do not exist (before its start, after its end) read as absent.
     candidate_frames = domain.get("candidate_equivalent_duration_ms")
     candidate_last = (None if candidate_frames is None
-                      else int(float(candidate_frames) / frame_ms) - 1)
+                      else int(round(Fraction(str(candidate_frames)) / 1000 * rate)) - 1)
     order = list(range(len(same)) if edge == "tail" else range(len(same) - 1, -1, -1))
     common = [same[i] for i in order]
     # The walk starts at the first PIXEL_TRUST_RUN_FRAMES-long run of common picture: a
