@@ -1,3 +1,7 @@
+ARG VISQOL_IMAGE=ghcr.io/studyfranco/vmsam-visqol:latest
+
+FROM ${VISQOL_IMAGE} AS visqol
+
 # ---------- builder ----------
 FROM rust:slim AS builder
 WORKDIR /usr/src/app
@@ -113,6 +117,7 @@ COPY --chown=vmsam:vmsam src/gestionar_show /home/vmsam/gestionar_show/
 COPY --chown=vmsam:vmsam src/gestionar_movie /home/vmsam/gestionar_movie/
 COPY --chown=vmsam:vmsam src/gestionar_common /home/vmsam/gestionar_common/
 COPY --from=builder --chown=vmsam:vmsam /usr/src/app/target/release/audio_sync /home/vmsam/audio_sync
+COPY --from=visqol --chown=vmsam:vmsam /visqol/ /home/vmsam/visqol/
 RUN chmod +x /init.sh \
     && chmod +x /home/vmsam/run.sh
 

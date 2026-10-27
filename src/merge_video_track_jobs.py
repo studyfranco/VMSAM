@@ -17,6 +17,8 @@ import audio_integrity
 
 ORIGINAL_TAG="ORIGINAL_FILE_STREAM"
 PREVIOUS_STREAM_ID="VMSAM_PREVIOUS_STREAM_ID"
+VISQOL_WINDOW_POSITIONS = [0.25, 0.5, 0.75]
+VISQOL_WINDOW_DURATION = 10
 
 class TrackJobError(Exception):
     pass
@@ -215,12 +217,15 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             cmd_convert.extend(["-map", "0:a?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
 
+            param_reencode = []
+
             if audio_reencode.is_lossless(audio) and audio_reencode.all_lossless_in_flac():
                 cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
                 if delay_to_put < 0:
                     cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
             elif delay_to_put < 0 and Decimal(str(audio.get("Delay", "0"))) + delay_to_put/Decimal("1000") < 0:
-                cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
+                param_reencode = audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER)
+                cmd_convert.extend(param_reencode)
             
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(audio):
@@ -241,6 +246,31 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                 raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {duration_best_video} s")
 
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
+
+            if param_reencode and "visqol" in tools.software:
+                tmp_file_visqol_source = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol_source.wav")
+                tmp_file_visqol_encode = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol_encode.wav")
+                duration_encode = float(new_track.get('Duration', '0'))
+                cmd_visqol_source = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error"]
+                cmd_visqol_encode = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error"]
+                for position in VISQOL_WINDOW_POSITIONS:
+                    cmd_visqol_source.extend(["-ss", f"{duration_encode*position - float(delay_to_put)/1000:.3f}", "-t", str(VISQOL_WINDOW_DURATION), "-i", video_obj.filePath])
+                    cmd_visqol_encode.extend(["-ss", f"{duration_encode*position:.3f}", "-t", str(VISQOL_WINDOW_DURATION), "-i", tmp_file_convert])
+                cmd_visqol_source.extend(["-filter_complex", "".join([f"[{index}:{audio['StreamOrder']}]" for index in range(len(VISQOL_WINDOW_POSITIONS))]) + f"concat=n={len(VISQOL_WINDOW_POSITIONS)}:v=0:a=1",
+                                          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", tmp_file_visqol_source])
+                cmd_visqol_encode.extend(["-filter_complex", "".join([f"[{index}:a:0]" for index in range(len(VISQOL_WINDOW_POSITIONS))]) + f"concat=n={len(VISQOL_WINDOW_POSITIONS)}:v=0:a=1",
+                                          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", tmp_file_visqol_encode])
+                cmd_visqol = [tools.software["visqol"], "--reference_file", tmp_file_visqol_source, "--degraded_file", tmp_file_visqol_encode,
+                              "--similarity_to_quality_model", path.join(path.dirname(tools.software["visqol"]), "libsvm_nu_svr_model.txt")]
+                try:
+                    tools.launch_cmdExt_with_timeout_reload(cmd_visqol_source, 2, 600)
+                    tools.launch_cmdExt_with_timeout_reload(cmd_visqol_encode, 2, 600)
+                    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_visqol, 2, 600)
+                    mos_lqo = re.search(r"MOS-LQO:\s*([0-9.]+)", stdout.decode("utf-8", errors="ignore")).group(1)
+                    tools.log_always(f"[ViSQOL] {label}: MOS-LQO {mos_lqo} on {len(VISQOL_WINDOW_POSITIONS)} windows of {VISQOL_WINDOW_DURATION} s, encoded with {' '.join(param_reencode)}\n")
+                except Exception as e:
+                    tools.log_always(f"[ViSQOL WARN] {label}: no MOS-LQO: {e}\n")
+                remove_files([tmp_file_visqol_source, tmp_file_visqol_encode])
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
