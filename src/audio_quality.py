@@ -9,7 +9,7 @@ import tools
 
 VISQOL_TAG = "VMSAM_VISQOL"
 VISQOL_WINDOW_POSITIONS = [0.05, 0.10, 0.25, 0.50, 0.65, 0.85, 0.90, 0.95]
-VISQOL_WINDOW_DURATION = 5
+VISQOL_WINDOW_DURATION = 30
 VISQOL_EDGE_GUARD = 1
 VISQOL_MIN_WINDOWS = 4
 
@@ -20,8 +20,8 @@ def get_visqol_mos(reference_file, degraded_file, delay_ms, tmp_file_base):
     """Return the mean ViSQOL audio-mode MOS-LQO of degraded_file against reference_file over 8 windows of the audio both play, degraded_file being reference_file shifted by delay_ms."""
     """ Example:
     reference_file: start 0.000 s, end 1465.789 s, 32000 Hz, 2 channels; degraded_file: start 0.000 s, end 1465.669 s; delay_ms = -120
-    source content at t is at t - 0.120 s in degraded_file, so the windows lie in [0.120 + 1, 1465.669 + 0.120 - 1 - 5] of the source
-    window 5 %: source 73.289 s to 78.289 s against degraded 73.169 s to 78.169 s, the degraded WAV resampled to 32000 Hz
+    source content at t is at t - 0.120 s in degraded_file, so the windows lie in [0.120 + 1, 1465.669 + 0.120 - 1 - 30] of the source
+    window 5 %: source 73.289 s to 103.289 s against degraded 73.169 s to 103.169 s, the degraded WAV resampled to 32000 Hz
     each file is sought 1 s before its window and the last second is decoded and dropped: a seek on the input alone lands up to 350 ms off on some AC-3 tracks
     result: mean of the 8 window MOS-LQO
     """
