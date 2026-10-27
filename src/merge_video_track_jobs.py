@@ -125,7 +125,7 @@ def extract_stream(video_obj, type_stream, id_stream, out_file):
     cmd_extract = [tools.software["mkvmerge"], "-o", out_file]
     if type_stream == "audio":
         cmd_extract.extend(["-D","-S","--no-global-tags", "-M", "-B", "--no-chapters",
-                            "--audio-tracks", f"{id_stream}"])
+                            "--timestamp-scale", "1000000", "--audio-tracks", f"{id_stream}"])
     elif type_stream == "subtitle":
         cmd_extract.extend(["-D","-A","--no-global-tags", "-M", "-B", "--no-chapters",
                             "--subtitle-tracks", f"{id_stream}"])
