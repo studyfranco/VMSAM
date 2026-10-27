@@ -108,7 +108,7 @@ def check_track(new_track, original_video_path, track_to_convert_or_keep, delay_
     if not get_original_tag(new_track):
         raise TrackJobError(f"Final check failed for {label}: the produced track has no {ORIGINAL_TAG} tag")
 
-    if new_track['@type'] != old_track['@type'] or new_track.get('Language', 'und') != old_track.get('Language', 'und'):
+    if new_track['@type'] != old_track['@type'] or video.get_language(new_track) != video.get_language(old_track):
         raise TrackJobError(f"Final check failed for {label}: produced {new_track['@type']} in {new_track.get('Language', 'und')}, expected {old_track['@type']} in {old_track.get('Language', 'und')}")
 
     if not (new_track.get("extra") or {}).get(tools.NOT_MY_FIRST_TAG):

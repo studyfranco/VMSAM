@@ -91,24 +91,7 @@ class video():
                 else:
                     self.video = data
             else:
-                if 'Language' in data:
-                    if is_language(data['Language']):
-                        language_iso_1 = Lang(data['Language']).pt1
-                        if language_iso_1 != None and language_iso_1 != '':
-                            language = language_iso_1
-                        else:
-                            try:
-                                language_iso_1 = Lang(data['Language']).macro().pt1
-                                if language_iso_1 != None and language_iso_1 != '':
-                                    language = language_iso_1
-                                else:
-                                    language = data['Language'].split("-")[0]
-                            except:
-                                language = data['Language'].split("-")[0]
-                    else:
-                        language = data['Language'].split("-")[0]
-                else:
-                    language = "und"
+                language = get_language(data)
                 if data['@type'] == 'Audio': 
                     if ('Title' in data and 'commentary' in data['Title'].lower()) or ("flag_commentary" in data['properties'] and data['properties']["flag_commentary"]):
                         if language in self.commentary:
@@ -1011,6 +994,28 @@ def get_bitrate(data, path=None):
     if source != "BitRate_Maximum" or path is not None:
         data['BitRate_resolved'], data['BitRate_source'] = bitrate, source
     return bitrate
+
+def get_language(data):
+    """Return the track language as the code used to group tracks: ISO 639-1 when it exists (zh-Hans, chi -> zh), else the primary subtag."""
+    if 'Language' in data:
+        if is_language(data['Language']):
+            language_iso_1 = Lang(data['Language']).pt1
+            if language_iso_1 != None and language_iso_1 != '':
+                language = language_iso_1
+            else:
+                try:
+                    language_iso_1 = Lang(data['Language']).macro().pt1
+                    if language_iso_1 != None and language_iso_1 != '':
+                        language = language_iso_1
+                    else:
+                        language = data['Language'].split("-")[0]
+                except:
+                    language = data['Language'].split("-")[0]
+        else:
+            language = data['Language'].split("-")[0]
+    else:
+        language = "und"
+    return language
 
 def get_codec(data):
     """Return the stream's codec, lowercased: ffprobe codec_name, else MediaInfo Format mapped back through original_encode_formats."""
