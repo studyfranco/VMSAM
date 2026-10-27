@@ -6,6 +6,7 @@ import sys
 from threading import Thread
 from decimal import Decimal
 from os import path,rename
+from xml.etree import ElementTree
 
 import pysubs2
 
@@ -14,11 +15,11 @@ import video
 import audio_reencode
 import integrity
 import audio_integrity
+import audio_quality
 
 ORIGINAL_TAG="ORIGINAL_FILE_STREAM"
 PREVIOUS_STREAM_ID="VMSAM_PREVIOUS_STREAM_ID"
-VISQOL_WINDOW_POSITIONS = [0.25, 0.5, 0.75]
-VISQOL_WINDOW_DURATION = 10
+VISQOL_TAG = "VMSAM_VISQOL"
 
 class TrackJobError(Exception):
     pass
@@ -236,8 +237,6 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
 
             print_ffmpeg_message(stderror, video_obj, cmd_convert)
 
-            tools.file_remove(tmp_file_extract)
-
             new_encode = video.video(path.dirname(tmp_file_convert), path.basename(tmp_file_convert))
             new_encode.get_mediadata()
 
@@ -248,29 +247,27 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
 
             if param_reencode and "visqol" in tools.software:
-                tmp_file_visqol_source = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol_source.wav")
-                tmp_file_visqol_encode = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol_encode.wav")
-                duration_encode = float(new_track.get('Duration', '0'))
-                cmd_visqol_source = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error"]
-                cmd_visqol_encode = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error"]
-                for position in VISQOL_WINDOW_POSITIONS:
-                    cmd_visqol_source.extend(["-ss", f"{duration_encode*position - float(delay_to_put)/1000:.3f}", "-t", str(VISQOL_WINDOW_DURATION), "-i", video_obj.filePath])
-                    cmd_visqol_encode.extend(["-ss", f"{duration_encode*position:.3f}", "-t", str(VISQOL_WINDOW_DURATION), "-i", tmp_file_convert])
-                cmd_visqol_source.extend(["-filter_complex", "".join([f"[{index}:{audio['StreamOrder']}]" for index in range(len(VISQOL_WINDOW_POSITIONS))]) + f"concat=n={len(VISQOL_WINDOW_POSITIONS)}:v=0:a=1",
-                                          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", tmp_file_visqol_source])
-                cmd_visqol_encode.extend(["-filter_complex", "".join([f"[{index}:a:0]" for index in range(len(VISQOL_WINDOW_POSITIONS))]) + f"concat=n={len(VISQOL_WINDOW_POSITIONS)}:v=0:a=1",
-                                          "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", tmp_file_visqol_encode])
-                cmd_visqol = [tools.software["visqol"], "--reference_file", tmp_file_visqol_source, "--degraded_file", tmp_file_visqol_encode,
-                              "--similarity_to_quality_model", path.join(path.dirname(tools.software["visqol"]), "libsvm_nu_svr_model.txt")]
+                tmp_file_tags = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tags.xml")
                 try:
-                    tools.launch_cmdExt_with_timeout_reload(cmd_visqol_source, 2, 600)
-                    tools.launch_cmdExt_with_timeout_reload(cmd_visqol_encode, 2, 600)
-                    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_visqol, 2, 600)
-                    mos_lqo = re.search(r"MOS-LQO:\s*([0-9.]+)", stdout.decode("utf-8", errors="ignore")).group(1)
-                    tools.log_always(f"[ViSQOL] {label}: MOS-LQO {mos_lqo} on {len(VISQOL_WINDOW_POSITIONS)} windows of {VISQOL_WINDOW_DURATION} s, encoded with {' '.join(param_reencode)}\n")
+                    mos_lqo = audio_quality.get_visqol_mos(tmp_file_extract, tmp_file_convert)
+                    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mkvextract"], tmp_file_convert, "tags", "-"], 2, 120)
+                    tags = ElementTree.fromstring(stdout)
+                    track_tag = [tag for tag in tags.findall("Tag") if tag.find("Targets/TrackUID") is not None][0]
+                    list_visqol_tag = [simple for simple in track_tag.findall("Simple") if simple.findtext("Name") == VISQOL_TAG]
+                    if list_visqol_tag:
+                        list_visqol_tag[0].find("String").text = f"{list_visqol_tag[0].findtext('String')};{mos_lqo}"
+                    else:
+                        visqol_tag = ElementTree.SubElement(track_tag, "Simple")
+                        ElementTree.SubElement(visqol_tag, "Name").text = VISQOL_TAG
+                        ElementTree.SubElement(visqol_tag, "String").text = str(mos_lqo)
+                    ElementTree.ElementTree(tags).write(tmp_file_tags, encoding="utf-8", xml_declaration=True)
+                    tools.launch_cmdExt_with_timeout_reload([tools.software["mkvpropedit"], tmp_file_convert, "--tags", f"all:{tmp_file_tags}"], 2, 120)
+                    tools.log_always(f"[ViSQOL] {label}: MOS-LQO {mos_lqo}, encoded with {' '.join(param_reencode)}\n")
                 except Exception as e:
                     tools.log_always(f"[ViSQOL WARN] {label}: no MOS-LQO: {e}\n")
-                remove_files([tmp_file_visqol_source, tmp_file_visqol_encode])
+                remove_files([tmp_file_tags])
+
+            tools.file_remove(tmp_file_extract)
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
