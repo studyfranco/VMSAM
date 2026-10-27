@@ -14,6 +14,7 @@ import video
 import audio_reencode
 import integrity
 import audio_integrity
+import audio_quality
 
 ORIGINAL_TAG="ORIGINAL_FILE_STREAM"
 PREVIOUS_STREAM_ID="VMSAM_PREVIOUS_STREAM_ID"
@@ -215,12 +216,15 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             cmd_convert.extend(["-map", "0:a?", "-map_metadata", "0", "-copy_unknown",
                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
 
+            param_reencode = []
+
             if audio_reencode.is_lossless(audio) and audio_reencode.all_lossless_in_flac():
                 cmd_convert.extend(audio_reencode.get_parameters_lossless(audio, "0"))
                 if delay_to_put < 0:
                     cmd_convert.extend([f"-filter:a:0", audio_reencode.NEGATIVE_DELAY_FILTER])
             elif delay_to_put < 0 and Decimal(str(audio.get("Delay", "0"))) + delay_to_put/Decimal("1000") < 0:
-                cmd_convert.extend(audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER))
+                param_reencode = audio_reencode.get_parameters_in_reencode(audio, "0", video_obj.filePath, filter_param_to_add=audio_reencode.NEGATIVE_DELAY_FILTER)
+                cmd_convert.extend(param_reencode)
             
             cmd_convert.extend(["-metadata:s:a:0", f"{tools.NOT_MY_FIRST_TAG}={duration_best_video}"])
             if not get_original_tag(audio):
@@ -231,8 +235,6 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
 
             print_ffmpeg_message(stderror, video_obj, cmd_convert)
 
-            tools.file_remove(tmp_file_extract)
-
             new_encode = video.video(path.dirname(tmp_file_convert), path.basename(tmp_file_convert))
             new_encode.get_mediadata()
 
@@ -241,6 +243,17 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
                 raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {duration_best_video} s")
 
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
+
+            if param_reencode and "visqol" in tools.software:
+                try:
+                    tmp_file_visqol = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol")
+                    mos_lqo = audio_quality.get_visqol_mos(tmp_file_extract, tmp_file_convert, delay_to_put, tmp_file_visqol)
+                    list_mos = audio_quality.add_visqol_tag(tmp_file_convert, new_track, mos_lqo, tmp_file_visqol)
+                    tools.dev_log(f"[ViSQOL] {label}: MOS-LQO {list_mos[-1]}, {audio_quality.VISQOL_TAG}={list_mos}, encoded with {' '.join(param_reencode)}\n")
+                except Exception as e:
+                    tools.dev_log(f"[ViSQOL WARN] {label}: no MOS-LQO: {e}\n")
+
+            tools.file_remove(tmp_file_extract)
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
