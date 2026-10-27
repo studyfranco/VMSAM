@@ -1241,6 +1241,8 @@ def clean_forced_title(sub):
 def test_if_forced(sub):
     if "Title" in sub and (re.match(r".*forced.*", sub["Title"].lower()) or re.match(r".*forcé.*", sub["Title"].lower())):
         return True
+    if "properties" in sub and sub["properties"].get("forced_track"):
+        return True
     return False
 
 def clean_number_stream_to_be_lover_than_max(number_max_sub_stream,video_sub_track_list):
