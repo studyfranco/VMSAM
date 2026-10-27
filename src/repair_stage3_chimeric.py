@@ -1367,6 +1367,22 @@ def _candidate_silent(walk, times, shift_s, picture_shift_s=None):
                                   < audio_walk.AUDIBLE_DB for index, track in enumerate(tracks)])
 
 
+def quiet_frame_in_interval(walk, domain, interval, offsets_ms):
+    import numpy as np
+    import audio_walk
+    frame_s = float(domain["frame_ms"]) / 1000.0
+    low = math.floor(min(interval) / frame_s)
+    high = math.ceil((max(interval) + audio_walk.FINE_WIN_S / 2.0) / frame_s)
+    flags = []
+    for frame in range(low, high + 1):
+        times = np.arange(frame * frame_s, (frame + 1) * frame_s - BLIND_SILENCE_WIN_S + 1e-9,
+                          BLIND_SILENCE_HOP_S)
+        flags.append(all(bool(_candidate_silent(walk, times, offset / 1000.0).all())
+                         for offset in offsets_ms))
+    found = _centre_of_longest(flags, low)
+    return None if found is None else found[0]
+
+
 def _centre_of_longest(flags, low):
     """(centre, [first, last]) of the longest True run of `flags` (index 0 = frame `low`)."""
     best, start = None, None
@@ -3231,10 +3247,32 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             # with both readings, never refused.
             at = _frame_s(outcome["master_start_frame"], domain)
             before, after = outcome["before_shift_frames"], outcome["after_shift_frames"]
-            # Rule 2: every unmatched master frame is filled, not only the shift gap.
+            # Rule 2: every unmatched master frame is filled, not only the shift gap, unless the
+            # candidate audio runs on across them (a picture-only difference: no effect).
             fill = (max(0, before - after,
                         outcome["master_end_frame"] - outcome["master_start_frame"]) * frame
                     if status == _orch().HOLE_RESOLVED else max(0, before - after) * frame)
+            if fill > max(0, before - after) * frame and walk is not None:
+                span_s = (_frame_s(outcome["master_start_frame"], domain),
+                          _frame_s(outcome["master_end_frame"], domain))
+                reading = audio_walk.zone_offset(walk["master"], walk["candidate"], span_s[0],
+                                                 span_s[1], point["b_ms"])
+                measured = reading["offset_ms"]
+                share = (max((level["n"] for level in reading["levels"]), default=0)
+                         / max(1, sum(reading["counts"].values())))
+                continuous = (measured is not None and share >= UNMATCHED_SPAN_AUDIO_SHARE and min(
+                    abs(measured - point["a_ms"]), abs(measured - point["b_ms"])) <= frame * 500.0)
+                quiet = (quiet_frame_in_interval(walk, domain, (lo, hi),
+                                                 (point["a_ms"], point["b_ms"]))
+                         if continuous else None)
+                tools.log_always(
+                    f"repair: unmatched_span_audio change_point={index} span_s=[{round(span_s[0], 4)}, "
+                    f"{round(span_s[1], 4)}] audio_offset_ms={measured} share={round(share, 2)} continuous={continuous} "
+                    f"quiet_frame={quiet} for {candidate_path}\n")
+                if continuous:
+                    fill = max(0, before - after) * frame
+                    if quiet is not None:
+                        at = _frame_s(quiet, domain)
             pinned, pin_decision = video_pin(video_s, (lo, hi), (edges["edge_A"], edges["edge_B"]),
                                              extra, frame)
             inside = (None if pinned is not None and not width_note
@@ -3262,11 +3300,17 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                     f"for {candidate_path}\n")
                 decision = "video_audio_disagree_followed_video"
         elif status == _orch().HOLE_NO_CUT_CONFIRMED:
-            # The video itself confirms there is no cut here (a pHash-measured still span):
-            # nothing is added or removed, and the placed instant is the video's own, never an
-            # audio-picked one.
+            # A still picture has no instant of its own: outside the audio interval, the junction
+            # moves to where the candidate is silent at both offsets.
             at, fill, decision = _frame_s(outcome["master_start_frame"], domain), 0.0, \
                 "video_no_cut_confirmed"
+            quiet = (None if lo - frame <= at <= hi + frame else
+                     quiet_frame_in_interval(walk, domain, (lo, hi), (point["a_ms"], point["b_ms"])))
+            tools.log_always(
+                f"repair: no_cut_junction change_point={index} still_edge_s={round(at, 4)} "
+                f"audio_interval_s=[{lo}, {hi}] quiet_frame={quiet} for {candidate_path}\n")
+            if quiet is not None:
+                at = _frame_s(quiet, domain)
         else:
             # HOLE_STATUSES_WITH_FRAMES carries exactly four statuses; RESOLVED/PINNED took
             # the video_decided branch above and DECLINED returned earlier, so nothing else
@@ -3311,6 +3355,11 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
             f"for {candidate_path}\n")
     log_transitions_summary(transitions, candidate_path)
     return transitions, None
+
+
+# Unmatched master frames are a picture-only difference when at least this share of the audio
+# windows over them reads one bounding zone's offset.
+UNMATCHED_SPAN_AUDIO_SHARE = 0.8
 
 
 # Blind-span placements read off the master picture itself (its next shot change): the audio
