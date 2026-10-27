@@ -1,4 +1,4 @@
-ARG VISQOL_IMAGE=ghcr.io/studyfranco/vmsam-visqol:latest
+ARG VISQOL_IMAGE=ghcr.io/studyfranco/vmsam-visqol:38d0b016
 
 FROM ${VISQOL_IMAGE} AS visqol
 

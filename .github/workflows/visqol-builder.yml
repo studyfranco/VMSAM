@@ -1,11 +1,12 @@
 name: ViSQOL builder
 
-# Builds docker/visqol once and publishes ghcr.io/<owner>/<repo>-visqol; the app image copies /visqol/ from it.
+# Builds docker/visqol once and publishes ghcr.io/<owner>/<repo>-visqol:38d0b016, the fixed tag the app Dockerfile copies /visqol/ from.
+# Runs only by hand (Actions > ViSQOL builder > Run workflow) or when docker/visqol/Dockerfile changes.
 
 on:
   push:
     branches: [ "master", "dev-AI" ]
-    paths: [ "docker/visqol/**", ".github/workflows/visqol-builder.yml" ]
+    paths: [ "docker/visqol/Dockerfile" ]
   workflow_dispatch:
 
 env:
@@ -40,8 +41,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
-            type=sha
+            type=raw,value=38d0b016
 
       - name: Build and push the ViSQOL builder image
         uses: docker/build-push-action@0565240e2d4ab88bba5387d719585280857ece09 # v5.0.0
