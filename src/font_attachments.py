@@ -1,6 +1,6 @@
 '''Keep in the final mkvmerge only the fonts the kept ASS/SSA tracks use, each font once, and one cover image.'''
 
-from hashlib import md5, sha1
+from hashlib import sha1
 from json import loads
 from os import path
 from re import compile
@@ -14,26 +14,17 @@ FN_OVERRIDE_TAG = compile(r"\\fn([^\\}]*)")
 
 def restrict_final_attachments(final_insert, master_path, metadata_cmd, split_path, split_subtitles):
     """Rewrite final_insert in place: each source keeps its fonts used by the kept ASS/SSA tracks, de-duplicated, and at most one cover image."""
-    folder_extract = path.join(tools.tmpFolder, f"font_attachments_{md5(split_path.encode()).hexdigest()[:16]}")
     try:
-        tools.make_dirs(folder_extract)
         mkvextract = tools.software.get("mkvextract", "mkvextract")
 
-        list_kept_ass = []
+        list_ass_text = []
         for subs in split_subtitles.values():
             for sub in subs:
                 if sub["keep"] and sub["ffprobe"]["codec_name"].lower() in ("ass", "ssa"):
-                    list_kept_ass.append(sub)
-        if list_kept_ass:
-            cmd_extract_tracks = [mkvextract, split_path, "tracks"]
-            for sub in list_kept_ass:
-                cmd_extract_tracks.append(f"{sub['StreamOrder']}:{path.join(folder_extract, str(sub['StreamOrder']) + '.ass')}")
-            tools.launch_cmdExt_with_timeout_reload(cmd_extract_tracks, 2, 120)
-
+                    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([mkvextract, "-q", split_path, "tracks", f"{sub['StreamOrder']}:/dev/stdout"], 2, 120)
+                    list_ass_text.append(stdout.decode("utf-8", errors="ignore").lstrip("\ufeff"))
         set_font_reference = set()
-        for sub in list_kept_ass:
-            with open(path.join(folder_extract, str(sub['StreamOrder']) + '.ass'), "r", encoding="utf-8", errors="ignore") as ass_file:
-                ass_text = ass_file.read().lstrip("﻿")
+        for ass_text in list_ass_text:
             """ Example:
             [V4+ Styles]
             Format: Name, Fontname, Fontsize
@@ -69,15 +60,9 @@ def restrict_final_attachments(final_insert, master_path, metadata_cmd, split_pa
                 list_source_file.append(cmd_part)
 
         dict_attachments_by_source = {}
-        for source_position, source_file in enumerate(list_source_file):
+        for source_file in list_source_file:
             stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mkvmerge"], "-J", source_file], 2, 120)
-            list_attachment = loads(stdout.decode("utf-8")).get("attachments", [])
-            dict_attachments_by_source[source_file] = list_attachment
-            if list_attachment:
-                cmd_extract_attachments = [mkvextract, source_file, "attachments"]
-                for attachment in list_attachment:
-                    cmd_extract_attachments.append(f"{attachment['id']}:{path.join(folder_extract, f'{source_position}_{attachment['id']}_{attachment['file_name']}')}")
-                tools.launch_cmdExt_with_timeout_reload(cmd_extract_attachments, 2, 120)
+            dict_attachments_by_source[source_file] = loads(stdout.decode("utf-8")).get("attachments", [])
 
         cover_source = None
         cover_id = None
@@ -91,12 +76,11 @@ def restrict_final_attachments(final_insert, master_path, metadata_cmd, split_pa
 
         set_kept_font = set()
         set_font_hash = set()
-        for source_position, source_file in enumerate(list_source_file):
+        for source_file in list_source_file:
             for attachment in dict_attachments_by_source[source_file]:
                 content_type = attachment.get("content_type", "")
                 if (not content_type.startswith("image/")) and (content_type.startswith("font/") or attachment["file_name"].lower().endswith((".ttf", ".otf", ".ttc"))):
-                    with open(path.join(folder_extract, f"{source_position}_{attachment['id']}_{attachment['file_name']}"), "rb") as font_file:
-                        font_data = font_file.read()
+                    font_data, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([mkvextract, "-q", source_file, "attachments", f"{attachment['id']}:/dev/stdout"], 2, 120)
                     set_font_name = set()
                     try:
                         list_sfnt_offset = [0]
@@ -155,4 +139,3 @@ def restrict_final_attachments(final_insert, master_path, metadata_cmd, split_pa
                 tools.logs.append(f"\t\tattachments: {source_file} kept {list_kept_id}\n")
     except Exception as e:
         tools.logs.append(f"\t\tattachments: failed, kept everything ({e})\n")
-    tools.remove_dir(folder_extract, printError=False)
