@@ -1203,7 +1203,7 @@ def mux_repaired_file(audio_reports, subtitle_reports, out_path, marker_value,
 
     for i in range(len(audio_reports) + len(subtitle_reports)):
         command.extend(["-map", f"{i}:0"])
-    command.extend(["-map_chapters", "-1", "-c", "copy"])
+    command.extend(["-map_chapters", "-1", "-c", "copy", "-copyts"])
 
     era_value = f"git_commit={tools.get_git_commit()} job_start_utc={job_start_utc}"
     build = repair_log.build_sha()
