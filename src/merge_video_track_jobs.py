@@ -6,7 +6,6 @@ import sys
 from threading import Thread
 from decimal import Decimal
 from os import path,rename
-from xml.etree import ElementTree
 
 import pysubs2
 
@@ -19,7 +18,6 @@ import audio_quality
 
 ORIGINAL_TAG="ORIGINAL_FILE_STREAM"
 PREVIOUS_STREAM_ID="VMSAM_PREVIOUS_STREAM_ID"
-VISQOL_TAG = "VMSAM_VISQOL"
 
 class TrackJobError(Exception):
     pass
@@ -247,25 +245,13 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
 
             if param_reencode and "visqol" in tools.software:
-                tmp_file_tags = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_tags.xml")
                 try:
-                    mos_lqo = audio_quality.get_visqol_mos(tmp_file_extract, tmp_file_convert)
-                    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["mkvextract"], tmp_file_convert, "tags", "-"], 2, 120)
-                    tags = ElementTree.fromstring(stdout)
-                    track_tag = [tag for tag in tags.findall("Tag") if tag.find("Targets/TrackUID") is not None][0]
-                    list_visqol_tag = [simple for simple in track_tag.findall("Simple") if simple.findtext("Name") == VISQOL_TAG]
-                    if list_visqol_tag:
-                        list_visqol_tag[0].find("String").text = f"{list_visqol_tag[0].findtext('String')};{mos_lqo}"
-                    else:
-                        visqol_tag = ElementTree.SubElement(track_tag, "Simple")
-                        ElementTree.SubElement(visqol_tag, "Name").text = VISQOL_TAG
-                        ElementTree.SubElement(visqol_tag, "String").text = str(mos_lqo)
-                    ElementTree.ElementTree(tags).write(tmp_file_tags, encoding="utf-8", xml_declaration=True)
-                    tools.launch_cmdExt_with_timeout_reload([tools.software["mkvpropedit"], tmp_file_convert, "--tags", f"all:{tmp_file_tags}"], 2, 120)
-                    tools.log_always(f"[ViSQOL] {label}: MOS-LQO {mos_lqo}, encoded with {' '.join(param_reencode)}\n")
+                    tmp_file_visqol = path.join(tools.tmpFolder,f"{file_base_name}_{audio['StreamOrder']}_visqol")
+                    mos_lqo = audio_quality.get_visqol_mos(tmp_file_extract, tmp_file_convert, delay_to_put, tmp_file_visqol)
+                    list_mos = audio_quality.add_visqol_tag(tmp_file_convert, new_track, mos_lqo, tmp_file_visqol)
+                    tools.dev_log(f"[ViSQOL] {label}: MOS-LQO {list_mos[-1]}, {audio_quality.VISQOL_TAG}={list_mos}, encoded with {' '.join(param_reencode)}\n")
                 except Exception as e:
-                    tools.log_always(f"[ViSQOL WARN] {label}: no MOS-LQO: {e}\n")
-                remove_files([tmp_file_tags])
+                    tools.dev_log(f"[ViSQOL WARN] {label}: no MOS-LQO: {e}\n")
 
             tools.file_remove(tmp_file_extract)
     except Exception as e:
