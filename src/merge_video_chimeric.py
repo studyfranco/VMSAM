@@ -1112,6 +1112,56 @@ def splice_cue_hygiene(events, meta):
     return [event for index, event in enumerate(events) if index not in dropped], decisions
 
 
+PTS_GAP_PACKETS = 2
+
+
+def container_clock_pieces(candidate_path, pieces):
+    command = [tools.software["ffprobe"], "-v", "error", "-select_streams", "a:0",
+               "-show_entries", "packet=pts_time,duration_time", "-of", "csv=p=0", candidate_path]
+    with repair_log.announced("chimeric", "ffprobe", candidate_path) as call:
+        completed = progress_watchdog.run(command, "ffprobe_pts_gaps", text=True)
+        call["exit"] = completed.returncode
+    packets = []
+    for line in completed.stdout.splitlines():
+        parts = line.split(",")
+        try:
+            packets.append((Decimal(parts[0]) * 1000, Decimal(parts[1]) * 1000))
+        except Exception:
+            continue
+    packets.sort()
+    gaps = []
+    for (pts, duration), (next_pts, _) in zip(packets, packets[1:]):
+        if duration > 0 and next_pts - pts - duration > PTS_GAP_PACKETS * duration:
+            gaps.append((pts + duration, next_pts - pts - duration))
+    if not gaps:
+        return pieces
+    marks, total = [], Decimal(0)
+    for start, length in gaps:
+        marks.append((start - total, total + length))
+        total += length
+        tools.log_always(f"repair: pts_gap candidate_ms={start} gap_ms={length} sample_clock_ms="
+                         f"{marks[-1][0]} -- a zone step of the gap here is an unchanged offset on "
+                         f"the container clock; subtitles and chapters follow it for "
+                         f"{candidate_path}\n")
+    out = []
+    for piece in pieces:
+        if piece["source"] != "candidate":
+            out.append(piece)
+            continue
+        source = Decimal(str(piece["source_start_ms"]))
+        master_start, master_end = (Decimal(str(piece["master_start_ms"])),
+                                    Decimal(str(piece["master_end_ms"])))
+        edges = ([master_start] + [master_start + mark - source for mark, _ in marks
+                                   if source < mark < source + master_end - master_start]
+                 + [master_end])
+        for low, high in zip(edges, edges[1:]):
+            start = source + low - master_start
+            shift = max([after for mark, after in marks if mark <= start], default=Decimal(0))
+            out.append(dict(piece, master_start_ms=low, master_end_ms=high,
+                            source_start_ms=start + shift))
+    return out
+
+
 def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir,
                              index, speed_ratio=None):
     '''Extract and retime one subtitle track; return its report dict or raise `chimeric_error`.'''
@@ -1142,7 +1192,8 @@ def build_one_subtitle_track(candidate_obj, subtitle, language, pieces, work_dir
         raise chimeric_error(
             "the source subtitle track carries no cue at all: nothing was "
             "dropped, there was never anything to drop")
-    kept, dropped, shifts_applied, decisions = retime_subtitle_file(out_path, pieces, speed_ratio)
+    kept, dropped, shifts_applied, decisions = retime_subtitle_file(
+        out_path, container_clock_pieces(candidate_obj.filePath, pieces), speed_ratio)
     for decision in decisions:
         tools.log_line(
             f"chimeric: subtitle stream_order={subtitle['StreamOrder']} "
@@ -1369,7 +1420,8 @@ def build_delivered_chapters(master_path, candidate_path, reference_pieces, time
         out_root.append(edition)
         decisions.append({"source": "master", "edition": number, "decision": "kept_as_is",
                           "atoms": len(list(edition.iter("ChapterAtom")))})
-    candidate_pieces = [piece for piece in reference_pieces if piece["source"] == "candidate"]
+    candidate_pieces = [piece for piece in container_clock_pieces(candidate_path, reference_pieces)
+                        if piece["source"] == "candidate"]
     scale = Decimal(str(time_scale)) if time_scale is not None else Decimal(1)
     for number, edition in enumerate(candidate_root.findall("EditionEntry")
                                      if candidate_root is not None else []):

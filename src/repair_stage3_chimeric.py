@@ -540,6 +540,9 @@ ANCHOR_MAD_MARGIN_LEVELS = 2.0
 # enough: raw MAD there ranks lags on noise.
 ANCHOR_MAD_BEYOND_FRAMES = 48
 ANCHOR_MAD_NEIGHBOUR_RATIO = 0.5
+# An anchor whose MAD over its neighbouring shifts varies less than this share of its mean read
+# no shift at all: a decisive zone majority wins over it.
+ANCHOR_MAD_FLAT_SHARE = 0.01
 # The raw-MAD fade rule applies where pHash is known to be blind: a fade (a luma ramp
 # moving gradually over most of the window), never a window that merely spans a wide range
 # because of one hard step followed by a near-flat run (a cut, not a fade: CASE id 695 --
@@ -624,7 +627,7 @@ def _anchor_shifts_mad_confirmed(result, domain, master_obj, candidate_obj):
     import scene_anchor
     anchor_a, anchor_b = result.get("anchor_a_frame"), result.get("anchor_b_frame")
     before, after = result.get("before_shift_frames"), result.get("after_shift_frames")
-    updates = {}
+    updates, flat = {}, []
     for side, anchor, shift, key in (("A", anchor_a, before, "before_shift_frames"),
                                      ("B", anchor_b, after, "after_shift_frames")):
         if anchor is None or shift is None:
@@ -639,12 +642,17 @@ def _anchor_shifts_mad_confirmed(result, domain, master_obj, candidate_obj):
         rounded = None if means is None else {k: round(v, 3) for k, v in means.items()}
         tools.dev_log(f"repair: anchor_shift_mad side={side} anchor={anchor} "
                       f"phash_shift={shift} mad_shift={confirmed} means={rounded}\n")
+        if means and len(means) >= 3 and (max(means.values()) - min(means.values())
+                                          < ANCHOR_MAD_FLAT_SHARE * statistics.mean(means.values())):
+            flat.append("before" if side == "A" else "after")
         if confirmed != shift:
             tools.log_always(
                 f"repair: anchor_shift_mad_corrected side={side} anchor={anchor} "
                 f"phash_shift={shift} mad_shift={confirmed} means={rounded} "
                 f"for {candidate_obj.filePath}\n")
             updates[key] = confirmed
+    if flat:
+        updates["anchor_flat_sides"] = flat
     if not updates:
         return result
     return dict(result, **updates)
@@ -1215,6 +1223,7 @@ def _interior_outcome(hole, domain, result, status, refuted_proposal=None):
         "backward_walk_frames": result["backward_walk_frames"],
         "span_frames": result["anchor_b_frame"] - result["anchor_a_frame"],
         "sweep_crossed": result["sweep_crossed"],
+        "anchor_flat_sides": result.get("anchor_flat_sides"),
         "geometry": (result.get("geometry") or {}).get("verdict"),
         "evidence": result.get("evidence"),
     }
@@ -3398,15 +3407,11 @@ def _blind_point_in_audio_interval(outcome, domain, interval):
 
 
 def anchor_reading(outcome):
-    """Return the anchor facts a transition keeps for the zone-lag rules: frames, crossing, ambiguity.
-
-    >>> anchor_reading({"anchor_a_frame": 10, "anchor_b_frame": 30, "sweep_crossed": True})
-    {'anchor_frames': [10, 30], 'sweep_crossed': True, 'ambiguous_sides': []}
-    """
     sides = [side for side, key in (("before", "anchor_a_ambiguous"), ("after", "anchor_b_ambiguous"))
              if outcome.get(key)]
     return {"anchor_frames": [outcome.get("anchor_a_frame"), outcome.get("anchor_b_frame")],
-            "sweep_crossed": bool(outcome.get("sweep_crossed")), "ambiguous_sides": sides}
+            "sweep_crossed": bool(outcome.get("sweep_crossed")), "ambiguous_sides": sides,
+            "flat_sides": outcome.get("anchor_flat_sides") or []}
 
 
 # A zone majority this strong beats an anchor read on a fade, a black span or a crossed window,
@@ -3436,17 +3441,12 @@ def flat_window(master_frames):
 
 
 def unreliable_anchor_cause(transition, domain, master_obj):
-    """Name why a cut's anchor shifts cannot outvote a zone majority ("crossed", "fade", "black"), or None.
-
-    A blind span or a crossed sweep is "crossed". Otherwise the master is read over each
-    anchor's own window (the ANCHOR_WINDOW_FRAMES before anchor A and from anchor B on): a
-    luma ramp (`_is_fade_window`) is "fade", flat frames throughout are "black". None also
-    when the windows cannot be read.
-    """
     import frame_compare
     import scene_anchor
     if transition.get("blind_span") is not None or transition.get("sweep_crossed"):
         return "crossed"
+    if transition.get("flat_sides"):
+        return "flat"
     anchor_a, anchor_b = transition.get("anchor_frames") or [None, None]
     if master_obj is None or anchor_a is None or anchor_b is None:
         return None

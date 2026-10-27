@@ -58,7 +58,11 @@ def read_text_tracks(file_path, subtitles, work_dir):
     tracks = {}
     for order, (language, out_path) in outputs.items():
         if path.exists(out_path) and path.getsize(out_path):
-            tracks[order] = (language, read_cues(out_path))
+            try:
+                tracks[order] = (language, read_cues(out_path))
+            except Exception as error:
+                tools.log_always(f"chimeric: subtitle_sync reference_unread file={file_path} "
+                                 f"stream={order} error={type(error).__name__}: {error}\n")
     return tracks
 
 
