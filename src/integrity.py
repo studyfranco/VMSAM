@@ -105,7 +105,7 @@ def _file_key(path):
     return (os.path.abspath(path), st.st_size, st.st_mtime_ns)
 
 
-def _probe(path):
+def probe(path):
     """Return the cached ffprobe result of a file."""
     key = _file_key(path)
     with _cache_lock:
@@ -132,7 +132,7 @@ def resolve_stream(video_obj, stream_id, kind="stream_order"):
         ValueError: unknown kind or no such stream.
     """
     path = _path_of(video_obj)
-    streams = _probe(path).get("streams", [])
+    streams = probe(path).get("streams", [])
     if isinstance(stream_id, dict):
         if "StreamOrder" not in stream_id:
             raise ValueError(f"track dict without 'StreamOrder': {sorted(stream_id)[:8]}")
@@ -180,7 +180,7 @@ def video_end_s(video_obj):
     v = getattr(video_obj, "video", None)
     if isinstance(v, dict) and fc._num(v.get("Duration")):
         return float(v["Duration"])
-    info = _probe(_path_of(video_obj))
+    info = probe(_path_of(video_obj))
     vs = _video_stream(info)
     return _declared_end(info, vs) if vs else None
 
@@ -235,7 +235,7 @@ def track_check(video_obj, stream_id, full=None, *, kind="stream_order", threads
     `verdict` is 'sound', 'corrupt' or 'step_stalled' (never cached); `full` None picks the per-type default."""
     t0 = time.time()
     path, s = resolve_stream(video_obj, stream_id, kind)
-    info = _probe(path)
+    info = probe(path)
     idx, ctype = s["index"], s.get("codec_type")
     media = _declared_end(info, s) or 0.0
     whole = full if full is not None else (ctype != "video")
@@ -557,7 +557,7 @@ def _rate(x):
 
 def _video_consistency(video_obj, path, vs, starts):
     """Frame count vs duration x fps, and resolution / frame period at every window start."""
-    info = _probe(path)
+    info = probe(path)
     mi = getattr(video_obj, "video", None) if not isinstance(video_obj, (str, os.PathLike)) else None
     mi = mi if isinstance(mi, dict) else {}
     reasons, facts = [], {}
@@ -612,7 +612,7 @@ def video_check(video_obj, full=False, *, windows=VIDEO_WINDOWS, seed=None, jobs
     """
     t0 = time.time()
     path = _path_of(video_obj)
-    info = _probe(path)
+    info = probe(path)
     v = getattr(video_obj, "video", None) if not isinstance(video_obj, (str, os.PathLike)) else None
     if isinstance(v, dict) and "StreamOrder" in v:
         _, vs = resolve_stream(path, v["StreamOrder"])
