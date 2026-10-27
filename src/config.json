@@ -18,11 +18,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "160k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "160k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "160k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -31,11 +49,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -44,11 +80,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -57,11 +111,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -74,11 +146,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -87,11 +177,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -100,11 +208,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -113,11 +239,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -130,11 +274,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -143,11 +305,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -156,11 +336,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -169,11 +367,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -186,11 +402,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -199,11 +433,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -212,11 +464,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -225,11 +495,29 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "128k", "sample_rate": "48000"},
                                     "2": {"target": "libopus","bitrate": "192k", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}},
                                     "6": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
                                     "7": {"target": "libopus","bitrate": "640k", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "128k"},
+                                    "2": {"target": "libopus","bitrate": "192k"},
+                                    "3": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}},
+                                    "6": {"target": "libopus","bitrate": "640k", "filter": "channelmap=channel_layout=5.1", "args": {"-mapping_family": "1"}},
+                                    "7": {"target": "libopus","bitrate": "640k", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
@@ -255,8 +543,20 @@
                         "sample_rate": {
                             "0": {
                                 "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "32000": {
+                                "channels": {
                                     "0": {"target": "libopus","bitrate": "source", "sample_rate": "48000"},
                                     "3": {"target": "libopus","bitrate": "source", "sample_rate": "48000", "args": {"-mapping_family": "1"}}
+                                }
+                            },
+                            "44100": {
+                                "channels": {
+                                    "0": {"target": "libopus","bitrate": "source"},
+                                    "3": {"target": "libopus","bitrate": "source", "args": {"-mapping_family": "1"}}
                                 }
                             }
                         }
