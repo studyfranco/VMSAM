@@ -182,11 +182,9 @@ def read_subtitle_packets(file_path, stream):
             list_packet.append((float(pts_time) * 1000, data_hash))
     return list_packet
 
-def read_subtitle_events(label, file_path, stream, copyts=False):
-    cmd_read = [tools.software["ffmpeg"], "-v", "error", "-nostdin"]
-    if copyts:
-        cmd_read.append("-copyts")
-    cmd_read.extend(["-i", file_path, "-map", f"0:{stream}", "-c:s", "srt", "-f", "srt", "pipe:1"])
+def read_subtitle_events(label, file_path, stream):
+    cmd_read = [tools.software["ffmpeg"], "-v", "error", "-nostdin", "-copyts",
+                "-i", file_path, "-map", f"0:{stream}", "-c:s", "srt", "-f", "srt", "pipe:1"]
     stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_read, 2, 3600)
     text = stdout.decode("utf-8", errors="ignore")
     if not text.strip():
@@ -315,7 +313,7 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                     produced = [(start, start, data_hash) for start, data_hash in read_subtitle_packets(tmp_file_convert, 0)]
             else:
                 expected = [(event.start + shift_ms, event.end + shift_ms, event.text)
-                            for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"], copyts=True)
+                            for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"])
                             if 0 <= event.start + shift_ms < duration_ms]
                 produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, tmp_file_convert, 0)]
             first_mismatch = next((position for position, (want, got) in enumerate(zip(expected, produced))
