@@ -9,6 +9,7 @@ This software need libchromaprint-tools,ffmpeg,mediainfo
 import re
 import sys
 import traceback
+from math import ceil,floor
 from os import path
 from random import shuffle
 from statistics import variance,mean
@@ -261,14 +262,15 @@ class compare_video(Thread):
             delay_second_method = self.second_delay_test(delay_first_method,ignore_audio_couple)
             
             calculated_delay = Decimal(delay_first_method)+(Decimal(delay_second_method)*Decimal('1000.0'))
-            if abs(calculated_delay-delay_first_method) < 500:
-                return calculated_delay
-            else:
+            if abs(calculated_delay-delay_first_method) >= 500:
                 raise Exception(f"Delay found between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} is unexpected between the two methods")
+            elif calculated_delay < Decimal(str(self.begin_in_second))*Decimal('-1000.0'):
+                raise Exception(f"The first {-calculated_delay/1000:.3f} s of {self.video_obj_1.filePath} do not exist in {self.video_obj_2.filePath}: delay {calculated_delay:.0f} ms (first method {delay_first_method} ms, second method {Decimal(delay_second_method)*1000:.0f} ms) measured on windows inside both files, more than the {self.begin_in_second:.0f} s skipped before the comparison windows. Audio durations {video.get_shortest_audio_durations([self.video_obj_1],self.language):.3f} s and {video.get_shortest_audio_durations([self.video_obj_2],self.language):.3f} s")
         except Exception as e:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
             raise e
+        return calculated_delay
         
     def first_delay_test(self):
         from statistics import mean
@@ -569,8 +571,16 @@ class compare_video(Thread):
             delays_dict[key_audio] = [delayUse + delay_fidelity[2] for delay_fidelity in delay_fidelity_list]
         return delays_dict
     
+    def begin_inside_both_files(self,delay):
+        lowest_begin = max(0,ceil(-float(delay)/1000))
+        highest_begin = floor(min(video.get_shortest_audio_durations([self.video_obj_1],self.language),video.get_shortest_audio_durations([self.video_obj_2],self.language)-float(delay)/1000)-self.lenghtTime*(video.number_cut+1))
+        return float(max(lowest_begin,min(self.begin_in_second,highest_begin)))
+
     def recreate_files_for_delay_adjuster(self,delay_use):
-        list_cut_begin_length = video.generate_cut_with_begin_length(self.begin_in_second+(delay_use/1000),self.lenghtTime,self.lenghtTimePrepare)
+        begin_in_second = self.begin_inside_both_files(delay_use)
+        if begin_in_second != self.begin_in_second:
+            self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=video.generate_cut_with_begin_length(begin_in_second,self.lenghtTime,self.lenghtTimePrepare))
+        list_cut_begin_length = video.generate_cut_with_begin_length(begin_in_second+(delay_use/1000),self.lenghtTime,self.lenghtTimePrepare)
         self.video_obj_2.extract_audio_in_part(self.language,self.audioParam,cutTime=list_cut_begin_length)
         
     def second_delay_test(self,delayUse,ignore_audio_couple):
@@ -624,13 +634,14 @@ class compare_video(Thread):
             raise Exception(f"Multiple delay found with the method 2 and in test 1 {delay_detected} for {self.video_obj_1.filePath} and {self.video_obj_2.filePath} at the second method")
         else:
             if int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method) < 2400:
+                begin_in_second = self.begin_inside_both_files(delayUse)
                 if int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method) < 1500:
-                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
-                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
+                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(begin_in_second))),strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
+                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,begin_in_second)
                     self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(int(self.lenghtTime*(video.number_cut+1)/cut_file_to_get_delay_second_method)))]])
                 else:
-                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(self.begin_in_second))),strftime('%H:%M:%S',gmtime(1500))]])
-                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,self.begin_in_second)
+                    self.video_obj_1.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(int(begin_in_second))),strftime('%H:%M:%S',gmtime(1500))]])
+                    begining_in_second, begining_in_millisecond = video.get_begin_time_with_millisecond(delayUse,begin_in_second)
                     self.video_obj_2.extract_audio_in_part(self.language,self.audioParam.copy(),cutTime=[[strftime('%H:%M:%S',gmtime(begining_in_second))+begining_in_millisecond,strftime('%H:%M:%S',gmtime(1500))]])
                     
                 self.audioParam['codec'] = old_codec
@@ -663,7 +674,7 @@ class compare_video(Thread):
             return mean(delay_detected)
             
     def get_best_video(self,delay):
-        delay,begins_video_for_compare_quality = video.get_good_frame(self.video_obj_1, self.video_obj_2, self.begin_in_second, self.lenghtTime, self.time_by_test_best_quality_converted, (delay/1000))
+        delay,begins_video_for_compare_quality = video.get_good_frame(self.video_obj_1, self.video_obj_2, self.begin_inside_both_files(delay), self.lenghtTime, self.time_by_test_best_quality_converted, (delay/1000))
 
         if video.get_best_quality_video(self.video_obj_1, self.video_obj_2, begins_video_for_compare_quality, self.time_by_test_best_quality_converted) == 1:
             self.video_obj_1.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length,asDefault=True)
