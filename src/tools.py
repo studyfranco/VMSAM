@@ -5,6 +5,7 @@ Created on 23 Apr 2022
 '''
 import fcntl
 import os
+import re
 import shutil
 import sys
 from subprocess import Popen, PIPE, TimeoutExpired
@@ -196,6 +197,24 @@ def extract_ffmpeg_type_dict_all(filePath):
         dic_index_data_sub_codec[data["index"]] = data
     return dic_index_data_sub_codec
 
+def mkv_merge_error_detections(e, file_name):
+    lined_error = str(e).splitlines()
+    if re.match('Return code: 1', lined_error[-1]) != None:
+        only_UID_warning = True
+        i = 0
+        while only_UID_warning and i < len(lined_error):
+            if re.match('^Warning:.*', lined_error[i]) != None:
+                if re.match(r"^Warning:.+Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
+                    only_UID_warning = False
+            i += 1
+        if (not only_UID_warning):
+            log_always(f"[mkvmerge ERROR] track files of {file_name}: {e}\n")
+            raise e
+        else:
+            log_always(f"[mkvmerge WARN] track files of {file_name}: {e}\n")
+    else:
+        raise e
+
 tmpFolder_original = "/tmp"
 tmpFolder = "/tmp"
 software = {}
@@ -358,6 +377,7 @@ def load_merge_runtime_from_env():
     global tmpFolder_original, tmpFolder, core_to_use, folder_error, software
     global mergeRules, group_title_sub, language_to_keep
     global language_to_completely_remove, language_to_try_to_keep, special_params
+    global configuration
 
     tmp_original = os.environ.get("VMSAM_TMP_FOLDER_ORIGINAL", "").strip()
     if len(tmp_original):
@@ -389,6 +409,61 @@ def load_merge_runtime_from_env():
 """
 BEGIN: AGENT modification ok
 """
+
+configuration = {}
+
+ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
+NOT_MY_FIRST_TAG = "VMSAM_ALREADY_TRANSFORMED"
+
+
+# Line prefixes that get a UTC timestamp; other lines (read by prefix-based parsers) stay unchanged.
+STAMPED_PREFIXES = ("orchestrator: ", "chimeric: ", "scene_anchor: ")
+
+
+def stamp(message):
+    import datetime
+    for prefix in STAMPED_PREFIXES:
+        if message.startswith(prefix):
+            now = datetime.datetime.now(datetime.timezone.utc)
+            return (f"{prefix}utc={now.strftime('%Y-%m-%dT%H:%M:%S')}."
+                    f"{now.microsecond // 1000:03d}Z {message[len(prefix):]}")
+    return message
+
+
+def dev_log(message):
+    """Write one trace line to stderr and `logs`, only when `dev` is set.
+
+    `message` carries its own prefix and trailing newline; the line is stamped."""
+    if dev:
+        message = stamp(message)
+        sys.stderr.write(message)
+        logs.append(message)
+
+def log_always(message):
+    """Write one line to stderr and `logs` regardless of `dev`.
+
+    Reserved for terminal verdicts (DECLINED, FAILED, per-candidate outcome), since stderr is capped."""
+    message = stamp(message)
+    sys.stderr.write(message)
+    logs.append(message)
+
+def index_list_by_key_value(the_list, key, raise_an_error=True):
+    indexed_list = {}
+    for elem in the_list:
+        if key in elem:
+            if elem[key] in indexed_list:
+                raise_or_log(raise_an_error, f"Multiple {key} in the same list for element {elem} and {indexed_list[elem[key]]}")
+            else:
+                indexed_list[elem[key]] = elem
+        else:
+            raise_or_log(raise_an_error, f"Missing key {key} for element {elem}")
+    return indexed_list
+
+def raise_or_log(raise_an_error,message):
+    if raise_an_error:
+        raise ValueError(message)
+    else:
+        log_always(f"{message}\n")
 
 """
 END: AGENT modification

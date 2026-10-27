@@ -23,6 +23,7 @@ import uvicorn
 import mergeVideo
 import tools
 import video
+import integrity
 from gestionar_movie.model import setup_database, get_movie_data, get_all_regex, set_movie_file, get_incompatible_files_by_movie_id, insert_incompatible_file, build_file_name
 from main_gestionar_show import write_api_env_file
 
