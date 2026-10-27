@@ -299,8 +299,6 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
 
             print_ffmpeg_message(stderror, video_obj, cmd_convert)
 
-            tools.file_remove(tmp_file_extract)
-
             shift_ms = float(delay_to_put)
             duration_ms = float(duration_best_video) * 1000
             if codec in tools.sub_type_not_encodable:
@@ -312,9 +310,10 @@ def subtitle_track_job(video_obj, file_base_name, sub, delay_to_put, duration_be
                     produced = [(start, start, data_hash) for start, data_hash in read_subtitle_packets(tmp_file_convert, 0)]
             else:
                 expected = [(event.start + shift_ms, event.end + shift_ms, event.text)
-                            for event in read_subtitle_events(label, video_obj.filePath, sub["StreamOrder"])
+                            for event in read_subtitle_events(label, tmp_file_extract, 0)
                             if 0 <= event.start + shift_ms < duration_ms]
                 produced = [(event.start, event.end, event.text) for event in read_subtitle_events(label, tmp_file_convert, 0)]
+            tools.file_remove(tmp_file_extract)
             first_mismatch = next((position for position, (want, got) in enumerate(zip(expected, produced))
                                    if want[2] != got[2] or abs(want[0] - got[0]) > 1 or abs(want[1] - got[1]) > 1), None)
             if first_mismatch is None and len(expected) != len(produced):
