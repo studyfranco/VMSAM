@@ -306,6 +306,7 @@ def run_fusion_job(database_url, error_file_path):
         mergeVideo.default_audio = True
         mergeVideo.errors_merge = []
         tools.logs = []
+        tools.merge_plan_report = []
         if not tools.dev:
             mergeVideo.show_not_compatible_error = False
 
@@ -379,12 +380,15 @@ def apply_test_outcome(current_folder, incompatible_file, new_file_path,
     if job_error == None and merged_file_path != None:
         published = os.path.join(out_folder_final, str(incompatible_file.id) + '_' + os.path.basename(new_file_path))
         shutil.move(merged_file_path, published)
+        tools.write_merge_plan_report(published)
         write_log_file(published+".log",
                        f"Commit:{tools.get_git_commit()}\nMerged {incompatible_file.file_path} with the master into {published}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
                        f"Logs:\n{chr(10).join(tools.logs)}\n")
     else:
-        write_log_file(os.path.join(out_folder_final, str(incompatible_file.id) + '_' + os.path.basename(incompatible_file.file_path))+".log.error",
+        failed_anchor = os.path.join(out_folder_final, str(incompatible_file.id) + '_' + os.path.basename(incompatible_file.file_path))
+        tools.write_merge_plan_report(failed_anchor)
+        write_log_file(failed_anchor+".log.error",
                        f"Commit:{tools.get_git_commit()}\nError processing file {os.path.basename(incompatible_file.file_path)}: "
                        f"{job_error['error']}\n{job_error['traceback']}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
@@ -406,6 +410,7 @@ def apply_production_outcome(session, incompatible_file, previous_file,
     # le maitre sans que le nouveau soit en place.
     shutil.move(merged_file_path, new_file_path+'.tmp')
     os.replace(new_file_path+'.tmp', new_file_path)
+    tools.write_merge_plan_report(new_file_path)
     # L'ancien maitre n'est supprime que si le nom a change (cas du renommage
     # par rename_pattern): sinon os.replace vient deja de le remplacer.
     if os.path.abspath(previous_file.file_path) != os.path.abspath(new_file_path):

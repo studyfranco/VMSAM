@@ -547,6 +547,24 @@ def raise_or_log(raise_an_error,message):
     else:
         log_always(f"{message}\n")
 
+merge_plan_report = []
+
+def write_merge_plan_report(produced_file_path):
+    """Write the current merge's plan report as <candidate name>.html beside the produced file, never raising."""
+    if merge_plan_report:
+        candidate_path, html_report = merge_plan_report
+        try:
+            report_name = os.path.splitext(os.path.basename(candidate_path))[0]
+            report_path = os.path.join(os.path.dirname(produced_file_path), f"{report_name}.html")
+            number = 0
+            while os.path.lexists(report_path):
+                number += 1
+                report_path = os.path.join(os.path.dirname(produced_file_path), f"{report_name}_{number}.html")
+            with open(report_path, "w", encoding="utf-8") as report:
+                report.write(html_report)
+        except Exception as e:
+            log_always(f"[merge plan WARN] report of {candidate_path} not written beside {produced_file_path}: {e}\n")
+
 """
 END: AGENT modification
 """

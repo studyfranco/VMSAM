@@ -852,6 +852,15 @@ def remove_not_compatible_video(list_not_compatible_video,dict_file_path_obj,bes
         # since this function can run twice for the same output file.
         if len(repaired_videos):
             merge_plan = (merge_plan or "") + "".join(tools.logs[emitted_before_repair:])
+            try:
+                import merge_plan_report
+                tools.merge_plan_report = [list_not_compatible_video[0],
+                                           merge_plan_report.render_report(merge_plan_report.parse_job_log("".join(tools.logs)),
+                                                                           merge_plan_report.opaque_id(list_not_compatible_video[0]),
+                                                                           path.basename(list_not_compatible_video[0]))]
+            except Exception as e:
+                tools.merge_plan_report = []
+                tools.log_always(f"[merge plan WARN] report not rendered: {type(e).__name__}: {e}\n")
         not_compatible_video_list.extend(list_not_compatible_video)
         for not_compatible_video in list_not_compatible_video:
             if not_compatible_video in dict_file_path_obj:

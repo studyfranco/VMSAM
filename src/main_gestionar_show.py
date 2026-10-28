@@ -35,6 +35,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
             try:
                 mergeVideo.errors_merge = []
                 tools.logs = []
+                tools.merge_plan_report = []
                 if incompatible_file.file_weight < file['weight']:
                     tools.special_params["forced_best_video"] = file['chemin']
                     new_file_path = os.path.join(out_folder_final, os.path.splitext(os.path.basename(file['chemin']))[0]+'.mkv')
@@ -75,6 +76,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
                 shutil.move(new_file_path+'.tmp', new_file_path)
                 incompatible_file.file_path = new_file_path
                 os.remove(file['chemin'])
+                tools.write_merge_plan_report(new_file_path)
             except Exception as e:
                 other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge, "merged_logs": tools.logs})
 
@@ -146,6 +148,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                     mergeVideo.default_audio = True
                     mergeVideo.errors_merge = []
                     tools.logs = []
+                    tools.merge_plan_report = []
                     if not tools.dev:
                         mergeVideo.show_not_compatible_error = False
 
@@ -167,6 +170,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         os.remove(previous_file.file_path)
                         shutil.move(new_file_path+'.tmp', new_file_path)
                         os.remove(file['chemin'])
+                        tools.write_merge_plan_report(new_file_path)
                     except Exception as e:
                         stderr.write(f"Error merging: {file['nom']} and {previous_file.file_path} are incompatibles\n")
                         data_rejected = {"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge, "merged_logs": tools.logs}

@@ -84,6 +84,7 @@ def process_rejected_files(file, current_movie, session, data_rejected):
         tools.make_dirs(out_folder)
         mergeVideo.errors_merge = []
         tools.logs = []
+        tools.merge_plan_report = []
         try:
             if tools.dev:
                 stderr.write(f"\t\tStart merging {file['nom']} and {incompatible_file.file_path} into {out_folder_final}\n")
@@ -104,6 +105,7 @@ def process_rejected_files(file, current_movie, session, data_rejected):
         incompatible_file.file_weight = new_file_weight
         session.commit()
         kept_file_path = new_file_path
+        tools.write_merge_plan_report(new_file_path)
         break
 
     if kept_file_path == None:
@@ -185,6 +187,7 @@ def process_movie(files, movie_id, database_url):
                 mergeVideo.default_audio = True
                 mergeVideo.errors_merge = []
                 tools.logs = []
+                tools.merge_plan_report = []
                 if not tools.dev:
                     mergeVideo.show_not_compatible_error = False
 
@@ -228,6 +231,7 @@ def process_movie(files, movie_id, database_url):
                         os.remove(previous_file_path)
                     os.remove(file['chemin'])
                     set_movie_file(current_movie, new_file_path, new_file_weight, session)
+                    tools.write_merge_plan_report(new_file_path)
                 tools.remove_dir(tools.tmpFolder, printError=False)
 
             if current_movie.file_path == None and os.path.isfile(file['chemin']):

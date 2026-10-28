@@ -272,6 +272,7 @@ def run_fusion_job(database_url, error_file_path):
         mergeVideo.default_audio = True
         mergeVideo.errors_merge = []
         tools.logs = []
+        tools.merge_plan_report = []
         if not tools.dev:
             mergeVideo.show_not_compatible_error = False
 
@@ -342,12 +343,15 @@ def apply_test_outcome(current_movie, incompatible_file, new_file_path,
     if job_error == None and merged_file_path != None:
         published = os.path.join(out_folder_final, os.path.basename(new_file_path))
         shutil.move(merged_file_path, published)
+        tools.write_merge_plan_report(published)
         write_log_file(published+".log",
                        f"Merged {incompatible_file.file_path} with the movie file into {published}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
                        f"Logs:\n{chr(10).join(tools.logs)}\n")
     else:
-        write_log_file(os.path.join(out_folder_final, os.path.basename(incompatible_file.file_path))+".log.error",
+        failed_anchor = os.path.join(out_folder_final, os.path.basename(incompatible_file.file_path))
+        tools.write_merge_plan_report(failed_anchor)
+        write_log_file(failed_anchor+".log.error",
                        f"Error processing file {os.path.basename(incompatible_file.file_path)}: "
                        f"{job_error['error']}\n{job_error['traceback']}\n\n"
                        f"Merged errors:\n{chr(10).join(merged_errors)}\n\n"
@@ -365,6 +369,7 @@ def apply_production_outcome(session, incompatible_file, current_movie,
     """
     shutil.move(merged_file_path, new_file_path+'.tmp')
     os.replace(new_file_path+'.tmp', new_file_path)
+    tools.write_merge_plan_report(new_file_path)
     if os.path.abspath(current_movie.file_path) != os.path.abspath(new_file_path):
         os.remove(current_movie.file_path)
     os.remove(incompatible_file.file_path)
