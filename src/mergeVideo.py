@@ -978,7 +978,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             set_delay.add(delay_fidelity[2])
                         if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
                             validation[i][j] = True
-                        elif len(set_delay) <= 2 and max([abs(delay) for delay in set_delay]) < 128:
+                        elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
                             list_fft_offset_ms = []
                             for h in range(0,video.number_cut):
                                 file,offset = second_correlation(video_obj.tmpFiles['audio'][i][h],video_obj.tmpFiles['audio'][j][h])
@@ -991,6 +991,18 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             else:
                                 validation[i][j] = False
                                 tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT, more than one frame ({frame_duration_ms:.2f} ms), both kept\n")
+                        elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
+                            ignore_other_couple = set([f"{k}-{l}" for k in range(len(video_obj.audios[language])) for l in range(len(video_obj.audios[language]))])
+                            ignore_other_couple.remove(f"{i}-{j}")
+                            list_fft_delay = [delay[1] for delay in get_delay_by_second_method(video_obj,video_obj,ignore_audio_couple=ignore_other_couple)[f"{i}-{j}"]]
+                            fft_offset_ms = abs(mean(list_fft_delay))*1000
+                            frame_duration_ms = 1000/float(video_obj.video["FrameRate"])
+                            tools.dev_log(f"find_differences_and_keep_best_audio {language} {i}-{j}: set_delay {set_delay} fidelity {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]} fft delays {[round(delay*1000,2) for delay in list_fft_delay]} mean {fft_offset_ms:.2f} ms variance {variance(list_fft_delay)} frame {frame_duration_ms:.2f} ms\n")
+                            if fft_offset_ms <= frame_duration_ms and variance(list_fft_delay) < max_delay_variance_second_method:
+                                validation[i][j] = True
+                            else:
+                                validation[i][j] = False
+                                tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT with a variance of {variance(list_fft_delay)}, more than one frame ({frame_duration_ms:.2f} ms) or not constant, both kept\n")
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
                             sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
