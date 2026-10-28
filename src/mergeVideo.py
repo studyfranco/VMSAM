@@ -11,7 +11,7 @@ import sys
 import traceback
 from os import path
 from random import shuffle
-from statistics import variance,mean
+from statistics import variance,mean,median
 from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
@@ -1119,11 +1119,19 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             set_delay.add(delay_fidelity[2])
                         if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
                             validation[i][j] = True
-                        elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
-                            if tools.dev:
-                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            validation[i][j] = True
+                        elif len(set_delay) <= 2 and max([abs(delay) for delay in set_delay]) < 128:
+                            list_fft_offset_ms = []
+                            for h in range(0,video.number_cut):
+                                file,offset = second_correlation(video_obj.tmpFiles['audio'][i][h],video_obj.tmpFiles['audio'][j][h])
+                                list_fft_offset_ms.append(abs(offset)*1000)
+                            fft_offset_ms = median(list_fft_offset_ms)
+                            frame_duration_ms = 1000/float(video_obj.video["FrameRate"])
+                            tools.dev_log(f"find_differences_and_keep_best_audio {language} {i}-{j}: set_delay {set_delay} fidelity {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]} fft offsets {[round(offset_ms,2) for offset_ms in list_fft_offset_ms]} median {fft_offset_ms:.2f} ms frame {frame_duration_ms:.2f} ms\n")
+                            if fft_offset_ms <= frame_duration_ms:
+                                validation[i][j] = True
+                            else:
+                                validation[i][j] = False
+                                tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT, more than one frame ({frame_duration_ms:.2f} ms), both kept\n")
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
                             sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
@@ -1132,11 +1140,6 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                             tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
                             sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                             tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                        elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
-                            if tools.dev:
-                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            validation[i][j] = True
                         else:
                             validation[i][j] = False
                     else:
