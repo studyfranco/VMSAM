@@ -437,15 +437,8 @@ def load_merge_runtime_from_env():
 BEGIN: AGENT modification ok
 """
 
-# A consumer reading tools.configuration before load_merge_runtime_from_env
-# (or the __main__/tests that load config.json directly) ran would otherwise
-# hit an AttributeError. The strict minimum: an empty table, read the same
-# way a loaded one would be, via .get(..., default).
 configuration = {}
 
-# The Matroska/stream tag a lossy re-encode writes to record what the track
-# was before. One name, here, so audio_reencode, video and mergeVideo never
-# spell it out as a literal.
 ORIGINAL_ENCODE_TAG = "ORIGINAL_ENCODE"
 NOT_MY_FIRST_TAG = "VMSAM_ALREADY_TRANSFORMED"
 
@@ -455,7 +448,6 @@ STAMPED_PREFIXES = ("orchestrator: ", "chimeric: ", "scene_anchor: ")
 
 
 def stamp(message):
-    """Insert `utc=<ISO-8601>Z` after a `STAMPED_PREFIXES` prefix; return other lines unchanged."""
     import datetime
     for prefix in STAMPED_PREFIXES:
         if message.startswith(prefix):
@@ -473,8 +465,7 @@ def log_line(message):
 def dev_log(message):
     """Write one trace line to stderr and `logs`, only when `dev` is set.
 
-    `message` carries its own prefix and trailing newline; the line is stamped.
-    """
+    `message` carries its own prefix and trailing newline; the line is stamped."""
     if dev:
         message = stamp(message)
         sys.stderr.write(message)
@@ -483,8 +474,7 @@ def dev_log(message):
 def log_always(message):
     """Write one line to stderr and `logs` regardless of `dev`.
 
-    Reserved for terminal verdicts (DECLINED, FAILED, per-candidate outcome), since stderr is capped.
-    """
+    Reserved for terminal verdicts (DECLINED, FAILED, per-candidate outcome), since stderr is capped."""
     message = stamp(message)
     sys.stderr.write(message)
     logs.append(message)

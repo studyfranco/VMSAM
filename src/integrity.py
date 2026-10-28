@@ -69,10 +69,16 @@ _CACHE_MAX = 64
 _probe_cache, _map_cache, _check_cache = OrderedDict(), OrderedDict(), OrderedDict()
 _cache_lock = threading.Lock()
 
+class IntegrityError(Exception):
+    pass
+
 def test_video_file_have_no_big_error(file_to_test):
-    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
-                        "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "2",
-                        "-i", file_to_test, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 1200)
+    try:
+        tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-xerror", "-err_detect", "crccheck+bitstream+buffer",
+                            "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
+                            "-i", file_to_test, "-map", "0:v?", "-map", "0:a?", "-map", "0:s?", "-c:s", "copy", "-f", "null", "-"], 2, 1200)
+    except Exception as e:
+        raise IntegrityError(f"{file_to_test} does not decode cleanly: {e}") from e
 
 # ---------------------------------------------------------------- helpers
 
@@ -366,7 +372,16 @@ def silence_map(video_obj, stream_id, *, kind="stream_order", timeline="timestam
             return _map_cache[key]
     t0 = time.time()
     ms, n, rc, err = _decode_blocks(path, s["index"], timeline, threads, span_s, block_s)
-    start = span_s[0] if span_s else (fc._num(s.get("start_time")) or 0.0)
+    if span_s:
+        start = span_s[0]
+    else:
+        # ffprobe gives start_time 0 to a stream whose first packet lies beyond its probe window (an audio track muxed 21.5 s late).
+        stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["ffprobe"], "-v", "error", "-select_streams", str(s["index"]),
+                                                                              "-read_intervals", "%+#1", "-show_entries", "packet=pts_time",
+                                                                              "-of", "csv=p=0", path], 2, 300)
+        start = fc._num(stdout.decode("utf-8", errors="ignore").strip().split("\n")[0].strip(","))
+        if start is None:
+            start = fc._num(s.get("start_time")) or 0.0
     db = 10.0 * np.log10(np.maximum(ms, 1e-14)) if ms.size else np.zeros(0)
     m = dict(path=path, stream_index=s["index"], codec=s.get("codec_name"),
              lang=fc._tag(s, "LANGUAGE") or "und", timeline=timeline, start_s=start,

@@ -1172,7 +1172,6 @@ def keep_best_audio(list_audio_metadata,audioRules):
     '''
     for i,real_audio_1 in enumerate(list_audio_metadata):
         for j,real_audio_2 in enumerate(list_audio_metadata):
-            # A re-encoded track is compared by its original encoding; keep is copied back below.
             audio_1 = audio_reencode.audio_for_keep(real_audio_1)
             audio_2 = audio_reencode.audio_for_keep(real_audio_2)
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
@@ -1410,6 +1409,8 @@ def clean_forced_title(sub):
 
 def test_if_forced(sub):
     if "Title" in sub and (re.match(r".*forced.*", sub["Title"].lower()) or re.match(r".*forcé.*", sub["Title"].lower())):
+        return True
+    if "properties" in sub and sub["properties"].get("forced_track"):
         return True
     return False
 
@@ -1928,6 +1929,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
+
+    integrity.test_video_file_have_no_big_error(out_path_file_name)
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
      

@@ -90,6 +90,7 @@ if __name__ == '__main__':
             database_url_param = json.load(database_url_file)
         database_url = database_url_param["database_url"]
         stderr.write("Setup database\n")
+        wait_for_database(database_url)
         with setup_show_database(database_url, create_tables=True) as session:
             pass
         with setup_movie_database(database_url, create_tables=True) as session:

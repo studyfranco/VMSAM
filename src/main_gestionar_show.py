@@ -13,6 +13,7 @@ import video
 import shutil
 import uvicorn
 import traceback
+import integrity
 
 parrallel_jobs = None
 
@@ -190,11 +191,26 @@ def process_episode(files, folder_id, episode_number, database_url):
                     previous_file.file_path = new_file_path
                     previous_file.file_weight = new_file_weight
                 else:
-                    # Si l'épisode n'existe pas, on l'ajoute
-                    regex_data = get_regex_data(file['regex'], session)
-                    new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
-                    shutil.move(file['chemin'], new_file_path)
-                    insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
+                    try:
+                        integrity.test_video_file_have_no_big_error(file['chemin'])
+                        # No old episode, we add it
+                        regex_data = get_regex_data(file['regex'], session)
+                        new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
+                        shutil.move(file['chemin'], new_file_path)
+                        insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
+                    except integrity.IntegrityError as e:
+                        stderr.write(f"The file {file['chemin']} have bigs problems of integrity: {e}\n")
+                        new_chemin_a = os.path.join(out_folder_final, os.path.basename(file['chemin']))
+                        shutil.move(file['chemin'], new_chemin_a)
+                        new_incompatible = insert_incompatible_file(folder_id, episode_number, new_chemin_a, file['weight'], session)
+
+                        new_chemin_b = os.path.join(out_folder_final, str(new_incompatible.id) + os.path.basename(file['chemin']))
+                        shutil.move(new_chemin_a, new_chemin_b)
+                        new_incompatible.file_path = new_chemin_b
+                        session.commit()
+
+                        with open(new_chemin_b + ".log.error","w") as log:
+                            log.write(f"The {file['nom']} is corrupt: {e}")
                 session.commit()
                 import gc
                 gc.collect()

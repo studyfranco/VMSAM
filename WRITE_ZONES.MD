@@ -15,6 +15,12 @@ code — is frozen because the owner prefers to validate it himself before it mo
 A change to frozen code is not refused outright: it is proposed, on its own branch,
 for the owner to review.
 
+**The intent behind this file.** Code written by agents is meant to stay open: that
+is the whole point of having agents write it. Code that predates them — historical
+code — is frozen because the owner prefers to validate it himself before it moves.
+A change to frozen code is not refused outright: it is proposed, on its own branch,
+for the owner to review.
+
 Two rules govern everything below:
 
 1. **Default is frozen.** A path that is not listed as open is closed. Silence is
