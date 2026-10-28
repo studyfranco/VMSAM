@@ -16,11 +16,14 @@ from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
 import video
+import audio_reencode
+import merge_video_track_jobs
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
 import hashlib
 from decimal import *
+import integrity
 
 max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -1035,8 +1038,10 @@ def keep_best_audio(list_audio_metadata,audioRules):
     Todo:
         Integrate https://github.com/Sg4Dylan/FLAD/tree/main
     '''
-    for i,audio_1 in enumerate(list_audio_metadata):
-        for j,audio_2 in enumerate(list_audio_metadata):
+    for i,real_audio_1 in enumerate(list_audio_metadata):
+        for j,real_audio_2 in enumerate(list_audio_metadata):
+            audio_1 = audio_reencode.audio_for_keep(real_audio_1)
+            audio_2 = audio_reencode.audio_for_keep(real_audio_2)
             if i == j or (not audio_2['keep']) or (not audio_1['keep']):
                 pass
             # Une piste fabriquee perd face a une piste intacte, avant toute
@@ -1057,21 +1062,37 @@ def keep_best_audio(list_audio_metadata,audioRules):
             # marquera ses pistes.
             elif audio_1.get('fabricated') and (not audio_2.get('fabricated')):
                 audio_1['keep'] = False
+                tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                              f"fabricated track loses to an intact track {video.describe_audio_track(real_audio_2)}\n")
             elif audio_2.get('fabricated') and (not audio_1.get('fabricated')):
                 audio_2['keep'] = False
+                tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                              f"fabricated track loses to an intact track {video.describe_audio_track(real_audio_1)}\n")
             elif audio_1['Format'].lower() == audio_2['Format'].lower():
                 try:
                     if float(audio_1['Channels']) == float(audio_2['Channels']):
                         if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and int(video.get_bitrate(audio_1)) >= int(video.get_bitrate(audio_2)):
                             audio_2['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                          f"same format and channel count, lower sample rate or bitrate than "
+                                          f"{video.describe_audio_track(real_audio_1)}\n")
                         elif int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1)):
                             audio_1['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                          f"same format and channel count, lower sample rate or bitrate than "
+                                          f"{video.describe_audio_track(real_audio_2)}\n")
                     elif float(audio_1['Channels']) > float(audio_2['Channels']):
                         if int(audio_1['SamplingRate']) >= int(audio_2['SamplingRate']) and (float(video.get_bitrate(audio_1))/float(audio_1['Channels'])) > ((float(video.get_bitrate(audio_2))/float(audio_2['Channels']))*0.90):
                             audio_2['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                          f"same format, fewer channels and not enough per-channel bitrate margin "
+                                          f"against {video.describe_audio_track(real_audio_1)}\n")
                     elif float(audio_2['Channels']) > float(audio_1['Channels']):
                         if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and (float(video.get_bitrate(audio_2))/float(audio_2['Channels'])) > ((float(video.get_bitrate(audio_1))/float(audio_1['Channels']))*0.90):
                             audio_1['keep'] = False
+                            tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                          f"same format, fewer channels and not enough per-channel bitrate margin "
+                                          f"against {video.describe_audio_track(real_audio_2)}\n")
                     #else: # No winner nothing change.
                     #    audio_2['keep'] = audio_2['keep']
                     #    audio_2['keep'] = audio_1['keep']
@@ -1086,24 +1107,40 @@ def keep_best_audio(list_audio_metadata,audioRules):
                                 if isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], bool):
                                     if audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
                                         audio_2['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                                      f"config.ini audio rule {audio_1['Format'].lower()}>{audio_2['Format'].lower()} "
+                                                      f"against {video.describe_audio_track(real_audio_1)}\n")
                                 elif isinstance(audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()], float):
                                     if int(video.get_bitrate(audio_1)) > int(video.get_bitrate(audio_2))*audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]:
                                         audio_2['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_2)}: "
+                                                      f"config.ini audio rule {audio_1['Format'].lower()}>{audio_2['Format'].lower()}"
+                                                      f"*{audioRules[audio_1['Format'].lower()][audio_2['Format'].lower()]} "
+                                                      f"against {video.describe_audio_track(real_audio_1)}\n")
                         except Exception as e:
                             sys.stderr.write(str(e))
                             tools.logs.append(str(e))
-                        
+
                         try:
                             if int(audio_2['SamplingRate']) >= int(audio_1['SamplingRate']) and float(audio_2['Channels']) >= float(audio_1['Channels']):
                                 if isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], bool):
                                     if audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
                                         audio_1['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                                      f"config.ini audio rule {audio_2['Format'].lower()}>{audio_1['Format'].lower()} "
+                                                      f"against {video.describe_audio_track(real_audio_2)}\n")
                                 elif isinstance(audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()], float):
                                     if int(video.get_bitrate(audio_2)) > int(video.get_bitrate(audio_1))*audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]:
                                         audio_1['keep'] = False
+                                        tools.dev_log(f"keep_best_audio: dropping {video.describe_audio_track(real_audio_1)}: "
+                                                      f"config.ini audio rule {audio_2['Format'].lower()}>{audio_1['Format'].lower()}"
+                                                      f"*{audioRules[audio_2['Format'].lower()][audio_1['Format'].lower()]} "
+                                                      f"against {video.describe_audio_track(real_audio_2)}\n")
                         except Exception as e:
                             sys.stderr.write(str(e))
                             tools.logs.append(str(e))
+            real_audio_1['keep'] = audio_1['keep']
+            real_audio_2['keep'] = audio_2['keep']
 
 def remove_sub_language(video_sub_track_list,language,number_sub_will_be_copy,number_max_sub_stream):
     if number_sub_will_be_copy > number_max_sub_stream:
@@ -1504,134 +1541,6 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
         for other_video_path_file in dict_list_video_win[video_path_file]:
             generate_merge_command_other_part(other_video_path_file,dict_list_video_win,dict_file_path_obj,ffmpeg_cmd_dict,delay_to_put,common_language_use_for_generate_delay,md5_audio_already_added,md5_sub_already_added,duration_best_video)
 
-def generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put):
-    if audio["Format"].lower() == "flac" or ("Compression_Mode" in audio and audio["Compression_Mode"] == "Lossless"):
-        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", "flac", f"-compression_level:a{get_relative_id_track(audio)}", "12"])
-        if "BitDepth" in audio:
-            if audio["BitDepth"] == "16":
-                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s16"])
-            else:
-                base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
-        else:
-            base_cmd.extend([f"-sample_fmt:a{get_relative_id_track(audio)}", "s32"])
-        base_cmd.extend([f"-exact_rice_parameters:a{get_relative_id_track(audio)}", "1"])
-        if delay_to_put < 0:
-            base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
-    elif delay_to_put < 0:
-        base_cmd.extend([f"-c:a{get_relative_id_track(audio)}", audio["ffprobe"]["codec_name"]])
-        base_cmd.extend([f"-filter:a{get_relative_id_track(audio)}", "aresample=async=1:first_pts=0"])
-        try:
-            base_cmd.extend([f"-b:a{get_relative_id_track(audio)}", video.get_bitrate(audio)])
-        except:
-            pass
-
-def check_delay_retention_sub(track, original_video_path,sentence):
-    extra_tags = track.get("extra", {})
-    vmsam_tmp_str = extra_tags.get("VMSAM_TMP")
-    sys.stderr.write(f"[FFmpeg DEBUG] {sentence} {original_video_path} track {track['StreamOrder']}: {vmsam_tmp_str}\n")
-    if vmsam_tmp_str:
-        data_to_save = json.loads(vmsam_tmp_str)
-        if Decimal(str(data_to_save["original_delay"])) != Decimal(str(track.get('Delay', '0'))):
-            sys.stderr.write(f"[FFmpeg WARN] {sentence} Delay retention for {original_video_path} track {data_to_save['original_position']}: original delay {data_to_save['original_delay']}, new delay {track.get('Delay', '0')}\n")
-
-# With the new metadata, we are able to compare the delay of the original audio track with the delay of the new audio track
-def check_delay_retention(new_video, original_video_path,sentence):
-    for language,audios in new_video.audios.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, original_video_path,sentence)
-
-    for language,subtitles in new_video.subtitles.items():
-        for subtitle in subtitles:
-            check_delay_retention_sub(subtitle, original_video_path,sentence)
-
-    for language,audios in new_video.commentary.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, original_video_path,sentence)
-   
-    for language,audios in new_video.audiodesc.items():
-        for audio in audios:
-            check_delay_retention_sub(audio, original_video_path,sentence)
-
-def generate_new_file_launch_cmd(video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file):
-    cmd_first_pass.extend(["-strict", "-2", "-t", str(Decimal(duration_best_video)-(Decimal(delay_to_put)/Decimal(1000))),
-                            "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file_first_pass])
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_first_pass, 2, 3600)
-
-    stderr_text = stderror.decode("utf-8", errors="ignore")
-
-    keywords = ["error", "invalid", "corrupt", "dts", "pts", "non monoton", "discarding", "out of order"]
-    any_error = []
-    for line in stderr_text.splitlines():
-        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
-            any_error.append(line)
-
-    if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] First pass for {video_obj.filePath}\n")
-        sys.stderr.write(f"{cmd_first_pass}\n")
-        for line in any_error:
-            sys.stderr.write(f"  {line}\n")
-
-    #sys.stderr.write(f"[FFmpeg] First pass for {video_obj.filePath}\n{stderr_text}\n")
-
-
-    new_video = video.video(path.dirname(tmp_file_first_pass), path.basename(tmp_file_first_pass))
-    new_video.need_one_audio_track = False
-    new_video.get_mediadata()
-
-    if tools.dev:
-        check_delay_retention(new_video,video_obj.filePath,"First pass")
-
-    base_cmd = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer",
-                    "-analyzeduration", "1000M", "-probesize", "1000M",
-                    "-threads", "5", "-vn"]
-
-    if delay_to_put > 0:
-        base_cmd.extend(["-itsoffset", f"{delay_to_put/Decimal('1000'):.6f}", "-i", tmp_file_first_pass])
-    elif delay_to_put < 0:
-        base_cmd.extend(["-i", tmp_file_first_pass, "-ss", f"{delay_to_put/Decimal('1000')*Decimal(-1):.6f}"])
-    else:
-        base_cmd.extend(["-i", tmp_file_first_pass])
-
-    base_cmd.extend(["-map", "0", "-map_metadata", "0", "-copy_unknown",
-                     "-movflags", "use_metadata_tags", "-c", "copy", "-copyts"])
-    
-    for language,audios in new_video.audios.items():
-        for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
-
-    for language,audios in new_video.commentary.items():
-        for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)
-   
-    for language,audios in new_video.audiodesc.items():
-        for audio in audios:
-            generate_new_file_audio_config_second_pass(base_cmd,audio,delay_to_put)    
-
-    base_cmd.extend(["-strict", "-2", "-t", duration_best_video, "-max_interleave_delta", "0", "-max_muxing_queue_size", "16384", tmp_file])
-
-    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(base_cmd,5,3600)
-    tools.file_remove(tmp_file_first_pass)
-
-    stderr_text = stderror.decode("utf-8", errors="ignore")
-
-    any_error = []
-    for line in stderr_text.splitlines():
-        if (not line.startswith("Input #")) and (not re.search(r"attachment:\s*none", line, re.IGNORECASE)) and any(kw in line.lower() for kw in keywords):
-            any_error.append(line)
-
-    if any_error:
-        sys.stderr.write(f"[FFmpeg WARN] encode pass for {video_obj.filePath}\n")
-        sys.stderr.write(f"{base_cmd}\n")
-        for line in any_error:
-            sys.stderr.write(f"  {line}\n")
-
-    new_video = video.video(path.dirname(tmp_file), path.basename(tmp_file))
-    new_video.need_one_audio_track = False
-    new_video.get_mediadata()
-
-    if tools.dev:
-        check_delay_retention(new_video,video_obj.filePath,"Second pass")
-
 def generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep):
     if ((not audio["keep"]) or (audio["MD5"] != '' and audio["MD5"] in md5_audio_already_added)):
         audio_track_to_remove.append(audio)
@@ -1652,16 +1561,10 @@ def get_relative_id_track(track):
     else:
         return ":0"
 
-def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
+def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video,is_master=False):
     if video_obj.und_in_default:
         del video_obj.audios[tools.default_language_for_undetermine]
 
-    cmd_first_pass = [tools.software["ffmpeg"], "-y", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
-                            "-analyzeduration", "1000M", "-probesize", "1000M",
-                            "-threads", "5", "-vn", "-i", video_obj.filePath,
-                            "-map", "0:a?", "-map", "0:s?", "-map_metadata", "0", "-copy_unknown", "-copyts",
-                            "-movflags", "use_metadata_tags", "-c", "copy"]
-    
     number_track = 0
     sub_track_to_remove = []
     sub_track_to_convert_or_keep = []
@@ -1714,55 +1617,10 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
                 number_track += generate_new_file_audio_config(audio,md5_audio_already_added,audio_track_to_remove,audio_track_to_convert_or_keep)
     
     if number_track:
-        if len(sub_track_to_convert_or_keep):
-            have_sub_pgs = False
-            sub_relative_index = 0
-            sub_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-            for sub in sub_track_to_convert_or_keep:
-                codec = sub["Format"].lower()
-                if codec in tools.sub_type_not_encodable:
-                    have_sub_pgs = True
-                elif codec in tools.sub_type_near_srt:
-                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "srt"])
-                else:
-                    cmd_first_pass.extend([f"-c:s:{sub_relative_index}", "ass"])
-
-                data_to_save = {
-                    "original_position": int(sub.get('StreamOrder', '0')),
-                    "original_delay": float(sub.get('Delay', '0'))
-                }
-                data_to_save_string = json.dumps(data_to_save)
-
-                cmd_first_pass.extend([f"-metadata:s:s:{sub_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
-                sub_relative_index += 1
-            
-            if have_sub_pgs:
-                cmd_first_pass.extend(["-avoid_negative_ts", "disabled"])
-                cmd_first_pass.remove("-fflags")
-                cmd_first_pass.remove("+genpts+igndts")
-
-        if len(audio_track_to_convert_or_keep):
-            audio_track_to_convert_or_keep.sort(key=lambda x: int(x["StreamOrder"]))
-            audio_relative_index = 0
-            for audio in audio_track_to_convert_or_keep:
-                data_to_save = {
-                    "original_position": int(audio.get('StreamOrder', '0')),
-                    "original_delay": float(audio.get('Delay', '0'))
-                }
-                data_to_save_string = json.dumps(data_to_save)
-                cmd_first_pass.extend([f"-metadata:s:a:{audio_relative_index}", f"VMSAM_TMP={data_to_save_string}"])
-                audio_relative_index += 1
-
-        for audio in audio_track_to_remove:
-            cmd_first_pass.extend(["-map", f"-0:{audio["StreamOrder"]}"])
-            
-        for sub in sub_track_to_remove:
-            cmd_first_pass.extend(["-map", f"-0:{sub["StreamOrder"]}"])
-
-        tmp_file_first_pass = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_first_pass.mkv")
         tmp_file = path.join(tools.tmpFolder,f"{hashlib.md5(video_obj.filePath.encode()).hexdigest()[:16]}_tmp.mkv")
 
-        ffmpeg_cmd_dict['convert_process'].append(video.ffmpeg_pool_audio_convert.apply_async(generate_new_file_launch_cmd, (video_obj, tmp_file_first_pass, cmd_first_pass, delay_to_put, duration_best_video, tmp_file)))
+        ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.finalTransformations(video_obj, tmp_file, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, is_master))
+        ffmpeg_cmd_dict['convert_process'][-1].start()
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
     
     return number_track
@@ -1804,7 +1662,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'merge_cmd' : [],
                        'metadata_cmd' : []}
     
-    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
+    generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'],is_master=True)
     
     for video_obj_common_md5 in best_video.sameAudioMD5UseForCalculation:
         generate_merge_command_common_md5(video_obj_common_md5,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'])
@@ -1816,35 +1674,17 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     merge_cmd = [tools.software["mkvmerge"], "-o", out_path_tmp_file_name_split]
     merge_cmd.extend(ffmpeg_cmd_dict['merge_cmd'])
 
-    for convert_process in ffmpeg_cmd_dict['convert_process']:
-        convert_process.get()
+    merge_video_track_jobs.wait_track_jobs(ffmpeg_cmd_dict['convert_process'])
 
     try:
-        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 1200)
+        tools.launch_cmdExt_with_timeout_reload(merge_cmd, 2, 2400)
     except Exception as e:
-        lined_error = str(e).splitlines()
-        if re.match('Return code: 1', lined_error[-1]) != None:
-            only_UID_warning = True
-            i = 0
-            while only_UID_warning and i < len(lined_error):
-                if re.match('^Warning:.*', lined_error[i]) != None:
-                    if re.match(r"^Warning:.+Could not keep a track's UID \d+ because it is already allocated for another track. A new random UID will be allocated automatically.", lined_error[i]) == None:
-                        only_UID_warning = False
-                i += 1
-            if (not only_UID_warning):
-                raise e
-            else:
-                sys.stderr.write(str(e))
-                tools.logs.append(str(e))
-        else:
-            raise e
+        tools.mkv_merge_error_detections(e, out_path_tmp_file_name_split)
 
     if tools.dev:
         tools.logs.append(f'\t\tFile {out_path_tmp_file_name_split} produce\n')
     
-    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-err_detect", "crccheck+bitstream+buffer",
-                         "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
-                         "-i", out_path_tmp_file_name_split, "-map", "0", "-f", "null", "-c", "copy", "-"], 2, 360)
+    integrity.test_video_file_have_no_big_error(out_path_tmp_file_name_split)
     
     if tools.dev:
         tools.logs.append(f"\t\tGet metadata {out_path_tmp_file_name_split}\n")
@@ -1953,6 +1793,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert.extend(ffmpeg_cmd_dict['metadata_cmd'])
     final_insert.extend(["--track-order", f"0:{best_video.video["StreamOrder"]},1:"+",1:".join(list_track_order)])
     tools.launch_cmdExt_with_timeout_reload(final_insert, 2, 1200)
+
+    integrity.test_video_file_have_no_big_error(out_path_file_name)
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
      

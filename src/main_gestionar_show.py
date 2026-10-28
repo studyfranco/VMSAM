@@ -198,7 +198,7 @@ def process_episode(files, folder_id, episode_number, database_url):
                         new_file_path = os.path.join(current_folder.destination_path, regex_data.rename_pattern.replace(episode_pattern_insert, f"{episode_number:02}"))
                         shutil.move(file['chemin'], new_file_path)
                         insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
-                    except Exception as e:
+                    except integrity.IntegrityError as e:
                         stderr.write(f"The file {file['chemin']} have bigs problems of integrity: {e}\n")
                         new_chemin_a = os.path.join(out_folder_final, os.path.basename(file['chemin']))
                         shutil.move(file['chemin'], new_chemin_a)

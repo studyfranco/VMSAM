@@ -91,24 +91,7 @@ class video():
                 else:
                     self.video = data
             else:
-                if 'Language' in data:
-                    if is_language(data['Language']):
-                        language_iso_1 = Lang(data['Language']).pt1
-                        if language_iso_1 != None and language_iso_1 != '':
-                            language = language_iso_1
-                        else:
-                            try:
-                                language_iso_1 = Lang(data['Language']).macro().pt1
-                                if language_iso_1 != None and language_iso_1 != '':
-                                    language = language_iso_1
-                                else:
-                                    language = data['Language'].split("-")[0]
-                            except:
-                                language = data['Language'].split("-")[0]
-                    else:
-                        language = data['Language'].split("-")[0]
-                else:
-                    language = "und"
+                language = get_language(data)
                 if data['@type'] == 'Audio': 
                     if ('Title' in data and 'commentary' in data['Title'].lower()) or ("flag_commentary" in data['properties'] and data['properties']["flag_commentary"]):
                         if language in self.commentary:
@@ -143,7 +126,7 @@ class video():
                 data["ffmpeg_compatible"] = False
                 have_incompatible_ffmpeg_codec = True
                 if tools.dev:
-                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['properties']['codec'].lower()}\n")
+                    stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the uncompatible format {data.get("Format","").lower()} {data['ffprobe']['codec_name'].lower()}\n")
             elif (data.get("Format","").lower() in tools.to_convert_ffmpeg_type):
                 data['ffmpeg_to_convert'] = tools.to_convert_ffmpeg_type[data.get("Format","").lower()]
                 data["ffmpeg_compatible"] = False
@@ -155,8 +138,8 @@ class video():
                     stderr.write(f"The file {self.filePath} at stream {data['StreamOrder']} have the compatible format {data.get("Format","").lower()}\n")
                 data["ffmpeg_compatible"] = True
 
-        if have_incompatible_ffmpeg_codec:
-            self.convert_problematic_stream_with_ffmpeg()
+        #if have_incompatible_ffmpeg_codec:
+        #    self.convert_problematic_stream_with_ffmpeg()
             
         if len(self.audios) == 0 and self.need_one_audio_track:
             raise Exception(f"No audio usable to compare the file {self.filePath}")
@@ -952,11 +935,123 @@ def get_birate_key(data):
     else:
         raise Exception(f"No video bitrate {data}")
     
-def get_bitrate(data):
-    if 'ffprobe' in data and 'bit_rate' in data['ffprobe']:
-        return data['ffprobe']['bit_rate']
+def get_channel(audio):
+    """Return the channel count of an audio track from its MediaInfo/ffprobe fields or its layout, or None."""
+    ffprobe = audio.get('ffprobe') or {}
+    for value in (audio.get('Channels'), audio.get('Channel(s)'), audio.get('Channels_Original'), ffprobe.get('channels')):
+        try:
+            return int(str(value).split('/')[0])
+        except (TypeError, ValueError):
+            pass
+    layout = audio.get('ChannelLayout') or ffprobe.get('channel_layout')
+    if not layout:
+        return None
+    layout = str(layout).split('(')[0].strip().lower()
+    named = {'mono': 1, 'stereo': 2, 'downmix': 2, 'quad': 4, 'hexagonal': 6, 'octagonal': 8}
+    if layout in named:
+        return named[layout]
+    if re.fullmatch(r"\d+(\.\d+)+", layout):
+        return sum(int(number) for number in layout.split('.'))
+    return len(layout.split())
+
+def get_bitrate(data, path=None):
+    """Return the bitrate (bit/s, int) of a track, cached on the track, or raise when no source gives one."""
+    if data.get('BitRate_resolved'):
+        return data['BitRate_resolved']
+    ffprobe = data.get('ffprobe') or {}
+    tags = ffprobe.get('tags') or {}
+    bitrate, source = ffprobe.get('bit_rate'), "ffprobe"
+    if not bitrate:
+        bitrate, source = data.get('BitRate'), "BitRate"
+    if not bitrate:
+        bitrate, source = data.get('BitRate_Nominal'), "BitRate_Nominal"
+    if not bitrate:
+        try:
+            bitrate = int(data['StreamSize']) * 8 / float(data['Duration'])
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            bitrate = None
+        source = "StreamSize"
+    if not bitrate:
+        bitrate, source = tags.get('BPS', tags.get('BPS-eng')), "BPS"
+    if not bitrate and path is not None:
+        bitrate, source = None, "copy_pass"
+        try:
+            duration = float(data['Duration'])
+            stdout, stderror, exit_code = tools.launch_cmdExt_with_timeout_reload(
+                [tools.software["ffmpeg"], "-nostdin", "-hide_banner", "-i", path,
+                 "-map", f"0:{int(data['StreamOrder'])}", "-c", "copy", "-f", "null", "-"], 1, 1800)
+            sizes = re.findall(r"\b(?:audio|video):\s*(\d+)\s*([kmg])i?b", stderror.decode("utf-8", errors="ignore").lower())
+            if sizes and duration > 0:
+                scale = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+                bitrate = sum(int(number) * scale[unit] for number, unit in sizes) * 8 / duration
+        except Exception as e:
+            stderr.write(f"Copy pass failed on track {data.get('StreamOrder')}: {e}\n")
+    if not bitrate:
+        bitrate, source = data.get('BitRate_Maximum'), "BitRate_Maximum"
+    if not bitrate:
+        raise Exception(f"No bitrate {data}")
+    bitrate = int(float(bitrate))
+    if source != "BitRate_Maximum" or path is not None:
+        data['BitRate_resolved'], data['BitRate_source'] = bitrate, source
+    return bitrate
+
+def get_language(data):
+    """Return the track language as the code used to group tracks: ISO 639-1 when it exists (zh-Hans, chi -> zh), else the primary subtag."""
+    if 'Language' in data:
+        if is_language(data['Language']):
+            language_iso_1 = Lang(data['Language']).pt1
+            if language_iso_1 != None and language_iso_1 != '':
+                language = language_iso_1
+            else:
+                try:
+                    language_iso_1 = Lang(data['Language']).macro().pt1
+                    if language_iso_1 != None and language_iso_1 != '':
+                        language = language_iso_1
+                    else:
+                        language = data['Language'].split("-")[0]
+                except:
+                    language = data['Language'].split("-")[0]
+        else:
+            language = data['Language'].split("-")[0]
     else:
-        return data[get_birate_key(data)]
+        language = "und"
+    return language
+
+def get_codec(data):
+    """Return the stream's codec, lowercased: ffprobe codec_name, else MediaInfo Format mapped back through original_encode_formats."""
+    ffprobe_codec = str((data.get('ffprobe') or {}).get('codec_name', '')).strip().lower()
+    if ffprobe_codec and ffprobe_codec not in ('none', 'unknown'):
+        return ffprobe_codec
+    media_format = str(data.get('Format', '')).strip()
+    if not media_format:
+        return ''
+    # Why not just return data["Format"].lower() ?
+    formats = (tools.configuration or {}).get('original_encode_formats') or {}
+    reverse = {str(name).strip().lower(): codec for codec, name in formats.items()}
+    return reverse.get(media_format.lower(), media_format.lower())
+
+def get_sample_rate(audio):
+    """Return an audio track's measured sample rate in Hz, or None when unknown."""
+    for value in ((audio.get('ffprobe') or {}).get('sample_rate'), audio.get('SamplingRate')):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            pass
+    return None
+
+def describe_audio_track(audio):
+    """Return a short description of an audio track's measured properties, never a file name."""
+    try:
+        bitrate = get_bitrate(audio)
+    except Exception:
+        bitrate = "?"
+    description = (f"{get_codec(audio) or audio.get('Format', '?')} "
+                   f"{get_channel(audio)}ch {audio.get('SamplingRate', '?')}Hz "
+                   f"{bitrate}bps lang={audio.get('Language', '?')}")
+    tag = (audio.get('extra') or {}).get(tools.ORIGINAL_ENCODE_TAG)
+    if tag:
+        description += f" {tools.ORIGINAL_ENCODE_TAG}={tag}"
+    return description
 
 def test_if_the_best_by_rules_video_entry(base,challenger,rules):
     if base['Encoded_Library_Name'] == challenger['Encoded_Library_Name']:

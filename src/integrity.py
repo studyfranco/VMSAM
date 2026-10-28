@@ -28,10 +28,16 @@ CACHE_MAX = 64
 probe_cache, map_cache = OrderedDict(), OrderedDict()
 cache_lock = threading.Lock()
 
+class IntegrityError(Exception):
+    pass
+
 def test_video_file_have_no_big_error(file_to_test):
-    tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-xerror", "-err_detect", "crccheck+bitstream+buffer",
-                        "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
-                        "-i", file_to_test, "-map", "0:v?", "-map", "0:a?", "-map", "0:s?", "-c:s", "copy", "-f", "null", "-"], 2, 1200)
+    try:
+        tools.launch_cmdExt_with_timeout_reload([tools.software["ffmpeg"], "-xerror", "-err_detect", "crccheck+bitstream+buffer",
+                            "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", str(tools.core_to_use),
+                            "-i", file_to_test, "-map", "0:v?", "-map", "0:a?", "-map", "0:s?", "-c:s", "copy", "-f", "null", "-"], 2, 1200)
+    except Exception as e:
+        raise IntegrityError(f"{file_to_test} does not decode cleanly: {e}") from e
 
 def number(value):
     try:
