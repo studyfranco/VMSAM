@@ -1146,12 +1146,9 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                                 tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT with a variance of {variance(list_fft_delay)}, more than one frame ({frame_duration_ms:.2f} ms) or not constant, both kept\n")
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
-                            sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                            tools.logs.append(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                            sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                            tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                            sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
+                            tools.log_always(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                            tools.log_always(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                            tools.log_always(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         else:
                             validation[i][j] = False
                     else:
@@ -1957,6 +1954,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     integrity.test_video_file_have_no_big_error(out_path_file_name)
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
+        new_video = video.video(path.dirname(out_path_file_name),path.basename(out_path_file_name))
+        new_video.get_mediadata()
+        tools.logs.append(f"video={json.dumps(new_video.video)}\n")
+        tools.logs.append(f"audios={json.dumps(new_video.audios)}\n")
+        tools.logs.append(f"subtitles={json.dumps(new_video.subtitles)}\n")
+        tools.logs.append(f"commentary={json.dumps(new_video.commentary)}\n")
+        tools.logs.append(f"audiodesc={json.dumps(new_video.audiodesc)}\n")
+        tools.logs.append(f"mediadata={json.dumps(new_video.mediadata)}\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:

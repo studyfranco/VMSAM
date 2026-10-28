@@ -3,22 +3,23 @@
 import json
 import re
 from os import path
+from decimal import *
 from xml.etree import ElementTree
 
 import tools
 
 VISQOL_TAG = "VMSAM_VISQOL"
-VISQOL_WINDOW_POSITIONS = [0.05, 0.10, 0.25, 0.50, 0.65, 0.85, 0.90, 0.95]
-VISQOL_WINDOW_DURATION = 30
-VISQOL_EDGE_GUARD = 1
+VISQOL_WINDOW_POSITIONS = [Decimal("0.05"), Decimal("0.10"), Decimal("0.25"), Decimal("0.50"), Decimal("0.65"), Decimal("0.85"), Decimal("0.90"), Decimal("0.95")]
+VISQOL_WINDOW_DURATION = Decimal("30")
+VISQOL_EDGE_GUARD = Decimal("1")
 VISQOL_MIN_WINDOWS = 4
 
 class AudioQualityError(Exception):
     pass
 
 def get_visqol_mos(reference_file, degraded_file, delay_ms, tmp_file_base):
-    """Return the mean ViSQOL audio-mode MOS-LQO of degraded_file against reference_file over 8 windows of the audio both play, degraded_file being reference_file shifted by delay_ms."""
-    """ Example:
+    """Return the mean ViSQOL audio-mode MOS-LQO of degraded_file against reference_file over 8 windows of the audio both play, degraded_file being reference_file shifted by delay_ms.
+    Example:
     reference_file: start 0.000 s, end 1465.789 s, 32000 Hz, 2 channels; degraded_file: start 0.000 s, end 1465.669 s; delay_ms = -120
     source content at t is at t - 0.120 s in degraded_file, so the windows lie in [0.120 + 1, 1465.669 + 0.120 - 1 - 30] of the source
     window 5 %: source 73.289 s to 103.289 s against degraded 73.169 s to 103.169 s, the degraded WAV resampled to 32000 Hz
@@ -30,21 +31,21 @@ def get_visqol_mos(reference_file, degraded_file, delay_ms, tmp_file_base):
         stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload([tools.software["ffprobe"], "-v", "error", "-select_streams", "a:0", "-show_entries",
                                                                               "stream=start_time,sample_rate,channels:format=start_time,duration", "-of", "json", audio_file], 2, 60)
         probe = json.loads(stdout.decode("utf-8", errors="ignore"))
-        list_stream.append([float(probe["streams"][0]["start_time"]), float(probe["format"]["start_time"]) + float(probe["format"]["duration"]),
+        list_stream.append([Decimal(probe["streams"][0]["start_time"]), Decimal(probe["format"]["start_time"]) + Decimal(probe["format"]["duration"]),
                             probe["streams"][0]["sample_rate"], int(probe["streams"][0]["channels"])])
-    delay = float(delay_ms) / 1000
+    delay = Decimal(delay_ms) / 1000
     window_first = max(list_stream[0][0], list_stream[1][0] - delay) + VISQOL_EDGE_GUARD
     window_last = min(list_stream[0][1], list_stream[1][1] - delay) - VISQOL_EDGE_GUARD - VISQOL_WINDOW_DURATION
 
     list_window_start = []
     for position in VISQOL_WINDOW_POSITIONS:
-        window_start = list_stream[0][0] + position * (list_stream[0][1] - list_stream[0][0])
+        window_start = list_stream[0][0] + Decimal(position) * (list_stream[0][1] - list_stream[0][0])
         window_start_valid = min(max(window_start, window_first), window_last)
         if window_last < window_first or any(abs(window_start_valid - window_kept) < VISQOL_WINDOW_DURATION for window_kept in list_window_start):
             tools.dev_log(f"[ViSQOL] window at {position:.0%} of {degraded_file} skipped: no free {VISQOL_WINDOW_DURATION} s left in the audio both files play\n")
         else:
             if window_start_valid != window_start:
-                tools.dev_log(f"[ViSQOL] window at {position:.0%} of {degraded_file} moved from {window_start:.3f} s to {window_start_valid:.3f} s of the source\n")
+                tools.dev_log(f"[ViSQOL] window at {position:.0%} of {degraded_file} moved from {window_start:.6f} s to {window_start_valid:.6f} s of the source\n")
             list_window_start.append(window_start_valid)
     if len(list_window_start) < VISQOL_MIN_WINDOWS:
         raise AudioQualityError(f"only {len(list_window_start)} ViSQOL windows fit in the audio both {reference_file} and {degraded_file} play, {VISQOL_MIN_WINDOWS} needed")
@@ -53,9 +54,9 @@ def get_visqol_mos(reference_file, degraded_file, delay_ms, tmp_file_base):
     list_mos = []
     try:
         for window_start in list_window_start:
-            cmd_reference = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error", "-ss", f"{window_start - list_stream[0][0] - VISQOL_EDGE_GUARD:.3f}", "-i", reference_file,
+            cmd_reference = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error", "-ss", f"{window_start - list_stream[0][0] - VISQOL_EDGE_GUARD:.6f}", "-i", reference_file,
                              "-ss", str(VISQOL_EDGE_GUARD), "-t", str(VISQOL_WINDOW_DURATION)]
-            cmd_degraded = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error", "-ss", f"{window_start + delay - list_stream[1][0] - VISQOL_EDGE_GUARD:.3f}", "-i", degraded_file,
+            cmd_degraded = [tools.software["ffmpeg"], "-y", "-nostdin", "-v", "error", "-ss", f"{window_start + delay - list_stream[1][0] - VISQOL_EDGE_GUARD:.6f}", "-i", degraded_file,
                             "-ss", str(VISQOL_EDGE_GUARD), "-t", str(VISQOL_WINDOW_DURATION), "-ar", list_stream[0][2]]
             if list_stream[0][3] > 2:
                 cmd_reference.extend(["-ac", "2"])
@@ -68,7 +69,7 @@ def get_visqol_mos(reference_file, degraded_file, delay_ms, tmp_file_base):
                                                                                   "--similarity_to_quality_model", path.join(path.dirname(tools.software["visqol"]), "libsvm_nu_svr_model.txt")], 2, 600)
             mos_lqo = re.search(r"MOS-LQO:\s*([0-9.]+)", stdout.decode("utf-8", errors="ignore"))
             if mos_lqo is None:
-                raise AudioQualityError(f"ViSQOL gave no MOS-LQO for {degraded_file} against {reference_file} at {window_start:.3f} s: {stderror.decode('utf-8', errors='ignore').strip()}")
+                raise AudioQualityError(f"ViSQOL gave no MOS-LQO for {degraded_file} against {reference_file} at {window_start:.6f} s: {stderror.decode('utf-8', errors='ignore').strip()}")
             list_mos.append(float(mos_lqo.group(1)))
     finally:
         for tmp_file_wav in list_file_wav:
