@@ -24,6 +24,9 @@ import gc
 import hashlib
 from decimal import *
 import integrity
+import math
+import subprocess
+import numpy as np
 
 max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -947,10 +950,101 @@ def get_delay(videosObj,language,audioRules,dict_file_path_obj,forced_best_video
     
     return already_compared
 
+AUDIO_LENGTH_GAP = 0.01
+AUDIO_STEREO_CORRELATION_MIN = 0.2
+AUDIO_CLIPPED_SAMPLES_MAX = 1000
+AUDIO_FULL_SCALE = 0.9999
+AUDIO_LOSSLESS_CODECS = ("flac", "alac", "truehd", "mlp", "pcm_s16le", "pcm_s24le", "pcm_s32le", "pcm_bluray", "pcm_dvd")
+AUDIO_LOSSY_CUTOFF_HZ = 21500
+AUDIO_LOSSY_WALL_DB = 25
+AUDIO_SPECTRUM_FFT = 8192
+
+def remove_bad_audio(video_obj,list_audio):
+    in_list = {id(audio) for audio in list_audio}
+    all_audio = [audio for audios in video_obj.audios.values() for audio in audios if audio['keep']]
+    bad = {}
+    for i,audio_a in enumerate(all_audio):
+        for audio_b in all_audio[i+1:]:
+            if id(audio_a) in in_list or id(audio_b) in in_list:
+                try:
+                    silence_compare = integrity.silence_report(video_obj.filePath, audio_a['StreamOrder'], video_obj.filePath, audio_b['StreamOrder'])
+                    if silence_compare['result'] == "A" and id(audio_a) in in_list:
+                        bad[id(audio_a)] = f"silent where track {audio_b['StreamOrder']} plays {silence_compare['a_only'][:2]}"
+                    if silence_compare['result'] == "B" and id(audio_b) in in_list:
+                        bad[id(audio_b)] = f"silent where track {audio_a['StreamOrder']} plays {silence_compare['b_only'][:2]}"
+                except Exception as e:
+                    tools.log_always(f"[silence WARN] tracks {audio_a['StreamOrder']} and {audio_b['StreamOrder']} of {video_obj.filePath} not compared: {e}\n")
+    """ Example:
+        indicator       measure                                         out of standard
+        silence         5 s silent where another track of video_obj plays
+        length          decoded samples / sample rate vs video length   AUDIO_LENGTH_GAP apart
+        stereo image    correlation of the front left and right         under AUDIO_STEREO_CORRELATION_MIN
+        clipping        samples at or above 0 dBFS (AUDIO_FULL_SCALE)   over AUDIO_CLIPPED_SAMPLES_MAX
+        fake lossless   lossless codec: highest frequency within 60 dB  under AUDIO_LOSSY_CUTOFF_HZ with a drop
+                        of the 1-4 kHz level (median spectrum)          of AUDIO_LOSSY_WALL_DB over 500 Hz
+        pt tracks [Brazilian: all pass, European: silent 576-583 s] -> European keep = False
+        pt tracks [Brazilian: clipped, European: clipped] -> both kept: no track passes every test
+    """
+    video_length = float(video_obj.video['Duration'])
+    for audio in list_audio:
+        if audio['keep'] and id(audio) not in bad:
+            stream = [stream for stream in integrity.probe(video_obj.filePath)['streams'] if stream['index'] == int(audio['StreamOrder'])][0]
+            channels, rate = int(stream['channels']), float(stream['sample_rate'])
+            process = subprocess.Popen([tools.software["ffmpeg"], "-nostdin", "-v", "error", "-i", video_obj.filePath, "-map", f"0:{audio['StreamOrder']}",
+                                        "-af", "aresample=async=1:first_pts=0", "-c:a", "pcm_f32le", "-f", "f32le", "-"],
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+            samples, clipped, sums, spectra = 0, 0, np.zeros(5), []
+            window = np.hanning(AUDIO_SPECTRUM_FFT)
+            chunk = process.stdout.read(channels * 4 * 262144)
+            while chunk:
+                pcm = np.frombuffer(chunk[:len(chunk) - len(chunk) % (channels * 4)], dtype=np.float32).reshape(-1, channels).astype(np.float64)
+                samples += len(pcm)
+                clipped += int((np.abs(pcm) >= AUDIO_FULL_SCALE).sum())
+                if channels >= 2:
+                    sums += [pcm[:,0].sum(), pcm[:,1].sum(), (pcm[:,0]*pcm[:,0]).sum(), (pcm[:,1]*pcm[:,1]).sum(), (pcm[:,0]*pcm[:,1]).sum()]
+                if stream['codec_name'] in AUDIO_LOSSLESS_CODECS:
+                    mid = pcm.mean(axis=1)
+                    for start in range(0, len(mid) - AUDIO_SPECTRUM_FFT, int(rate / 2)):
+                        frame = mid[start:start + AUDIO_SPECTRUM_FFT] * window
+                        if np.sqrt((frame * frame).mean()) > 10 ** (-50 / 20):
+                            spectra.append((10 * np.log10(np.abs(np.fft.rfft(frame)) ** 2 + 1e-20)).astype(np.float32))
+                chunk = process.stdout.read(channels * 4 * 262144)
+            process.wait()
+            length_gap = abs(samples / rate - video_length) / video_length
+            correlation = None
+            if channels >= 2 and samples:
+                mean_l, mean_r = sums[0] / samples, sums[1] / samples
+                power = (sums[2] / samples - mean_l * mean_l) * (sums[3] / samples - mean_r * mean_r)
+                correlation = (sums[4] / samples - mean_l * mean_r) / math.sqrt(power) if power > 0 else None
+            cutoff, wall = None, None
+            if len(spectra) >= 10:
+                frequencies = np.fft.rfftfreq(AUDIO_SPECTRUM_FFT, 1 / rate)
+                bin_hz = frequencies[1]
+                level = np.convolve(np.median(np.array(spectra), axis=0), np.ones(int(150 / bin_hz)) / int(150 / bin_hz), mode="same")
+                audible = np.where((level - np.median(level[(frequencies >= 1000) & (frequencies <= 4000)]) > -60) & (frequencies < rate / 2 - 300))[0]
+                last = audible[-1] if len(audible) else 0
+                cutoff = float(frequencies[last])
+                wall = float(level[max(0, last - int(500 / bin_hz))] - level[min(len(level) - 1, last + int(500 / bin_hz))])
+            tools.log_always(f"[keep INFO] track {audio['StreamOrder']} of {video_obj.filePath}: length_gap={round(length_gap,5)} correlation={None if correlation is None else round(correlation,3)} clipped={clipped} cutoff_hz={cutoff} wall_db={None if wall is None else round(wall,1)}\n")
+            if length_gap > AUDIO_LENGTH_GAP:
+                bad[id(audio)] = f"length {round(samples / rate,3)} s against video {video_length} s"
+            elif correlation is not None and correlation < AUDIO_STEREO_CORRELATION_MIN:
+                bad[id(audio)] = f"left/right correlation {round(correlation,3)}"
+            elif clipped > AUDIO_CLIPPED_SAMPLES_MAX:
+                bad[id(audio)] = f"{clipped} samples at or above 0 dBFS"
+            elif cutoff is not None and cutoff < AUDIO_LOSSY_CUTOFF_HZ and wall >= AUDIO_LOSSY_WALL_DB:
+                bad[id(audio)] = f"{stream['codec_name']} with a lossy spectrum: cutoff {round(cutoff)} Hz, wall {round(wall,1)} dB"
+    if any(audio['keep'] and id(audio) not in bad for audio in list_audio):
+        for audio in list_audio:
+            if id(audio) in bad and audio['keep']:
+                audio['keep'] = False
+                tools.log_always(f"[keep WARN] track {audio['StreamOrder']} of {video_obj.filePath} not kept: {bad[id(audio)]}\n")
+
 def find_differences_and_keep_best_audio(video_obj,language,audioRules):
     if len(video_obj.audios[language]) > 1:
         if tools.dev:
             tools.logs.append(f"\t\tKeep the best audio for {language}\n")
+        remove_bad_audio(video_obj,video_obj.audios[language])
         try:
             begin_in_second,audio_parameter_to_use_for_comparison,length_time,length_time_converted,list_cut_begin_length = prepare_get_delay_sub([video_obj],language)
             video_obj.extract_audio_in_part(language,audio_parameter_to_use_for_comparison,cutTime=list_cut_begin_length)
@@ -1731,6 +1825,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if tools.dev:
         tools.logs.append(f"\t\tKeep the best audio\n")
     try:
+        remove_bad_audio(out_video_metadata,out_video_metadata.audios[common_language_use_for_generate_delay])
         keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
         with errors_merge_lock:
