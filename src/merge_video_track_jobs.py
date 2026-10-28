@@ -207,9 +207,9 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             rename(tmp_file_extract,tmp_file_convert)
             audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
         else:
-            cmd_convert = [tools.software["ffmpeg"], "-y", "-nostdin", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
+            cmd_convert = [tools.software["ffmpeg"], "-y", "-nostdin", "-xerror", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
-                            "-threads", "1", "-vn"]
+                            "-threads", "2", "-vn"]
 
             cmd_convert.extend(delay_input_args(delay_to_put, tmp_file_extract))
             cmd_convert.extend(["-map", "0:a?", "-map_metadata", "0", "-copy_unknown",
