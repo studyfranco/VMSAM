@@ -560,6 +560,85 @@ def ratio_picture_scores(master_path, master_stream, candidate_path, candidate_s
     return rows, notes
 
 
+STEADY_REACH_S = 2.0
+STEADY_TRIES = 4
+STEADY_DECODE_FRAMES = 96
+STEADY_SHIFT_MAX_FRAMES = 1.5
+
+
+def steady_ratio(near, mappings, videos, candidate_path):
+    """The one finalist row whose ratio keeps one picture shift at master scene cuts along the file, or None.
+    Example: 1001/960 reads shift 0.0 s at six cuts, 25/24 reads -0.17 ... -1.13 s -> the 1001/960 row.
+    """
+    master_obj, candidate_obj = videos
+    by_ratio = {}
+    for row in near:
+        by_ratio.setdefault(f"{row['ratio'].numerator}/{row['ratio'].denominator}", row)
+    chosen, spreads, rows, notes = None, {}, [], []
+    try:
+        candidate_rate, _source = exact_rate(candidate_obj.video)
+        frame_s = 1.0 / float(candidate_rate)
+        functions, span = {}, None
+        for label, row in by_ratio.items():
+            alignment, effective = mappings[(row["ratio"], row["engine"])]
+            detail = alignment.get("zones_detail") or []
+            longest = max(detail, key=lambda zone: zone["master_ms"][1] - zone["master_ms"][0])
+            functions[label] = (float(longest["offset_ms"]), float(effective))
+            low, high = detail[0]["master_ms"][0] / 1000.0, detail[-1]["master_ms"][1] / 1000.0
+            span = (low, high) if span is None else (max(span[0], low), min(span[1], high))
+        reach = int(STEADY_REACH_S / frame_s)
+        first_s = span[0] + (span[1] - span[0]) * EDGE_FRACTION
+        slot = (span[1] - span[0]) * (1 - 2 * EDGE_FRACTION) / RATIO_POSITIONS
+        for index in range(RATIO_POSITIONS if slot > 0 else 0):
+            for attempt in range(STEADY_TRIES):
+                t = first_s + (index + (attempt + 0.5) / STEADY_TRIES) * slot
+                frames, times = decode_group(master_obj.filePath, master_obj.video["StreamOrder"],
+                                             t, STEADY_DECODE_FRAMES)
+                cuts = [cut for cut in group_cuts(frames)
+                        if GROUP_FRAMES // 2 <= cut <= len(frames) - GROUP_FRAMES // 2]
+                if not cuts:
+                    notes.append(f"{t:.1f}:no_cut")
+                    continue
+                start = cuts[0] - GROUP_FRAMES // 2
+                ref_hashes = frame_hash.hash_frames(frames[start:start + GROUP_FRAMES], colour=True)
+                row = {"t": float(times[cuts[0]])}
+                for label, (offset_ms, rate) in functions.items():
+                    wanted = (times[start:start + GROUP_FRAMES] * 1000.0 + offset_ms) / 1000.0 / rate
+                    other, other_times = decode_group(
+                        candidate_obj.filePath, candidate_obj.video["StreamOrder"],
+                        wanted[0] - STEADY_REACH_S,
+                        int((wanted[-1] - wanted[0] + 2 * STEADY_REACH_S) / frame_s) + 2)
+                    if len(other) < 2:
+                        continue
+                    other_hashes = frame_hash.hash_frames(other, colour=True)
+                    distances = {}
+                    for shift in range(-reach, reach + 1):
+                        at = wanted + shift * frame_s
+                        if other_times[0] <= at[0] and at[-1] <= other_times[-1]:
+                            nearest = np.abs(other_times[None, :] - at[:, None]).argmin(axis=1)
+                            distances[shift] = frame_compare.window_content_distance(
+                                ref_hashes, other_hashes[nearest], 0)
+                    distances = {shift: d for shift, d in distances.items() if d == d}
+                    if distances:
+                        row[label] = min(distances, key=distances.get) * frame_s
+                if len(row) == len(functions) + 1:
+                    rows.append(row)
+                    break
+                notes.append(f"{t:.1f}:unscored")
+        if len(rows) >= RATIO_MIN_VALID_POSITIONS:
+            spreads = {label: round(max(row[label] for row in rows) - min(row[label] for row in rows), 3)
+                       for label in functions}
+            steady = [label for label, spread in spreads.items()
+                      if spread <= STEADY_SHIFT_MAX_FRAMES * frame_s]
+            chosen = steady[0] if len(steady) == 1 else None
+    except Exception as error:
+        notes.append(f"raised({type(error).__name__}: {error})")
+    tools.log_always(f"rate_direction: steady_ratio ratios={list(by_ratio)} chosen={chosen} "
+                     f"spreads_s={spreads} positions={len(rows)} skipped={notes} "
+                     f"for {candidate_path}\n")
+    return None if chosen is None else by_ratio[chosen]
+
+
 def decide_ratio(rows, labels):
     '''Pick the mapping the pictures agree with, or None.
 

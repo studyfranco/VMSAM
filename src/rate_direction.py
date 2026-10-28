@@ -40,6 +40,7 @@ RATE_ARM_MIN_SPAN_COVERAGE = 0.9
 # timeline while only one matches it well); fidelities this close are a tie, broken by
 # asetrate first, then fewer zones, then the ratio nearer 1.
 RATE_ARM_FIDELITY_TIE = 0.005
+RATE_ARM_SPAN_COVERAGE_TIE = 0.01
 # A declared frame-rate ratio names a rate when it lies this close (relative) to a named one.
 DECLARED_RATE_TOLERANCE = 1e-4
 
@@ -145,29 +146,25 @@ def fidelity(zones_detail):
     return round(total / weight, 4) if weight else 0.0
 
 
-def choose_winner(rows, break_tie=None):
-    """Return the winning finalist row, or None when none passes the gate.
-
-    Each row holds `ratio`, `engine` (None at ratio 1), `fidelity` and `finalist_reading`'s keys.
-    Gate: not a ladder and span coverage >= RATE_ARM_MIN_SPAN_COVERAGE. Highest fidelity wins.
-    Finalists within RATE_ARM_FIDELITY_TIE that name different ratios go to `break_tie` (the
-    pictures, see `repair_stage1_resample`), which returns one of them or None. Otherwise, or
-    when it cannot decide: asetrate first, then fidelity, fewer zones, ratio nearer 1.
-    """
+def choose_winner(rows, break_tie=None, steady_shift=None):
+    """The finalist row with the best fidelity among the admissible ones; `break_tie` and `steady_shift` may overrule, or None."""
+    winner = None
     admissible = [r for r in rows if not r["ladder"]
                   and r["span_coverage"] >= RATE_ARM_MIN_SPAN_COVERAGE]
-    if not admissible:
-        return None
-    best = max(r.get("fidelity", 0.0) for r in admissible)
-    tied = [r for r in admissible if best - r.get("fidelity", 0.0) <= RATE_ARM_FIDELITY_TIE]
-    tied.sort(key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1,
-                             -r.get("fidelity", 0.0), r["zones"],
-                             abs(float(r["ratio"]) - 1.0)))
-    if break_tie is not None and len({r["ratio"] for r in tied}) > 1:
-        picked = break_tie(tied)
-        if picked is not None:
-            return picked
-    return tied[0]
+    if admissible:
+        best = max(r.get("fidelity", 0.0) for r in admissible)
+        tied = [r for r in admissible if best - r.get("fidelity", 0.0) <= RATE_ARM_FIDELITY_TIE]
+        tied.sort(key=lambda r: (0 if r["engine"] in (None, "asetrate") else 1,
+                                 -r.get("fidelity", 0.0), r["zones"],
+                                 abs(float(r["ratio"]) - 1.0)))
+        if break_tie is not None and len({r["ratio"] for r in tied}) > 1:
+            winner = break_tie(tied)
+        winner = winner or tied[0]
+        near = [r for r in admissible if r["ratio"] != winner["ratio"]
+                and abs(r["span_coverage"] - winner["span_coverage"]) <= RATE_ARM_SPAN_COVERAGE_TIE]
+        if steady_shift is not None and near:
+            winner = steady_shift([winner] + near) or winner
+    return winner
 
 
 def log_finalist(candidate_path, row):

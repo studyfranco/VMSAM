@@ -169,6 +169,7 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, videos=None):
         (factor, engine, gate, cause): factor is an exact Fraction or None (1 won, or no
         finalist qualified), gate holds every finalist's reading and the verdict.
     """
+    import frame_snap
     import merge_video_resample
     import rate_direction
     wav = primed.get("rate_wav")
@@ -249,7 +250,11 @@ def rate_arm(primed, first_ratios, work_dir, candidate_path, videos=None):
             run_round(ratios)
             break_tie = (None if videos is None else
                          lambda tied: picture_tie_break(tied, mappings, videos, candidate_path))
-            winner = rate_direction.choose_winner(rows, break_tie=break_tie)
+            steady_shift = (None if videos is None else
+                            lambda near: frame_snap.steady_ratio(near, mappings, videos,
+                                                                 candidate_path))
+            winner = rate_direction.choose_winner(rows, break_tie=break_tie,
+                                                  steady_shift=steady_shift)
             if winner is not None:
                 break
         gate["rows"] = [{**row, "ratio": f"{row['ratio'].numerator}/{row['ratio'].denominator}"}
