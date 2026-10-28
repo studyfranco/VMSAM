@@ -18,6 +18,7 @@ import tools
 import video
 import audio_reencode
 import merge_video_track_jobs
+import frame_align
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -252,6 +253,7 @@ class compare_video(Thread):
                 delay = self.adjust_delay_to_frame(delay)
                 self.video_obj_2.delays[self.language] += (delay*-Decimal('1.0')) # Delay you need to give to mkvmerge to be good.
         except Exception as e:
+            self.video_obj_with_best_quality = None
             if show_not_compatible_error:
                 traceback.print_exc()
                 sys.stderr.write(str(e)+"\n")
@@ -687,18 +689,22 @@ class compare_video(Thread):
             """
             BEGIN: AGENT modification ok
             """
-
-            """
-            END: AGENT modification
-            """
             getcontext().prec = 10
             framerate_duration_ms = Decimal('1000.0')/Decimal(self.video_obj_with_best_quality.video["FrameRate"])
             number_frame = round(delay/framerate_duration_ms)
-            return Decimal(number_frame*framerate_duration_ms)
-            """
-            BEGIN: AGENT modification ok
-            """
-            return Decimal(number_frame*framerate_duration_ms)
+            list_cut_spans = []
+            for cut in self.list_cut_begin_length[1:-1]:
+                hours, minutes, seconds = cut[0].split(":")
+                cut_time = int(hours)*3600+int(minutes)*60+float(seconds)
+                list_cut_spans.append([cut_time-frame_align.SCENE_SEARCH_SECONDS, cut_time+frame_align.SCENE_SEARCH_SECONDS])
+            list_anchor, majority_shift, vote_count = frame_align.find_common_anchors(self.video_obj_1, self.video_obj_2, list_cut_spans, number_frame, frame_align.SHIFT_SEARCH_FRAMES)
+            if majority_shift != None:
+                number_frame = majority_shift
+            delay_frame = Decimal(number_frame*framerate_duration_ms)
+            if abs(delay_frame-delay) > frame_align.MAX_ADJUSTMENT_FRAMES*framerate_duration_ms:
+                tools.log_always(f"[frame_align ERROR] audio delay {delay:.3f} ms and picture delay {delay_frame:.3f} ms between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {frame_align.MAX_ADJUSTMENT_FRAMES} frames apart\n")
+                raise frame_align.FrameAlignmentError(f"The audio delay {delay:.3f} ms and the picture delay {delay_frame:.3f} ms between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {frame_align.MAX_ADJUSTMENT_FRAMES} frames apart")
+            delay = delay_frame
             """
             END: AGENT modification
             """
@@ -714,7 +720,7 @@ class compare_video(Thread):
             """
             END: AGENT modification
             """
-            return delay
+        return delay
 
 def was_they_not_already_compared(video_obj_1,video_obj_2,already_compared):
     name_in_list = [video_obj_1.filePath,video_obj_2.filePath]
