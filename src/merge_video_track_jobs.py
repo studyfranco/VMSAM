@@ -205,7 +205,6 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
         integrity.test_video_file_have_no_big_error(tmp_file_extract)
         if is_already_converted(audio, delay_to_put, on_master):
             rename(tmp_file_extract,tmp_file_convert)
-            audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
         else:
             cmd_convert = [tools.software["ffmpeg"], "-y", "-nostdin", "-xerror", "-err_detect", "crccheck+bitstream+buffer", "-fflags", "+genpts+igndts",
                             "-analyzeduration", "1000M", "-probesize", "1000M",
@@ -240,7 +239,7 @@ def audio_track_job(video_obj, file_base_name, audio, delay_to_put, duration_bes
             if Decimal(str(new_track.get('Duration', '0'))) > Decimal(str(duration_best_video)) + Decimal("1"):
                 raise TrackJobError(f"Final check failed for {label}: produced duration {new_track.get('Duration')} s, longest allowed {duration_best_video} s")
 
-            audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
+        audio_integrity.check_reencoded_track(video_obj.filePath, int(audio["StreamOrder"]), tmp_file_convert, delay_to_put)
     except Exception as e:
         remove_files([tmp_file_extract, tmp_file_convert])
         if isinstance(e, TrackJobError):
