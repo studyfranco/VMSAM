@@ -17,6 +17,8 @@ from fractions import Fraction
 import os
 import threading
 
+import numpy
+
 import tools
 
 # Changes nearer than this to a zone bound are left out: they belong to the cut itself.
@@ -42,9 +44,6 @@ class ZoneLagJob:
     def _decode(self):
         import video_offset_plan
         try:
-            if self.domain.get("time_scale") is not None:
-                self.reason = "time_scaled_pair"
-                return
             m_info, why = video_offset_plan.probe_video(self.master_path)
             if m_info is None:
                 self.reason = f"master_probe:{why}"
@@ -53,19 +52,30 @@ class ZoneLagJob:
             if c_info is None:
                 self.reason = f"candidate_probe:{why}"
                 return
-            fps, why = video_offset_plan.check_fps(m_info, c_info)
-            if fps is None:
-                self.reason = f"fps:{why}"
+            scale = self.domain.get("time_scale")
+            fps, why = video_offset_plan.check_fps(m_info, c_info if scale is None else m_info)
+            c_fps, c_why = video_offset_plan.check_fps(c_info, c_info)
+            if fps is None or c_fps is None:
+                self.reason = f"fps:{why or c_why}"
                 return
             cache_root = os.path.join(tools.tmpFolder, "repair")
             tools.make_dirs(cache_root)
             crops = video_offset_plan.geometry_crop_filters(self.master_path, self.candidate_path)
             decoded = {}
-            for side, path, info in (("master", self.master_path, m_info),
-                                     ("candidate", self.candidate_path, c_info)):
+            for side, path, info, rate in (("master", self.master_path, m_info, fps),
+                                           ("candidate", self.candidate_path, c_info, c_fps)):
                 cuts, hashes, coloured, _cached = video_offset_plan.decode_scenes_and_hashes(
-                    path, fps, info["duration_s"], cache_root, crops.get(path))
+                    path, rate, info["duration_s"], cache_root, crops.get(path))
                 decoded[side] = (cuts, hashes, coloured)
+            if scale is not None:
+                cuts, hashes, coloured = decoded["candidate"]
+                step = self.domain["candidate_rate"] / (self.domain["master_rate"] * scale)
+                grid = numpy.arange(int(len(hashes) / step))
+                rows = numpy.minimum(numpy.floor(grid * float(step) + 0.5).astype(numpy.int64),
+                                     len(hashes) - 1)
+                grid_cuts = sorted({int(Fraction(cut) / step + Fraction(1, 2)) for cut in cuts})
+                decoded["candidate"] = ([cut for cut in grid_cuts if 0 < cut < len(rows)],
+                                        hashes[rows], coloured[rows])
             self.decoded = decoded
         except Exception as error:                                       # noqa: BLE001
             self.reason = f"decode:{type(error).__name__}:{str(error)[:160]}"
