@@ -11,7 +11,7 @@ import sys
 import traceback
 from os import path
 from random import shuffle
-from statistics import variance,mean
+from statistics import variance,mean,median
 from time import strftime,gmtime,sleep
 from threading import Thread,RLock
 import tools
@@ -979,23 +979,35 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                         if len(set_delay) == 1 and abs(list(set_delay)[0]) == 0:
                             validation[i][j] = True
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) < 128:
-                            if tools.dev:
-                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            validation[i][j] = True
+                            list_fft_offset_ms = []
+                            for h in range(0,video.number_cut):
+                                file,offset = second_correlation(video_obj.tmpFiles['audio'][i][h],video_obj.tmpFiles['audio'][j][h])
+                                list_fft_offset_ms.append(abs(offset)*1000)
+                            fft_offset_ms = median(list_fft_offset_ms)
+                            frame_duration_ms = 1000/float(video_obj.video["FrameRate"])
+                            tools.dev_log(f"find_differences_and_keep_best_audio {language} {i}-{j}: set_delay {set_delay} fidelity {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]} fft offsets {[round(offset_ms,2) for offset_ms in list_fft_offset_ms]} median {fft_offset_ms:.2f} ms frame {frame_duration_ms:.2f} ms\n")
+                            if fft_offset_ms <= frame_duration_ms:
+                                validation[i][j] = True
+                            else:
+                                validation[i][j] = False
+                                tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT, more than one frame ({frame_duration_ms:.2f} ms), both kept\n")
+                        elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
+                            ignore_other_couple = set([f"{k}-{l}" for k in range(len(video_obj.audios[language])) for l in range(len(video_obj.audios[language]))])
+                            ignore_other_couple.remove(f"{i}-{j}")
+                            list_fft_delay = [delay[1] for delay in get_delay_by_second_method(video_obj,video_obj,ignore_audio_couple=ignore_other_couple)[f"{i}-{j}"]]
+                            fft_offset_ms = abs(mean(list_fft_delay))*1000
+                            frame_duration_ms = 1000/float(video_obj.video["FrameRate"])
+                            tools.dev_log(f"find_differences_and_keep_best_audio {language} {i}-{j}: set_delay {set_delay} fidelity {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]} fft delays {[round(delay*1000,2) for delay in list_fft_delay]} mean {fft_offset_ms:.2f} ms variance {variance(list_fft_delay)} frame {frame_duration_ms:.2f} ms\n")
+                            if fft_offset_ms <= frame_duration_ms and variance(list_fft_delay) < max_delay_variance_second_method:
+                                validation[i][j] = True
+                            else:
+                                validation[i][j] = False
+                                tools.log_always(f"Be careful find_differences_and_keep_best_audio on {language}: {i}-{j} are {fft_offset_ms:.2f} ms apart by FFT with a variance of {variance(list_fft_delay)}, more than one frame ({frame_duration_ms:.2f} ms) or not constant, both kept\n")
                         elif len(set_delay) == 1 and abs(list(set_delay)[0]) >= 128:
                             validation[i][j] = False
-                            sys.stderr.write(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                            tools.logs.append(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
-                            sys.stderr.write(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                            tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                            sys.stderr.write(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                        elif len(set_delay) == 2 and abs(list(set_delay)[0]) < 128 and abs(list(set_delay)[1]) < 128:
-                            if tools.dev:
-                                tools.logs.append(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
-                                tools.logs.append(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
-                            validation[i][j] = True
+                            tools.log_always(f"Be carreful find_differences_and_keep_best_audio on {language} find a delay of {set_delay}\n")
+                            tools.log_always(f"find_differences_and_keep_best_audio set_delay {i}-{j}: {set_delay}\n")
+                            tools.log_always(f"find_differences_and_keep_best_audio fidelity {i}-{j}: {[fi[0] for fi in delay_Fidelity_Values[f"{i}-{j}"]]}\n")
                         else:
                             validation[i][j] = False
                     else:
@@ -1797,6 +1809,14 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     integrity.test_video_file_have_no_big_error(out_path_file_name)
     if tools.dev:
         tools.logs.append("\t\tFile produce\n")
+        new_video = video.video(path.dirname(out_path_file_name),path.basename(out_path_file_name))
+        new_video.get_mediadata()
+        tools.logs.append(f"video={json.dumps(new_video.video)}\n")
+        tools.logs.append(f"audios={json.dumps(new_video.audios)}\n")
+        tools.logs.append(f"subtitles={json.dumps(new_video.subtitles)}\n")
+        tools.logs.append(f"commentary={json.dumps(new_video.commentary)}\n")
+        tools.logs.append(f"audiodesc={json.dumps(new_video.audiodesc)}\n")
+        tools.logs.append(f"mediadata={json.dumps(new_video.mediadata)}\n")
      
 def simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video):
     if forced_best_video == None:
