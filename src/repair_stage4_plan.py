@@ -89,7 +89,8 @@ def plan_geometry(transitions, head_end_s, tail_start_s, domain, walk):
 
 
 def zone_picture_offsets_from_hole_anchors(zones, transitions, domain, lag_pairs=None,
-                                           start_delta_ms=0, candidate_path=""):
+                                           start_delta_ms=0, candidate_path="",
+                                           merged_points=None):
     """Each zone's picture offset in ms on the files' own clocks.
 
     A zone's lag is the majority picture lag over the scene changes inside it
@@ -109,7 +110,7 @@ def zone_picture_offsets_from_hole_anchors(zones, transitions, domain, lag_pairs
     import zone_picture_lag
     frame_ms = domain["frame_ms"]
     delta = Fraction(start_delta_ms)
-    anchors = zone_anchor_lags(zones, transitions)
+    anchors = zone_anchor_lags(zones, transitions, merged_points)
     offsets = {}
     for zone in zones:
         index = zone["zone"]
@@ -133,40 +134,24 @@ def zone_picture_offsets_from_hole_anchors(zones, transitions, domain, lag_pairs
     return offsets
 
 
-def zone_anchor_lags(zones, transitions):
-    """Read each zone's picture lag (frames) off the pHash anchors already measured resolving
-    its bounding change point(s), instead of a separate scan.
-
-    `zones[k]` (`plan_geometry`'s own numbering) sits between `transitions[k-1]` (its left
-    bound, when `k > 0`) and `transitions[k]` (its right bound, when `k < len(transitions)`).
-    `audio_transitions` already measured, at any change point its anchors and pHash cross-sweep
-    resolved, the frame shift between master and candidate on each side of it
-    (`before_shift_frames`, `after_shift_frames`) -- the zone right after such a change point
-    carries that change point's own `after_shift_frames`, and the zone right before it carries
-    its `before_shift_frames`. Both sides are read when both bounding change points resolved
-    one, and must agree to within one frame (a disagreement is itself not a measured offset --
-    every change point around a zone is independent, so an inconsistency here means the zone's
-    offset is not actually one picture-anchored constant, which `audio_transitions` would need
-    a species of its own to express; until then this zone keeps the audio offset it already has).
-
-    Returns:
-        {zone_index: {"lag": frames, "cuts": 1 or 2, "bounds": [anchor lags]}} for every zone
-        at least one bounding change point resolved a frame shift for (`bounds` also lists the
-        readings of a zone whose two anchors disagree, which then has no "lag").
-    """
+def zone_anchor_lags(zones, transitions, merged_points=None):
+    """{zone: {"lag", "cuts", "bounds"}} from the shifts of its bounding and merged change points."""
     lags = {}
     for index, zone in enumerate(zones):
         left = transitions[index - 1].get("after_shift_frames") if index > 0 else None
         right = (transitions[index].get("before_shift_frames") if index < len(transitions)
                 else None)
         bounds = [value for value in (left, right) if value is not None]
+        merged = [shift for point in merged_points or []
+                  if zone["master_start_ms"] <= Decimal(str(point["at_s"])) * 1000
+                  < zone["master_end_ms"]
+                  for shift in (point["before_shift_frames"], point["after_shift_frames"])]
         if left is not None and right is not None:
-            if abs(left - right) > 1:
-                lags[zone["zone"]] = {"lag": None, "cuts": 2, "bounds": bounds}
-                continue
-            lags[zone["zone"]] = {"lag": left, "cuts": 2, "bounds": bounds}
-        elif bounds:
-            lags[zone["zone"]] = {"lag": bounds[0], "cuts": 1, "bounds": bounds}
+            lags[zone["zone"]] = {"lag": left if abs(left - right) <= 1 else None, "cuts": 2,
+                                  "bounds": bounds + merged}
+        elif bounds or merged:
+            lags[zone["zone"]] = {"lag": bounds[0] if bounds else None, "cuts": len(bounds),
+                                  "bounds": bounds + merged}
     return lags
 
 

@@ -45,7 +45,8 @@ from repair_stage3_chimeric import (_speed_chain, _video_duration_ms,
                                     coalesce_same_offset_zones, couple_start_delta_ms,
                                     edge_addition_seconds, edge_zones, frame_domain,
                                     hole_on_file_clock, hole_sanity, holes_for_couple,
-                                    log_holes_against_walk, log_partial_plan,
+                                    NOT_A_ZONE_BOUNDARY, log_holes_against_walk,
+                                    log_partial_plan,
                                     max_holes_per_couple,
                                     reference_walk, union_holes)
 from repair_stage4_plan import (ZONE_EDGE_MARGIN_S, _track_timing, apply_picture_offsets,
@@ -869,6 +870,8 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
                                              work_dir, candidate_path, language, union=holes)
     if transitions is None:
         return False, refusal[0], refusal[1], None
+    merged_points = [t for t in transitions if t["decision"] == NOT_A_ZONE_BOUNDARY]
+    transitions = [t for t in transitions if t["decision"] != NOT_A_ZONE_BOUNDARY]
     # Both whole files are decoded for their scene changes once the holes are resolved (never
     # alongside them: both compete for the same decoders): each zone's picture
     # lag is the majority over its own changes (`zone_picture_lag`).
@@ -910,7 +913,7 @@ def chimeric(factor, language, master_obj, candidate_obj, work_dir, primed,
     start_delta_ms = zone_picture_lag.video_start_delta_ms(master_obj, candidate_obj)
     zone_picture_offsets_ms = zone_picture_offsets_from_hole_anchors(
         zones, transitions, domain, lag_pairs=zone_lag_pairs, start_delta_ms=start_delta_ms,
-        candidate_path=candidate_path)
+        candidate_path=candidate_path, merged_points=merged_points)
     picture_edges_ms = {index: (measured["picture_ms"], measured["picture_ms"])
                         for index, measured in zone_picture_offsets_ms.items()}
     try:

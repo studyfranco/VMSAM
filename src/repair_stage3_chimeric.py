@@ -1989,6 +1989,7 @@ def _differing_span_outcome(hole, domain, result, candidate_path, walk=None, mas
                       candidate_start_frame=front + before, candidate_end_frame=back + after)
     outcome = _interior_outcome(hole, domain, result, _orch().HOLE_RESOLVED)
     outcome["rule2_fill_frames"] = back - front
+    outcome["picture_finding_only"] = (front, back) != sweep
     tools.log_always(
         f"repair: differing_span_filled anchors=[{result['anchor_a_frame']}, "
         f"{result['anchor_b_frame']}] shifts=[{before}, {after}] "
@@ -3077,6 +3078,9 @@ def level_lag_reading(domain, master_obj, candidate_obj, first, count, centre):
     return shift, flags[shift], counts, tied
 
 
+NOT_A_ZONE_BOUNDARY = "sub_frame_step_not_a_boundary"
+
+
 def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_dir,
                       candidate_path, language=None, union=None):
     """Place every walk change point on the master timeline: (transitions, None) or (None, (cause, reason)).
@@ -3195,6 +3199,18 @@ def audio_transitions(walk, reference, domain, master_obj, candidate_obj, work_d
                                           f"partial plan is logged; declined, retried at the "
                                           f"next run")
         status = outcome["status"]
+        if outcome.get("picture_finding_only") and abs(jump) < float(domain["frame_ms"]) / 2:
+            transitions.append({"at_s": _frame_s(outcome["master_start_frame"], domain),
+                                "fill_s": 0.0, "a_ms": point["a_ms"], "b_ms": point["b_ms"],
+                                "decision": NOT_A_ZONE_BOUNDARY, "change_point": index,
+                                "before_shift_frames": outcome["before_shift_frames"],
+                                "after_shift_frames": outcome["after_shift_frames"]})
+            tools.log_always(
+                f"repair: sub_frame_step_not_a_boundary change_point={index} "
+                f"a_ms={point['a_ms']} b_ms={point['b_ms']} step_ms={round(jump, 3)} "
+                f"shifts=[{outcome['before_shift_frames']}, {outcome['after_shift_frames']}] "
+                f"decision=zones_merged for {candidate_path}\n")
+            continue
         replaced = addition_replacement(point, union, walk)
         if replaced is not None:
             transitions.append({"at_s": replaced["start_s"], "fill_s": replaced["fill_s"],
