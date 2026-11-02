@@ -11,6 +11,7 @@ import sys
 import traceback
 from os import path
 from random import shuffle
+from collections import Counter
 from statistics import variance,mean,median
 from time import strftime,gmtime,sleep
 from threading import Thread,RLock
@@ -18,6 +19,7 @@ import tools
 import video
 import audio_reencode
 import merge_video_track_jobs
+import frame_align
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -28,6 +30,12 @@ import audio_integrity
 
 max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
+SCENE_SEARCH_SECONDS = Decimal("10")
+MIN_SCENE_CHANGES = 3
+MAX_ADJUSTMENT_FRAMES = 2
+
+class FrameAlignmentError(Exception):
+    pass
 
 errors_merge = []
 errors_merge_lock = RLock()
@@ -695,11 +703,34 @@ class compare_video(Thread):
             getcontext().prec = 10
             framerate_duration_ms = Decimal('1000.0')/Decimal(self.video_obj_with_best_quality.video["FrameRate"])
             number_frame = round(delay/framerate_duration_ms)
-            return Decimal(number_frame*framerate_duration_ms)
             """
             BEGIN: AGENT modification ok
             """
-            return Decimal(number_frame*framerate_duration_ms)
+            if self.video_obj_1.video.get("FrameRate_Mode") == "CFR" and self.video_obj_2.video.get("FrameRate_Mode") == "CFR" and self.video_obj_1.video.get("FrameRate") == self.video_obj_2.video.get("FrameRate"):
+                list_delay = []
+                number_unmatched = 0
+                try:
+                    for cut in self.list_cut_begin_length[1:]:
+                        hours, minutes, seconds = cut[0].split(":")
+                        position = Decimal(hours)*Decimal(3600)+Decimal(minutes)*Decimal(60)+Decimal(seconds)
+                        list_match, list_unmatched = frame_align.match_scene_changes(self.video_obj_1, self.video_obj_2, position, position+delay/Decimal(1000), SCENE_SEARCH_SECONDS)
+                        list_delay.extend(frame_align.get_scene_change_delays(self.video_obj_1, self.video_obj_2, list_match))
+                        number_unmatched += len(list_unmatched)
+                except Exception as e:
+                    tools.log_always(f"[frame_align WARN] picture check of {self.video_obj_2.filePath} on {self.video_obj_1.filePath} failed, delay kept on the audio measure: {e}\n")
+                    list_delay = []
+                votes_per_frame = Counter(round(scene_delay[0]/framerate_duration_ms) for scene_delay in list_delay)
+                tools.log_always(f"[frame_align] {self.video_obj_2.filePath} on {self.video_obj_1.filePath}: audio delay {delay:.3f} ms ({number_frame} frames), {len(list_delay)} scene changes matched, {number_unmatched} without match, votes per frame {dict(sorted(votes_per_frame.items()))}\n")
+                if len(list_delay) >= MIN_SCENE_CHANGES and votes_per_frame.most_common(1)[0][1]*2 > len(list_delay):
+                    picture_frame = votes_per_frame.most_common(1)[0][0]
+                    if abs(picture_frame-number_frame) > MAX_ADJUSTMENT_FRAMES:
+                        self.video_obj_with_best_quality = None
+                        tools.log_always(f"[frame_align ERROR] audio delay {delay:.3f} ms ({number_frame} frames) and picture delay {picture_frame} frames between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart\n")
+                        raise FrameAlignmentError(f"The audio delay {delay:.3f} ms ({number_frame} frames) and the picture delay {picture_frame} frames between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart")
+                    number_frame = picture_frame
+            else:
+                tools.log_always(f"[frame_align] {self.video_obj_2.filePath} on {self.video_obj_1.filePath}: frame rates {self.video_obj_1.video.get('FrameRate')} {self.video_obj_1.video.get('FrameRate_Mode')} and {self.video_obj_2.video.get('FrameRate')} {self.video_obj_2.video.get('FrameRate_Mode')} are not one constant rate, delay kept on the audio measure\n")
+            return framerate_duration_ms*Decimal(number_frame)
             """
             END: AGENT modification
             """
