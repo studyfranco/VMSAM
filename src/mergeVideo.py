@@ -18,6 +18,7 @@ import tools
 import video
 import audio_reencode
 import merge_video_track_jobs
+import font_attachments
 from audioCorrelation import correlate, test_calcul_can_be, second_correlation
 import json
 import gc
@@ -1524,11 +1525,11 @@ def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5
     delay_to_use = video_obj.delay_same_md5_audio + delay_to_put
     number_track = generate_new_file(video_obj,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "-M", "--no-chapters", video_obj.filePath])
     else:
         if delay_to_use != 0:
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_use))}"])
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "-M", video_obj.filePath])
     
     sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_use:.3f}\n')
     
@@ -1540,11 +1541,11 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
     number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
     if number_track:
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "-M", "--no-chapters", video_obj.filePath])
     else:
         if delay_to_put != 0:
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_put))}"])
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "-M", video_obj.filePath])
     
     sys.stdout.write(f'\t{video_obj.filePath} will add with a delay of {delay_to_put:.3f}\n')
     
@@ -1636,6 +1637,13 @@ def generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_a
         ffmpeg_cmd_dict['convert_process'].append(merge_video_track_jobs.finalTransformations(video_obj, tmp_file, audio_track_to_convert_or_keep, sub_track_to_convert_or_keep, delay_to_put, duration_best_video, is_master))
         ffmpeg_cmd_dict['convert_process'][-1].start()
         ffmpeg_cmd_dict['merge_cmd'].extend(["--no-global-tags", "-M", "-B", tmp_file])
+        if sub_track_to_convert_or_keep:
+            font_attachments.list_fonts_needed(video_obj, sub_track_to_convert_or_keep, ffmpeg_cmd_dict['font_tracker'])
+            param_attachments = font_attachments.get_attachments_to_keep(video_obj.filePath, ffmpeg_cmd_dict['font_tracker'])
+            if param_attachments != ["-M"]:
+                ffmpeg_cmd_dict['merge_cmd'].extend(["-A", "-S", "-D", "-B", "-T", "--no-chapters", "--no-global-tags"])
+                ffmpeg_cmd_dict['merge_cmd'].extend(param_attachments)
+                ffmpeg_cmd_dict['merge_cmd'].append(video_obj.filePath)
     
     return number_track
 
@@ -1674,7 +1682,13 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'number_files_add' : 0,
                        'convert_process' : [],
                        'merge_cmd' : [],
-                       'metadata_cmd' : []}
+                       'metadata_cmd' : [],
+                       'font_tracker' : {'font_needed' : set(),
+                                         'font_hash_added' : set(),
+                                         'font_names_added' : set(),
+                                         'font_hash_by_uid' : {},
+                                         'font_names_by_hash' : {},
+                                         'file_all_fonts_needed' : set()}}
     
     generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'],is_master=True)
     
@@ -1724,7 +1738,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name]
     if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
         final_insert.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
-    final_insert.extend(["-A", "-S", "--no-chapters", best_video.filePath])
+    final_insert.extend(["-A", "-S", "-M", "--no-chapters", best_video.filePath])
     
     list_track_order=[]
     global default_audio
