@@ -80,7 +80,12 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
     if not find_match:
         shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
-        insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
+        try:
+            integrity.test_video_file_have_no_big_error(os.path.join(out_folder_final, os.path.basename(file['chemin'])))
+            insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
+        except integrity.IntegrityError as e:
+            stderr.write(f"The file {file['nom']} does not decode cleanly, it will not be merged again: {e}\n")
+            other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":[], "merged_logs": []})
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
         log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {"\n".join(data_rejected['merged_errors'])}\n\nLogs:\n{"\n".join(data_rejected['merged_logs'])}\n\nOther rejected files:")
