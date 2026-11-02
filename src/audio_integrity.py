@@ -74,21 +74,24 @@ def remove_bad_audio(video_obj,list_audio):
                                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
                 samples, clipped, sums, spectra = 0, 0, np.zeros(5), []
                 window = np.hanning(AUDIO_SPECTRUM_FFT)
-                chunk = process.stdout.read(channels * 4 * 262144)
-                while chunk:
-                    pcm = np.frombuffer(chunk[:len(chunk) - len(chunk) % (channels * 4)], dtype=np.float32).reshape(-1, channels).astype(np.float64)
-                    samples += len(pcm)
-                    clipped += int((np.abs(pcm) >= AUDIO_FULL_SCALE).sum())
-                    if channels >= 2:
-                        sums += [pcm[:,0].sum(), pcm[:,1].sum(), (pcm[:,0]*pcm[:,0]).sum(), (pcm[:,1]*pcm[:,1]).sum(), (pcm[:,0]*pcm[:,1]).sum()]
-                    if stream['codec_name'] in tools.AUDIO_LOSSLESS_CODECS:
-                        mid = pcm.mean(axis=1)
-                        for start in range(0, len(mid) - AUDIO_SPECTRUM_FFT, int(rate / 2)):
-                            frame = mid[start:start + AUDIO_SPECTRUM_FFT] * window
-                            if np.sqrt((frame * frame).mean()) > 10 ** (-50 / 20):
-                                spectra.append((10 * np.log10(np.abs(np.fft.rfft(frame)) ** 2 + 1e-20)).astype(np.float32))
+                try:
                     chunk = process.stdout.read(channels * 4 * 262144)
-                process.wait()
+                    while chunk:
+                        pcm = np.frombuffer(chunk[:len(chunk) - len(chunk) % (channels * 4)], dtype=np.float32).reshape(-1, channels).astype(np.float64)
+                        samples += len(pcm)
+                        clipped += int((np.abs(pcm) >= AUDIO_FULL_SCALE).sum())
+                        if channels >= 2:
+                            sums += [pcm[:,0].sum(), pcm[:,1].sum(), (pcm[:,0]*pcm[:,0]).sum(), (pcm[:,1]*pcm[:,1]).sum(), (pcm[:,0]*pcm[:,1]).sum()]
+                        if stream['codec_name'] in tools.AUDIO_LOSSLESS_CODECS:
+                            mid = pcm.mean(axis=1)
+                            for start in range(0, len(mid) - AUDIO_SPECTRUM_FFT, int(rate / 2)):
+                                frame = mid[start:start + AUDIO_SPECTRUM_FFT] * window
+                                if np.sqrt((frame * frame).mean()) > 10 ** (-50 / 20):
+                                    spectra.append((10 * np.log10(np.abs(np.fft.rfft(frame)) ** 2 + 1e-20)).astype(np.float32))
+                        chunk = process.stdout.read(channels * 4 * 262144)
+                finally:
+                    process.stdout.close()
+                    process.wait()
                 length_gap = abs(samples / rate - video_length) / video_length
                 correlation = None
                 if channels >= 2 and samples:
