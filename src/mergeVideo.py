@@ -723,10 +723,14 @@ class compare_video(Thread):
                 tools.log_always(f"[frame_align] {self.video_obj_2.filePath} on {self.video_obj_1.filePath}: audio delay {delay:.3f} ms ({number_frame} frames), {len(list_delay)} scene changes matched, {number_unmatched} without match, votes per frame {dict(sorted(votes_per_frame.items()))}\n")
                 if len(list_delay) >= MIN_SCENE_CHANGES and votes_per_frame.most_common(1)[0][1]*2 > len(list_delay):
                     picture_frame = votes_per_frame.most_common(1)[0][0]
-                    if abs(picture_frame-number_frame) > MAX_ADJUSTMENT_FRAMES:
+                    delay_frame = framerate_duration_ms*Decimal(picture_frame)
+                    if abs(delay_frame-delay) > Decimal(MAX_ADJUSTMENT_FRAMES)*framerate_duration_ms:
                         self.video_obj_with_best_quality = None
-                        tools.log_always(f"[frame_align ERROR] audio delay {delay:.3f} ms ({number_frame} frames) and picture delay {picture_frame} frames between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart\n")
-                        raise FrameAlignmentError(f"The audio delay {delay:.3f} ms ({number_frame} frames) and the picture delay {picture_frame} frames between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart")
+                        for video_obj in [self.video_obj_1, self.video_obj_2]:
+                            if not video_obj.tmpFiles.get("audio"):
+                                video_obj.extract_audio_in_part(self.language,self.audioParam,cutTime=self.list_cut_begin_length)
+                        tools.log_always(f"[frame_align ERROR] audio delay {delay:.3f} ms and picture delay {delay_frame:.3f} ms ({picture_frame} frames) between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart\n")
+                        raise FrameAlignmentError(f"The audio delay {delay:.3f} ms and the picture delay {delay_frame:.3f} ms ({picture_frame} frames) between {self.video_obj_1.filePath} and {self.video_obj_2.filePath} are more than {MAX_ADJUSTMENT_FRAMES} frames apart")
                     number_frame = picture_frame
             else:
                 tools.log_always(f"[frame_align] {self.video_obj_2.filePath} on {self.video_obj_1.filePath}: frame rates {self.video_obj_1.video.get('FrameRate')} {self.video_obj_1.video.get('FrameRate_Mode')} and {self.video_obj_2.video.get('FrameRate')} {self.video_obj_2.video.get('FrameRate_Mode')} are not one constant rate, delay kept on the audio measure\n")

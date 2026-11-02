@@ -1,5 +1,6 @@
 '''Image comparison toolbox: frames decoded small on their exact grid, black borders cropped, pHash and Hamming distance.'''
 
+import json
 from decimal import Decimal
 
 import numpy as np
@@ -13,17 +14,22 @@ HEIGHT = 90
 BLACK_LEVEL = 16
 HASH_SIZE = 8
 
-def get_frame_duration(video_obj):
-    '''Return the duration of one frame of a CFR video in seconds, as a Decimal.'''
+def get_frame_grid(video_obj):
+    '''Return [video_start, frame_duration] in seconds (Decimal): frame k of a CFR video is shown at video_start+k*frame_duration from the start of the file.'''
     if video_obj.video.get("FrameRate_Num") and video_obj.video.get("FrameRate_Den"):
         frame_duration = Decimal(video_obj.video["FrameRate_Den"])/Decimal(video_obj.video["FrameRate_Num"])
     else:
         frame_duration = Decimal(1)/Decimal(video_obj.video["FrameRate"])
-    return frame_duration
+    cmd_probe = [tools.software["ffprobe"], "-v", "error", "-select_streams", video_obj.video['StreamOrder'], "-show_entries", "stream=start_time:format=start_time", "-of", "json", video_obj.filePath]
+    stdout, stderror, exitCode = tools.launch_cmdExt_with_timeout_reload(cmd_probe, 2, 120)
+    probe = json.loads(stdout.decode("utf-8"))
+    video_start = Decimal(probe["streams"][0].get("start_time", "0"))-Decimal(probe["format"].get("start_time", "0"))
+    return [video_start, frame_duration]
 
 def decode_frames(video_obj, first_frame, number_frames):
     '''Return [frames, list_hash]: frames first_frame to first_frame+number_frames-1, cropped to the picture, and the pHash of each.'''
-    seek_time = max(Decimal(0), (Decimal(first_frame)-Decimal("0.5"))*get_frame_duration(video_obj))
+    video_start, frame_duration = get_frame_grid(video_obj)
+    seek_time = max(Decimal(0), video_start+(Decimal(first_frame)-Decimal("0.5"))*frame_duration)
     cmd_decode = [tools.software["ffmpeg"], "-hide_banner", "-nostdin", "-threads", "3", "-ss", f"{seek_time:.6f}", "-i", video_obj.filePath,
                   "-map", f"0:{video_obj.video['StreamOrder']}", "-frames:v", str(number_frames), "-fps_mode", "passthrough",
                   "-vf", f"scale={WIDTH}:{HEIGHT}:flags=area", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]

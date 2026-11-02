@@ -12,13 +12,13 @@ FRAMES_AROUND_CUT = 3
 SAME_PICTURE_MAX_DISTANCE = 10
 
 def find_scene_changes(video_obj, position, search_seconds):
-    frame_duration = frame_compare.get_frame_duration(video_obj)
+    video_start, frame_duration = frame_compare.get_frame_grid(video_obj)
     """ Example:
         position Decimal("600.5"), search_seconds Decimal("10") on a 24000/1001 video
         -> [14158, [37, 140, 251, 402], [<pHash of frame 14158>, <pHash of frame 14159>, ...]]
         list_cut holds indexes in list_hash: frame 14158+37 is the first frame of a new scene
     """
-    first_frame = max(0, round((position-search_seconds)/frame_duration))
+    first_frame = max(0, round((position-search_seconds-video_start)/frame_duration))
     frames, list_hash = frame_compare.decode_frames(video_obj, first_frame, round(2*search_seconds/frame_duration))
     frame_rate = Fraction(video_obj.video["FrameRate"])
     detector = ContentDetector(min_scene_len=1)
@@ -55,6 +55,6 @@ def match_scene_changes(video_obj_a, video_obj_b, position_a, position_b, search
 
 def get_scene_change_delays(video_obj_a, video_obj_b, list_match):
     '''Return [[delay_ms, frame_a, frame_b], ...]: for each matched scene change, its time in B minus its time in A, in milliseconds.'''
-    frame_duration_ms_a = frame_compare.get_frame_duration(video_obj_a)*Decimal(1000)
-    frame_duration_ms_b = frame_compare.get_frame_duration(video_obj_b)*Decimal(1000)
-    return [[Decimal(frame_b)*frame_duration_ms_b-Decimal(frame_a)*frame_duration_ms_a, frame_a, frame_b] for frame_a, frame_b in list_match]
+    video_start_a, frame_duration_a = frame_compare.get_frame_grid(video_obj_a)
+    video_start_b, frame_duration_b = frame_compare.get_frame_grid(video_obj_b)
+    return [[(video_start_b+Decimal(frame_b)*frame_duration_b-video_start_a-Decimal(frame_a)*frame_duration_a)*Decimal(1000), frame_a, frame_b] for frame_a, frame_b in list_match]
