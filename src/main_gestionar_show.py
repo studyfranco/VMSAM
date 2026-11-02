@@ -87,11 +87,19 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
             except Exception as e:
                 other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":mergeVideo.errors_merge, "merged_logs": tools.logs})
 
+    file_name = os.path.basename(file['chemin'])
     if not find_match:
-        shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
-        insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
+        if out_folder_final == not_decodable_folder:
+            new_incompatible = insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, file_name), file['weight'], session)
+            file_name = str(new_incompatible.id) + file_name
+            new_incompatible.file_path = os.path.join(out_folder_final, file_name)
+            session.commit()
+            shutil.move(file['chemin'], new_incompatible.file_path)
+        else:
+            shutil.move(file['chemin'], os.path.join(out_folder_final, file_name))
+            insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, file_name), file['weight'], session)
     
-    with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
+    with open(os.path.join(out_folder_final, file_name)+".log.error","w") as log:
         log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {"\n".join(data_rejected['merged_errors'])}\n\nLogs:\n{"\n".join(data_rejected['merged_logs'])}\n\nOther rejected files:")
         for rejected_file in other_rejected_files:
             log.write(f"\n\n{rejected_file['error']}\n{rejected_file['traceback']}\n\nMerged errors:\n{"\n".join(rejected_file['merged_errors'])}\n\nLogs:\n{"\n".join(rejected_file['merged_logs'])}\n\n")
