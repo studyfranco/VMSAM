@@ -200,6 +200,8 @@ def process_episode(files, folder_id, episode_number, database_url):
                         insert_episode(folder_id, episode_number, new_file_path, file['weight'], session)
                     except integrity.IntegrityError as e:
                         stderr.write(f"The file {file['chemin']} have bigs problems of integrity: {e}\n")
+                        out_folder_final = os.path.join(tools.folder_error, current_folder.destination_path.lstrip(os.sep))
+                        tools.make_dirs(out_folder_final)
                         new_chemin_a = os.path.join(out_folder_final, os.path.basename(file['chemin']))
                         shutil.move(file['chemin'], new_chemin_a)
                         new_incompatible = insert_incompatible_file(folder_id, episode_number, new_chemin_a, file['weight'], session)
