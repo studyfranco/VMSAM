@@ -476,49 +476,16 @@ def generate_cut_with_begin_length(begin_in_second,length_time,length_time_conve
     
     return list_cut_begin_length
 
-target_i = "-23.0"
-target_tp = "-2.0"
-target_lra = "7.0"
 def generate_normalised_file(cmd_extract,codec_param,nameOutFile,name_out_file_tmp):
     tools.launch_cmdExt_with_timeout_reload(cmd_extract,3,max(600*4,1800))
     if not path.exists(name_out_file_tmp):
         raise FileNotFoundError(f"Extraction failed for {name_out_file_tmp}")
     
-    stdout, stderror, exitCode = tools.launch_cmdExt([tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
-                    name_out_file_tmp, "-af", f"loudnorm=i={target_i}:lra={target_lra}:tp={target_tp}:print_format=json",
-                    "-f", "null", "-"])
-    try:
-        stderr_lines = stderror.decode("utf-8").splitlines()
-        # Find the JSON block in the output
-        json_str = ""
-        in_json = False
-        for line in stderr_lines:
-            if line.strip() == "{":
-                in_json = True
-            if in_json:
-                json_str += line
-            if line.strip() == "}":
-                break
-        
-        stats = json.loads(json_str)
-        measured_i = float(stats['input_i'])
-    except (ValueError, KeyError, json.JSONDecodeError):
-        # Fallback if analysis fails (use 0dB gain)
-        print(f"Warning: Could not analyze loudness for {name_out_file_tmp}. Skipping normalization.")
-        measured_i = target_i
-    
-    gain_db = float(target_i) - float(measured_i)
-
-    if abs(gain_db) < 0.5:
-        filter_str = "anull" # Pass-through
-    else:
-        filter_str = f"volume={gain_db:.2f}dB"
-
     cmd_normalisation = [tools.software["ffmpeg"], "-y", "-analyzeduration", "1000M", "-probesize", "1000M", "-threads", "3", "-nostdin", "-i",
                     name_out_file_tmp,
                     "-map", "0"]
     cmd_normalisation.extend(codec_param)
-    cmd_normalisation.extend(["-af", f"highpass=f=60,lowpass=f=16000,{filter_str}",nameOutFile])
+    cmd_normalisation.extend(["-af", "highpass=f=60,lowpass=f=16000",nameOutFile])
     tools.launch_cmdExt(cmd_normalisation)
 
     if path.exists(name_out_file_tmp):
