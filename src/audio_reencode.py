@@ -7,7 +7,7 @@ import video
 
 DEFAULT_FLAC_ARGS = ["-compression_level", "12", "-exact_rice_parameters", "1"]
 NEGATIVE_DELAY_FILTER = "aresample=async=1:first_pts=0"
-LOSSLESS_CODECS = {"truehd", "mlp", "flac", "alac"}
+
 
 audio_encode_parameters = (tools.configuration or {}).get("audio_reencode") or {}
 
@@ -21,7 +21,7 @@ def is_lossless(audio):
     if (audio.get("extra") or {}).get(tools.ORIGINAL_ENCODE_TAG):
         return False
     codec = video.get_codec(audio)
-    if codec in LOSSLESS_CODECS or codec.startswith("pcm_"):
+    if codec in tools.AUDIO_LOSSLESS_CODECS or codec.startswith("pcm_"):
         return True
     if codec == "dts" and "MA" in str((audio.get("ffprobe") or {}).get("profile") or audio.get("Format_Profile") or "").upper():
         return True

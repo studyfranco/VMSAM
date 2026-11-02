@@ -24,6 +24,7 @@ import gc
 import hashlib
 from decimal import *
 import integrity
+import audio_integrity
 
 max_delay_variance_second_method = 0.004
 cut_file_to_get_delay_second_method = 2.5 # With the second method we need a better result. After we check the two file is compatible, we need a serious right result adjustment
@@ -1032,6 +1033,7 @@ def find_differences_and_keep_best_audio(video_obj,language,audioRules):
                     list_audio_metadata_compatible = [fileid_audio[main]]
                     for id_audio in list_compatible:
                         list_audio_metadata_compatible.append(fileid_audio[id_audio])
+                    audio_integrity.remove_bad_audio(video_obj,list_audio_metadata_compatible)
                     keep_best_audio(list_audio_metadata_compatible,audioRules)
                     if tools.dev:
                         tools.logs.append(f"find_differences_and_keep_best_audio list_compatible: {list_compatible}\n")
@@ -1731,6 +1733,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if tools.dev:
         tools.logs.append(f"\t\tKeep the best audio\n")
     try:
+        audio_integrity.remove_bad_audio(out_video_metadata,out_video_metadata.audios[common_language_use_for_generate_delay])
         keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
         with errors_merge_lock:
