@@ -1520,11 +1520,21 @@ def generate_merge_command_insert_ID_audio_track_to_remove_and_new_und_language(
     
     return number_track_audio
 
+def generate_merge_command_chapters(video_obj,delay_to_put,ffmpeg_cmd_dict):
+    have_chapters = len(video_obj.mkvmergedata['chapters']) > 0
+    if have_chapters and (not ffmpeg_cmd_dict['chapters_added']) and delay_to_put == 0:
+        ffmpeg_cmd_dict['chapters_added'] = True
+    else:
+        if have_chapters and (not ffmpeg_cmd_dict['chapters_added']):
+            tools.log_always(f"[chapters WARN] The chapters of {video_obj.filePath} are not kept: its delay of {delay_to_put:.3f} ms moves them off the master timeline\n")
+        ffmpeg_cmd_dict['metadata_cmd'].append("--no-chapters")
+
 def generate_merge_command_common_md5(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video):
     delay_to_use = video_obj.delay_same_md5_audio + delay_to_put
     number_track = generate_new_file(video_obj,delay_to_use,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
+    generate_merge_command_chapters(video_obj,delay_to_use,ffmpeg_cmd_dict)
     if number_track:
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     else:
         if delay_to_use != 0:
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_use))}"])
@@ -1539,8 +1549,9 @@ def generate_merge_command_other_part(video_path_file,dict_list_video_win,dict_f
     video_obj = dict_file_path_obj[video_path_file]
     delay_to_put = video_obj.delays[common_language_use_for_generate_delay] + delay_winner
     number_track = generate_new_file(video_obj,delay_to_put,ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,duration_best_video)
+    generate_merge_command_chapters(video_obj,delay_to_put,ffmpeg_cmd_dict)
     if number_track:
-        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", "--no-chapters", video_obj.filePath])
+        ffmpeg_cmd_dict['metadata_cmd'].extend(["-A", "-S", "-D", video_obj.filePath])
     else:
         if delay_to_put != 0:
             ffmpeg_cmd_dict['metadata_cmd'].extend(["--sync", f"-1:{int(round(delay_to_put))}"])
@@ -1674,7 +1685,8 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
                        'number_files_add' : 0,
                        'convert_process' : [],
                        'merge_cmd' : [],
-                       'metadata_cmd' : []}
+                       'metadata_cmd' : [],
+                       'chapters_added' : len(best_video.mkvmergedata['chapters']) > 0}
     
     generate_new_file(best_video,Decimal('0'),ffmpeg_cmd_dict,md5_audio_already_added,md5_sub_already_added,best_video.video['Duration'],is_master=True)
     
@@ -1724,7 +1736,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     final_insert = [tools.software["mkvmerge"], "-o", out_path_file_name]
     if tools.special_params["change_all_und"] and 'Language' not in best_video.video:
         final_insert.extend(["--language", best_video.video["StreamOrder"]+":"+tools.default_language_for_undetermine])
-    final_insert.extend(["-A", "-S", "--no-chapters", best_video.filePath])
+    final_insert.extend(["-A", "-S", best_video.filePath])
     
     list_track_order=[]
     global default_audio
