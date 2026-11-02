@@ -22,13 +22,22 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
     out_folder = os.path.join(tools.tmpFolder, "final_file")
 
     out_folder_final = os.path.join(tools.folder_error, folder_path.lstrip(os.sep))
-    tools.make_dirs(out_folder_final)
+    not_decodable_folder = os.path.join(out_folder_final, "not_decodable")
 
     find_match = False
     other_rejected_files = []
+    try:
+        integrity.test_video_file_have_no_big_error(file['chemin'])
+        incompatible_files = [incompatible_file for incompatible_file in get_incompatible_files_data(folder_id, episode_number, session) if os.path.dirname(incompatible_file.file_path) != not_decodable_folder]
+    except integrity.IntegrityError as e:
+        stderr.write(f"The file {file['nom']} does not decode cleanly, it is kept aside in {not_decodable_folder} and will not be merged again: {e}\n")
+        other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":[], "merged_logs": []})
+        incompatible_files = []
+        out_folder_final = not_decodable_folder
+    tools.make_dirs(out_folder_final)
     if not tools.dev:
         mergeVideo.show_not_compatible_error = False
-    for incompatible_file in get_incompatible_files_data(folder_id, episode_number, session):
+    for incompatible_file in incompatible_files:
         if not find_match:
             tools.remove_dir(tools.tmpFolder)
             tools.make_dirs(out_folder)
@@ -80,12 +89,7 @@ def process_rejected_files(file, folder_id, folder_path, episode_number, session
 
     if not find_match:
         shutil.move(file['chemin'], os.path.join(out_folder_final, os.path.basename(file['chemin'])))
-        try:
-            integrity.test_video_file_have_no_big_error(os.path.join(out_folder_final, os.path.basename(file['chemin'])))
-            insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
-        except integrity.IntegrityError as e:
-            stderr.write(f"The file {file['nom']} does not decode cleanly, it will not be merged again: {e}\n")
-            other_rejected_files.append({"error":e, "traceback":traceback.format_exc(), "merged_errors":[], "merged_logs": []})
+        insert_incompatible_file(folder_id, episode_number, os.path.join(out_folder_final, os.path.basename(file['chemin'])), file['weight'], session)
     
     with open(os.path.join(out_folder_final, os.path.basename(file['chemin']))+".log.error","w") as log:
         log.write(f"Error processing file {file['nom']}: {data_rejected['error']}\n{data_rejected['traceback']}\n\nMerged errors: {"\n".join(data_rejected['merged_errors'])}\n\nLogs:\n{"\n".join(data_rejected['merged_logs'])}\n\nOther rejected files:")
