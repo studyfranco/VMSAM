@@ -37,6 +37,9 @@ MAX_ADJUSTMENT_FRAMES = 2
 class FrameAlignmentError(Exception):
     pass
 
+class NoCommonLanguageError(Exception):
+    pass
+
 errors_merge = []
 errors_merge_lock = RLock()
 max_stream = 80
@@ -1918,7 +1921,7 @@ def sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_b
 
         most_frequent_language = max(audio_counts, key=audio_counts.get)
         if audio_counts[most_frequent_language] == 1:
-            raise Exception(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}")
+            raise NoCommonLanguageError(f"No common language between {[videoObj.filePath for videoObj in videosObj]}\nThe language we have {audio_counts}")
         else:
             commonLanguages.add(most_frequent_language)
             i = 0
@@ -2022,8 +2025,8 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
     forced_best_video = None
     md5_threads = []
     for videoObj in videosObj:
-        process_mediadata_thread = Thread(target=videoObj.get_mediadata)
-        process_mediadata_thread.start()
+        videoObj.need_one_audio_track = False
+        videoObj.get_mediadata()
         dict_file_path_obj[videoObj.filePath] = videoObj
         if tools.special_params["forced_best_video"] != "":
             if tools.special_params["forced_best_video_contain"]:
@@ -2031,7 +2034,7 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
                     forced_best_video = videoObj.filePath
             elif videoObj.fileName  == tools.special_params["forced_best_video"] or videoObj.filePath == tools.special_params["forced_best_video"]:
                 forced_best_video = videoObj.filePath
-        process_mediadata_thread.join()
+    for videoObj in videosObj:
         process_md5_thread = Thread(target=videoObj.calculate_md5_streams)
         process_md5_thread.start()
         md5_threads.append(process_md5_thread)
@@ -2043,6 +2046,35 @@ def merge_videos(files,out_folder,merge_sync,inFolder=None):
         process_md5_thread.join()
     
     if merge_sync:
-        sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
+        try:
+            sync_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)
+        except NoCommonLanguageError as e:
+            if forced_best_video == None or min(len(videoObj.audios) for videoObj in videosObj) == 0:
+                tools.log_always("[picture sync] no forced master or a file without audio, the picture is not used to sync the files\n")
+                raise e
+            master_obj = dict_file_path_obj[forced_best_video]
+            language = tools.special_params["original_language"]
+            if language not in master_obj.audios:
+                language = list(master_obj.audios.keys())[0]
+            master_obj.delays[language] = Decimal(0)
+            begin_in_second,length_time = video.generate_begin_and_length_by_segment(video.get_shortest_video_durations(videosObj))
+            list_position = [Decimal(str(begin_in_second))+Decimal(length_time*i) for i in range(video.number_cut)]
+            dict_with_video_quality_logic = {forced_best_video:{}}
+            for videoObj in videosObj:
+                for language_obj,audios in videoObj.commentary.items():
+                    for audio in audios:
+                        audio["keep"] = (not tools.special_params["remove_commentary"])
+                for language_obj,audios in videoObj.audiodesc.items():
+                    for audio in audios:
+                        audio["keep"] = (not tools.special_params["remove_descriptive"])
+                if videoObj.filePath != forced_best_video:
+                    delay = frame_align.get_constant_picture_delay(master_obj, videoObj, list_position)
+                    if delay == None:
+                        tools.log_always(f"[picture sync] no constant picture delay between {videoObj.filePath} and {forced_best_video}, declined\n")
+                        raise e
+                    videoObj.delays[language] = -delay
+                    dict_with_video_quality_logic[forced_best_video][videoObj.filePath] = True
+                    tools.log_always(f"[picture sync] {videoObj.filePath} synced on {forced_best_video} by the picture only, delay {videoObj.delays[language]:.3f} ms\n")
+            generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_obj,out_folder,language,audioRules)
     else:
         simple_merge_video(videosObj,audioRules,out_folder,dict_file_path_obj,forced_best_video)

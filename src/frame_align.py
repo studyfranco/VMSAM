@@ -1,5 +1,6 @@
 '''Frame alignment of two videos: the scene changes of each file, matched picture to picture by pHash.'''
 
+from collections import Counter
 from decimal import Decimal
 from fractions import Fraction
 
@@ -7,6 +8,7 @@ import numpy as np
 from scenedetect import ContentDetector, FrameTimecode
 
 import frame_compare
+import tools
 
 FRAMES_AROUND_CUT = 3
 SAME_PICTURE_MAX_DISTANCE = 10
@@ -58,3 +60,25 @@ def get_scene_change_delays(video_obj_a, video_obj_b, list_match):
     video_start_a, frame_duration_a = frame_compare.get_frame_grid(video_obj_a)
     video_start_b, frame_duration_b = frame_compare.get_frame_grid(video_obj_b)
     return [[(video_start_b+Decimal(frame_b)*frame_duration_b-video_start_a-Decimal(frame_a)*frame_duration_a)*Decimal(1000), frame_a, frame_b] for frame_a, frame_b in list_match]
+
+PICTURE_SEARCH_SECONDS = Decimal("30")
+MAX_PICTURE_SPREAD_FRAMES = 1
+def get_constant_picture_delay(video_obj_a, video_obj_b, list_position):
+    '''Return the delay of B on A in milliseconds, a whole number of frames of A, when the scene changes matched at every position (seconds) agree within one frame, None otherwise.'''
+    """ Example:
+        list_position [Decimal("45"), Decimal("168"), ...] on two 24000/1001 videos, B showing the same pictures 4.5 s later than A
+        -> frames of delay per position [[108, 108, 108], [108, 109, 108], ...] -> 108 frames of A, about Decimal("4504.5")
+        a position without any matched scene change, or votes more than MAX_PICTURE_SPREAD_FRAMES apart -> None
+    """
+    video_start_a, frame_duration_a = frame_compare.get_frame_grid(video_obj_a)
+    frame_duration_ms = frame_duration_a*Decimal(1000)
+    list_votes = []
+    for position in list_position:
+        list_match, list_unmatched = match_scene_changes(video_obj_a, video_obj_b, position, position, PICTURE_SEARCH_SECONDS)
+        list_votes.append([round(scene_delay[0]/frame_duration_ms) for scene_delay in get_scene_change_delays(video_obj_a, video_obj_b, list_match)])
+    votes_per_frame = Counter(vote for list_vote in list_votes for vote in list_vote)
+    tools.log_always(f"[picture sync] {video_obj_b.filePath} on {video_obj_a.filePath}: frames of delay per position {list_votes}\n")
+    delay = None
+    if len(votes_per_frame) and all(list_votes) and max(votes_per_frame)-min(votes_per_frame) <= MAX_PICTURE_SPREAD_FRAMES:
+        delay = frame_duration_ms*Decimal(votes_per_frame.most_common(1)[0][0])
+    return delay
