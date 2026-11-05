@@ -115,11 +115,13 @@ def remove_bad_audio(video_obj,list_audio):
                     bad[id(audio)] = f"{stream['codec_name']} with a lossy spectrum: cutoff {round(cutoff)} Hz, wall {round(wall,1)} dB"
         if any(audio['keep'] and id(audio) not in bad for audio in list_audio):
             for audio in list_audio:
-                if id(audio) in bad and audio['keep']:
-                    audio['keep'] = False
-                    tools.log_always(f"[keep WARN] track {audio['StreamOrder']} of {video_obj.filePath} not kept: {bad[id(audio)]}\n")
-                    tools.log_always(audio["metrics"])
-                else:
-                    tools.dev_log(audio["metrics"])
+                if audio['keep']:
+                    if id(audio) in bad:
+                        audio['keep'] = False
+                        tools.log_always(f"[keep WARN] track {audio['StreamOrder']} of {video_obj.filePath} not kept: {bad[id(audio)]}\n")
+                        if "metrics" in audio:
+                            tools.log_always(audio["metrics"])
+                    else:
+                        tools.dev_log(audio["metrics"])
     except Exception as e:
         tools.dev_log(f"[remove_bad_audio ERROR] We get this error during detection stream quality metrics{e}")
