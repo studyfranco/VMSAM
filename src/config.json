@@ -1,7 +1,7 @@
 {
     "language_to_keep": ["zh", "en", "ru", "de", "fr"],
     "language_to_try_to_keep": ["pl", "pt", "es", "it", "ja"],
-    "language_to_completely_remove": ["ar", "tr", "id", "fil", "ms", "he", "hi"],
+    "language_to_completely_remove": ["ar", "tr", "id", "fil", "ms", "he", "hi", "te", "ta"],
     "audio_reencode": {
         "encode_lossless_in_flac": true,
         "flac_args": {"-compression_level": "12", "-exact_rice_parameters": "1"},
