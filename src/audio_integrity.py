@@ -104,7 +104,7 @@ def remove_bad_audio(video_obj,list_audio):
                     last = audible[-1] if len(audible) else 0
                     cutoff = float(frequencies[last])
                     wall = float(level[max(0, last - int(500 / bin_hz))] - level[min(len(level) - 1, last + int(500 / bin_hz))])
-                tools.log_always(f"[keep INFO] track {audio['StreamOrder']} of {video_obj.filePath}: length_gap={round(length_gap,5)} correlation={None if correlation is None else round(correlation,3)} clipped={clipped} cutoff_hz={cutoff} wall_db={None if wall is None else round(wall,1)}\n")
+                audio["metrics"] = f"[keep INFO] track {audio['StreamOrder']} of {video_obj.filePath}: length_gap={round(length_gap,5)} correlation={None if correlation is None else round(correlation,3)} clipped={clipped} cutoff_hz={cutoff} wall_db={None if wall is None else round(wall,1)}\n"
                 if length_gap > AUDIO_LENGTH_GAP:
                     bad[id(audio)] = f"length {round(samples / rate,3)} s against video {video_length} s"
                 elif correlation is not None and correlation < AUDIO_STEREO_CORRELATION_MIN:
@@ -118,5 +118,8 @@ def remove_bad_audio(video_obj,list_audio):
                 if id(audio) in bad and audio['keep']:
                     audio['keep'] = False
                     tools.log_always(f"[keep WARN] track {audio['StreamOrder']} of {video_obj.filePath} not kept: {bad[id(audio)]}\n")
+                    tools.log_always(audio["metrics"])
+                else:
+                    tools.dev_log(audio["metrics"])
     except Exception as e:
         tools.dev_log(f"[remove_bad_audio ERROR] We get this error during detection stream quality metrics{e}")
