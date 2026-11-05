@@ -1712,7 +1712,7 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if tools.dev:
         tools.logs.append(f"\t\tPrepare the final command\n")
 
-    out_path_file_name = path.join(out_folder,f"{best_video.fileBaseName}_merged")
+    out_path_file_name = path.join(out_folder,f"{path.splitext(best_video.fileName)[0]}_merged")
     if path.exists(out_path_file_name+'.mkv'):
         i = 1
         while path.exists(out_path_file_name+f'_({str(i)}).mkv'):
