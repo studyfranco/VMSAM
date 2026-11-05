@@ -1733,11 +1733,12 @@ def generate_launch_merge_command(dict_with_video_quality_logic,dict_file_path_o
     if tools.dev:
         tools.logs.append(f"\t\tKeep the best audio\n")
     try:
-        audio_integrity.remove_bad_audio(out_video_metadata,out_video_metadata.audios[common_language_use_for_generate_delay])
-        keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
+        if len(out_video_metadata.audios[common_language_use_for_generate_delay]) > 1:
+            audio_integrity.remove_bad_audio(out_video_metadata,out_video_metadata.audios[common_language_use_for_generate_delay])
+            keep_best_audio(out_video_metadata.audios[common_language_use_for_generate_delay],audioRules)
     except Exception as e:
         with errors_merge_lock:
-            errors_merge.append(f"Error keep_best_audio {e} we have {out_video_metadata.audios}")
+            errors_merge.append(f"Error keep_best_audio common_language_use_for_generate_delay {e} we have {out_video_metadata.audios[common_language_use_for_generate_delay]}")
             raise e
     
     for audio_language in out_video_metadata.audios.keys():
